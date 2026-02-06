@@ -1,42 +1,72 @@
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+  /* Brand / Kimi spec v01 */
+  --primary-main: #2e7d32; /* Forest Green */
+  --primary-light: #4caf50;
+  --primary-dark: #1b5e20;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+  --secondary-main: #ff6b35; /* Warm Orange */
+  --secondary-light: #ff8a65;
+  --secondary-dark: #e64a19;
 
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
-}
+  --neutral-0: #ffffff;
+  --neutral-50: #f8f9fa;
+  --neutral-100: #f1f3f4;
+  --neutral-200: #e9ecef;
+  --neutral-600: #6c757d;
+  --neutral-900: #212529;
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica,
+    Arial;
+  --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+
+  /* 8px grid */
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  --space-5: 40px;
+  --space-6: 48px;
+  --space-7: 56px;
+  --space-8: 64px;
+
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+
+  --shadow-sm: 0 2px 8px rgba(33, 37, 41, 0.06);
+  --shadow-md: 0 8px 24px rgba(33, 37, 41, 0.10);
+
+  --container: 1120px;
+  --border: 1px solid var(--neutral-200);
 }
 
 * {
   box-sizing: border-box;
+}
+
+html,
+body {
   padding: 0;
   margin: 0;
+  background: var(--neutral-0);
+  color: var(--neutral-900);
+  font-family: var(--font-sans);
 }
 
 a {
   color: inherit;
-  text-decoration: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+.kicker {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--neutral-600);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-serif);
+  letter-spacing: -0.02em;
 }
