@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BMQ Website Concept - Premium F&B Style</title>
+    <style>
+        /* CSS Variables - Design System */
+        :root {
+            /* Color Palette */
+            --primary-main: #2E7D32;
+            --primary-light: #4CAF50;
+            --primary-dark: #1B5E20;
+            --secondary-main: #FF6B35;
+            --secondary-light: #FF8A65;
+            --secondary-dark: #E55100;
+            --neutral-100: #FFFFFF;
+            --neutral-200: #F8F9FA;
+            --neutral-300: #E9ECEF;
+            --neutral-400: #DEE2E6;
+            --neutral-500: #6C757D;
+            --neutral-600: #495057;
+            --neutral-700: #343A40;
+            --neutral-800: #212529;
+            
+            /* Typography */
+            --font-primary: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-secondary: 'Playfair Display', Georgia, serif;
+            --text-xs: 0.75rem;
+            --text-sm: 0.875rem;
+            --text-base: 1rem;
+            --text-lg: 1.125rem;
+            --text-xl: 1.25rem;
+            --text-2xl: 1.5rem;
+            --text-3xl: 1.875rem;
+            --text-4xl: 2.25rem;
+            --text-5xl: 3rem;
+            
+            /* Spacing */
+            --space-1: 0.5rem;
+            --space-2: 1rem;
+            --space-3: 1.5rem;
+            --space-4: 2rem;
+            --space-5: 2.5rem;
+            --space-6: 3rem;
+            --space-8: 4rem;
+            --space-10: 5rem;
+            --space-12: 6rem;
+            
+            /* Border Radius */
+            --radius-sm: 0.25rem;
+            --radius-md: 0.5rem;
+            --radius-lg: 1rem;
+            --radius-xl: 1.5rem;
+            --radius-full: 9999px;
+            
+            /* Shadows */
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: var(--font-primary);
+            line-height: 1.6;
+            color: var(--neutral-700);
+            background: var(--neutral-100);
+        }
+        
+        /* Header */
+        .header {
+            background: var(--neutral-100);
+            padding: var(--space-3) 0;
+            box-shadow: var(--shadow-sm);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        
+        .nav {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 var(--space-4);
+        }
+        
+        .logo {
+            font-size: var(--text-2xl);
+            font-weight: 700;
+            color: var(--primary-main);
+            text-decoration: none;
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: var(--space-6);
+            list-style: none;
+        }
+        
+        .nav-links a {
+            text-decoration: none;
+            color: var(--neutral-600);
+            font-weight: 500;
+            transition: color 0.2s ease;
+        }
+        
+        .nav-links a:hover {
+            color: var(--primary-main);
+        }
+        
+        .mobile-menu {
+            display: none;
+            background: none;
+            border: none;
+            font-size: var(--text-xl);
+            cursor: pointer;
+        }
+        
+        /* Button Styles */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: var(--space-3) var(--space-4);
+            border-radius: var(--radius-lg);
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            border: none;
+            cursor: pointer;
+            font-size: var(--text-base);
+        }
+        
+        .btn-primary {
+            background: var(--primary-main);
+            color: var(--neutral-100);
+            box-shadow: var(--shadow-md);
+        }
+        
+        .btn-primary:hover {
+            background: var(--primary-dark);
+            box-shadow: var(--shadow-lg);
+            transform: translateY(-1px);
+        }
+        
+        .btn-secondary {
+            background: var(--secondary-main);
+            color: var(--neutral-100);
+            box-shadow: var(--shadow-md);
+        }
+        
+        .btn-secondary:hover {
+            background: var(--secondary-dark);
+            box-shadow: var(--shadow-lg);
+            transform: translateY(-1px);
+        }
+        
+        .btn-outline {
+            background: transparent;
+            border: 2px solid var(--primary-main);
+            color: var(--primary-main);
+        }
+        
+        .btn-outline:hover {
+            background: var(--primary-main);
+            color: var(--neutral-100);
+        }
+        
+        .btn-large {
+            padding: var(--space-4) var(--space-6);
+            font-size: var(--text-lg);
+        }
+        
+        /* Hero Section */
+        .hero {
+            background: linear-gradient(135deg, var(--neutral-200) 0%, var(--primary-light) 100%);
+            padding: var(--space-12) var(--space-4);
+            min-height: 70vh;
+            display: flex;
+            align-items: center;
+        }
+        
+        .hero-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--space-12);
+            align-items: center;
+        }
+        
+        .hero-text h1 {
+            font-family: var(--font-secondary);
+            font-size: var(--text-5xl);
+            color: var(--neutral-700);
+            margin-bottom: var(--space-4);
+            line-height: 1.2;
+        }
+        
+        .hero-text p {
+            font-size: var(--text-xl);
+            color: var(--neutral-600);
+            margin-bottom: var(--space-6);
+        }
+        
+        .hero-buttons {
+            display: flex;
+            gap: var(--space-3);
+            margin-bottom: var(--space-8);
+        }
+        
+        .trust-badges {
+            display: flex;
+            gap: var(--space-4);
+            flex-wrap: wrap;
+        }
+        
+        .trust-badge {
+            display: flex;
+            align-items: center;
+            gap: var(--space-1);
+            color: var(--neutral-500);
+            font-size: var(--text-sm);
+        }
+        
+        .hero-image {
+            background: var(--neutral-100);
+            border-radius: var(--radius-xl);
+            padding: var(--space-6);
+            text-align: center;
+            box-shadow: var(--shadow-xl);
+        }
+        
+        .hero-image .placeholder {
+            width: 100%;
+            height: 300px;
+            background: linear-gradient(45deg, var(--primary-light), var(--secondary-light));
+            border-radius: var(--radius-lg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: var(--text-xl);
+            font-weight: 600;
+        }
+        
+        /* Section Headers */
+        .section-header {
+            text-align: center;
+            margin-bottom: var(--space-8);
+        }
+        
+        .section-title {
+            font-family: var(--font-secondary);
+            font-size: var(--text-4xl);
+            color: var(--neutral-700);
+            margin-bottom: var(--space-3);
+        }
+        
+        .section-subtitle {
+            font-size: var(--text-lg);
+            color: var(--neutral-500);
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        /* Products Section */
+        .products {
+            padding: var(--space-12) var(--space-4);
+            background: var(--neutral-100);
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: var(--space-6);
+        }
+        
+        .product-card {
+            background: var(--neutral-100);
+            border-radius: var(--radius-xl);
+            padding: var(--space-5);
+            box-shadow: var(--shadow-md);
+            transition: all 0.3s ease;
+        }
+        
+        .product-card:hover {
+            transform: translateY(-8px);
+            box-shadow: var(--shadow-xl);
+        }
+        
+        .product-image {
+            width: 100%;
+            height: 200px;
+            background: linear-gradient(45deg, var(--neutral-200), var(--primary-light));
+            border-radius: var(--radius-lg);
+            margin-bottom: var(--space-4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+        }
+        
+        .product-title {
+            font-size: var(--text-xl);
+            font-weight: 600;
+            color: var(--neutral-700);
+            margin-bottom: var(--space-2);
+        }
+        
+        .product-description {
+            color: var(--neutral-500);
+            margin-bottom: var(--space-4);
+        }
+        
+        .product-price {
+            color: var(--secondary-main);
+            font-size: var(--text-2xl);
+            font-weight: 700;
+            margin-bottom: var(--space-4);
+        }
+        
+        /* Store Locator */
+        .store-locator {
+            padding: var(--space-12) var(--space-4);
+            background: var(--neutral-200);
+        }
+        
+        .locator-content {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        
+        .map-preview {
+            background: linear-gradient(135deg, var(--primary-light), var(--secondary-light));
+            border-radius: var(--radius-xl);
+            padding: var(--space-10);
+            margin: var(--space-6) 0;
+            color: var(--neutral-100);
+            font-size: var(--text-xl);
+            text-align: center;
+        }
+        
+        .zip-input {
+            display: flex;
+            gap: var(--space-3);
+            justify-content: center;
+            margin: var(--space-6) 0;
+        }
+        
+        .input-field {
+            padding: var(--space-3) var(--space-4);
+            border: 2px solid var(--neutral-300);
+            border-radius: var(--radius-lg);
+            font-size: var(--text-base);
+            min-width: 200px;
+        }
+        
+        .input-field:focus {
+            outline: none;
+            border-color: var(--primary-main);
+        }
+        
+        /* Component Showcase */
+        .component-showcase {
+            padding: var(--space-12) var(--space-4);
+            background: var(--neutral-200);
+        }
+        
+        .showcase-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: var(--space-6);
+            margin-top: var(--space-8);
+        }
+        
+        .showcase-item {
+            background: var(--neutral-100);
+            padding: var(--space-5);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .showcase-title {
+            font-size: var(--text-lg);
+            font-weight: 600;
+            color: var(--neutral-700);
+            margin-bottom: var(--space-3);
+        }
+        
+        .button-showcase {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-3);
+        }
+        
+        /* Footer */
+        .footer {
+            background: var(--neutral-700);
+            color: var(--neutral-100);
+            padding: var(--space-10) var(--space-4) var(--space-6);
+        }
+        
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: var(--space-8);
+            margin-bottom: var(--space-8);
+        }
+        
+        .footer-section h3 {
+            color: var(--primary-light);
+            margin-bottom: var(--space-4);
+            font-size: var(--text-lg);
+        }
+        
+        .footer-section a {
+            color: #ccc;
+            text-decoration: none;
+            display: block;
+            margin-bottom: var(--space-2);
+            transition: color 0.2s ease;
+        }
+        
+        .footer-section a:hover {
+            color: var(--primary-light);
+        }
+        
+        .footer-bottom {
+            text-align: center;
+            padding-top: var(--space-6);
+            border-top: 1px solid #555;
+            color: #999;
+        }
+        
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+            
+            .mobile-menu {
+                display: block;
+            }
+            
+            .hero-content {
+                grid-template-columns: 1fr;
+                text-align: center;
+                gap: var(--space-8);
+            }
+            
+            .hero-text h1 {
+                font-size: var(--text-4xl);
+            }
+            
+            .hero-buttons {
+                justify-content: center;
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .product-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .showcase-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .zip-input {
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+        
+        /* Mobile Menu Overlay */
+        .mobile-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--neutral-100);
+            z-index: 1000;
+            display: none;
+            padding: var(--space-6);
+        }
+        
+        .mobile-overlay.active {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .mobile-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--space-8);
+        }
+        
+        .mobile-nav-links {
+            list-style: none;
+            flex: 1;
+        }
+        
+        .mobile-nav-links li {
+            margin-bottom: var(--space-4);
+        }
+        
+        .mobile-nav-links a {
+            font-size: var(--text-xl);
+            color: var(--neutral-700);
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .mobile-cta {
+            margin-top: auto;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <nav class="nav">
+            <a href="#" class="logo">BMQ</a>
+            <ul class="nav-links">
+                <li><a href="#hero">Trang chủ</a></li>
+                <li><a href="#products">Sản phẩm</a></li>
+                <li><a href="#stores">Cửa hàng</a></li>
+                <li><a href="#about">Về chúng tôi</a></li>
+                <li><a href="#blog">Blog</a></li>
+            </ul>
+            <a href="#" class="btn btn-primary">Đặt hàng ngay</a>
+            <button class="mobile-menu" onclick="toggleMobileMenu()">☰</button>
+        </nav>
+    </header>
+
+    <!-- Mobile Menu Overlay -->
+    <div class="mobile-overlay" id="mobileOverlay">
+        <div class="mobile-header">
+            <div class="logo">BMQ</div>
+            <button class="mobile-menu" onclick="toggleMobileMenu()">✕</button>
+        </div>
+        <ul class="mobile-nav-links">
+            <li><a href="#hero" onclick="toggleMobileMenu()">Trang chủ</a></li>
+            <li><a href="#products" onclick="toggleMobileMenu()">Sản phẩm</a></li>
+            <li><a href="#stores" onclick="toggleMobileMenu()">Cửa hàng</a></li>
+            <li><a href="#about" onclick="toggleMobileMenu()">Về chúng tôi</a></li>
+            <li><a href="#blog" onclick="toggleMobileMenu()">Blog</a></li>
+        </ul>
+        <div class="mobile-cta">
+            <a href="#" class="btn btn-primary btn-large">Đặt hàng ngay</a>
+        </div>
+    </div>
+
+    <!-- Hero Section -->
+    <section class="hero" id="hero">
+        <div class="hero-content">
+            <div class="hero-text">
+                <h1>Bánh Mì Que Sạch & Tươi Mới</h1>
+                <p>Trải nghiệm hương vị Pháp giữa lòng Việt Nam với nguyên liệu hữu cơ, tươi mới mỗi ngày</p>
+                <div class="hero-buttons">
+                    <a href="#" class="btn btn-primary btn-large">Đặt hàng ngay</a>
+                    <a href="#stores" class="btn btn-secondary btn-large">Tìm cửa hàng</a>
+                </div>
+                <div class="trust-badges">
+                    <div class="trust-badge">🌱 100% Nguyên liệu hữu cơ</div>
+                    <div class="trust-badge">🏆 4.8/5 đánh giá</div>
+                    <div class="trust-badge">⚡ Giao hàng 30 phút</div>
+                </div>
+            </div>
+            <div class="hero-image">
+                <div class="placeholder">
+                    🥖 Hero Product Image
+                    <br>Premium Food Photography
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Products Section -->
+    <section class="products" id="products">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">Sản phẩm nổi bật</h2>
+                <p class="section-subtitle">Khám phá thực đơn phong phú với bánh mì que tươi mới và nguyên liệu chất lượng cao</p>
+            </div>
+            <div class="product-grid">
+                <div class="product-card">
+                    <div class="product-image">
+                        🥖 Bánh Mì Que Đặc Biệt
+                    </div>
+                    <h3 class="product-title">Bánh Mì Que Đặc Biệt</h3>
+                    <p class="product-description">Bánh mì que nóng giòn với pate thơm và nguyên liệu tươi mới</p>
+                    <div class="product-price">25.000đ</div>
+                    <a href="#" class="btn btn-primary">Thêm vào giỏ</a>
+                </div>
+                <div class="product-card">
+                    <div class="product-image">
+                        🍱 Combo Gia Đình
+                    </div>
+                    <h3 class="product-title">Combo Gia Đình</h3>
+                    <p class="product-description">4 bánh mì que + 4 đồ uống - Perfect cho bữa sáng gia đình</p>
+                    <div class="product-price">89.000đ</div>
+                    <a href="#" class="btn btn-primary">Thêm vào giỏ</a>
+                </div>
+                <div class="product-card">
+                    <div class="product-image">
+                        🥗 Bánh Mì Que Chay
+                    </div>
+                    <h3 class="product-title">Bánh Mì Que Chay</h3>
+                    <p class="product-description">Option chay healthy với rau củ tươi và sốt đặc biệt</p>
+                    <div class="product-price">28.000đ</div>
+                    <a href="#" class="btn btn-primary">Thêm vào giỏ</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Store Locator -->
+    <section class="store-locator" id="stores">
+        <div class="container">
+            <div class="locator-content">
+                <h2 class="section-title">Tìm cửa hàng gần bạn</h2>
+                <p class="section-subtitle">Hơn 50 cửa hàng trên toàn quốc</p>
+                <div class="map-preview">
+                    🗺️ Interactive Map Preview
+                    <br>Store locations will appear here
+                    <br>Green pins for BMQ stores
+                </div>
+                <div class="zip-input">
+                    <input type="text" class="input-field" placeholder="Nhập mã ZIP hoặc địa chỉ">
+                    <a href="#" class="btn btn-primary">Tìm kiếm</a>
+                </div>
+                <a href="#" class="btn btn-outline">Xem tất cả cửa hàng</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Component Showcase -->
+    <section class="component-showcase">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">Component Showcase</h2>
+                <p class="section-subtitle">All button styles, cards, and interactive elements</p>
+            </div>
+            <div class="showcase-grid">
+                <div class="showcase-item">
+                    <h3 class="showcase-title">Button Styles</h3>
+                    <div class="button-showcase">
+                        <a href="#" class="btn btn-primary">Primary Button</a>
+                        <a href="#" class="btn btn-secondary">Secondary Button</a>
+                        <a href="#" class="btn btn-outline">Outline Button</a>
+                        <a href="#" class="btn btn-primary btn-large">Large Primary</a>
+                    </div>
+                </div>
+                <div class="showcase-item">
+                    <h3 class="showcase-title">Card Variations</h3>
+                    <div class="product-card">
+                        <h4>Standard Card</h4>
+                        <p>With hover effects and shadow</p>
+                    </div>
+                </div>
+                <div class="showcase-item">
+                    <h3 class="showcase-title">Input Fields</h3>
+                    <input type="text" class="input-field" placeholder="Text input example">
+                    <br><br>
+                    <input type="email" class="input-field" placeholder="Email input example">
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-section">
+                <h3>BMQ</h3>
+                <p>Bánh mì que tươi mới mỗi ngày với nguyên liệu hữu cơ chất lượng cao</p>
+                <div style="margin-top: var(--space-4);">
+                    <a href="#" style="margin-right: var(--space-2);">📧 Email</a>
+                    <a href="#" style="margin-right: var(--space-2);">📞 Hotline</a>
+                    <a href="#">💬 WhatsApp</a>
+                </div>
+            </div>
+            <div class="footer-section">
+                <h3>Sản phẩm</h3>
+                <a href="#">Bánh mì que</a>
+                <a href="#">Combo ưu đãi</a>
+                <a href="#">Đồ uống</a>
+                <a href="#">Tráng miệng</a>
+            </div>
+            <div class="footer-section">
+                <h3>Cửa hàng</h3>
+                <a href="#">Tìm cửa hàng</a>
+                <a href="#">Giờ mở cửa</a>
+                <a href="#">Dịch vụ giao hàng</a>
+                <a href="#">Catering</a>
+            </div>
+            <div class="footer-section">
+                <h3>Hỗ trợ</h3>
+                <a href="#">Liên hệ</a>
+                <a href="#">FAQ</a>
+                <a href="#">Chính sách</a>
+                <a href="#">Tuyển dụng</a>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>&copy; 2024 BMQ. All rights reserved. | Made with ❤️ in Vietnam</p>
+        </div>
+    </footer>
+
+    <script>
+        // Mobile menu toggle
+        function toggleMobileMenu() {
+            const overlay = document.getElementById('mobileOverlay');
+            overlay.classList.toggle('active');
+        }
+        
+        // Smooth scrolling for navigation links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+        
+        // Add scroll effect to header
+        window.addEventListener('scroll', function() {
+            const header = document.querySelector('.header');
+            if (window.scrollY > 100) {
+                header.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
+            } else {
+                header.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
+            }
+        });
+    </script>
+</body>
+</html>
