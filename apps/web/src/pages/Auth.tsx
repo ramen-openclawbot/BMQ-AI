@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, Loader2 } from "lucide-react";
-import { lovable, handleOAuthCallback } from "@/integrations/lovable/index";
+import { handleOAuthCallback } from "@/integrations/lovable/index";
+import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import bmqLogo from "@/assets/bmq-logo.png";
 
@@ -72,10 +73,13 @@ export default function Auth() {
     setLoading(true);
     setError(null);
     
-    const { error } = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: `${window.location.origin}/auth`,
-      extraParams: {
-        hd: "bmq.vn", // Chỉ cho phép domain @bmq.vn
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth`,
+        queryParams: {
+          hd: "bmq.vn",
+        },
       },
     });
     
