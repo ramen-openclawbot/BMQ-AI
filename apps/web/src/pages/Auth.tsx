@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, Loader2 } from "lucide-react";
-import { handleOAuthCallback } from "@/integrations/lovable/index";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import bmqLogo from "@/assets/bmq-logo.png";
@@ -40,25 +39,55 @@ export default function Auth() {
   // Handle OAuth callback on page load
   useEffect(() => {
     async function processCallback() {
-      const result = await handleOAuthCallback();
-      
-      if (result.handled) {
-        if (result.error) {
-          console.error("OAuth callback error:", result.error);
-          setError("Đăng nhập thất bại. Vui lòng thử lại.");
-          setProcessingCallback(false);
-        } else {
-          // Success - wait a moment for AuthContext to sync before navigating
-          // This prevents race conditions where navigate happens before auth state updates
+      try {
+        const url = new URL(window.location.href);
+        const code = url.searchParams.get("code");
+
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) {
+            console.error("OAuth code exchange error:", error);
+            setError("Đăng nhập thất bại. Vui lòng thử lại.");
+            setProcessingCallback(false);
+            return;
+          }
+          window.history.replaceState(null, "", "/");
           await new Promise(resolve => setTimeout(resolve, 200));
           navigate("/", { replace: true });
           return;
         }
-      } else {
+
+        const hash = window.location.hash;
+        if (hash && hash.includes("access_token")) {
+          const params = new URLSearchParams(hash.substring(1));
+          const access_token = params.get("access_token");
+          const refresh_token = params.get("refresh_token");
+          if (!access_token || !refresh_token) {
+            setError("Đăng nhập thất bại. Vui lòng thử lại.");
+            setProcessingCallback(false);
+            return;
+          }
+          const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+          if (error) {
+            console.error("OAuth session error:", error);
+            setError("Đăng nhập thất bại. Vui lòng thử lại.");
+            setProcessingCallback(false);
+            return;
+          }
+          window.history.replaceState(null, "", "/");
+          await new Promise(resolve => setTimeout(resolve, 200));
+          navigate("/", { replace: true });
+          return;
+        }
+
+        setProcessingCallback(false);
+      } catch (e) {
+        console.error("OAuth callback error:", e);
+        setError("Đăng nhập thất bại. Vui lòng thử lại.");
         setProcessingCallback(false);
       }
     }
-    
+
     processCallback();
   }, [navigate]);
 
