@@ -1,0 +1,161 @@
+{% extends 'base.html' %}
+
+{% block title %}Ingredients - BMQ AI SKU{% endblock %}
+
+{% block content %}
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1 class="h2 mb-0">
+                <i class="bi bi-bag-check"></i> Ingredients
+            </h1>
+            <small class="text-muted">Manage bakery ingredients and suppliers</small>
+        </div>
+        <div class="col-md-4 text-end">
+            <a href="{% url 'inventory:ingredient_create' %}" class="btn btn-primary">
+                <i class="bi bi-plus-circle"></i> Add Ingredient
+            </a>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-funnel"></i> Filters
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form method="get" class="row g-3">
+                        <div class="col-md-6">
+                            <label for="search" class="form-label">Search</label>
+                            <input type="text" class="form-control" id="search" name="search" placeholder="Ingredient name..." value="{{ request.GET.search }}">
+                        </div>
+
+                        <div class="col-md-3">
+                            <label for="category" class="form-label">Category</label>
+                            <select class="form-select" id="category" name="category">
+                                <option value="">All Categories</option>
+                                <option value="flour" {% if request.GET.category == 'flour' %}selected{% endif %}>Flour</option>
+                                <option value="sugar" {% if request.GET.category == 'sugar' %}selected{% endif %}>Sugar</option>
+                                <option value="dairy" {% if request.GET.category == 'dairy' %}selected{% endif %}>Dairy</option>
+                                <option value="eggs" {% if request.GET.category == 'eggs' %}selected{% endif %}>Eggs</option>
+                                <option value="oils_fats" {% if request.GET.category == 'oils_fats' %}selected{% endif %}>Oils & Fats</option>
+                                <option value="chocolate" {% if request.GET.category == 'chocolate' %}selected{% endif %}>Chocolate</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-3">
+                            <label for="status" class="form-label">Status</label>
+                            <select class="form-select" id="status" name="status">
+                                <option value="">All Status</option>
+                                <option value="low" {% if request.GET.status == 'low' %}selected{% endif %}>Low Stock</option>
+                                <option value="ok" {% if request.GET.status == 'ok' %}selected{% endif %}>Adequate Stock</option>
+                            </select>
+                        </div>
+
+                        <div class="col-12">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-search"></i> Apply Filters
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ingredients Table -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-table"></i> Ingredients List
+                    </h5>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Category</th>
+                                <th>Unit</th>
+                                <th>Cost per Unit</th>
+                                <th>Current Stock</th>
+                                <th>Min Stock</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>All-Purpose Flour</strong></td>
+                                <td><span class="badge bg-light text-dark">Flour</span></td>
+                                <td>kg</td>
+                                <td>35,000 ₫</td>
+                                <td>150 kg</td>
+                                <td>50 kg</td>
+                                <td><span class="badge bg-success">OK</span></td>
+                                <td>
+                                    <a href="#" class="btn btn-sm btn-outline-primary">Edit</a>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Granulated Sugar</strong></td>
+                                <td><span class="badge bg-light text-dark">Sugar</span></td>
+                                <td>kg</td>
+                                <td>28,000 ₫</td>
+                                <td>12 kg</td>
+                                <td>50 kg</td>
+                                <td><span class="badge bg-danger">LOW</span></td>
+                                <td>
+                                    <a href="#" class="btn btn-sm btn-outline-primary">Edit</a>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Unsalted Butter</strong></td>
+                                <td><span class="badge bg-light text-dark">Dairy</span></td>
+                                <td>kg</td>
+                                <td>180,000 ₫</td>
+                                <td>25 kg</td>
+                                <td>20 kg</td>
+                                <td><span class="badge bg-success">OK</span></td>
+                                <td>
+                                    <a href="#" class="btn btn-sm btn-outline-primary">Edit</a>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Eggs (Grade A)</strong></td>
+                                <td><span class="badge bg-light text-dark">Eggs</span></td>
+                                <td>dozen</td>
+                                <td>45,000 ₫</td>
+                                <td>5 dozen</td>
+                                <td>10 dozen</td>
+                                <td><span class="badge bg-warning text-dark">WARNING</span></td>
+                                <td>
+                                    <a href="#" class="btn btn-sm btn-outline-primary">Edit</a>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>Vanilla Extract</strong></td>
+                                <td><span class="badge bg-light text-dark">Flavoring</span></td>
+                                <td>l</td>
+                                <td>250,000 ₫</td>
+                                <td>8 l</td>
+                                <td>5 l</td>
+                                <td><span class="badge bg-success">OK</span></td>
+                                <td>
+                                    <a href="#" class="btn btn-sm btn-outline-primary">Edit</a>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {% include 'components/pagination.html' %}
+        </div>
+    </div>
+{% endblock %}

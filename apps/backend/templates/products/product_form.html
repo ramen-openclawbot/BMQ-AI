@@ -1,0 +1,165 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if form.instance.pk %}Edit{% else %}Add{% endif %} Product - BMQ AI SKU{% endblock %}
+
+{% block content %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="h2 mb-0">
+                <i class="bi bi-box"></i> {% if form.instance.pk %}Edit Product{% else %}Add New Product{% endif %}
+            </h1>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Product Details</h5>
+                </div>
+                <div class="card-body">
+                    {% if form.non_field_errors %}
+                        <div class="alert alert-danger">
+                            {% for error in form.non_field_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+
+                    <form method="post" novalidate>
+                        {% csrf_token %}
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="id_sku_code" class="form-label">SKU Code</label>
+                                    <input type="text" class="form-control {% if form.sku_code.errors %}is-invalid{% endif %}" id="id_sku_code" name="sku_code" value="{{ form.sku_code.value|default:'' }}" required>
+                                    {% if form.sku_code.errors %}
+                                        <div class="invalid-feedback d-block">{{ form.sku_code.errors|first }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="id_name" class="form-label">Product Name</label>
+                                    <input type="text" class="form-control {% if form.name.errors %}is-invalid{% endif %}" id="id_name" name="name" value="{{ form.name.value|default:'' }}" required>
+                                    {% if form.name.errors %}
+                                        <div class="invalid-feedback d-block">{{ form.name.errors|first }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="id_description" class="form-label">Description</label>
+                            <textarea class="form-control" id="id_description" name="description" rows="3">{{ form.description.value|default:'' }}</textarea>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="id_category" class="form-label">Category</label>
+                                    <select class="form-select {% if form.category.errors %}is-invalid{% endif %}" id="id_category" name="category" required>
+                                        <option value="">Select category</option>
+                                        {% for value, label in form.category.field.choices %}
+                                            <option value="{{ value }}" {% if form.category.value == value %}selected{% endif %}>{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    {% if form.category.errors %}
+                                        <div class="invalid-feedback d-block">{{ form.category.errors|first }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="id_unit" class="form-label">Unit of Sale</label>
+                                    <select class="form-select {% if form.unit.errors %}is-invalid{% endif %}" id="id_unit" name="unit" required>
+                                        <option value="">Select unit</option>
+                                        {% for value, label in form.unit.field.choices %}
+                                            <option value="{{ value }}" {% if form.unit.value == value %}selected{% endif %}>{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    {% if form.unit.errors %}
+                                        <div class="invalid-feedback d-block">{{ form.unit.errors|first }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="id_selling_price" class="form-label">Selling Price (₫)</label>
+                                    <input type="number" step="0.01" class="form-control {% if form.selling_price.errors %}is-invalid{% endif %}" id="id_selling_price" name="selling_price" value="{{ form.selling_price.value|default:'' }}" required>
+                                    {% if form.selling_price.errors %}
+                                        <div class="invalid-feedback d-block">{{ form.selling_price.errors|first }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="id_yield_percentage" class="form-label">Yield Percentage (%)</label>
+                                    <input type="number" step="0.01" class="form-control {% if form.yield_percentage.errors %}is-invalid{% endif %}" id="id_yield_percentage" name="yield_percentage" value="{{ form.yield_percentage.value|default:'100' }}" required>
+                                    {% if form.yield_percentage.errors %}
+                                        <div class="invalid-feedback d-block">{{ form.yield_percentage.errors|first }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="id_status" class="form-label">Status</label>
+                            <select class="form-select" id="id_status" name="status" required>
+                                {% for value, label in form.status.field.choices %}
+                                    <option value="{{ value }}" {% if form.status.value == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-check-circle"></i> {% if form.instance.pk %}Update{% else %}Add{% endif %} Product
+                            </button>
+                            <a href="{% url 'products:product_list' %}" class="btn btn-outline-secondary">
+                                <i class="bi bi-arrow-left"></i> Back
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-info-circle"></i> Help
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <h6>SKU Code</h6>
+                    <p class="small">Unique identifier for the product (e.g., BREAD-001).</p>
+
+                    <hr>
+
+                    <h6>Yield Percentage</h6>
+                    <p class="small">Percentage of ingredient that results in finished product (accounts for waste).</p>
+
+                    <hr>
+
+                    <h6>Categories</h6>
+                    <ul class="small">
+                        <li>Bread</li>
+                        <li>Pastry</li>
+                        <li>Cake</li>
+                        <li>Cookie</li>
+                        <li>Pie</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

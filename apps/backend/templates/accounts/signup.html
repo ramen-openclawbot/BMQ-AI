@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+
+{% block title %}Sign Up - BMQ AI SKU{% endblock %}
+
+{% block content %}
+    <div class="row justify-content-center">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h2 class="card-title mb-0">Create Account</h2>
+                </div>
+                <div class="card-body">
+                    {% if messages %}
+                        {% for message in messages %}
+                            <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+
+                    <form method="post" novalidate>
+                        {% csrf_token %}
+
+                        <div class="mb-3">
+                            <label for="id_username" class="form-label">Username</label>
+                            <input type="text" class="form-control {% if form.username.errors %}is-invalid{% endif %}" id="id_username" name="username" placeholder="Choose a username" required>
+                            {% if form.username.errors %}
+                                <div class="invalid-feedback d-block">{{ form.username.errors|first }}</div>
+                            {% endif %}
+                            {% if form.username.help_text %}
+                                <small class="form-text text-muted">{{ form.username.help_text|safe }}</small>
+                            {% endif %}
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="id_email" class="form-label">Email Address</label>
+                            <input type="email" class="form-control {% if form.email.errors %}is-invalid{% endif %}" id="id_email" name="email" placeholder="your@email.com" required>
+                            {% if form.email.errors %}
+                                <div class="invalid-feedback d-block">{{ form.email.errors|first }}</div>
+                            {% endif %}
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="id_first_name" class="form-label">First Name</label>
+                            <input type="text" class="form-control" id="id_first_name" name="first_name" placeholder="Your first name">
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="id_last_name" class="form-label">Last Name</label>
+                            <input type="text" class="form-control" id="id_last_name" name="last_name" placeholder="Your last name">
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="id_password1" class="form-label">Password</label>
+                            <input type="password" class="form-control {% if form.password1.errors %}is-invalid{% endif %}" id="id_password1" name="password1" placeholder="Enter a strong password" required>
+                            {% if form.password1.errors %}
+                                <div class="invalid-feedback d-block">
+                                    {% for error in form.password1.errors %}
+                                        <div>{{ error }}</div>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                            {% if form.password1.help_text %}
+                                <small class="form-text text-muted d-block">{{ form.password1.help_text|safe }}</small>
+                            {% endif %}
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="id_password2" class="form-label">Confirm Password</label>
+                            <input type="password" class="form-control {% if form.password2.errors %}is-invalid{% endif %}" id="id_password2" name="password2" placeholder="Re-enter your password" required>
+                            {% if form.password2.errors %}
+                                <div class="invalid-feedback d-block">{{ form.password2.errors|first }}</div>
+                            {% endif %}
+                        </div>
+
+                        {% if form.non_field_errors %}
+                            <div class="alert alert-danger">
+                                {% for error in form.non_field_errors %}
+                                    <div>{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="bi bi-person-plus"></i> Create Account
+                        </button>
+                    </form>
+
+                    <div class="text-center mt-3">
+                        <p>Already have an account? <a href="{% url 'accounts:login' %}">Login here</a></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

@@ -1,0 +1,28 @@
+project_id = "rynasigppxpuhyibxizr"
+
+[functions.scan-invoice]
+verify_jwt = false
+
+[functions.scan-purchase-order]
+verify_jwt = false
+
+[functions.test-drive-connection]
+verify_jwt = false
+
+[functions.google-drive-auth]
+verify_jwt = false
+
+[functions.scan-drive-folder]
+verify_jwt = false
+
+[functions.sync-drive-index]
+verify_jwt = false
+
+[functions.create-invoice-from-pr]
+verify_jwt = false
+
+[functions.match-delivery-note]
+verify_jwt = false
+
+[functions.create-warehouse-receipt]
+verify_jwt = false

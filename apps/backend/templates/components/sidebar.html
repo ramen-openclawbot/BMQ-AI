@@ -1,0 +1,51 @@
+<aside class="sidebar">
+    <nav class="nav flex-column">
+        <!-- Main Menu -->
+        <div class="nav-section-title">Dashboard</div>
+        <a class="nav-link {% if request.resolver_match.app_name == 'dashboard' and request.resolver_match.url_name == 'home' %}active{% endif %}" href="{% url 'dashboard:home' %}">
+            <i class="bi bi-speedometer2"></i> Dashboard
+        </a>
+
+        <div class="nav-section-title">Management</div>
+
+        <!-- Products -->
+        <a class="nav-link {% if request.resolver_match.app_name == 'products' %}active{% endif %}" href="{% url 'products:product_list' %}">
+            <i class="bi bi-box"></i> Products
+        </a>
+
+        <!-- Ingredients & Suppliers -->
+        <a class="nav-link {% if request.resolver_match.app_name == 'inventory' and request.resolver_match.url_name == 'ingredient_list' %}active{% endif %}" href="{% url 'inventory:ingredient_list' %}">
+            <i class="bi bi-bag-check"></i> Ingredients
+        </a>
+        <a class="nav-link" href="{% url 'inventory:supplier_list' %}">
+            <i class="bi bi-truck"></i> Suppliers
+        </a>
+
+        <!-- Purchase Orders -->
+        <a class="nav-link {% if request.resolver_match.app_name == 'inventory' and request.resolver_match.url_name == 'purchaseorder_list' %}active{% endif %}" href="{% url 'inventory:purchaseorder_list' %}">
+            <i class="bi bi-receipt"></i> Purchase Orders
+        </a>
+
+        <!-- Labor & Employees -->
+        <a class="nav-link {% if request.resolver_match.app_name == 'labor' %}active{% endif %}" href="{% url 'labor:employee_list' %}">
+            <i class="bi bi-people"></i> Employees
+        </a>
+
+        <!-- Overhead -->
+        <a class="nav-link {% if request.resolver_match.app_name == 'overhead' and request.resolver_match.url_name == 'cost_list' %}active{% endif %}" href="{% url 'overhead:cost_list' %}">
+            <i class="bi bi-graph-up"></i> Overhead
+        </a>
+
+        <!-- Costs & Analysis -->
+        <div class="nav-section-title">Analysis</div>
+        <a class="nav-link {% if request.resolver_match.url_name == 'sku_costs' %}active{% endif %}" href="{% url 'dashboard:sku_costs' %}">
+            <i class="bi bi-calculator"></i> SKU Costs
+        </a>
+        <a class="nav-link {% if request.resolver_match.url_name == 'trends' %}active{% endif %}" href="{% url 'dashboard:trends' %}">
+            <i class="bi bi-graph-up-arrow"></i> Cost Trends
+        </a>
+        <a class="nav-link {% if request.resolver_match.url_name == 'overhead' %}active{% endif %}" href="{% url 'dashboard:overhead' %}">
+            <i class="bi bi-pie-chart"></i> Overhead Breakdown
+        </a>
+    </nav>
+</aside>

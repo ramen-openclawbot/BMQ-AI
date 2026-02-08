@@ -1,0 +1,323 @@
+{% extends 'base.html' %}
+
+{% block title %}Cost Details - BMQ AI SKU{% endblock %}
+
+{% block content %}
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1 class="h2 mb-0">
+                <i class="bi bi-calculator"></i> SKU Cost Detail
+            </h1>
+            <small class="text-muted">French Baguette (BREAD-001) • v1</small>
+        </div>
+        <div class="col-md-4 text-end">
+            <button class="btn btn-success me-2">
+                <i class="bi bi-check-circle"></i> Approve
+            </button>
+            <a href="javascript:history.back()" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back
+            </a>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Cost Details -->
+        <div class="col-lg-8 mb-4">
+            <!-- Summary Cards -->
+            <div class="row mb-4">
+                <div class="col-md-6 col-lg-3 mb-3">
+                    <div class="stat-card">
+                        <div class="stat-card-icon">
+                            <i class="bi bi-calculator"></i>
+                        </div>
+                        <div class="stat-label">Total Cost</div>
+                        <div class="stat-value">29,000 ₫</div>
+                    </div>
+                </div>
+
+                <div class="col-md-6 col-lg-3 mb-3">
+                    <div class="stat-card">
+                        <div class="stat-card-icon">
+                            <i class="bi bi-tag"></i>
+                        </div>
+                        <div class="stat-label">Selling Price</div>
+                        <div class="stat-value">35,000 ₫</div>
+                    </div>
+                </div>
+
+                <div class="col-md-6 col-lg-3 mb-3">
+                    <div class="stat-card">
+                        <div class="stat-card-icon">
+                            <i class="bi bi-percent"></i>
+                        </div>
+                        <div class="stat-label">Margin</div>
+                        <div class="stat-value margin-healthy">17.1%</div>
+                    </div>
+                </div>
+
+                <div class="col-md-6 col-lg-3 mb-3">
+                    <div class="stat-card">
+                        <div class="stat-card-icon">
+                            <i class="bi bi-circle-fill"></i>
+                        </div>
+                        <div class="stat-label">Status</div>
+                        <div class="stat-value" style="font-size: 0.9rem;"><span class="badge bg-warning text-dark">Calculated</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cost Breakdown -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Cost Components</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-lg-6">
+                            <canvas id="costChart" height="250"></canvas>
+                        </div>
+
+                        <div class="col-lg-6">
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between mb-2">
+                                    <span>
+                                        <i class="bi bi-circle-fill" style="color: #8B4513;"></i>
+                                        <strong>Ingredient Cost</strong>
+                                    </span>
+                                    <strong>14,640 ₫</strong>
+                                </div>
+                                <div class="progress" style="height: 20px;">
+                                    <div class="progress-bar" style="width: 50%; background-color: #8B4513;"></div>
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between mb-2">
+                                    <span>
+                                        <i class="bi bi-circle-fill" style="color: #D2691E;"></i>
+                                        <strong>Labor Cost</strong>
+                                    </span>
+                                    <strong>8,000 ₫</strong>
+                                </div>
+                                <div class="progress" style="height: 20px;">
+                                    <div class="progress-bar" style="width: 28%; background-color: #D2691E;"></div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div class="d-flex justify-content-between mb-2">
+                                    <span>
+                                        <i class="bi bi-circle-fill" style="color: #FF8C00;"></i>
+                                        <strong>Overhead Cost</strong>
+                                    </span>
+                                    <strong>6,360 ₫</strong>
+                                </div>
+                                <div class="progress" style="height: 20px;">
+                                    <div class="progress-bar" style="width: 22%; background-color: #FF8C00;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Ingredient Costs -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Ingredient Costs</h5>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Ingredient</th>
+                                <th>Qty</th>
+                                <th>Unit</th>
+                                <th>Cost per Unit</th>
+                                <th>Total Cost</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>All-Purpose Flour</strong></td>
+                                <td>0.408</td>
+                                <td>kg</td>
+                                <td>35,000 ₫</td>
+                                <td><strong>14,280 ₫</strong></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Salt</strong></td>
+                                <td>0.01</td>
+                                <td>kg</td>
+                                <td>8,000 ₫</td>
+                                <td><strong>80 ₫</strong></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Water</strong></td>
+                                <td>0.28</td>
+                                <td>l</td>
+                                <td>1,000 ₫</td>
+                                <td><strong>280 ₫</strong></td>
+                            </tr>
+                            <tr class="table-success">
+                                <td colspan="4" class="text-end"><strong>Total Ingredient Cost:</strong></td>
+                                <td><strong>14,640 ₫</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Labor & Overhead -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Labor & Overhead Allocation</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>Labor Cost</h6>
+                            <p class="small">
+                                <strong>Method:</strong> Time-based<br>
+                                <strong>Employee:</strong> Nguyen Van A (Baker)<br>
+                                <strong>Time Allocated:</strong> 15 minutes<br>
+                                <strong>Fully Loaded Rate:</strong> 32,000 ₫/hour<br>
+                                <strong>Cost:</strong> <strong>8,000 ₫</strong>
+                            </p>
+                        </div>
+
+                        <div class="col-md-6">
+                            <h6>Overhead Cost</h6>
+                            <p class="small">
+                                <strong>Method:</strong> Revenue-based<br>
+                                <strong>Total Overhead:</strong> 225,000,000 ₫/month<br>
+                                <strong>Total Revenue:</strong> 1,050,000,000 ₫/month<br>
+                                <strong>Allocation %:</strong> 0.6%<br>
+                                <strong>Cost:</strong> <strong>6,360 ₫</strong>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </card>
+
+            <!-- Inflation Tracking -->
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Compared to Previous Version (v0)</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Component</th>
+                                    <th>Previous Cost</th>
+                                    <th>Current Cost</th>
+                                    <th>Change</th>
+                                    <th>Change %</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><strong>Ingredient</strong></td>
+                                    <td>14,500 ₫</td>
+                                    <td>14,640 ₫</td>
+                                    <td><span class="text-danger">+140 ₫</span></td>
+                                    <td><span class="text-danger">+0.97%</span></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Labor</strong></td>
+                                    <td>7,500 ₫</td>
+                                    <td>8,000 ₫</td>
+                                    <td><span class="text-danger">+500 ₫</span></td>
+                                    <td><span class="text-danger">+6.67%</span></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Overhead</strong></td>
+                                    <td>6,000 ₫</td>
+                                    <td>6,360 ₫</td>
+                                    <td><span class="text-danger">+360 ₫</span></td>
+                                    <td><span class="text-danger">+6.0%</span></td>
+                                </tr>
+                                <tr class="table-warning">
+                                    <td><strong>Total Cost</strong></td>
+                                    <td><strong>28,000 ₫</strong></td>
+                                    <td><strong>29,000 ₫</strong></td>
+                                    <td><strong><span class="text-danger">+1,000 ₫</span></strong></td>
+                                    <td><strong><span class="text-danger">+3.57%</span></strong></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Side Panel -->
+        <div class="col-lg-4">
+            <!-- Actions -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Actions</h5>
+                </div>
+                <div class="card-body d-grid gap-2">
+                    <button class="btn btn-success">
+                        <i class="bi bi-check-circle"></i> Approve This Cost
+                    </button>
+                    <button class="btn btn-outline-primary">
+                        <i class="bi bi-pencil"></i> Adjust Components
+                    </button>
+                    <button class="btn btn-outline-secondary">
+                        <i class="bi bi-eye"></i> View Calculation Details
+                    </button>
+                </div>
+            </div>
+
+            <!-- Calculation Details -->
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Calculation Details</h5>
+                </div>
+                <div class="card-body small">
+                    <p>
+                        <strong>Calculated:</strong> 2026-02-05 10:30 AM<br>
+                        <strong>Calculated By:</strong> system<br>
+                        <strong>Effective Date:</strong> 2026-02-01<br>
+                        <strong>BOM Version:</strong> v1<br>
+                        <strong>Status:</strong> <span class="badge bg-warning">Calculated</span>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ctx = document.getElementById('costChart');
+        if (ctx) {
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Ingredients', 'Labor', 'Overhead'],
+                    datasets: [{
+                        data: [50, 28, 22],
+                        backgroundColor: [
+                            '#8B4513',
+                            '#D2691E',
+                            '#FF8C00'
+                        ],
+                        borderColor: '#fff',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+{% endblock %}

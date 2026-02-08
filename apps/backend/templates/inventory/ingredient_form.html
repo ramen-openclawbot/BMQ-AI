@@ -1,0 +1,144 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if form.instance.pk %}Edit{% else %}Add{% endif %} Ingredient - BMQ AI SKU{% endblock %}
+
+{% block content %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="h2 mb-0">
+                <i class="bi bi-bag-check"></i> {% if form.instance.pk %}Edit Ingredient{% else %}Add New Ingredient{% endif %}
+            </h1>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Ingredient Details</h5>
+                </div>
+                <div class="card-body">
+                    {% if form.non_field_errors %}
+                        <div class="alert alert-danger">
+                            {% for error in form.non_field_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+
+                    <form method="post" novalidate>
+                        {% csrf_token %}
+
+                        <div class="mb-3">
+                            <label for="id_name" class="form-label">Ingredient Name</label>
+                            <input type="text" class="form-control {% if form.name.errors %}is-invalid{% endif %}" id="id_name" name="name" value="{{ form.name.value|default:'' }}" required>
+                            {% if form.name.errors %}
+                                <div class="invalid-feedback d-block">{{ form.name.errors|first }}</div>
+                            {% endif %}
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="id_category" class="form-label">Category</label>
+                            <select class="form-select {% if form.category.errors %}is-invalid{% endif %}" id="id_category" name="category" required>
+                                <option value="">Select a category</option>
+                                {% for value, label in form.category.field.choices %}
+                                    <option value="{{ value }}" {% if form.category.value == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                            {% if form.category.errors %}
+                                <div class="invalid-feedback d-block">{{ form.category.errors|first }}</div>
+                            {% endif %}
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="id_unit" class="form-label">Unit of Measure</label>
+                                    <select class="form-select {% if form.unit.errors %}is-invalid{% endif %}" id="id_unit" name="unit" required>
+                                        <option value="">Select unit</option>
+                                        {% for value, label in form.unit.field.choices %}
+                                            <option value="{{ value }}" {% if form.unit.value == value %}selected{% endif %}>{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    {% if form.unit.errors %}
+                                        <div class="invalid-feedback d-block">{{ form.unit.errors|first }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="id_current_cost_per_unit" class="form-label">Cost per Unit (₫)</label>
+                                    <input type="number" step="0.01" class="form-control {% if form.current_cost_per_unit.errors %}is-invalid{% endif %}" id="id_current_cost_per_unit" name="current_cost_per_unit" value="{{ form.current_cost_per_unit.value|default:'' }}" required>
+                                    {% if form.current_cost_per_unit.errors %}
+                                        <div class="invalid-feedback d-block">{{ form.current_cost_per_unit.errors|first }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="id_current_stock" class="form-label">Current Stock</label>
+                                    <input type="number" step="0.01" class="form-control {% if form.current_stock.errors %}is-invalid{% endif %}" id="id_current_stock" name="current_stock" value="{{ form.current_stock.value|default:'' }}" required>
+                                    {% if form.current_stock.errors %}
+                                        <div class="invalid-feedback d-block">{{ form.current_stock.errors|first }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="id_minimum_stock" class="form-label">Minimum Stock</label>
+                                    <input type="number" step="0.01" class="form-control {% if form.minimum_stock.errors %}is-invalid{% endif %}" id="id_minimum_stock" name="minimum_stock" value="{{ form.minimum_stock.value|default:'' }}" required>
+                                    {% if form.minimum_stock.errors %}
+                                        <div class="invalid-feedback d-block">{{ form.minimum_stock.errors|first }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="id_description" class="form-label">Description</label>
+                            <textarea class="form-control" id="id_description" name="description" rows="3">{{ form.description.value|default:'' }}</textarea>
+                        </div>
+
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-check-circle"></i> {% if form.instance.pk %}Update{% else %}Add{% endif %} Ingredient
+                            </button>
+                            <a href="{% url 'inventory:ingredient_list' %}" class="btn btn-outline-secondary">
+                                <i class="bi bi-arrow-left"></i> Back
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-info-circle"></i> Help
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <h6>Stock Management</h6>
+                    <p class="small">Set the minimum stock level to trigger alerts when inventory runs low. The system will notify you when stock falls below this threshold.</p>
+
+                    <hr>
+
+                    <h6>Cost Tracking</h6>
+                    <p class="small">Update the cost per unit when supplier prices change. This ensures accurate product costing.</p>
+
+                    <hr>
+
+                    <h6>Categories</h6>
+                    <p class="small">Use categories to organize ingredients and track costs by type (flour, sugar, dairy, etc.).</p>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

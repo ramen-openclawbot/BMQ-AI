@@ -1,0 +1,148 @@
+{% extends 'base.html' %}
+
+{% block title %}SKU Costs - BMQ AI SKU{% endblock %}
+
+{% block content %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="h2 mb-0">
+                <i class="bi bi-calculator"></i> SKU Cost Analysis
+            </h1>
+            <small class="text-muted">Detailed cost breakdown for all products</small>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-funnel"></i> Filters
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form method="get" class="row g-3">
+                        <div class="col-md-6">
+                            <label for="search" class="form-label">Search</label>
+                            <input type="text" class="form-control" id="search" name="search" placeholder="SKU Code or Product Name" value="{{ request.GET.search }}">
+                        </div>
+
+                        <div class="col-md-3">
+                            <label for="category" class="form-label">Category</label>
+                            <select class="form-select" id="category" name="category">
+                                <option value="">All Categories</option>
+                                {% for value, label in categories %}
+                                    <option value="{{ value }}" {% if request.GET.category == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-md-3">
+                            <label for="sort" class="form-label">Sort By</label>
+                            <select class="form-select" id="sort" name="sort">
+                                <option value="-created_at" {% if request.GET.sort == '-created_at' or not request.GET.sort %}selected{% endif %}>Newest First</option>
+                                <option value="created_at" {% if request.GET.sort == 'created_at' %}selected{% endif %}>Oldest First</option>
+                                <option value="total_cost_per_unit" {% if request.GET.sort == 'total_cost_per_unit' %}selected{% endif %}>Cost (Low to High)</option>
+                                <option value="-total_cost_per_unit" {% if request.GET.sort == '-total_cost_per_unit' %}selected{% endif %}>Cost (High to Low)</option>
+                            </select>
+                        </div>
+
+                        <div class="col-12">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-search"></i> Apply Filters
+                            </button>
+                            <a href="{% url 'dashboard:sku_costs' %}" class="btn btn-outline-secondary">
+                                <i class="bi bi-arrow-clockwise"></i> Reset
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SKU Costs Table -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-table"></i> SKU Costs
+                    </h5>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>SKU Code</th>
+                                <th>Product Name</th>
+                                <th>Ingredient Cost</th>
+                                <th>Labor Cost</th>
+                                <th>Overhead Cost</th>
+                                <th>Total Cost</th>
+                                <th>Selling Price</th>
+                                <th>Margin</th>
+                                <th>Margin %</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for cost in sku_costs %}
+                                <tr onclick="window.location='{% url 'costs:cost_detail' cost.id %}';" style="cursor: pointer;">
+                                    <td>
+                                        <strong>{{ cost.product.sku_code }}</strong>
+                                    </td>
+                                    <td>{{ cost.product.name }}</td>
+                                    <td>{{ cost.ingredient_cost|floatformat:2 }} ₫</td>
+                                    <td>{{ cost.labor_cost|floatformat:2 }} ₫</td>
+                                    <td>{{ cost.overhead_cost|floatformat:2 }} ₫</td>
+                                    <td>
+                                        <strong>{{ cost.total_cost_per_unit|floatformat:2 }} ₫</strong>
+                                    </td>
+                                    <td>{{ cost.product.selling_price|floatformat:2 }} ₫</td>
+                                    <td>{{ cost.margin|floatformat:2 }} ₫</td>
+                                    <td>
+                                        {% if cost.margin_percentage >= 20 %}
+                                            <span class="margin-healthy">
+                                                <i class="bi bi-arrow-up"></i> {{ cost.margin_percentage|floatformat:1 }}%
+                                            </span>
+                                        {% elif cost.margin_percentage >= 10 %}
+                                            <span class="margin-warning">
+                                                <i class="bi bi-dash"></i> {{ cost.margin_percentage|floatformat:1 }}%
+                                            </span>
+                                        {% else %}
+                                            <span class="margin-critical">
+                                                <i class="bi bi-arrow-down"></i> {{ cost.margin_percentage|floatformat:1 }}%
+                                            </span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if cost.status == 'active' %}
+                                            <span class="badge bg-success">Active</span>
+                                        {% elif cost.status == 'approved' %}
+                                            <span class="badge bg-info">Approved</span>
+                                        {% elif cost.status == 'calculated' %}
+                                            <span class="badge bg-warning text-dark">Calculated</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">{{ cost.get_status_display }}</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="10" class="text-center text-muted py-4">
+                                        <i class="bi bi-inbox"></i> No SKU costs found
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Pagination -->
+            {% include 'components/pagination.html' %}
+        </div>
+    </div>
+{% endblock %}

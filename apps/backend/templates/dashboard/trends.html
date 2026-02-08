@@ -1,0 +1,295 @@
+{% extends 'base.html' %}
+
+{% block title %}Cost Trends - BMQ AI SKU{% endblock %}
+
+{% block content %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="h2 mb-0">
+                <i class="bi bi-graph-up-arrow"></i> Cost Trends Analysis
+            </h1>
+            <small class="text-muted">Track cost changes over time</small>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-funnel"></i> Filters
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form method="get" class="row g-3">
+                        <div class="col-md-6">
+                            <label for="category" class="form-label">Product Category</label>
+                            <select class="form-select" id="category" name="category">
+                                <option value="">All Categories</option>
+                                {% for value, label in categories %}
+                                    <option value="{{ value }}" {% if request.GET.category == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="period" class="form-label">Time Period</label>
+                            <select class="form-select" id="period" name="period">
+                                <option value="3m" {% if request.GET.period == '3m' %}selected{% endif %}>Last 3 Months</option>
+                                <option value="6m" {% if request.GET.period == '6m' %}selected{% endif %}>Last 6 Months</option>
+                                <option value="12m" {% if request.GET.period == '12m' %}selected{% endif %}>Last 12 Months</option>
+                                <option value="all" {% if request.GET.period == 'all' %}selected{% endif %}>All Time</option>
+                            </select>
+                        </div>
+
+                        <div class="col-12">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-search"></i> Apply Filters
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cost Trend Chart -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-graph-up"></i> Cost Trend Over Time
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="trendChart" height="100"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Component Breakdown -->
+    <div class="row mb-4">
+        <div class="col-lg-6 mb-4">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-pie-chart"></i> Cost Components
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="componentChart" height="200"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6 mb-4">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-bar-chart"></i> Component Percentages
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span>Ingredient Cost</span>
+                            <strong>45%</strong>
+                        </div>
+                        <div class="progress" style="height: 20px;">
+                            <div class="progress-bar" style="width: 45%; background-color: #8B4513;"></div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span>Labor Cost</span>
+                            <strong>35%</strong>
+                        </div>
+                        <div class="progress" style="height: 20px;">
+                            <div class="progress-bar" style="width: 35%; background-color: #D2691E;"></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="d-flex justify-content-between mb-1">
+                            <span>Overhead Cost</span>
+                            <strong>20%</strong>
+                        </div>
+                        <div class="progress" style="height: 20px;">
+                            <div class="progress-bar" style="width: 20%; background-color: #FF8C00;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Biggest Cost Changes -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-arrow-up-down"></i> Biggest Cost Changes
+                    </h5>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th>Previous Cost</th>
+                                <th>Current Cost</th>
+                                <th>Change</th>
+                                <th>Change %</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>French Baguette</strong></td>
+                                <td>15,000 ₫</td>
+                                <td>15,500 ₫</td>
+                                <td><span class="text-danger">+500 ₫</span></td>
+                                <td><span class="text-danger">+3.3%</span></td>
+                                <td>2026-02-01</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Chocolate Cake</strong></td>
+                                <td>45,000 ₫</td>
+                                <td>43,500 ₫</td>
+                                <td><span class="text-success">-1,500 ₫</span></td>
+                                <td><span class="text-success">-3.3%</span></td>
+                                <td>2026-01-28</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Croissant</strong></td>
+                                <td>12,000 ₫</td>
+                                <td>12,300 ₫</td>
+                                <td><span class="text-danger">+300 ₫</span></td>
+                                <td><span class="text-danger">+2.5%</span></td>
+                                <td>2026-01-25</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Donut</strong></td>
+                                <td>8,500 ₫</td>
+                                <td>8,200 ₫</td>
+                                <td><span class="text-success">-300 ₫</span></td>
+                                <td><span class="text-success">-3.5%</span></td>
+                                <td>2026-01-20</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Sourdough Loaf</strong></td>
+                                <td>20,000 ₫</td>
+                                <td>21,200 ₫</td>
+                                <td><span class="text-danger">+1,200 ₫</span></td>
+                                <td><span class="text-danger">+6.0%</span></td>
+                                <td>2026-01-15</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Main trend chart
+        const trendCtx = document.getElementById('trendChart');
+        if (trendCtx) {
+            new Chart(trendCtx, {
+                type: 'line',
+                data: {
+                    labels: ['Jan 1', 'Jan 8', 'Jan 15', 'Jan 22', 'Jan 29', 'Feb 5'],
+                    datasets: [
+                        {
+                            label: 'Ingredient Cost',
+                            data: [35000, 35500, 36000, 35800, 36500, 37000],
+                            borderColor: '#8B4513',
+                            backgroundColor: 'rgba(139, 69, 19, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.4,
+                        },
+                        {
+                            label: 'Labor Cost',
+                            data: [28000, 28200, 28500, 28300, 28800, 29000],
+                            borderColor: '#D2691E',
+                            backgroundColor: 'rgba(210, 105, 30, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.4,
+                        },
+                        {
+                            label: 'Overhead Cost',
+                            data: [16000, 16200, 16500, 16300, 16800, 17000],
+                            borderColor: '#FF8C00',
+                            backgroundColor: 'rgba(255, 140, 0, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.4,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                        }
+                    },
+                    scales: {
+                        y: {
+                            grid: {
+                                drawBorder: false,
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Component breakdown pie chart
+        const componentCtx = document.getElementById('componentChart');
+        if (componentCtx) {
+            new Chart(componentCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Ingredient Cost', 'Labor Cost', 'Overhead Cost'],
+                    datasets: [{
+                        data: [45, 35, 20],
+                        backgroundColor: [
+                            '#8B4513',
+                            '#D2691E',
+                            '#FF8C00'
+                        ],
+                        borderColor: '#fff',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+{% endblock %}

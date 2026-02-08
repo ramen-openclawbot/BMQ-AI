@@ -1,0 +1,228 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if form.instance.pk %}Edit{% else %}Create{% endif %} Bill of Materials - BMQ AI SKU{% endblock %}
+
+{% block content %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="h2 mb-0">
+                <i class="bi bi-list-check"></i> {% if form.instance.pk %}Edit Bill of Materials{% else %}Create New BOM{% endif %}
+            </h1>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">BOM Information</h5>
+                </div>
+                <div class="card-body">
+                    <form method="post" id="bomForm">
+                        {% csrf_token %}
+
+                        <div class="mb-3">
+                            <label for="id_product" class="form-label">Product</label>
+                            <input type="text" class="form-control" value="French Baguette (BREAD-001)" disabled>
+                            <input type="hidden" name="product" value="1">
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="id_version" class="form-label">Version</label>
+                                    <input type="text" class="form-control" value="2" disabled>
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="id_status" class="form-label">Status</label>
+                                    <select class="form-select" id="id_status" name="status">
+                                        <option value="draft" selected>Draft</option>
+                                        <option value="active">Active</option>
+                                        <option value="archived">Archived</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="id_effective_date" class="form-label">Effective Date</label>
+                            <input type="date" class="form-control" id="id_effective_date" name="effective_date">
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="id_notes" class="form-label">Notes</label>
+                            <textarea class="form-control" id="id_notes" name="notes" rows="3"></textarea>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Line Items -->
+            <div class="card mb-4">
+                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">BOM Line Items</h5>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="addLineItem()">
+                        <i class="bi bi-plus-circle"></i> Add Ingredient
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div id="lineItemsContainer">
+                        <div class="line-item mb-4 p-3 border rounded">
+                            <div class="row">
+                                <div class="col-md-7">
+                                    <label class="form-label">Ingredient</label>
+                                    <select class="form-select">
+                                        <option value="">Select Ingredient</option>
+                                        <option value="1" selected>All-Purpose Flour</option>
+                                        <option value="2">Whole Wheat Flour</option>
+                                        <option value="3">Salt</option>
+                                    </select>
+                                </div>
+
+                                <div class="col-md-5">
+                                    <label class="form-label">Qty per Unit</label>
+                                    <input type="number" step="0.01" class="form-control" value="0.40" placeholder="0.00">
+                                </div>
+                            </div>
+
+                            <div class="row mt-2">
+                                <div class="col-md-4">
+                                    <label class="form-label">Unit</label>
+                                    <input type="text" class="form-control" value="kg" disabled>
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label class="form-label">Waste %</label>
+                                    <input type="number" step="0.01" class="form-control" value="2" placeholder="0.00">
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label class="form-label">Current Cost</label>
+                                    <input type="text" class="form-control" value="35,000 ₫" disabled>
+                                </div>
+                            </div>
+
+                            <div class="mt-2">
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeLineItem(this)">
+                                    <i class="bi bi-trash"></i> Remove
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex gap-2">
+                <button type="submit" form="bomForm" class="btn btn-primary">
+                    <i class="bi bi-check-circle"></i> {% if form.instance.pk %}Update{% else %}Create{% endif %} BOM
+                </button>
+                <a href="javascript:history.back()" class="btn btn-outline-secondary">
+                    <i class="bi bi-arrow-left"></i> Cancel
+                </a>
+            </div>
+        </div>
+
+        <!-- Cost Summary -->
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Cost Summary</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>Ingredient Cost:</span>
+                            <strong id="ingredientCost">14,640 ₫</strong>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>Est. Labor Cost:</span>
+                            <strong>8,000 ₫</strong>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <span>Est. Overhead:</span>
+                            <strong>6,000 ₫</strong>
+                        </div>
+                        <hr>
+                        <div class="d-flex justify-content-between">
+                            <strong>Total Est. Cost:</strong>
+                            <strong class="text-primary" style="font-size: 1.1rem;">28,640 ₫</strong>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info small">
+                        <i class="bi bi-info-circle"></i>
+                        Compared to previous version (v1): No change
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-lightbulb"></i> Hints
+                    </h5>
+                </div>
+                <div class="card-body small">
+                    <ul>
+                        <li><strong>Waste %:</strong> Account for ingredient loss during preparation</li>
+                        <li><strong>Version:</strong> Creates a new version instead of replacing old BOM</li>
+                        <li><strong>Draft Status:</strong> Save as draft before activating</li>
+                        <li><strong>Effective Date:</strong> Set when this BOM becomes active</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function addLineItem() {
+            const container = document.getElementById('lineItemsContainer');
+            const newItem = document.createElement('div');
+            newItem.className = 'line-item mb-4 p-3 border rounded';
+            newItem.innerHTML = `
+                <div class="row">
+                    <div class="col-md-7">
+                        <label class="form-label">Ingredient</label>
+                        <select class="form-select">
+                            <option value="">Select Ingredient</option>
+                            <option value="1">All-Purpose Flour</option>
+                            <option value="2">Whole Wheat Flour</option>
+                            <option value="3">Salt</option>
+                        </select>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label">Qty per Unit</label>
+                        <input type="number" step="0.01" class="form-control" placeholder="0.00">
+                    </div>
+                </div>
+                <div class="row mt-2">
+                    <div class="col-md-4">
+                        <label class="form-label">Unit</label>
+                        <input type="text" class="form-control" value="kg" disabled>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Waste %</label>
+                        <input type="number" step="0.01" class="form-control" placeholder="0.00">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Current Cost</label>
+                        <input type="text" class="form-control" disabled>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeLineItem(this)">
+                        <i class="bi bi-trash"></i> Remove
+                    </button>
+                </div>
+            `;
+            container.appendChild(newItem);
+        }
+
+        function removeLineItem(btn) {
+            btn.closest('.line-item').remove();
+        }
+    </script>
+{% endblock %}

@@ -1,0 +1,236 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard - BMQ AI SKU{% endblock %}
+
+{% block content %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="h2 mb-0">
+                <i class="bi bi-speedometer2"></i> Dashboard
+            </h1>
+            <small class="text-muted">Welcome back, {{ user.first_name|default:user.username }}</small>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="row mb-4">
+        <div class="col-md-6 col-lg-3 mb-3">
+            <div class="stat-card">
+                <div class="stat-card-icon">
+                    <i class="bi bi-box"></i>
+                </div>
+                <div class="stat-label">Total Products</div>
+                <div class="stat-value">{{ total_products }}</div>
+            </div>
+        </div>
+
+        <div class="col-md-6 col-lg-3 mb-3">
+            <div class="stat-card">
+                <div class="stat-card-icon">
+                    <i class="bi bi-calculator"></i>
+                </div>
+                <div class="stat-label">Avg Ingredient Cost</div>
+                <div class="stat-value">{{ avg_ingredient_cost|floatformat:2 }} ₫</div>
+            </div>
+        </div>
+
+        <div class="col-md-6 col-lg-3 mb-3">
+            <div class="stat-card">
+                <div class="stat-card-icon">
+                    <i class="bi bi-percent"></i>
+                </div>
+                <div class="stat-label">Avg Cost</div>
+                <div class="stat-value">{{ avg_margin_percentage|floatformat:2 }} ₫</div>
+            </div>
+        </div>
+
+        <div class="col-md-6 col-lg-3 mb-3">
+            <div class="stat-card">
+                <div class="stat-card-icon">
+                    <i class="bi bi-exclamation-triangle"></i>
+                </div>
+                <div class="stat-label">Low Stock Alerts</div>
+                <div class="stat-value text-danger">{{ low_stock_count }}</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-lightning"></i> Quick Actions
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <button class="btn btn-primary me-2" onclick="alert('Recalculate all costs')">
+                        <i class="bi bi-arrow-repeat"></i> Recalculate All Costs
+                    </button>
+                    <a href="{% url 'products:product_create' %}" class="btn btn-accent me-2">
+                        <i class="bi bi-plus-circle"></i> Add Product
+                    </a>
+                    <a href="{% url 'inventory:purchaseorder_create' %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-receipt"></i> New Purchase Order
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Recent Costs -->
+        <div class="col-lg-8 mb-4">
+            <div class="card">
+                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-clock-history"></i> Recent Cost Calculations
+                    </h5>
+                    <a href="{% url 'dashboard:sku_costs' %}" class="btn btn-sm btn-outline-secondary">View All</a>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>SKU Code</th>
+                                <th>Product Name</th>
+                                <th>Total Cost</th>
+                                <th>Selling Price</th>
+                                <th>Margin</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for cost in recent_costs %}
+                                <tr onclick="window.location='{% url 'costs:cost_detail' cost.id %}';" style="cursor: pointer;">
+                                    <td>
+                                        <strong>{{ cost.product.sku_code }}</strong>
+                                    </td>
+                                    <td>{{ cost.product.name }}</td>
+                                    <td>{{ cost.total_cost_per_unit|floatformat:2 }} ₫</td>
+                                    <td>{{ cost.product.selling_price|floatformat:2 }} ₫</td>
+                                    <td>
+                                        {% if cost.margin_percentage >= 20 %}
+                                            <span class="margin-healthy">{{ cost.margin_percentage|floatformat:1 }}%</span>
+                                        {% elif cost.margin_percentage >= 10 %}
+                                            <span class="margin-warning">{{ cost.margin_percentage|floatformat:1 }}%</span>
+                                        {% else %}
+                                            <span class="margin-critical">{{ cost.margin_percentage|floatformat:1 }}%</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if cost.status == 'active' %}
+                                            <span class="badge bg-success">Active</span>
+                                        {% elif cost.status == 'approved' %}
+                                            <span class="badge bg-info">Approved</span>
+                                        {% elif cost.status == 'calculated' %}
+                                            <span class="badge bg-warning">Calculated</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">{{ cost.get_status_display }}</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted py-4">
+                                        <i class="bi bi-inbox"></i> No cost calculations yet
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Low Stock Items -->
+        <div class="col-lg-4 mb-4">
+            <div class="card">
+                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-exclamation-triangle"></i> Low Stock Alerts
+                    </h5>
+                    <span class="badge bg-danger">{{ low_stock_count }}</span>
+                </div>
+                <div class="list-group list-group-flush">
+                    {% for item in low_stock_items %}
+                        <a href="{% url 'inventory:ingredient_update' item.id %}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="mb-1">{{ item.name }}</h6>
+                                <small class="text-muted">{{ item.current_stock }} {{ item.unit }} / {{ item.minimum_stock }} {{ item.unit }}</small>
+                            </div>
+                            <i class="bi bi-chevron-right"></i>
+                        </a>
+                    {% empty %}
+                        <div class="p-3 text-center text-muted">
+                            <i class="bi bi-check-circle"></i>
+                            <p class="mb-0">All inventory is healthy</p>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Cost Trend Chart -->
+            <div class="card mt-4">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-graph-up"></i> Cost Trend
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="trendChart" height="200"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Mini cost trend chart
+        const ctx = document.getElementById('trendChart');
+        if (ctx) {
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
+                    datasets: [{
+                        label: 'Avg Cost',
+                        data: [12000, 12500, 12300, 12800],
+                        borderColor: '#D2691E',
+                        backgroundColor: 'rgba(210, 105, 30, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        pointBackgroundColor: '#FF8C00',
+                        pointBorderColor: '#8B4513',
+                        pointRadius: 5,
+                        pointHoverRadius: 7
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            grid: {
+                                drawBorder: false,
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+{% endblock %}

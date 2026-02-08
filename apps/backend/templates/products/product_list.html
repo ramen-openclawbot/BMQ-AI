@@ -1,0 +1,153 @@
+{% extends 'base.html' %}
+
+{% block title %}Products - BMQ AI SKU{% endblock %}
+
+{% block content %}
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1 class="h2 mb-0">
+                <i class="bi bi-box"></i> Products
+            </h1>
+            <small class="text-muted">Manage bakery products and pricing</small>
+        </div>
+        <div class="col-md-4 text-end">
+            <a href="{% url 'products:product_create' %}" class="btn btn-primary">
+                <i class="bi bi-plus-circle"></i> Add Product
+            </a>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-funnel"></i> Filters
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form method="get" class="row g-3">
+                        <div class="col-md-6">
+                            <label for="search" class="form-label">Search</label>
+                            <input type="text" class="form-control" id="search" name="search" placeholder="SKU or Product Name..." value="{{ request.GET.search }}">
+                        </div>
+
+                        <div class="col-md-3">
+                            <label for="category" class="form-label">Category</label>
+                            <select class="form-select" id="category" name="category">
+                                <option value="">All Categories</option>
+                                <option value="bread" {% if request.GET.category == 'bread' %}selected{% endif %}>Bread</option>
+                                <option value="pastry" {% if request.GET.category == 'pastry' %}selected{% endif %}>Pastry</option>
+                                <option value="cake" {% if request.GET.category == 'cake' %}selected{% endif %}>Cake</option>
+                                <option value="cookie" {% if request.GET.category == 'cookie' %}selected{% endif %}>Cookie</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-3">
+                            <label for="status" class="form-label">Status</label>
+                            <select class="form-select" id="status" name="status">
+                                <option value="">All Status</option>
+                                <option value="active" {% if request.GET.status == 'active' %}selected{% endif %}>Active</option>
+                                <option value="discontinued" {% if request.GET.status == 'discontinued' %}selected{% endif %}>Discontinued</option>
+                                <option value="development" {% if request.GET.status == 'development' %}selected{% endif %}>Development</option>
+                            </select>
+                        </div>
+
+                        <div class="col-12">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-search"></i> Apply Filters
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Products Table -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-table"></i> Products
+                    </h5>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>SKU Code</th>
+                                <th>Product Name</th>
+                                <th>Category</th>
+                                <th>Selling Price</th>
+                                <th>Latest Cost</th>
+                                <th>Margin</th>
+                                <th>Margin %</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>BREAD-001</strong></td>
+                                <td><a href="{% url 'products:product_detail' 1 %}">French Baguette</a></td>
+                                <td><span class="badge bg-light text-dark">Bread</span></td>
+                                <td>35,000 ₫</td>
+                                <td>15,000 ₫</td>
+                                <td>20,000 ₫</td>
+                                <td><span class="margin-healthy">57.1%</span></td>
+                                <td><span class="badge bg-success">Active</span></td>
+                                <td>
+                                    <a href="{% url 'products:product_detail' 1 %}" class="btn btn-sm btn-outline-primary">View</a>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>CAKE-001</strong></td>
+                                <td><a href="{% url 'products:product_detail' 2 %}">Chocolate Cake</a></td>
+                                <td><span class="badge bg-light text-dark">Cake</span></td>
+                                <td>120,000 ₫</td>
+                                <td>45,000 ₫</td>
+                                <td>75,000 ₫</td>
+                                <td><span class="margin-healthy">62.5%</span></td>
+                                <td><span class="badge bg-success">Active</span></td>
+                                <td>
+                                    <a href="{% url 'products:product_detail' 2 %}" class="btn btn-sm btn-outline-primary">View</a>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>PAST-001</strong></td>
+                                <td><a href="{% url 'products:product_detail' 3 %}">Croissant</a></td>
+                                <td><span class="badge bg-light text-dark">Pastry</span></td>
+                                <td>28,000 ₫</td>
+                                <td>12,000 ₫</td>
+                                <td>16,000 ₫</td>
+                                <td><span class="margin-healthy">57.1%</span></td>
+                                <td><span class="badge bg-success">Active</span></td>
+                                <td>
+                                    <a href="{% url 'products:product_detail' 3 %}" class="btn btn-sm btn-outline-primary">View</a>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><strong>COOK-001</strong></td>
+                                <td><a href="{% url 'products:product_detail' 4 %}">Chocolate Chip Cookie</a></td>
+                                <td><span class="badge bg-light text-dark">Cookie</span></td>
+                                <td>15,000 ₫</td>
+                                <td>6,500 ₫</td>
+                                <td>8,500 ₫</td>
+                                <td><span class="margin-healthy">56.7%</span></td>
+                                <td><span class="badge bg-success">Active</span></td>
+                                <td>
+                                    <a href="{% url 'products:product_detail' 4 %}" class="btn btn-sm btn-outline-primary">View</a>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {% include 'components/pagination.html' %}
+        </div>
+    </div>
+{% endblock %}

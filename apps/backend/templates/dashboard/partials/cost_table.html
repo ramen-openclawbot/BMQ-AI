@@ -1,0 +1,36 @@
+{% for cost in sku_costs %}
+    <tr onclick="window.location='{% url 'costs:cost_detail' cost.id %}';" style="cursor: pointer;">
+        <td>
+            <strong>{{ cost.product.sku_code }}</strong>
+        </td>
+        <td>{{ cost.product.name }}</td>
+        <td>{{ cost.ingredient_cost|floatformat:2 }} ₫</td>
+        <td>{{ cost.labor_cost|floatformat:2 }} ₫</td>
+        <td>{{ cost.overhead_cost|floatformat:2 }} ₫</td>
+        <td>
+            <strong>{{ cost.total_cost_per_unit|floatformat:2 }} ₫</strong>
+        </td>
+        <td>{{ cost.product.selling_price|floatformat:2 }} ₫</td>
+        <td>{{ cost.margin|floatformat:2 }} ₫</td>
+        <td>
+            {% if cost.margin_percentage >= 20 %}
+                <span class="margin-healthy">{{ cost.margin_percentage|floatformat:1 }}%</span>
+            {% elif cost.margin_percentage >= 10 %}
+                <span class="margin-warning">{{ cost.margin_percentage|floatformat:1 }}%</span>
+            {% else %}
+                <span class="margin-critical">{{ cost.margin_percentage|floatformat:1 }}%</span>
+            {% endif %}
+        </td>
+        <td>
+            {% if cost.status == 'active' %}
+                <span class="badge bg-success">Active</span>
+            {% elif cost.status == 'approved' %}
+                <span class="badge bg-info">Approved</span>
+            {% elif cost.status == 'calculated' %}
+                <span class="badge bg-warning text-dark">Calculated</span>
+            {% else %}
+                <span class="badge bg-secondary">{{ cost.get_status_display }}</span>
+            {% endif %}
+        </td>
+    </tr>
+{% endfor %}

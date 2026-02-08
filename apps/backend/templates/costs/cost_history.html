@@ -1,0 +1,296 @@
+{% extends 'base.html' %}
+
+{% block title %}Cost History - BMQ AI SKU{% endblock %}
+
+{% block content %}
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1 class="h2 mb-0">
+                <i class="bi bi-clock-history"></i> Cost History
+            </h1>
+            <small class="text-muted">French Baguette (BREAD-001)</small>
+        </div>
+        <div class="col-md-4 text-end">
+            <a href="{% url 'products:product_detail' 1 %}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back to Product
+            </a>
+        </div>
+    </div>
+
+    <!-- Cost Versions Timeline -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-list-ul"></i> Cost Versions
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="timeline">
+                        <!-- Version 1 (Current) -->
+                        <div class="timeline-item active">
+                            <div class="timeline-header">
+                                <h6 class="mb-1">
+                                    <strong>Version 1 (Current)</strong>
+                                    <span class="badge bg-success">Active</span>
+                                </h6>
+                                <small class="text-muted">Effective: 2026-02-01</small>
+                            </div>
+                            <div class="timeline-content">
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <strong>Total Cost:</strong> 29,000 ₫
+                                    </div>
+                                    <div class="col-md-3">
+                                        <strong>Ingredients:</strong> 14,640 ₫
+                                    </div>
+                                    <div class="col-md-3">
+                                        <strong>Labor:</strong> 8,000 ₫
+                                    </div>
+                                    <div class="col-md-3">
+                                        <strong>Overhead:</strong> 6,360 ₫
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <a href="{% url 'costs:cost_detail' 1 %}" class="btn btn-sm btn-outline-primary">View Details</a>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Version 0 -->
+                        <div class="timeline-item">
+                            <div class="timeline-header">
+                                <h6 class="mb-1">
+                                    <strong>Version 0</strong>
+                                    <span class="badge bg-secondary">Archived</span>
+                                </h6>
+                                <small class="text-muted">Effective: 2025-12-15 — Ended: 2026-01-31</small>
+                            </div>
+                            <div class="timeline-content">
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <strong>Total Cost:</strong> 28,000 ₫
+                                    </div>
+                                    <div class="col-md-3">
+                                        <strong>Ingredients:</strong> 14,500 ₫
+                                    </div>
+                                    <div class="col-md-3">
+                                        <strong>Labor:</strong> 7,500 ₫
+                                    </div>
+                                    <div class="col-md-3">
+                                        <strong>Overhead:</strong> 6,000 ₫
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <a href="{% url 'costs:cost_detail' 0 %}" class="btn btn-sm btn-outline-secondary">View Details</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cost Comparison Chart -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Cost Trend</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="trendChart" height="80"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cost Change Analysis -->
+    <div class="row mt-4">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Component Changes</h5>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>Component</th>
+                                <th>v0</th>
+                                <th>v1</th>
+                                <th>Change</th>
+                                <th>%</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Ingredients</strong></td>
+                                <td>14,500 ₫</td>
+                                <td>14,640 ₫</td>
+                                <td><span class="text-danger">+140 ₫</span></td>
+                                <td><span class="text-danger">+0.97%</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Labor</strong></td>
+                                <td>7,500 ₫</td>
+                                <td>8,000 ₫</td>
+                                <td><span class="text-danger">+500 ₫</span></td>
+                                <td><span class="text-danger">+6.67%</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Overhead</strong></td>
+                                <td>6,000 ₫</td>
+                                <td>6,360 ₫</td>
+                                <td><span class="text-danger">+360 ₫</span></td>
+                                <td><span class="text-danger">+6.0%</span></td>
+                            </tr>
+                            <tr class="table-warning">
+                                <td><strong>Total Cost</strong></td>
+                                <td><strong>28,000 ₫</strong></td>
+                                <td><strong>29,000 ₫</strong></td>
+                                <td><strong><span class="text-danger">+1,000 ₫</span></strong></td>
+                                <td><strong><span class="text-danger">+3.57%</span></strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Cost Change Reasons</h5>
+                </div>
+                <div class="list-group list-group-flush">
+                    <div class="list-group-item">
+                        <h6 class="mb-1">Flour Cost Increase (+1%)</h6>
+                        <p class="mb-1 small">Premium Flour Mill increased supplier prices</p>
+                        <small class="text-muted">2026-02-01</small>
+                    </div>
+
+                    <div class="list-group-item">
+                        <h6 class="mb-1">Employee Wage Adjustment (+6.67%)</h6>
+                        <p class="mb-1 small">Nguyen Van A received annual salary increase</p>
+                        <small class="text-muted">2026-01-01</small>
+                    </div>
+
+                    <div class="list-group-item">
+                        <h6 class="mb-1">Overhead Allocation Change (+6%)</h6>
+                        <p class="mb-1 small">Monthly overhead costs increased due to utility rate hike</p>
+                        <small class="text-muted">2026-01-15</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .timeline {
+            position: relative;
+            padding-left: 40px;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 10px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background-color: #ddd;
+        }
+
+        .timeline-item {
+            position: relative;
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background-color: #fff;
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -30px;
+            top: 20px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background-color: #fff;
+            border: 3px solid #ddd;
+        }
+
+        .timeline-item.active::before {
+            background-color: #28a745;
+            border-color: #28a745;
+        }
+
+        .timeline-header {
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .timeline-content {
+            padding-top: 10px;
+        }
+    </style>
+
+    <script>
+        const ctx = document.getElementById('trendChart');
+        if (ctx) {
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['v0 (Dec 15)', 'v1 (Feb 1)'],
+                    datasets: [{
+                        label: 'Total Cost',
+                        data: [28000, 29000],
+                        borderColor: '#D2691E',
+                        backgroundColor: 'rgba(210, 105, 30, 0.1)',
+                        borderWidth: 3,
+                        fill: true,
+                        tension: 0.4,
+                        pointBackgroundColor: '#FF8C00',
+                        pointBorderColor: '#8B4513',
+                        pointRadius: 8,
+                        pointHoverRadius: 10
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toLocaleString('vi-VN') + ' ₫';
+                                }
+                            },
+                            grid: {
+                                drawBorder: false,
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+{% endblock %}

@@ -1,0 +1,166 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 40 33% 98%;
+    --foreground: 25 30% 12%;
+
+    --card: 40 40% 99%;
+    --card-foreground: 25 30% 12%;
+
+    --popover: 40 40% 99%;
+    --popover-foreground: 25 30% 12%;
+
+    --primary: 35 85% 45%;
+    --primary-foreground: 40 33% 98%;
+
+    --secondary: 35 30% 90%;
+    --secondary-foreground: 25 30% 20%;
+
+    --muted: 35 20% 94%;
+    --muted-foreground: 25 15% 45%;
+
+    --accent: 25 70% 35%;
+    --accent-foreground: 40 33% 98%;
+
+    --destructive: 0 65% 50%;
+    --destructive-foreground: 40 33% 98%;
+
+    --success: 142 60% 40%;
+    --success-foreground: 40 33% 98%;
+
+    --warning: 45 90% 50%;
+    --warning-foreground: 25 30% 12%;
+
+    --border: 35 25% 88%;
+    --input: 35 25% 88%;
+    --ring: 35 85% 45%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 25 25% 15%;
+    --sidebar-foreground: 40 20% 90%;
+    --sidebar-primary: 35 85% 55%;
+    --sidebar-primary-foreground: 40 33% 98%;
+    --sidebar-accent: 25 20% 22%;
+    --sidebar-accent-foreground: 40 20% 90%;
+    --sidebar-border: 25 15% 25%;
+    --sidebar-ring: 35 85% 55%;
+
+    --font-display: 'Playfair Display', serif;
+    --font-body: 'Inter', sans-serif;
+
+    --gradient-warm: linear-gradient(135deg, hsl(35 85% 45%), hsl(25 70% 40%));
+    --gradient-card: linear-gradient(180deg, hsl(var(--card)), hsl(var(--muted)));
+    --shadow-warm: 0 4px 20px -4px hsl(25 30% 30% / 0.12);
+    --shadow-card: 0 2px 12px -2px hsl(25 30% 30% / 0.08);
+  }
+
+  .dark {
+    --background: 25 25% 8%;
+    --foreground: 40 20% 95%;
+
+    --card: 25 20% 12%;
+    --card-foreground: 40 20% 95%;
+
+    --popover: 25 20% 12%;
+    --popover-foreground: 40 20% 95%;
+
+    --primary: 35 85% 55%;
+    --primary-foreground: 25 30% 10%;
+
+    --secondary: 25 15% 20%;
+    --secondary-foreground: 40 20% 90%;
+
+    --muted: 25 15% 18%;
+    --muted-foreground: 40 15% 60%;
+
+    --accent: 35 70% 50%;
+    --accent-foreground: 25 30% 10%;
+
+    --destructive: 0 55% 45%;
+    --destructive-foreground: 40 33% 98%;
+
+    --success: 142 50% 45%;
+    --success-foreground: 25 30% 10%;
+
+    --warning: 45 85% 55%;
+    --warning-foreground: 25 30% 10%;
+
+    --border: 25 15% 22%;
+    --input: 25 15% 22%;
+    --ring: 35 85% 55%;
+
+    --sidebar-background: 25 20% 6%;
+    --sidebar-foreground: 40 20% 90%;
+    --sidebar-primary: 35 85% 55%;
+    --sidebar-primary-foreground: 25 30% 10%;
+    --sidebar-accent: 25 15% 12%;
+    --sidebar-accent-foreground: 40 20% 90%;
+    --sidebar-border: 25 15% 15%;
+    --sidebar-ring: 35 85% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-body);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+  }
+}
+
+@layer components {
+  .card-elevated {
+    background: var(--gradient-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  .btn-gradient {
+    background: var(--gradient-warm);
+    color: hsl(var(--primary-foreground));
+    box-shadow: var(--shadow-warm);
+    transition: all 0.2s ease;
+  }
+
+  .btn-gradient:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 24px -4px hsl(25 30% 30% / 0.2);
+  }
+
+  .stat-card {
+    @apply relative overflow-hidden rounded-xl p-6;
+    background: var(--gradient-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--gradient-warm);
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    background: var(--gradient-warm);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}

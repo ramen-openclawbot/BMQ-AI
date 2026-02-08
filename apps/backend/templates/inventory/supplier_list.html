@@ -1,0 +1,143 @@
+{% extends 'base.html' %}
+
+{% block title %}Suppliers - BMQ AI SKU{% endblock %}
+
+{% block content %}
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1 class="h2 mb-0">
+                <i class="bi bi-truck"></i> Suppliers
+            </h1>
+            <small class="text-muted">Manage ingredient suppliers</small>
+        </div>
+        <div class="col-md-4 text-end">
+            <a href="{% url 'inventory:supplier_create' %}" class="btn btn-primary">
+                <i class="bi bi-plus-circle"></i> Add Supplier
+            </a>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="bi bi-funnel"></i> Search
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form method="get" class="row g-3">
+                        <div class="col-md-8">
+                            <label for="search" class="form-label">Supplier Name</label>
+                            <input type="text" class="form-control" id="search" name="search" placeholder="Search suppliers..." value="{{ request.GET.search }}">
+                        </div>
+
+                        <div class="col-md-4">
+                            <label for="status" class="form-label">Status</label>
+                            <select class="form-select" id="status" name="status">
+                                <option value="">All Status</option>
+                                <option value="active" {% if request.GET.status == 'active' %}selected{% endif %}>Active</option>
+                                <option value="inactive" {% if request.GET.status == 'inactive' %}selected{% endif %}>Inactive</option>
+                            </select>
+                        </div>
+
+                        <div class="col-12">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-search"></i> Search
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Suppliers Grid -->
+    <div class="row">
+        <div class="col-12">
+            <div class="row">
+                <div class="col-md-6 col-lg-4 mb-4">
+                    <div class="card h-100">
+                        <div class="card-header bg-light">
+                            <h5 class="card-title mb-0">Premium Flour Mill</h5>
+                            <small class="text-success">Active</small>
+                        </div>
+                        <div class="card-body">
+                            <p class="mb-2">
+                                <i class="bi bi-person"></i> <strong>Nguyen Van A</strong>
+                            </p>
+                            <p class="mb-2">
+                                <i class="bi bi-telephone"></i> <strong>+84-28-1234-5678</strong>
+                            </p>
+                            <p class="mb-2">
+                                <i class="bi bi-envelope"></i> <strong>contact@premiumflour.vn</strong>
+                            </p>
+                            <p class="text-muted small">
+                                <i class="bi bi-geo-alt"></i> 123 Nguyen Hue, District 1, HCMC
+                            </p>
+                        </div>
+                        <div class="card-footer bg-light">
+                            <a href="#" class="btn btn-sm btn-outline-primary">Edit</a>
+                            <a href="#" class="btn btn-sm btn-outline-secondary">View</a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6 col-lg-4 mb-4">
+                    <div class="card h-100">
+                        <div class="card-header bg-light">
+                            <h5 class="card-title mb-0">Sweet Confections Ltd</h5>
+                            <small class="text-success">Active</small>
+                        </div>
+                        <div class="card-body">
+                            <p class="mb-2">
+                                <i class="bi bi-person"></i> <strong>Tran Thi B</strong>
+                            </p>
+                            <p class="mb-2">
+                                <i class="bi bi-telephone"></i> <strong>+84-28-9876-5432</strong>
+                            </p>
+                            <p class="mb-2">
+                                <i class="bi bi-envelope"></i> <strong>info@sweetconfections.com</strong>
+                            </p>
+                            <p class="text-muted small">
+                                <i class="bi bi-geo-alt"></i> 456 Tran Hung Dao, District 5, HCMC
+                            </p>
+                        </div>
+                        <div class="card-footer bg-light">
+                            <a href="#" class="btn btn-sm btn-outline-primary">Edit</a>
+                            <a href="#" class="btn btn-sm btn-outline-secondary">View</a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6 col-lg-4 mb-4">
+                    <div class="card h-100">
+                        <div class="card-header bg-light">
+                            <h5 class="card-title mb-0">Fresh Dairy Products</h5>
+                            <small class="text-success">Active</small>
+                        </div>
+                        <div class="card-body">
+                            <p class="mb-2">
+                                <i class="bi bi-person"></i> <strong>Pham Van C</strong>
+                            </p>
+                            <p class="mb-2">
+                                <i class="bi bi-telephone"></i> <strong>+84-28-5555-6666</strong>
+                            </p>
+                            <p class="mb-2">
+                                <i class="bi bi-envelope"></i> <strong>sales@freshdairy.vn</strong>
+                            </p>
+                            <p class="text-muted small">
+                                <i class="bi bi-geo-alt"></i> 789 Nguyen Thai Hoc, District 3, HCMC
+                            </p>
+                        </div>
+                        <div class="card-footer bg-light">
+                            <a href="#" class="btn btn-sm btn-outline-primary">Edit</a>
+                            <a href="#" class="btn btn-sm btn-outline-secondary">View</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

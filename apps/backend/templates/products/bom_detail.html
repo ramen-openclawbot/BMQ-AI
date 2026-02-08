@@ -1,0 +1,177 @@
+{% extends 'base.html' %}
+
+{% block title %}BOM Detail - BMQ AI SKU{% endblock %}
+
+{% block content %}
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1 class="h2 mb-0">
+                <i class="bi bi-list-check"></i> French Baguette BOM v1
+            </h1>
+            <small class="text-muted">Active - Effective: 2025-12-15</small>
+        </div>
+        <div class="col-md-4 text-end">
+            <a href="{% url 'products:bom_edit' 1 %}" class="btn btn-primary me-2">
+                <i class="bi bi-pencil"></i> Edit
+            </a>
+            <a href="javascript:history.back()" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back
+            </a>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <!-- BOM Details -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Bill of Materials</h5>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Ingredient</th>
+                                <th>Qty per Unit</th>
+                                <th>Waste %</th>
+                                <th>Effective Qty</th>
+                                <th>Cost per Unit</th>
+                                <th>Total Cost</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>All-Purpose Flour</strong></td>
+                                <td>0.40 kg</td>
+                                <td>2%</td>
+                                <td>0.408 kg</td>
+                                <td>35,000 ₫</td>
+                                <td><strong>14,280 ₫</strong></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Salt</strong></td>
+                                <td>0.01 kg</td>
+                                <td>0%</td>
+                                <td>0.01 kg</td>
+                                <td>8,000 ₫</td>
+                                <td><strong>80 ₫</strong></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Water</strong></td>
+                                <td>0.28 l</td>
+                                <td>0%</td>
+                                <td>0.28 l</td>
+                                <td>1,000 ₫</td>
+                                <td><strong>280 ₫</strong></td>
+                            </tr>
+                            <tr class="table-success">
+                                <td colspan="5" class="text-end"><strong>Total Ingredient Cost:</strong></td>
+                                <td><strong>14,640 ₫</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Notes -->
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Notes</h5>
+                </div>
+                <div class="card-body">
+                    <p>Standard recipe for French Baguette. Updated flour supplier to Premium Flour Mill.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Side Panel -->
+        <div class="col-lg-4">
+            <!-- Status & Actions -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Status & Actions</h5>
+                </div>
+                <div class="card-body">
+                    <p class="mb-3">
+                        <strong>Status:</strong> <span class="badge bg-success">Active</span>
+                    </p>
+
+                    <button class="btn btn-primary w-100 mb-2" disabled>
+                        <i class="bi bi-check-circle"></i> Currently Active
+                    </button>
+
+                    <button class="btn btn-outline-danger w-100">
+                        <i class="bi bi-archive"></i> Archive This BOM
+                    </button>
+                </div>
+            </div>
+
+            <!-- Cost Summary -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Cost Breakdown</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="costChart" height="150"></canvas>
+
+                    <div class="mt-3">
+                        <div class="mb-2">
+                            <div class="d-flex justify-content-between small">
+                                <span>Ingredient Cost</span>
+                                <strong>14,640 ₫</strong>
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <div class="d-flex justify-content-between small">
+                                <span>Ingredient %</span>
+                                <strong>100%</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Version History -->
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Version History</h5>
+                </div>
+                <div class="list-group list-group-flush">
+                    <a href="#" class="list-group-item list-group-item-action">
+                        <div class="d-flex w-100 justify-content-between">
+                            <strong>BOM v1 (Current)</strong>
+                            <span class="badge bg-success">Active</span>
+                        </div>
+                        <small class="text-muted">Effective: 2025-12-15</small>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ctx = document.getElementById('costChart');
+        if (ctx) {
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Ingredients'],
+                    datasets: [{
+                        data: [100],
+                        backgroundColor: ['#8B4513'],
+                        borderColor: '#fff',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+{% endblock %}
