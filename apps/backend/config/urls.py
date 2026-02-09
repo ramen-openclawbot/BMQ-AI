@@ -1,6 +1,9 @@
 from django.contrib import admin
+from django.http import JsonResponse
 from django.urls import path, include
-from django.views.generic import RedirectView
+
+def health(_request):
+    return JsonResponse({"status": "ok", "service": "bmq-backend"})
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -21,5 +24,6 @@ urlpatterns = [
     path('api/costs/', include('apps.costs.urls', namespace='costs-api')),
 
     path('dashboard/', include('apps.dashboard.urls', namespace='dashboard')),
-    path('', RedirectView.as_view(url='/dashboard/', permanent=False)),
+    path('health', health),
+    path('', health),
 ]
