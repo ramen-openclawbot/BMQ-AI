@@ -5,9 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell } from "recharts";
-import { useSkuCostsDjango } from "@/hooks/useSkuCostsDjango";
-import { useDjangoRecentCosts } from "@/hooks/useDjangoRecentCosts";
-import { useDjangoCostTrend } from "@/hooks/useDjangoCostTrend";
+import { useSkuCostBridge } from "@/hooks/useSkuCostBridge";
 
 const tabItems = [
   { key: "sku", label: "SKU Cost" },
@@ -15,32 +13,42 @@ const tabItems = [
   { key: "overhead", label: "Phân bổ chi phí chung" },
 ];
 
-const COLORS = ["#16a34a", "#f59e0b", "#ef4444"];
+const COLORS = ["#16a34a", "#0ea5e9", "#f59e0b", "#ef4444", "#8b5cf6"];
+const money = (v: number) => new Intl.NumberFormat("vi-VN").format(Number(v || 0));
 
 export default function SkuCostsAnalysis() {
   const [tab, setTab] = useState("sku");
-  const { data, isLoading } = useSkuCostsDjango();
-  const { data: recentCosts } = useDjangoRecentCosts();
-  const firstProductId = data?.[0]?.product_id;
-  const { data: trend } = useDjangoCostTrend(firstProductId);
+  const [search, setSearch] = useState("");
+  const { data, isLoading } = useSkuCostBridge();
+
+  const items = data?.items || [];
+  const trendRows = data?.trendRows || [];
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((c: any) => `${c.sku_code} ${c.product_name}`.toLowerCase().includes(q));
+  }, [items, search]);
 
   const breakdown = useMemo(() => {
-    if (!data || data.length === 0) return [];
-    const sum = data.reduce(
-      (acc, i) => {
+    if (!filtered.length) return [];
+    const sum = filtered.reduce(
+      (acc: any, i: any) => {
         acc.ingredient += i.ingredient_cost;
+        acc.packaging += i.packaging_cost;
         acc.labor += i.labor_cost;
-        acc.overhead += i.overhead_cost;
+        acc.overhead += i.delivery_cost + i.other_production_cost + i.sga_cost + i.extra_cost;
         return acc;
       },
-      { ingredient: 0, labor: 0, overhead: 0 }
+      { ingredient: 0, packaging: 0, labor: 0, overhead: 0 }
     );
     return [
       { name: "Nguyên liệu", value: sum.ingredient },
+      { name: "Bao bì", value: sum.packaging },
       { name: "Nhân công", value: sum.labor },
-      { name: "Chi phí chung", value: sum.overhead },
+      { name: "Chi phí khác", value: sum.overhead },
     ];
-  }, [data]);
+  }, [filtered]);
 
   return (
     <div className="space-y-6">
@@ -55,61 +63,48 @@ export default function SkuCostsAnalysis() {
       {tab === "sku" && (
         <div className="space-y-6">
           <Card>
-            <CardHeader>
-              <CardTitle>Bộ lọc</CardTitle>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <Input placeholder="Tìm kiếm SKU hoặc sản phẩm" />
-              <Select>
-                <SelectTrigger><SelectValue placeholder="Danh mục" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tất cả</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select>
-                <SelectTrigger><SelectValue placeholder="Sắp xếp" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="new">Mới nhất</SelectItem>
-                  <SelectItem value="old">Cũ nhất</SelectItem>
-                </SelectContent>
-              </Select>
-            </CardContent>
+            <CardHeader><CardTitle>Bộ lọc</CardTitle></CardHeader>
+            <CardContent><Input placeholder="Tìm kiếm SKU hoặc sản phẩm" value={search} onChange={(e) => setSearch(e.target.value)} /></CardContent>
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>SKU Cost</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>SKU Cost (linked từ SKU Quản trị)</CardTitle></CardHeader>
             <CardContent>
-              {!data || data.length === 0 ? (
-                <div className="text-sm text-muted-foreground">Chưa có dữ liệu.</div>
+              {!filtered.length ? (
+                <div className="text-sm text-muted-foreground">{isLoading ? "Đang tải dữ liệu..." : "Chưa có dữ liệu."}</div>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>SKU Code</TableHead>
-                      <TableHead>Sản phẩm</TableHead>
+                      <TableHead>SKU</TableHead>
                       <TableHead>Nguyên liệu</TableHead>
+                      <TableHead>Bao bì</TableHead>
                       <TableHead>Nhân công</TableHead>
-                      <TableHead>Chi phí chung</TableHead>
-                      <TableHead>Tổng</TableHead>
+                      <TableHead>Delivery</TableHead>
+                      <TableHead>Other Prod.</TableHead>
+                      <TableHead>BH&QL</TableHead>
+                      <TableHead>Tổng/cái</TableHead>
+                      <TableHead>Thành phẩm</TableHead>
                       <TableHead>Giá bán</TableHead>
                       <TableHead>Biên LN</TableHead>
-                      <TableHead>%</TableHead>
+                      <TableHead>Stock NVL</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {data.map((c: any) => (
+                    {filtered.map((c: any) => (
                       <TableRow key={c.id}>
-                        <TableCell className="font-mono text-xs">{c.sku_code}</TableCell>
-                        <TableCell>{c.product_name}</TableCell>
-                        <TableCell>{c.ingredient_cost?.toLocaleString("vi-VN")}</TableCell>
-                        <TableCell>{c.labor_cost?.toLocaleString("vi-VN")}</TableCell>
-                        <TableCell>{c.overhead_cost?.toLocaleString("vi-VN")}</TableCell>
-                        <TableCell className="font-semibold">{c.total_cost_per_unit?.toLocaleString("vi-VN")}</TableCell>
-                        <TableCell>{c.selling_price?.toLocaleString("vi-VN")}</TableCell>
-                        <TableCell>{c.margin?.toLocaleString("vi-VN")}</TableCell>
+                        <TableCell className="font-mono text-xs">{c.sku_code}<div className="text-muted-foreground">{c.product_name}</div></TableCell>
+                        <TableCell>{money(c.ingredient_cost)}</TableCell>
+                        <TableCell>{money(c.packaging_cost)}</TableCell>
+                        <TableCell>{money(c.labor_cost)}</TableCell>
+                        <TableCell>{money(c.delivery_cost)}</TableCell>
+                        <TableCell>{money(c.other_production_cost)}</TableCell>
+                        <TableCell>{money(c.sga_cost + c.extra_cost)}</TableCell>
+                        <TableCell className="font-semibold">{money(c.total_cost_per_unit)}</TableCell>
+                        <TableCell>{c.finished_output_qty} {c.finished_output_unit}</TableCell>
+                        <TableCell>{money(c.selling_price)}</TableCell>
                         <TableCell>{c.margin_percentage?.toFixed?.(2)}%</TableCell>
+                        <TableCell>{money(c.estimated_ingredient_stock)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -121,108 +116,42 @@ export default function SkuCostsAnalysis() {
       )}
 
       {tab === "trends" && (
-        <div className="space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Card>
-            <CardHeader>
-              <CardTitle>Bộ lọc</CardTitle>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Select>
-                <SelectTrigger><SelectValue placeholder="Danh mục" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tất cả</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select>
-                <SelectTrigger><SelectValue placeholder="Chu kỳ" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="3m">3 tháng</SelectItem>
-                  <SelectItem value="6m">6 tháng</SelectItem>
-                  <SelectItem value="12m">12 tháng</SelectItem>
-                </SelectContent>
-              </Select>
+            <CardHeader><CardTitle>Cost Trend theo dữ liệu mua hàng</CardTitle></CardHeader>
+            <CardContent className="h-64">
+              {trendRows.length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={trendRows}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="label" />
+                    <YAxis />
+                    <Tooltip />
+                    <Line type="monotone" dataKey="total" stroke="#0f172a" />
+                    <Line type="monotone" dataKey="ingredient" stroke="#22c55e" />
+                    <Line type="monotone" dataKey="overhead" stroke="#ef4444" />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="text-sm text-muted-foreground">Chưa có dữ liệu mua hàng để dựng trend.</div>
+              )}
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Cost Trend Over Time</CardTitle>
-              </CardHeader>
-              <CardContent className="h-64">
-                {trend ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={trend.labels.map((l: string, idx: number) => ({
-                      label: l,
-                      ingredient: trend.datasets[0]?.data[idx],
-                      labor: trend.datasets[1]?.data[idx],
-                      overhead: trend.datasets[2]?.data[idx],
-                      total: trend.datasets[3]?.data[idx],
-                    }))}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="label" />
-                      <YAxis />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="total" stroke="#0f172a" />
-                      <Line type="monotone" dataKey="ingredient" stroke="#22c55e" />
-                      <Line type="monotone" dataKey="labor" stroke="#f59e0b" />
-                      <Line type="monotone" dataKey="overhead" stroke="#ef4444" />
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="text-sm text-muted-foreground">Chưa có dữ liệu.</div>
-                )}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Cost Components</CardTitle>
-              </CardHeader>
-              <CardContent className="h-64">
-                {breakdown.length ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={breakdown} dataKey="value" nameKey="name" innerRadius={50} outerRadius={90}>
-                        {breakdown.map((_, idx) => (
-                          <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="text-sm text-muted-foreground">Chưa có dữ liệu.</div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
           <Card>
-            <CardHeader>
-              <CardTitle>Biggest Cost Changes</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {!recentCosts || recentCosts.length === 0 ? (
-                <div className="text-sm text-muted-foreground">Chưa có dữ liệu.</div>
+            <CardHeader><CardTitle>Tỷ trọng nhóm chi phí</CardTitle></CardHeader>
+            <CardContent className="h-64">
+              {breakdown.length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={breakdown} dataKey="value" nameKey="name" innerRadius={50} outerRadius={90}>
+                      {breakdown.map((_: any, idx: number) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Sản phẩm</TableHead>
-                      <TableHead>Giá thành</TableHead>
-                      <TableHead>Biên LN</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {recentCosts.map((c: any) => (
-                      <TableRow key={c.id}>
-                        <TableCell className="font-medium">{c.product_name}</TableCell>
-                        <TableCell>{c.total_cost_per_unit?.toLocaleString("vi-VN")}</TableCell>
-                        <TableCell>{c.margin_percentage?.toFixed?.(2)}%</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <div className="text-sm text-muted-foreground">Chưa có dữ liệu.</div>
               )}
             </CardContent>
           </Card>
@@ -230,14 +159,12 @@ export default function SkuCostsAnalysis() {
       )}
 
       {tab === "overhead" && (
-        <div className="space-y-6">
-          <Card>
-            <CardHeader><CardTitle>Phân bổ chi phí chung</CardTitle></CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              Chưa có dữ liệu phân bổ theo danh mục/tháng. Ramen sẽ nối API khi backend sẵn sàng.
-            </CardContent>
-          </Card>
-        </div>
+        <Card>
+          <CardHeader><CardTitle>Phân bổ chi phí chung</CardTitle></CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            Delivery + Other Production + BH&QL đang được gom vào nhóm chi phí chung trong phân tích tổng quan.
+          </CardContent>
+        </Card>
       )}
     </div>
   );

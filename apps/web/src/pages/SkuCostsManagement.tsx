@@ -53,6 +53,13 @@ export default function SkuCostsManagement() {
     category: "Thành phẩm",
     base_unit: "gói",
     yield_percent: 100,
+    finished_output_qty: 1,
+    finished_output_unit: "cái",
+    packaging_cost_per_unit: 0,
+    labor_cost_per_unit: 0,
+    delivery_cost_per_unit: 0,
+    other_production_cost_per_unit: 0,
+    sga_cost_per_unit: 0,
     extra_cost_per_unit: 0,
     selling_price: 0,
   });
@@ -105,13 +112,22 @@ export default function SkuCostsManagement() {
   }, [activeSkuId]);
 
   const costing = useMemo(() => {
-    const materialCost = formula.reduce((s, r) => s + calcLineCost(r), 0);
-    const extra = Number((skus.find((s) => s.id === activeSkuId)?.extra_cost_per_unit) || 0);
-    const totalCost = materialCost + extra;
-    const selling = Number((skus.find((s) => s.id === activeSkuId)?.selling_price) || 0);
+    const current = skus.find((s) => s.id === activeSkuId) || {};
+    const outputQty = Math.max(1, Number(current.finished_output_qty || 1));
+    const materialBatchCost = formula.reduce((s, r) => s + calcLineCost(r), 0);
+    const materialCost = materialBatchCost / outputQty;
+    const packaging = Number(current.packaging_cost_per_unit || 0);
+    const labor = Number(current.labor_cost_per_unit || 0);
+    const delivery = Number(current.delivery_cost_per_unit || 0);
+    const otherProduction = Number(current.other_production_cost_per_unit || 0);
+    const sga = Number(current.sga_cost_per_unit || 0);
+    const extra = Number(current.extra_cost_per_unit || 0);
+    const totalCost = materialCost + packaging + labor + delivery + otherProduction + sga + extra;
+    const selling = Number(current.selling_price || 0);
     const netProfit = selling - totalCost;
     const margin = selling > 0 ? (netProfit / selling) * 100 : 0;
-    return { materialCost, extra, totalCost, selling, netProfit, margin };
+    const pct = (v: number) => (totalCost > 0 ? (v / totalCost) * 100 : 0);
+    return { materialBatchCost, outputQty, materialCost, packaging, labor, delivery, otherProduction, sga, extra, totalCost, selling, netProfit, margin, pct };
   }, [formula, skus, activeSkuId]);
 
   const openCreateSku = () => {
@@ -124,6 +140,13 @@ export default function SkuCostsManagement() {
       category: "Thành phẩm",
       base_unit: "gói",
       yield_percent: 100,
+      finished_output_qty: 1,
+      finished_output_unit: "cái",
+      packaging_cost_per_unit: 0,
+      labor_cost_per_unit: 0,
+      delivery_cost_per_unit: 0,
+      other_production_cost_per_unit: 0,
+      sga_cost_per_unit: 0,
       extra_cost_per_unit: 0,
       selling_price: 0,
     });
@@ -327,10 +350,17 @@ export default function SkuCostsManagement() {
                 </TableBody>
               </Table>
 
-              <div className="grid md:grid-cols-3 gap-3 text-sm">
-                <div className="p-3 rounded border">Tổng cost NVL: <b>{new Intl.NumberFormat("vi-VN").format(costing.materialCost)}</b></div>
-                <div className="p-3 rounded border">Chi phí cộng thêm: <b>{new Intl.NumberFormat("vi-VN").format(costing.extra)}</b></div>
-                <div className="p-3 rounded border">Tổng cost: <b>{new Intl.NumberFormat("vi-VN").format(costing.totalCost)}</b></div>
+              <div className="grid md:grid-cols-2 gap-3 text-sm">
+                <div className="p-3 rounded border">Tổng cost NVL/mẻ: <b>{new Intl.NumberFormat("vi-VN").format(costing.materialBatchCost)}</b></div>
+                <div className="p-3 rounded border">Thành phẩm: <b>{costing.outputQty}</b> {skus.find((s) => s.id === activeSkuId)?.finished_output_unit || "cái"}</div>
+                <div className="p-3 rounded border">Cost NVL/cái: <b>{new Intl.NumberFormat("vi-VN").format(costing.materialCost)}</b> ({costing.pct(costing.materialCost).toFixed(1)}%)</div>
+                <div className="p-3 rounded border">Cost bao bì: <b>{new Intl.NumberFormat("vi-VN").format(costing.packaging)}</b> ({costing.pct(costing.packaging).toFixed(1)}%)</div>
+                <div className="p-3 rounded border">Cost nhân công: <b>{new Intl.NumberFormat("vi-VN").format(costing.labor)}</b> ({costing.pct(costing.labor).toFixed(1)}%)</div>
+                <div className="p-3 rounded border">Delivery cost: <b>{new Intl.NumberFormat("vi-VN").format(costing.delivery)}</b> ({costing.pct(costing.delivery).toFixed(1)}%)</div>
+                <div className="p-3 rounded border">Other production: <b>{new Intl.NumberFormat("vi-VN").format(costing.otherProduction)}</b> ({costing.pct(costing.otherProduction).toFixed(1)}%)</div>
+                <div className="p-3 rounded border">Chi phí BH&QL: <b>{new Intl.NumberFormat("vi-VN").format(costing.sga)}</b> ({costing.pct(costing.sga).toFixed(1)}%)</div>
+                <div className="p-3 rounded border">Chi phí cộng thêm: <b>{new Intl.NumberFormat("vi-VN").format(costing.extra)}</b> ({costing.pct(costing.extra).toFixed(1)}%)</div>
+                <div className="p-3 rounded border">Tổng cost/cái: <b>{new Intl.NumberFormat("vi-VN").format(costing.totalCost)}</b></div>
                 <div className="p-3 rounded border">Giá bán: <b>{new Intl.NumberFormat("vi-VN").format(costing.selling)}</b></div>
                 <div className="p-3 rounded border">Net profit: <b>{new Intl.NumberFormat("vi-VN").format(costing.netProfit)}</b></div>
                 <div className="p-3 rounded border">Tỷ trọng lợi nhuận: <b>{costing.margin.toFixed(2)}%</b></div>
@@ -459,9 +489,16 @@ export default function SkuCostsManagement() {
             <Input placeholder="ĐVT" value={skuForm.unit || ""} onChange={(e) => setSkuForm({ ...skuForm, unit: e.target.value })} />
             <Input placeholder="Base unit" value={skuForm.base_unit || ""} onChange={(e) => setSkuForm({ ...skuForm, base_unit: e.target.value })} />
             <Input type="number" placeholder="Yield %" value={skuForm.yield_percent || 100} onChange={(e) => setSkuForm({ ...skuForm, yield_percent: Number(e.target.value || 100) })} />
+            <Input placeholder="Danh mục" value={skuForm.category || ""} onChange={(e) => setSkuForm({ ...skuForm, category: e.target.value })} />
+            <Input type="number" placeholder="SL thành phẩm" value={skuForm.finished_output_qty || 1} onChange={(e) => setSkuForm({ ...skuForm, finished_output_qty: Number(e.target.value || 1) })} />
+            <Input placeholder="DVT thành phẩm" value={skuForm.finished_output_unit || ""} onChange={(e) => setSkuForm({ ...skuForm, finished_output_unit: e.target.value })} />
+            <Input type="number" placeholder="Cost bao bì" value={skuForm.packaging_cost_per_unit || 0} onChange={(e) => setSkuForm({ ...skuForm, packaging_cost_per_unit: Number(e.target.value || 0) })} />
+            <Input type="number" placeholder="Cost nhân công" value={skuForm.labor_cost_per_unit || 0} onChange={(e) => setSkuForm({ ...skuForm, labor_cost_per_unit: Number(e.target.value || 0) })} />
+            <Input type="number" placeholder="Delivery cost" value={skuForm.delivery_cost_per_unit || 0} onChange={(e) => setSkuForm({ ...skuForm, delivery_cost_per_unit: Number(e.target.value || 0) })} />
+            <Input type="number" placeholder="Other production cost" value={skuForm.other_production_cost_per_unit || 0} onChange={(e) => setSkuForm({ ...skuForm, other_production_cost_per_unit: Number(e.target.value || 0) })} />
+            <Input type="number" placeholder="Chi phí bán hàng & quản lý" value={skuForm.sga_cost_per_unit || 0} onChange={(e) => setSkuForm({ ...skuForm, sga_cost_per_unit: Number(e.target.value || 0) })} />
             <Input type="number" placeholder="Chi phí cộng thêm" value={skuForm.extra_cost_per_unit || 0} onChange={(e) => setSkuForm({ ...skuForm, extra_cost_per_unit: Number(e.target.value || 0) })} />
             <Input type="number" placeholder="Giá bán" value={skuForm.selling_price || 0} onChange={(e) => setSkuForm({ ...skuForm, selling_price: Number(e.target.value || 0) })} />
-            <Input placeholder="Danh mục" value={skuForm.category || ""} onChange={(e) => setSkuForm({ ...skuForm, category: e.target.value })} />
           </div>
           <DialogFooter>
             <Button onClick={saveSku}>Lưu</Button>
