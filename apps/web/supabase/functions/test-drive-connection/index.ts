@@ -102,7 +102,7 @@ serve(async (req) => {
     }
 
     // Test 1: Get folder metadata
-    const folderMetaUrl = `https://www.googleapis.com/drive/v3/files/${folderId}?fields=id,name,mimeType`;
+    const folderMetaUrl = `https://www.googleapis.com/drive/v3/files/${folderId}?fields=id,name,mimeType&supportsAllDrives=true`;
     const folderResponse = await fetch(folderMetaUrl, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -163,7 +163,7 @@ serve(async (req) => {
     }
 
     // Test 2: Count items in folder
-    const listUrl = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&pageSize=100&fields=files(id)`;
+    const listUrl = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents&pageSize=100&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
     const listResponse = await fetch(listUrl, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,

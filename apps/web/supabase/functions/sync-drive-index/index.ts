@@ -71,7 +71,7 @@ async function listAllFilesInFolder(accessToken: string, folderId: string): Prom
     const query = encodeURIComponent(
       `'${folderId}' in parents and (mimeType contains 'image/') and trashed = false`
     );
-    let url = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,mimeType,size),nextPageToken&pageSize=1000`;
+    let url = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,mimeType,size),nextPageToken&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true`;
     if (pageToken) {
       url += `&pageToken=${pageToken}`;
     }
@@ -101,7 +101,7 @@ async function listSubfolders(accessToken: string, rootFolderId: string): Promis
     const query = encodeURIComponent(
       `'${rootFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
     );
-    let url = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name),nextPageToken&pageSize=1000`;
+    let url = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true,nextPageToken&pageSize=1000`;
     if (pageToken) {
       url += `&pageToken=${pageToken}`;
     }

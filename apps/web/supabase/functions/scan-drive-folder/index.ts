@@ -142,7 +142,7 @@ serve(async (req) => {
       const subfolderQuery = encodeURIComponent(
         `'${rootFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
       );
-      const subfolderUrl = `https://www.googleapis.com/drive/v3/files?q=${subfolderQuery}&fields=files(id,name)`;
+      const subfolderUrl = `https://www.googleapis.com/drive/v3/files?q=${subfolderQuery}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
       
       const subfolderResponse = await fetch(subfolderUrl, {
         headers: {
@@ -171,7 +171,7 @@ serve(async (req) => {
         const imageQuery = encodeURIComponent(
           `'${folder.id}' in parents and (mimeType contains 'image/') and trashed = false`
         );
-        const countUrl = `https://www.googleapis.com/drive/v3/files?q=${imageQuery}&fields=files(id)`;
+        const countUrl = `https://www.googleapis.com/drive/v3/files?q=${imageQuery}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
         
         try {
           const countResponse = await fetch(countUrl, {
@@ -221,7 +221,7 @@ serve(async (req) => {
       console.log(`[scan-drive-folder] Scanning subfolder: ${subfolderDate}`);
       // List subfolders to find the one matching the date
       const subfolderQuery = encodeURIComponent(`'${rootFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and name = '${subfolderDate}' and trashed = false`);
-      const subfolderUrl = `https://www.googleapis.com/drive/v3/files?q=${subfolderQuery}&fields=files(id,name)`;
+      const subfolderUrl = `https://www.googleapis.com/drive/v3/files?q=${subfolderQuery}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
       
       const subfolderResponse = await fetch(subfolderUrl, {
         headers: {
@@ -260,7 +260,7 @@ serve(async (req) => {
 
     // List image files in the target folder
     const imageQuery = encodeURIComponent(`'${targetFolderId}' in parents and (mimeType contains 'image/') and trashed = false`);
-    const filesUrl = `https://www.googleapis.com/drive/v3/files?q=${imageQuery}&fields=files(id,name,mimeType)`;
+    const filesUrl = `https://www.googleapis.com/drive/v3/files?q=${imageQuery}&fields=files(id,name,mimeType)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
     
     const filesResponse = await fetch(filesUrl, {
       headers: {
