@@ -24,6 +24,8 @@ const itemSchema = z.object({
   product_name: z.string().min(1, "Tên sản phẩm là bắt buộc"),
   quantity: z.coerce.number().min(0.01, "Số lượng phải > 0"),
   unit: z.string().optional(),
+  manufacture_date: z.string().optional(),
+  expiry_date: z.string().optional(),
   sku_id: z.string().optional(),
   sku_code: z.string().optional(),
   sku_status: z.enum(["found", "not_found", "new"]).optional(),
@@ -67,7 +69,7 @@ export function AddGoodsReceiptDialog() {
       supplier_id: "",
       receipt_date: new Date().toISOString().split("T")[0],
       notes: "",
-      items: [{ product_name: "", quantity: 0, unit: "kg" }],
+      items: [{ product_name: "", quantity: 0, unit: "kg", expiry_date: "" }],
     },
   });
 
@@ -193,6 +195,7 @@ export function AddGoodsReceiptDialog() {
                 product_name: matchedSku.product_name,
                 quantity: item.quantity,
                 unit: item.unit || matchedSku.unit || "kg",
+                expiry_date: "",
                 sku_id: matchedSku.id,
                 sku_code: matchedSku.sku_code,
                 sku_status: "found" as const,
@@ -203,6 +206,7 @@ export function AddGoodsReceiptDialog() {
                 product_name: item.product_name,
                 quantity: item.quantity,
                 unit: item.unit || "kg",
+                expiry_date: "",
                 sku_id: undefined,
                 sku_code: undefined,
                 sku_status: "not_found" as const,
@@ -278,7 +282,9 @@ export function AddGoodsReceiptDialog() {
           quantity: item.quantity,
           unit: item.unit || "kg",
           sku_id: item.sku_id || null,
-        });
+          manufacture_date: item.manufacture_date || null,
+          expiry_date: item.expiry_date || null,
+        } as any);
       }
 
       toast.success("Đã tạo phiếu nhập kho thành công");
@@ -444,7 +450,7 @@ export function AddGoodsReceiptDialog() {
                   variant="outline"
                   size="sm"
                   onClick={() =>
-                    append({ product_name: "", quantity: 0, unit: "kg" })
+                    append({ product_name: "", quantity: 0, unit: "kg", expiry_date: "" })
                   }
                 >
                   <Plus className="h-4 w-4 mr-1" />
@@ -456,11 +462,13 @@ export function AddGoodsReceiptDialog() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[40%]">Sản phẩm</TableHead>
-                      <TableHead className="w-[15%]">SKU</TableHead>
-                      <TableHead className="w-[15%]">Số lượng</TableHead>
-                      <TableHead className="w-[15%]">Đơn vị</TableHead>
-                      <TableHead className="w-[15%]"></TableHead>
+                      <TableHead className="w-[25%]">Sản phẩm</TableHead>
+                      <TableHead className="w-[12%]">SKU</TableHead>
+                      <TableHead className="w-[10%]">Số lượng</TableHead>
+                      <TableHead className="w-[8%]">Đơn vị</TableHead>
+                      <TableHead className="w-[15%]">NSX</TableHead>
+                      <TableHead className="w-[15%]">HSD</TableHead>
+                      <TableHead className="w-[5%]"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -503,6 +511,20 @@ export function AddGoodsReceiptDialog() {
                             <Input
                               {...form.register(`items.${index}.unit`)}
                               placeholder="kg"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="date"
+                              {...form.register(`items.${index}.manufacture_date`)}
+                              className="text-xs"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="date"
+                              {...form.register(`items.${index}.expiry_date`)}
+                              className="text-xs"
                             />
                           </TableCell>
                           <TableCell>

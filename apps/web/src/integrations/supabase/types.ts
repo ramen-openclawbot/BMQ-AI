@@ -220,9 +220,11 @@ export type Database = {
       goods_receipt_items: {
         Row: {
           created_at: string
+          expiry_date: string | null
           goods_receipt_id: string
           id: string
           inventory_item_id: string | null
+          manufacture_date: string | null
           notes: string | null
           product_name: string
           quantity: number
@@ -231,9 +233,11 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          expiry_date?: string | null
           goods_receipt_id: string
           id?: string
           inventory_item_id?: string | null
+          manufacture_date?: string | null
           notes?: string | null
           product_name: string
           quantity?: number
@@ -242,9 +246,11 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          expiry_date?: string | null
           goods_receipt_id?: string
           id?: string
           inventory_item_id?: string | null
+          manufacture_date?: string | null
           notes?: string | null
           product_name?: string
           quantity?: number
@@ -344,6 +350,76 @@ export type Database = {
             columns: ["supplier_id"]
             isOneToOne: false
             referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      inventory_batches: {
+        Row: {
+          batch_number: string
+          created_at: string
+          expiry_date: string | null
+          goods_receipt_id: string | null
+          id: string
+          inventory_item_id: string | null
+          manufacture_date: string | null
+          notes: string | null
+          quantity: number
+          received_date: string
+          sku_id: string | null
+          unit: string | null
+          updated_at: string
+        }
+        Insert: {
+          batch_number: string
+          created_at?: string
+          expiry_date?: string | null
+          goods_receipt_id?: string | null
+          id?: string
+          inventory_item_id?: string | null
+          manufacture_date?: string | null
+          notes?: string | null
+          quantity?: number
+          received_date?: string
+          sku_id?: string | null
+          unit?: string | null
+          updated_at?: string
+        }
+        Update: {
+          batch_number?: string
+          created_at?: string
+          expiry_date?: string | null
+          goods_receipt_id?: string | null
+          id?: string
+          inventory_item_id?: string | null
+          manufacture_date?: string | null
+          notes?: string | null
+          quantity?: number
+          received_date?: string
+          sku_id?: string | null
+          unit?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inventory_batches_goods_receipt_id_fkey"
+            columns: ["goods_receipt_id"]
+            isOneToOne: false
+            referencedRelation: "goods_receipts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inventory_batches_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inventory_batches_sku_id_fkey"
+            columns: ["sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
             referencedColumns: ["id"]
           },
         ]

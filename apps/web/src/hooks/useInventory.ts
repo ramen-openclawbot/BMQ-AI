@@ -108,3 +108,91 @@ export function useDeleteInventoryItem() {
     },
   });
 }
+
+export interface ExpiryStats {
+  expired: number;
+  due7: number;
+  due30: number;
+  safe: number;
+  totalBatches: number;
+}
+
+export function useExpiryStats() {
+  return useQuery({
+    queryKey: ["expiry-stats"],
+    queryFn: async () => {
+      const { data, error } = await db
+        .from("inventory_batches")
+        .select("id, expiry_date");
+      if (error) throw error;
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const stats: ExpiryStats = {
+        expired: 0,
+        due7: 0,
+        due30: 0,
+        safe: 0,
+        totalBatches: data?.length || 0,
+      };
+
+      for (const row of data || []) {
+        if (!row.expiry_date) {
+          stats.safe += 1;
+          continue;
+        }
+        const d = new Date(row.expiry_date);
+        d.setHours(0, 0, 0, 0);
+        const diffDays = Math.ceil((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+        if (diffDays < 0) stats.expired += 1;
+        else if (diffDays <= 7) stats.due7 += 1;
+        else if (diffDays <= 30) stats.due30 += 1;
+        else stats.safe += 1;
+      }
+
+      return stats;
+    },
+    staleTime: 30000,
+    gcTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+}
+
+export function useInventoryBatches() {
+  return useQuery({
+    queryKey: ["inventory-batches"],
+    queryFn: async () => {
+      const { data, error } = await db
+        .from("inventory_batches")
+        .select("id, quantity, unit, expiry_date, expiry_edit_count, inventory_items(name)")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      return data || [];
+    },
+    staleTime: 30000,
+    gcTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+}
+
+export function useUpdateBatchExpiryOnce() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ batchId, expiryDate }: { batchId: string; expiryDate: string }) => {
+      const { data, error } = await db.rpc("update_batch_expiry_once", {
+        p_batch_id: batchId,
+        p_expiry_date: expiryDate,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["expiry-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory-batches"] });
+    },
+  });
+}

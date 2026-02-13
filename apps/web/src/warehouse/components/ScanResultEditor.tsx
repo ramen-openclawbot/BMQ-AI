@@ -28,6 +28,7 @@ export interface EditableItem {
   product_name: string;
   quantity: number;
   unit: string;
+  expiry_date?: string;
   unit_price?: number;
   status?: "match" | "mismatch" | "extra" | "missing" | "new";
   originalName?: string;
@@ -91,6 +92,7 @@ export function ScanResultEditor({
       product_name: "",
       quantity: 1,
       unit: "kg",
+      expiry_date: "",
       status: "new",
     };
     onItemsChange([...items, newItem]);
@@ -259,7 +261,7 @@ export function ScanResultEditor({
                     />
                   </div>
                   
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-3 gap-2">
                     <div>
                       <Label className="text-xs">Số lượng</Label>
                       <Input
@@ -277,6 +279,15 @@ export function ScanResultEditor({
                         value={item.unit}
                         onChange={(e) => handleItemChange(item.id, "unit", e.target.value)}
                         placeholder="kg, lít, cái..."
+                        className="h-9"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">HSD</Label>
+                      <Input
+                        type="date"
+                        value={item.expiry_date || ""}
+                        onChange={(e) => handleItemChange(item.id, "expiry_date", e.target.value)}
                         className="h-9"
                       />
                     </div>

@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { InventoryTable } from "@/components/dashboard/InventoryTable";
 import { AddInventoryDialog } from "@/components/dialogs/AddInventoryDialog";
 import { ExportInventoryButton } from "@/components/inventory/ExportInventoryButton";
+import { ExpiryStatsDialog } from "@/components/inventory/ExpiryStatsDialog";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 const Inventory = () => {
@@ -25,6 +26,7 @@ const Inventory = () => {
             {t.filter}
           </Button>
           <ExportInventoryButton />
+          <ExpiryStatsDialog />
           <AddInventoryDialog />
         </div>
       </div>

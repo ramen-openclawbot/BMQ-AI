@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/supabase-helpers";
 import { Tables, TablesInsert, TablesUpdate } from "@/integrations/supabase/types";
 
 export type GoodsReceipt = Tables<"goods_receipts"> & {
@@ -165,7 +166,7 @@ export function useDeleteGoodsReceipt() {
   });
 }
 
-// Confirm goods receipt and sync inventory
+// Confirm goods receipt and sync inventory + create batches
 export function useConfirmGoodsReceipt() {
   const queryClient = useQueryClient();
 
@@ -179,18 +180,24 @@ export function useConfirmGoodsReceipt() {
 
       if (itemsError) throw itemsError;
 
-      // 2. Get receipt for supplier_id
+      // 2. Get receipt for supplier_id and receipt_number
       const { data: receipt, error: receiptError } = await supabase
         .from("goods_receipts")
-        .select("supplier_id")
+        .select("supplier_id, receipt_number")
         .eq("id", receiptId)
         .single();
 
       if (receiptError) throw receiptError;
 
-      // 3. Sync inventory for each item
-      for (const item of items || []) {
+      // 3. Sync inventory for each item and prepare batch records
+      const batchesToCreate: any[] = [];
+
+      for (let index = 0; index < (items || []).length; index++) {
+        const item = items![index];
+        let inventoryItemId = item.inventory_item_id;
+
         if (item.inventory_item_id) {
+          // Update existing inventory item
           const { data: inventoryItem } = await supabase
             .from("inventory_items")
             .select("quantity")
@@ -204,6 +211,7 @@ export function useConfirmGoodsReceipt() {
               .eq("id", item.inventory_item_id);
           }
         } else {
+          // Try to find existing inventory item by name
           const { data: existingItem } = await supabase
             .from("inventory_items")
             .select("id, quantity")
@@ -220,7 +228,10 @@ export function useConfirmGoodsReceipt() {
               .from("goods_receipt_items")
               .update({ inventory_item_id: existingItem.id })
               .eq("id", item.id);
+
+            inventoryItemId = existingItem.id;
           } else {
+            // Create new inventory item
             const { data: newItem } = await supabase
               .from("inventory_items")
               .insert({
@@ -238,12 +249,43 @@ export function useConfirmGoodsReceipt() {
                 .from("goods_receipt_items")
                 .update({ inventory_item_id: newItem.id })
                 .eq("id", item.id);
+
+              inventoryItemId = newItem.id;
             }
           }
         }
+
+        // Create batch record for this item
+        if (inventoryItemId) {
+          batchesToCreate.push({
+            inventory_item_id: inventoryItemId,
+            sku_id: item.sku_id || null,
+            goods_receipt_id: receiptId,
+            goods_receipt_item_id: item.id,
+            batch_number: `${receipt.receipt_number}-${String(index + 1).padStart(3, "0")}`,
+            quantity: item.quantity,
+            unit: item.unit,
+            received_date: new Date().toISOString().split("T")[0],
+            manufacture_date: (item as any).manufacture_date || null,
+            expiry_date: (item as any).expiry_date || null,
+            notes: item.notes,
+          } as any);
+        }
       }
 
-      // 4. Update receipt status to received
+      // 4. Create all batch records
+      if (batchesToCreate.length > 0) {
+        const { error: batchError } = await db
+          .from("inventory_batches")
+          .insert(batchesToCreate);
+        
+        if (batchError) {
+          console.error("Error creating batches:", batchError);
+          // Don't throw - batches are supplementary
+        }
+      }
+
+      // 5. Update receipt status to received
       const { error: updateError } = await supabase
         .from("goods_receipts")
         .update({ status: "received" })
@@ -257,6 +299,8 @@ export function useConfirmGoodsReceipt() {
       queryClient.invalidateQueries({ queryKey: ["goods-receipts"] });
       queryClient.invalidateQueries({ queryKey: ["inventory"] });
       queryClient.invalidateQueries({ queryKey: ["low-stock"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory-batches"] });
+      queryClient.invalidateQueries({ queryKey: ["expiry-stats"] });
     },
   });
 }

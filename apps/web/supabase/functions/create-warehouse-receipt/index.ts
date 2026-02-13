@@ -10,6 +10,7 @@ interface ExtractedItem {
   product_name: string;
   quantity: number;
   unit: string;
+  expiry_date?: string;
   unit_price?: number;
 }
 
@@ -192,6 +193,7 @@ serve(async (req) => {
         product_name: item.product_name,
         quantity: item.quantity,
         unit: item.unit,
+        expiry_date: item.expiry_date || null,
         notes: item.unit_price ? `Đơn giá: ${item.unit_price}` : null,
       }));
 

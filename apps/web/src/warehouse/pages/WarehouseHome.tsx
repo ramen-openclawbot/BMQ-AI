@@ -45,6 +45,7 @@ interface MatchResult {
     product_name: string;
     quantity: number;
     unit: string;
+    expiry_date?: string;
     unit_price?: number;
   }>;
 }
@@ -106,6 +107,7 @@ export default function WarehouseHome() {
           product_name: item.product_name,
           quantity: item.quantity,
           unit: item.unit,
+          expiry_date: item.expiry_date,
           unit_price: item.unit_price,
           status: matchItem?.status || "extra",
           originalName: matchItem?.matchedName,
@@ -121,6 +123,7 @@ export default function WarehouseHome() {
       product_name: item.deliveryName,
       quantity: item.deliveryQty,
       unit: item.deliveryUnit,
+      expiry_date: "",
       status: item.status,
       originalName: item.matchedName,
       originalQty: item.matchedQty,

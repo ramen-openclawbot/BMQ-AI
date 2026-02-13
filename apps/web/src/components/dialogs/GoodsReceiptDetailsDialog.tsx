@@ -125,6 +125,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                       <TableHead>SKU</TableHead>
                       <TableHead className="text-right">Số lượng</TableHead>
                       <TableHead>Đơn vị</TableHead>
+                      <TableHead>HSD</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -142,6 +143,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                           {item.quantity.toLocaleString("vi-VN")}
                         </TableCell>
                         <TableCell>{item.unit || "kg"}</TableCell>
+                        <TableCell>{(item as any).expiry_date ? format(new Date((item as any).expiry_date), "dd/MM/yyyy", { locale: vi }) : "-"}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
