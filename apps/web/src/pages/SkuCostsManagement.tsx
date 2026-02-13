@@ -9,6 +9,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import {
+  DEFAULT_SKU_COST_TEMPLATE,
+  DEFAULT_SKU_COST_VALUES,
+  parseCostTemplate,
+  parseCostValues,
+  toNumber,
+} from "@/lib/sku-cost-template";
 
 type SKU = any;
 type FormulaRow = any;
@@ -27,11 +34,9 @@ const formatYYMMDD = (d: string) => {
   return `${yy}${mm}${dd}`;
 };
 
-const calcLineCost = (r: FormulaRow) => {
-  const base = Number(r.unit_price || 0) * Number(r.dosage_qty || 0);
-  const wastage = Number(r.wastage_percent || 0) / 100;
-  return base * (1 + wastage);
-};
+const calcLineCost = (r: FormulaRow) => Number(r.unit_price || 0) * Number(r.dosage_qty || 0);
+
+const vnd = (value: number) => new Intl.NumberFormat("vi-VN").format(value || 0);
 
 export default function SkuCostsManagement() {
   const { toast } = useToast();
@@ -55,13 +60,8 @@ export default function SkuCostsManagement() {
     yield_percent: 100,
     finished_output_qty: 1,
     finished_output_unit: "cái",
-    packaging_cost_per_unit: 0,
-    labor_cost_per_unit: 0,
-    delivery_cost_per_unit: 0,
-    other_production_cost_per_unit: 0,
-    sga_cost_per_unit: 0,
-    extra_cost_per_unit: 0,
-    selling_price: 0,
+    cost_template: DEFAULT_SKU_COST_TEMPLATE,
+    cost_values: DEFAULT_SKU_COST_VALUES,
   });
 
   const [batchForm, setBatchForm] = useState<any>({
@@ -70,6 +70,10 @@ export default function SkuCostsManagement() {
     expiry_date: "",
     notes: "",
   });
+
+  const activeSku = useMemo(() => skus.find((s) => s.id === activeSkuId) || {}, [skus, activeSkuId]);
+  const costTemplate = useMemo(() => parseCostTemplate(activeSku.cost_template), [activeSku.cost_template]);
+  const costValues = useMemo(() => parseCostValues(activeSku.cost_values), [activeSku.cost_values]);
 
   const loadAll = async () => {
     const [skuRes, pRes, bRes] = await Promise.all([
@@ -112,23 +116,48 @@ export default function SkuCostsManagement() {
   }, [activeSkuId]);
 
   const costing = useMemo(() => {
-    const current = skus.find((s) => s.id === activeSkuId) || {};
-    const outputQty = Math.max(1, Number(current.finished_output_qty || 1));
-    const materialBatchCost = formula.reduce((s, r) => s + calcLineCost(r), 0);
-    const materialCost = materialBatchCost / outputQty;
-    const packaging = Number(current.packaging_cost_per_unit || 0);
-    const labor = Number(current.labor_cost_per_unit || 0);
-    const delivery = Number(current.delivery_cost_per_unit || 0);
-    const otherProduction = Number(current.other_production_cost_per_unit || 0);
-    const sga = Number(current.sga_cost_per_unit || 0);
-    const extra = Number(current.extra_cost_per_unit || 0);
-    const totalCost = materialCost + packaging + labor + delivery + otherProduction + sga + extra;
-    const selling = Number(current.selling_price || 0);
-    const netProfit = selling - totalCost;
-    const margin = selling > 0 ? (netProfit / selling) * 100 : 0;
-    const pct = (v: number) => (totalCost > 0 ? (v / totalCost) * 100 : 0);
-    return { materialBatchCost, outputQty, materialCost, packaging, labor, delivery, otherProduction, sga, extra, totalCost, selling, netProfit, margin, pct };
-  }, [formula, skus, activeSkuId]);
+    const outputQty = Math.max(1, Number(activeSku.finished_output_qty || 1));
+
+    const totalMaterialCostBatch = formula.reduce((sum, row) => sum + calcLineCost(row), 0);
+    const totalMaterialCost = totalMaterialCostBatch / outputQty;
+    const provisionPercent = toNumber(costValues.material_provision_percent, 0);
+    const provisionAmount = (totalMaterialCost * provisionPercent) / 100;
+    const totalCostNVL = totalMaterialCost + provisionAmount;
+
+    const nonMaterialCost = costTemplate
+      .filter((line) => line.mode === "amount" && !["selling_price"].includes(line.key))
+      .reduce((sum, line) => sum + toNumber(costValues[line.key], 0), 0);
+
+    const totalCost = totalCostNVL + nonMaterialCost;
+    const sellingPrice = toNumber(costValues.selling_price, 0);
+    const netProfit = sellingPrice - totalCost;
+    const netProfitPct = sellingPrice > 0 ? (netProfit / sellingPrice) * 100 : 0;
+    const pctOnCost = (value: number) => (totalCost > 0 ? (value / totalCost) * 100 : 0);
+
+    const groupCosts = {
+      nvl: totalCostNVL,
+      packaging: toNumber(costValues.packaging_cost),
+      labor: toNumber(costValues.labor_cost),
+      delivery: toNumber(costValues.delivery_cost),
+      otherProduction: toNumber(costValues.other_production_cost),
+      sga: toNumber(costValues.sga_cost),
+    };
+
+    return {
+      outputQty,
+      totalMaterialCostBatch,
+      totalMaterialCost,
+      provisionPercent,
+      provisionAmount,
+      totalCostNVL,
+      totalCost,
+      sellingPrice,
+      netProfit,
+      netProfitPct,
+      pctOnCost,
+      groupCosts,
+    };
+  }, [activeSku, formula, costTemplate, costValues]);
 
   const openCreateSku = () => {
     setSkuForm({
@@ -142,19 +171,18 @@ export default function SkuCostsManagement() {
       yield_percent: 100,
       finished_output_qty: 1,
       finished_output_unit: "cái",
-      packaging_cost_per_unit: 0,
-      labor_cost_per_unit: 0,
-      delivery_cost_per_unit: 0,
-      other_production_cost_per_unit: 0,
-      sga_cost_per_unit: 0,
-      extra_cost_per_unit: 0,
-      selling_price: 0,
+      cost_template: DEFAULT_SKU_COST_TEMPLATE,
+      cost_values: DEFAULT_SKU_COST_VALUES,
     });
     setDialogOpen(true);
   };
 
   const openEditSku = (sku: SKU) => {
-    setSkuForm({ ...sku });
+    setSkuForm({
+      ...sku,
+      cost_template: parseCostTemplate(sku.cost_template),
+      cost_values: parseCostValues(sku.cost_values),
+    });
     setDialogOpen(true);
   };
 
@@ -194,6 +222,13 @@ export default function SkuCostsManagement() {
   const removeFormulaRow = async (id: string) => {
     await sb.from("sku_formulations").delete().eq("id", id);
     loadAll();
+  };
+
+  const updateCostValue = async (key: string, value: number) => {
+    if (!activeSkuId) return;
+    const next = { ...costValues, [key]: value };
+    await sb.from("product_skus").update({ cost_values: next }).eq("id", activeSkuId);
+    setSkus((prev) => prev.map((sku) => (sku.id === activeSkuId ? { ...sku, cost_values: next } : sku)));
   };
 
   const uploadDoc = async (file: File) => {
@@ -285,7 +320,7 @@ export default function SkuCostsManagement() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">SKU + Batch Coding + Traceability (MVP)</h1>
+      <h1 className="text-2xl font-bold">SKU Costs theo template thực tế</h1>
 
       <Tabs defaultValue="sku-admin">
         <TabsList>
@@ -314,7 +349,7 @@ export default function SkuCostsManagement() {
                       <TableCell>
                         <button className="underline" onClick={() => setActiveSkuId(s.id)}>{s.product_name}</button>
                       </TableCell>
-                      <TableCell>{new Intl.NumberFormat("vi-VN").format(Number(s.selling_price || 0))}</TableCell>
+                      <TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell>
                       <TableCell><Button variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button></TableCell>
                     </TableRow>
                   ))}
@@ -325,14 +360,14 @@ export default function SkuCostsManagement() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Costing widget</CardTitle>
+              <CardTitle>Template cost sheet (nhập tay 1:1)</CardTitle>
               <Button variant="outline" onClick={addFormula}>+ Dòng NVL</Button>
             </CardHeader>
             <CardContent className="space-y-4">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Nguyên vật liệu</TableHead><TableHead>ĐVT</TableHead><TableHead>Đơn giá</TableHead><TableHead>Định lượng</TableHead><TableHead>Hao hụt %</TableHead><TableHead>Giá vốn</TableHead><TableHead></TableHead>
+                    <TableHead>NVL chi tiết</TableHead><TableHead>ĐVT</TableHead><TableHead>Đơn giá</TableHead><TableHead>Định lượng</TableHead><TableHead>Giá vốn</TableHead><TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -342,8 +377,7 @@ export default function SkuCostsManagement() {
                       <TableCell><Input value={r.unit || ""} onChange={(e) => updateFormulaRow(r, { unit: e.target.value })} /></TableCell>
                       <TableCell><Input type="number" value={r.unit_price || 0} onChange={(e) => updateFormulaRow(r, { unit_price: Number(e.target.value || 0) })} /></TableCell>
                       <TableCell><Input type="number" value={r.dosage_qty || 0} onChange={(e) => updateFormulaRow(r, { dosage_qty: Number(e.target.value || 0) })} /></TableCell>
-                      <TableCell><Input type="number" value={r.wastage_percent || 0} onChange={(e) => updateFormulaRow(r, { wastage_percent: Number(e.target.value || 0) })} /></TableCell>
-                      <TableCell>{new Intl.NumberFormat("vi-VN").format(calcLineCost(r))}</TableCell>
+                      <TableCell>{vnd(calcLineCost(r))}</TableCell>
                       <TableCell><Button variant="destructive" size="sm" onClick={() => removeFormulaRow(r.id)}>Xóa</Button></TableCell>
                     </TableRow>
                   ))}
@@ -351,19 +385,68 @@ export default function SkuCostsManagement() {
               </Table>
 
               <div className="grid md:grid-cols-2 gap-3 text-sm">
-                <div className="p-3 rounded border">Tổng cost NVL/mẻ: <b>{new Intl.NumberFormat("vi-VN").format(costing.materialBatchCost)}</b></div>
-                <div className="p-3 rounded border">Thành phẩm: <b>{costing.outputQty}</b> {skus.find((s) => s.id === activeSkuId)?.finished_output_unit || "cái"}</div>
-                <div className="p-3 rounded border">Cost NVL/cái: <b>{new Intl.NumberFormat("vi-VN").format(costing.materialCost)}</b> ({costing.pct(costing.materialCost).toFixed(1)}%)</div>
-                <div className="p-3 rounded border">Cost bao bì: <b>{new Intl.NumberFormat("vi-VN").format(costing.packaging)}</b> ({costing.pct(costing.packaging).toFixed(1)}%)</div>
-                <div className="p-3 rounded border">Cost nhân công: <b>{new Intl.NumberFormat("vi-VN").format(costing.labor)}</b> ({costing.pct(costing.labor).toFixed(1)}%)</div>
-                <div className="p-3 rounded border">Delivery cost: <b>{new Intl.NumberFormat("vi-VN").format(costing.delivery)}</b> ({costing.pct(costing.delivery).toFixed(1)}%)</div>
-                <div className="p-3 rounded border">Other production: <b>{new Intl.NumberFormat("vi-VN").format(costing.otherProduction)}</b> ({costing.pct(costing.otherProduction).toFixed(1)}%)</div>
-                <div className="p-3 rounded border">Chi phí BH&QL: <b>{new Intl.NumberFormat("vi-VN").format(costing.sga)}</b> ({costing.pct(costing.sga).toFixed(1)}%)</div>
-                <div className="p-3 rounded border">Chi phí cộng thêm: <b>{new Intl.NumberFormat("vi-VN").format(costing.extra)}</b> ({costing.pct(costing.extra).toFixed(1)}%)</div>
-                <div className="p-3 rounded border">Tổng cost/cái: <b>{new Intl.NumberFormat("vi-VN").format(costing.totalCost)}</b></div>
-                <div className="p-3 rounded border">Giá bán: <b>{new Intl.NumberFormat("vi-VN").format(costing.selling)}</b></div>
-                <div className="p-3 rounded border">Net profit: <b>{new Intl.NumberFormat("vi-VN").format(costing.netProfit)}</b></div>
-                <div className="p-3 rounded border">Tỷ trọng lợi nhuận: <b>{costing.margin.toFixed(2)}%</b></div>
+                <div className="p-3 rounded border">Total material cost: <b>{vnd(costing.totalMaterialCost)}</b></div>
+                <div className="p-3 rounded border flex items-center gap-2">
+                  Dự phòng hao hụt/tăng giá (%):
+                  <Input
+                    className="w-28 h-8"
+                    type="number"
+                    value={costValues.material_provision_percent || 0}
+                    onChange={(e) => updateCostValue("material_provision_percent", Number(e.target.value || 0))}
+                  />
+                </div>
+                <div className="p-3 rounded border">Dự phòng hao hụt/tăng giá (VND): <b>{vnd(costing.provisionAmount)}</b></div>
+                <div className="p-3 rounded border">Total cost NVL: <b>{vnd(costing.totalCostNVL)}</b> ({costing.pctOnCost(costing.totalCostNVL).toFixed(1)}%)</div>
+
+                {costTemplate
+                  .filter((line) => !["material_provision_percent", "selling_price"].includes(line.key))
+                  .map((line) => {
+                    const value = toNumber(costValues[line.key], 0);
+                    return (
+                      <div key={line.key} className="p-3 rounded border flex items-center justify-between gap-2">
+                        <span>{line.label}</span>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            className="w-32 h-8"
+                            type="number"
+                            value={value}
+                            onChange={(e) => updateCostValue(line.key, Number(e.target.value || 0))}
+                          />
+                          <span className="text-muted-foreground">({costing.pctOnCost(value).toFixed(1)}%)</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                <div className="p-3 rounded border">Tổng cost: <b>{vnd(costing.totalCost)}</b></div>
+                <div className="p-3 rounded border flex items-center gap-2">
+                  Giá bán:
+                  <Input
+                    className="w-32 h-8"
+                    type="number"
+                    value={costValues.selling_price || 0}
+                    onChange={(e) => updateCostValue("selling_price", Number(e.target.value || 0))}
+                  />
+                </div>
+                <div className="p-3 rounded border">Net profit: <b>{vnd(costing.netProfit)}</b></div>
+                <div className="p-3 rounded border">Net profit (% trên giá bán): <b>{costing.netProfitPct.toFixed(2)}%</b></div>
+              </div>
+
+              <div className="rounded border p-3">
+                <h4 className="font-semibold mb-2">Cost (%) theo nhóm</h4>
+                <Table>
+                  <TableHeader>
+                    <TableRow><TableHead>Nhóm</TableHead><TableHead>Giá trị</TableHead><TableHead>Tỷ trọng</TableHead></TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    <TableRow><TableCell>Total cost NVL</TableCell><TableCell>{vnd(costing.groupCosts.nvl)}</TableCell><TableCell>{costing.pctOnCost(costing.groupCosts.nvl).toFixed(1)}%</TableCell></TableRow>
+                    <TableRow><TableCell>Cost bao bì</TableCell><TableCell>{vnd(costing.groupCosts.packaging)}</TableCell><TableCell>{costing.pctOnCost(costing.groupCosts.packaging).toFixed(1)}%</TableCell></TableRow>
+                    <TableRow><TableCell>Cost nhân công</TableCell><TableCell>{vnd(costing.groupCosts.labor)}</TableCell><TableCell>{costing.pctOnCost(costing.groupCosts.labor).toFixed(1)}%</TableCell></TableRow>
+                    <TableRow><TableCell>Delivery cost</TableCell><TableCell>{vnd(costing.groupCosts.delivery)}</TableCell><TableCell>{costing.pctOnCost(costing.groupCosts.delivery).toFixed(1)}%</TableCell></TableRow>
+                    <TableRow><TableCell>Other production cost</TableCell><TableCell>{vnd(costing.groupCosts.otherProduction)}</TableCell><TableCell>{costing.pctOnCost(costing.groupCosts.otherProduction).toFixed(1)}%</TableCell></TableRow>
+                    <TableRow><TableCell>Chi phí bán hàng & quản lý</TableCell><TableCell>{vnd(costing.groupCosts.sga)}</TableCell><TableCell>{costing.pctOnCost(costing.groupCosts.sga).toFixed(1)}%</TableCell></TableRow>
+                  </TableBody>
+                </Table>
               </div>
             </CardContent>
           </Card>
@@ -492,13 +575,6 @@ export default function SkuCostsManagement() {
             <Input placeholder="Danh mục" value={skuForm.category || ""} onChange={(e) => setSkuForm({ ...skuForm, category: e.target.value })} />
             <Input type="number" placeholder="SL thành phẩm" value={skuForm.finished_output_qty || 1} onChange={(e) => setSkuForm({ ...skuForm, finished_output_qty: Number(e.target.value || 1) })} />
             <Input placeholder="DVT thành phẩm" value={skuForm.finished_output_unit || ""} onChange={(e) => setSkuForm({ ...skuForm, finished_output_unit: e.target.value })} />
-            <Input type="number" placeholder="Cost bao bì" value={skuForm.packaging_cost_per_unit || 0} onChange={(e) => setSkuForm({ ...skuForm, packaging_cost_per_unit: Number(e.target.value || 0) })} />
-            <Input type="number" placeholder="Cost nhân công" value={skuForm.labor_cost_per_unit || 0} onChange={(e) => setSkuForm({ ...skuForm, labor_cost_per_unit: Number(e.target.value || 0) })} />
-            <Input type="number" placeholder="Delivery cost" value={skuForm.delivery_cost_per_unit || 0} onChange={(e) => setSkuForm({ ...skuForm, delivery_cost_per_unit: Number(e.target.value || 0) })} />
-            <Input type="number" placeholder="Other production cost" value={skuForm.other_production_cost_per_unit || 0} onChange={(e) => setSkuForm({ ...skuForm, other_production_cost_per_unit: Number(e.target.value || 0) })} />
-            <Input type="number" placeholder="Chi phí bán hàng & quản lý" value={skuForm.sga_cost_per_unit || 0} onChange={(e) => setSkuForm({ ...skuForm, sga_cost_per_unit: Number(e.target.value || 0) })} />
-            <Input type="number" placeholder="Chi phí cộng thêm" value={skuForm.extra_cost_per_unit || 0} onChange={(e) => setSkuForm({ ...skuForm, extra_cost_per_unit: Number(e.target.value || 0) })} />
-            <Input type="number" placeholder="Giá bán" value={skuForm.selling_price || 0} onChange={(e) => setSkuForm({ ...skuForm, selling_price: Number(e.target.value || 0) })} />
           </div>
           <DialogFooter>
             <Button onClick={saveSku}>Lưu</Button>
