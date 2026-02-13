@@ -24,6 +24,7 @@ import SkuCostsProducts from "@/pages/SkuCostsProducts";
 import SkuCostsIngredients from "@/pages/SkuCostsIngredients";
 import SkuCostsEmployees from "@/pages/SkuCostsEmployees";
 import SkuCostsOverhead from "@/pages/SkuCostsOverhead";
+import TraceabilityPublic from "@/pages/TraceabilityPublic";
 
 // Warehouse App - eager load to prevent Safari chunk loading issues
 import WarehouseHome from "@/warehouse/pages/WarehouseHome";
@@ -101,6 +102,7 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/auth" element={<Auth />} />
+      <Route path="/trace/:token" element={<TraceabilityPublic />} />
       
       {/* Warehouse App Route - uses main app auth */}
       <Route path="/kho" element={
