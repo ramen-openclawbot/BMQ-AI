@@ -1,4 +1,4 @@
-project_id = "rynasigppxpuhyibxizr"
+project_id = "cxntbdvfsikwmitapony"
 
 [functions.scan-invoice]
 verify_jwt = false
