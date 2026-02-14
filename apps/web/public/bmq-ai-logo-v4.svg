@@ -1,0 +1,278 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 618" width="1000" height="618">
+  <defs>
+    <!-- Dark futuristic gradient background -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0A0E27;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#0D1333;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0A0E27;stop-opacity:1" />
+    </linearGradient>
+    <!-- Neon cyan gradient -->
+    <linearGradient id="neonCyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00F0FF;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#00BCD4;stop-opacity:1" />
+    </linearGradient>
+    <!-- AI badge gradient -->
+    <linearGradient id="badgeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00F0FF;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#00BCD4;stop-opacity:1" />
+    </linearGradient>
+    <!-- AI bracket gradient for slogan -->
+    <linearGradient id="bracketGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#00F0FF;stop-opacity:0.9" />
+      <stop offset="100%" style="stop-color:#00BCD4;stop-opacity:0.9" />
+    </linearGradient>
+    <!-- Radial glow for icon -->
+    <radialGradient id="iconRadial" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#00F0FF;stop-opacity:0.15" />
+      <stop offset="70%" style="stop-color:#00F0FF;stop-opacity:0.03" />
+      <stop offset="100%" style="stop-color:#00F0FF;stop-opacity:0" />
+    </radialGradient>
+    <!-- Neon glow filter -->
+    <filter id="neonGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="6" result="blur1"/>
+      <feFlood flood-color="#00F0FF" flood-opacity="0.4" result="color"/>
+      <feComposite in="color" in2="blur1" operator="in" result="glow"/>
+      <feMerge>
+        <feMergeNode in="glow"/>
+        <feMergeNode in="glow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Subtle glow -->
+    <filter id="subtleGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Badge glow -->
+    <filter id="badgeGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="4" result="blur1"/>
+      <feFlood flood-color="#00F0FF" flood-opacity="0.35" result="color"/>
+      <feComposite in="color" in2="blur1" operator="in" result="glow"/>
+      <feMerge>
+        <feMergeNode in="glow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Holographic scanline effect for A and I -->
+    <linearGradient id="holoGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#00F0FF;stop-opacity:1" />
+      <stop offset="25%" style="stop-color:#7C4DFF;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#00F0FF;stop-opacity:1" />
+      <stop offset="75%" style="stop-color:#18FFFF;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7C4DFF;stop-opacity:1" />
+    </linearGradient>
+    <!-- Holographic horizontal gradient for variety -->
+    <linearGradient id="holoGradH" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#00F0FF;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#B388FF;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#18FFFF;stop-opacity:1" />
+    </linearGradient>
+    <!-- Strong holographic glow filter for A and I -->
+    <filter id="holoNeon" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="3" result="blur1"/>
+      <feFlood flood-color="#7C4DFF" flood-opacity="0.5" result="color1"/>
+      <feComposite in="color1" in2="blur1" operator="in" result="glow1"/>
+      <feGaussianBlur stdDeviation="8" result="blur2"/>
+      <feFlood flood-color="#00F0FF" flood-opacity="0.3" result="color2"/>
+      <feComposite in="color2" in2="blur2" operator="in" result="glow2"/>
+      <feGaussianBlur stdDeviation="16" result="blur3"/>
+      <feFlood flood-color="#7C4DFF" flood-opacity="0.12" result="color3"/>
+      <feComposite in="color3" in2="blur3" operator="in" result="glow3"/>
+      <feMerge>
+        <feMergeNode in="glow3"/>
+        <feMergeNode in="glow2"/>
+        <feMergeNode in="glow1"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Clip paths -->
+    <clipPath id="aClip">
+      <text x="0" y="0" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+            font-size="28" font-weight="800" letter-spacing="8">A</text>
+    </clipPath>
+    <clipPath id="iClip">
+      <text x="0" y="0" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+            font-size="28" font-weight="800" letter-spacing="8">I</text>
+    </clipPath>
+  </defs>
+
+  <!-- ====== BACKGROUND ====== -->
+  <rect width="1000" height="618" fill="url(#bgGrad)"/>
+
+  <!-- Subtle grid pattern -->
+  <g opacity="0.04" stroke="#00F0FF" stroke-width="0.5">
+    <line x1="0" y1="0" x2="0" y2="618"/><line x1="50" y1="0" x2="50" y2="618"/>
+    <line x1="100" y1="0" x2="100" y2="618"/><line x1="150" y1="0" x2="150" y2="618"/>
+    <line x1="200" y1="0" x2="200" y2="618"/><line x1="250" y1="0" x2="250" y2="618"/>
+    <line x1="300" y1="0" x2="300" y2="618"/><line x1="350" y1="0" x2="350" y2="618"/>
+    <line x1="400" y1="0" x2="400" y2="618"/><line x1="450" y1="0" x2="450" y2="618"/>
+    <line x1="500" y1="0" x2="500" y2="618"/><line x1="550" y1="0" x2="550" y2="618"/>
+    <line x1="600" y1="0" x2="600" y2="618"/><line x1="650" y1="0" x2="650" y2="618"/>
+    <line x1="700" y1="0" x2="700" y2="618"/><line x1="750" y1="0" x2="750" y2="618"/>
+    <line x1="800" y1="0" x2="800" y2="618"/><line x1="850" y1="0" x2="850" y2="618"/>
+    <line x1="900" y1="0" x2="900" y2="618"/><line x1="950" y1="0" x2="950" y2="618"/>
+    <line x1="0" y1="0" x2="1000" y2="0"/><line x1="0" y1="50" x2="1000" y2="50"/>
+    <line x1="0" y1="100" x2="1000" y2="100"/><line x1="0" y1="150" x2="1000" y2="150"/>
+    <line x1="0" y1="200" x2="1000" y2="200"/><line x1="0" y1="250" x2="1000" y2="250"/>
+    <line x1="0" y1="300" x2="1000" y2="300"/><line x1="0" y1="350" x2="1000" y2="350"/>
+    <line x1="0" y1="400" x2="1000" y2="400"/><line x1="0" y1="450" x2="1000" y2="450"/>
+    <line x1="0" y1="500" x2="1000" y2="500"/><line x1="0" y1="550" x2="1000" y2="550"/>
+    <line x1="0" y1="600" x2="1000" y2="600"/>
+  </g>
+
+  <!-- ====== ICON: Neural AI brain ====== -->
+  <circle cx="175" cy="255" r="160" fill="url(#iconRadial)"/>
+  <circle cx="175" cy="255" r="130" fill="none" stroke="#00F0FF" stroke-width="0.5" opacity="0.08"/>
+  <circle cx="175" cy="255" r="115" fill="none" stroke="#00F0FF" stroke-width="0.5" opacity="0.12"/>
+  <circle cx="175" cy="255" r="98" fill="none" stroke="url(#neonCyan)" stroke-width="2" opacity="0.5"/>
+  <circle cx="175" cy="255" r="92" fill="#0D1333" stroke="url(#neonCyan)" stroke-width="1.5" opacity="0.9"/>
+
+  <!-- Orbital rings -->
+  <ellipse cx="175" cy="255" rx="65" ry="30" fill="none" stroke="#00F0FF" stroke-width="0.8" opacity="0.2" transform="rotate(0, 175, 255)"/>
+  <ellipse cx="175" cy="255" rx="65" ry="30" fill="none" stroke="#00F0FF" stroke-width="0.8" opacity="0.2" transform="rotate(60, 175, 255)"/>
+  <ellipse cx="175" cy="255" rx="65" ry="30" fill="none" stroke="#00F0FF" stroke-width="0.8" opacity="0.2" transform="rotate(120, 175, 255)"/>
+
+  <!-- Neural curved paths -->
+  <path d="M 175 185 Q 220 215 175 255" fill="none" stroke="#00F0FF" stroke-width="1.5" opacity="0.4" stroke-linecap="round"/>
+  <path d="M 175 185 Q 130 215 175 255" fill="none" stroke="#00F0FF" stroke-width="1.5" opacity="0.4" stroke-linecap="round"/>
+  <path d="M 240 220 Q 210 240 175 255" fill="none" stroke="#00F0FF" stroke-width="1.5" opacity="0.4" stroke-linecap="round"/>
+  <path d="M 110 220 Q 140 240 175 255" fill="none" stroke="#00F0FF" stroke-width="1.5" opacity="0.4" stroke-linecap="round"/>
+  <path d="M 235 300 Q 210 280 175 255" fill="none" stroke="#00F0FF" stroke-width="1.5" opacity="0.4" stroke-linecap="round"/>
+  <path d="M 115 300 Q 140 280 175 255" fill="none" stroke="#00F0FF" stroke-width="1.5" opacity="0.4" stroke-linecap="round"/>
+  <path d="M 175 325 Q 175 295 175 255" fill="none" stroke="#00F0FF" stroke-width="1.5" opacity="0.4" stroke-linecap="round"/>
+
+  <!-- Neural nodes -->
+  <circle cx="175" cy="255" r="14" fill="#0D1333" stroke="#00F0FF" stroke-width="2" filter="url(#neonGlow)"/>
+  <circle cx="175" cy="255" r="6" fill="#00F0FF" opacity="0.9"/>
+  <circle cx="175" cy="185" r="7" fill="#0D1333" stroke="#00F0FF" stroke-width="1.5" opacity="0.8"/>
+  <circle cx="175" cy="185" r="3" fill="#00F0FF" opacity="0.7"/>
+  <circle cx="240" cy="220" r="7" fill="#0D1333" stroke="#00F0FF" stroke-width="1.5" opacity="0.8"/>
+  <circle cx="240" cy="220" r="3" fill="#00F0FF" opacity="0.7"/>
+  <circle cx="110" cy="220" r="7" fill="#0D1333" stroke="#00F0FF" stroke-width="1.5" opacity="0.8"/>
+  <circle cx="110" cy="220" r="3" fill="#00F0FF" opacity="0.7"/>
+  <circle cx="235" cy="300" r="7" fill="#0D1333" stroke="#00F0FF" stroke-width="1.5" opacity="0.8"/>
+  <circle cx="235" cy="300" r="3" fill="#00F0FF" opacity="0.7"/>
+  <circle cx="115" cy="300" r="7" fill="#0D1333" stroke="#00F0FF" stroke-width="1.5" opacity="0.8"/>
+  <circle cx="115" cy="300" r="3" fill="#00F0FF" opacity="0.7"/>
+  <circle cx="175" cy="325" r="7" fill="#0D1333" stroke="#00F0FF" stroke-width="1.5" opacity="0.8"/>
+  <circle cx="175" cy="325" r="3" fill="#00F0FF" opacity="0.7"/>
+
+  <!-- Micro particles -->
+  <circle cx="200" cy="193" r="2" fill="#00F0FF" opacity="0.35"/>
+  <circle cx="150" cy="193" r="2" fill="#00F0FF" opacity="0.35"/>
+  <circle cx="145" cy="315" r="2" fill="#00F0FF" opacity="0.35"/>
+  <circle cx="205" cy="315" r="2" fill="#00F0FF" opacity="0.35"/>
+  <circle cx="248" cy="260" r="2" fill="#00F0FF" opacity="0.35"/>
+  <circle cx="102" cy="260" r="2" fill="#00F0FF" opacity="0.35"/>
+
+  <!-- ====== BMQ TEXT + AI BADGE ====== -->
+  <!-- BMQ -->
+  <text x="382" y="260" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+        font-size="120" font-weight="800" fill="#FFFFFF" letter-spacing="8" opacity="0.95">BMQ</text>
+
+  <!-- AI Badge - pill shape with neon border glow -->
+  <g transform="translate(690, 210)" filter="url(#badgeGlow)">
+    <!-- Badge background -->
+    <rect x="0" y="0" width="82" height="44" rx="22" ry="22" fill="#0D1333"/>
+    <!-- Badge border glow -->
+    <rect x="0" y="0" width="82" height="44" rx="22" ry="22" fill="none" stroke="url(#badgeGrad)" stroke-width="2"/>
+    <!-- Inner subtle fill -->
+    <rect x="2" y="2" width="78" height="40" rx="20" ry="20" fill="url(#badgeGrad)" opacity="0.08"/>
+    <!-- AI text -->
+    <text x="41" y="30.5" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+          font-size="24" font-weight="700" fill="#00F0FF" text-anchor="middle" letter-spacing="4">AI</text>
+  </g>
+
+  <!-- Thin line separator -->
+  <rect x="382" y="288" width="395" height="1.5" rx="0.75" fill="url(#neonCyan)" opacity="0.3"/>
+
+  <!-- ====== SLOGAN: BUSINESS MEETS QUALITY ====== -->
+  <!-- New A+I effect: holographic color-shift letters with glitch bracket frame -->
+  <g transform="translate(382, 338)">
+    <!-- "BUSINESS MEETS QU" normal -->
+    <text x="0" y="0" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+          font-size="24" font-weight="300" fill="#8899AA" letter-spacing="8">BUSINESS MEETS QU</text>
+
+    <!-- ====== "A" - HOLOGRAPHIC STYLE with bracket frame ====== -->
+    <!-- Outer glow aura behind A -->
+    <circle cx="383" cy="-6" r="22" fill="#7C4DFF" opacity="0.06"/>
+    <circle cx="383" cy="-6" r="16" fill="#00F0FF" opacity="0.05"/>
+
+    <!-- Left bracket [ for A -->
+    <path d="M 363 -18 L 363 14" fill="none" stroke="url(#bracketGrad)" stroke-width="2" opacity="0.7" stroke-linecap="round"/>
+    <path d="M 363 -18 L 369 -18" fill="none" stroke="url(#bracketGrad)" stroke-width="2" opacity="0.7" stroke-linecap="round"/>
+    <path d="M 363 14 L 369 14" fill="none" stroke="url(#bracketGrad)" stroke-width="2" opacity="0.7" stroke-linecap="round"/>
+
+    <!-- The "A" letter - holographic multicolor -->
+    <g filter="url(#holoNeon)">
+      <text x="370" y="0" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+            font-size="28" font-weight="800" fill="url(#holoGrad)" letter-spacing="6">A</text>
+    </g>
+
+    <!-- Right bracket ] for A -->
+    <path d="M 399 -18 L 399 14" fill="none" stroke="url(#bracketGrad)" stroke-width="2" opacity="0.7" stroke-linecap="round"/>
+    <path d="M 393 -18 L 399 -18" fill="none" stroke="url(#bracketGrad)" stroke-width="2" opacity="0.7" stroke-linecap="round"/>
+    <path d="M 393 14 L 399 14" fill="none" stroke="url(#bracketGrad)" stroke-width="2" opacity="0.7" stroke-linecap="round"/>
+
+    <!-- "L" normal -->
+    <text x="404" y="0" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+          font-size="24" font-weight="300" fill="#8899AA" letter-spacing="8">L</text>
+
+    <!-- ====== "I" - HOLOGRAPHIC STYLE with bracket frame ====== -->
+    <!-- Outer glow aura behind I -->
+    <circle cx="436" cy="-6" r="20" fill="#7C4DFF" opacity="0.06"/>
+    <circle cx="436" cy="-6" r="14" fill="#00F0FF" opacity="0.05"/>
+
+    <!-- Left bracket [ for I -->
+    <path d="M 421 -18 L 421 14" fill="none" stroke="url(#bracketGrad)" stroke-width="2" opacity="0.7" stroke-linecap="round"/>
+    <path d="M 421 -18 L 427 -18" fill="none" stroke="url(#bracketGrad)" stroke-width="2" opacity="0.7" stroke-linecap="round"/>
+    <path d="M 421 14 L 427 14" fill="none" stroke="url(#bracketGrad)" stroke-width="2" opacity="0.7" stroke-linecap="round"/>
+
+    <!-- The "I" letter - holographic multicolor -->
+    <g filter="url(#holoNeon)">
+      <text x="429" y="0" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+            font-size="28" font-weight="800" fill="url(#holoGrad)" letter-spacing="6">I</text>
+    </g>
+
+    <!-- Right bracket ] for I -->
+    <path d="M 449 -18 L 449 14" fill="none" stroke="url(#bracketGrad)" stroke-width="2" opacity="0.7" stroke-linecap="round"/>
+    <path d="M 443 -18 L 449 -18" fill="none" stroke="url(#bracketGrad)" stroke-width="2" opacity="0.7" stroke-linecap="round"/>
+    <path d="M 443 14 L 449 14" fill="none" stroke="url(#bracketGrad)" stroke-width="2" opacity="0.7" stroke-linecap="round"/>
+
+    <!-- "TY" normal -->
+    <text x="454" y="0" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+          font-size="24" font-weight="300" fill="#8899AA" letter-spacing="8">TY</text>
+
+    <!-- ====== Data stream connecting A → I ====== -->
+    <!-- Horizontal data flow line between brackets -->
+    <line x1="400" y1="-2" x2="420" y2="-2" stroke="#00F0FF" stroke-width="1" opacity="0.25" stroke-linecap="round" stroke-dasharray="3 3"/>
+
+    <!-- Flowing data particles between A and I -->
+    <circle cx="404" cy="-2" r="1.5" fill="#00F0FF" opacity="0.5"/>
+    <circle cx="410" cy="-2" r="1.2" fill="#7C4DFF" opacity="0.4"/>
+    <circle cx="416" cy="-2" r="1.5" fill="#00F0FF" opacity="0.5"/>
+
+    <!-- Tiny vertical scan lines inside A and I (holographic effect) -->
+    <line x1="378" y1="-12" x2="378" y2="8" stroke="#00F0FF" stroke-width="0.5" opacity="0.15"/>
+    <line x1="382" y1="-10" x2="382" y2="6" stroke="#7C4DFF" stroke-width="0.5" opacity="0.12"/>
+    <line x1="386" y1="-12" x2="386" y2="8" stroke="#00F0FF" stroke-width="0.5" opacity="0.15"/>
+    <line x1="434" y1="-12" x2="434" y2="8" stroke="#00F0FF" stroke-width="0.5" opacity="0.15"/>
+    <line x1="438" y1="-10" x2="438" y2="6" stroke="#7C4DFF" stroke-width="0.5" opacity="0.12"/>
+  </g>
+
+  <!-- ====== Fibonacci spiral hint ====== -->
+  <g opacity="0.03" stroke="#00F0FF" stroke-width="0.8" fill="none">
+    <path d="M 500 309 Q 500 200 610 200" />
+    <path d="M 610 200 Q 680 200 680 260" />
+    <path d="M 680 260 Q 680 295 650 295" />
+  </g>
+
+  <!-- ====== Corner accents ====== -->
+  <path d="M 30 60 L 30 30 L 60 30" fill="none" stroke="#00F0FF" stroke-width="1" opacity="0.15" stroke-linecap="round"/>
+  <path d="M 940 30 L 970 30 L 970 60" fill="none" stroke="#00F0FF" stroke-width="1" opacity="0.15" stroke-linecap="round"/>
+  <path d="M 30 558 L 30 588 L 60 588" fill="none" stroke="#00F0FF" stroke-width="1" opacity="0.15" stroke-linecap="round"/>
+  <path d="M 940 588 L 970 588 L 970 558" fill="none" stroke="#00F0FF" stroke-width="1" opacity="0.15" stroke-linecap="round"/>
+</svg>
