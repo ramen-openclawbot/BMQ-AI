@@ -46,10 +46,10 @@ export function useSkuCostBridge() {
         .select("id, sku_code, product_name, category, unit, selling_price, extra_cost_per_unit, packaging_cost_per_unit, labor_cost_per_unit, delivery_cost_per_unit, other_production_cost_per_unit, sga_cost_per_unit, finished_output_qty, finished_output_unit, updated_at")
         .order("updated_at", { ascending: false });
 
-      const skuRows = (skus || []) as CostSku[];
+      const skuRows = ((skus || []) as CostSku[]).filter((s) => String(s.category || "").toLowerCase().includes("thành phẩm"));
       const skuIds = skuRows.map((s) => s.id);
 
-      const [formulaRes, purchaseRes, invRes] = await Promise.all([
+      const [formulaRes, prRes, poRes, invRes] = await Promise.all([
         sb
           .from("sku_formulations")
           .select("sku_id, ingredient_sku_id, ingredient_name, unit_price, dosage_qty, wastage_percent")
@@ -60,6 +60,11 @@ export function useSkuCostBridge() {
           .not("sku_id", "is", null)
           .order("created_at", { ascending: true }),
         sb
+          .from("purchase_order_items")
+          .select("sku_id, unit_price, created_at, purchase_orders(order_date)")
+          .not("sku_id", "is", null)
+          .order("created_at", { ascending: true }),
+        sb
           .from("inventory_batches")
           .select("sku_id, quantity, received_date")
           .not("sku_id", "is", null)
@@ -67,7 +72,10 @@ export function useSkuCostBridge() {
       ]);
 
       const formulas = (formulaRes.data || []) as FormulaRow[];
-      const purchases = (purchaseRes.data || []) as Array<{ sku_id: string; unit_price: number; created_at: string }>;
+      const purchases = [
+        ...((prRes.data || []) as Array<{ sku_id: string; unit_price: number; created_at: string }>),
+        ...((poRes.data || []) as Array<any>).map((x) => ({ sku_id: x.sku_id, unit_price: x.unit_price, created_at: x.purchase_orders?.order_date || x.created_at })),
+      ].sort((a, b) => +new Date(a.created_at) - +new Date(b.created_at));
       const inventories = (invRes.data || []) as Array<{ sku_id: string; quantity: number; received_date: string }>;
 
       const latestIngredientPrice = new Map<string, number>();

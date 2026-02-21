@@ -91,6 +91,8 @@ export default function SkuCostsManagement() {
   const [batchForm, setBatchForm] = useState<any>({ sku_id: "", production_date: new Date().toISOString().slice(0, 10), expiry_date: "", notes: "" });
 
   const activeSku = useMemo(() => skus.find((s) => s.id === activeSkuId) || {}, [skus, activeSkuId]);
+  const finishedSkus = useMemo(() => skus.filter((s) => String(s.category || "").toLowerCase().includes("thành phẩm")), [skus]);
+  const ingredientSkus = useMemo(() => skus.filter((s) => !String(s.category || "").toLowerCase().includes("thành phẩm")), [skus]);
   const costTemplate = useMemo(() => parseCostTemplate(activeSku.cost_template), [activeSku.cost_template]);
   const costValues = useMemo(() => parseCostValues(activeSku.cost_values), [activeSku.cost_values]);
   const widgetValues = useMemo(() => parseWidgets(activeSku.cost_widgets), [activeSku.cost_widgets]);
@@ -125,7 +127,8 @@ export default function SkuCostsManagement() {
     setPatterns(pRes.data || []);
     setBatches(bRes.data || []);
 
-    const currentSku = activeSkuId || skuRes.data?.[0]?.id;
+    const firstFinishedSku = (skuRes.data || []).find((s: any) => String(s.category || "").toLowerCase().includes("thành phẩm"));
+    const currentSku = activeSkuId || firstFinishedSku?.id || skuRes.data?.[0]?.id;
     if (currentSku) {
       setActiveSkuId(currentSku);
       const [fRes, dRes] = await Promise.all([
@@ -203,6 +206,87 @@ export default function SkuCostsManagement() {
     setDialogOpen(false); loadAll();
   };
 
+  const createSampleSkuChaBong = async () => {
+    const sampleSkuCode = "TP-BMCB-001";
+    const existing = finishedSkus.find((s) => s.sku_code === sampleSkuCode || String(s.product_name || "").toLowerCase().includes("bánh mì chà bông"));
+    if (existing) {
+      setActiveSkuId(existing.id);
+      toast({ title: "SKU mẫu đã tồn tại", description: "Đã chọn SKU Bánh mì chà bông." });
+      return;
+    }
+
+    const sampleCostValues = {
+      ...DEFAULT_SKU_COST_VALUES,
+      material_provision_percent: 10,
+      packaging_cost: 1280,
+      labor_cost: 3077,
+      delivery_cost: 1000,
+      other_production_cost: 1100,
+      sga_cost: 1100,
+      selling_price: 11000,
+    };
+
+    const { data: createdSku, error: createErr } = await sb.from("product_skus").insert({
+      sku_code: sampleSkuCode,
+      product_name: "Bánh mì chà bông",
+      category: "Thành phẩm",
+      unit: "cái",
+      base_unit: "cái",
+      finished_output_qty: 100,
+      finished_output_unit: "cái",
+      yield_percent: 100,
+      cost_template: DEFAULT_SKU_COST_TEMPLATE,
+      cost_values: sampleCostValues,
+      cost_widgets: {},
+    }).select("*").single();
+
+    if (createErr || !createdSku?.id) {
+      toast({ title: "Không tạo được SKU mẫu", description: createErr?.message || "Lỗi không xác định", variant: "destructive" });
+      return;
+    }
+
+    const ingredientTemplate = [
+      { name: "Bột mì 888 cam", unit: "g", price: 18, dosage: 2662 },
+      { name: "Chất Làm Mềm Bánh Bico", unit: "g", price: 69, dosage: 17 },
+      { name: "Muối", unit: "g", price: 6, dosage: 35 },
+      { name: "Đường", unit: "g", price: 20, dosage: 482 },
+      { name: "Phụ Gia Làm Bánh Mì Bico Gold", unit: "g", price: 88, dosage: 17 },
+      { name: "Phụ gia ngọt Mauri", unit: "g", price: 106, dosage: 17 },
+      { name: "Men bánh mì tươi Five Star", unit: "g", price: 150, dosage: 70 },
+      { name: "Kem sữa Whiping cream tatua", unit: "g", price: 149, dosage: 158 },
+      { name: "Trứng gà", unit: "g", price: 51, dosage: 333 },
+      { name: "Sữa Bột Béo New Zealand", unit: "g", price: 130, dosage: 149 },
+      { name: "Nước", unit: "g", price: 3, dosage: 1226 },
+      { name: "Bột ngọt", unit: "g", price: 48, dosage: 2 },
+      { name: "Dầu hướng dương Simply", unit: "g", price: 60, dosage: 1303 },
+      { name: "Giấm gạo", unit: "g", price: 51, dosage: 16 },
+      { name: "Chà bông vàng", unit: "g", price: 140, dosage: 1250 },
+    ];
+
+    const matchedRows = ingredientTemplate.map((x, idx) => {
+      const n = x.name.toLowerCase();
+      const matched = ingredientSkus.find((s) => {
+        const t = `${s.sku_code} ${s.product_name}`.toLowerCase();
+        return t.includes(n) || n.includes(String(s.product_name || "").toLowerCase());
+      });
+      return {
+        sku_id: createdSku.id,
+        ingredient_sku_id: matched?.id || null,
+        ingredient_name: matched?.product_name || x.name,
+        unit: matched?.unit || x.unit,
+        unit_price: x.price,
+        dosage_qty: x.dosage,
+        wastage_percent: 0,
+        sort_order: idx + 1,
+      };
+    });
+
+    await sb.from("sku_formulations").insert(matchedRows);
+    setActiveSkuId(createdSku.id);
+    toast({ title: "Đã tạo SKU mẫu Bánh mì chà bông" });
+    loadAll();
+  };
+
   const addFormula = async () => { if (!activeSkuId) return; await sb.from("sku_formulations").insert({ sku_id: activeSkuId, ingredient_name: "NVL mới", unit: "kg", unit_price: 0, dosage_qty: 0, wastage_percent: 0, sort_order: formula.length + 1 }); loadAll(); };
   const updateFormulaRow = async (r: any, patch: any) => { await sb.from("sku_formulations").update(patch).eq("id", r.id); loadAll(); };
   const removeFormulaRow = async (id: string) => { await sb.from("sku_formulations").delete().eq("id", id); loadAll(); };
@@ -264,10 +348,11 @@ export default function SkuCostsManagement() {
 
         <TabsContent value="sku-admin" className="space-y-4">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between"><CardTitle>Danh sách SKU thành phẩm</CardTitle><Button onClick={openCreateSku}>Tạo SKU</Button></CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between"><CardTitle>Danh sách SKU thành phẩm</CardTitle><div className="flex gap-2"><Button variant="outline" onClick={createSampleSkuChaBong}>Tạo SKU mẫu từ ảnh</Button><Button onClick={openCreateSku}>Tạo SKU</Button></div></CardHeader>
             <CardContent>
               <Table><TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Tên</TableHead><TableHead>Giá bán</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>
-                {skus.map((s) => <TableRow key={s.id}><TableCell className="font-mono">{s.sku_code}</TableCell><TableCell><button className="underline" onClick={() => setActiveSkuId(s.id)}>{s.product_name}</button></TableCell><TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell><TableCell><Button variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button></TableCell></TableRow>)}
+                {finishedSkus.map((s) => <TableRow key={s.id}><TableCell className="font-mono">{s.sku_code}</TableCell><TableCell><button className="underline" onClick={() => setActiveSkuId(s.id)}>{s.product_name}</button></TableCell><TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell><TableCell><Button variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button></TableCell></TableRow>)}
+                {finishedSkus.length === 0 && <TableRow><TableCell colSpan={4} className="text-muted-foreground">Chưa có SKU thành phẩm.</TableCell></TableRow>}
               </TableBody></Table>
             </CardContent>
           </Card>
@@ -290,7 +375,7 @@ export default function SkuCostsManagement() {
                 <TableBody>
                   {formulaComputed.map((r) => {
                     const q = (searchByRow[r.id] || "").toLowerCase();
-                    const options = skus.filter((s) => `${s.sku_code} ${s.product_name} ${s.category || ""}`.toLowerCase().includes(q));
+                    const options = ingredientSkus.filter((s) => `${s.sku_code} ${s.product_name} ${s.category || ""}`.toLowerCase().includes(q));
                     return (
                       <TableRow key={r.id}>
                         <TableCell className="space-y-1">
@@ -374,7 +459,7 @@ export default function SkuCostsManagement() {
 
         <TabsContent value="batch-coding" className="space-y-4">
           <Card><CardHeader><CardTitle>Rule sinh mã lô theo format</CardTitle></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead>Nhóm</TableHead><TableHead>Prefix</TableHead><TableHead>Dấu phân cách</TableHead><TableHead>Số chữ số seq</TableHead></TableRow></TableHeader><TableBody>{patterns.map((p) => <TableRow key={p.id}><TableCell>{p.material_group}</TableCell><TableCell><Input value={p.prefix} onChange={(e) => savePattern(p, { prefix: e.target.value })} /></TableCell><TableCell><Input value={p.separator} onChange={(e) => savePattern(p, { separator: e.target.value })} /></TableCell><TableCell><Input type="number" value={p.seq_digits} onChange={(e) => savePattern(p, { seq_digits: Number(e.target.value || 3) })} /></TableCell></TableRow>)}</TableBody></Table></CardContent></Card>
-          <Card><CardHeader><CardTitle>Tạo batch mới</CardTitle></CardHeader><CardContent className="grid md:grid-cols-2 gap-3"><div><Label>SKU thành phẩm</Label><select className="w-full border rounded h-10 px-2" value={batchForm.sku_id} onChange={(e) => setBatchForm({ ...batchForm, sku_id: e.target.value })}><option value="">-- Chọn SKU --</option>{skus.map((s) => <option key={s.id} value={s.id}>{s.sku_code} - {s.product_name}</option>)}</select></div><div><Label>NSX</Label><Input type="date" value={batchForm.production_date} onChange={(e) => setBatchForm({ ...batchForm, production_date: e.target.value })} /></div><div><Label>HSD</Label><Input type="date" value={batchForm.expiry_date} onChange={(e) => setBatchForm({ ...batchForm, expiry_date: e.target.value })} /></div><div><Label>Ghi chú</Label><Input value={batchForm.notes} onChange={(e) => setBatchForm({ ...batchForm, notes: e.target.value })} /></div><div className="md:col-span-2"><Button onClick={createBatch}>Sinh batch + mã hóa</Button></div></CardContent></Card>
+          <Card><CardHeader><CardTitle>Tạo batch mới</CardTitle></CardHeader><CardContent className="grid md:grid-cols-2 gap-3"><div><Label>SKU thành phẩm</Label><select className="w-full border rounded h-10 px-2" value={batchForm.sku_id} onChange={(e) => setBatchForm({ ...batchForm, sku_id: e.target.value })}><option value="">-- Chọn SKU --</option>{finishedSkus.map((s) => <option key={s.id} value={s.id}>{s.sku_code} - {s.product_name}</option>)}</select></div><div><Label>NSX</Label><Input type="date" value={batchForm.production_date} onChange={(e) => setBatchForm({ ...batchForm, production_date: e.target.value })} /></div><div><Label>HSD</Label><Input type="date" value={batchForm.expiry_date} onChange={(e) => setBatchForm({ ...batchForm, expiry_date: e.target.value })} /></div><div><Label>Ghi chú</Label><Input value={batchForm.notes} onChange={(e) => setBatchForm({ ...batchForm, notes: e.target.value })} /></div><div className="md:col-span-2"><Button onClick={createBatch}>Sinh batch + mã hóa</Button></div></CardContent></Card>
         </TabsContent>
 
         <TabsContent value="trace-links" className="space-y-4">
@@ -382,7 +467,7 @@ export default function SkuCostsManagement() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}><DialogContent><DialogHeader><DialogTitle>{skuForm.id ? "Sửa SKU" : "Tạo SKU"}</DialogTitle></DialogHeader><div className="grid md:grid-cols-2 gap-3"><Input placeholder="SKU code" value={skuForm.sku_code || ""} onChange={(e) => setSkuForm({ ...skuForm, sku_code: e.target.value })} /><Input placeholder="Tên" value={skuForm.product_name || ""} onChange={(e) => setSkuForm({ ...skuForm, product_name: e.target.value })} /><Input placeholder="ĐVT" value={skuForm.unit || ""} onChange={(e) => setSkuForm({ ...skuForm, unit: e.target.value })} /><Input placeholder="Base unit" value={skuForm.base_unit || ""} onChange={(e) => setSkuForm({ ...skuForm, base_unit: e.target.value })} /><Input type="number" placeholder="Yield %" value={skuForm.yield_percent || 100} onChange={(e) => setSkuForm({ ...skuForm, yield_percent: Number(e.target.value || 100) })} /><Input placeholder="Danh mục" value={skuForm.category || ""} onChange={(e) => setSkuForm({ ...skuForm, category: e.target.value })} /><Input type="number" placeholder="SL thành phẩm" value={skuForm.finished_output_qty || 1} onChange={(e) => setSkuForm({ ...skuForm, finished_output_qty: Number(e.target.value || 1) })} /><Input placeholder="DVT thành phẩm" value={skuForm.finished_output_unit || ""} onChange={(e) => setSkuForm({ ...skuForm, finished_output_unit: e.target.value })} /></div><DialogFooter><Button onClick={saveSku}>Lưu</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}><DialogContent><DialogHeader><DialogTitle>{skuForm.id ? "Sửa SKU" : "Tạo SKU"}</DialogTitle></DialogHeader><div className="grid md:grid-cols-2 gap-3"><Input placeholder="Mã SKU thành phẩm" value={skuForm.sku_code || ""} onChange={(e) => setSkuForm({ ...skuForm, sku_code: e.target.value })} /><Input placeholder="Tên món" value={skuForm.product_name || ""} onChange={(e) => setSkuForm({ ...skuForm, product_name: e.target.value })} /><Input placeholder="Danh mục (mặc định: Thành phẩm)" value={skuForm.category || ""} onChange={(e) => setSkuForm({ ...skuForm, category: e.target.value })} /><Input placeholder="ĐVT (ví dụ: cái)" value={skuForm.unit || ""} onChange={(e) => setSkuForm({ ...skuForm, unit: e.target.value })} /><Input placeholder="Base unit" value={skuForm.base_unit || ""} onChange={(e) => setSkuForm({ ...skuForm, base_unit: e.target.value })} /><Input type="number" placeholder="Yield %" value={skuForm.yield_percent || 100} onChange={(e) => setSkuForm({ ...skuForm, yield_percent: Number(e.target.value || 100) })} /><Input type="number" placeholder="SL thành phẩm" value={skuForm.finished_output_qty || 1} onChange={(e) => setSkuForm({ ...skuForm, finished_output_qty: Number(e.target.value || 1) })} /><Input placeholder="ĐVT thành phẩm" value={skuForm.finished_output_unit || ""} onChange={(e) => setSkuForm({ ...skuForm, finished_output_unit: e.target.value })} /><Input type="number" placeholder="Dự phòng hao hụt/tăng giá (%)" value={skuForm.cost_values?.material_provision_percent || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), material_provision_percent: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Giá bán (VND/cái)" value={skuForm.cost_values?.selling_price || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), selling_price: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Cost bao bì (VND/cái)" value={skuForm.cost_values?.packaging_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), packaging_cost: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Cost nhân công (VND/cái)" value={skuForm.cost_values?.labor_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), labor_cost: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Delivery (VND/cái)" value={skuForm.cost_values?.delivery_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), delivery_cost: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Other production (VND/cái)" value={skuForm.cost_values?.other_production_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), other_production_cost: Number(e.target.value || 0) } })} /><Input type="number" placeholder="BH & quản lý (VND/cái)" value={skuForm.cost_values?.sga_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), sga_cost: Number(e.target.value || 0) } })} /></div><DialogFooter><Button onClick={saveSku}>Lưu</Button></DialogFooter></DialogContent></Dialog>
     </div>
   );
 }
