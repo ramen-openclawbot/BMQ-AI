@@ -272,10 +272,28 @@ export default function SkuCostsManagement() {
   const handleScanSkuCostImage = async (file?: File | null) => {
     if (!file) return;
     setScanSkuMessage("Đang scan ảnh công thức...");
+
+    // Ensure fresh access token to avoid 401 from Edge Function
+    let accessToken = "";
     const { data: sessionData, error: sessionError } = await sb.auth.getSession();
     if (sessionError || !sessionData.session) {
       toast({ title: "Phiên đăng nhập hết hạn", description: "Vui lòng đăng nhập lại.", variant: "destructive" });
+      setScanSkuMessage("Scan thất bại: phiên đăng nhập hết hạn.");
       return;
+    }
+
+    const expiresAt = Number(sessionData.session.expires_at || 0) * 1000;
+    const shouldRefresh = !expiresAt || expiresAt - Date.now() < 60_000;
+    if (shouldRefresh) {
+      const { data: refreshed, error: refreshError } = await sb.auth.refreshSession();
+      if (refreshError || !refreshed?.session?.access_token) {
+        toast({ title: "Phiên đăng nhập hết hạn", description: "Vui lòng đăng nhập lại.", variant: "destructive" });
+        setScanSkuMessage("Scan thất bại: không làm mới được phiên đăng nhập.");
+        return;
+      }
+      accessToken = refreshed.session.access_token;
+    } else {
+      accessToken = sessionData.session.access_token;
     }
 
     setIsScanningSkuImage(true);
@@ -291,7 +309,7 @@ export default function SkuCostsManagement() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${sessionData.session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
           apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         },
         body: JSON.stringify({ imageBase64, mimeType: file.type }),
@@ -299,6 +317,9 @@ export default function SkuCostsManagement() {
 
       const payload = await response.json();
       if (!response.ok || !payload?.success) {
+        if (response.status === 401) {
+          throw new Error("401: phiên đăng nhập không hợp lệ, vui lòng đăng nhập lại rồi scan lại.");
+        }
         throw new Error(payload?.error || `Lỗi scan ảnh (${response.status})`);
       }
 
