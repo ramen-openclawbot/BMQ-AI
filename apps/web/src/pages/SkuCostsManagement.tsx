@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { DEFAULT_SKU_COST_TEMPLATE, DEFAULT_SKU_COST_VALUES, parseCostTemplate, parseCostValues, toNumber } from "@/lib/sku-cost-template";
+import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 
 type SKU = any;
 type FormulaRow = any;
@@ -347,27 +348,19 @@ export default function SkuCostsManagement() {
         reader.readAsDataURL(file);
       });
 
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-
       // Simple + stable path: reuse existing inventory scanner
-      const response = await fetch(`${supabaseUrl}/functions/v1/scan-invoice`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ imageBase64, mimeType: file.type }),
-      });
+      const edge = await callEdgeFunction<any>(
+        "scan-invoice",
+        { imageBase64, mimeType: file.type },
+        accessToken,
+        90000
+      );
 
-      const payload = await response.json();
-      if (!response.ok || !payload?.success) {
-        if (response.status === 401) {
-          throw new Error("401: phiên đăng nhập không hợp lệ, vui lòng đăng nhập lại rồi scan lại.");
-        }
-        throw new Error(payload?.error || `Lỗi scan ảnh (${response.status})`);
+      if (edge.error || !edge.data?.success) {
+        throw new Error(edge.error || "Load failed");
       }
 
-      const data = payload.data || {};
+      const data = edge.data.data || {};
       applyScannedDataToForm({
         product_name: data.product_name || data.invoice_number || "SKU từ ảnh",
         ingredients: (data.items || []).map((x: any) => ({
