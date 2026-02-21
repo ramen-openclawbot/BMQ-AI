@@ -401,14 +401,12 @@ export default function SkuCostsManagement() {
     });
 
     setDialogOpen(true);
-    const correctedOutputNote = outputQty !== scannedOutputQty ? ` Em đã tự chỉnh SL thành phẩm từ ${scannedOutputQty} -> ${outputQty} để sửa đơn giá vốn/cái.` : "";
-    setScanSkuMessage(`Đã scan xong: ${draftRows.length} dòng NVL (đã tự chuẩn hoá số liệu/đơn vị).${correctedOutputNote} Kiểm tra form và bấm Lưu SKU.`);
-    toast({ title: "Đã scan ảnh công thức", description: `Đọc được ${draftRows.length} dòng NVL, đã tự chuẩn hoá số liệu.${correctedOutputNote}` });
+    setScanSkuMessage("");
   };
 
   const handleScanSkuCostImage = async (file?: File | null) => {
     if (!file) return;
-    setScanSkuMessage("Đang scan ảnh công thức...");
+    setScanSkuMessage("");
 
     // Optional session: use token if available, otherwise call as anon
     let accessToken = "";

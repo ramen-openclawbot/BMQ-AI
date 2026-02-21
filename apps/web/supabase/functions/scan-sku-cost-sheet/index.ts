@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,21 +9,6 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    const token = authHeader.replace("Bearer ", "");
-    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false, autoRefreshToken: false } });
-
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Invalid JWT" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
     const { imageBase64, mimeType } = await req.json();
     if (!imageBase64) {
       return new Response(JSON.stringify({ error: "No image provided" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
