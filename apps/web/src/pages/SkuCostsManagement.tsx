@@ -29,6 +29,7 @@ type PurchasePoint = {
 };
 
 const sb = supabase as any;
+const COST_PER_ITEM_DIVISOR = 1000;
 const vnd = (value: number) => new Intl.NumberFormat("vi-VN").format(value || 0);
 const pad = (n: number, len: number) => String(n).padStart(len, "0");
 const formatYYMMDD = (d: string) => {
@@ -264,9 +265,8 @@ export default function SkuCostsManagement() {
 
   const importedMaterialSummary = useMemo(() => {
     const total = importedFormulaDraft.reduce((sum, r) => sum + toNumber(r.unit_price, 0) * toNumber(r.dosage_qty, 0), 0);
-    const qty = Math.max(1, toNumber(skuForm.finished_output_qty, 1));
-    return { total, perUnit: total / qty };
-  }, [importedFormulaDraft, skuForm.finished_output_qty]);
+    return { total, perUnit: Math.round(total / COST_PER_ITEM_DIVISOR) };
+  }, [importedFormulaDraft]);
 
   const missingScanFields = useMemo(() => {
     const missing: string[] = [];
@@ -667,18 +667,19 @@ export default function SkuCostsManagement() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Nguyên vật liệu</TableHead><TableHead>ĐVT</TableHead><TableHead>Đơn giá</TableHead><TableHead>Định lượng</TableHead><TableHead>Giá vốn</TableHead><TableHead>Đơn giá vốn/cái</TableHead>
+                    <TableHead>Tên món</TableHead><TableHead>Nguyên vật liệu</TableHead><TableHead>DVT</TableHead><TableHead>Đơn giá (VNĐ)</TableHead><TableHead>Định lượng (gram)</TableHead><TableHead>Giá vốn (VNĐ)</TableHead><TableHead>Đơn giá vốn/cái (VNĐ)</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {importedFormulaDraft.length === 0 && (
-                    <TableRow><TableCell colSpan={6} className="text-muted-foreground">Chưa có NVL từ scan ảnh. Anh bấm “Tạo SKU từ ảnh” để nạp dữ liệu.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={7} className="text-muted-foreground">Chưa có NVL từ scan ảnh. Anh bấm “Tạo SKU từ ảnh” để nạp dữ liệu.</TableCell></TableRow>
                   )}
                   {importedFormulaDraft.map((r, idx) => {
                     const lineCost = toNumber(r.unit_price, 0) * toNumber(r.dosage_qty, 0);
-                    const perUnit = lineCost / Math.max(1, toNumber(skuForm.finished_output_qty, 1));
+                    const perUnit = Math.round(lineCost / COST_PER_ITEM_DIVISOR);
                     return (
                       <TableRow key={`draft-${idx}`}>
+                        <TableCell>{skuForm.product_name || "SKU từ ảnh"}</TableCell>
                         <TableCell><Input value={r.ingredient_name || ""} onChange={(e) => { const next = [...importedFormulaDraft]; next[idx] = { ...next[idx], ingredient_name: e.target.value }; setImportedFormulaDraft(next); }} /></TableCell>
                         <TableCell><Input value={r.unit || "g"} onChange={(e) => { const next = [...importedFormulaDraft]; next[idx] = { ...next[idx], unit: e.target.value }; setImportedFormulaDraft(next); }} /></TableCell>
                         <TableCell><Input type="number" value={toNumber(r.unit_price, 0)} onChange={(e) => { const next = [...importedFormulaDraft]; next[idx] = { ...next[idx], unit_price: Number(e.target.value || 0) }; setImportedFormulaDraft(next); }} /></TableCell>
