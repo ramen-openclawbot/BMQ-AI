@@ -114,10 +114,29 @@ const convertAmountByUnit = (amount: number, fromUnit: unknown, toUnit: unknown)
   return amount;
 };
 
+const parseDosageGramInput = (value: unknown, fallback = 0) => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
+  if (value === null || value === undefined) return fallback;
+  const raw = String(value).trim();
+  if (!raw) return fallback;
+
+  // Rule nghiệp vụ: có dấu phẩy => số thập phân gram (2,234 => 2.234g)
+  if (raw.includes(",")) {
+    const normalized = raw.replace(/\./g, "").replace(/,/g, ".");
+    const n = Number(normalized);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  // Không có phẩy => hiểu là số nguyên gram (2234 => 2234g)
+  const normalized = raw.replace(/[.,]/g, "");
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : fallback;
+};
+
 const normalizeScannedIngredient = (row: any) => {
   let unit = normalizeUnitName(row.unit || row.uom || "g");
   let unitPrice = parseLocaleNumber(row.unit_price ?? row.price ?? row.don_gia, 0);
-  let dosageQty = parseLocaleNumber(row.dosage_qty ?? row.quantity ?? row.dinh_luong, 0);
+  let dosageQty = parseDosageGramInput(row.dosage_qty ?? row.quantity ?? row.dinh_luong, 0);
   let lineCost = parseLocaleNumber(row.line_cost ?? row.gia_von ?? row.cost, 0);
 
   // Heuristic: OCR often swaps Đơn giá and Định lượng for this sheet
@@ -331,7 +350,10 @@ export default function SkuCostsManagement() {
 
         if (importedFormulaDraft.length > 0) {
           const rows = importedFormulaDraft.map((r: any, idx: number) => {
-            const n = String(r.ingredient_name || "").toLowerCase();
+            const level1 = String(r.level1_name || r.ingredient_name || "").trim();
+            const level2 = String(r.level2_name || "").trim();
+            const ingredientLabel = level2 ? `${level1} > ${level2}` : level1;
+            const n = ingredientLabel.toLowerCase();
             const matched = ingredientSkus.find((s) => {
               const t = `${s.sku_code} ${s.product_name}`.toLowerCase();
               return t.includes(n) || n.includes(String(s.product_name || "").toLowerCase());
@@ -339,11 +361,10 @@ export default function SkuCostsManagement() {
             return {
               sku_id: data.id,
               ingredient_sku_id: matched?.id || null,
-              ingredient_name: matched?.product_name || r.ingredient_name,
-              // Keep scanned unit to avoid unit mismatch (e.g., g vs kg) when saving draft rows
-              unit: r.unit || matched?.unit || "g",
+              ingredient_name: matched?.product_name || ingredientLabel,
+              unit: "g",
               unit_price: toNumber(r.unit_price, 0),
-              dosage_qty: toNumber(r.dosage_qty, 0),
+              dosage_qty: parseDosageGramInput(r.dosage_input ?? r.dosage_qty, 0),
               wastage_percent: 0,
               sort_order: idx + 1,
             };
@@ -363,9 +384,19 @@ export default function SkuCostsManagement() {
     skuImageInputRef.current?.click();
   };
 
+  const addDraftMaterialRow = () => {
+    setImportedFormulaDraft((prev) => [
+      ...prev,
+      { level1_name: "", level2_name: "", ingredient_name: "", unit: "g", unit_price: 0, dosage_qty: 0, dosage_input: "", line_cost: 0 },
+    ]);
+  };
+
   const applyScannedDataToForm = (d: any) => {
     const ingredients = Array.isArray(d.ingredients) ? d.ingredients : Array.isArray(d.items) ? d.items : [];
-    const draftRows = ingredients.map((r: any) => normalizeScannedIngredient(r)).filter((x: any) => x.ingredient_name);
+    const draftRows = ingredients
+      .map((r: any) => normalizeScannedIngredient(r))
+      .filter((x: any) => x.ingredient_name)
+      .map((x: any) => ({ ...x, level1_name: x.ingredient_name, level2_name: "", dosage_input: String(x.dosage_qty).replace(".", ",") }));
     setImportedFormulaDraft(draftRows);
 
     const productName = d.product_name || d.ten_mon || "SKU từ ảnh";
@@ -537,7 +568,7 @@ export default function SkuCostsManagement() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between"><CardTitle>Danh sách SKU thành phẩm</CardTitle><div className="flex gap-2"><Button onClick={openCreateSku}>Tạo SKU</Button></div></CardHeader>
             <CardContent>
-              {!!scanSkuMessage && <div className="mb-3 text-sm text-muted-foreground">{scanSkuMessage}</div>}
+              {/* hidden scan message */}
               <Table><TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Tên</TableHead><TableHead>Giá bán</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>
                 {finishedSkus.map((s) => <TableRow key={s.id}><TableCell className="font-mono">{s.sku_code}</TableCell><TableCell><button className="underline" onClick={() => setActiveSkuId(s.id)}>{s.product_name}</button></TableCell><TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell><TableCell><Button variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button></TableCell></TableRow>)}
                 {finishedSkus.length === 0 && <TableRow><TableCell colSpan={4} className="text-muted-foreground">Chưa có SKU thành phẩm.</TableCell></TableRow>}
@@ -655,13 +686,7 @@ export default function SkuCostsManagement() {
         </TabsContent>
       </Tabs>
 
-      <input
-        ref={skuImageInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => { const f = e.target.files?.[0]; handleScanSkuCostImage(f); e.currentTarget.value = ""; }}
-      />
+      {/* Đã tắt scan ảnh theo yêu cầu: nhập NVL thủ công */}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
@@ -671,10 +696,7 @@ export default function SkuCostsManagement() {
 
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" variant="outline" onClick={openCreateSkuFromImage} disabled={isScanningSkuImage}>
-                {isScanningSkuImage ? "Đang scan ảnh..." : "Scan dữ liệu từ ảnh"}
-              </Button>
-              {!!scanSkuMessage && <span className="text-sm text-muted-foreground">{scanSkuMessage}</span>}
+              <Button type="button" variant="outline" onClick={addDraftMaterialRow}>+ Dòng NVL</Button>
             </div>
             {missingScanFields.length > 0 ? (
               <div className="text-sm rounded border border-amber-300 bg-amber-50 text-amber-900 px-3 py-2">
@@ -696,23 +718,24 @@ export default function SkuCostsManagement() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Tên món</TableHead><TableHead>Nguyên vật liệu</TableHead><TableHead>DVT</TableHead><TableHead>Đơn giá (VNĐ)</TableHead><TableHead>Định lượng (gram)</TableHead><TableHead>Giá vốn (VNĐ)</TableHead><TableHead>Đơn giá vốn/cái (VNĐ)</TableHead>
+                    <TableHead>Tên món</TableHead><TableHead>NVL cấp 1</TableHead><TableHead>NVL cấp 2</TableHead><TableHead>DVT</TableHead><TableHead>Đơn giá (VNĐ)</TableHead><TableHead>Định lượng (gram)</TableHead><TableHead>Giá vốn (VNĐ)</TableHead><TableHead>Đơn giá vốn/cái (VNĐ)</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {importedFormulaDraft.length === 0 && (
-                    <TableRow><TableCell colSpan={7} className="text-muted-foreground">Chưa có NVL từ scan ảnh. Anh bấm “Tạo SKU từ ảnh” để nạp dữ liệu.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={8} className="text-muted-foreground">Chưa có dòng NVL. Anh bấm “+ Dòng NVL” để nhập thủ công.</TableCell></TableRow>
                   )}
                   {importedFormulaDraft.map((r, idx) => {
                     const lineCost = toNumber(r.line_cost, toNumber(r.unit_price, 0) * toNumber(r.dosage_qty, 0));
                     const perUnit = Math.round(lineCost / Math.max(1, toNumber(skuForm.finished_output_qty, 1)));
                     return (
                       <TableRow key={`draft-${idx}`}>
-                        <TableCell>{skuForm.product_name || "SKU từ ảnh"}</TableCell>
-                        <TableCell><Input value={r.ingredient_name || ""} onChange={(e) => { const next = [...importedFormulaDraft]; next[idx] = { ...next[idx], ingredient_name: e.target.value }; setImportedFormulaDraft(next); }} /></TableCell>
-                        <TableCell><Input value={r.unit || "g"} onChange={(e) => { const next = [...importedFormulaDraft]; next[idx] = { ...next[idx], unit: e.target.value }; setImportedFormulaDraft(next); }} /></TableCell>
-                        <TableCell><Input type="number" value={toNumber(r.unit_price, 0)} onChange={(e) => { const next = [...importedFormulaDraft]; const unit_price = Number(e.target.value || 0); const dosage_qty = toNumber(next[idx].dosage_qty, 0); next[idx] = { ...next[idx], unit_price, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
-                        <TableCell><Input type="number" value={toNumber(r.dosage_qty, 0)} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_qty = Number(e.target.value || 0); const unit_price = toNumber(next[idx].unit_price, 0); next[idx] = { ...next[idx], dosage_qty, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
+                        <TableCell>{skuForm.product_name || "SKU thủ công"}</TableCell>
+                        <TableCell><Input value={r.level1_name || ""} onChange={(e) => { const next = [...importedFormulaDraft]; next[idx] = { ...next[idx], level1_name: e.target.value, ingredient_name: `${e.target.value}${next[idx].level2_name ? ` > ${next[idx].level2_name}` : ""}` }; setImportedFormulaDraft(next); }} /></TableCell>
+                        <TableCell><Input value={r.level2_name || ""} onChange={(e) => { const next = [...importedFormulaDraft]; next[idx] = { ...next[idx], level2_name: e.target.value, ingredient_name: `${next[idx].level1_name || ""}${e.target.value ? ` > ${e.target.value}` : ""}` }; setImportedFormulaDraft(next); }} /></TableCell>
+                        <TableCell>g</TableCell>
+                        <TableCell><Input type="number" value={toNumber(r.unit_price, 0)} onChange={(e) => { const next = [...importedFormulaDraft]; const unit_price = Number(e.target.value || 0); const dosage_qty = toNumber(next[idx].dosage_qty, 0); next[idx] = { ...next[idx], unit: "g", unit_price, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
+                        <TableCell><Input value={r.dosage_input ?? String(toNumber(r.dosage_qty, 0)).replace(".", ",")} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_input = e.target.value; const dosage_qty = parseDosageGramInput(dosage_input, 0); const unit_price = toNumber(next[idx].unit_price, 0); next[idx] = { ...next[idx], unit: "g", dosage_input, dosage_qty, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
                         <TableCell>{vnd(lineCost)}</TableCell>
                         <TableCell>{vnd(perUnit)}</TableCell>
                       </TableRow>
