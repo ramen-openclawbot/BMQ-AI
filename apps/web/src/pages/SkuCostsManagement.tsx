@@ -328,8 +328,12 @@ export default function SkuCostsManagement() {
     setImportedFormulaDraft(draftRows);
 
     const productName = d.product_name || d.ten_mon || "SKU từ ảnh";
-    const outputQty = parseLocaleNumber(d.finished_output_qty ?? d.output_qty ?? d.thanh_pham_sl, 1);
+    const scannedOutputQty = parseLocaleNumber(d.finished_output_qty ?? d.output_qty ?? d.thanh_pham_sl, 1);
     const outputUnit = d.finished_output_unit || d.output_unit || d.thanh_pham_dvt || "cái";
+
+    // Auto-correct common OCR miss: missing "SL thành phẩm" causes cost/unit inflated
+    const estimatedTotalMaterial = draftRows.reduce((s: number, r: any) => s + toNumber(r.unit_price, 0) * toNumber(r.dosage_qty, 0), 0);
+    const outputQty = scannedOutputQty <= 1 && estimatedTotalMaterial >= 10000 ? 100 : scannedOutputQty;
 
     setSkuForm({
       id: "",
@@ -356,8 +360,9 @@ export default function SkuCostsManagement() {
     });
 
     setDialogOpen(true);
-    setScanSkuMessage(`Đã scan xong: ${draftRows.length} dòng NVL (đã tự chuẩn hoá số liệu/đơn vị). Kiểm tra form và bấm Lưu SKU.`);
-    toast({ title: "Đã scan ảnh công thức", description: `Đọc được ${draftRows.length} dòng NVL, đã tự chuẩn hoá số liệu. Anh kiểm tra rồi bấm Lưu.` });
+    const correctedOutputNote = outputQty !== scannedOutputQty ? ` Em đã tự chỉnh SL thành phẩm từ ${scannedOutputQty} -> ${outputQty} để sửa đơn giá vốn/cái.` : "";
+    setScanSkuMessage(`Đã scan xong: ${draftRows.length} dòng NVL (đã tự chuẩn hoá số liệu/đơn vị).${correctedOutputNote} Kiểm tra form và bấm Lưu SKU.`);
+    toast({ title: "Đã scan ảnh công thức", description: `Đọc được ${draftRows.length} dòng NVL, đã tự chuẩn hoá số liệu.${correctedOutputNote}` });
   };
 
   const handleScanSkuCostImage = async (file?: File | null) => {
