@@ -94,7 +94,7 @@ export default function Reports() {
               {isLoading ? "..." : formatCurrency(monthlyStats?.totalValue || 0)}
             </div>
             <p className="text-sm text-muted-foreground">
-              {monthlyStats?.totalReceipts || 0} phiếu nhập đã nhận
+              {monthlyStats?.totalPOs || 0} PO trong tháng
             </p>
           </CardContent>
         </Card>

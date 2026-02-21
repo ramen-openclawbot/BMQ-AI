@@ -6,6 +6,7 @@ export interface MonthlyReceiptStats {
   totalQuantity: number;
   totalValue: number;
   totalReceipts: number;
+  totalPOs: number;
   bySupplier: { name: string; quantity: number; value: number }[];
 }
 
@@ -33,43 +34,52 @@ export function useMonthlyReceiptStats(month: Date = new Date()) {
   return useQuery({
     queryKey: ["monthly-receipt-stats", format(month, "yyyy-MM")],
     queryFn: async () => {
-      // Get goods receipts for the month
+      // Get purchase orders for the month (source of truth for PO value)
+      const { data: purchaseOrders, error: poError } = await supabase
+        .from("purchase_orders")
+        .select("id, total_amount, supplier_id, suppliers(id, name)")
+        .gte("order_date", format(start, "yyyy-MM-dd"))
+        .lte("order_date", format(end, "yyyy-MM-dd"));
+
+      if (poError) throw poError;
+
+      // Keep receipt count/quantity for context cards only
       const { data: receipts, error: receiptsError } = await supabase
         .from("goods_receipts")
-        .select("id, total_quantity, supplier_id, suppliers(id, name), purchase_orders(total_amount), payment_requests(total_amount)")
+        .select("id, total_quantity")
         .gte("receipt_date", format(start, "yyyy-MM-dd"))
         .lte("receipt_date", format(end, "yyyy-MM-dd"))
         .eq("status", "received");
 
       if (receiptsError) throw receiptsError;
 
-      // Aggregate by supplier
+      // Aggregate PO value by supplier
       const supplierMap = new Map<string, { name: string; quantity: number; value: number }>();
-      let totalQuantity = 0;
       let totalValue = 0;
 
-      receipts?.forEach((r) => {
-        const qty = r.total_quantity || 0;
-        const value = (r.purchase_orders as any)?.total_amount || (r.payment_requests as any)?.total_amount || 0;
-        totalQuantity += qty;
+      purchaseOrders?.forEach((po) => {
+        const value = po.total_amount || 0;
         totalValue += value;
 
-        const supplierName = (r.suppliers as any)?.name || "Không xác định";
-        const supplierId = r.supplier_id || "unknown";
+        const supplierName = (po.suppliers as any)?.name || "Không xác định";
+        const supplierId = po.supplier_id || "unknown";
 
         if (supplierMap.has(supplierId)) {
           const existing = supplierMap.get(supplierId)!;
-          existing.quantity += qty;
           existing.value += value;
+          existing.quantity += 1;
         } else {
-          supplierMap.set(supplierId, { name: supplierName, quantity: qty, value });
+          supplierMap.set(supplierId, { name: supplierName, quantity: 1, value });
         }
       });
+
+      const totalQuantity = receipts?.reduce((sum, r) => sum + (r.total_quantity || 0), 0) || 0;
 
       return {
         totalQuantity,
         totalValue,
         totalReceipts: receipts?.length || 0,
+        totalPOs: purchaseOrders?.length || 0,
         bySupplier: Array.from(supplierMap.values()).sort((a, b) => b.value - a.value),
       } as MonthlyReceiptStats;
     },
