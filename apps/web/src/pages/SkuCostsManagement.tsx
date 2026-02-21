@@ -95,22 +95,37 @@ const parseLocaleNumber = (value: unknown, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+const normalizeUnitName = (u: unknown) => String(u || "").trim().toLowerCase();
+
+const convertAmountByUnit = (amount: number, fromUnit: unknown, toUnit: unknown) => {
+  const from = normalizeUnitName(fromUnit);
+  const to = normalizeUnitName(toUnit);
+  if (!from || !to || from === to) return amount;
+
+  const weightToGram: Record<string, number> = { kg: 1000, kí: 1000, ký: 1000, g: 1, gram: 1 };
+  const volumeToMl: Record<string, number> = { l: 1000, lit: 1000, litre: 1000, ml: 1 };
+
+  if (weightToGram[from] && weightToGram[to]) {
+    return amount * (weightToGram[from] / weightToGram[to]);
+  }
+  if (volumeToMl[from] && volumeToMl[to]) {
+    return amount * (volumeToMl[from] / volumeToMl[to]);
+  }
+  return amount;
+};
+
 const normalizeScannedIngredient = (row: any) => {
-  let unit = String(row.unit || row.uom || "g").trim().toLowerCase();
+  let unit = normalizeUnitName(row.unit || row.uom || "g");
   let unitPrice = parseLocaleNumber(row.unit_price ?? row.price ?? row.don_gia, 0);
   let dosageQty = parseLocaleNumber(row.dosage_qty ?? row.quantity ?? row.dinh_luong, 0);
 
-  // Normalize weight unit to grams for stable costing math
   if (unit === "kg" || unit === "kilogram" || unit === "kí" || unit === "ký") {
-    dosageQty = dosageQty * 1000;
+    dosageQty = convertAmountByUnit(dosageQty, unit, "g");
     unitPrice = unitPrice / 1000;
     unit = "g";
   }
 
-  // If unit is gram but price looks like price/kg, auto convert to price/g
-  if (unit === "g" && unitPrice >= 1000) {
-    unitPrice = unitPrice / 1000;
-  }
+  if (unit === "g" && unitPrice >= 1000) unitPrice = unitPrice / 1000;
 
   return {
     ingredient_name: row.ingredient_name || row.name || row.product_name || "",
@@ -230,10 +245,14 @@ export default function SkuCostsManagement() {
     const market = r.ingredient_sku_id ? priceMap.get(r.ingredient_sku_id) : null;
     const unitPrice = market?.price || toNumber(r.unit_price, 0);
     const dosage = toNumber(r.dosage_qty, 0);
-    const lineCost = unitPrice * dosage;
+
+    const priceUnit = selectedSku?.unit || r.unit || "";
+    const dosageInPriceUnit = convertAmountByUnit(dosage, r.unit || "", priceUnit);
+    const lineCost = unitPrice * dosageInPriceUnit;
+
     return {
       ...r,
-      displayUnit: selectedSku?.unit || r.unit || "",
+      displayUnit: priceUnit,
       displayName: selectedSku?.product_name || r.ingredient_name || "",
       displayCode: selectedSku?.sku_code || "",
       currentStock: r.ingredient_sku_id ? toNumber(inventoryMap.get(r.ingredient_sku_id), 0) : 0,
@@ -300,7 +319,8 @@ export default function SkuCostsManagement() {
               sku_id: data.id,
               ingredient_sku_id: matched?.id || null,
               ingredient_name: matched?.product_name || r.ingredient_name,
-              unit: matched?.unit || r.unit || "g",
+              // Keep scanned unit to avoid unit mismatch (e.g., g vs kg) when saving draft rows
+              unit: r.unit || matched?.unit || "g",
               unit_price: toNumber(r.unit_price, 0),
               dosage_qty: toNumber(r.dosage_qty, 0),
               wastage_percent: 0,
