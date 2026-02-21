@@ -82,6 +82,7 @@ export default function SkuCostsManagement() {
   const [purchasePoints, setPurchasePoints] = useState<PurchasePoint[]>([]);
   const [inventoryMap, setInventoryMap] = useState<Map<string, number>>(new Map());
   const [isScanningSkuImage, setIsScanningSkuImage] = useState(false);
+  const [scanSkuMessage, setScanSkuMessage] = useState<string>("");
   const [importedFormulaDraft, setImportedFormulaDraft] = useState<any[]>([]);
   const skuImageInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -189,6 +190,12 @@ export default function SkuCostsManagement() {
     };
   }), [formula, skus, priceMap, inventoryMap]);
 
+  const importedMaterialSummary = useMemo(() => {
+    const total = importedFormulaDraft.reduce((sum, r) => sum + toNumber(r.unit_price, 0) * toNumber(r.dosage_qty, 0), 0);
+    const qty = Math.max(1, toNumber(skuForm.finished_output_qty, 1));
+    return { total, perUnit: total / qty };
+  }, [importedFormulaDraft, skuForm.finished_output_qty]);
+
   const costing = useMemo(() => {
     const outputQty = Math.max(1, Number(activeSku.finished_output_qty || 1));
     const totalMaterialCostBatch = formulaComputed.reduce((sum, row) => sum + row.lineCost, 0);
@@ -205,7 +212,7 @@ export default function SkuCostsManagement() {
     return { outputQty, totalMaterialCost, provisionAmount, totalCostNVL, totalCost, sellingPrice, netProfit, netProfitPct, pctOnCost };
   }, [activeSku, formulaComputed, costTemplate, costValues]);
 
-  const openCreateSku = () => { setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: 1, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {} }); setDialogOpen(true); };
+  const openCreateSku = () => { setImportedFormulaDraft([]); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: 1, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {} }); setDialogOpen(true); };
   const openEditSku = (sku: SKU) => { setSkuForm({ ...sku, cost_template: parseCostTemplate(sku.cost_template), cost_values: parseCostValues(sku.cost_values), cost_widgets: parseWidgets(sku.cost_widgets) }); setDialogOpen(true); };
 
   const saveSku = async () => {
@@ -252,6 +259,7 @@ export default function SkuCostsManagement() {
 
   const handleScanSkuCostImage = async (file?: File | null) => {
     if (!file) return;
+    setScanSkuMessage("Đang scan ảnh công thức...");
     const { data: sessionData, error: sessionError } = await sb.auth.getSession();
     if (sessionError || !sessionData.session) {
       toast({ title: "Phiên đăng nhập hết hạn", description: "Vui lòng đăng nhập lại.", variant: "destructive" });
@@ -283,37 +291,50 @@ export default function SkuCostsManagement() {
       }
 
       const d = payload.data || {};
-      const draftRows = Array.isArray(d.ingredients) ? d.ingredients : [];
+      const ingredients = Array.isArray(d.ingredients) ? d.ingredients : Array.isArray(d.items) ? d.items : [];
+      const draftRows = ingredients.map((r: any) => ({
+        ingredient_name: r.ingredient_name || r.name || r.product_name || "",
+        unit: r.unit || r.uom || "g",
+        unit_price: toNumber(r.unit_price ?? r.price ?? r.don_gia, 0),
+        dosage_qty: toNumber(r.dosage_qty ?? r.quantity ?? r.dinh_luong, 0),
+      })).filter((x: any) => x.ingredient_name);
       setImportedFormulaDraft(draftRows);
+
+      const productName = d.product_name || d.ten_mon || "SKU từ ảnh";
+      const outputQty = toNumber(d.finished_output_qty ?? d.output_qty ?? d.thanh_pham_sl, 1);
+      const outputUnit = d.finished_output_unit || d.output_unit || d.thanh_pham_dvt || "cái";
 
       setSkuForm({
         id: "",
-        sku_code: d.sku_code || "",
-        product_name: d.product_name || "",
-        unit: d.finished_output_unit || "cái",
+        sku_code: d.sku_code || `TP-${productName.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 16) || "AUTO"}-001`,
+        product_name: productName,
+        unit: outputUnit,
         category: "Thành phẩm",
-        base_unit: d.finished_output_unit || "cái",
+        base_unit: outputUnit,
         yield_percent: 100,
-        finished_output_qty: toNumber(d.finished_output_qty, 1),
-        finished_output_unit: d.finished_output_unit || "cái",
+        finished_output_qty: outputQty,
+        finished_output_unit: outputUnit,
         cost_template: DEFAULT_SKU_COST_TEMPLATE,
         cost_values: {
           ...DEFAULT_SKU_COST_VALUES,
-          material_provision_percent: toNumber(d.material_provision_percent, 0),
+          material_provision_percent: toNumber(d.material_provision_percent ?? d.provision_percent, 0),
           packaging_cost: toNumber(d.packaging_cost, 0),
           labor_cost: toNumber(d.labor_cost, 0),
           delivery_cost: toNumber(d.delivery_cost, 0),
           other_production_cost: toNumber(d.other_production_cost, 0),
-          sga_cost: toNumber(d.sga_cost, 0),
-          selling_price: toNumber(d.selling_price, 0),
+          sga_cost: toNumber(d.sga_cost ?? d.management_cost, 0),
+          selling_price: toNumber(d.selling_price ?? d.sale_price, 0),
         },
         cost_widgets: {},
       });
 
       setDialogOpen(true);
+      setScanSkuMessage(`Đã scan xong: ${draftRows.length} dòng NVL. Kiểm tra form và bấm Lưu SKU.`);
       toast({ title: "Đã scan ảnh công thức", description: `Đọc được ${draftRows.length} dòng NVL. Anh kiểm tra rồi bấm Lưu.` });
     } catch (e: any) {
-      toast({ title: "Không scan được ảnh", description: e?.message || "Lỗi không xác định", variant: "destructive" });
+      const msg = e?.message || "Lỗi không xác định";
+      setScanSkuMessage(`Scan thất bại: ${msg}`);
+      toast({ title: "Không scan được ảnh", description: msg, variant: "destructive" });
     } finally {
       setIsScanningSkuImage(false);
     }
@@ -382,6 +403,7 @@ export default function SkuCostsManagement() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between"><CardTitle>Danh sách SKU thành phẩm</CardTitle><div className="flex gap-2"><Button variant="outline" onClick={openCreateSkuFromImage} disabled={isScanningSkuImage}>{isScanningSkuImage ? "Đang scan..." : "Tạo SKU từ ảnh"}</Button><Button onClick={openCreateSku}>Tạo SKU</Button></div></CardHeader>
             <CardContent>
+              {!!scanSkuMessage && <div className="mb-3 text-sm text-muted-foreground">{scanSkuMessage}</div>}
               <Table><TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Tên</TableHead><TableHead>Giá bán</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>
                 {finishedSkus.map((s) => <TableRow key={s.id}><TableCell className="font-mono">{s.sku_code}</TableCell><TableCell><button className="underline" onClick={() => setActiveSkuId(s.id)}>{s.product_name}</button></TableCell><TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell><TableCell><Button variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button></TableCell></TableRow>)}
                 {finishedSkus.length === 0 && <TableRow><TableCell colSpan={4} className="text-muted-foreground">Chưa có SKU thành phẩm.</TableCell></TableRow>}
@@ -504,10 +526,34 @@ export default function SkuCostsManagement() {
         type="file"
         accept="image/*"
         className="hidden"
-        onChange={(e) => handleScanSkuCostImage(e.target.files?.[0])}
+        onChange={(e) => { const f = e.target.files?.[0]; handleScanSkuCostImage(f); e.currentTarget.value = ""; }}
       />
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}><DialogContent><DialogHeader><DialogTitle>{skuForm.id ? "Sửa SKU" : "Tạo SKU"}</DialogTitle></DialogHeader><div className="grid md:grid-cols-2 gap-3"><Input placeholder="Mã SKU thành phẩm" value={skuForm.sku_code || ""} onChange={(e) => setSkuForm({ ...skuForm, sku_code: e.target.value })} /><Input placeholder="Tên món" value={skuForm.product_name || ""} onChange={(e) => setSkuForm({ ...skuForm, product_name: e.target.value })} /><Input placeholder="Danh mục (mặc định: Thành phẩm)" value={skuForm.category || ""} onChange={(e) => setSkuForm({ ...skuForm, category: e.target.value })} /><Input placeholder="ĐVT (ví dụ: cái)" value={skuForm.unit || ""} onChange={(e) => setSkuForm({ ...skuForm, unit: e.target.value })} /><Input placeholder="Base unit" value={skuForm.base_unit || ""} onChange={(e) => setSkuForm({ ...skuForm, base_unit: e.target.value })} /><Input type="number" placeholder="Yield %" value={skuForm.yield_percent || 100} onChange={(e) => setSkuForm({ ...skuForm, yield_percent: Number(e.target.value || 100) })} /><Input type="number" placeholder="SL thành phẩm" value={skuForm.finished_output_qty || 1} onChange={(e) => setSkuForm({ ...skuForm, finished_output_qty: Number(e.target.value || 1) })} /><Input placeholder="ĐVT thành phẩm" value={skuForm.finished_output_unit || ""} onChange={(e) => setSkuForm({ ...skuForm, finished_output_unit: e.target.value })} /><Input type="number" placeholder="Dự phòng hao hụt/tăng giá (%)" value={skuForm.cost_values?.material_provision_percent || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), material_provision_percent: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Giá bán (VND/cái)" value={skuForm.cost_values?.selling_price || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), selling_price: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Cost bao bì (VND/cái)" value={skuForm.cost_values?.packaging_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), packaging_cost: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Cost nhân công (VND/cái)" value={skuForm.cost_values?.labor_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), labor_cost: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Delivery (VND/cái)" value={skuForm.cost_values?.delivery_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), delivery_cost: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Other production (VND/cái)" value={skuForm.cost_values?.other_production_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), other_production_cost: Number(e.target.value || 0) } })} /><Input type="number" placeholder="BH & quản lý (VND/cái)" value={skuForm.cost_values?.sga_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), sga_cost: Number(e.target.value || 0) } })} /></div><DialogFooter><Button onClick={saveSku}>Lưu</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}><DialogContent><DialogHeader><DialogTitle>{skuForm.id ? "Sửa SKU" : "Tạo SKU"}</DialogTitle></DialogHeader><div className="grid md:grid-cols-2 gap-3"><Input placeholder="Mã SKU thành phẩm" value={skuForm.sku_code || ""} onChange={(e) => setSkuForm({ ...skuForm, sku_code: e.target.value })} /><Input placeholder="Tên món" value={skuForm.product_name || ""} onChange={(e) => setSkuForm({ ...skuForm, product_name: e.target.value })} /><Input placeholder="Danh mục (mặc định: Thành phẩm)" value={skuForm.category || ""} onChange={(e) => setSkuForm({ ...skuForm, category: e.target.value })} /><Input placeholder="ĐVT (ví dụ: cái)" value={skuForm.unit || ""} onChange={(e) => setSkuForm({ ...skuForm, unit: e.target.value })} /><Input placeholder="Base unit" value={skuForm.base_unit || ""} onChange={(e) => setSkuForm({ ...skuForm, base_unit: e.target.value })} /><Input type="number" placeholder="Yield %" value={skuForm.yield_percent || 100} onChange={(e) => setSkuForm({ ...skuForm, yield_percent: Number(e.target.value || 100) })} /><Input type="number" placeholder="SL thành phẩm" value={skuForm.finished_output_qty || 1} onChange={(e) => setSkuForm({ ...skuForm, finished_output_qty: Number(e.target.value || 1) })} /><Input placeholder="ĐVT thành phẩm" value={skuForm.finished_output_unit || ""} onChange={(e) => setSkuForm({ ...skuForm, finished_output_unit: e.target.value })} /><Input type="number" placeholder="Dự phòng hao hụt/tăng giá (%)" value={skuForm.cost_values?.material_provision_percent || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), material_provision_percent: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Giá bán (VND/cái)" value={skuForm.cost_values?.selling_price || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), selling_price: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Cost bao bì (VND/cái)" value={skuForm.cost_values?.packaging_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), packaging_cost: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Cost nhân công (VND/cái)" value={skuForm.cost_values?.labor_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), labor_cost: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Delivery (VND/cái)" value={skuForm.cost_values?.delivery_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), delivery_cost: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Other production (VND/cái)" value={skuForm.cost_values?.other_production_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), other_production_cost: Number(e.target.value || 0) } })} /><Input type="number" placeholder="BH & quản lý (VND/cái)" value={skuForm.cost_values?.sga_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), sga_cost: Number(e.target.value || 0) } })} /></div>
+      {!!importedFormulaDraft.length && (
+        <div className="space-y-2">
+          <div className="text-sm font-medium">Dữ liệu NVL scan từ ảnh (nháp)</div>
+          <Table>
+            <TableHeader><TableRow><TableHead>Nguyên vật liệu</TableHead><TableHead>ĐVT</TableHead><TableHead>Đơn giá</TableHead><TableHead>Định lượng</TableHead><TableHead>Giá vốn</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {importedFormulaDraft.slice(0, 12).map((r, idx) => (
+                <TableRow key={`draft-${idx}`}>
+                  <TableCell>{r.ingredient_name}</TableCell>
+                  <TableCell>{r.unit}</TableCell>
+                  <TableCell>{vnd(toNumber(r.unit_price, 0))}</TableCell>
+                  <TableCell>{vnd(toNumber(r.dosage_qty, 0))}</TableCell>
+                  <TableCell>{vnd(toNumber(r.unit_price, 0) * toNumber(r.dosage_qty, 0))}</TableCell>
+                </TableRow>
+              ))}
+              <TableRow>
+                <TableCell colSpan={4} className="font-medium">Total material cost (nháp)</TableCell>
+                <TableCell className="font-semibold">{vnd(importedMaterialSummary.total)}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
+      )}
+      <DialogFooter><Button onClick={saveSku}>Lưu</Button></DialogFooter></DialogContent></Dialog>
     </div>
   );
 }
