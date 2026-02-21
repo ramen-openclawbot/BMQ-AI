@@ -29,7 +29,6 @@ type PurchasePoint = {
 };
 
 const sb = supabase as any;
-const COST_PER_ITEM_DIVISOR = 1000;
 const vnd = (value: number) => new Intl.NumberFormat("vi-VN").format(value || 0);
 const pad = (n: number, len: number) => String(n).padStart(len, "0");
 const formatYYMMDD = (d: string) => {
@@ -119,6 +118,14 @@ const normalizeScannedIngredient = (row: any) => {
   let unit = normalizeUnitName(row.unit || row.uom || "g");
   let unitPrice = parseLocaleNumber(row.unit_price ?? row.price ?? row.don_gia, 0);
   let dosageQty = parseLocaleNumber(row.dosage_qty ?? row.quantity ?? row.dinh_luong, 0);
+  let lineCost = parseLocaleNumber(row.line_cost ?? row.gia_von ?? row.cost, 0);
+
+  // Heuristic: OCR often swaps Đơn giá and Định lượng for this sheet
+  if (unit === "g" && unitPrice > 500 && dosageQty > 0 && dosageQty < 200) {
+    const tmp = unitPrice;
+    unitPrice = dosageQty;
+    dosageQty = tmp;
+  }
 
   if (unit === "kg" || unit === "kilogram" || unit === "kí" || unit === "ký") {
     dosageQty = convertAmountByUnit(dosageQty, unit, "g");
@@ -126,13 +133,26 @@ const normalizeScannedIngredient = (row: any) => {
     unit = "g";
   }
 
+  // If unit is gram but price looks like price/kg, convert to VND/g
   if (unit === "g" && unitPrice >= 1000) unitPrice = unitPrice / 1000;
+
+  // Use line cost to repair unit price when OCR reads line_cost into đơn giá (e.g. Muối 210)
+  if (lineCost > 0 && dosageQty > 0) {
+    const expected = unitPrice * dosageQty;
+    const mismatch = Math.abs(expected - lineCost) / Math.max(1, lineCost);
+    if (mismatch > 0.2) {
+      unitPrice = lineCost / dosageQty;
+    }
+  }
+
+  if (lineCost <= 0) lineCost = unitPrice * dosageQty;
 
   return {
     ingredient_name: row.ingredient_name || row.name || row.product_name || "",
     unit,
     unit_price: unitPrice,
     dosage_qty: dosageQty,
+    line_cost: lineCost,
   };
 };
 
@@ -264,9 +284,10 @@ export default function SkuCostsManagement() {
   }), [formula, skus, priceMap, inventoryMap]);
 
   const importedMaterialSummary = useMemo(() => {
-    const total = importedFormulaDraft.reduce((sum, r) => sum + toNumber(r.unit_price, 0) * toNumber(r.dosage_qty, 0), 0);
-    return { total, perUnit: Math.round(total / COST_PER_ITEM_DIVISOR) };
-  }, [importedFormulaDraft]);
+    const total = importedFormulaDraft.reduce((sum, r) => sum + toNumber(r.line_cost, toNumber(r.unit_price, 0) * toNumber(r.dosage_qty, 0)), 0);
+    const outputQty = Math.max(1, toNumber(skuForm.finished_output_qty, 1));
+    return { total, perUnit: Math.round(total / outputQty) };
+  }, [importedFormulaDraft, skuForm.finished_output_qty]);
 
   const missingScanFields = useMemo(() => {
     const missing: string[] = [];
@@ -352,7 +373,7 @@ export default function SkuCostsManagement() {
     const outputUnit = d.finished_output_unit || d.output_unit || d.thanh_pham_dvt || "cái";
 
     // Auto-correct common OCR miss: missing "SL thành phẩm" causes cost/unit inflated
-    const estimatedTotalMaterial = draftRows.reduce((s: number, r: any) => s + toNumber(r.unit_price, 0) * toNumber(r.dosage_qty, 0), 0);
+    const estimatedTotalMaterial = draftRows.reduce((s: number, r: any) => s + toNumber(r.line_cost, toNumber(r.unit_price, 0) * toNumber(r.dosage_qty, 0)), 0);
     const outputQty = scannedOutputQty <= 1 && estimatedTotalMaterial >= 10000 ? 100 : scannedOutputQty;
 
     setSkuForm({
@@ -411,9 +432,8 @@ export default function SkuCostsManagement() {
         reader.readAsDataURL(file);
       });
 
-      // Simple + stable path: reuse existing inventory scanner
       const edge = await callEdgeFunction<any>(
-        "scan-invoice",
+        "scan-sku-cost-sheet",
         { imageBase64, mimeType: file.type },
         accessToken,
         90000
@@ -425,12 +445,23 @@ export default function SkuCostsManagement() {
 
       const data = edge.data.data || {};
       applyScannedDataToForm({
-        product_name: data.product_name || data.invoice_number || "SKU từ ảnh",
-        ingredients: (data.items || []).map((x: any) => ({
-          ingredient_name: x.product_name,
+        product_name: data.product_name || "SKU từ ảnh",
+        sku_code: data.sku_code,
+        finished_output_qty: data.finished_output_qty,
+        finished_output_unit: data.finished_output_unit,
+        material_provision_percent: data.material_provision_percent,
+        packaging_cost: data.packaging_cost,
+        labor_cost: data.labor_cost,
+        delivery_cost: data.delivery_cost,
+        other_production_cost: data.other_production_cost,
+        sga_cost: data.sga_cost,
+        selling_price: data.selling_price,
+        ingredients: (data.ingredients || []).map((x: any) => ({
+          ingredient_name: x.ingredient_name,
           unit: x.unit,
           unit_price: x.unit_price,
-          dosage_qty: x.quantity,
+          dosage_qty: x.dosage_qty,
+          line_cost: x.line_cost,
         })),
       });
     } catch (e: any) {
@@ -675,15 +706,15 @@ export default function SkuCostsManagement() {
                     <TableRow><TableCell colSpan={7} className="text-muted-foreground">Chưa có NVL từ scan ảnh. Anh bấm “Tạo SKU từ ảnh” để nạp dữ liệu.</TableCell></TableRow>
                   )}
                   {importedFormulaDraft.map((r, idx) => {
-                    const lineCost = toNumber(r.unit_price, 0) * toNumber(r.dosage_qty, 0);
-                    const perUnit = Math.round(lineCost / COST_PER_ITEM_DIVISOR);
+                    const lineCost = toNumber(r.line_cost, toNumber(r.unit_price, 0) * toNumber(r.dosage_qty, 0));
+                    const perUnit = Math.round(lineCost / Math.max(1, toNumber(skuForm.finished_output_qty, 1)));
                     return (
                       <TableRow key={`draft-${idx}`}>
                         <TableCell>{skuForm.product_name || "SKU từ ảnh"}</TableCell>
                         <TableCell><Input value={r.ingredient_name || ""} onChange={(e) => { const next = [...importedFormulaDraft]; next[idx] = { ...next[idx], ingredient_name: e.target.value }; setImportedFormulaDraft(next); }} /></TableCell>
                         <TableCell><Input value={r.unit || "g"} onChange={(e) => { const next = [...importedFormulaDraft]; next[idx] = { ...next[idx], unit: e.target.value }; setImportedFormulaDraft(next); }} /></TableCell>
-                        <TableCell><Input type="number" value={toNumber(r.unit_price, 0)} onChange={(e) => { const next = [...importedFormulaDraft]; next[idx] = { ...next[idx], unit_price: Number(e.target.value || 0) }; setImportedFormulaDraft(next); }} /></TableCell>
-                        <TableCell><Input type="number" value={toNumber(r.dosage_qty, 0)} onChange={(e) => { const next = [...importedFormulaDraft]; next[idx] = { ...next[idx], dosage_qty: Number(e.target.value || 0) }; setImportedFormulaDraft(next); }} /></TableCell>
+                        <TableCell><Input type="number" value={toNumber(r.unit_price, 0)} onChange={(e) => { const next = [...importedFormulaDraft]; const unit_price = Number(e.target.value || 0); const dosage_qty = toNumber(next[idx].dosage_qty, 0); next[idx] = { ...next[idx], unit_price, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
+                        <TableCell><Input type="number" value={toNumber(r.dosage_qty, 0)} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_qty = Number(e.target.value || 0); const unit_price = toNumber(next[idx].unit_price, 0); next[idx] = { ...next[idx], dosage_qty, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
                         <TableCell>{vnd(lineCost)}</TableCell>
                         <TableCell>{vnd(perUnit)}</TableCell>
                       </TableRow>

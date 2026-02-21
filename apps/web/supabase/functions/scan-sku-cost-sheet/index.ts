@@ -33,25 +33,32 @@ serve(async (req) => {
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
     if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured");
 
-    const systemPrompt = `Bạn là chuyên gia đọc sheet giá thành sản xuất (tiếng Việt). Hãy trích xuất dữ liệu từ ảnh bảng cost và trả về JSON chuẩn cho form tạo SKU.
+    const systemPrompt = `Bạn là chuyên gia đọc sheet giá thành sản xuất tiếng Việt.
+Trích xuất theo đúng cột cố định (từ trái qua phải) của bảng nguyên vật liệu:
+Tên món | Nguyên vật liệu | DVT | Đơn giá | Định lượng | Giá vốn | Đơn giá vốn/cái.
 
 Yêu cầu trích xuất:
-1) product_name: tên món/thành phẩm (ví dụ: BÁNH MÌ CHÀ BÔNG)
+1) product_name: tên món/thành phẩm
 2) sku_code: nếu ảnh không có thì tạo gợi ý dạng TP-<slug>-001
-3) finished_output_qty: SL thành phẩm (cột Thành phẩm SL)
+3) finished_output_qty: SL thành phẩm (cột Thành phẩm SL, thường là 100)
 4) finished_output_unit: ĐVT thành phẩm (cột Thành phẩm ĐVT)
 5) material_provision_percent: % dự phòng hao hụt/tăng giá
 6) packaging_cost, labor_cost, delivery_cost, other_production_cost, sga_cost, selling_price (VND/cái)
 7) ingredients: danh sách nguyên vật liệu, mỗi dòng gồm:
    - ingredient_name
    - unit
-   - unit_price
-   - dosage_qty
+   - unit_price (Đơn giá)
+   - dosage_qty (Định lượng)
+   - line_cost (Giá vốn)
+   - unit_cost_per_item (Đơn giá vốn/cái)
 
-Quy tắc:
-- Chỉ lấy dòng nguyên liệu thật sự (bỏ dòng total/summary).
+Quy tắc bắt buộc:
+- Không được nhầm cột Đơn giá với Định lượng hoặc Giá vốn.
+- Với số kiểu VN: 2,662 => 2662; 47,324 => 47324.
+- Chỉ lấy dòng nguyên liệu thật sự (bỏ total/summary).
 - Nếu thiếu số thì trả 0.
 - Trả số dạng number, không dấu phân cách nghìn.
+- Tự kiểm tra: line_cost phải xấp xỉ unit_price * dosage_qty.
 - Nếu không thấy product_name, dùng "SKU từ ảnh".`;
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -101,6 +108,8 @@ Quy tắc:
                         unit: { type: "string" },
                         unit_price: { type: "number" },
                         dosage_qty: { type: "number" },
+                        line_cost: { type: "number" },
+                        unit_cost_per_item: { type: "number" },
                       },
                       required: ["ingredient_name"],
                     },
