@@ -42,6 +42,23 @@ export default function Auth() {
       try {
         const url = new URL(window.location.href);
         const code = url.searchParams.get("code");
+        const oauthError = url.searchParams.get("error");
+        const oauthErrorDescription = url.searchParams.get("error_description");
+
+        if (oauthError) {
+          const rawMessage = oauthErrorDescription
+            ? decodeURIComponent(oauthErrorDescription.replace(/\+/g, " "))
+            : oauthError;
+
+          const message = rawMessage.toLowerCase().includes("not authorized") || rawMessage.toLowerCase().includes("not allowed")
+            ? "Tài khoản Google chưa được cấp quyền truy cập hệ thống. Vui lòng liên hệ quản trị để được cấp quyền."
+            : `Đăng nhập thất bại: ${rawMessage}`;
+
+          console.error("OAuth callback error:", { oauthError, oauthErrorDescription });
+          setError(message);
+          setProcessingCallback(false);
+          return;
+        }
 
         if (code) {
           const { error } = await supabase.auth.exchangeCodeForSession(code);
@@ -58,6 +75,24 @@ export default function Auth() {
         }
 
         const hash = window.location.hash;
+        if (hash && hash.includes("error=")) {
+          const params = new URLSearchParams(hash.substring(1));
+          const hashError = params.get("error");
+          const hashErrorDescription = params.get("error_description");
+          const rawMessage = hashErrorDescription
+            ? decodeURIComponent(hashErrorDescription.replace(/\+/g, " "))
+            : hashError || "Đăng nhập thất bại";
+
+          const message = rawMessage.toLowerCase().includes("not authorized") || rawMessage.toLowerCase().includes("not allowed")
+            ? "Tài khoản Google chưa được cấp quyền truy cập hệ thống. Vui lòng liên hệ quản trị để được cấp quyền."
+            : `Đăng nhập thất bại: ${rawMessage}`;
+
+          console.error("OAuth hash error:", { hashError, hashErrorDescription });
+          setError(message);
+          setProcessingCallback(false);
+          return;
+        }
+
         if (hash && hash.includes("access_token")) {
           const params = new URLSearchParams(hash.substring(1));
           const access_token = params.get("access_token");
