@@ -1,0 +1,133 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "npm:@supabase/supabase-js@2.90.1";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+};
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    const token = authHeader.replace("Bearer ", "");
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: "Invalid JWT" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    const { imageBase64, mimeType } = await req.json();
+    if (!imageBase64) {
+      return new Response(JSON.stringify({ error: "No image provided" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+
+    const systemPrompt = `Bạn là chuyên gia đọc sheet giá thành sản xuất (tiếng Việt). Hãy trích xuất dữ liệu từ ảnh bảng cost và trả về JSON chuẩn cho form tạo SKU.
+
+Yêu cầu trích xuất:
+1) product_name: tên món/thành phẩm (ví dụ: BÁNH MÌ CHÀ BÔNG)
+2) sku_code: nếu ảnh không có thì tạo gợi ý dạng TP-<slug>-001
+3) finished_output_qty: SL thành phẩm (cột Thành phẩm SL)
+4) finished_output_unit: ĐVT thành phẩm (cột Thành phẩm ĐVT)
+5) material_provision_percent: % dự phòng hao hụt/tăng giá
+6) packaging_cost, labor_cost, delivery_cost, other_production_cost, sga_cost, selling_price (VND/cái)
+7) ingredients: danh sách nguyên vật liệu, mỗi dòng gồm:
+   - ingredient_name
+   - unit
+   - unit_price
+   - dosage_qty
+
+Quy tắc:
+- Chỉ lấy dòng nguyên liệu thật sự (bỏ dòng total/summary).
+- Nếu thiếu số thì trả 0.
+- Trả số dạng number, không dấu phân cách nghìn.
+- Nếu không thấy product_name, dùng "SKU từ ảnh".`;
+
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: [
+              { type: "image_url", image_url: { url: `data:${mimeType || "image/jpeg"};base64,${imageBase64}` } },
+              { type: "text", text: "Hãy đọc ảnh và trích xuất JSON tạo SKU theo schema tool." },
+            ],
+          },
+        ],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "extract_sku_cost_sheet",
+              description: "Extract SKU cost sheet data from image",
+              parameters: {
+                type: "object",
+                properties: {
+                  sku_code: { type: "string" },
+                  product_name: { type: "string" },
+                  finished_output_qty: { type: "number" },
+                  finished_output_unit: { type: "string" },
+                  material_provision_percent: { type: "number" },
+                  packaging_cost: { type: "number" },
+                  labor_cost: { type: "number" },
+                  delivery_cost: { type: "number" },
+                  other_production_cost: { type: "number" },
+                  sga_cost: { type: "number" },
+                  selling_price: { type: "number" },
+                  ingredients: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        ingredient_name: { type: "string" },
+                        unit: { type: "string" },
+                        unit_price: { type: "number" },
+                        dosage_qty: { type: "number" },
+                      },
+                      required: ["ingredient_name"],
+                    },
+                  },
+                },
+                required: ["product_name", "ingredients"],
+              },
+            },
+          },
+        ],
+        tool_choice: { type: "function", function: { name: "extract_sku_cost_sheet" } },
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`AI gateway error: ${response.status} - ${errorText}`);
+    }
+
+    const aiResponse = await response.json();
+    const toolCall = aiResponse.choices?.[0]?.message?.tool_calls?.[0];
+    if (!toolCall) throw new Error("Failed to extract SKU data");
+
+    const extracted = JSON.parse(toolCall.function.arguments || "{}");
+
+    return new Response(JSON.stringify({ success: true, data: extracted }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+});

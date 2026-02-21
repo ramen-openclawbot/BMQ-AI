@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -81,6 +81,9 @@ export default function SkuCostsManagement() {
   const [searchByRow, setSearchByRow] = useState<Record<string, string>>({});
   const [purchasePoints, setPurchasePoints] = useState<PurchasePoint[]>([]);
   const [inventoryMap, setInventoryMap] = useState<Map<string, number>>(new Map());
+  const [isScanningSkuImage, setIsScanningSkuImage] = useState(false);
+  const [importedFormulaDraft, setImportedFormulaDraft] = useState<any[]>([]);
+  const skuImageInputRef = useRef<HTMLInputElement | null>(null);
 
   const [skuForm, setSkuForm] = useState<any>({
     id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100,
@@ -207,90 +210,113 @@ export default function SkuCostsManagement() {
 
   const saveSku = async () => {
     if (!skuForm.sku_code || !skuForm.product_name) return;
-    if (skuForm.id) { await sb.from("product_skus").update({ ...skuForm }).eq("id", skuForm.id); toast({ title: "Đã cập nhật SKU" }); }
-    else { const { data } = await sb.from("product_skus").insert({ ...skuForm }).select("*").single(); if (data?.id) setActiveSkuId(data.id); toast({ title: "Đã tạo SKU" }); }
-    setDialogOpen(false); loadAll();
+    if (skuForm.id) {
+      await sb.from("product_skus").update({ ...skuForm }).eq("id", skuForm.id);
+      toast({ title: "Đã cập nhật SKU" });
+    } else {
+      const { data } = await sb.from("product_skus").insert({ ...skuForm }).select("*").single();
+      if (data?.id) {
+        setActiveSkuId(data.id);
+
+        if (importedFormulaDraft.length > 0) {
+          const rows = importedFormulaDraft.map((r: any, idx: number) => {
+            const n = String(r.ingredient_name || "").toLowerCase();
+            const matched = ingredientSkus.find((s) => {
+              const t = `${s.sku_code} ${s.product_name}`.toLowerCase();
+              return t.includes(n) || n.includes(String(s.product_name || "").toLowerCase());
+            });
+            return {
+              sku_id: data.id,
+              ingredient_sku_id: matched?.id || null,
+              ingredient_name: matched?.product_name || r.ingredient_name,
+              unit: matched?.unit || r.unit || "g",
+              unit_price: toNumber(r.unit_price, 0),
+              dosage_qty: toNumber(r.dosage_qty, 0),
+              wastage_percent: 0,
+              sort_order: idx + 1,
+            };
+          });
+          await sb.from("sku_formulations").insert(rows);
+        }
+      }
+      toast({ title: "Đã tạo SKU" });
+    }
+    setDialogOpen(false);
+    setImportedFormulaDraft([]);
+    loadAll();
   };
 
-  const createSampleSkuChaBong = async () => {
-    const sampleSkuCode = "TP-BMCB-001";
-    const existing = finishedSkus.find((s) => s.sku_code === sampleSkuCode || String(s.product_name || "").toLowerCase().includes("bánh mì chà bông"));
-    if (existing) {
-      setActiveSkuId(existing.id);
-      toast({ title: "SKU mẫu đã tồn tại", description: "Đã chọn SKU Bánh mì chà bông." });
+  const openCreateSkuFromImage = () => {
+    skuImageInputRef.current?.click();
+  };
+
+  const handleScanSkuCostImage = async (file?: File | null) => {
+    if (!file) return;
+    const { data: sessionData, error: sessionError } = await sb.auth.getSession();
+    if (sessionError || !sessionData.session) {
+      toast({ title: "Phiên đăng nhập hết hạn", description: "Vui lòng đăng nhập lại.", variant: "destructive" });
       return;
     }
 
-    const sampleCostValues = {
-      ...DEFAULT_SKU_COST_VALUES,
-      material_provision_percent: 10,
-      packaging_cost: 1280,
-      labor_cost: 3077,
-      delivery_cost: 1000,
-      other_production_cost: 1100,
-      sga_cost: 1100,
-      selling_price: 11000,
-    };
-
-    const { data: createdSku, error: createErr } = await sb.from("product_skus").insert({
-      sku_code: sampleSkuCode,
-      product_name: "Bánh mì chà bông",
-      category: "Thành phẩm",
-      unit: "cái",
-      base_unit: "cái",
-      finished_output_qty: 100,
-      finished_output_unit: "cái",
-      yield_percent: 100,
-      cost_template: DEFAULT_SKU_COST_TEMPLATE,
-      cost_values: sampleCostValues,
-      cost_widgets: {},
-    }).select("*").single();
-
-    if (createErr || !createdSku?.id) {
-      toast({ title: "Không tạo được SKU mẫu", description: createErr?.message || "Lỗi không xác định", variant: "destructive" });
-      return;
-    }
-
-    const ingredientTemplate = [
-      { name: "Bột mì 888 cam", unit: "g", price: 18, dosage: 2662 },
-      { name: "Chất Làm Mềm Bánh Bico", unit: "g", price: 69, dosage: 17 },
-      { name: "Muối", unit: "g", price: 6, dosage: 35 },
-      { name: "Đường", unit: "g", price: 20, dosage: 482 },
-      { name: "Phụ Gia Làm Bánh Mì Bico Gold", unit: "g", price: 88, dosage: 17 },
-      { name: "Phụ gia ngọt Mauri", unit: "g", price: 106, dosage: 17 },
-      { name: "Men bánh mì tươi Five Star", unit: "g", price: 150, dosage: 70 },
-      { name: "Kem sữa Whiping cream tatua", unit: "g", price: 149, dosage: 158 },
-      { name: "Trứng gà", unit: "g", price: 51, dosage: 333 },
-      { name: "Sữa Bột Béo New Zealand", unit: "g", price: 130, dosage: 149 },
-      { name: "Nước", unit: "g", price: 3, dosage: 1226 },
-      { name: "Bột ngọt", unit: "g", price: 48, dosage: 2 },
-      { name: "Dầu hướng dương Simply", unit: "g", price: 60, dosage: 1303 },
-      { name: "Giấm gạo", unit: "g", price: 51, dosage: 16 },
-      { name: "Chà bông vàng", unit: "g", price: 140, dosage: 1250 },
-    ];
-
-    const matchedRows = ingredientTemplate.map((x, idx) => {
-      const n = x.name.toLowerCase();
-      const matched = ingredientSkus.find((s) => {
-        const t = `${s.sku_code} ${s.product_name}`.toLowerCase();
-        return t.includes(n) || n.includes(String(s.product_name || "").toLowerCase());
+    setIsScanningSkuImage(true);
+    try {
+      const imageBase64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(String(reader.result).split(",")[1]);
+        reader.readAsDataURL(file);
       });
-      return {
-        sku_id: createdSku.id,
-        ingredient_sku_id: matched?.id || null,
-        ingredient_name: matched?.product_name || x.name,
-        unit: matched?.unit || x.unit,
-        unit_price: x.price,
-        dosage_qty: x.dosage,
-        wastage_percent: 0,
-        sort_order: idx + 1,
-      };
-    });
 
-    await sb.from("sku_formulations").insert(matchedRows);
-    setActiveSkuId(createdSku.id);
-    toast({ title: "Đã tạo SKU mẫu Bánh mì chà bông" });
-    loadAll();
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const response = await fetch(`${supabaseUrl}/functions/v1/scan-sku-cost-sheet`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+        body: JSON.stringify({ imageBase64, mimeType: file.type }),
+      });
+
+      const payload = await response.json();
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || `Lỗi scan ảnh (${response.status})`);
+      }
+
+      const d = payload.data || {};
+      const draftRows = Array.isArray(d.ingredients) ? d.ingredients : [];
+      setImportedFormulaDraft(draftRows);
+
+      setSkuForm({
+        id: "",
+        sku_code: d.sku_code || "",
+        product_name: d.product_name || "",
+        unit: d.finished_output_unit || "cái",
+        category: "Thành phẩm",
+        base_unit: d.finished_output_unit || "cái",
+        yield_percent: 100,
+        finished_output_qty: toNumber(d.finished_output_qty, 1),
+        finished_output_unit: d.finished_output_unit || "cái",
+        cost_template: DEFAULT_SKU_COST_TEMPLATE,
+        cost_values: {
+          ...DEFAULT_SKU_COST_VALUES,
+          material_provision_percent: toNumber(d.material_provision_percent, 0),
+          packaging_cost: toNumber(d.packaging_cost, 0),
+          labor_cost: toNumber(d.labor_cost, 0),
+          delivery_cost: toNumber(d.delivery_cost, 0),
+          other_production_cost: toNumber(d.other_production_cost, 0),
+          sga_cost: toNumber(d.sga_cost, 0),
+          selling_price: toNumber(d.selling_price, 0),
+        },
+        cost_widgets: {},
+      });
+
+      setDialogOpen(true);
+      toast({ title: "Đã scan ảnh công thức", description: `Đọc được ${draftRows.length} dòng NVL. Anh kiểm tra rồi bấm Lưu.` });
+    } catch (e: any) {
+      toast({ title: "Không scan được ảnh", description: e?.message || "Lỗi không xác định", variant: "destructive" });
+    } finally {
+      setIsScanningSkuImage(false);
+    }
   };
 
   const addFormula = async () => { if (!activeSkuId) return; await sb.from("sku_formulations").insert({ sku_id: activeSkuId, ingredient_name: "NVL mới", unit: "kg", unit_price: 0, dosage_qty: 0, wastage_percent: 0, sort_order: formula.length + 1 }); loadAll(); };
@@ -354,7 +380,7 @@ export default function SkuCostsManagement() {
 
         <TabsContent value="sku-admin" className="space-y-4">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between"><CardTitle>Danh sách SKU thành phẩm</CardTitle><div className="flex gap-2"><Button variant="outline" onClick={createSampleSkuChaBong}>Tạo SKU mẫu từ ảnh</Button><Button onClick={openCreateSku}>Tạo SKU</Button></div></CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between"><CardTitle>Danh sách SKU thành phẩm</CardTitle><div className="flex gap-2"><Button variant="outline" onClick={openCreateSkuFromImage} disabled={isScanningSkuImage}>{isScanningSkuImage ? "Đang scan..." : "Tạo SKU từ ảnh"}</Button><Button onClick={openCreateSku}>Tạo SKU</Button></div></CardHeader>
             <CardContent>
               <Table><TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Tên</TableHead><TableHead>Giá bán</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>
                 {finishedSkus.map((s) => <TableRow key={s.id}><TableCell className="font-mono">{s.sku_code}</TableCell><TableCell><button className="underline" onClick={() => setActiveSkuId(s.id)}>{s.product_name}</button></TableCell><TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell><TableCell><Button variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button></TableCell></TableRow>)}
@@ -472,6 +498,14 @@ export default function SkuCostsManagement() {
           <Card><CardHeader><CardTitle>Danh sách batch truy xuất</CardTitle></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead>Mã lô</TableHead><TableHead>SKU</TableHead><TableHead>NSX/HSD</TableHead><TableHead>Link đối tác</TableHead><TableHead>Vật tư</TableHead></TableRow></TableHeader><TableBody>{batches.map((b) => <TableRow key={b.id}><TableCell className="font-mono">{b.batch_code}</TableCell><TableCell>{b.product_skus?.sku_code} - {b.product_skus?.product_name}</TableCell><TableCell>{b.production_date} / {b.expiry_date || "-"}</TableCell><TableCell><Link className="underline" to={`/trace/${b.public_token}`} target="_blank">/trace/{b.public_token}</Link></TableCell><TableCell><Button size="sm" variant="outline" onClick={() => loadBatchMaterials(b.id)}>Xem</Button></TableCell></TableRow>)}</TableBody></Table>{!!batchMaterials.length && <div className="mt-4"><h4 className="font-semibold mb-2">Chi tiết NVL batch</h4><Table><TableHeader><TableRow><TableHead>Nhóm</TableHead><TableHead>Tên</TableHead><TableHead>Mã</TableHead><TableHead>Mã lô NVL</TableHead><TableHead>SL</TableHead></TableRow></TableHeader><TableBody>{batchMaterials.map((m) => <TableRow key={m.id}><TableCell>{m.material_group}</TableCell><TableCell>{m.material_name}</TableCell><TableCell>{m.material_code}</TableCell><TableCell>{m.material_batch_code}</TableCell><TableCell>{m.quantity} {m.unit}</TableCell></TableRow>)}</TableBody></Table></div>}</CardContent></Card>
         </TabsContent>
       </Tabs>
+
+      <input
+        ref={skuImageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => handleScanSkuCostImage(e.target.files?.[0])}
+      />
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}><DialogContent><DialogHeader><DialogTitle>{skuForm.id ? "Sửa SKU" : "Tạo SKU"}</DialogTitle></DialogHeader><div className="grid md:grid-cols-2 gap-3"><Input placeholder="Mã SKU thành phẩm" value={skuForm.sku_code || ""} onChange={(e) => setSkuForm({ ...skuForm, sku_code: e.target.value })} /><Input placeholder="Tên món" value={skuForm.product_name || ""} onChange={(e) => setSkuForm({ ...skuForm, product_name: e.target.value })} /><Input placeholder="Danh mục (mặc định: Thành phẩm)" value={skuForm.category || ""} onChange={(e) => setSkuForm({ ...skuForm, category: e.target.value })} /><Input placeholder="ĐVT (ví dụ: cái)" value={skuForm.unit || ""} onChange={(e) => setSkuForm({ ...skuForm, unit: e.target.value })} /><Input placeholder="Base unit" value={skuForm.base_unit || ""} onChange={(e) => setSkuForm({ ...skuForm, base_unit: e.target.value })} /><Input type="number" placeholder="Yield %" value={skuForm.yield_percent || 100} onChange={(e) => setSkuForm({ ...skuForm, yield_percent: Number(e.target.value || 100) })} /><Input type="number" placeholder="SL thành phẩm" value={skuForm.finished_output_qty || 1} onChange={(e) => setSkuForm({ ...skuForm, finished_output_qty: Number(e.target.value || 1) })} /><Input placeholder="ĐVT thành phẩm" value={skuForm.finished_output_unit || ""} onChange={(e) => setSkuForm({ ...skuForm, finished_output_unit: e.target.value })} /><Input type="number" placeholder="Dự phòng hao hụt/tăng giá (%)" value={skuForm.cost_values?.material_provision_percent || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), material_provision_percent: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Giá bán (VND/cái)" value={skuForm.cost_values?.selling_price || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), selling_price: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Cost bao bì (VND/cái)" value={skuForm.cost_values?.packaging_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), packaging_cost: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Cost nhân công (VND/cái)" value={skuForm.cost_values?.labor_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), labor_cost: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Delivery (VND/cái)" value={skuForm.cost_values?.delivery_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), delivery_cost: Number(e.target.value || 0) } })} /><Input type="number" placeholder="Other production (VND/cái)" value={skuForm.cost_values?.other_production_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), other_production_cost: Number(e.target.value || 0) } })} /><Input type="number" placeholder="BH & quản lý (VND/cái)" value={skuForm.cost_values?.sga_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), sga_cost: Number(e.target.value || 0) } })} /></div><DialogFooter><Button onClick={saveSku}>Lưu</Button></DialogFooter></DialogContent></Dialog>
     </div>
