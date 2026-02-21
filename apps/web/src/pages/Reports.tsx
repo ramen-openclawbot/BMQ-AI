@@ -29,6 +29,11 @@ const formatNumber = (value: number) => {
   return new Intl.NumberFormat("vi-VN").format(value);
 };
 
+const truncateSupplierName = (name: string, maxLength = 20) => {
+  if (!name) return "";
+  return name.length > maxLength ? `${name.slice(0, maxLength)}...` : name;
+};
+
 export default function Reports() {
   const [selectedMonth, setSelectedMonth] = useState(new Date());
 
@@ -42,7 +47,7 @@ export default function Reports() {
 
   const supplierChartData = useMemo(() => {
     return (monthlyStats?.bySupplier || []).slice(0, 5).map((s) => ({
-      name: s.name.length > 15 ? s.name.slice(0, 15) + "..." : s.name,
+      name: s.name,
       value: s.value,
     }));
   }, [monthlyStats]);
@@ -172,9 +177,15 @@ export default function Reports() {
           <CardContent>
             {supplierChartData.length > 0 ? (
               <ChartContainer config={chartConfig} className="h-[250px]">
-                <BarChart data={supplierChartData} layout="vertical">
+                <BarChart data={supplierChartData} layout="vertical" margin={{ left: 8, right: 8 }}>
                   <XAxis type="number" tickFormatter={(v) => formatCurrency(v)} />
-                  <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 12 }} />
+                  <YAxis
+                    dataKey="name"
+                    type="category"
+                    width={180}
+                    tick={{ fontSize: 12 }}
+                    tickFormatter={(value) => truncateSupplierName(String(value), 22)}
+                  />
                   <ChartTooltip
                     content={<ChartTooltipContent formatter={(value) => formatCurrency(value as number)} />}
                   />
