@@ -140,7 +140,13 @@ export default function SkuCostsManagement() {
     }
   };
 
-  useEffect(() => { loadAll(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => {
+    (async () => {
+      try { await sb.rpc("snapshot_sku_costs_daily", { p_snapshot_date: new Date().toISOString().slice(0, 10) }); } catch (_) {}
+      loadAll();
+    })();
+    /* eslint-disable-next-line */
+  }, []);
   useEffect(() => {
     if (!activeSkuId) return;
     (async () => {
