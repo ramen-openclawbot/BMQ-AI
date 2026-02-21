@@ -76,9 +76,9 @@ serve(async (req) => {
       });
     }
 
-    const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
-    if (!lovableApiKey) {
-      console.error("[scan-bank-slip] LOVABLE_API_KEY not configured");
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!openaiApiKey) {
+      console.error("[scan-bank-slip] OPENAI_API_KEY not configured");
       return new Response(JSON.stringify({ error: 'AI API key not configured' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -101,16 +101,16 @@ Extract the following information:
 
 Return the data in JSON format. If a field cannot be extracted, use null.`;
 
-    // Call Lovable AI Gateway
+    // Call OpenAI Gateway
     console.log("[scan-bank-slip] Calling AI gateway");
-    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${lovableApiKey}`,
+        'Authorization': `Bearer ${openaiApiKey}`,
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: 'gpt-4o-mini',
         messages: [
           { role: 'system', content: systemPrompt },
           {

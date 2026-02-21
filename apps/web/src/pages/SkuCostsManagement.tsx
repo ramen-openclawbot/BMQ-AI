@@ -363,8 +363,8 @@ export default function SkuCostsManagement() {
       });
     } catch (e: any) {
       const raw = String(e?.message || "Lỗi không xác định");
-      const msg = raw.includes("CONFIG_MISSING_LOVABLE_API_KEY") || raw.includes("LOVABLE_API_KEY")
-        ? "Thiếu AI key trên server (LOVABLE_API_KEY). Vui lòng cấu hình để dùng scan ảnh."
+      const msg = raw.includes("CONFIG_MISSING_OPENAI_API_KEY") || raw.includes("OPENAI_API_KEY")
+        ? "Thiếu AI key trên server (OPENAI_API_KEY). Vui lòng cấu hình để dùng scan ảnh."
         : raw;
       setScanSkuMessage(`Scan thất bại: ${msg}`);
       toast({ title: "Không scan được ảnh", description: msg, variant: "destructive" });
