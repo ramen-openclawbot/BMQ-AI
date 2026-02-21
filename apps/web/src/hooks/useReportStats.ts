@@ -36,7 +36,7 @@ export function useMonthlyReceiptStats(month: Date = new Date()) {
       // Get goods receipts for the month
       const { data: receipts, error: receiptsError } = await supabase
         .from("goods_receipts")
-        .select("id, total_quantity, supplier_id, suppliers(id, name), purchase_orders(total_amount)")
+        .select("id, total_quantity, supplier_id, suppliers(id, name), purchase_orders(total_amount), payment_requests(total_amount)")
         .gte("receipt_date", format(start, "yyyy-MM-dd"))
         .lte("receipt_date", format(end, "yyyy-MM-dd"))
         .eq("status", "received");
@@ -50,7 +50,7 @@ export function useMonthlyReceiptStats(month: Date = new Date()) {
 
       receipts?.forEach((r) => {
         const qty = r.total_quantity || 0;
-        const value = (r.purchase_orders as any)?.total_amount || 0;
+        const value = (r.purchase_orders as any)?.total_amount || (r.payment_requests as any)?.total_amount || 0;
         totalQuantity += qty;
         totalValue += value;
 

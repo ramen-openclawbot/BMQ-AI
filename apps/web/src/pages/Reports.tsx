@@ -86,15 +86,15 @@ export default function Reports() {
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-1">
               <Package className="h-4 w-4" />
-              Tổng nhập tháng này
+              Tổng giá trị nhập tháng này
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {isLoading ? "..." : formatNumber(monthlyStats?.totalQuantity || 0)}
+              {isLoading ? "..." : formatCurrency(monthlyStats?.totalValue || 0)}
             </div>
             <p className="text-sm text-muted-foreground">
-              {monthlyStats?.totalReceipts || 0} phiếu nhập
+              {monthlyStats?.totalReceipts || 0} phiếu nhập đã nhận
             </p>
           </CardContent>
         </Card>
