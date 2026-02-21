@@ -317,27 +317,18 @@ export default function SkuCostsManagement() {
     if (!file) return;
     setScanSkuMessage("Đang scan ảnh công thức...");
 
-    // Ensure fresh access token to avoid 401 from Edge Function
+    // Optional session: use token if available, otherwise call as anon
     let accessToken = "";
-    const { data: sessionData, error: sessionError } = await sb.auth.getSession();
-    if (sessionError || !sessionData.session) {
-      toast({ title: "Phiên đăng nhập hết hạn", description: "Vui lòng đăng nhập lại.", variant: "destructive" });
-      setScanSkuMessage("Scan thất bại: phiên đăng nhập hết hạn.");
-      return;
-    }
-
-    const expiresAt = Number(sessionData.session.expires_at || 0) * 1000;
-    const shouldRefresh = !expiresAt || expiresAt - Date.now() < 60_000;
-    if (shouldRefresh) {
-      const { data: refreshed, error: refreshError } = await sb.auth.refreshSession();
-      if (refreshError || !refreshed?.session?.access_token) {
-        toast({ title: "Phiên đăng nhập hết hạn", description: "Vui lòng đăng nhập lại.", variant: "destructive" });
-        setScanSkuMessage("Scan thất bại: không làm mới được phiên đăng nhập.");
-        return;
+    const { data: sessionData } = await sb.auth.getSession();
+    if (sessionData.session) {
+      const expiresAt = Number(sessionData.session.expires_at || 0) * 1000;
+      const shouldRefresh = !expiresAt || expiresAt - Date.now() < 60_000;
+      if (shouldRefresh) {
+        const { data: refreshed } = await sb.auth.refreshSession();
+        accessToken = refreshed?.session?.access_token || "";
+      } else {
+        accessToken = sessionData.session.access_token;
       }
-      accessToken = refreshed.session.access_token;
-    } else {
-      accessToken = sessionData.session.access_token;
     }
 
     setIsScanningSkuImage(true);
@@ -371,7 +362,10 @@ export default function SkuCostsManagement() {
         })),
       });
     } catch (e: any) {
-      const msg = e?.message || "Lỗi không xác định";
+      const raw = String(e?.message || "Lỗi không xác định");
+      const msg = raw.includes("CONFIG_MISSING_LOVABLE_API_KEY") || raw.includes("LOVABLE_API_KEY")
+        ? "Thiếu AI key trên server (LOVABLE_API_KEY). Vui lòng cấu hình để dùng scan ảnh."
+        : raw;
       setScanSkuMessage(`Scan thất bại: ${msg}`);
       toast({ title: "Không scan được ảnh", description: msg, variant: "destructive" });
     } finally {

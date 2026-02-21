@@ -64,7 +64,7 @@ export async function withAuthTimeout<T>(
 export async function callEdgeFunction<T>(
   functionName: string,
   body: Record<string, unknown>,
-  token: string,
+  token?: string,
   timeoutMs: number = DEFAULT_TIMEOUT
 ): Promise<EdgeFunctionResponse<T>> {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -80,7 +80,7 @@ export async function callEdgeFunction<T>(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
           'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         },
         body: JSON.stringify(body),

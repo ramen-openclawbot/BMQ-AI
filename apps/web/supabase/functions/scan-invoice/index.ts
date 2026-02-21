@@ -16,36 +16,25 @@ serve(async (req) => {
   }
 
   try {
-    // Authentication check - simplified for prototype (no role check)
+    // Optional auth: accept authenticated users, but allow anon scan for prototype reliability
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      console.log("[scan-invoice] Missing authorization header");
-      return new Response(
-        JSON.stringify({ error: "Unauthorized - Missing or invalid authorization header" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const token = authHeader.replace("Bearer ", "");
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.replace("Bearer ", "") : "";
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
-    // Use service role client for stable auth verification
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-
-    // Validate user token using service role key (stable pattern)
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-    if (authError || !user) {
-      console.log("[scan-invoice] Invalid JWT:", authError?.message);
-      return new Response(
-        JSON.stringify({ code: 401, message: "Invalid JWT", details: authError?.message }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    if (token) {
+      const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+      if (authError || !user) {
+        console.log("[scan-invoice] Invalid JWT, continue as anon:", authError?.message);
+      } else {
+        console.log("[scan-invoice] User authenticated:", user.id);
+      }
+    } else {
+      console.log("[scan-invoice] No auth header, continue as anon");
     }
-
-    console.log("[scan-invoice] User authenticated:", user.id);
 
     const { imageBase64, mimeType } = await req.json();
 
@@ -76,7 +65,10 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       console.error("[scan-invoice] LOVABLE_API_KEY not configured");
-      throw new Error("LOVABLE_API_KEY is not configured");
+      return new Response(
+        JSON.stringify({ code: "CONFIG_MISSING_LOVABLE_API_KEY", error: "Thiếu cấu hình AI key (LOVABLE_API_KEY)" }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     const systemPrompt = `You are an expert invoice data extractor. Analyze the provided invoice image and extract all relevant information.
