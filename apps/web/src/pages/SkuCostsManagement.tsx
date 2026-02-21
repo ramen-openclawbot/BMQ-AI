@@ -68,6 +68,58 @@ const pickPrice = (points: PurchasePoint[], mode: PriceMode) => {
   };
 };
 
+const parseLocaleNumber = (value: unknown, fallback = 0) => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
+  if (value === null || value === undefined) return fallback;
+
+  let s = String(value).trim();
+  if (!s) return fallback;
+  s = s.replace(/\s+/g, "");
+
+  const hasComma = s.includes(",");
+  const hasDot = s.includes(".");
+
+  if (hasComma && hasDot) {
+    if (s.lastIndexOf(",") > s.lastIndexOf(".")) {
+      s = s.replace(/\./g, "").replace(/,/g, ".");
+    } else {
+      s = s.replace(/,/g, "");
+    }
+  } else if (hasComma) {
+    s = /,\d{3}$/.test(s) ? s.replace(/,/g, "") : s.replace(/,/g, ".");
+  } else if (hasDot) {
+    s = /\.\d{3}$/.test(s) ? s.replace(/\./g, "") : s;
+  }
+
+  const n = Number(s);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const normalizeScannedIngredient = (row: any) => {
+  let unit = String(row.unit || row.uom || "g").trim().toLowerCase();
+  let unitPrice = parseLocaleNumber(row.unit_price ?? row.price ?? row.don_gia, 0);
+  let dosageQty = parseLocaleNumber(row.dosage_qty ?? row.quantity ?? row.dinh_luong, 0);
+
+  // Normalize weight unit to grams for stable costing math
+  if (unit === "kg" || unit === "kilogram" || unit === "kí" || unit === "ký") {
+    dosageQty = dosageQty * 1000;
+    unitPrice = unitPrice / 1000;
+    unit = "g";
+  }
+
+  // If unit is gram but price looks like price/kg, auto convert to price/g
+  if (unit === "g" && unitPrice >= 1000) {
+    unitPrice = unitPrice / 1000;
+  }
+
+  return {
+    ingredient_name: row.ingredient_name || row.name || row.product_name || "",
+    unit,
+    unit_price: unitPrice,
+    dosage_qty: dosageQty,
+  };
+};
+
 export default function SkuCostsManagement() {
   const { toast } = useToast();
   const [skus, setSkus] = useState<SKU[]>([]);
@@ -272,16 +324,11 @@ export default function SkuCostsManagement() {
 
   const applyScannedDataToForm = (d: any) => {
     const ingredients = Array.isArray(d.ingredients) ? d.ingredients : Array.isArray(d.items) ? d.items : [];
-    const draftRows = ingredients.map((r: any) => ({
-      ingredient_name: r.ingredient_name || r.name || r.product_name || "",
-      unit: r.unit || r.uom || "g",
-      unit_price: toNumber(r.unit_price ?? r.price ?? r.don_gia, 0),
-      dosage_qty: toNumber(r.dosage_qty ?? r.quantity ?? r.dinh_luong, 0),
-    })).filter((x: any) => x.ingredient_name);
+    const draftRows = ingredients.map((r: any) => normalizeScannedIngredient(r)).filter((x: any) => x.ingredient_name);
     setImportedFormulaDraft(draftRows);
 
     const productName = d.product_name || d.ten_mon || "SKU từ ảnh";
-    const outputQty = toNumber(d.finished_output_qty ?? d.output_qty ?? d.thanh_pham_sl, 1);
+    const outputQty = parseLocaleNumber(d.finished_output_qty ?? d.output_qty ?? d.thanh_pham_sl, 1);
     const outputUnit = d.finished_output_unit || d.output_unit || d.thanh_pham_dvt || "cái";
 
     setSkuForm({
@@ -297,20 +344,20 @@ export default function SkuCostsManagement() {
       cost_template: DEFAULT_SKU_COST_TEMPLATE,
       cost_values: {
         ...DEFAULT_SKU_COST_VALUES,
-        material_provision_percent: toNumber(d.material_provision_percent ?? d.provision_percent, 0),
-        packaging_cost: toNumber(d.packaging_cost, 0),
-        labor_cost: toNumber(d.labor_cost, 0),
-        delivery_cost: toNumber(d.delivery_cost, 0),
-        other_production_cost: toNumber(d.other_production_cost, 0),
-        sga_cost: toNumber(d.sga_cost ?? d.management_cost, 0),
-        selling_price: toNumber(d.selling_price ?? d.sale_price, 0),
+        material_provision_percent: parseLocaleNumber(d.material_provision_percent ?? d.provision_percent, 0),
+        packaging_cost: parseLocaleNumber(d.packaging_cost, 0),
+        labor_cost: parseLocaleNumber(d.labor_cost, 0),
+        delivery_cost: parseLocaleNumber(d.delivery_cost, 0),
+        other_production_cost: parseLocaleNumber(d.other_production_cost, 0),
+        sga_cost: parseLocaleNumber(d.sga_cost ?? d.management_cost, 0),
+        selling_price: parseLocaleNumber(d.selling_price ?? d.sale_price, 0),
       },
       cost_widgets: {},
     });
 
     setDialogOpen(true);
-    setScanSkuMessage(`Đã scan xong: ${draftRows.length} dòng NVL. Kiểm tra form và bấm Lưu SKU.`);
-    toast({ title: "Đã scan ảnh công thức", description: `Đọc được ${draftRows.length} dòng NVL. Anh kiểm tra rồi bấm Lưu.` });
+    setScanSkuMessage(`Đã scan xong: ${draftRows.length} dòng NVL (đã tự chuẩn hoá số liệu/đơn vị). Kiểm tra form và bấm Lưu SKU.`);
+    toast({ title: "Đã scan ảnh công thức", description: `Đọc được ${draftRows.length} dòng NVL, đã tự chuẩn hoá số liệu. Anh kiểm tra rồi bấm Lưu.` });
   };
 
   const handleScanSkuCostImage = async (file?: File | null) => {
