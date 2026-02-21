@@ -269,6 +269,49 @@ export default function SkuCostsManagement() {
     skuImageInputRef.current?.click();
   };
 
+  const applyScannedDataToForm = (d: any) => {
+    const ingredients = Array.isArray(d.ingredients) ? d.ingredients : Array.isArray(d.items) ? d.items : [];
+    const draftRows = ingredients.map((r: any) => ({
+      ingredient_name: r.ingredient_name || r.name || r.product_name || "",
+      unit: r.unit || r.uom || "g",
+      unit_price: toNumber(r.unit_price ?? r.price ?? r.don_gia, 0),
+      dosage_qty: toNumber(r.dosage_qty ?? r.quantity ?? r.dinh_luong, 0),
+    })).filter((x: any) => x.ingredient_name);
+    setImportedFormulaDraft(draftRows);
+
+    const productName = d.product_name || d.ten_mon || "SKU từ ảnh";
+    const outputQty = toNumber(d.finished_output_qty ?? d.output_qty ?? d.thanh_pham_sl, 1);
+    const outputUnit = d.finished_output_unit || d.output_unit || d.thanh_pham_dvt || "cái";
+
+    setSkuForm({
+      id: "",
+      sku_code: d.sku_code || `TP-${productName.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 16) || "AUTO"}-001`,
+      product_name: productName,
+      unit: outputUnit,
+      category: "Thành phẩm",
+      base_unit: outputUnit,
+      yield_percent: 100,
+      finished_output_qty: outputQty,
+      finished_output_unit: outputUnit,
+      cost_template: DEFAULT_SKU_COST_TEMPLATE,
+      cost_values: {
+        ...DEFAULT_SKU_COST_VALUES,
+        material_provision_percent: toNumber(d.material_provision_percent ?? d.provision_percent, 0),
+        packaging_cost: toNumber(d.packaging_cost, 0),
+        labor_cost: toNumber(d.labor_cost, 0),
+        delivery_cost: toNumber(d.delivery_cost, 0),
+        other_production_cost: toNumber(d.other_production_cost, 0),
+        sga_cost: toNumber(d.sga_cost ?? d.management_cost, 0),
+        selling_price: toNumber(d.selling_price ?? d.sale_price, 0),
+      },
+      cost_widgets: {},
+    });
+
+    setDialogOpen(true);
+    setScanSkuMessage(`Đã scan xong: ${draftRows.length} dòng NVL. Kiểm tra form và bấm Lưu SKU.`);
+    toast({ title: "Đã scan ảnh công thức", description: `Đọc được ${draftRows.length} dòng NVL. Anh kiểm tra rồi bấm Lưu.` });
+  };
+
   const handleScanSkuCostImage = async (file?: File | null) => {
     if (!file) return;
     setScanSkuMessage("Đang scan ảnh công thức...");
@@ -324,48 +367,40 @@ export default function SkuCostsManagement() {
       }
 
       const d = payload.data || {};
-      const ingredients = Array.isArray(d.ingredients) ? d.ingredients : Array.isArray(d.items) ? d.items : [];
-      const draftRows = ingredients.map((r: any) => ({
-        ingredient_name: r.ingredient_name || r.name || r.product_name || "",
-        unit: r.unit || r.uom || "g",
-        unit_price: toNumber(r.unit_price ?? r.price ?? r.don_gia, 0),
-        dosage_qty: toNumber(r.dosage_qty ?? r.quantity ?? r.dinh_luong, 0),
-      })).filter((x: any) => x.ingredient_name);
-      setImportedFormulaDraft(draftRows);
-
-      const productName = d.product_name || d.ten_mon || "SKU từ ảnh";
-      const outputQty = toNumber(d.finished_output_qty ?? d.output_qty ?? d.thanh_pham_sl, 1);
-      const outputUnit = d.finished_output_unit || d.output_unit || d.thanh_pham_dvt || "cái";
-
-      setSkuForm({
-        id: "",
-        sku_code: d.sku_code || `TP-${productName.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 16) || "AUTO"}-001`,
-        product_name: productName,
-        unit: outputUnit,
-        category: "Thành phẩm",
-        base_unit: outputUnit,
-        yield_percent: 100,
-        finished_output_qty: outputQty,
-        finished_output_unit: outputUnit,
-        cost_template: DEFAULT_SKU_COST_TEMPLATE,
-        cost_values: {
-          ...DEFAULT_SKU_COST_VALUES,
-          material_provision_percent: toNumber(d.material_provision_percent ?? d.provision_percent, 0),
-          packaging_cost: toNumber(d.packaging_cost, 0),
-          labor_cost: toNumber(d.labor_cost, 0),
-          delivery_cost: toNumber(d.delivery_cost, 0),
-          other_production_cost: toNumber(d.other_production_cost, 0),
-          sga_cost: toNumber(d.sga_cost ?? d.management_cost, 0),
-          selling_price: toNumber(d.selling_price ?? d.sale_price, 0),
-        },
-        cost_widgets: {},
-      });
-
-      setDialogOpen(true);
-      setScanSkuMessage(`Đã scan xong: ${draftRows.length} dòng NVL. Kiểm tra form và bấm Lưu SKU.`);
-      toast({ title: "Đã scan ảnh công thức", description: `Đọc được ${draftRows.length} dòng NVL. Anh kiểm tra rồi bấm Lưu.` });
+      applyScannedDataToForm(d);
     } catch (e: any) {
       const msg = e?.message || "Lỗi không xác định";
+
+      // Fallback: reuse stable scan-invoice flow when scan-sku-cost-sheet auth fails
+      if (String(msg).includes("401")) {
+        try {
+          const imageBase64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(String(reader.result).split(",")[1]);
+            reader.readAsDataURL(file);
+          });
+          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+          const fallbackRes = await fetch(`${supabaseUrl}/functions/v1/scan-invoice`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({ imageBase64, mimeType: file.type }),
+          });
+          const fallbackPayload = await fallbackRes.json();
+          if (fallbackRes.ok && fallbackPayload?.success) {
+            const items = fallbackPayload?.data?.items || [];
+            applyScannedDataToForm({
+              product_name: fallbackPayload?.data?.product_name || "SKU từ ảnh",
+              ingredients: items.map((x: any) => ({ ingredient_name: x.product_name, unit: x.unit, unit_price: x.unit_price, dosage_qty: x.quantity })),
+            });
+            setScanSkuMessage("Scan fallback (inventory parser) thành công. Một số field có thể cần nhập tay.");
+            return;
+          }
+        } catch (_) {}
+      }
+
       setScanSkuMessage(`Scan thất bại: ${msg}`);
       toast({ title: "Không scan được ảnh", description: msg, variant: "destructive" });
     } finally {
