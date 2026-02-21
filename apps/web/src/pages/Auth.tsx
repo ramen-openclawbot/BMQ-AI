@@ -33,6 +33,20 @@ export default function Auth() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [processingCallback, setProcessingCallback] = useState(true);
+
+  const mapOAuthErrorMessage = (rawMessage: string) => {
+    const normalized = rawMessage.toLowerCase();
+
+    if (normalized.includes("not authorized") || normalized.includes("not allowed")) {
+      return "Tài khoản Google chưa được cấp quyền truy cập hệ thống. Vui lòng liên hệ quản trị để được cấp quyền.";
+    }
+
+    if (normalized.includes("unable to exchange external code") || normalized.includes("invalid grant")) {
+      return "Phiên đăng nhập Google đã hết hạn hoặc bị xử lý trùng. Vui lòng bấm Đăng nhập bằng Google và thử lại.";
+    }
+
+    return "Đăng nhập thất bại. Vui lòng thử lại.";
+  };
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
 
@@ -50,12 +64,8 @@ export default function Auth() {
             ? decodeURIComponent(oauthErrorDescription.replace(/\+/g, " "))
             : oauthError;
 
-          const message = rawMessage.toLowerCase().includes("not authorized") || rawMessage.toLowerCase().includes("not allowed")
-            ? "Tài khoản Google chưa được cấp quyền truy cập hệ thống. Vui lòng liên hệ quản trị để được cấp quyền."
-            : `Đăng nhập thất bại: ${rawMessage}`;
-
           console.error("OAuth callback error:", { oauthError, oauthErrorDescription });
-          setError(message);
+          setError(mapOAuthErrorMessage(rawMessage));
           setProcessingCallback(false);
           return;
         }
@@ -63,8 +73,17 @@ export default function Auth() {
         if (code) {
           const { error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) {
+            // Có thể code đã được SDK tự xử lý trước đó (detectSessionInUrl), thử đọc session hiện tại trước khi báo lỗi
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user) {
+              window.history.replaceState(null, "", "/");
+              await new Promise(resolve => setTimeout(resolve, 200));
+              navigate("/", { replace: true });
+              return;
+            }
+
             console.error("OAuth code exchange error:", error);
-            setError("Đăng nhập thất bại. Vui lòng thử lại.");
+            setError(mapOAuthErrorMessage(error.message || "oauth exchange failed"));
             setProcessingCallback(false);
             return;
           }
@@ -83,12 +102,8 @@ export default function Auth() {
             ? decodeURIComponent(hashErrorDescription.replace(/\+/g, " "))
             : hashError || "Đăng nhập thất bại";
 
-          const message = rawMessage.toLowerCase().includes("not authorized") || rawMessage.toLowerCase().includes("not allowed")
-            ? "Tài khoản Google chưa được cấp quyền truy cập hệ thống. Vui lòng liên hệ quản trị để được cấp quyền."
-            : `Đăng nhập thất bại: ${rawMessage}`;
-
           console.error("OAuth hash error:", { hashError, hashErrorDescription });
-          setError(message);
+          setError(mapOAuthErrorMessage(rawMessage));
           setProcessingCallback(false);
           return;
         }
