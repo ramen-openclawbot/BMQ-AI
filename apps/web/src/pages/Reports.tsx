@@ -54,7 +54,7 @@ export default function Reports() {
 
   const debtChartData = useMemo(() => {
     return (debtStats?.bySupplier || []).slice(0, 5).map((s) => ({
-      name: s.name.length > 15 ? s.name.slice(0, 15) + "..." : s.name,
+      name: s.name,
       debt: s.debt,
     }));
   }, [debtStats]);
@@ -209,9 +209,15 @@ export default function Reports() {
           <CardContent>
             {debtChartData.length > 0 ? (
               <ChartContainer config={chartConfig} className="h-[250px]">
-                <BarChart data={debtChartData} layout="vertical">
+                <BarChart data={debtChartData} layout="vertical" margin={{ left: 8, right: 8 }}>
                   <XAxis type="number" tickFormatter={(v) => formatCurrency(v)} />
-                  <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 12 }} />
+                  <YAxis
+                    dataKey="name"
+                    type="category"
+                    width={180}
+                    tick={{ fontSize: 12 }}
+                    tickFormatter={(value) => truncateSupplierName(String(value), 22)}
+                  />
                   <ChartTooltip
                     content={<ChartTooltipContent formatter={(value) => formatCurrency(value as number)} />}
                   />
