@@ -196,6 +196,17 @@ export default function SkuCostsManagement() {
     return { total, perUnit: total / qty };
   }, [importedFormulaDraft, skuForm.finished_output_qty]);
 
+  const missingScanFields = useMemo(() => {
+    const missing: string[] = [];
+    if (!String(skuForm.product_name || "").trim()) missing.push("Tên món");
+    if (!String(skuForm.sku_code || "").trim()) missing.push("Mã SKU");
+    if (!toNumber(skuForm.finished_output_qty, 0)) missing.push("Thành phẩm SL");
+    if (!String(skuForm.finished_output_unit || "").trim()) missing.push("Thành phẩm ĐVT");
+    if (!importedFormulaDraft.length) missing.push("Danh sách nguyên vật liệu");
+    if (!toNumber(skuForm.cost_values?.selling_price, 0)) missing.push("Giá bán");
+    return missing;
+  }, [skuForm, importedFormulaDraft]);
+
   const costing = useMemo(() => {
     const outputQty = Math.max(1, Number(activeSku.finished_output_qty || 1));
     const totalMaterialCostBatch = formulaComputed.reduce((sum, row) => sum + row.lineCost, 0);
@@ -212,7 +223,7 @@ export default function SkuCostsManagement() {
     return { outputQty, totalMaterialCost, provisionAmount, totalCostNVL, totalCost, sellingPrice, netProfit, netProfitPct, pctOnCost };
   }, [activeSku, formulaComputed, costTemplate, costValues]);
 
-  const openCreateSku = () => { setImportedFormulaDraft([]); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: 1, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {} }); setDialogOpen(true); };
+  const openCreateSku = () => { setScanSkuMessage(""); setImportedFormulaDraft([]); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: 1, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {} }); setDialogOpen(true); };
   const openEditSku = (sku: SKU) => { setSkuForm({ ...sku, cost_template: parseCostTemplate(sku.cost_template), cost_values: parseCostValues(sku.cost_values), cost_widgets: parseWidgets(sku.cost_widgets) }); setDialogOpen(true); };
 
   const saveSku = async () => {
@@ -246,7 +257,8 @@ export default function SkuCostsManagement() {
           await sb.from("sku_formulations").insert(rows);
         }
       }
-      toast({ title: "Đã tạo SKU" });
+      toast({ title: "SKU đã tạo thành công", description: "Đã cập nhật ngay danh sách SKU thành phẩm." });
+      setScanSkuMessage("SKU đã tạo thành công và đã cập nhật danh sách.");
     }
     setDialogOpen(false);
     setImportedFormulaDraft([]);
@@ -401,7 +413,7 @@ export default function SkuCostsManagement() {
 
         <TabsContent value="sku-admin" className="space-y-4">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between"><CardTitle>Danh sách SKU thành phẩm</CardTitle><div className="flex gap-2"><Button variant="outline" onClick={openCreateSkuFromImage} disabled={isScanningSkuImage}>{isScanningSkuImage ? "Đang scan..." : "Tạo SKU từ ảnh"}</Button><Button onClick={openCreateSku}>Tạo SKU</Button></div></CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between"><CardTitle>Danh sách SKU thành phẩm</CardTitle><div className="flex gap-2"><Button onClick={openCreateSku}>Tạo SKU</Button></div></CardHeader>
             <CardContent>
               {!!scanSkuMessage && <div className="mb-3 text-sm text-muted-foreground">{scanSkuMessage}</div>}
               <Table><TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Tên</TableHead><TableHead>Giá bán</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>
@@ -536,6 +548,21 @@ export default function SkuCostsManagement() {
           </DialogHeader>
 
           <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" onClick={openCreateSkuFromImage} disabled={isScanningSkuImage}>
+                {isScanningSkuImage ? "Đang scan ảnh..." : "Scan dữ liệu từ ảnh"}
+              </Button>
+              {!!scanSkuMessage && <span className="text-sm text-muted-foreground">{scanSkuMessage}</span>}
+            </div>
+            {missingScanFields.length > 0 ? (
+              <div className="text-sm rounded border border-amber-300 bg-amber-50 text-amber-900 px-3 py-2">
+                Thiếu dữ liệu: {missingScanFields.join(", ")}. Anh có thể nhập tay rồi bấm Lưu SKU.
+              </div>
+            ) : (
+              <div className="text-sm rounded border border-emerald-300 bg-emerald-50 text-emerald-800 px-3 py-2">
+                Dữ liệu đã đủ để tạo SKU. Anh kiểm tra lại và bấm Lưu SKU.
+              </div>
+            )}
             <div className="grid md:grid-cols-4 gap-3">
               <div className="md:col-span-1"><Label>Tên món</Label><Input value={skuForm.product_name || ""} onChange={(e) => setSkuForm({ ...skuForm, product_name: e.target.value })} /></div>
               <div><Label>Mã SKU thành phẩm</Label><Input value={skuForm.sku_code || ""} onChange={(e) => setSkuForm({ ...skuForm, sku_code: e.target.value })} /></div>
