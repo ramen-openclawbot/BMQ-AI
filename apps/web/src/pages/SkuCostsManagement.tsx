@@ -348,12 +348,13 @@ export default function SkuCostsManagement() {
       });
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const response = await fetch(`${supabaseUrl}/functions/v1/scan-sku-cost-sheet`, {
+
+      // Simple + stable path: reuse existing inventory scanner
+      const response = await fetch(`${supabaseUrl}/functions/v1/scan-invoice`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
-          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         },
         body: JSON.stringify({ imageBase64, mimeType: file.type }),
       });
@@ -366,41 +367,18 @@ export default function SkuCostsManagement() {
         throw new Error(payload?.error || `Lỗi scan ảnh (${response.status})`);
       }
 
-      const d = payload.data || {};
-      applyScannedDataToForm(d);
+      const data = payload.data || {};
+      applyScannedDataToForm({
+        product_name: data.product_name || data.invoice_number || "SKU từ ảnh",
+        ingredients: (data.items || []).map((x: any) => ({
+          ingredient_name: x.product_name,
+          unit: x.unit,
+          unit_price: x.unit_price,
+          dosage_qty: x.quantity,
+        })),
+      });
     } catch (e: any) {
       const msg = e?.message || "Lỗi không xác định";
-
-      // Fallback: reuse stable scan-invoice flow when scan-sku-cost-sheet auth fails
-      if (String(msg).includes("401")) {
-        try {
-          const imageBase64 = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(String(reader.result).split(",")[1]);
-            reader.readAsDataURL(file);
-          });
-          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-          const fallbackRes = await fetch(`${supabaseUrl}/functions/v1/scan-invoice`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${accessToken}`,
-            },
-            body: JSON.stringify({ imageBase64, mimeType: file.type }),
-          });
-          const fallbackPayload = await fallbackRes.json();
-          if (fallbackRes.ok && fallbackPayload?.success) {
-            const items = fallbackPayload?.data?.items || [];
-            applyScannedDataToForm({
-              product_name: fallbackPayload?.data?.product_name || "SKU từ ảnh",
-              ingredients: items.map((x: any) => ({ ingredient_name: x.product_name, unit: x.unit, unit_price: x.unit_price, dosage_qty: x.quantity })),
-            });
-            setScanSkuMessage("Scan fallback (inventory parser) thành công. Một số field có thể cần nhập tay.");
-            return;
-          }
-        } catch (_) {}
-      }
-
       setScanSkuMessage(`Scan thất bại: ${msg}`);
       toast({ title: "Không scan được ảnh", description: msg, variant: "destructive" });
     } finally {
