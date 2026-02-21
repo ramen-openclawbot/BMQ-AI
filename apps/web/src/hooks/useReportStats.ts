@@ -4,6 +4,7 @@ import { startOfMonth, endOfMonth, format } from "date-fns";
 
 export interface MonthlyReceiptStats {
   totalQuantity: number;
+  totalValue: number;
   totalReceipts: number;
   bySupplier: { name: string; quantity: number; value: number }[];
 }
@@ -35,7 +36,7 @@ export function useMonthlyReceiptStats(month: Date = new Date()) {
       // Get goods receipts for the month
       const { data: receipts, error: receiptsError } = await supabase
         .from("goods_receipts")
-        .select("id, total_quantity, supplier_id, suppliers(id, name)")
+        .select("id, total_quantity, supplier_id, suppliers(id, name), purchase_orders(total_amount)")
         .gte("receipt_date", format(start, "yyyy-MM-dd"))
         .lte("receipt_date", format(end, "yyyy-MM-dd"))
         .eq("status", "received");
@@ -45,25 +46,31 @@ export function useMonthlyReceiptStats(month: Date = new Date()) {
       // Aggregate by supplier
       const supplierMap = new Map<string, { name: string; quantity: number; value: number }>();
       let totalQuantity = 0;
+      let totalValue = 0;
 
       receipts?.forEach((r) => {
         const qty = r.total_quantity || 0;
+        const value = (r.purchase_orders as any)?.total_amount || 0;
         totalQuantity += qty;
+        totalValue += value;
+
         const supplierName = (r.suppliers as any)?.name || "Không xác định";
         const supplierId = r.supplier_id || "unknown";
 
         if (supplierMap.has(supplierId)) {
           const existing = supplierMap.get(supplierId)!;
           existing.quantity += qty;
+          existing.value += value;
         } else {
-          supplierMap.set(supplierId, { name: supplierName, quantity: qty, value: 0 });
+          supplierMap.set(supplierId, { name: supplierName, quantity: qty, value });
         }
       });
 
       return {
         totalQuantity,
+        totalValue,
         totalReceipts: receipts?.length || 0,
-        bySupplier: Array.from(supplierMap.values()).sort((a, b) => b.quantity - a.quantity),
+        bySupplier: Array.from(supplierMap.values()).sort((a, b) => b.value - a.value),
       } as MonthlyReceiptStats;
     },
     staleTime: 60000,

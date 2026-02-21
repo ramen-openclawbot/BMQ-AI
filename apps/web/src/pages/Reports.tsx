@@ -43,7 +43,7 @@ export default function Reports() {
   const supplierChartData = useMemo(() => {
     return (monthlyStats?.bySupplier || []).slice(0, 5).map((s) => ({
       name: s.name.length > 15 ? s.name.slice(0, 15) + "..." : s.name,
-      quantity: s.quantity,
+      value: s.value,
     }));
   }, [monthlyStats]);
 
@@ -63,7 +63,7 @@ export default function Reports() {
   }, [debtStats]);
 
   const chartConfig = {
-    quantity: { label: "Số lượng", color: "hsl(35, 85%, 45%)" },
+    value: { label: "Giá trị nhập", color: "hsl(35, 85%, 45%)" },
     debt: { label: "Công nợ", color: "hsl(0, 65%, 50%)" },
   };
 
@@ -154,7 +154,7 @@ export default function Reports() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-lg">Hàng nhập theo NCC</CardTitle>
+                <CardTitle className="text-lg">Giá trị nhập theo NCC</CardTitle>
                 <CardDescription>
                   Tháng {format(selectedMonth, "MM/yyyy", { locale: vi })}
                 </CardDescription>
@@ -173,10 +173,12 @@ export default function Reports() {
             {supplierChartData.length > 0 ? (
               <ChartContainer config={chartConfig} className="h-[250px]">
                 <BarChart data={supplierChartData} layout="vertical">
-                  <XAxis type="number" />
+                  <XAxis type="number" tickFormatter={(v) => formatCurrency(v)} />
                   <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 12 }} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="quantity" fill="hsl(35, 85%, 45%)" radius={4} />
+                  <ChartTooltip
+                    content={<ChartTooltipContent formatter={(value) => formatCurrency(value as number)} />}
+                  />
+                  <Bar dataKey="value" fill="hsl(35, 85%, 45%)" radius={4} />
                 </BarChart>
               </ChartContainer>
             ) : (
