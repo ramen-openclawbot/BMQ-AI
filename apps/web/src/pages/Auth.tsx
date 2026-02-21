@@ -71,25 +71,29 @@ export default function Auth() {
         }
 
         if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
-          if (error) {
-            // Có thể code đã được SDK tự xử lý trước đó (detectSessionInUrl), thử đọc session hiện tại trước khi báo lỗi
+          // Supabase client đã bật detectSessionInUrl=true, tránh exchange code thủ công để không bị race/duplicate exchange.
+          // Chờ ngắn để SDK kịp xử lý callback rồi đọc session.
+          let hasSession = false;
+          for (let i = 0; i < 5; i++) {
             const { data: { session } } = await supabase.auth.getSession();
             if (session?.user) {
-              window.history.replaceState(null, "", "/");
-              await new Promise(resolve => setTimeout(resolve, 200));
-              navigate("/", { replace: true });
-              return;
+              hasSession = true;
+              break;
             }
+            await new Promise(resolve => setTimeout(resolve, 250));
+          }
 
-            console.error("OAuth code exchange error:", error);
-            setError(mapOAuthErrorMessage(error.message || "oauth exchange failed"));
-            setProcessingCallback(false);
+          if (hasSession) {
+            window.history.replaceState(null, "", "/");
+            await new Promise(resolve => setTimeout(resolve, 200));
+            navigate("/", { replace: true });
             return;
           }
-          window.history.replaceState(null, "", "/");
-          await new Promise(resolve => setTimeout(resolve, 200));
-          navigate("/", { replace: true });
+
+          // Dọn URL để tránh retry lại cùng auth code khi refresh
+          window.history.replaceState(null, "", "/auth");
+          setError("Đăng nhập Google chưa hoàn tất. Vui lòng bấm Đăng nhập bằng Google và thử lại.");
+          setProcessingCallback(false);
           return;
         }
 
