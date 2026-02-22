@@ -387,53 +387,70 @@ export default function SkuCostsManagement() {
   const openEditSku = (sku: SKU) => { setSkuForm({ ...sku, cost_template: parseCostTemplate(sku.cost_template), cost_values: parseCostValues(sku.cost_values), cost_widgets: parseWidgets(sku.cost_widgets) }); setDialogOpen(true); };
 
   const saveSku = async () => {
-    if (!skuForm.sku_code || !skuForm.product_name) return;
-    if (skuForm.id) {
-      await sb.from("product_skus").update({ ...skuForm }).eq("id", skuForm.id);
-      toast({ title: "Đã cập nhật SKU" });
-    } else {
-      const { data } = await sb.from("product_skus").insert({ ...skuForm }).select("*").single();
-      if (data?.id) {
-        setActiveSkuId(data.id);
-
-        if (importedFormulaDraft.length > 0) {
-          const rowsToSave = importedFormulaDraft.filter((r: any, idx: number) => {
-            const level1 = String(r.level1_name || "").trim();
-            if (r.is_level2) return true;
-            if (!level1) return true;
-            const hasChildren = importedFormulaDraft.some((x: any, j: number) => j !== idx && x.is_level2 && String(x.level1_name || "").trim() === level1);
-            return !hasChildren;
-          });
-
-          const rows = rowsToSave.map((r: any, idx: number) => {
-            const level1 = String(r.level1_name || r.ingredient_name || "").trim();
-            const level2 = String(r.level2_name || "").trim();
-            const ingredientLabel = level2 ? `${level1} > ${level2}` : level1;
-            const n = ingredientLabel.toLowerCase();
-            const matched = ingredientSkus.find((s) => s.id === (r.ingredient_sku_id || r.level1_sku_id)) || ingredientSkus.find((s) => {
-              const t = `${s.sku_code} ${s.product_name}`.toLowerCase();
-              return t.includes(n) || n.includes(String(s.product_name || "").toLowerCase());
-            });
-            return {
-              sku_id: data.id,
-              ingredient_sku_id: matched?.id || null,
-              ingredient_name: matched?.product_name || ingredientLabel,
-              unit: "g",
-              unit_price: toNumber(r.unit_price, 0),
-              dosage_qty: parseDosageGramInput(r.dosage_input ?? r.dosage_qty, 0),
-              wastage_percent: 0,
-              sort_order: idx + 1,
-            };
-          });
-          await sb.from("sku_formulations").insert(rows);
-        }
-      }
-      toast({ title: "SKU đã tạo thành công", description: "Đã cập nhật ngay danh sách SKU thành phẩm." });
-      setScanSkuMessage("SKU đã tạo thành công và đã cập nhật danh sách.");
+    if (!skuForm.sku_code || !skuForm.product_name) {
+      toast({ title: "Thiếu dữ liệu", description: "Cần có mã SKU và tên món để lưu." });
+      return;
     }
-    setDialogOpen(false);
-    setImportedFormulaDraft([]);
-    loadAll();
+
+    try {
+      if (skuForm.id) {
+        const { error } = await sb.from("product_skus").update({ ...skuForm }).eq("id", skuForm.id);
+        if (error) throw error;
+        toast({ title: "Đã cập nhật SKU" });
+      } else {
+        const { data, error } = await sb.from("product_skus").insert({ ...skuForm }).select("*").single();
+        if (error) throw error;
+
+        if (data?.id) {
+          setActiveSkuId(data.id);
+
+          if (importedFormulaDraft.length > 0) {
+            const rowsToSave = importedFormulaDraft.filter((r: any, idx: number) => {
+              const level1 = String(r.level1_name || "").trim();
+              if (r.is_level2) return !!String(r.level2_name || "").trim();
+              if (!level1) return false;
+              const hasChildren = importedFormulaDraft.some((x: any, j: number) => j !== idx && x.is_level2 && String(x.level1_name || "").trim() === level1);
+              return !hasChildren;
+            });
+
+            const rows = rowsToSave.map((r: any, idx: number) => {
+              const level1 = String(r.level1_name || r.ingredient_name || "").trim();
+              const level2 = String(r.level2_name || "").trim();
+              const ingredientLabel = level2 ? `${level1} > ${level2}` : level1;
+              const n = ingredientLabel.toLowerCase();
+              const matched = ingredientSkus.find((s) => s.id === (r.ingredient_sku_id || r.level1_sku_id)) || ingredientSkus.find((s) => {
+                const t = `${s.sku_code} ${s.product_name}`.toLowerCase();
+                return t.includes(n) || n.includes(String(s.product_name || "").toLowerCase());
+              });
+              return {
+                sku_id: data.id,
+                ingredient_sku_id: matched?.id || null,
+                ingredient_name: matched?.product_name || ingredientLabel,
+                unit: "g",
+                unit_price: toNumber(r.unit_price, 0),
+                dosage_qty: parseDosageGramInput(r.dosage_input ?? r.dosage_qty, 0),
+                wastage_percent: 0,
+                sort_order: idx + 1,
+              };
+            });
+
+            if (rows.length > 0) {
+              const { error: formulaError } = await sb.from("sku_formulations").insert(rows);
+              if (formulaError) throw formulaError;
+            }
+          }
+        }
+
+        toast({ title: "SKU đã tạo thành công", description: "Đã cập nhật ngay danh sách SKU thành phẩm." });
+        setScanSkuMessage("SKU đã tạo thành công và đã cập nhật danh sách.");
+      }
+
+      setDialogOpen(false);
+      setImportedFormulaDraft([]);
+      loadAll();
+    } catch (e: any) {
+      toast({ title: "Lưu SKU thất bại", description: e?.message || "Có lỗi khi lưu dữ liệu, anh thử lại giúp Ramen." });
+    }
   };
 
   const openCreateSkuFromImage = () => {
