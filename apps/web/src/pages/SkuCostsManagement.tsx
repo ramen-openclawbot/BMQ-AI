@@ -187,6 +187,7 @@ export default function SkuCostsManagement() {
   const [batchMaterials, setBatchMaterials] = useState<Material[]>([]);
   const [activeSkuId, setActiveSkuId] = useState<string>("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [priceMode, setPriceMode] = useState<PriceMode>("latest");
   const [searchByRow, setSearchByRow] = useState<Record<string, string>>({});
   const [purchasePoints, setPurchasePoints] = useState<PurchasePoint[]>([]);
@@ -380,6 +381,7 @@ export default function SkuCostsManagement() {
   }, [activeSku.finished_output_qty, formulaComputed]);
 
   const openCreateSku = () => { setScanSkuMessage(""); setSaveSkuError(""); setImportedFormulaDraft([]); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: FORMULA_BASE_QTY, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {} }); setDialogOpen(true); };
+  const openSkuDetail = (sku: SKU) => { setActiveSkuId(sku.id); setDetailOpen(true); };
 
   const buildFormulaRowsFromDraft = (skuId: string) => {
     const rowsToSave = importedFormulaDraft.filter((r: any, idx: number) => {
@@ -785,7 +787,7 @@ export default function SkuCostsManagement() {
             <CardContent>
               {/* hidden scan message */}
               <Table><TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Tên</TableHead><TableHead>Giá bán</TableHead><TableHead>Chỉnh sửa lúc</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>
-                {finishedSkus.map((s) => <TableRow key={s.id}><TableCell className="font-mono">{s.sku_code}</TableCell><TableCell><button className="underline" onClick={() => setActiveSkuId(s.id)}>{s.product_name}</button></TableCell><TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell><TableCell className="text-xs">{s.updated_at ? new Date(s.updated_at).toLocaleString("vi-VN") : "-"}</TableCell><TableCell><div className="flex gap-2 justify-end"><Button variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button><Button variant="destructive" size="sm" onClick={() => removeSku(s)}>Xóa</Button></div></TableCell></TableRow>)}
+                {finishedSkus.map((s) => <TableRow key={s.id}><TableCell className="font-mono">{s.sku_code}</TableCell><TableCell><button className="text-left underline decoration-dotted underline-offset-4 hover:text-primary transition-colors" onClick={() => openSkuDetail(s)}>{s.product_name}</button></TableCell><TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell><TableCell className="text-xs">{s.updated_at ? new Date(s.updated_at).toLocaleString("vi-VN") : "-"}</TableCell><TableCell><div className="flex gap-2 justify-end"><Button variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button><Button variant="destructive" size="sm" onClick={() => removeSku(s)}>Xóa</Button></div></TableCell></TableRow>)}
                 {finishedSkus.length === 0 && <TableRow><TableCell colSpan={5} className="text-muted-foreground">Chưa có SKU thành phẩm.</TableCell></TableRow>}
               </TableBody></Table>
             </CardContent>
@@ -905,6 +907,57 @@ export default function SkuCostsManagement() {
       </Tabs>
 
       {/* Đã tắt scan ảnh theo yêu cầu: nhập NVL thủ công */}
+
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Chi tiết SKU</DialogTitle>
+          </DialogHeader>
+
+          <div className="grid md:grid-cols-4 gap-3 text-sm">
+            <div className="rounded border p-3 bg-muted/30"><div className="text-muted-foreground">Tên SKU</div><div className="font-semibold mt-1">{activeSku.product_name || "-"}</div></div>
+            <div className="rounded border p-3 bg-muted/30"><div className="text-muted-foreground">Mã SKU</div><div className="font-mono mt-1">{activeSku.sku_code || "-"}</div></div>
+            <div className="rounded border p-3 bg-muted/30"><div className="text-muted-foreground">Thành phẩm</div><div className="mt-1">{toNumber(activeSku.finished_output_qty, FORMULA_BASE_QTY)} {activeSku.finished_output_unit || "cái"}</div></div>
+            <div className="rounded border p-3 bg-muted/30"><div className="text-muted-foreground">Giá bán/cái</div><div className="font-semibold mt-1">{vnd(toNumber(costValues.selling_price, 0))}</div></div>
+          </div>
+
+          <div className="rounded border mt-4">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>NVL</TableHead>
+                  <TableHead>ĐVT</TableHead>
+                  <TableHead>Đơn giá</TableHead>
+                  <TableHead>Định lượng</TableHead>
+                  <TableHead>Cost NVL</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {formulaComputed.length === 0 ? (
+                  <TableRow><TableCell colSpan={5} className="text-muted-foreground">Chưa có dữ liệu NVL</TableCell></TableRow>
+                ) : formulaComputed.map((r: any) => (
+                  <TableRow key={r.id || `${r.ingredient_name}-${r.sort_order}`}>
+                    <TableCell>{r.displayName || r.ingredient_name || "-"}</TableCell>
+                    <TableCell>{r.unit || "g"}</TableCell>
+                    <TableCell>{vnd(toNumber(r.resolvedUnitPrice, 0))}</TableCell>
+                    <TableCell>{toNumber(r.dosage_qty, 0)}</TableCell>
+                    <TableCell>{vnd(toNumber(r.lineCost, 0))}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-3 text-sm mt-4">
+            <div className="rounded border p-3">Total material cost: <b>{vnd(costing.totalMaterialCost)}</b></div>
+            <div className="rounded border p-3">Total cost NVL: <b>{vnd(costing.totalCostNVL)}</b></div>
+            <div className="rounded border p-3">Tổng cost: <b>{vnd(costing.totalCost)}</b></div>
+            <div className="rounded border p-3">Net profit: <b>{vnd(costing.netProfit)}</b></div>
+            <div className="rounded border p-3">Net profit (%): <b>{Number(costing.netProfitPct || 0).toFixed(2)}%</b></div>
+            <div className="rounded border p-3">Cập nhật: <b>{activeSku.updated_at ? new Date(activeSku.updated_at).toLocaleString("vi-VN") : "-"}</b></div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
