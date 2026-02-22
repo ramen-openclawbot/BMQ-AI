@@ -324,6 +324,7 @@ export default function SkuCostsManagement() {
   const level1Options = useMemo(() => {
     const seen = new Set<string>();
     return importedFormulaDraft
+      .filter((r) => !String(r.level2_name || "").trim())
       .map((r) => String(r.level1_name || "").trim())
       .filter((name) => {
         if (!name || seen.has(name)) return false;
@@ -389,7 +390,7 @@ export default function SkuCostsManagement() {
             const level2 = String(r.level2_name || "").trim();
             const ingredientLabel = level2 ? `${level1} > ${level2}` : level1;
             const n = ingredientLabel.toLowerCase();
-            const matched = ingredientSkus.find((s) => {
+            const matched = ingredientSkus.find((s) => s.id === (r.ingredient_sku_id || r.level1_sku_id)) || ingredientSkus.find((s) => {
               const t = `${s.sku_code} ${s.product_name}`.toLowerCase();
               return t.includes(n) || n.includes(String(s.product_name || "").toLowerCase());
             });
@@ -422,17 +423,23 @@ export default function SkuCostsManagement() {
   const addDraftMaterialRow = () => {
     setImportedFormulaDraft((prev) => [
       ...prev,
-      { level1_name: "", level2_name: "", ingredient_name: "", unit: "g", unit_price: 0, dosage_qty: 0, dosage_input: "", line_cost: 0 },
+      { level1_sku_id: "", ingredient_sku_id: "", level1_name: "", level2_name: "", ingredient_name: "", unit: "g", unit_price: 0, dosage_qty: 0, dosage_input: "", line_cost: 0 },
     ]);
   };
 
   const addDraftMaterialLevel2Row = () => {
     const parentLevel1 = (selectedLevel1ForLevel2 || level1Options[0] || "").trim();
     if (!parentLevel1) return;
-    setImportedFormulaDraft((prev) => [
-      ...prev,
-      { level1_name: parentLevel1, level2_name: "", ingredient_name: `${parentLevel1} > `, unit: "g", unit_price: 0, dosage_qty: 0, dosage_input: "", line_cost: 0 },
-    ]);
+    setImportedFormulaDraft((prev) => {
+      const next = [...prev];
+      const parentIdx = next.findIndex((x) => !String(x.level2_name || "").trim() && String(x.level1_name || "").trim() === parentLevel1);
+      const insertIdx = parentIdx >= 0
+        ? next.reduce((last, row, i) => (String(row.level1_name || "").trim() === parentLevel1 ? i : last), parentIdx) + 1
+        : next.length;
+
+      next.splice(insertIdx, 0, { level1_sku_id: "", ingredient_sku_id: "", level1_name: parentLevel1, level2_name: "", ingredient_name: `${parentLevel1} > `, unit: "g", unit_price: 0, dosage_qty: 0, dosage_input: "", line_cost: 0 });
+      return next;
+    });
   };
 
   const applyScannedDataToForm = (d: any) => {
@@ -776,12 +783,12 @@ export default function SkuCostsManagement() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Tên món</TableHead><TableHead>NVL cấp 1</TableHead><TableHead>NVL cấp 2</TableHead><TableHead>DVT</TableHead><TableHead>Đơn giá (VNĐ)</TableHead><TableHead>Định lượng (gram)</TableHead><TableHead>Giá vốn (VNĐ)</TableHead><TableHead>Đơn giá vốn/cái (VNĐ)</TableHead>
+                    <TableHead>NVL cấp 1</TableHead><TableHead>NVL cấp 2</TableHead><TableHead>DVT</TableHead><TableHead>Đơn giá (VNĐ)</TableHead><TableHead>Định lượng</TableHead><TableHead>Giá vốn (VNĐ)</TableHead><TableHead>Đơn giá vốn/cái (VNĐ)</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {importedFormulaDraft.length === 0 && (
-                    <TableRow><TableCell colSpan={8} className="text-muted-foreground">Chưa có dòng NVL. Anh bấm “+ Thêm NVL cấp 1” để nhập thủ công.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={7} className="text-muted-foreground">Chưa có dòng NVL. Anh bấm “+ Thêm NVL cấp 1” để nhập thủ công.</TableCell></TableRow>
                   )}
                   {importedFormulaDraft.map((r, idx) => {
                     const level1 = String(r.level1_name || "").trim();
@@ -798,12 +805,56 @@ export default function SkuCostsManagement() {
 
                     return (
                       <TableRow key={`draft-${idx}`}>
-                        <TableCell>{skuForm.product_name || "SKU thủ công"}</TableCell>
-                        <TableCell><Input value={r.level1_name || ""} onChange={(e) => { const next = [...importedFormulaDraft]; next[idx] = { ...next[idx], level1_name: e.target.value, ingredient_name: `${e.target.value}${next[idx].level2_name ? ` > ${next[idx].level2_name}` : ""}` }; setImportedFormulaDraft(next); }} /></TableCell>
-                        <TableCell><Input value={r.level2_name || ""} onChange={(e) => { const next = [...importedFormulaDraft]; next[idx] = { ...next[idx], level2_name: e.target.value, ingredient_name: `${next[idx].level1_name || ""}${e.target.value ? ` > ${e.target.value}` : ""}` }; setImportedFormulaDraft(next); }} placeholder={isLevel1Row ? "(trống = cấp 1)" : "Tên NVL cấp 2"} /></TableCell>
-                        <TableCell>g</TableCell>
-                        <TableCell><Input type="number" disabled={hasChildren} value={Math.round(aggregatedUnitPrice * 1000) / 1000} onChange={(e) => { const next = [...importedFormulaDraft]; const unit_price = Number(e.target.value || 0); const dosage_qty = toNumber(next[idx].dosage_qty, 0); next[idx] = { ...next[idx], unit: "g", unit_price, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
-                        <TableCell><Input disabled={hasChildren} value={hasChildren ? String(aggregatedDosage).replace(".", ",") : (r.dosage_input ?? String(toNumber(r.dosage_qty, 0)).replace(".", ","))} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_input = e.target.value; const dosage_qty = parseDosageGramInput(dosage_input, 0); const unit_price = toNumber(next[idx].unit_price, 0); next[idx] = { ...next[idx], unit: "g", dosage_input, dosage_qty, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
+                        <TableCell>
+                          <select
+                            className="w-full border rounded h-10 px-2"
+                            value={r.level1_sku_id || ""}
+                            onChange={(e) => {
+                              const skuId = e.target.value;
+                              const picked = ingredientSkus.find((s) => s.id === skuId);
+                              const level1Name = picked?.product_name || "";
+                              const next = [...importedFormulaDraft];
+                              next[idx] = {
+                                ...next[idx],
+                                level1_sku_id: skuId,
+                                level1_name: level1Name,
+                                ingredient_name: `${level1Name}${next[idx].level2_name ? ` > ${next[idx].level2_name}` : ""}`,
+                              };
+                              setImportedFormulaDraft(next);
+                              setSelectedLevel1ForLevel2(level1Name);
+                            }}
+                          >
+                            <option value="">-- Chọn NVL cấp 1 --</option>
+                            {ingredientSkus.map((s) => <option key={s.id} value={s.id}>{s.sku_code} - {s.product_name}</option>)}
+                          </select>
+                        </TableCell>
+                        <TableCell>
+                          <select
+                            className="w-full border rounded h-10 px-2"
+                            value={r.ingredient_sku_id || ""}
+                            onChange={(e) => {
+                              const skuId = e.target.value;
+                              const picked = ingredientSkus.find((s) => s.id === skuId);
+                              const level2Name = picked?.product_name || "";
+                              const unit = String(picked?.unit || r.unit || "g");
+                              const next = [...importedFormulaDraft];
+                              next[idx] = {
+                                ...next[idx],
+                                ingredient_sku_id: skuId,
+                                level2_name: isLevel1Row ? "" : level2Name,
+                                ingredient_name: `${next[idx].level1_name || ""}${isLevel1Row ? "" : (level2Name ? ` > ${level2Name}` : "")}`,
+                                unit,
+                              };
+                              setImportedFormulaDraft(next);
+                            }}
+                          >
+                            <option value="">{isLevel1Row ? "(trống = cấp 1)" : "-- Chọn NVL cấp 2 --"}</option>
+                            {ingredientSkus.map((s) => <option key={s.id} value={s.id}>{s.sku_code} - {s.product_name}</option>)}
+                          </select>
+                        </TableCell>
+                        <TableCell>{r.unit || "g"}</TableCell>
+                        <TableCell><Input type="number" disabled={hasChildren} value={Math.round(aggregatedUnitPrice * 1000) / 1000} onChange={(e) => { const next = [...importedFormulaDraft]; const unit_price = Number(e.target.value || 0); const dosage_qty = toNumber(next[idx].dosage_qty, 0); next[idx] = { ...next[idx], unit_price, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
+                        <TableCell><Input disabled={hasChildren} value={hasChildren ? String(aggregatedDosage).replace(".", ",") : (r.dosage_input ?? String(toNumber(r.dosage_qty, 0)).replace(".", ","))} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_input = e.target.value; const dosage_qty = parseDosageGramInput(dosage_input, 0); const unit_price = toNumber(next[idx].unit_price, 0); next[idx] = { ...next[idx], dosage_input, dosage_qty, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
                         <TableCell>{vnd(lineCost)}</TableCell>
                         <TableCell>{vnd(perUnit)}</TableCell>
                       </TableRow>
