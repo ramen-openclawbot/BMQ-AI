@@ -114,6 +114,8 @@ const convertAmountByUnit = (amount: number, fromUnit: unknown, toUnit: unknown)
   return amount;
 };
 
+const FORMULA_BASE_QTY = 100;
+
 const parseDosageGramInput = (value: unknown, fallback = 0) => {
   if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
   if (value === null || value === undefined) return fallback;
@@ -196,7 +198,7 @@ export default function SkuCostsManagement() {
 
   const [skuForm, setSkuForm] = useState<any>({
     id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100,
-    finished_output_qty: 1, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES,
+    finished_output_qty: FORMULA_BASE_QTY, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES,
     cost_widgets: {},
   });
 
@@ -303,6 +305,7 @@ export default function SkuCostsManagement() {
   }), [formula, skus, priceMap, inventoryMap]);
 
   const importedMaterialSummary = useMemo(() => {
+    const baseQty = FORMULA_BASE_QTY;
     const total = importedFormulaDraft.reduce((sum, r, idx) => {
       const level1 = String(r.level1_name || "").trim();
       const isLevel1Row = !r.is_level2;
@@ -317,8 +320,7 @@ export default function SkuCostsManagement() {
       return sum;
     }, 0);
 
-    const outputQty = Math.max(1, toNumber(skuForm.finished_output_qty, 1));
-    return { total, perUnit: Math.round(total / outputQty) };
+    return { total, perUnit: Math.round(total / baseQty) };
   }, [importedFormulaDraft, skuForm.finished_output_qty]);
 
   const level1Options = useMemo(() => {
@@ -362,7 +364,7 @@ export default function SkuCostsManagement() {
     return { outputQty, totalMaterialCost, provisionAmount, totalCostNVL, totalCost, sellingPrice, netProfit, netProfitPct, pctOnCost };
   }, [activeSku, formulaComputed, costTemplate, costValues]);
 
-  const openCreateSku = () => { setScanSkuMessage(""); setImportedFormulaDraft([]); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: 1, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {} }); setDialogOpen(true); };
+  const openCreateSku = () => { setScanSkuMessage(""); setImportedFormulaDraft([]); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: FORMULA_BASE_QTY, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {} }); setDialogOpen(true); };
   const openEditSku = (sku: SKU) => { setSkuForm({ ...sku, cost_template: parseCostTemplate(sku.cost_template), cost_values: parseCostValues(sku.cost_values), cost_widgets: parseWidgets(sku.cost_widgets) }); setDialogOpen(true); };
 
   const saveSku = async () => {
@@ -764,7 +766,7 @@ export default function SkuCostsManagement() {
               <div className="md:col-span-1"><Label>Tên món</Label><Input value={skuForm.product_name || ""} onChange={(e) => setSkuForm({ ...skuForm, product_name: e.target.value })} /></div>
               <div><Label>Mã SKU thành phẩm</Label><Input value={skuForm.sku_code || ""} onChange={(e) => setSkuForm({ ...skuForm, sku_code: e.target.value })} /></div>
               <div><Label>Thành phẩm ĐVT</Label><Input value={skuForm.finished_output_unit || "cái"} onChange={(e) => setSkuForm({ ...skuForm, finished_output_unit: e.target.value })} /></div>
-              <div><Label>Thành phẩm SL</Label><Input type="number" value={skuForm.finished_output_qty || 1} onChange={(e) => setSkuForm({ ...skuForm, finished_output_qty: Number(e.target.value || 1) })} /></div>
+              <div><Label>Thành phẩm SL (mặc định)</Label><Input type="number" value={FORMULA_BASE_QTY} readOnly /></div>
             </div>
 
             <div className="rounded border">
@@ -789,7 +791,7 @@ export default function SkuCostsManagement() {
                     const aggregatedUnitPrice = aggregatedDosage > 0 ? aggregatedLineCost / aggregatedDosage : (hasChildren ? 0 : toNumber(r.unit_price, 0));
 
                     const lineCost = aggregatedLineCost;
-                    const perUnit = Math.round(lineCost / Math.max(1, toNumber(skuForm.finished_output_qty, 1)));
+                    const perUnit = Math.round(lineCost / FORMULA_BASE_QTY);
 
                     return (
                       <TableRow key={`draft-${idx}`} className={isLevel1Row ? "" : "bg-muted/30"}>
@@ -843,7 +845,7 @@ export default function SkuCostsManagement() {
                 </TableBody>
               </Table>
             </div>
-            <div className="text-sm text-muted-foreground">Ghi chú: NVL được tính bằng Gram.</div>
+            <div className="text-sm text-muted-foreground">Ghi chú: NVL được tính bằng Gram. Định lượng mặc định theo mẻ 100 sản phẩm.</div>
 
             <div className="grid md:grid-cols-3 gap-3 text-sm">
               <div className="p-3 rounded border bg-muted/30">Total material cost: <b>{vnd(importedMaterialSummary.total)}</b></div>
