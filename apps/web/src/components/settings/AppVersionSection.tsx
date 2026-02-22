@@ -45,7 +45,7 @@ export function AppVersionSection() {
           <Skeleton className="h-6 w-24" />
         ) : (
           <span className="text-sm font-mono bg-muted px-3 py-1.5 rounded-md">
-            {version || "v1.0.0"}
+            {version || "v0.0.0"}
           </span>
         )}
       </div>
