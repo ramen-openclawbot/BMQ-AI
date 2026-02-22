@@ -939,9 +939,9 @@ export default function SkuCostsManagement() {
                   <TableRow key={r.id || `${r.ingredient_name}-${r.sort_order}`}>
                     <TableCell>{r.displayName || r.ingredient_name || "-"}</TableCell>
                     <TableCell>{r.unit || "g"}</TableCell>
-                    <TableCell>{vnd(toNumber(r.resolvedUnitPrice, 0))}</TableCell>
+                    <TableCell>{vnd(toNumber(r.unit_price, 0))}</TableCell>
                     <TableCell>{toNumber(r.dosage_qty, 0)}</TableCell>
-                    <TableCell>{vnd(toNumber(r.lineCost, 0))}</TableCell>
+                    <TableCell>{vnd(toNumber(r.standardLineCost, 0))}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
