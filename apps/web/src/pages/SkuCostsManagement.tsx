@@ -194,6 +194,8 @@ export default function SkuCostsManagement() {
   const [isScanningSkuImage, setIsScanningSkuImage] = useState(false);
   const [scanSkuMessage, setScanSkuMessage] = useState<string>("");
   const [importedFormulaDraft, setImportedFormulaDraft] = useState<any[]>([]);
+  const [isSavingSku, setIsSavingSku] = useState(false);
+  const [saveSkuError, setSaveSkuError] = useState<string>("");
   const skuImageInputRef = useRef<HTMLInputElement | null>(null);
 
   const [skuForm, setSkuForm] = useState<any>({
@@ -377,7 +379,7 @@ export default function SkuCostsManagement() {
     };
   }, [activeSku.finished_output_qty, formulaComputed]);
 
-  const openCreateSku = () => { setScanSkuMessage(""); setImportedFormulaDraft([]); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: FORMULA_BASE_QTY, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {} }); setDialogOpen(true); };
+  const openCreateSku = () => { setScanSkuMessage(""); setSaveSkuError(""); setImportedFormulaDraft([]); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: FORMULA_BASE_QTY, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {} }); setDialogOpen(true); };
 
   const buildFormulaRowsFromDraft = (skuId: string) => {
     const rowsToSave = importedFormulaDraft.filter((r: any, idx: number) => {
@@ -412,6 +414,7 @@ export default function SkuCostsManagement() {
   };
 
   const openEditSku = async (sku: SKU) => {
+    setSaveSkuError("");
     setSkuForm({ ...sku, cost_template: parseCostTemplate(sku.cost_template), cost_values: parseCostValues(sku.cost_values), cost_widgets: parseWidgets(sku.cost_widgets) });
     const { data } = await sb.from("sku_formulations").select("*").eq("sku_id", sku.id).order("sort_order");
     const draft = (data || []).map((r: any) => ({
@@ -433,10 +436,17 @@ export default function SkuCostsManagement() {
   };
 
   const saveSku = async () => {
+    if (isSavingSku) return;
+    setSaveSkuError("");
+
     if (!skuForm.sku_code || !skuForm.product_name) {
-      toast({ title: "Thiếu dữ liệu", description: "Cần có mã SKU và tên món để lưu." });
+      const msg = "Cần có mã SKU và tên món để lưu.";
+      setSaveSkuError(msg);
+      toast({ title: "Thiếu dữ liệu", description: msg });
       return;
     }
+
+    setIsSavingSku(true);
 
     try {
       if (skuForm.id) {
@@ -491,7 +501,12 @@ export default function SkuCostsManagement() {
       setImportedFormulaDraft([]);
       loadAll();
     } catch (e: any) {
-      toast({ title: "Lưu SKU thất bại", description: e?.message || "Có lỗi khi lưu dữ liệu, anh thử lại giúp Ramen." });
+      const msg = e?.message || "Có lỗi khi lưu dữ liệu, anh thử lại giúp Ramen.";
+      setSaveSkuError(msg);
+      console.error("saveSku failed", e);
+      toast({ title: "Lưu SKU thất bại", description: msg });
+    } finally {
+      setIsSavingSku(false);
     }
   };
 
@@ -1017,8 +1032,16 @@ export default function SkuCostsManagement() {
             </div>
           </div>
 
+          {saveSkuError && (
+            <div className="text-sm rounded border border-red-300 bg-red-50 text-red-700 px-3 py-2">
+              Lưu SKU lỗi: {saveSkuError}
+            </div>
+          )}
+
           <DialogFooter>
-            <Button onClick={saveSku}>Lưu SKU</Button>
+            <Button type="button" onClick={saveSku} disabled={isSavingSku}>
+              {isSavingSku ? "Đang lưu..." : "Lưu SKU"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
