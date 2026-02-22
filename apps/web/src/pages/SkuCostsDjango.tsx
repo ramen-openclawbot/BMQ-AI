@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
 import { parseCostValues, toNumber } from "@/lib/sku-cost-template";
 
@@ -21,64 +19,43 @@ export default function SkuCostsDjango() {
     })();
   }, []);
 
-  const summary = useMemo(() => {
+  const stats = useMemo(() => {
     const count = skus.length;
-    const avgSellingPrice = count > 0
-      ? skus.reduce((sum, s) => sum + toNumber(parseCostValues(s.cost_values).selling_price, 0), 0) / count
-      : 0;
-    return { count, avgSellingPrice };
+    const sellingPrices = skus.map((s) => toNumber(parseCostValues(s.cost_values).selling_price, 0));
+    const avgSelling = count ? sellingPrices.reduce((a, b) => a + b, 0) / count : 0;
+    const maxSelling = count ? Math.max(...sellingPrices) : 0;
+    const updatedAt = skus[0]?.updated_at;
+    return { count, avgSelling, maxSelling, updatedAt };
   }, [skus]);
 
   const vnd = (n: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(n || 0);
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader><CardTitle>Tổng SKU thành phẩm</CardTitle></CardHeader>
-          <CardContent>
-            {loading ? <Skeleton className="h-8 w-24" /> : <div className="text-2xl font-semibold">{summary.count}</div>}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle>Giá bán trung bình</CardTitle></CardHeader>
-          <CardContent>
-            {loading ? <Skeleton className="h-8 w-32" /> : <div className="text-2xl font-semibold">{vnd(summary.avgSellingPrice)}</div>}
-          </CardContent>
-        </Card>
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">SKU thành phẩm</div><div className="text-xl font-semibold">{loading ? "..." : stats.count}</div></CardContent></Card>
+        <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Giá bán TB</div><div className="text-xl font-semibold">{loading ? "..." : vnd(stats.avgSelling)}</div></CardContent></Card>
+        <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Giá bán cao nhất</div><div className="text-xl font-semibold">{loading ? "..." : vnd(stats.maxSelling)}</div></CardContent></Card>
+        <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Cập nhật gần nhất</div><div className="text-sm font-medium">{loading ? "..." : (stats.updatedAt ? new Date(stats.updatedAt).toLocaleString("vi-VN") : "-")}</div></CardContent></Card>
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Danh sách SKU thành phẩm hiện có</CardTitle></CardHeader>
-        <CardContent>
+        <CardHeader className="pb-2"><CardTitle className="text-base">SKU mới cập nhật</CardTitle></CardHeader>
+        <CardContent className="space-y-2">
           {loading ? (
-            <Skeleton className="h-10 w-full" />
+            <div className="text-sm text-muted-foreground">Đang tải...</div>
+          ) : skus.length === 0 ? (
+            <div className="text-sm text-muted-foreground">Chưa có dữ liệu.</div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>SKU</TableHead>
-                  <TableHead>Tên sản phẩm</TableHead>
-                  <TableHead>Giá bán</TableHead>
-                  <TableHead>Cập nhật</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {skus.map((s) => (
-                  <TableRow key={s.id}>
-                    <TableCell className="font-mono text-xs">{s.sku_code}</TableCell>
-                    <TableCell>{s.product_name}</TableCell>
-                    <TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell>
-                    <TableCell>{s.updated_at ? new Date(s.updated_at).toLocaleString("vi-VN") : "-"}</TableCell>
-                  </TableRow>
-                ))}
-                {skus.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-muted-foreground">Chưa có SKU thành phẩm.</TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
+            skus.slice(0, 5).map((s) => (
+              <div key={s.id} className="flex items-center justify-between border rounded px-3 py-2 text-sm">
+                <div>
+                  <div className="font-medium">{s.product_name}</div>
+                  <div className="text-xs text-muted-foreground font-mono">{s.sku_code}</div>
+                </div>
+                <div className="font-semibold">{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</div>
+              </div>
+            ))
           )}
         </CardContent>
       </Card>
