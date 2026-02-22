@@ -257,7 +257,7 @@ export default function SkuCostsManagement() {
   useEffect(() => {
     (async () => {
       try { await sb.rpc("snapshot_sku_costs_daily", { p_snapshot_date: new Date().toISOString().slice(0, 10) }); } catch (_) {}
-      try { await ensureBmcbSampleSku(); } catch (_) {}
+      try { await ensureBmcbSampleSku(); } catch (e) { console.error("ensureBmcbSampleSku failed", e); }
       loadAll();
     })();
     /* eslint-disable-next-line */
@@ -472,6 +472,7 @@ export default function SkuCostsManagement() {
       sku_code: skuCode,
       product_name: "Bánh mì chà bông",
       unit: "cái",
+      unit_price: 0,
       category: "Thành phẩm",
       base_unit: "cái",
       yield_percent: 100,
