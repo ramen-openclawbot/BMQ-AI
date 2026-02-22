@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { parseCostValues, toNumber } from "@/lib/sku-cost-template";
 
 type FormulaRow = {
   sku_id: string;
@@ -8,28 +9,21 @@ type FormulaRow = {
   unit_price: number | null;
   dosage_qty: number | null;
   wastage_percent: number | null;
-};
-
-type CostSku = {
-  id: string;
-  sku_code: string;
-  product_name: string;
-  category: string | null;
-  unit: string | null;
-  selling_price: number | null;
-  extra_cost_per_unit: number | null;
-  packaging_cost_per_unit: number | null;
-  labor_cost_per_unit: number | null;
-  delivery_cost_per_unit: number | null;
-  other_production_cost_per_unit: number | null;
-  sga_cost_per_unit: number | null;
-  finished_output_qty: number | null;
-  finished_output_unit: string | null;
-  updated_at: string;
+  unit?: string | null;
 };
 
 const sb = supabase as any;
-const toNum = (v: any) => Number(v || 0);
+
+const normalize = (v: string) =>
+  String(v || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+
+const isFinishedSku = (category: string) => {
+  const c = normalize(category);
+  return c.includes("thanh pham") || c.includes("finished");
+};
 
 const ym = (d: string) => {
   const dt = new Date(d);
@@ -41,19 +35,18 @@ export function useSkuCostBridge() {
   return useQuery({
     queryKey: ["sku-cost-bridge"],
     queryFn: async () => {
-      const { data: skus } = await sb
-        .from("product_skus")
-        .select("id, sku_code, product_name, category, unit, selling_price, extra_cost_per_unit, packaging_cost_per_unit, labor_cost_per_unit, delivery_cost_per_unit, other_production_cost_per_unit, sga_cost_per_unit, finished_output_qty, finished_output_unit, updated_at")
-        .order("updated_at", { ascending: false });
+      const { data: skus } = await sb.from("product_skus").select("*").order("updated_at", { ascending: false });
 
-      const skuRows = ((skus || []) as CostSku[]).filter((s) => String(s.category || "").toLowerCase().includes("thành phẩm"));
-      const skuIds = skuRows.map((s) => s.id);
+      const skuRows = (skus || []).filter((s: any) => isFinishedSku(String(s.category || "")));
+      const skuIds = skuRows.map((s: any) => s.id);
 
       const [formulaRes, prRes, poRes, invRes, snapRes] = await Promise.all([
-        sb
-          .from("sku_formulations")
-          .select("sku_id, ingredient_sku_id, ingredient_name, unit_price, dosage_qty, wastage_percent")
-          .in("sku_id", skuIds),
+        skuIds.length
+          ? sb
+              .from("sku_formulations")
+              .select("sku_id, ingredient_sku_id, ingredient_name, unit_price, dosage_qty, wastage_percent, unit")
+              .in("sku_id", skuIds)
+          : Promise.resolve({ data: [] }),
         sb
           .from("payment_request_items")
           .select("sku_id, unit_price, created_at")
@@ -82,36 +75,37 @@ export function useSkuCostBridge() {
       ].sort((a, b) => +new Date(a.created_at) - +new Date(b.created_at));
       const inventories = (invRes.data || []) as Array<{ sku_id: string; quantity: number; received_date: string }>;
 
-      const latestIngredientPrice = new Map<string, number>();
-      purchases.forEach((p) => {
-        latestIngredientPrice.set(p.sku_id, toNum(p.unit_price));
-      });
-
       const inventoryBySku = new Map<string, number>();
       inventories.forEach((i) => {
-        inventoryBySku.set(i.sku_id, (inventoryBySku.get(i.sku_id) || 0) + toNum(i.quantity));
+        inventoryBySku.set(i.sku_id, (inventoryBySku.get(i.sku_id) || 0) + toNumber(i.quantity, 0));
       });
 
-      const items = skuRows.map((sku) => {
+      const items = skuRows.map((sku: any) => {
+        const costValues = parseCostValues(sku.cost_values);
         const lines = formulas.filter((f) => f.sku_id === sku.id);
+
+        // Đồng bộ với màn Edit/Detail: dùng unit_price * dosage_qty từ công thức đã lưu
         const materialBatchCost = lines.reduce((sum, l) => {
-          const unitPrice = l.ingredient_sku_id ? (latestIngredientPrice.get(l.ingredient_sku_id) ?? toNum(l.unit_price)) : toNum(l.unit_price);
-          const usage = toNum(l.dosage_qty);
-          const wastage = toNum(l.wastage_percent) / 100;
+          const unitPrice = toNumber(l.unit_price, 0);
+          const usage = toNumber(l.dosage_qty, 0);
+          const wastage = toNumber(l.wastage_percent, 0) / 100;
           return sum + unitPrice * usage * (1 + wastage);
         }, 0);
 
-        const outputQty = Math.max(1, toNum(sku.finished_output_qty || 1));
-        const ingredientCost = materialBatchCost / outputQty;
-        const packagingCost = toNum(sku.packaging_cost_per_unit);
-        const laborCost = toNum(sku.labor_cost_per_unit);
-        const deliveryCost = toNum(sku.delivery_cost_per_unit);
-        const otherProductionCost = toNum(sku.other_production_cost_per_unit);
-        const sgaCost = toNum(sku.sga_cost_per_unit);
-        const extraCost = toNum(sku.extra_cost_per_unit);
+        const outputQty = Math.max(1, toNumber(sku.finished_output_qty, 100));
+        const ingredientBase = materialBatchCost / outputQty;
+        const provisionPct = toNumber(costValues.material_provision_percent, 0);
+        const ingredientCost = ingredientBase * (1 + provisionPct / 100);
+
+        const packagingCost = toNumber(costValues.packaging_cost, 0);
+        const laborCost = toNumber(costValues.labor_cost, 0);
+        const deliveryCost = toNumber(costValues.delivery_cost, 0);
+        const otherProductionCost = toNumber(costValues.other_production_cost, 0);
+        const sgaCost = toNumber(costValues.sga_cost, 0);
+        const extraCost = 0;
 
         const totalCost = ingredientCost + packagingCost + laborCost + deliveryCost + otherProductionCost + sgaCost + extraCost;
-        const selling = toNum(sku.selling_price);
+        const selling = toNumber(costValues.selling_price, 0);
         const margin = selling - totalCost;
         const marginPct = selling > 0 ? (margin / selling) * 100 : 0;
 
@@ -149,10 +143,10 @@ export function useSkuCostBridge() {
         snapshots.forEach((s) => {
           const key = String(s.snapshot_date || "");
           const row = dayMap.get(key) || { ingredient: 0, labor: 0, overhead: 0, total: 0, count: 0 };
-          row.ingredient += toNum(s.ingredient_cost);
-          row.labor += toNum(s.labor_cost);
-          row.overhead += toNum(s.packaging_cost) + toNum(s.delivery_cost) + toNum(s.other_production_cost) + toNum(s.sga_cost);
-          row.total += toNum(s.total_cost_per_unit);
+          row.ingredient += toNumber(s.ingredient_cost, 0);
+          row.labor += toNumber(s.labor_cost, 0);
+          row.overhead += toNumber(s.packaging_cost, 0) + toNumber(s.delivery_cost, 0) + toNumber(s.other_production_cost, 0) + toNumber(s.sga_cost, 0);
+          row.total += toNumber(s.total_cost_per_unit, 0);
           row.count += 1;
           dayMap.set(key, row);
         });
@@ -171,7 +165,7 @@ export function useSkuCostBridge() {
         purchases.forEach((p) => {
           const k = ym(p.created_at);
           const m = monthMap.get(k) || { ingredient: 0, sample: 0 };
-          m.ingredient += toNum(p.unit_price);
+          m.ingredient += toNumber(p.unit_price, 0);
           m.sample += 1;
           monthMap.set(k, m);
         });
