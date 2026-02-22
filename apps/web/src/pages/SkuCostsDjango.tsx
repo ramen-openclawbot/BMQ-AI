@@ -1,199 +1,84 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useSkuCostsDjango } from "@/hooks/useSkuCostsDjango";
-import { useDjangoLowStock } from "@/hooks/useDjangoLowStock";
-import { useDjangoRecentCosts } from "@/hooks/useDjangoRecentCosts";
-import { useDjangoCostTrend } from "@/hooks/useDjangoCostTrend";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-} from "recharts";
-
-const COLORS = ["#16a34a", "#f59e0b", "#ef4444"];
+import { supabase } from "@/integrations/supabase/client";
+import { parseCostValues, toNumber } from "@/lib/sku-cost-template";
 
 export default function SkuCostsDjango() {
-  const { data, isLoading, isError } = useSkuCostsDjango();
-  const { data: lowStock } = useDjangoLowStock();
-  const { data: recentCosts } = useDjangoRecentCosts();
+  const [skus, setSkus] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const firstProductId = data?.[0]?.product_id;
-  const { data: trend } = useDjangoCostTrend(firstProductId);
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.from("product_skus").select("*").order("updated_at", { ascending: false });
+        const finished = (data || []).filter((s: any) => String(s.category || "").toLowerCase().includes("thành phẩm"));
+        setSkus(finished);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
-  const totals = useMemo(() => {
-    if (!data || data.length === 0) return { count: 0, avgCost: 0, avgMargin: 0 };
-    const count = data.length;
-    const avgCost = data.reduce((s, i) => s + i.total_cost_per_unit, 0) / count;
-    const avgMargin = data.reduce((s, i) => s + i.margin_percentage, 0) / count;
-    return { count, avgCost, avgMargin };
-  }, [data]);
+  const summary = useMemo(() => {
+    const count = skus.length;
+    const avgSellingPrice = count > 0
+      ? skus.reduce((sum, s) => sum + toNumber(parseCostValues(s.cost_values).selling_price, 0), 0) / count
+      : 0;
+    return { count, avgSellingPrice };
+  }, [skus]);
 
-  const formatCurrency = (n: number) =>
-    new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(n);
-
-  const breakdown = useMemo(() => {
-    if (!data || data.length === 0) return [];
-    const sum = data.reduce(
-      (acc, i) => {
-        acc.ingredient += i.ingredient_cost;
-        acc.labor += i.labor_cost;
-        acc.overhead += i.overhead_cost;
-        return acc;
-      },
-      { ingredient: 0, labor: 0, overhead: 0 }
-    );
-    return [
-      { name: "Nguyên liệu", value: sum.ingredient },
-      { name: "Nhân công", value: sum.labor },
-      { name: "Chi phí chung", value: sum.overhead },
-    ];
-  }, [data]);
+  const vnd = (n: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(n || 0);
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>
-          <CardHeader>
-            <CardTitle>Tổng số sản phẩm</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle>Tổng SKU thành phẩm</CardTitle></CardHeader>
           <CardContent>
-            {isLoading ? <Skeleton className="h-8 w-24" /> : <div className="text-2xl font-semibold">{totals.count}</div>}
+            {loading ? <Skeleton className="h-8 w-24" /> : <div className="text-2xl font-semibold">{summary.count}</div>}
           </CardContent>
         </Card>
         <Card>
-          <CardHeader>
-            <CardTitle>Giá thành trung bình</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle>Giá bán trung bình</CardTitle></CardHeader>
           <CardContent>
-            {isLoading ? <Skeleton className="h-8 w-32" /> : <div className="text-2xl font-semibold">{formatCurrency(totals.avgCost)}</div>}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Biên lợi nhuận TB</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? <Skeleton className="h-8 w-20" /> : <div className="text-2xl font-semibold">{totals.avgMargin.toFixed(2)}%</div>}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>Xu hướng chi phí (SKU đầu tiên)</CardTitle>
-          </CardHeader>
-          <CardContent className="h-64">
-            {trend ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={trend.labels.map((l: string, idx: number) => ({
-                  label: l,
-                  ingredient: trend.datasets[0]?.data[idx],
-                  labor: trend.datasets[1]?.data[idx],
-                  overhead: trend.datasets[2]?.data[idx],
-                  total: trend.datasets[3]?.data[idx],
-                }))}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="label" />
-                  <YAxis />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="total" stroke="#0f172a" />
-                  <Line type="monotone" dataKey="ingredient" stroke="#22c55e" />
-                  <Line type="monotone" dataKey="labor" stroke="#f59e0b" />
-                  <Line type="monotone" dataKey="overhead" stroke="#ef4444" />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <Skeleton className="h-56 w-full" />
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Cơ cấu chi phí</CardTitle>
-          </CardHeader>
-          <CardContent className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={breakdown} dataKey="value" nameKey="name" innerRadius={50} outerRadius={90}>
-                  {breakdown.map((_, idx) => (
-                    <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
+            {loading ? <Skeleton className="h-8 w-32" /> : <div className="text-2xl font-semibold">{vnd(summary.avgSellingPrice)}</div>}
           </CardContent>
         </Card>
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Chi phí tính gần đây</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle>Danh sách SKU thành phẩm hiện có</CardTitle></CardHeader>
         <CardContent>
-          {recentCosts ? (
+          {loading ? (
+            <Skeleton className="h-10 w-full" />
+          ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>SKU</TableHead>
-                  <TableHead>Sản phẩm</TableHead>
-                  <TableHead>Giá thành</TableHead>
-                  <TableHead>Biên LN</TableHead>
+                  <TableHead>Tên sản phẩm</TableHead>
+                  <TableHead>Giá bán</TableHead>
+                  <TableHead>Cập nhật</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {recentCosts.map((i: any) => (
-                  <TableRow key={i.id}>
-                    <TableCell className="font-mono text-xs">{i.sku_code}</TableCell>
-                    <TableCell>{i.product_name}</TableCell>
-                    <TableCell>{formatCurrency(i.total_cost_per_unit)}</TableCell>
-                    <TableCell>{i.margin_percentage.toFixed(2)}%</TableCell>
+                {skus.map((s) => (
+                  <TableRow key={s.id}>
+                    <TableCell className="font-mono text-xs">{s.sku_code}</TableCell>
+                    <TableCell>{s.product_name}</TableCell>
+                    <TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell>
+                    <TableCell>{s.updated_at ? new Date(s.updated_at).toLocaleString("vi-VN") : "-"}</TableCell>
                   </TableRow>
                 ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <Skeleton className="h-10 w-full" />
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Cảnh báo tồn kho thấp</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {lowStock ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nguyên liệu</TableHead>
-                  <TableHead>Tồn kho</TableHead>
-                  <TableHead>Tối thiểu</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {lowStock.map((i: any) => (
-                  <TableRow key={i.id}>
-                    <TableCell>{i.name}</TableCell>
-                    <TableCell>{i.current_stock}</TableCell>
-                    <TableCell>{i.minimum_stock}</TableCell>
+                {skus.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-muted-foreground">Chưa có SKU thành phẩm.</TableCell>
                   </TableRow>
-                ))}
+                )}
               </TableBody>
             </Table>
-          ) : (
-            <Skeleton className="h-10 w-full" />
           )}
         </CardContent>
       </Card>
