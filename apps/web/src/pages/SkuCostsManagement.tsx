@@ -305,8 +305,8 @@ export default function SkuCostsManagement() {
   const importedMaterialSummary = useMemo(() => {
     const total = importedFormulaDraft.reduce((sum, r, idx) => {
       const level1 = String(r.level1_name || "").trim();
-      const isLevel1Row = !String(r.level2_name || "").trim();
-      const childRows = importedFormulaDraft.filter((x, j) => j !== idx && String(x.level1_name || "").trim() === level1 && String(x.level2_name || "").trim());
+      const isLevel1Row = !r.is_level2;
+      const childRows = importedFormulaDraft.filter((x, j) => j !== idx && x.is_level2 && String(x.level1_name || "").trim() === level1);
 
       if (isLevel1Row && level1 && childRows.length > 0) {
         return sum + childRows.reduce((s, c) => s + toNumber(c.line_cost, toNumber(c.unit_price, 0) * toNumber(c.dosage_qty, 0)), 0);
@@ -324,7 +324,7 @@ export default function SkuCostsManagement() {
   const level1Options = useMemo(() => {
     const seen = new Set<string>();
     return importedFormulaDraft
-      .filter((r) => !String(r.level2_name || "").trim())
+      .filter((r) => !r.is_level2)
       .map((r) => String(r.level1_name || "").trim())
       .filter((name) => {
         if (!name || seen.has(name)) return false;
@@ -378,10 +378,9 @@ export default function SkuCostsManagement() {
         if (importedFormulaDraft.length > 0) {
           const rowsToSave = importedFormulaDraft.filter((r: any, idx: number) => {
             const level1 = String(r.level1_name || "").trim();
-            const level2 = String(r.level2_name || "").trim();
-            if (level2) return true;
+            if (r.is_level2) return true;
             if (!level1) return true;
-            const hasChildren = importedFormulaDraft.some((x: any, j: number) => j !== idx && String(x.level1_name || "").trim() === level1 && String(x.level2_name || "").trim());
+            const hasChildren = importedFormulaDraft.some((x: any, j: number) => j !== idx && x.is_level2 && String(x.level1_name || "").trim() === level1);
             return !hasChildren;
           });
 
@@ -423,7 +422,7 @@ export default function SkuCostsManagement() {
   const addDraftMaterialRow = () => {
     setImportedFormulaDraft((prev) => [
       ...prev,
-      { level1_sku_id: "", ingredient_sku_id: "", level1_name: "", level2_name: "", ingredient_name: "", unit: "g", unit_price: 0, dosage_qty: 0, dosage_input: "", line_cost: 0 },
+      { is_level2: false, level1_sku_id: "", ingredient_sku_id: "", level1_name: "", level2_name: "", ingredient_name: "", unit: "g", unit_price: 0, dosage_qty: 0, dosage_input: "", line_cost: 0 },
     ]);
   };
 
@@ -432,12 +431,12 @@ export default function SkuCostsManagement() {
     if (!parentLevel1) return;
     setImportedFormulaDraft((prev) => {
       const next = [...prev];
-      const parentIdx = next.findIndex((x) => !String(x.level2_name || "").trim() && String(x.level1_name || "").trim() === parentLevel1);
+      const parentIdx = next.findIndex((x) => !x.is_level2 && String(x.level1_name || "").trim() === parentLevel1);
       const insertIdx = parentIdx >= 0
         ? next.reduce((last, row, i) => (String(row.level1_name || "").trim() === parentLevel1 ? i : last), parentIdx) + 1
         : next.length;
 
-      next.splice(insertIdx, 0, { level1_sku_id: "", ingredient_sku_id: "", level1_name: parentLevel1, level2_name: "", ingredient_name: `${parentLevel1} > `, unit: "g", unit_price: 0, dosage_qty: 0, dosage_input: "", line_cost: 0 });
+      next.splice(insertIdx, 0, { is_level2: true, level1_sku_id: "", ingredient_sku_id: "", level1_name: parentLevel1, level2_name: "", ingredient_name: `${parentLevel1} > `, unit: "g", unit_price: 0, dosage_qty: 0, dosage_input: "", line_cost: 0 });
       return next;
     });
   };
@@ -447,7 +446,7 @@ export default function SkuCostsManagement() {
     const draftRows = ingredients
       .map((r: any) => normalizeScannedIngredient(r))
       .filter((x: any) => x.ingredient_name)
-      .map((x: any) => ({ ...x, level1_name: x.ingredient_name, level2_name: "", dosage_input: String(x.dosage_qty).replace(".", ",") }));
+      .map((x: any) => ({ ...x, is_level2: false, level1_name: x.ingredient_name, level2_name: "", dosage_input: String(x.dosage_qty).replace(".", ",") }));
     setImportedFormulaDraft(draftRows);
 
     const productName = d.product_name || d.ten_mon || "SKU từ ảnh";
@@ -783,7 +782,7 @@ export default function SkuCostsManagement() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>NVL cấp 1</TableHead><TableHead>NVL cấp 2</TableHead><TableHead>DVT</TableHead><TableHead>Đơn giá (VNĐ)</TableHead><TableHead>Định lượng</TableHead><TableHead>Giá vốn (VNĐ)</TableHead><TableHead>Đơn giá vốn/cái (VNĐ)</TableHead>
+                    <TableHead>Loại</TableHead><TableHead>Tên NVL</TableHead><TableHead>DVT</TableHead><TableHead>Đơn giá (VNĐ)</TableHead><TableHead>Định lượng</TableHead><TableHead>Giá vốn (VNĐ)</TableHead><TableHead>Đơn giá vốn/cái (VNĐ)</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -792,8 +791,8 @@ export default function SkuCostsManagement() {
                   )}
                   {importedFormulaDraft.map((r, idx) => {
                     const level1 = String(r.level1_name || "").trim();
-                    const isLevel1Row = !String(r.level2_name || "").trim();
-                    const childRows = importedFormulaDraft.filter((x, j) => j !== idx && String(x.level1_name || "").trim() === level1 && String(x.level2_name || "").trim());
+                    const isLevel1Row = !r.is_level2;
+                    const childRows = importedFormulaDraft.filter((x, j) => j !== idx && x.is_level2 && String(x.level1_name || "").trim() === level1);
                     const hasChildren = isLevel1Row && level1 && childRows.length > 0;
 
                     const aggregatedDosage = hasChildren ? childRows.reduce((s, c) => s + toNumber(c.dosage_qty, 0), 0) : toNumber(r.dosage_qty, 0);
@@ -805,50 +804,41 @@ export default function SkuCostsManagement() {
 
                     return (
                       <TableRow key={`draft-${idx}`}>
+                        <TableCell>{isLevel1Row ? "NVL cấp 1" : `NVL cấp 2 (${r.level1_name || "-"})`}</TableCell>
                         <TableCell>
                           <select
                             className="w-full border rounded h-10 px-2"
-                            value={r.level1_sku_id || ""}
+                            value={isLevel1Row ? (r.level1_sku_id || "") : (r.ingredient_sku_id || "")}
                             onChange={(e) => {
                               const skuId = e.target.value;
                               const picked = ingredientSkus.find((s) => s.id === skuId);
-                              const level1Name = picked?.product_name || "";
                               const next = [...importedFormulaDraft];
-                              next[idx] = {
-                                ...next[idx],
-                                level1_sku_id: skuId,
-                                level1_name: level1Name,
-                                ingredient_name: `${level1Name}${next[idx].level2_name ? ` > ${next[idx].level2_name}` : ""}`,
-                              };
-                              setImportedFormulaDraft(next);
-                              setSelectedLevel1ForLevel2(level1Name);
-                            }}
-                          >
-                            <option value="">-- Chọn NVL cấp 1 --</option>
-                            {ingredientSkus.map((s) => <option key={s.id} value={s.id}>{s.sku_code} - {s.product_name}</option>)}
-                          </select>
-                        </TableCell>
-                        <TableCell>
-                          <select
-                            className="w-full border rounded h-10 px-2"
-                            value={r.ingredient_sku_id || ""}
-                            onChange={(e) => {
-                              const skuId = e.target.value;
-                              const picked = ingredientSkus.find((s) => s.id === skuId);
-                              const level2Name = picked?.product_name || "";
-                              const unit = String(picked?.unit || r.unit || "g");
-                              const next = [...importedFormulaDraft];
-                              next[idx] = {
-                                ...next[idx],
-                                ingredient_sku_id: skuId,
-                                level2_name: isLevel1Row ? "" : level2Name,
-                                ingredient_name: `${next[idx].level1_name || ""}${isLevel1Row ? "" : (level2Name ? ` > ${level2Name}` : "")}`,
-                                unit,
-                              };
+
+                              if (isLevel1Row) {
+                                const level1Name = picked?.product_name || "";
+                                next[idx] = {
+                                  ...next[idx],
+                                  level1_sku_id: skuId,
+                                  level1_name: level1Name,
+                                  ingredient_name: level1Name,
+                                };
+                                setSelectedLevel1ForLevel2(level1Name);
+                              } else {
+                                const level2Name = picked?.product_name || "";
+                                const unit = String(picked?.unit || r.unit || "g");
+                                next[idx] = {
+                                  ...next[idx],
+                                  ingredient_sku_id: skuId,
+                                  level2_name: level2Name,
+                                  ingredient_name: `${next[idx].level1_name || ""}${level2Name ? ` > ${level2Name}` : ""}`,
+                                  unit,
+                                };
+                              }
+
                               setImportedFormulaDraft(next);
                             }}
                           >
-                            <option value="">{isLevel1Row ? "(trống = cấp 1)" : "-- Chọn NVL cấp 2 --"}</option>
+                            <option value="">{isLevel1Row ? "-- Chọn NVL cấp 1 --" : "-- Chọn NVL cấp 2 --"}</option>
                             {ingredientSkus.map((s) => <option key={s.id} value={s.id}>{s.sku_code} - {s.product_name}</option>)}
                           </select>
                         </TableCell>
