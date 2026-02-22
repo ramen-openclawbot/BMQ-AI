@@ -285,12 +285,14 @@ export default function SkuCostsManagement() {
   const formulaComputed = useMemo(() => formula.map((r) => {
     const selectedSku = skus.find((s) => s.id === r.ingredient_sku_id);
     const market = r.ingredient_sku_id ? priceMap.get(r.ingredient_sku_id) : null;
-    const unitPrice = market?.price || toNumber(r.unit_price, 0);
+    const standardUnitPrice = toNumber(r.unit_price, 0);
+    const actualUnitPrice = market?.price || standardUnitPrice;
     const dosage = toNumber(r.dosage_qty, 0);
 
     const priceUnit = selectedSku?.unit || r.unit || "";
     const dosageInPriceUnit = convertAmountByUnit(dosage, r.unit || "", priceUnit);
-    const lineCost = unitPrice * dosageInPriceUnit;
+    const standardLineCost = standardUnitPrice * dosageInPriceUnit;
+    const actualLineCost = actualUnitPrice * dosageInPriceUnit;
 
     return {
       ...r,
@@ -298,8 +300,11 @@ export default function SkuCostsManagement() {
       displayName: selectedSku?.product_name || r.ingredient_name || "",
       displayCode: selectedSku?.sku_code || "",
       currentStock: r.ingredient_sku_id ? toNumber(inventoryMap.get(r.ingredient_sku_id), 0) : 0,
-      resolvedUnitPrice: unitPrice,
-      lineCost,
+      standardUnitPrice,
+      resolvedUnitPrice: actualUnitPrice,
+      standardLineCost,
+      lineCost: actualLineCost,
+      varianceLineCost: actualLineCost - standardLineCost,
       source: market?.source,
     };
   }), [formula, skus, priceMap, inventoryMap]);
@@ -349,7 +354,7 @@ export default function SkuCostsManagement() {
   }, [skuForm, importedFormulaDraft]);
 
   const costing = useMemo(() => {
-    const outputQty = Math.max(1, Number(activeSku.finished_output_qty || 1));
+    const outputQty = Math.max(1, Number(activeSku.finished_output_qty || FORMULA_BASE_QTY));
     const totalMaterialCostBatch = formulaComputed.reduce((sum, row) => sum + row.lineCost, 0);
     const totalMaterialCost = totalMaterialCostBatch / outputQty;
     const provisionPercent = toNumber(costValues.material_provision_percent, 0);
@@ -363,6 +368,19 @@ export default function SkuCostsManagement() {
     const pctOnCost = (v: number) => (totalCost > 0 ? (v / totalCost) * 100 : 0);
     return { outputQty, totalMaterialCost, provisionAmount, totalCostNVL, totalCost, sellingPrice, netProfit, netProfitPct, pctOnCost };
   }, [activeSku, formulaComputed, costTemplate, costValues]);
+
+  const standardVsActual = useMemo(() => {
+    const outputQty = Math.max(1, Number(activeSku.finished_output_qty || FORMULA_BASE_QTY));
+    const standardBatch = formulaComputed.reduce((sum, row) => sum + toNumber(row.standardLineCost, 0), 0);
+    const actualBatch = formulaComputed.reduce((sum, row) => sum + toNumber(row.lineCost, 0), 0);
+    const standardPerUnit = standardBatch / outputQty;
+    const actualPerUnit = actualBatch / outputQty;
+    return {
+      standardPerUnit,
+      actualPerUnit,
+      variancePerUnit: actualPerUnit - standardPerUnit,
+    };
+  }, [activeSku.finished_output_qty, formulaComputed]);
 
   const openCreateSku = () => { setScanSkuMessage(""); setImportedFormulaDraft([]); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: FORMULA_BASE_QTY, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {} }); setDialogOpen(true); };
   const openEditSku = (sku: SKU) => { setSkuForm({ ...sku, cost_template: parseCostTemplate(sku.cost_template), cost_values: parseCostValues(sku.cost_values), cost_widgets: parseWidgets(sku.cost_widgets) }); setDialogOpen(true); };
@@ -681,6 +699,9 @@ export default function SkuCostsManagement() {
               </Table>
 
               <div className="grid md:grid-cols-2 gap-3 text-sm">
+                <div className="p-3 rounded border bg-slate-50">NVL chuẩn/cái (Standard): <b>{vnd(standardVsActual.standardPerUnit)}</b></div>
+                <div className="p-3 rounded border bg-sky-50">NVL thực tế/cái (Actual): <b>{vnd(standardVsActual.actualPerUnit)}</b></div>
+                <div className="p-3 rounded border bg-amber-50">Chênh lệch/cái (Variance): <b>{vnd(standardVsActual.variancePerUnit)}</b></div>
                 <div className="p-3 rounded border">Total material cost: <b>{vnd(costing.totalMaterialCost)}</b></div>
                 <div className="p-3 rounded border flex items-center gap-2">Dự phòng hao hụt/tăng giá (%): <Input className="w-28 h-8" type="number" value={costValues.material_provision_percent || 0} onChange={(e) => updateCostValue("material_provision_percent", Number(e.target.value || 0))} /></div>
                 <div className="p-3 rounded border">Dự phòng hao hụt/tăng giá (VND): <b>{vnd(costing.provisionAmount)}</b></div>
