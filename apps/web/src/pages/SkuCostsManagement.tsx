@@ -396,6 +396,12 @@ export default function SkuCostsManagement() {
       if (skuForm.id) {
         const { error } = await sb.from("product_skus").update({ ...skuForm }).eq("id", skuForm.id);
         if (error) throw error;
+        await sb.from("sku_trace_documents").insert({
+          sku_id: skuForm.id,
+          document_type: "audit",
+          document_name: `EDIT_COST_${new Date().toISOString()}`,
+          document_url: `audit://sku/${skuForm.id}/edit`,
+        });
         toast({ title: "Đã cập nhật SKU" });
       } else {
         const { data, error } = await sb.from("product_skus").insert({ ...skuForm }).select("*").single();
@@ -403,6 +409,12 @@ export default function SkuCostsManagement() {
 
         if (data?.id) {
           setActiveSkuId(data.id);
+          await sb.from("sku_trace_documents").insert({
+            sku_id: data.id,
+            document_type: "audit",
+            document_name: `CREATE_COST_${new Date().toISOString()}`,
+            document_url: `audit://sku/${data.id}/create`,
+          });
 
           if (importedFormulaDraft.length > 0) {
             const rowsToSave = importedFormulaDraft.filter((r: any, idx: number) => {
@@ -455,6 +467,71 @@ export default function SkuCostsManagement() {
 
   const openCreateSkuFromImage = () => {
     skuImageInputRef.current?.click();
+  };
+
+  const createSampleBmcbSku = () => {
+    const sampleRows = [
+      ["Bột mì 888 cam", 18, 2662],
+      ["Chất Làm Mềm Bánh Bico (1kg)", 69, 17],
+      ["Muối", 6, 35],
+      ["Đường", 20, 482],
+      ["Phụ Gia Làm Bánh Mì Bico Gold (500g)", 88, 17],
+      ["Phụ gia ngọt Mauri", 106, 17],
+      ["Men bánh mì tươi Five Star", 150, 70],
+      ["Kem sữa Whiping cream tatua", 149, 158],
+      ["Trứng gà", 51, 333],
+      ["Sữa Bột Béo New Zealand", 130, 149],
+      ["Nước", 3, 1226],
+      ["Trứng gà (nhân)", 51, 180],
+      ["Bột ngọt", 48, 2],
+      ["Muối (nhân)", 6, 6],
+      ["Đường (nhân)", 20, 23],
+      ["Dầu hướng dương Simply", 60, 1303],
+      ["Giấm gạo Lisa AJINOMOLO", 51, 16],
+      ["Chà bông vàng", 140, 1250],
+    ];
+
+    setImportedFormulaDraft(sampleRows.map(([name, unitPrice, dosage]) => ({
+      is_level2: false,
+      level1_sku_id: "",
+      ingredient_sku_id: "",
+      level1_name: String(name),
+      level2_name: "",
+      ingredient_name: String(name),
+      unit: "g",
+      unit_price: Number(unitPrice),
+      unit_price_input: String(unitPrice),
+      dosage_qty: Number(dosage),
+      dosage_input: String(dosage),
+      line_cost: Number(unitPrice) * Number(dosage),
+    })));
+
+    setSkuForm({
+      id: "",
+      sku_code: "bmcb-2026-v1",
+      product_name: "Bánh mì chà bông",
+      unit: "cái",
+      category: "Thành phẩm",
+      base_unit: "cái",
+      yield_percent: 100,
+      finished_output_qty: FORMULA_BASE_QTY,
+      finished_output_unit: "cái",
+      cost_template: DEFAULT_SKU_COST_TEMPLATE,
+      cost_values: {
+        ...DEFAULT_SKU_COST_VALUES,
+        material_provision_percent: 10,
+        packaging_cost: 1280,
+        labor_cost: 3077,
+        delivery_cost: 1000,
+        other_production_cost: 1100,
+        sga_cost: 1100,
+        selling_price: 11000,
+      },
+      cost_widgets: {},
+    });
+
+    setDialogOpen(true);
+    setScanSkuMessage("Đã nạp mẫu Bánh mì chà bông từ form ảnh. Anh kiểm tra lại trước khi lưu.");
   };
 
   const addDraftMaterialRow = () => {
@@ -654,12 +731,12 @@ export default function SkuCostsManagement() {
 
         <TabsContent value="sku-admin" className="space-y-4">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between"><CardTitle>Danh sách SKU thành phẩm</CardTitle><div className="flex gap-2"><Button onClick={openCreateSku}>Tạo SKU</Button></div></CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between"><CardTitle>Danh sách SKU thành phẩm</CardTitle><div className="flex gap-2"><Button onClick={openCreateSku}>Tạo SKU</Button><Button variant="outline" onClick={createSampleBmcbSku}>Tạo mẫu BMCB 2026 v1</Button></div></CardHeader>
             <CardContent>
               {/* hidden scan message */}
-              <Table><TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Tên</TableHead><TableHead>Giá bán</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>
-                {finishedSkus.map((s) => <TableRow key={s.id}><TableCell className="font-mono">{s.sku_code}</TableCell><TableCell><button className="underline" onClick={() => setActiveSkuId(s.id)}>{s.product_name}</button></TableCell><TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell><TableCell><Button variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button></TableCell></TableRow>)}
-                {finishedSkus.length === 0 && <TableRow><TableCell colSpan={4} className="text-muted-foreground">Chưa có SKU thành phẩm.</TableCell></TableRow>}
+              <Table><TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Tên</TableHead><TableHead>Giá bán</TableHead><TableHead>Chỉnh sửa lúc</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>
+                {finishedSkus.map((s) => <TableRow key={s.id}><TableCell className="font-mono">{s.sku_code}</TableCell><TableCell><button className="underline" onClick={() => setActiveSkuId(s.id)}>{s.product_name}</button></TableCell><TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell><TableCell className="text-xs">{s.updated_at ? new Date(s.updated_at).toLocaleString("vi-VN") : "-"}</TableCell><TableCell><Button variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button></TableCell></TableRow>)}
+                {finishedSkus.length === 0 && <TableRow><TableCell colSpan={5} className="text-muted-foreground">Chưa có SKU thành phẩm.</TableCell></TableRow>}
               </TableBody></Table>
             </CardContent>
           </Card>
@@ -783,6 +860,7 @@ export default function SkuCostsManagement() {
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{skuForm.id ? "Sửa SKU" : "Tạo SKU theo form mẫu"}</DialogTitle>
+            {skuForm.id && <div className="text-xs text-muted-foreground">Lần chỉnh sửa gần nhất: {skuForm.updated_at ? new Date(skuForm.updated_at).toLocaleString("vi-VN") : "-"}</div>}
           </DialogHeader>
 
           <div className="space-y-4">
