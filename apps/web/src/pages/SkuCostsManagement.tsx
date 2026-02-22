@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
@@ -14,8 +12,6 @@ import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 
 type SKU = any;
 type FormulaRow = any;
-type Batch = any;
-type Material = any;
 type PriceMode = "latest" | "avg30" | "avg90";
 type WidgetLine = { name: string; amount: number };
 
@@ -181,10 +177,6 @@ export default function SkuCostsManagement() {
   const { toast } = useToast();
   const [skus, setSkus] = useState<SKU[]>([]);
   const [formula, setFormula] = useState<FormulaRow[]>([]);
-  const [documents, setDocuments] = useState<any[]>([]);
-  const [patterns, setPatterns] = useState<any[]>([]);
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [batchMaterials, setBatchMaterials] = useState<Material[]>([]);
   const [activeSkuId, setActiveSkuId] = useState<string>("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -205,7 +197,6 @@ export default function SkuCostsManagement() {
     cost_widgets: {},
   });
 
-  const [batchForm, setBatchForm] = useState<any>({ sku_id: "", production_date: new Date().toISOString().slice(0, 10), expiry_date: "", notes: "" });
 
   const activeSku = useMemo(() => skus.find((s) => s.id === activeSkuId) || {}, [skus, activeSkuId]);
   const finishedSkus = useMemo(() => skus.filter((s) => String(s.category || "").toLowerCase().includes("thành phẩm")), [skus]);
@@ -215,10 +206,8 @@ export default function SkuCostsManagement() {
   const widgetValues = useMemo(() => parseWidgets(activeSku.cost_widgets), [activeSku.cost_widgets]);
 
   const loadAll = async () => {
-    const [skuRes, pRes, bRes, poRes, prRes, invRes] = await Promise.all([
+    const [skuRes, poRes, prRes, invRes] = await Promise.all([
       sb.from("product_skus").select("*").order("updated_at", { ascending: false }),
-      sb.from("batch_code_patterns").select("*").order("material_group"),
-      sb.from("production_batches").select("*, product_skus(sku_code, product_name)").order("created_at", { ascending: false }),
       sb.from("purchase_order_items").select("sku_id, unit_price, created_at, purchase_order_id, purchase_orders(po_number, order_date)").not("sku_id", "is", null),
       sb.from("payment_request_items").select("sku_id, unit_price, created_at, payment_request_id, payment_requests(request_number)").not("sku_id", "is", null),
       sb.from("inventory_batches").select("sku_id, quantity").not("sku_id", "is", null),
@@ -241,19 +230,13 @@ export default function SkuCostsManagement() {
     setPurchasePoints(pp);
     setInventoryMap(inv);
     setSkus(skuRes.data || []);
-    setPatterns(pRes.data || []);
-    setBatches(bRes.data || []);
 
     const firstFinishedSku = (skuRes.data || []).find((s: any) => String(s.category || "").toLowerCase().includes("thành phẩm"));
     const currentSku = activeSkuId || firstFinishedSku?.id || skuRes.data?.[0]?.id;
     if (currentSku) {
       setActiveSkuId(currentSku);
-      const [fRes, dRes] = await Promise.all([
-        sb.from("sku_formulations").select("*").eq("sku_id", currentSku).order("sort_order"),
-        sb.from("sku_trace_documents").select("*").eq("sku_id", currentSku).order("created_at", { ascending: false }),
-      ]);
-      setFormula(fRes.data || []);
-      setDocuments(dRes.data || []);
+      const { data: fRows } = await sb.from("sku_formulations").select("*").eq("sku_id", currentSku).order("sort_order");
+      setFormula(fRows || []);
     }
   };
 
@@ -268,12 +251,8 @@ export default function SkuCostsManagement() {
   useEffect(() => {
     if (!activeSkuId) return;
     (async () => {
-      const [fRes, dRes] = await Promise.all([
-        sb.from("sku_formulations").select("*").eq("sku_id", activeSkuId).order("sort_order"),
-        sb.from("sku_trace_documents").select("*").eq("sku_id", activeSkuId).order("created_at", { ascending: false }),
-      ]);
-      setFormula(fRes.data || []);
-      setDocuments(dRes.data || []);
+      const { data: fRows } = await sb.from("sku_formulations").select("*").eq("sku_id", activeSkuId).order("sort_order");
+      setFormula(fRows || []);
     })();
   }, [activeSkuId]);
 
@@ -771,168 +750,18 @@ export default function SkuCostsManagement() {
     setSkus((prev) => prev.map((sku) => sku.id === activeSkuId ? { ...sku, cost_widgets: nextWidgets, cost_values: nextCostValues } : sku));
   };
 
-  const uploadDoc = async (file: File) => {
-    if (!activeSkuId || !file) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      await sb.from("sku_trace_documents").insert({ sku_id: activeSkuId, document_type: file.type.includes("image") ? "image" : "document", document_name: file.name, document_url: String(reader.result) });
-      toast({ title: "Đã upload hồ sơ" }); loadAll();
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const savePattern = async (p: any, patch: any) => { await sb.from("batch_code_patterns").update(patch).eq("id", p.id); loadAll(); };
-  const codeOf = (group: string, date: string, seq: number) => { const p = patterns.find((x) => x.material_group === group); if (!p) return ""; return `${p.prefix}${p.separator}${formatYYMMDD(date)}${p.separator}${pad(seq, Number(p.seq_digits || 3))}`; };
-
-  const createBatch = async () => {
-    if (!batchForm.sku_id) return;
-    const seq = (batches.length || 0) + 1; const date = batchForm.production_date;
-    const finished = codeOf("finished", date, seq); const shell = codeOf("shell", date, seq); const sauce = codeOf("filling_sauce", date, seq);
-    const { data: b } = await sb.from("production_batches").insert({ sku_id: batchForm.sku_id, batch_code: finished, finished_code: finished, shell_code: shell, filling_sauce_code: sauce, production_date: date, expiry_date: batchForm.expiry_date || null, notes: batchForm.notes || null }).select("*").single();
-    const sku = skus.find((s) => s.id === batchForm.sku_id);
-    if (b?.id && sku) {
-      await sb.from("production_batch_materials").insert(formula.map((r, idx) => ({ batch_id: b.id, material_group: "ingredient", material_name: r.ingredient_name, material_code: r.ingredient_sku_id ? skus.find((x) => x.id === r.ingredient_sku_id)?.sku_code : null, material_batch_code: codeOf("ingredient", date, idx + 1), quantity: r.dosage_qty, unit: r.unit, sort_order: idx + 1 })));
-      await sb.from("production_batch_materials").insert({ batch_id: b.id, material_group: "finished", material_name: sku.product_name, material_code: sku.sku_code, material_batch_code: finished, quantity: 1, unit: sku.unit || "gói", sort_order: 999 });
-    }
-    toast({ title: "Đã tạo batch" }); setBatchForm({ sku_id: "", production_date: new Date().toISOString().slice(0, 10), expiry_date: "", notes: "" }); loadAll();
-  };
-
-  const loadBatchMaterials = async (batchId: string) => { const { data } = await sb.from("production_batch_materials").select("*").eq("batch_id", batchId).order("sort_order"); setBatchMaterials(data || []); };
-
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">SKU Costs theo duyệt anh Tâm (Phase A/B)</h1>
-      <Tabs defaultValue="sku-admin">
-        <TabsList>
-          <TabsTrigger value="sku-admin">SKU quản trị + Costing</TabsTrigger>
-          <TabsTrigger value="batch-coding">Mã hóa batch</TabsTrigger>
-          <TabsTrigger value="trace-links">Link truy xuất</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="sku-admin" className="space-y-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between"><CardTitle>Danh sách SKU thành phẩm</CardTitle><div className="flex gap-2"><Button onClick={openCreateSku}>Tạo SKU</Button></div></CardHeader>
-            <CardContent>
-              {/* hidden scan message */}
-              <Table><TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Tên</TableHead><TableHead>Giá bán</TableHead><TableHead>Chỉnh sửa lúc</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>
-                {finishedSkus.map((s) => <TableRow key={s.id}><TableCell className="font-mono">{s.sku_code}</TableCell><TableCell><button className="text-left underline decoration-dotted underline-offset-4 hover:text-primary transition-colors" onClick={() => openSkuDetail(s)}>{s.product_name}</button></TableCell><TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell><TableCell className="text-xs">{s.updated_at ? new Date(s.updated_at).toLocaleString("vi-VN") : "-"}</TableCell><TableCell><div className="flex gap-2 justify-end"><Button variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button><Button variant="destructive" size="sm" onClick={() => removeSku(s)}>Xóa</Button></div></TableCell></TableRow>)}
-                {finishedSkus.length === 0 && <TableRow><TableCell colSpan={5} className="text-muted-foreground">Chưa có SKU thành phẩm.</TableCell></TableRow>}
-              </TableBody></Table>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>NVL thực tế + chế độ giá</CardTitle>
-              <div className="flex items-center gap-2">
-                <select className="border rounded h-9 px-2" value={priceMode} onChange={(e) => setPriceMode(e.target.value as PriceMode)}>
-                  <option value="latest">Giá gần nhất</option>
-                  <option value="avg30">Giá TB 30 ngày</option>
-                  <option value="avg90">Giá TB 90 ngày</option>
-                </select>
-                <Button variant="outline" onClick={addFormula}>+ Dòng NVL</Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Table>
-                <TableHeader><TableRow><TableHead>Chọn NVL/SKU</TableHead><TableHead>ĐVT</TableHead><TableHead>Tồn</TableHead><TableHead>Giá thực tế</TableHead><TableHead>Định lượng</TableHead><TableHead>Cost NVL</TableHead><TableHead>Nguồn giá</TableHead><TableHead></TableHead></TableRow></TableHeader>
-                <TableBody>
-                  {formulaComputed.map((r) => {
-                    const q = (searchByRow[r.id] || "").toLowerCase();
-                    const options = ingredientSkus.filter((s) => `${s.sku_code} ${s.product_name} ${s.category || ""}`.toLowerCase().includes(q));
-                    return (
-                      <TableRow key={r.id}>
-                        <TableCell className="space-y-1">
-                          <Input placeholder="Search mã/tên/nhóm" value={searchByRow[r.id] || ""} onChange={(e) => setSearchByRow((p) => ({ ...p, [r.id]: e.target.value }))} />
-                          <select className="w-full border rounded h-9 px-2" value={r.ingredient_sku_id || ""} onChange={(e) => {
-                            const selected = skus.find((x) => x.id === e.target.value);
-                            updateFormulaRow(r, { ingredient_sku_id: e.target.value || null, ingredient_name: selected?.product_name || r.ingredient_name, unit: selected?.unit || r.unit });
-                          }}>
-                            <option value="">-- Chọn từ danh sách NVL/SKU --</option>
-                            {options.map((s) => <option key={s.id} value={s.id}>{s.sku_code} - {s.product_name} ({s.category || "Khác"})</option>)}
-                          </select>
-                        </TableCell>
-                        <TableCell>{r.displayUnit || "-"}</TableCell>
-                        <TableCell>{vnd(r.currentStock)}</TableCell>
-                        <TableCell>{vnd(r.resolvedUnitPrice)}</TableCell>
-                        <TableCell><Input type="number" value={r.dosage_qty || 0} onChange={(e) => updateFormulaRow(r, { dosage_qty: Number(e.target.value || 0) })} /></TableCell>
-                        <TableCell>{vnd(r.lineCost)}</TableCell>
-                        <TableCell className="text-xs">
-                          {r.source ? (
-                            <div className="space-y-1">
-                              <div>{r.source.sourceType.toUpperCase()} · {r.source.sourceLabel}</div>
-                              <div>{new Date(r.source.date).toLocaleDateString("vi-VN")}</div>
-                              <Link className="underline" to={r.source.sourceType === "po" ? "/purchase-orders" : "/payment-requests"}>Mở nguồn</Link>
-                            </div>
-                          ) : <span className="text-muted-foreground">Đơn giá SKU</span>}
-                        </TableCell>
-                        <TableCell><Button variant="destructive" size="sm" onClick={() => removeFormulaRow(r.id)}>Xóa</Button></TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-
-              <div className="grid md:grid-cols-2 gap-3 text-sm">
-                <div className="p-3 rounded border bg-slate-50">NVL chuẩn/cái (Standard): <b>{vnd(standardVsActual.standardPerUnit)}</b></div>
-                <div className="p-3 rounded border bg-sky-50">NVL thực tế/cái (Actual): <b>{vnd(standardVsActual.actualPerUnit)}</b></div>
-                <div className="p-3 rounded border bg-amber-50">Chênh lệch/cái (Variance): <b>{vnd(standardVsActual.variancePerUnit)}</b></div>
-                <div className="p-3 rounded border">Total material cost: <b>{vnd(costing.totalMaterialCost)}</b></div>
-                <div className="p-3 rounded border flex items-center gap-2">Dự phòng hao hụt/tăng giá (%): <Input className="w-28 h-8" type="number" value={costValues.material_provision_percent || 0} onChange={(e) => updateCostValue("material_provision_percent", Number(e.target.value || 0))} /></div>
-                <div className="p-3 rounded border">Dự phòng hao hụt/tăng giá (VND): <b>{vnd(costing.provisionAmount)}</b></div>
-                <div className="p-3 rounded border">Total cost NVL: <b>{vnd(costing.totalCostNVL)}</b> ({costing.pctOnCost(costing.totalCostNVL).toFixed(1)}%)</div>
-                <div className="p-3 rounded border">Tổng cost: <b>{vnd(costing.totalCost)}</b></div>
-                <div className="p-3 rounded border flex items-center gap-2">Giá bán:<Input className="w-32 h-8" type="number" value={costValues.selling_price || 0} onChange={(e) => updateCostValue("selling_price", Number(e.target.value || 0))} /></div>
-                <div className="p-3 rounded border">Net profit: <b>{vnd(costing.netProfit)}</b></div>
-                <div className="p-3 rounded border">Net profit (% trên giá bán): <b>{costing.netProfitPct.toFixed(2)}%</b></div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {WIDGET_CONFIG.map((w) => {
-            const lines = widgetValues[w.key] || [];
-            const total = lines.reduce((s, x) => s + toNumber(x.amount), 0);
-            return (
-              <Card key={w.key}>
-                <CardHeader className="flex flex-row items-center justify-between"><CardTitle>{w.label}</CardTitle><Button variant="outline" size="sm" onClick={() => syncWidgetToMain(w.key, [...lines, { name: "", amount: 0 }])}>+ Dòng</Button></CardHeader>
-                <CardContent className="space-y-3">
-                  <Table><TableHeader><TableRow><TableHead>Hạng mục</TableHead><TableHead>Chi phí kỳ (VND)</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>
-                    {lines.map((line, idx) => (
-                      <TableRow key={`${w.key}-${idx}`}>
-                        <TableCell><Input value={line.name} onChange={(e) => { const next = [...lines]; next[idx] = { ...line, name: e.target.value }; syncWidgetToMain(w.key, next); }} /></TableCell>
-                        <TableCell><Input type="number" value={line.amount} onChange={(e) => { const next = [...lines]; next[idx] = { ...line, amount: Number(e.target.value || 0) }; syncWidgetToMain(w.key, next); }} /></TableCell>
-                        <TableCell><Button variant="destructive" size="sm" onClick={() => syncWidgetToMain(w.key, lines.filter((_, i) => i !== idx))}>Xoá</Button></TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody></Table>
-                  <div className="grid md:grid-cols-3 gap-3 text-sm">
-                    <div className="p-3 rounded border">Tổng chi phí kỳ: <b>{vnd(total)}</b></div>
-                    <div className="p-3 rounded border">Cost/cái: <b>{vnd(total / Math.max(1, costing.outputQty))}</b></div>
-                    <div className="p-3 rounded border">Tỷ trọng: <b>{costing.pctOnCost(total).toFixed(2)}%</b></div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-
-          <Card>
-            <CardHeader><CardTitle>Hồ sơ ảnh/chứng từ truy xuất</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              <Input type="file" onChange={(e) => e.target.files?.[0] && uploadDoc(e.target.files[0])} />
-              <div className="grid md:grid-cols-2 gap-3">{documents.map((d) => <a key={d.id} href={d.document_url} target="_blank" rel="noreferrer" className="border rounded p-3 text-sm hover:bg-muted"><div className="font-medium">{d.document_name}</div><div className="text-muted-foreground">{d.document_type}</div></a>)}</div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="batch-coding" className="space-y-4">
-          <Card><CardHeader><CardTitle>Rule sinh mã lô theo format</CardTitle></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead>Nhóm</TableHead><TableHead>Prefix</TableHead><TableHead>Dấu phân cách</TableHead><TableHead>Số chữ số seq</TableHead></TableRow></TableHeader><TableBody>{patterns.map((p) => <TableRow key={p.id}><TableCell>{p.material_group}</TableCell><TableCell><Input value={p.prefix} onChange={(e) => savePattern(p, { prefix: e.target.value })} /></TableCell><TableCell><Input value={p.separator} onChange={(e) => savePattern(p, { separator: e.target.value })} /></TableCell><TableCell><Input type="number" value={p.seq_digits} onChange={(e) => savePattern(p, { seq_digits: Number(e.target.value || 3) })} /></TableCell></TableRow>)}</TableBody></Table></CardContent></Card>
-          <Card><CardHeader><CardTitle>Tạo batch mới</CardTitle></CardHeader><CardContent className="grid md:grid-cols-2 gap-3"><div><Label>SKU thành phẩm</Label><select className="w-full border rounded h-10 px-2" value={batchForm.sku_id} onChange={(e) => setBatchForm({ ...batchForm, sku_id: e.target.value })}><option value="">-- Chọn SKU --</option>{finishedSkus.map((s) => <option key={s.id} value={s.id}>{s.sku_code} - {s.product_name}</option>)}</select></div><div><Label>NSX</Label><Input type="date" value={batchForm.production_date} onChange={(e) => setBatchForm({ ...batchForm, production_date: e.target.value })} /></div><div><Label>HSD</Label><Input type="date" value={batchForm.expiry_date} onChange={(e) => setBatchForm({ ...batchForm, expiry_date: e.target.value })} /></div><div><Label>Ghi chú</Label><Input value={batchForm.notes} onChange={(e) => setBatchForm({ ...batchForm, notes: e.target.value })} /></div><div className="md:col-span-2"><Button onClick={createBatch}>Sinh batch + mã hóa</Button></div></CardContent></Card>
-        </TabsContent>
-
-        <TabsContent value="trace-links" className="space-y-4">
-          <Card><CardHeader><CardTitle>Danh sách batch truy xuất</CardTitle></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead>Mã lô</TableHead><TableHead>SKU</TableHead><TableHead>NSX/HSD</TableHead><TableHead>Link đối tác</TableHead><TableHead>Vật tư</TableHead></TableRow></TableHeader><TableBody>{batches.map((b) => <TableRow key={b.id}><TableCell className="font-mono">{b.batch_code}</TableCell><TableCell>{b.product_skus?.sku_code} - {b.product_skus?.product_name}</TableCell><TableCell>{b.production_date} / {b.expiry_date || "-"}</TableCell><TableCell><Link className="underline" to={`/trace/${b.public_token}`} target="_blank">/trace/{b.public_token}</Link></TableCell><TableCell><Button size="sm" variant="outline" onClick={() => loadBatchMaterials(b.id)}>Xem</Button></TableCell></TableRow>)}</TableBody></Table>{!!batchMaterials.length && <div className="mt-4"><h4 className="font-semibold mb-2">Chi tiết NVL batch</h4><Table><TableHeader><TableRow><TableHead>Nhóm</TableHead><TableHead>Tên</TableHead><TableHead>Mã</TableHead><TableHead>Mã lô NVL</TableHead><TableHead>SL</TableHead></TableRow></TableHeader><TableBody>{batchMaterials.map((m) => <TableRow key={m.id}><TableCell>{m.material_group}</TableCell><TableCell>{m.material_name}</TableCell><TableCell>{m.material_code}</TableCell><TableCell>{m.material_batch_code}</TableCell><TableCell>{m.quantity} {m.unit}</TableCell></TableRow>)}</TableBody></Table></div>}</CardContent></Card>
-        </TabsContent>
-      </Tabs>
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between"><CardTitle>Danh sách SKU thành phẩm</CardTitle><div className="flex gap-2"><Button onClick={openCreateSku}>Tạo SKU</Button></div></CardHeader>
+        <CardContent>
+          <Table><TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Tên</TableHead><TableHead>Giá bán</TableHead><TableHead>Chỉnh sửa lúc</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>
+            {finishedSkus.map((s) => <TableRow key={s.id}><TableCell className="font-mono">{s.sku_code}</TableCell><TableCell><button className="text-left underline decoration-dotted underline-offset-4 hover:text-primary transition-colors" onClick={() => openSkuDetail(s)}>{s.product_name}</button></TableCell><TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell><TableCell className="text-xs">{s.updated_at ? new Date(s.updated_at).toLocaleString("vi-VN") : "-"}</TableCell><TableCell><div className="flex gap-2 justify-end"><Button variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button><Button variant="destructive" size="sm" onClick={() => removeSku(s)}>Xóa</Button></div></TableCell></TableRow>)}
+            {finishedSkus.length === 0 && <TableRow><TableCell colSpan={5} className="text-muted-foreground">Chưa có SKU thành phẩm.</TableCell></TableRow>}
+          </TableBody></Table>
+        </CardContent>
+      </Card>
 
       {/* Đã tắt scan ảnh theo yêu cầu: nhập NVL thủ công */}
 
