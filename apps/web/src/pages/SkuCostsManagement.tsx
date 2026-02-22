@@ -771,12 +771,12 @@ export default function SkuCostsManagement() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Loại</TableHead><TableHead>Tên NVL</TableHead><TableHead>DVT</TableHead><TableHead>Đơn giá (VNĐ)</TableHead><TableHead>Định lượng</TableHead><TableHead>Giá vốn (VNĐ)</TableHead><TableHead>Đơn giá vốn/cái (VNĐ)</TableHead>
+                    <TableHead>Loại</TableHead><TableHead>Tên NVL</TableHead><TableHead>Đơn giá (VNĐ)</TableHead><TableHead>Định lượng</TableHead><TableHead>Giá vốn (VNĐ)</TableHead><TableHead>Đơn giá vốn/cái (VNĐ)</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {importedFormulaDraft.length === 0 && (
-                    <TableRow><TableCell colSpan={7} className="text-muted-foreground">Chưa có dòng NVL. Anh bấm “+ Thêm NVL cấp 1” để nhập thủ công.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={6} className="text-muted-foreground">Chưa có dòng NVL. Anh bấm “+ Thêm NVL cấp 1” để nhập thủ công.</TableCell></TableRow>
                   )}
                   {importedFormulaDraft.map((r, idx) => {
                     const level1 = String(r.level1_name || "").trim();
@@ -832,7 +832,7 @@ export default function SkuCostsManagement() {
                             {ingredientSkus.map((s) => <option key={s.id} value={`${s.sku_code} - ${s.product_name}`} />)}
                           </datalist>
                         </TableCell>
-                        <TableCell>{r.unit || "g"}</TableCell>
+                        {/* DVT cố định gram theo nghiệp vụ */}
                         <TableCell><Input disabled={hasChildren} value={hasChildren ? String(Math.round(aggregatedUnitPrice * 1000) / 1000) : (r.unit_price_input ?? (toNumber(r.unit_price, 0) === 0 ? "" : String(toNumber(r.unit_price, 0))))} onChange={(e) => { const next = [...importedFormulaDraft]; const unit_price_input = e.target.value; const unit_price = unit_price_input === "" ? 0 : Number(unit_price_input); const dosage_qty = toNumber(next[idx].dosage_qty, 0); next[idx] = { ...next[idx], unit_price_input, unit_price: Number.isFinite(unit_price) ? unit_price : 0, line_cost: (Number.isFinite(unit_price) ? unit_price : 0) * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
                         <TableCell><Input disabled={hasChildren} value={hasChildren ? String(aggregatedDosage).replace(".", ",") : (r.dosage_input ?? (toNumber(r.dosage_qty, 0) === 0 ? "" : String(toNumber(r.dosage_qty, 0)).replace(".", ",")))} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_input = e.target.value; const dosage_qty = dosage_input === "" ? 0 : parseDosageGramInput(dosage_input, 0); const unit_price = toNumber(next[idx].unit_price, 0); next[idx] = { ...next[idx], dosage_input, dosage_qty, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
                         <TableCell>{vnd(lineCost)}</TableCell>
@@ -843,6 +843,7 @@ export default function SkuCostsManagement() {
                 </TableBody>
               </Table>
             </div>
+            <div className="text-sm text-muted-foreground">Ghi chú: NVL được tính bằng Gram.</div>
 
             <div className="grid md:grid-cols-3 gap-3 text-sm">
               <div className="p-3 rounded border bg-muted/30">Total material cost: <b>{vnd(importedMaterialSummary.total)}</b></div>
