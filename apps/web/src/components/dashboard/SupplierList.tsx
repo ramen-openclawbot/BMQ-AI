@@ -46,8 +46,8 @@ export function SupplierList() {
     return (
       <div className="card-elevated rounded-xl border border-border overflow-hidden">
         <div className="px-6 py-4 border-b border-border">
-          <h3 className="font-display text-lg font-semibold">Top Suppliers</h3>
-          <p className="text-sm text-muted-foreground">Your trusted partners</p>
+          <h3 className="font-display text-lg font-semibold">Nhà cung cấp</h3>
+          <p className="text-sm text-muted-foreground">Đối tác cung ứng</p>
         </div>
         <div className="p-6 space-y-3">
           <p className="font-medium text-foreground">Couldn't load suppliers</p>
@@ -66,8 +66,8 @@ export function SupplierList() {
     return (
       <div className="card-elevated rounded-xl border border-border overflow-hidden">
         <div className="px-6 py-4 border-b border-border">
-          <h3 className="font-display text-lg font-semibold">Top Suppliers</h3>
-          <p className="text-sm text-muted-foreground">Your trusted partners</p>
+          <h3 className="font-display text-lg font-semibold">Nhà cung cấp</h3>
+          <p className="text-sm text-muted-foreground">Đối tác cung ứng</p>
         </div>
         <p className="text-muted-foreground text-center py-8">
           No suppliers yet. Add your first supplier to get started.
@@ -81,8 +81,8 @@ export function SupplierList() {
       <div className="card-elevated rounded-xl border border-border overflow-hidden">
         <div className="px-6 py-4 border-b border-border space-y-3">
           <div>
-            <h3 className="font-display text-lg font-semibold">Top Suppliers</h3>
-            <p className="text-sm text-muted-foreground">Your trusted partners</p>
+            <h3 className="font-display text-lg font-semibold">Nhà cung cấp</h3>
+            <p className="text-sm text-muted-foreground">Đối tác cung ứng</p>
           </div>
           <Input
             placeholder="Search suppliers by name..."

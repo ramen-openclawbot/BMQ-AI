@@ -55,8 +55,8 @@ export function InventoryTable() {
     return (
       <div className="card-elevated rounded-xl border border-border overflow-hidden">
         <div className="px-6 py-4 border-b border-border">
-          <h3 className="font-display text-lg font-semibold">Inventory Overview</h3>
-          <p className="text-sm text-muted-foreground">Track your ingredient stock levels</p>
+          <h3 className="font-display text-lg font-semibold">Tồn kho</h3>
+          <p className="text-sm text-muted-foreground">Mức tồn nguyên liệu</p>
         </div>
         <div className="p-6 space-y-4">
           {[1, 2, 3, 4].map((i) => (
@@ -71,8 +71,8 @@ export function InventoryTable() {
     return (
       <div className="card-elevated rounded-xl border border-border overflow-hidden">
         <div className="px-6 py-4 border-b border-border">
-          <h3 className="font-display text-lg font-semibold">Inventory Overview</h3>
-          <p className="text-sm text-muted-foreground">Track your ingredient stock levels</p>
+          <h3 className="font-display text-lg font-semibold">Tồn kho</h3>
+          <p className="text-sm text-muted-foreground">Mức tồn nguyên liệu</p>
         </div>
         <div className="p-6 space-y-3">
           <p className="font-medium text-foreground">Couldn't load inventory</p>
@@ -91,8 +91,8 @@ export function InventoryTable() {
     return (
       <div className="card-elevated rounded-xl border border-border overflow-hidden">
         <div className="px-6 py-4 border-b border-border">
-          <h3 className="font-display text-lg font-semibold">Inventory Overview</h3>
-          <p className="text-sm text-muted-foreground">Track your ingredient stock levels</p>
+          <h3 className="font-display text-lg font-semibold">Tồn kho</h3>
+          <p className="text-sm text-muted-foreground">Mức tồn nguyên liệu</p>
         </div>
         <p className="text-muted-foreground text-center py-8">
           No inventory items yet. Add your first item to get started.
@@ -105,8 +105,8 @@ export function InventoryTable() {
     <>
       <div className="card-elevated rounded-xl border border-border overflow-hidden">
         <div className="px-6 py-4 border-b border-border">
-          <h3 className="font-display text-lg font-semibold">Inventory Overview</h3>
-          <p className="text-sm text-muted-foreground">Track your ingredient stock levels</p>
+          <h3 className="font-display text-lg font-semibold">Tồn kho</h3>
+          <p className="text-sm text-muted-foreground">Mức tồn nguyên liệu</p>
         </div>
         <Table>
           <TableHeader>
