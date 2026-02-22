@@ -367,6 +367,34 @@ export default function SkuCostsManagement() {
     return { outputQty, totalMaterialCost, provisionAmount, totalCostNVL, totalCost, sellingPrice, netProfit, netProfitPct, pctOnCost };
   }, [activeSku, formulaComputed, costTemplate, costValues]);
 
+  const detailCosting = useMemo(() => {
+    const outputQty = Math.max(1, Number(activeSku.finished_output_qty || FORMULA_BASE_QTY));
+    const materialBatch = formulaComputed.reduce((sum, row) => sum + toNumber(row.standardLineCost, 0), 0);
+    const materialPerUnit = Math.round(materialBatch / outputQty);
+    const provisionPercent = toNumber(costValues.material_provision_percent, 0);
+    const totalCostNVLPerUnit = materialPerUnit * (1 + provisionPercent / 100);
+    const totalCostPerUnit = totalCostNVLPerUnit
+      + toNumber(costValues.packaging_cost, 0)
+      + toNumber(costValues.labor_cost, 0)
+      + toNumber(costValues.delivery_cost, 0)
+      + toNumber(costValues.other_production_cost, 0)
+      + toNumber(costValues.sga_cost, 0);
+    const sellingPrice = toNumber(costValues.selling_price, 0);
+    const netProfitPerUnit = sellingPrice - totalCostPerUnit;
+    const netProfitPct = sellingPrice > 0 ? (netProfitPerUnit / sellingPrice) * 100 : 0;
+
+    return {
+      outputQty,
+      materialBatch,
+      materialPerUnit,
+      totalCostNVLPerUnit,
+      totalCostPerUnit,
+      sellingPrice,
+      netProfitPerUnit,
+      netProfitPct,
+    };
+  }, [activeSku.finished_output_qty, formulaComputed, costValues]);
+
   const standardVsActual = useMemo(() => {
     const outputQty = Math.max(1, Number(activeSku.finished_output_qty || FORMULA_BASE_QTY));
     const standardBatch = formulaComputed.reduce((sum, row) => sum + toNumber(row.standardLineCost, 0), 0);
@@ -949,11 +977,12 @@ export default function SkuCostsManagement() {
           </div>
 
           <div className="grid md:grid-cols-3 gap-3 text-sm mt-4">
-            <div className="rounded border p-3">Total material cost: <b>{vnd(costing.totalMaterialCost)}</b></div>
-            <div className="rounded border p-3">Total cost NVL: <b>{vnd(costing.totalCostNVL)}</b></div>
-            <div className="rounded border p-3">Tổng cost: <b>{vnd(costing.totalCost)}</b></div>
-            <div className="rounded border p-3">Net profit: <b>{vnd(costing.netProfit)}</b></div>
-            <div className="rounded border p-3">Net profit (%): <b>{Number(costing.netProfitPct || 0).toFixed(2)}%</b></div>
+            <div className="rounded border p-3">Total material cost/mẻ: <b>{vnd(detailCosting.materialBatch)}</b></div>
+            <div className="rounded border p-3">Total material cost/cái: <b>{vnd(detailCosting.materialPerUnit)}</b></div>
+            <div className="rounded border p-3">Total cost NVL/cái: <b>{vnd(detailCosting.totalCostNVLPerUnit)}</b></div>
+            <div className="rounded border p-3">Tổng cost/cái: <b>{vnd(detailCosting.totalCostPerUnit)}</b></div>
+            <div className="rounded border p-3">Net profit/cái: <b>{vnd(detailCosting.netProfitPerUnit)}</b></div>
+            <div className="rounded border p-3">Net profit (%): <b>{Number(detailCosting.netProfitPct || 0).toFixed(2)}%</b></div>
             <div className="rounded border p-3">Cập nhật: <b>{activeSku.updated_at ? new Date(activeSku.updated_at).toLocaleString("vi-VN") : "-"}</b></div>
           </div>
         </DialogContent>
