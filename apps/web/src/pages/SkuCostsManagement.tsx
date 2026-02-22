@@ -257,6 +257,7 @@ export default function SkuCostsManagement() {
   useEffect(() => {
     (async () => {
       try { await sb.rpc("snapshot_sku_costs_daily", { p_snapshot_date: new Date().toISOString().slice(0, 10) }); } catch (_) {}
+      try { await ensureBmcbSampleSku(); } catch (_) {}
       loadAll();
     })();
     /* eslint-disable-next-line */
@@ -311,22 +312,15 @@ export default function SkuCostsManagement() {
 
   const importedMaterialSummary = useMemo(() => {
     const baseQty = FORMULA_BASE_QTY;
-    const total = importedFormulaDraft.reduce((sum, r, idx) => {
-      const level1 = String(r.level1_name || "").trim();
-      const isLevel1Row = !r.is_level2;
-      const childRows = importedFormulaDraft.filter((x, j) => j !== idx && x.is_level2 && String(x.level1_name || "").trim() === level1);
-
-      if (isLevel1Row && level1 && childRows.length > 0) {
-        return sum + childRows.reduce((s, c) => s + toNumber(c.line_cost, toNumber(c.unit_price, 0) * toNumber(c.dosage_qty, 0)), 0);
-      }
-
-      if (!isLevel1Row) return sum + toNumber(r.line_cost, toNumber(r.unit_price, 0) * toNumber(r.dosage_qty, 0));
-      if (!level1) return sum + toNumber(r.line_cost, toNumber(r.unit_price, 0) * toNumber(r.dosage_qty, 0));
-      return sum;
+    const total = importedFormulaDraft.reduce((sum, r) => {
+      const name = String(r.level2_name || r.level1_name || r.ingredient_name || "").trim();
+      if (!name) return sum;
+      const lineCost = toNumber(r.line_cost, toNumber(r.unit_price, 0) * toNumber(r.dosage_qty, 0));
+      return sum + lineCost;
     }, 0);
 
     return { total, perUnit: Math.round(total / baseQty) };
-  }, [importedFormulaDraft, skuForm.finished_output_qty]);
+  }, [importedFormulaDraft]);
 
   const level1Options = useMemo(() => {
     const seen = new Set<string>();
@@ -469,46 +463,13 @@ export default function SkuCostsManagement() {
     skuImageInputRef.current?.click();
   };
 
-  const createSampleBmcbSku = () => {
-    const sampleRows = [
-      ["Bột mì 888 cam", 18, 2662],
-      ["Chất Làm Mềm Bánh Bico (1kg)", 69, 17],
-      ["Muối", 6, 35],
-      ["Đường", 20, 482],
-      ["Phụ Gia Làm Bánh Mì Bico Gold (500g)", 88, 17],
-      ["Phụ gia ngọt Mauri", 106, 17],
-      ["Men bánh mì tươi Five Star", 150, 70],
-      ["Kem sữa Whiping cream tatua", 149, 158],
-      ["Trứng gà", 51, 333],
-      ["Sữa Bột Béo New Zealand", 130, 149],
-      ["Nước", 3, 1226],
-      ["Trứng gà (nhân)", 51, 180],
-      ["Bột ngọt", 48, 2],
-      ["Muối (nhân)", 6, 6],
-      ["Đường (nhân)", 20, 23],
-      ["Dầu hướng dương Simply", 60, 1303],
-      ["Giấm gạo Lisa AJINOMOLO", 51, 16],
-      ["Chà bông vàng", 140, 1250],
-    ];
+  const ensureBmcbSampleSku = async () => {
+    const skuCode = "bmcb-2026-v1";
+    const { data: existing } = await sb.from("product_skus").select("id").eq("sku_code", skuCode).maybeSingle();
+    if (existing?.id) return;
 
-    setImportedFormulaDraft(sampleRows.map(([name, unitPrice, dosage]) => ({
-      is_level2: false,
-      level1_sku_id: "",
-      ingredient_sku_id: "",
-      level1_name: String(name),
-      level2_name: "",
-      ingredient_name: String(name),
-      unit: "g",
-      unit_price: Number(unitPrice),
-      unit_price_input: String(unitPrice),
-      dosage_qty: Number(dosage),
-      dosage_input: String(dosage),
-      line_cost: Number(unitPrice) * Number(dosage),
-    })));
-
-    setSkuForm({
-      id: "",
-      sku_code: "bmcb-2026-v1",
+    const { data: created, error } = await sb.from("product_skus").insert({
+      sku_code: skuCode,
       product_name: "Bánh mì chà bông",
       unit: "cái",
       category: "Thành phẩm",
@@ -528,10 +489,34 @@ export default function SkuCostsManagement() {
         selling_price: 11000,
       },
       cost_widgets: {},
-    });
+    }).select("id").single();
 
-    setDialogOpen(true);
-    setScanSkuMessage("Đã nạp mẫu Bánh mì chà bông từ form ảnh. Anh kiểm tra lại trước khi lưu.");
+    if (error || !created?.id) return;
+
+    const sampleRows = [
+      ["Bột mì 888 cam", 18, 2662], ["Chất Làm Mềm Bánh Bico (1kg)", 69, 17], ["Muối", 6, 35], ["Đường", 20, 482],
+      ["Phụ Gia Làm Bánh Mì Bico Gold (500g)", 88, 17], ["Phụ gia ngọt Mauri", 106, 17], ["Men bánh mì tươi Five Star", 150, 70],
+      ["Kem sữa Whiping cream tatua", 149, 158], ["Trứng gà", 51, 333], ["Sữa Bột Béo New Zealand", 130, 149], ["Nước", 3, 1226],
+      ["Trứng gà (nhân)", 51, 180], ["Bột ngọt", 48, 2], ["Muối (nhân)", 6, 6], ["Đường (nhân)", 20, 23],
+      ["Dầu hướng dương Simply", 60, 1303], ["Giấm gạo Lisa AJINOMOLO", 51, 16], ["Chà bông vàng", 140, 1250],
+    ];
+
+    await sb.from("sku_formulations").insert(sampleRows.map(([name, unitPrice, dosage], idx) => ({
+      sku_id: created.id,
+      ingredient_name: String(name),
+      unit: "g",
+      unit_price: Number(unitPrice),
+      dosage_qty: Number(dosage),
+      wastage_percent: 0,
+      sort_order: idx + 1,
+    })));
+
+    await sb.from("sku_trace_documents").insert({
+      sku_id: created.id,
+      document_type: "audit",
+      document_name: `CREATE_SAMPLE_${new Date().toISOString()}`,
+      document_url: `audit://sku/${created.id}/create-sample`,
+    });
   };
 
   const addDraftMaterialRow = () => {
@@ -673,6 +658,19 @@ export default function SkuCostsManagement() {
   const addFormula = async () => { if (!activeSkuId) return; await sb.from("sku_formulations").insert({ sku_id: activeSkuId, ingredient_name: "NVL mới", unit: "kg", unit_price: 0, dosage_qty: 0, wastage_percent: 0, sort_order: formula.length + 1 }); loadAll(); };
   const updateFormulaRow = async (r: any, patch: any) => { await sb.from("sku_formulations").update(patch).eq("id", r.id); loadAll(); };
   const removeFormulaRow = async (id: string) => { await sb.from("sku_formulations").delete().eq("id", id); loadAll(); };
+  const removeSku = async (sku: any) => {
+    if (!window.confirm(`Xóa SKU ${sku.sku_code} - ${sku.product_name}?`)) return;
+    await sb.from("sku_formulations").delete().eq("sku_id", sku.id);
+    await sb.from("sku_trace_documents").insert({
+      sku_id: sku.id,
+      document_type: "audit",
+      document_name: `DELETE_SKU_${new Date().toISOString()}`,
+      document_url: `audit://sku/${sku.id}/delete`,
+    });
+    await sb.from("product_skus").delete().eq("id", sku.id);
+    toast({ title: "Đã xóa SKU" });
+    loadAll();
+  };
 
   const updateCostValue = async (key: string, value: number) => {
     if (!activeSkuId) return;
@@ -731,11 +729,11 @@ export default function SkuCostsManagement() {
 
         <TabsContent value="sku-admin" className="space-y-4">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between"><CardTitle>Danh sách SKU thành phẩm</CardTitle><div className="flex gap-2"><Button onClick={openCreateSku}>Tạo SKU</Button><Button variant="outline" onClick={createSampleBmcbSku}>Tạo mẫu BMCB 2026 v1</Button></div></CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between"><CardTitle>Danh sách SKU thành phẩm</CardTitle><div className="flex gap-2"><Button onClick={openCreateSku}>Tạo SKU</Button></div></CardHeader>
             <CardContent>
               {/* hidden scan message */}
               <Table><TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Tên</TableHead><TableHead>Giá bán</TableHead><TableHead>Chỉnh sửa lúc</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>
-                {finishedSkus.map((s) => <TableRow key={s.id}><TableCell className="font-mono">{s.sku_code}</TableCell><TableCell><button className="underline" onClick={() => setActiveSkuId(s.id)}>{s.product_name}</button></TableCell><TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell><TableCell className="text-xs">{s.updated_at ? new Date(s.updated_at).toLocaleString("vi-VN") : "-"}</TableCell><TableCell><Button variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button></TableCell></TableRow>)}
+                {finishedSkus.map((s) => <TableRow key={s.id}><TableCell className="font-mono">{s.sku_code}</TableCell><TableCell><button className="underline" onClick={() => setActiveSkuId(s.id)}>{s.product_name}</button></TableCell><TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell><TableCell className="text-xs">{s.updated_at ? new Date(s.updated_at).toLocaleString("vi-VN") : "-"}</TableCell><TableCell><div className="flex gap-2 justify-end"><Button variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button><Button variant="destructive" size="sm" onClick={() => removeSku(s)}>Xóa</Button></div></TableCell></TableRow>)}
                 {finishedSkus.length === 0 && <TableRow><TableCell colSpan={5} className="text-muted-foreground">Chưa có SKU thành phẩm.</TableCell></TableRow>}
               </TableBody></Table>
             </CardContent>
