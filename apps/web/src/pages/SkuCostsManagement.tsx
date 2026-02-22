@@ -341,6 +341,7 @@ export default function SkuCostsManagement() {
   }, [importedFormulaDraft]);
 
   const selectedLevel1ForLevel2 = level1Options[level1Options.length - 1] || "";
+  const suggestedLaborCost = toNumber(costValues?.labor_cost, 0);
 
   const missingScanFields = useMemo(() => {
     const missing: string[] = [];
@@ -794,12 +795,12 @@ export default function SkuCostsManagement() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Loại</TableHead><TableHead>Tên NVL</TableHead><TableHead>Đơn giá (VNĐ)</TableHead><TableHead>Định lượng</TableHead><TableHead>Giá vốn (VNĐ)</TableHead><TableHead>Đơn giá vốn/cái (VNĐ)</TableHead>
+                    <TableHead>Loại</TableHead><TableHead>Tên NVL</TableHead><TableHead>Đơn giá (VNĐ)</TableHead><TableHead>Định lượng</TableHead><TableHead>Giá vốn (VNĐ)</TableHead><TableHead>Đơn giá vốn/cái (VNĐ)</TableHead><TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {importedFormulaDraft.length === 0 && (
-                    <TableRow><TableCell colSpan={6} className="text-muted-foreground">Chưa có dòng NVL. Anh bấm “+ Thêm NVL cấp 1” để nhập thủ công.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={7} className="text-muted-foreground">Chưa có dòng NVL. Anh bấm “+ Thêm NVL cấp 1” để nhập thủ công.</TableCell></TableRow>
                   )}
                   {importedFormulaDraft.map((r, idx) => {
                     const level1 = String(r.level1_name || "").trim();
@@ -860,6 +861,9 @@ export default function SkuCostsManagement() {
                         <TableCell><Input disabled={hasChildren} value={hasChildren ? String(aggregatedDosage).replace(".", ",") : (r.dosage_input ?? (toNumber(r.dosage_qty, 0) === 0 ? "" : String(toNumber(r.dosage_qty, 0)).replace(".", ",")))} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_input = e.target.value; const dosage_qty = dosage_input === "" ? 0 : parseDosageGramInput(dosage_input, 0); const unit_price = toNumber(next[idx].unit_price, 0); next[idx] = { ...next[idx], dosage_input, dosage_qty, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
                         <TableCell>{vnd(lineCost)}</TableCell>
                         <TableCell>{vnd(perUnit)}</TableCell>
+                        <TableCell>
+                          <Button type="button" size="sm" variant="destructive" onClick={() => setImportedFormulaDraft((prev) => prev.filter((_, i) => i !== idx))}>Xóa</Button>
+                        </TableCell>
                       </TableRow>
                     );
                   })}
@@ -870,15 +874,15 @@ export default function SkuCostsManagement() {
 
             <div className="grid md:grid-cols-3 gap-3 text-sm">
               <div className="p-3 rounded border bg-muted/30">Total material cost: <b>{vnd(importedMaterialSummary.total)}</b></div>
-              <div className="p-3 rounded border bg-muted/30 flex items-center gap-2">Dự phòng hao hụt/tăng giá (%): <Input className="h-8" type="number" value={skuForm.cost_values?.material_provision_percent || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), material_provision_percent: Number(e.target.value || 0) } })} /></div>
-              <div className="p-3 rounded border bg-yellow-50 text-yellow-900">Total cost NVL/cái: <b>{vnd((importedMaterialSummary.perUnit || 0) * (1 + toNumber(skuForm.cost_values?.material_provision_percent, 0) / 100))}</b></div>
-              <div className="p-3 rounded border flex items-center gap-2">Cost bao bì/cái <Input className="h-8" type="number" value={skuForm.cost_values?.packaging_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), packaging_cost: Number(e.target.value || 0) } })} /></div>
-              <div className="p-3 rounded border flex items-center gap-2">Cost nhân công/cái <Input className="h-8" type="number" value={skuForm.cost_values?.labor_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), labor_cost: Number(e.target.value || 0) } })} /></div>
-              <div className="p-3 rounded border flex items-center gap-2">Delivery/cái <Input className="h-8" type="number" value={skuForm.cost_values?.delivery_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), delivery_cost: Number(e.target.value || 0) } })} /></div>
-              <div className="p-3 rounded border flex items-center gap-2">Other production/cái <Input className="h-8" type="number" value={skuForm.cost_values?.other_production_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), other_production_cost: Number(e.target.value || 0) } })} /></div>
-              <div className="p-3 rounded border flex items-center gap-2">BH&QL/cái <Input className="h-8" type="number" value={skuForm.cost_values?.sga_cost || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), sga_cost: Number(e.target.value || 0) } })} /></div>
+              <div className="p-3 rounded border bg-muted/30 flex items-center gap-2">Dự phòng hao hụt/tăng giá (%): <Input className="h-8" type="number" value={toNumber(skuForm.cost_values?.material_provision_percent, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.material_provision_percent, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), material_provision_percent: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
+              <div className="p-3 rounded border bg-yellow-50 text-yellow-900">Total cost NVL/cái: <b>{vnd((importedMaterialSummary.perUnit || 0) + ((importedMaterialSummary.perUnit || 0) * toNumber(skuForm.cost_values?.material_provision_percent, 0) / 100))}</b></div>
+              <div className="p-3 rounded border flex items-center gap-2">Cost bao bì/cái <Input className="h-8" type="number" value={toNumber(skuForm.cost_values?.packaging_cost, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.packaging_cost, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), packaging_cost: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
+              <div className="p-3 rounded border flex items-center gap-2">Cost nhân công/cái <Input className="h-8" type="number" value={toNumber(skuForm.cost_values?.labor_cost, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.labor_cost, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), labor_cost: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /> <Button type="button" variant="outline" size="sm" onClick={() => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), labor_cost: suggestedLaborCost } })}>Lấy từ quản trị</Button></div>
+              <div className="p-3 rounded border flex items-center gap-2">Delivery/cái <Input className="h-8" type="number" value={toNumber(skuForm.cost_values?.delivery_cost, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.delivery_cost, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), delivery_cost: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
+              <div className="p-3 rounded border flex items-center gap-2">Other production/cái <Input className="h-8" type="number" value={toNumber(skuForm.cost_values?.other_production_cost, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.other_production_cost, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), other_production_cost: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
+              <div className="p-3 rounded border flex items-center gap-2">BH&QL/cái <Input className="h-8" type="number" value={toNumber(skuForm.cost_values?.sga_cost, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.sga_cost, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), sga_cost: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
               <div className="p-3 rounded border bg-red-50 text-red-700">Tổng cost/cái: <b>{vnd((importedMaterialSummary.perUnit || 0) * (1 + toNumber(skuForm.cost_values?.material_provision_percent, 0) / 100) + toNumber(skuForm.cost_values?.packaging_cost, 0) + toNumber(skuForm.cost_values?.labor_cost, 0) + toNumber(skuForm.cost_values?.delivery_cost, 0) + toNumber(skuForm.cost_values?.other_production_cost, 0) + toNumber(skuForm.cost_values?.sga_cost, 0))}</b></div>
-              <div className="p-3 rounded border flex items-center gap-2">Giá bán/cái <Input className="h-8" type="number" value={skuForm.cost_values?.selling_price || 0} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), selling_price: Number(e.target.value || 0) } })} /></div>
+              <div className="p-3 rounded border flex items-center gap-2">Giá bán/cái <Input className="h-8" type="number" value={toNumber(skuForm.cost_values?.selling_price, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.selling_price, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), selling_price: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
               <div className="p-3 rounded border bg-sky-50 text-sky-700">Net profit/cái: <b>{vnd(toNumber(skuForm.cost_values?.selling_price, 0) - ((importedMaterialSummary.perUnit || 0) * (1 + toNumber(skuForm.cost_values?.material_provision_percent, 0) / 100) + toNumber(skuForm.cost_values?.packaging_cost, 0) + toNumber(skuForm.cost_values?.labor_cost, 0) + toNumber(skuForm.cost_values?.delivery_cost, 0) + toNumber(skuForm.cost_values?.other_production_cost, 0) + toNumber(skuForm.cost_values?.sga_cost, 0)))}</b></div>
             </div>
           </div>
