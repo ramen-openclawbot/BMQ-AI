@@ -378,7 +378,59 @@ export default function SkuCostsManagement() {
   }, [activeSku.finished_output_qty, formulaComputed]);
 
   const openCreateSku = () => { setScanSkuMessage(""); setImportedFormulaDraft([]); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: FORMULA_BASE_QTY, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {} }); setDialogOpen(true); };
-  const openEditSku = (sku: SKU) => { setSkuForm({ ...sku, cost_template: parseCostTemplate(sku.cost_template), cost_values: parseCostValues(sku.cost_values), cost_widgets: parseWidgets(sku.cost_widgets) }); setDialogOpen(true); };
+
+  const buildFormulaRowsFromDraft = (skuId: string) => {
+    const rowsToSave = importedFormulaDraft.filter((r: any, idx: number) => {
+      const level1 = String(r.level1_name || "").trim();
+      if (r.is_level2) return !!String(r.level2_name || "").trim();
+      if (!level1) return false;
+      const hasChildren = importedFormulaDraft.some((x: any, j: number) => j !== idx && x.is_level2 && String(x.level1_name || "").trim() === level1);
+      return !hasChildren;
+    });
+
+    return rowsToSave.map((r: any, idx: number) => {
+      const level1 = String(r.level1_name || r.ingredient_name || "").trim();
+      const level2 = String(r.level2_name || "").trim();
+      const ingredientLabel = level2 ? `${level1} > ${level2}` : level1;
+      const n = ingredientLabel.toLowerCase();
+      const matched = ingredientSkus.find((s) => s.id === (r.ingredient_sku_id || r.level1_sku_id)) || ingredientSkus.find((s) => {
+        const t = `${s.sku_code} ${s.product_name}`.toLowerCase();
+        return t.includes(n) || n.includes(String(s.product_name || "").toLowerCase());
+      });
+
+      return {
+        sku_id: skuId,
+        ingredient_sku_id: matched?.id || null,
+        ingredient_name: matched?.product_name || ingredientLabel,
+        unit: "g",
+        unit_price: toNumber(r.unit_price, 0),
+        dosage_qty: parseDosageGramInput(r.dosage_input ?? r.dosage_qty, 0),
+        wastage_percent: 0,
+        sort_order: idx + 1,
+      };
+    });
+  };
+
+  const openEditSku = async (sku: SKU) => {
+    setSkuForm({ ...sku, cost_template: parseCostTemplate(sku.cost_template), cost_values: parseCostValues(sku.cost_values), cost_widgets: parseWidgets(sku.cost_widgets) });
+    const { data } = await sb.from("sku_formulations").select("*").eq("sku_id", sku.id).order("sort_order");
+    const draft = (data || []).map((r: any) => ({
+      is_level2: false,
+      level1_sku_id: r.ingredient_sku_id || "",
+      ingredient_sku_id: r.ingredient_sku_id || "",
+      level1_name: r.ingredient_name || "",
+      level2_name: "",
+      ingredient_name: r.ingredient_name || "",
+      unit: r.unit || "g",
+      unit_price: toNumber(r.unit_price, 0),
+      unit_price_input: toNumber(r.unit_price, 0) === 0 ? "" : String(toNumber(r.unit_price, 0)),
+      dosage_qty: parseDosageGramInput(r.dosage_qty, 0),
+      dosage_input: parseDosageGramInput(r.dosage_qty, 0) === 0 ? "" : String(parseDosageGramInput(r.dosage_qty, 0)).replace(".", ","),
+      line_cost: toNumber(r.unit_price, 0) * parseDosageGramInput(r.dosage_qty, 0),
+    }));
+    setImportedFormulaDraft(draft);
+    setDialogOpen(true);
+  };
 
   const saveSku = async () => {
     if (!skuForm.sku_code || !skuForm.product_name) {
@@ -390,12 +442,24 @@ export default function SkuCostsManagement() {
       if (skuForm.id) {
         const { error } = await sb.from("product_skus").update({ ...skuForm }).eq("id", skuForm.id);
         if (error) throw error;
-        await sb.from("sku_trace_documents").insert({
-          sku_id: skuForm.id,
-          document_type: "audit",
-          document_name: `EDIT_COST_${new Date().toISOString()}`,
-          document_url: `audit://sku/${skuForm.id}/edit`,
-        });
+
+        const rows = buildFormulaRowsFromDraft(skuForm.id);
+        const { error: deleteFormulaError } = await sb.from("sku_formulations").delete().eq("sku_id", skuForm.id);
+        if (deleteFormulaError) throw deleteFormulaError;
+        if (rows.length > 0) {
+          const { error: formulaError } = await sb.from("sku_formulations").insert(rows);
+          if (formulaError) throw formulaError;
+        }
+
+        try {
+          await sb.from("sku_trace_documents").insert({
+            sku_id: skuForm.id,
+            document_type: "audit",
+            document_name: `EDIT_COST_${new Date().toISOString()}`,
+            document_url: `audit://sku/${skuForm.id}/edit`,
+          });
+        } catch (_) {}
+
         toast({ title: "Đã cập nhật SKU" });
       } else {
         const { data, error } = await sb.from("product_skus").insert({ ...skuForm }).select("*").single();
@@ -403,47 +467,19 @@ export default function SkuCostsManagement() {
 
         if (data?.id) {
           setActiveSkuId(data.id);
-          await sb.from("sku_trace_documents").insert({
-            sku_id: data.id,
-            document_type: "audit",
-            document_name: `CREATE_COST_${new Date().toISOString()}`,
-            document_url: `audit://sku/${data.id}/create`,
-          });
-
-          if (importedFormulaDraft.length > 0) {
-            const rowsToSave = importedFormulaDraft.filter((r: any, idx: number) => {
-              const level1 = String(r.level1_name || "").trim();
-              if (r.is_level2) return !!String(r.level2_name || "").trim();
-              if (!level1) return false;
-              const hasChildren = importedFormulaDraft.some((x: any, j: number) => j !== idx && x.is_level2 && String(x.level1_name || "").trim() === level1);
-              return !hasChildren;
+          try {
+            await sb.from("sku_trace_documents").insert({
+              sku_id: data.id,
+              document_type: "audit",
+              document_name: `CREATE_COST_${new Date().toISOString()}`,
+              document_url: `audit://sku/${data.id}/create`,
             });
+          } catch (_) {}
 
-            const rows = rowsToSave.map((r: any, idx: number) => {
-              const level1 = String(r.level1_name || r.ingredient_name || "").trim();
-              const level2 = String(r.level2_name || "").trim();
-              const ingredientLabel = level2 ? `${level1} > ${level2}` : level1;
-              const n = ingredientLabel.toLowerCase();
-              const matched = ingredientSkus.find((s) => s.id === (r.ingredient_sku_id || r.level1_sku_id)) || ingredientSkus.find((s) => {
-                const t = `${s.sku_code} ${s.product_name}`.toLowerCase();
-                return t.includes(n) || n.includes(String(s.product_name || "").toLowerCase());
-              });
-              return {
-                sku_id: data.id,
-                ingredient_sku_id: matched?.id || null,
-                ingredient_name: matched?.product_name || ingredientLabel,
-                unit: "g",
-                unit_price: toNumber(r.unit_price, 0),
-                dosage_qty: parseDosageGramInput(r.dosage_input ?? r.dosage_qty, 0),
-                wastage_percent: 0,
-                sort_order: idx + 1,
-              };
-            });
-
-            if (rows.length > 0) {
-              const { error: formulaError } = await sb.from("sku_formulations").insert(rows);
-              if (formulaError) throw formulaError;
-            }
+          const rows = buildFormulaRowsFromDraft(data.id);
+          if (rows.length > 0) {
+            const { error: formulaError } = await sb.from("sku_formulations").insert(rows);
+            if (formulaError) throw formulaError;
           }
         }
 
