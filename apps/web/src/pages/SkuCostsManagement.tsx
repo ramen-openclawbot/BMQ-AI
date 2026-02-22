@@ -350,7 +350,7 @@ export default function SkuCostsManagement() {
     if (!toNumber(skuForm.finished_output_qty, 0)) missing.push("Thành phẩm SL");
     if (!String(skuForm.finished_output_unit || "").trim()) missing.push("Thành phẩm ĐVT");
     if (!importedFormulaDraft.length) missing.push("Danh sách nguyên vật liệu");
-    if (!toNumber(skuForm.cost_values?.selling_price, 0)) missing.push("Giá bán");
+    // Giá bán có thể nhập sau, không chặn lưu SKU
     return missing;
   }, [skuForm, importedFormulaDraft]);
 
@@ -786,7 +786,7 @@ export default function SkuCostsManagement() {
           </DialogHeader>
 
           <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border rounded p-2 flex flex-wrap items-center gap-2">
               <Button type="button" variant="outline" onClick={addDraftMaterialRow}>+ Thêm NVL cấp 1</Button>
               {level1Options.length > 0 && (
                 <Button type="button" variant="outline" onClick={addDraftMaterialLevel2Row}>+ Thêm NVL cấp 2</Button>
@@ -887,10 +887,10 @@ export default function SkuCostsManagement() {
                 </TableBody>
               </Table>
             </div>
-            <div className="text-sm text-muted-foreground">Ghi chú: NVL được tính bằng Gram. Định lượng mặc định theo mẻ 100 sản phẩm.</div>
+            <div className="text-sm text-muted-foreground">Ghi chú: NVL được tính bằng Gram. Định lượng mặc định theo mẻ 100 sản phẩm. Chi phí NVL tổng hợp tự động cộng toàn bộ dòng NVL hợp lệ.</div>
 
             <div className="grid md:grid-cols-3 gap-3 text-sm">
-              <div className="p-3 rounded border bg-muted/30">Total material cost: <b>{vnd(importedMaterialSummary.total)}</b></div>
+              <div className="p-3 rounded border bg-muted/30">Chi phí NVL tổng hợp: <b>{vnd(importedMaterialSummary.total)}</b></div>
               <div className="p-3 rounded border bg-muted/30 flex items-center gap-2">Dự phòng hao hụt/tăng giá (%): <Input className="h-8" type="number" value={toNumber(skuForm.cost_values?.material_provision_percent, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.material_provision_percent, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), material_provision_percent: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
               <div className="p-3 rounded border bg-yellow-50 text-yellow-900">Total cost NVL/cái: <b>{vnd((importedMaterialSummary.perUnit || 0) + ((importedMaterialSummary.perUnit || 0) * toNumber(skuForm.cost_values?.material_provision_percent, 0) / 100))}</b></div>
               <div className="p-3 rounded border flex items-center gap-2">Cost bao bì/cái <Input className="h-8" type="number" value={toNumber(skuForm.cost_values?.packaging_cost, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.packaging_cost, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), packaging_cost: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
