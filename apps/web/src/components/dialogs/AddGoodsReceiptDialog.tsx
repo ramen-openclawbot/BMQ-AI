@@ -97,6 +97,48 @@ export function AddGoodsReceiptDialog() {
     return "Lỗi không xác định";
   };
 
+  const slugifySku = (name: string) =>
+    String(name || "")
+      .toUpperCase()
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .replace(/[^A-Z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "")
+      .slice(0, 24);
+
+  const ensureRawMaterialSku = async (productName: string, unit?: string): Promise<string> => {
+    const normalizedName = String(productName || "").trim();
+    if (!normalizedName) throw new Error("Thiếu tên nguyên vật liệu để tạo SKU");
+
+    const { data: existing } = await supabase
+      .from("product_skus")
+      .select("id, sku_type, category")
+      .ilike("product_name", normalizedName)
+      .limit(1)
+      .maybeSingle();
+
+    if (existing?.id) return existing.id;
+
+    const base = slugifySku(normalizedName) || "NVL";
+    const skuCode = `NVL-${base}-${Date.now().toString().slice(-4)}`;
+
+    const { data: created, error } = await supabase
+      .from("product_skus")
+      .insert({
+        sku_code: skuCode,
+        product_name: normalizedName,
+        unit: unit || "kg",
+        unit_price: 0,
+        category: "Nguyên vật liệu",
+        sku_type: "raw_material",
+      })
+      .select("id")
+      .single();
+
+    if (error || !created?.id) throw error || new Error("Không thể tạo SKU NVL tự động");
+    return created.id;
+  };
+
   // Handle image upload
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -265,8 +307,26 @@ export function AddGoodsReceiptDialog() {
     // Phiếu nhập kho chỉ dành cho nguyên vật liệu có SKU NVL
     const itemsWithoutSku = data.items.filter((item) => !item.sku_id);
     if (itemsWithoutSku.length > 0) {
-      toast.error(`Có ${itemsWithoutSku.length} dòng chưa có SKU nguyên vật liệu. Vui lòng tạo/chọn SKU NVL trước khi nhập kho.`);
-      return;
+      const autoCreate = window.confirm(
+        `Có ${itemsWithoutSku.length} dòng chưa có SKU NVL. Anh có muốn Ramen tự tạo SKU nguyên vật liệu cho các dòng này không?`
+      );
+      if (!autoCreate) {
+        toast.error(`Có ${itemsWithoutSku.length} dòng chưa có SKU nguyên vật liệu. Vui lòng tạo/chọn SKU NVL trước khi nhập kho.`);
+        return;
+      }
+
+      for (let i = 0; i < data.items.length; i++) {
+        const row = data.items[i];
+        if (!row.sku_id) {
+          const skuId = await ensureRawMaterialSku(row.product_name, row.unit || "kg");
+          row.sku_id = skuId;
+          row.sku_status = "found";
+          form.setValue(`items.${i}.sku_id`, skuId);
+          form.setValue(`items.${i}.sku_status`, "found");
+        }
+      }
+
+      toast.success("Đã tự tạo SKU nguyên vật liệu cho các dòng chưa có mã");
     }
 
     let createdReceiptId: string | null = null;
