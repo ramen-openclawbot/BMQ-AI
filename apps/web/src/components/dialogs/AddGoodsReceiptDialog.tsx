@@ -289,17 +289,32 @@ export function AddGoodsReceiptDialog() {
 
       createdReceiptId = receipt.id;
 
-      // Create items
+      // Create items (compatible with DB schema drift across environments)
       for (const item of data.items) {
-        await createItem.mutateAsync({
+        const payload: any = {
           goods_receipt_id: receipt.id,
           product_name: item.product_name,
           quantity: item.quantity,
           unit: item.unit || "kg",
           sku_id: item.sku_id || null,
-          manufacture_date: item.manufacture_date || null,
-          expiry_date: item.expiry_date || null,
-        } as any);
+        };
+
+        if (item.manufacture_date) payload.manufacture_date = item.manufacture_date;
+        if (item.expiry_date) payload.expiry_date = item.expiry_date;
+
+        try {
+          await createItem.mutateAsync(payload);
+        } catch (itemErr) {
+          const raw = String((itemErr as any)?.message || itemErr || "");
+
+          // Production compatibility: some DBs do not have manufacture_date yet
+          if (raw.includes("manufacture_date") && raw.includes("goods_receipt_items")) {
+            delete payload.manufacture_date;
+            await createItem.mutateAsync(payload);
+          } else {
+            throw itemErr;
+          }
+        }
       }
 
       // Chuyển trạng thái sau khi đã có item để tránh lỗi trigger/check trên DB production
