@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import { parseCostValues, toNumber } from "@/lib/sku-cost-template";
+import { isFinishedSku } from "@/lib/skuType";
 
 export default function SkuCostsDjango() {
   const [skus, setSkus] = useState<any[]>([]);
@@ -11,7 +12,7 @@ export default function SkuCostsDjango() {
     (async () => {
       try {
         const { data } = await supabase.from("product_skus").select("*").order("updated_at", { ascending: false });
-        const finished = (data || []).filter((s: any) => String(s.category || "").toLowerCase().includes("thành phẩm"));
+        const finished = (data || []).filter((s: any) => isFinishedSku(s));
         setSkus(finished);
       } finally {
         setLoading(false);

@@ -9,6 +9,7 @@ export interface ProductSKU {
   unit_price: number | null;
   supplier_id: string | null;
   category: string | null;
+  sku_type?: "raw_material" | "finished_good" | null;
   notes: string | null;
   created_by: string | null;
   created_at: string;
@@ -23,6 +24,7 @@ export interface ProductSKUInsert {
   unit_price?: number;
   supplier_id?: string | null;
   category?: string;
+  sku_type?: "raw_material" | "finished_good";
   notes?: string;
   created_by?: string;
 }

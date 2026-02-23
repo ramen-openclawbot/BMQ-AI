@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { DEFAULT_SKU_COST_TEMPLATE, DEFAULT_SKU_COST_VALUES, parseCostTemplate, parseCostValues, toNumber } from "@/lib/sku-cost-template";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
+import { isFinishedSku } from "@/lib/skuType";
 
 type SKU = any;
 type FormulaRow = any;
@@ -199,8 +200,8 @@ export default function SkuCostsManagement() {
 
 
   const activeSku = useMemo(() => skus.find((s) => s.id === activeSkuId) || {}, [skus, activeSkuId]);
-  const finishedSkus = useMemo(() => skus.filter((s) => String(s.category || "").toLowerCase().includes("thành phẩm")), [skus]);
-  const ingredientSkus = useMemo(() => skus.filter((s) => !String(s.category || "").toLowerCase().includes("thành phẩm")), [skus]);
+  const finishedSkus = useMemo(() => skus.filter((s) => isFinishedSku(s as any)), [skus]);
+  const ingredientSkus = useMemo(() => skus.filter((s) => !isFinishedSku(s as any)), [skus]);
   const costTemplate = useMemo(() => parseCostTemplate(activeSku.cost_template), [activeSku.cost_template]);
   const costValues = useMemo(() => parseCostValues(activeSku.cost_values), [activeSku.cost_values]);
   const widgetValues = useMemo(() => parseWidgets(activeSku.cost_widgets), [activeSku.cost_widgets]);
@@ -231,7 +232,7 @@ export default function SkuCostsManagement() {
     setInventoryMap(inv);
     setSkus(skuRes.data || []);
 
-    const firstFinishedSku = (skuRes.data || []).find((s: any) => String(s.category || "").toLowerCase().includes("thành phẩm"));
+    const firstFinishedSku = (skuRes.data || []).find((s: any) => isFinishedSku(s));
     const currentSku = activeSkuId || firstFinishedSku?.id || skuRes.data?.[0]?.id;
     if (currentSku) {
       setActiveSkuId(currentSku);
@@ -459,7 +460,7 @@ export default function SkuCostsManagement() {
 
     try {
       if (skuForm.id) {
-        const { error } = await sb.from("product_skus").update({ ...skuForm }).eq("id", skuForm.id);
+        const { error } = await sb.from("product_skus").update({ ...skuForm, sku_type: "finished_good" }).eq("id", skuForm.id);
         if (error) throw error;
 
         const rows = buildFormulaRowsFromDraft(skuForm.id);
@@ -481,7 +482,7 @@ export default function SkuCostsManagement() {
 
         toast({ title: "Đã cập nhật SKU" });
       } else {
-        const { data, error } = await sb.from("product_skus").insert({ ...skuForm }).select("*").single();
+        const { data, error } = await sb.from("product_skus").insert({ ...skuForm, sku_type: "finished_good" }).select("*").single();
         if (error) throw error;
 
         if (data?.id) {
@@ -534,6 +535,7 @@ export default function SkuCostsManagement() {
       unit: "cái",
       unit_price: 0,
       category: "Thành phẩm",
+      sku_type: "finished_good",
       base_unit: "cái",
       yield_percent: 100,
       finished_output_qty: FORMULA_BASE_QTY,
@@ -624,6 +626,7 @@ export default function SkuCostsManagement() {
       product_name: productName,
       unit: outputUnit,
       category: "Thành phẩm",
+      sku_type: "finished_good",
       base_unit: outputUnit,
       yield_percent: 100,
       finished_output_qty: outputQty,

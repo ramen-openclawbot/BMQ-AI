@@ -19,6 +19,7 @@ import { useProductSKUs } from "@/hooks/useProductSKUs";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { isRawMaterialSku } from "@/lib/skuType";
 
 const itemSchema = z.object({
   product_name: z.string().min(1, "Tên sản phẩm là bắt buộc"),
@@ -47,16 +48,6 @@ interface ExtractedItem {
   quantity: number;
 }
 
-const normalize = (v: string) =>
-  String(v || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "");
-
-const isFinishedSku = (category: string | null | undefined) => {
-  const c = normalize(String(category || ""));
-  return c.includes("thanh pham") || c.includes("finished");
-};
 
 export function AddGoodsReceiptDialog() {
   const { t } = useLanguage();
@@ -71,7 +62,7 @@ export function AddGoodsReceiptDialog() {
 
   const { data: suppliers } = useSuppliers();
   const { data: skus } = useProductSKUs();
-  const ingredientSkus = useMemo(() => (skus || []).filter((s) => !isFinishedSku((s as any).category)), [skus]);
+  const ingredientSkus = useMemo(() => (skus || []).filter((s) => isRawMaterialSku(s as any)), [skus]);
   const createReceipt = useCreateGoodsReceipt();
   const createItem = useCreateGoodsReceiptItem();
   const updateReceipt = useUpdateGoodsReceipt();

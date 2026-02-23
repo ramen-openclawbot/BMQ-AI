@@ -872,6 +872,7 @@ export type Database = {
       product_skus: {
         Row: {
           category: string | null
+          sku_type: Database["public"]["Enums"]["sku_type"]
           created_at: string
           created_by: string | null
           id: string
@@ -885,6 +886,7 @@ export type Database = {
         }
         Insert: {
           category?: string | null
+          sku_type?: Database["public"]["Enums"]["sku_type"]
           created_at?: string
           created_by?: string | null
           id?: string
@@ -898,6 +900,7 @@ export type Database = {
         }
         Update: {
           category?: string | null
+          sku_type?: Database["public"]["Enums"]["sku_type"]
           created_at?: string
           created_by?: string | null
           id?: string
@@ -1171,6 +1174,7 @@ export type Database = {
       app_role: "owner" | "staff" | "viewer" | "warehouse"
       delivery_status: "pending" | "delivered"
       goods_receipt_status: "draft" | "confirmed" | "received"
+      sku_type: "raw_material" | "finished_good"
       payment_method_type: "bank_transfer" | "cash"
       payment_request_status: "pending" | "approved" | "rejected"
       payment_status: "unpaid" | "paid"
@@ -1311,6 +1315,7 @@ export const Constants = {
       app_role: ["owner", "staff", "viewer", "warehouse"],
       delivery_status: ["pending", "delivered"],
       goods_receipt_status: ["draft", "confirmed", "received"],
+      sku_type: ["raw_material", "finished_good"],
       payment_method_type: ["bank_transfer", "cash"],
       payment_request_status: ["pending", "approved", "rejected"],
       payment_status: ["unpaid", "paid"],
