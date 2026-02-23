@@ -209,21 +209,22 @@ export function AddInvoiceDialog() {
       reader.readAsDataURL(imageFile);
       const imageBase64 = await base64Promise;
 
-      // Get auth session for edge function call
+      // Get auth session for edge function call (optional fallback: apikey-only)
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        console.error("No auth session available");
-        return;
+
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      };
+      if (session?.access_token) {
+        headers["Authorization"] = `Bearer ${session.access_token}`;
       }
 
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-invoice`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${session.access_token}`,
-          },
+          headers,
           body: JSON.stringify({
             imageBase64,
             mimeType: imageFile.type,
@@ -232,15 +233,21 @@ export function AddInvoiceDialog() {
       );
 
       if (!response.ok) {
-        const errorData = await response.json();
-        if (response.status === 429) {
-          console.error("Rate limit exceeded");
+        const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+
+        if (response.status === 401) {
+          toast.error("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại để scan.");
           return;
         }
         if (response.status === 402) {
-          console.error("AI credits exhausted");
+          toast.error("Hết credits AI để scan hóa đơn.");
           return;
         }
+        if (response.status === 429) {
+          toast.error("Hệ thống đang bận, vui lòng thử lại sau ít phút.");
+          return;
+        }
+
         throw new Error(errorData.error || "Failed to scan invoice");
       }
 
@@ -282,8 +289,11 @@ export function AddInvoiceDialog() {
         }));
         form.setValue("items", newItems);
       }
+
+      toast.success("Scan hóa đơn thành công");
     } catch (error) {
       console.error("Error scanning invoice:", error);
+      toast.error(error instanceof Error ? error.message : "Không thể scan hóa đơn");
     } finally {
       setScanning(false);
     }
