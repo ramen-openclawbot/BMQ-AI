@@ -129,18 +129,18 @@ export function AddGoodsReceiptDialog() {
       .replace(/(^-|-$)/g, "")
       .slice(0, 24);
 
-  const ensureRawMaterialSku = async (productName: string, unit?: string): Promise<string> => {
+  const ensureRawMaterialSku = async (productName: string, unit?: string): Promise<{ id: string; sku_code: string }> => {
     const normalizedName = String(productName || "").trim();
     if (!normalizedName) throw new Error("Thiếu tên nguyên vật liệu để tạo SKU");
 
     const { data: existing } = await supabase
       .from("product_skus")
-      .select("id, sku_type, category")
+      .select("id, sku_code, sku_type, category")
       .ilike("product_name", normalizedName)
       .limit(1)
       .maybeSingle();
 
-    if (existing?.id) return existing.id;
+    if (existing?.id) return { id: existing.id, sku_code: (existing as any).sku_code || "" };
 
     const base = slugifySku(normalizedName) || "NVL";
     const skuCode = `NVL-${base}-${Date.now().toString().slice(-4)}`;
@@ -155,11 +155,11 @@ export function AddGoodsReceiptDialog() {
         category: "Nguyên vật liệu",
         sku_type: "raw_material",
       })
-      .select("id")
+      .select("id, sku_code")
       .single();
 
     if (error || !created?.id) throw error || new Error("Không thể tạo SKU NVL tự động");
-    return created.id;
+    return { id: created.id, sku_code: (created as any).sku_code || skuCode };
   };
 
   // Handle image upload
@@ -282,15 +282,15 @@ export function AddGoodsReceiptDialog() {
             }
 
             // Auto create raw-material SKU right after scan
-            const createdSkuId = await ensureRawMaterialSku(item.product_name, item.unit || "kg");
+            const createdSku = await ensureRawMaterialSku(item.product_name, item.unit || "kg");
             autoCreatedSkuCount.value += 1;
             return {
               product_name: item.product_name,
               quantity: item.quantity,
               unit: item.unit || "kg",
               expiry_date: "",
-              sku_id: createdSkuId,
-              sku_code: undefined,
+              sku_id: createdSku.id,
+              sku_code: createdSku.sku_code,
               sku_status: "found" as const,
             };
           })
@@ -338,10 +338,12 @@ export function AddGoodsReceiptDialog() {
       for (let i = 0; i < data.items.length; i++) {
         const row = data.items[i];
         if (!row.sku_id) {
-          const skuId = await ensureRawMaterialSku(row.product_name, row.unit || "kg");
-          row.sku_id = skuId;
+          const createdSku = await ensureRawMaterialSku(row.product_name, row.unit || "kg");
+          row.sku_id = createdSku.id;
+          row.sku_code = createdSku.sku_code;
           row.sku_status = "found";
-          form.setValue(`items.${i}.sku_id`, skuId);
+          form.setValue(`items.${i}.sku_id`, createdSku.id);
+          form.setValue(`items.${i}.sku_code`, createdSku.sku_code);
           form.setValue(`items.${i}.sku_status`, "found");
         }
       }
