@@ -106,18 +106,41 @@ export function AddGoodsReceiptDialog() {
       .replace(/\s+/g, " ")
       .trim();
 
+  const acronymOf = (v: string) =>
+    normalizeText(v)
+      .split(" ")
+      .filter((x) => x && x.length > 1)
+      .map((x) => x[0])
+      .join("");
+
+  const isLikelySupplierToken = (v: string) => {
+    const t = normalizeText(v);
+    if (!t) return false;
+    if (/^[a-z]{3,6}$/.test(t) && t === t.toLowerCase()) {
+      // allow short upper acronym in source text (e.g. STC) but avoid random OCR words (e.g. "da")
+      return t.length >= 3;
+    }
+    return t.split(" ").length >= 2 || t.length >= 6;
+  };
+
   const scoreSupplierMatch = (scanned: string, candidate: string): number => {
     const a = normalizeText(scanned);
     const b = normalizeText(candidate);
     if (!a || !b) return 0;
+
+    const acA = acronymOf(a);
+    const acB = acronymOf(b);
     if (a === b) return 100;
+    if (acA && (b.includes(acA) || acA === acB)) return 97;
     if (a.includes(b) || b.includes(a)) return 90;
 
     const at = a.split(" ").filter(Boolean);
     const bt = b.split(" ").filter(Boolean);
     const inter = at.filter((t) => bt.includes(t)).length;
     if (!inter) return 0;
-    return Math.round((inter / Math.max(at.length, bt.length)) * 80);
+
+    const coverage = inter / Math.max(at.length, bt.length);
+    return Math.round(coverage * 85);
   };
 
   const slugifySku = (name: string) =>
@@ -300,16 +323,31 @@ export function AddGoodsReceiptDialog() {
         form.setValue("items", matchedItems);
         setNewSkuItems([]);
 
-        // Try to match supplier from scanned company name (accent-insensitive + token score)
-        if (data.data.supplier_name && suppliers?.length) {
-          const scannedSupplierName = String(data.data.supplier_name || "").trim();
-          const ranked = suppliers
-            .map((s) => ({ supplier: s, score: scoreSupplierMatch(scannedSupplierName, s.name) }))
-            .sort((a, b) => b.score - a.score);
+        // Try to match supplier from scanned company name (strict confidence to avoid wrong auto-pick)
+        if (suppliers?.length) {
+          const rawCandidates = [
+            data.data.supplier_name,
+            data.data.vendor_name,
+            data.data.company_name,
+            data.data.seller_name,
+          ].filter(Boolean) as string[];
 
-          const best = ranked[0];
-          if (best && best.score >= 60) {
-            form.setValue("supplier_id", best.supplier.id);
+          const supplierCandidates = rawCandidates
+            .map((x) => String(x || "").trim())
+            .filter((x) => isLikelySupplierToken(x));
+
+          let bestOverall: { supplier: any; score: number } | null = null;
+          for (const scannedSupplierName of supplierCandidates) {
+            const ranked = suppliers
+              .map((s) => ({ supplier: s, score: scoreSupplierMatch(scannedSupplierName, s.name) }))
+              .sort((a, b) => b.score - a.score);
+            const best = ranked[0];
+            if (best && (!bestOverall || best.score > bestOverall.score)) bestOverall = best;
+          }
+
+          // only auto-select when confidence is high enough (prevents wrong match like "đá")
+          if (bestOverall && bestOverall.score >= 88) {
+            form.setValue("supplier_id", bestOverall.supplier.id);
           }
         }
 
@@ -450,15 +488,15 @@ export function AddGoodsReceiptDialog() {
           Tạo Phiếu Nhập
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Tạo Phiếu Nhập Kho</DialogTitle>
         </DialogHeader>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             {/* Image Upload & Scan */}
-            <div className="border-2 border-dashed border-muted rounded-lg p-4">
+            <div className="border border-muted rounded-lg p-3 bg-muted/20">
               <div className="flex items-center gap-4">
                 <div className="flex-1">
                   <Label htmlFor="delivery-note-image" className="cursor-pointer">
@@ -515,11 +553,11 @@ export function AddGoodsReceiptDialog() {
               )}
               
               {imagePreview && (
-                <div className="mt-3">
+                <div className="mt-2">
                   <img
                     src={imagePreview}
                     alt="Preview"
-                    className="max-h-32 rounded border object-contain"
+                    className="h-20 w-auto rounded border object-contain"
                   />
                 </div>
               )}
@@ -584,16 +622,16 @@ export function AddGoodsReceiptDialog() {
                 </Button>
               </div>
 
-              <div className="border rounded-lg overflow-hidden">
-                <Table>
+              <div className="border rounded-lg overflow-x-auto">
+                <Table className="min-w-[1100px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[25%]">Sản phẩm</TableHead>
-                      <TableHead className="w-[12%]">SKU</TableHead>
+                      <TableHead className="w-[32%]">Sản phẩm</TableHead>
+                      <TableHead className="w-[16%]">SKU</TableHead>
                       <TableHead className="w-[10%]">Số lượng</TableHead>
-                      <TableHead className="w-[8%]">Đơn vị</TableHead>
-                      <TableHead className="w-[15%]">NSX</TableHead>
-                      <TableHead className="w-[15%]">HSD</TableHead>
+                      <TableHead className="w-[10%]">Đơn vị</TableHead>
+                      <TableHead className="w-[13%]">NSX</TableHead>
+                      <TableHead className="w-[13%]">HSD</TableHead>
                       <TableHead className="w-[5%]"></TableHead>
                     </TableRow>
                   </TableHeader>
