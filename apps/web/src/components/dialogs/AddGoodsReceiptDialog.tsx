@@ -247,7 +247,11 @@ export function AddGoodsReceiptDialog() {
           "Authorization": `Bearer ${sessionData.session.access_token}`,
           "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         },
-        body: JSON.stringify({ imageBase64, mimeType: imageFile.type }),
+        body: JSON.stringify({
+          imageBase64,
+          mimeType: imageFile.type,
+          suppliers: (suppliers || []).map((x) => ({ id: x.id, name: x.name })),
+        }),
       });
 
       // Handle specific HTTP status codes
@@ -276,9 +280,10 @@ export function AddGoodsReceiptDialog() {
       }
 
       const data = await response.json();
+      const payload = data?.data || {};
 
-      if (data.success && data.data) {
-        const extractedItems: ExtractedItem[] = data.data.items || [];
+      if (data.success && payload) {
+        const extractedItems: ExtractedItem[] = payload.items || [];
 
         // Match items with existing raw-material SKUs; auto-create missing SKU from scan result
         const autoCreatedSkuCount = { value: 0 };
@@ -323,13 +328,15 @@ export function AddGoodsReceiptDialog() {
         form.setValue("items", matchedItems);
         setNewSkuItems([]);
 
-        // Try to match supplier from scanned company name (strict confidence to avoid wrong auto-pick)
-        if (suppliers?.length) {
+        // Supplier match priority: backend canonical match -> FE fallback scoring
+        if (data?.supplier_match?.id) {
+          form.setValue("supplier_id", data.supplier_match.id);
+        } else if (suppliers?.length) {
           const rawCandidates = [
-            data.data.supplier_name,
-            data.data.vendor_name,
-            data.data.company_name,
-            data.data.seller_name,
+            payload.supplier_name,
+            payload.vendor_name,
+            payload.company_name,
+            payload.seller_name,
           ].filter(Boolean) as string[];
 
           const supplierCandidates = rawCandidates
@@ -345,11 +352,11 @@ export function AddGoodsReceiptDialog() {
             if (best && (!bestOverall || best.score > bestOverall.score)) bestOverall = best;
           }
 
-          // only auto-select when confidence is high enough (prevents wrong match like "đá")
-          if (bestOverall && bestOverall.score >= 88) {
+          if (bestOverall && bestOverall.score >= 92) {
             form.setValue("supplier_id", bestOverall.supplier.id);
           }
         }
+
 
         setScanCompleted(true);
         if (autoCreatedSkuCount.value > 0) {
