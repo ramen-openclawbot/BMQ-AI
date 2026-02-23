@@ -29,6 +29,7 @@
 
 ## Migration mới quan trọng
 - `apps/web/supabase/migrations/20260223173000_sku_type_and_goods_receipt_guardrails.sql`
+- `apps/web/supabase/migrations/20260223193000_supplier_scan_templates.sql`
 
 ## Confirmed by user
 - User đồng ý release luôn sau khi chạy SQL migration.
@@ -41,6 +42,7 @@
 3. (Tuỳ chọn) tăng ràng buộc DB cho các flow nhập/xuất thành phẩm nếu mở rộng kho thành phẩm đầy đủ.
 
 ## Recent commits
+- `dd4f74d` feat(scan-learning): add supplier template memory and stronger canonical supplier matching
 - `95dfe16` feat(domain): enforce SKU type separation for raw-material receiving vs finished-goods COGS
 - `0ab6b3e` refactor(domain): separate raw-material GRN SKU flow from finished-goods COGS module
 - `524729d` fix(goods-receipt): tolerate missing manufacture_date column when inserting receipt items
@@ -54,3 +56,11 @@
   - `/sku-costs/*`: chỉ xử lý SKU thành phẩm cho COGS.
   - Add Invoice scan hoạt động ổn trên mobile.
   - `/settings` hiển thị version từ semver package (`0.0.5`).
+
+
+## Shortcut/output rule (user preference)
+- Với mọi tác vụ tạo file mới (đặc biệt SQL migration), luôn tạo shortcut tại `output/_latest/` để user mở nhanh.
+- Chuẩn tối thiểu:
+  - `output/_latest/latest-migration.sql` -> migration SQL mới nhất
+  - `output/_latest/<ten-file-goc>.sql` -> shortcut theo đúng tên file
+- Nếu đã có shortcut cũ, cập nhật lại bằng symlink mới nhất (`ln -sfn`).
