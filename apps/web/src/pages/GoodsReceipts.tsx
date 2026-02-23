@@ -89,7 +89,7 @@ export default function GoodsReceipts() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-display font-bold text-foreground">Phiếu Nhập Kho</h1>
-          <p className="text-muted-foreground">Quản lý phiếu nhập kho từ nhà cung cấp</p>
+          <p className="text-muted-foreground">Quản lý phiếu nhập kho nguyên vật liệu từ nhà cung cấp</p>
         </div>
         <AddGoodsReceiptDialog />
       </div>

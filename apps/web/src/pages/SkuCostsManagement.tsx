@@ -752,7 +752,7 @@ export default function SkuCostsManagement() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">SKU Costs theo duyệt anh Tâm (Phase A/B)</h1>
+      <h1 className="text-2xl font-bold">Tính chi phí giá vốn hàng bán (SKU thành phẩm)</h1>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between"><CardTitle>Danh sách SKU thành phẩm</CardTitle><div className="flex gap-2"><Button onClick={openCreateSku}>Tạo SKU</Button></div></CardHeader>
         <CardContent>

@@ -8,8 +8,8 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianG
 import { useSkuCostBridge } from "@/hooks/useSkuCostBridge";
 
 const tabItems = [
-  { key: "sku", label: "SKU Cost" },
-  { key: "trends", label: "Xu hướng chi phí" },
+  { key: "sku", label: "Giá vốn thành phẩm" },
+  { key: "trends", label: "Xu hướng giá vốn" },
   { key: "overhead", label: "Phân bổ chi phí chung" },
 ];
 
@@ -68,7 +68,7 @@ export default function SkuCostsAnalysis() {
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>SKU Cost (linked từ SKU Quản trị)</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Tính chi phí giá vốn hàng bán (SKU thành phẩm)</CardTitle></CardHeader>
             <CardContent>
               {!filtered.length ? (
                 <div className="text-sm text-muted-foreground">{isLoading ? "Đang tải dữ liệu..." : "Chưa có dữ liệu."}</div>

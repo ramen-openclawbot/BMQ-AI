@@ -47,6 +47,17 @@ interface ExtractedItem {
   quantity: number;
 }
 
+const normalize = (v: string) =>
+  String(v || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+
+const isFinishedSku = (category: string | null | undefined) => {
+  const c = normalize(String(category || ""));
+  return c.includes("thanh pham") || c.includes("finished");
+};
+
 export function AddGoodsReceiptDialog() {
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -60,6 +71,7 @@ export function AddGoodsReceiptDialog() {
 
   const { data: suppliers } = useSuppliers();
   const { data: skus } = useProductSKUs();
+  const ingredientSkus = useMemo(() => (skus || []).filter((s) => !isFinishedSku((s as any).category)), [skus]);
   const createReceipt = useCreateGoodsReceipt();
   const createItem = useCreateGoodsReceiptItem();
   const updateReceipt = useUpdateGoodsReceipt();
@@ -194,7 +206,7 @@ export function AddGoodsReceiptDialog() {
         const matchedItems = await Promise.all(
           extractedItems.map(async (item, index) => {
             // Find SKU by product code or name
-            const matchedSku = skus?.find(
+            const matchedSku = ingredientSkus?.find(
               (sku) =>
                 (item.product_code && sku.sku_code.toLowerCase().includes(item.product_code.toLowerCase())) ||
                 sku.product_name.toLowerCase().includes(item.product_name.toLowerCase()) ||
@@ -259,13 +271,11 @@ export function AddGoodsReceiptDialog() {
 
   // Submit form
   const onSubmit = async (data: FormData) => {
-    // Check for items without SKU
-    const itemsWithoutSku = data.items.filter((item) => !item.sku_id && item.sku_status !== "found");
+    // Phiếu nhập kho chỉ dành cho nguyên vật liệu có SKU NVL
+    const itemsWithoutSku = data.items.filter((item) => !item.sku_id);
     if (itemsWithoutSku.length > 0) {
-      const confirmProceed = window.confirm(
-        `Có ${itemsWithoutSku.length} sản phẩm chưa có SKU. Bạn có muốn tiếp tục? Các sản phẩm này sẽ được thêm vào kho với tên gốc.`
-      );
-      if (!confirmProceed) return;
+      toast.error(`Có ${itemsWithoutSku.length} dòng chưa có SKU nguyên vật liệu. Vui lòng tạo/chọn SKU NVL trước khi nhập kho.`);
+      return;
     }
 
     let createdReceiptId: string | null = null;
@@ -597,7 +607,7 @@ export function AddGoodsReceiptDialog() {
                         Có {newSkuItems.length} sản phẩm chưa có SKU
                       </p>
                       <p className="text-yellow-700 dark:text-yellow-300">
-                        Bạn có thể tiếp tục tạo phiếu nhập hoặc vào trang SKU để tạo mã SKU trước.
+                        Phiếu nhập kho chỉ nhận SKU nguyên vật liệu. Vui lòng vào trang SKU để tạo mã SKU NVL trước.
                       </p>
                     </div>
                   </div>
