@@ -106,12 +106,19 @@ export function AddGoodsReceiptDialog() {
       .replace(/\s+/g, " ")
       .trim();
 
-  const acronymOf = (v: string) =>
-    normalizeText(v)
+  const acronymOf = (v: string) => {
+    const tokens = normalizeText(v)
       .split(" ")
-      .filter((x) => x && x.length > 1)
-      .map((x) => x[0])
-      .join("");
+      .filter((x) => x && x.length > 1);
+
+    // Important: support short supplier tokens like "STC", "VPM", ...
+    if (tokens.length === 1) {
+      const t = tokens[0];
+      if (t.length >= 2 && t.length <= 8) return t;
+    }
+
+    return tokens.map((x) => x[0]).join("");
+  };
 
   const isLikelySupplierToken = (v: string) => {
     const t = normalizeText(v);
