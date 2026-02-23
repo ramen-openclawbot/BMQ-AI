@@ -289,10 +289,21 @@ ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slic
     const scannedSupplierName = String(extractedData?.supplier_name || "").trim();
     const scannedSupplierKey = normalizeText(scannedSupplierName);
 
-    if (scannedSupplierKey && supplierList.length && aliases.length) {
+    if (scannedSupplierKey && aliases.length) {
+      const resolveSupplier = async (supplierId: string) => {
+        const fromPayload = supplierList.find((s) => s.id === supplierId);
+        if (fromPayload) return fromPayload;
+        const { data } = await supabaseAdmin
+          .from("suppliers")
+          .select("id,name")
+          .eq("id", supplierId)
+          .maybeSingle();
+        return data ? ({ id: String((data as any).id), name: String((data as any).name || "") }) : null;
+      };
+
       const directAlias = aliases.find((a) => a.alias_key === scannedSupplierKey);
       if (directAlias) {
-        const hit = supplierList.find((s) => s.id === directAlias.supplier_id);
+        const hit = await resolveSupplier(directAlias.supplier_id);
         if (hit) {
           supplierMatch = { id: hit.id, name: hit.name, score: 100, source: "alias" };
           extractedData.supplier_name = hit.name;
@@ -302,7 +313,7 @@ ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slic
       if (!supplierMatch) {
         const containsAlias = aliases.find((a) => scannedSupplierKey.includes(a.alias_key) || a.alias_key.includes(scannedSupplierKey));
         if (containsAlias) {
-          const hit = supplierList.find((s) => s.id === containsAlias.supplier_id);
+          const hit = await resolveSupplier(containsAlias.supplier_id);
           if (hit) {
             supplierMatch = { id: hit.id, name: hit.name, score: 95, source: "alias" };
             extractedData.supplier_name = hit.name;
