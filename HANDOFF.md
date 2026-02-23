@@ -1,49 +1,56 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.4**
+- apps/web: **0.0.5**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
-- Latest commit at handoff time: `256e1ad`
+- Latest commit at handoff time: `95dfe16`
 
 ## What is done (latest)
-1. SKU Management page now keeps only **Danh sách SKU thành phẩm**.
-2. Removed extra SKU management sections (batch coding, trace links, legacy long blocks).
-3. Added DB cleanup migration for removed sections:
-   - `production_batch_materials`
-   - `production_batches`
-   - `batch_code_patterns`
-   - File: `apps/web/supabase/migrations/20260223003000_cleanup_sku_management_non_list_sections.sql`
-4. SKU Dashboard fixed to load from `product_skus` (finished SKU) so created SKU always appears.
-5. SKU Analysis bridge aligned with current schema (`cost_values`) and current costing logic.
-6. Settings → App info → Version now reads semver from `apps/web/package.json` (removed stale `v1.0.0` behavior).
-7. Dashboard overview simplified to compact widgets (short, non-verbose).
-8. Replaced long EN headings in remaining dashboard sections with concise VN labels.
+1. Dashboard đã rút gọn theo hướng overview ngắn; bỏ các block dài gây rối.
+2. Chuẩn hóa nhãn UI tiếng Việt ngắn gọn cho các khối dashboard.
+3. Đã fix scan hóa đơn ở Add Invoice (mobile-friendly fallback + thông báo lỗi rõ ràng + toast thành công).
+4. Đã fix tạo phiếu nhập kho theo flow an toàn hơn:
+   - tạo receipt ở `draft` trước,
+   - tạo items,
+   - rồi mới chuyển `confirmed`.
+5. Đã fix tương thích schema lệch môi trường cho phiếu nhập (fallback khi thiếu cột `manufacture_date`).
+6. Đã tách domain nghiệp vụ rõ ràng:
+   - Phiếu nhập kho = **nguyên vật liệu**,
+   - COGS/SKU Cost = **SKU thành phẩm**.
+7. Đã đổi nhãn module cost sang ngữ nghĩa COGS:
+   - “Tính chi phí giá vốn hàng bán”,
+   - “Tổng quan giá vốn”, “Quản trị SKU thành phẩm”, “Phân tích giá vốn”.
+8. Đã triển khai tách loại SKU ở tầng dữ liệu + guardrail DB:
+   - thêm `sku_type` (`raw_material` | `finished_good`) cho `product_skus`,
+   - backfill từ `category`,
+   - trigger chặn `goods_receipt_items` nếu dùng SKU thành phẩm.
+9. User xác nhận đã chạy xong migration SQL production.
+
+## Migration mới quan trọng
+- `apps/web/supabase/migrations/20260223173000_sku_type_and_goods_receipt_guardrails.sql`
 
 ## Confirmed by user
-- User confirmed dashboard/analysis/settings fixes and requested compact overview presentation.
+- User đồng ý release luôn sau khi chạy SQL migration.
 
-## Pending request (not implemented yet)
-### Permission control for delete SKU
-Only account `tam@bmq.vn` can delete SKU in finished list; other accounts should not see Delete button.
-
-### Proposed implementation plan
-1. FE: hide Delete button unless login email is `tam@bmq.vn`.
-2. BE/RLS: enforce delete permission by email at policy level.
-3. Refactor delete flow to avoid partial delete risk.
-4. Verify with authorized and non-authorized accounts.
+## Pending / Follow-up (khuyến nghị)
+1. Viết migration đồng bộ schema để bỏ fallback tạm cho `manufacture_date` khi tất cả env đã đồng nhất.
+2. Bổ sung UAT checklist chính thức cho 2 domain:
+   - Kho NVL,
+   - COGS thành phẩm.
+3. (Tuỳ chọn) tăng ràng buộc DB cho các flow nhập/xuất thành phẩm nếu mở rộng kho thành phẩm đầy đủ.
 
 ## Recent commits
-- `256e1ad` chore(ui): replace verbose EN dashboard section headings with concise VN labels
-- `7d288e0` refactor(dashboard): remove verbose inventory/supplier blocks and keep compact overview widgets
-- `a4bc144` refactor(sku-dashboard): simplify overview with compact smart widgets
-- `ff4feac` docs(handoff): update latest status and bump web version to 0.0.3
-- `38f9ae1` fix(settings): show app version from package semver instead of stale fallback
+- `95dfe16` feat(domain): enforce SKU type separation for raw-material receiving vs finished-goods COGS
+- `0ab6b3e` refactor(domain): separate raw-material GRN SKU flow from finished-goods COGS module
+- `524729d` fix(goods-receipt): tolerate missing manufacture_date column when inserting receipt items
+- `6cec5ec` fix(goods-receipt): create as draft then confirm after items; surface real DB errors and rollback on failure
+- `777bedb` fix(invoice-scan): add apikey header fallback and user-facing scan errors on mobile
 
 ## Notes for next assignee
-- Run migration `20260223003000_cleanup_sku_management_non_list_sections.sql` in production if not yet applied.
-- After deploy, verify:
-  - `/sku-costs/management` only has finished SKU list section.
-  - `/sku-costs/dashboard` shows compact widgets and correct finished SKU data.
-  - `/sku-costs/analysis` numbers follow `cost_values` + formulation logic.
-  - `/settings` shows app version from current package semver.
+- Đảm bảo environment production đã có migration `20260223173000_sku_type_and_goods_receipt_guardrails.sql` (user báo đã run).
+- Verify sau deploy:
+  - `/goods-receipts`: chỉ nhận SKU nguyên vật liệu.
+  - `/sku-costs/*`: chỉ xử lý SKU thành phẩm cho COGS.
+  - Add Invoice scan hoạt động ổn trên mobile.
+  - `/settings` hiển thị version từ semver package (`0.0.5`).
