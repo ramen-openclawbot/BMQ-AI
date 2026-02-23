@@ -1,10 +1,10 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.5**
+- apps/web: **0.0.6**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
-- Latest commit at handoff time: `95dfe16`
+- Latest commit at handoff time: `3881f08`
 
 ## What is done (latest)
 1. Dashboard đã rút gọn theo hướng overview ngắn; bỏ các block dài gây rối.
@@ -43,6 +43,9 @@
 3. (Tuỳ chọn) tăng ràng buộc DB cho các flow nhập/xuất thành phẩm nếu mở rộng kho thành phẩm đầy đủ.
 
 ## Recent commits
+- `3881f08` fix(scan-invoice): replace rpc().catch chain with try/catch in edge runtime
+- `089f1b4` fix(scan-vi): improve Vietnamese seller extraction and alias matching across seller candidates
+- `2976191` fix(alias-match): resolve supplier from DB when FE supplier list not loaded during scan
 - `758edf6` feat(ncc-alias): implement Supplier Alias Manager UI and alias-priority scan matching
 - `dd4f74d` feat(scan-learning): add supplier template memory and stronger canonical supplier matching
 - `95dfe16` feat(domain): enforce SKU type separation for raw-material receiving vs finished-goods COGS
@@ -57,7 +60,7 @@
   - `/goods-receipts`: chỉ nhận SKU nguyên vật liệu.
   - `/sku-costs/*`: chỉ xử lý SKU thành phẩm cho COGS.
   - Add Invoice scan hoạt động ổn trên mobile.
-  - `/settings` hiển thị version từ semver package (`0.0.5`).
+  - `/settings` hiển thị version từ semver package (`0.0.6`).
 
 
 ## Shortcut/output rule (user preference)
