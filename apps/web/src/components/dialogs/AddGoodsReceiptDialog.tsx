@@ -59,6 +59,7 @@ export function AddGoodsReceiptDialog() {
   const [scanCompleted, setScanCompleted] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [newSkuItems, setNewSkuItems] = useState<number[]>([]);
+  const [scanSupplierInfo, setScanSupplierInfo] = useState<{ detected?: string; matched?: string; source?: string; score?: number } | null>(null);
 
   const { data: suppliers } = useSuppliers();
   const { data: skus } = useProductSKUs();
@@ -291,6 +292,12 @@ export function AddGoodsReceiptDialog() {
 
       if (data.success && payload) {
         const extractedItems: ExtractedItem[] = payload.items || [];
+        setScanSupplierInfo({
+          detected: data?.detected_supplier_name || payload?.supplier_name || undefined,
+          matched: data?.supplier_match?.name || undefined,
+          source: data?.supplier_match?.source || undefined,
+          score: data?.supplier_match?.score || undefined,
+        });
 
         // Match items with existing raw-material SKUs; auto-create missing SKU from scan result
         const autoCreatedSkuCount = { value: 0 };
@@ -491,6 +498,7 @@ export function AddGoodsReceiptDialog() {
       setNewSkuItems([]);
       setScanCompleted(false);
       setScanError(null);
+      setScanSupplierInfo(null);
     }
   }, [open, form]);
 
@@ -618,6 +626,23 @@ export function AddGoodsReceiptDialog() {
                 )}
               />
             </div>
+
+            {scanSupplierInfo?.detected && (
+              <div className="rounded-md border border-muted bg-muted/30 p-2 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">NCC quét được:</span> {scanSupplierInfo.detected}
+                {scanSupplierInfo.matched ? (
+                  <>
+                    <span className="mx-2">→</span>
+                    <span className="font-medium text-foreground">Đã chọn:</span> {scanSupplierInfo.matched}
+                    {scanSupplierInfo.source ? (
+                      <Badge variant="secondary" className="ml-2">match: {scanSupplierInfo.source}</Badge>
+                    ) : null}
+                  </>
+                ) : (
+                  <Badge variant="outline" className="ml-2">chưa match NCC</Badge>
+                )}
+              </div>
+            )}
 
             {/* Items Table */}
             <div className="space-y-2">

@@ -8,6 +8,14 @@ const corsHeaders = {
 
 type SupplierLite = { id: string; name: string };
 
+type SupplierAliasRow = {
+  id: string;
+  supplier_id: string;
+  alias_text: string;
+  alias_key: string;
+  active: boolean;
+};
+
 type ScanTemplateRow = {
   id: string;
   supplier_id: string | null;
@@ -137,6 +145,13 @@ serve(async (req) => {
 
     const templates = (templatesData || []) as ScanTemplateRow[];
 
+    const { data: aliasesData } = await supabaseAdmin
+      .from("supplier_aliases")
+      .select("id,supplier_id,alias_text,alias_key,active")
+      .eq("active", true)
+      .limit(500);
+    const aliases = (aliasesData || []) as SupplierAliasRow[];
+
     const knownSuppliersPrompt = supplierList.length
       ? `Known supplier master data (choose from this list when possible):\n${supplierList
           .slice(0, 120)
@@ -176,7 +191,8 @@ Important notes:
 - Extract ALL visible line items.
 - For quantities and prices, convert to numbers.
 ${knownSuppliersPrompt}
-${learnedTemplatePrompt}`;
+${learnedTemplatePrompt}
+${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slice(0,150).map((a)=>`- ${a.alias_text} => ${(supplierList.find((x)=>x.id===a.supplier_id)?.name)||a.supplier_id}`).join("\n")}` : ""}`;
 
     console.log("[scan-invoice] Calling AI gateway");
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -268,16 +284,40 @@ ${learnedTemplatePrompt}`;
 
     const extractedData = JSON.parse(toolCall.function.arguments || "{}");
 
-    // Canonicalize supplier to master list (if provided) to avoid wrong pick in FE
-    let supplierMatch: { id: string; name: string; score: number } | null = null;
+    // Canonicalize supplier to master list (alias first, then scoring fallback)
+    let supplierMatch: { id: string; name: string; score: number; source: "alias" | "scoring" } | null = null;
     const scannedSupplierName = String(extractedData?.supplier_name || "").trim();
-    if (scannedSupplierName && supplierList.length) {
+    const scannedSupplierKey = normalizeText(scannedSupplierName);
+
+    if (scannedSupplierKey && supplierList.length && aliases.length) {
+      const directAlias = aliases.find((a) => a.alias_key === scannedSupplierKey);
+      if (directAlias) {
+        const hit = supplierList.find((s) => s.id === directAlias.supplier_id);
+        if (hit) {
+          supplierMatch = { id: hit.id, name: hit.name, score: 100, source: "alias" };
+          extractedData.supplier_name = hit.name;
+        }
+      }
+
+      if (!supplierMatch) {
+        const containsAlias = aliases.find((a) => scannedSupplierKey.includes(a.alias_key) || a.alias_key.includes(scannedSupplierKey));
+        if (containsAlias) {
+          const hit = supplierList.find((s) => s.id === containsAlias.supplier_id);
+          if (hit) {
+            supplierMatch = { id: hit.id, name: hit.name, score: 95, source: "alias" };
+            extractedData.supplier_name = hit.name;
+          }
+        }
+      }
+    }
+
+    if (!supplierMatch && scannedSupplierName && supplierList.length) {
       const ranked = supplierList
         .map((s) => ({ ...s, score: scoreSupplierMatch(scannedSupplierName, s.name) }))
         .sort((a, b) => b.score - a.score);
       const best = ranked[0];
       if (best && best.score >= 90) {
-        supplierMatch = { id: best.id, name: best.name, score: best.score };
+        supplierMatch = { id: best.id, name: best.name, score: best.score, source: "scoring" };
         extractedData.supplier_name = best.name;
       }
     }
@@ -314,7 +354,7 @@ ${learnedTemplatePrompt}`;
 
     console.log(`[scan-invoice] Completed in ${Date.now() - startTime}ms, extracted ${extractedData.items?.length || 0} items`);
     return new Response(
-      JSON.stringify({ success: true, data: extractedData, supplier_match: supplierMatch, template_learning: supplierKey || null }),
+      JSON.stringify({ success: true, data: extractedData, supplier_match: supplierMatch, detected_supplier_name: scannedSupplierName || null, template_learning: supplierKey || null }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
