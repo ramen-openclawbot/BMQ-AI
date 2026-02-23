@@ -234,10 +234,10 @@ export function AddGoodsReceiptDialog() {
       if (data.success && data.data) {
         const extractedItems: ExtractedItem[] = data.data.items || [];
 
-        // Match items with existing SKUs
-        const newSkuIndices: number[] = [];
+        // Match items with existing raw-material SKUs; auto-create missing SKU from scan result
+        const autoCreatedSkuCount = { value: 0 };
         const matchedItems = await Promise.all(
-          extractedItems.map(async (item, index) => {
+          extractedItems.map(async (item) => {
             // Find SKU by product code or name
             const matchedSku = ingredientSkus?.find(
               (sku) =>
@@ -256,24 +256,26 @@ export function AddGoodsReceiptDialog() {
                 sku_code: matchedSku.sku_code,
                 sku_status: "found" as const,
               };
-            } else {
-              newSkuIndices.push(index);
-              return {
-                product_name: item.product_name,
-                quantity: item.quantity,
-                unit: item.unit || "kg",
-                expiry_date: "",
-                sku_id: undefined,
-                sku_code: undefined,
-                sku_status: "not_found" as const,
-              };
             }
+
+            // Auto create raw-material SKU right after scan
+            const createdSkuId = await ensureRawMaterialSku(item.product_name, item.unit || "kg");
+            autoCreatedSkuCount.value += 1;
+            return {
+              product_name: item.product_name,
+              quantity: item.quantity,
+              unit: item.unit || "kg",
+              expiry_date: "",
+              sku_id: createdSkuId,
+              sku_code: undefined,
+              sku_status: "found" as const,
+            };
           })
         );
 
         // Update form with matched items
         form.setValue("items", matchedItems);
-        setNewSkuItems(newSkuIndices);
+        setNewSkuItems([]);
 
         // Try to match supplier
         if (data.data.supplier_name && suppliers) {
@@ -286,8 +288,8 @@ export function AddGoodsReceiptDialog() {
         }
 
         setScanCompleted(true);
-        if (newSkuIndices.length > 0) {
-          toast.warning(`Có ${newSkuIndices.length} sản phẩm mới chưa có SKU. Vui lòng tạo SKU hoặc kiểm tra lại.`);
+        if (autoCreatedSkuCount.value > 0) {
+          toast.success(`Đã quét phiếu giao hàng và tự tạo ${autoCreatedSkuCount.value} SKU nguyên vật liệu mới`);
         } else {
           toast.success("Đã trích xuất thông tin từ phiếu giao hàng");
         }
@@ -304,17 +306,9 @@ export function AddGoodsReceiptDialog() {
 
   // Submit form
   const onSubmit = async (data: FormData) => {
-    // Phiếu nhập kho chỉ dành cho nguyên vật liệu có SKU NVL
+    // Safety net: nếu còn dòng thiếu SKU (manual edit sau scan), tự tạo SKU NVL trước khi submit
     const itemsWithoutSku = data.items.filter((item) => !item.sku_id);
     if (itemsWithoutSku.length > 0) {
-      const autoCreate = window.confirm(
-        `Có ${itemsWithoutSku.length} dòng chưa có SKU NVL. Anh có muốn Ramen tự tạo SKU nguyên vật liệu cho các dòng này không?`
-      );
-      if (!autoCreate) {
-        toast.error(`Có ${itemsWithoutSku.length} dòng chưa có SKU nguyên vật liệu. Vui lòng tạo/chọn SKU NVL trước khi nhập kho.`);
-        return;
-      }
-
       for (let i = 0; i < data.items.length; i++) {
         const row = data.items[i];
         if (!row.sku_id) {
