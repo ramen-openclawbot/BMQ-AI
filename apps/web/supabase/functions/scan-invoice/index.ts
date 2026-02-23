@@ -374,7 +374,11 @@ ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slic
           { onConflict: "supplier_name_key" }
         );
 
-      await supabaseAdmin.rpc("increment_supplier_template_hit", { p_supplier_name_key: supplierKey }).catch(() => null);
+      try {
+        await supabaseAdmin.rpc("increment_supplier_template_hit", { p_supplier_name_key: supplierKey });
+      } catch (_e) {
+        // non-blocking metrics update
+      }
     }
 
     console.log(`[scan-invoice] Completed in ${Date.now() - startTime}ms, extracted ${extractedData.items?.length || 0} items`);
