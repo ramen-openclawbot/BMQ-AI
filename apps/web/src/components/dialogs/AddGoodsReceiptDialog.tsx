@@ -97,6 +97,29 @@ export function AddGoodsReceiptDialog() {
     return "Lỗi không xác định";
   };
 
+  const normalizeText = (v: string) =>
+    String(v || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const scoreSupplierMatch = (scanned: string, candidate: string): number => {
+    const a = normalizeText(scanned);
+    const b = normalizeText(candidate);
+    if (!a || !b) return 0;
+    if (a === b) return 100;
+    if (a.includes(b) || b.includes(a)) return 90;
+
+    const at = a.split(" ").filter(Boolean);
+    const bt = b.split(" ").filter(Boolean);
+    const inter = at.filter((t) => bt.includes(t)).length;
+    if (!inter) return 0;
+    return Math.round((inter / Math.max(at.length, bt.length)) * 80);
+  };
+
   const slugifySku = (name: string) =>
     String(name || "")
       .toUpperCase()
@@ -277,13 +300,16 @@ export function AddGoodsReceiptDialog() {
         form.setValue("items", matchedItems);
         setNewSkuItems([]);
 
-        // Try to match supplier
-        if (data.data.supplier_name && suppliers) {
-          const matchedSupplier = suppliers.find((s) =>
-            s.name.toLowerCase().includes(data.data.supplier_name.toLowerCase())
-          );
-          if (matchedSupplier) {
-            form.setValue("supplier_id", matchedSupplier.id);
+        // Try to match supplier from scanned company name (accent-insensitive + token score)
+        if (data.data.supplier_name && suppliers?.length) {
+          const scannedSupplierName = String(data.data.supplier_name || "").trim();
+          const ranked = suppliers
+            .map((s) => ({ supplier: s, score: scoreSupplierMatch(scannedSupplierName, s.name) }))
+            .sort((a, b) => b.score - a.score);
+
+          const best = ranked[0];
+          if (best && best.score >= 60) {
+            form.setValue("supplier_id", best.supplier.id);
           }
         }
 
