@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, Loader2, Upload, Scan, AlertCircle, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useSuppliers } from "@/hooks/useSuppliers";
-import { useCreateGoodsReceipt, useCreateGoodsReceiptItem, uploadGoodsReceiptImage } from "@/hooks/useGoodsReceipts";
+import { useCreateGoodsReceipt, useCreateGoodsReceiptItem, useUpdateGoodsReceipt, useDeleteGoodsReceipt, uploadGoodsReceiptImage } from "@/hooks/useGoodsReceipts";
 import { useProductSKUs } from "@/hooks/useProductSKUs";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -62,6 +62,8 @@ export function AddGoodsReceiptDialog() {
   const { data: skus } = useProductSKUs();
   const createReceipt = useCreateGoodsReceipt();
   const createItem = useCreateGoodsReceiptItem();
+  const updateReceipt = useUpdateGoodsReceipt();
+  const deleteReceipt = useDeleteGoodsReceipt();
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -82,6 +84,15 @@ export function AddGoodsReceiptDialog() {
   const totalQuantity = useMemo(() => {
     return watchedItems.reduce((sum, item) => sum + (item.quantity || 0), 0);
   }, [watchedItems]);
+
+  const getErrorMessage = (error: unknown): string => {
+    if (error instanceof Error) return error.message;
+    if (error && typeof error === "object") {
+      const e = error as Record<string, any>;
+      return e.message || e.details || e.hint || JSON.stringify(error);
+    }
+    return "Lỗi không xác định";
+  };
 
   // Handle image upload
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -257,6 +268,8 @@ export function AddGoodsReceiptDialog() {
       if (!confirmProceed) return;
     }
 
+    let createdReceiptId: string | null = null;
+
     try {
       let imageUrl: string | undefined;
       if (imageFile) {
@@ -270,9 +283,11 @@ export function AddGoodsReceiptDialog() {
         image_url: imageUrl || null,
         notes: data.notes || null,
         total_quantity: totalQuantity,
-        status: "confirmed",
+        status: "draft",
         created_by: user?.id || null,
       });
+
+      createdReceiptId = receipt.id;
 
       // Create items
       for (const item of data.items) {
@@ -287,6 +302,9 @@ export function AddGoodsReceiptDialog() {
         } as any);
       }
 
+      // Chuyển trạng thái sau khi đã có item để tránh lỗi trigger/check trên DB production
+      await updateReceipt.mutateAsync({ id: receipt.id, status: "confirmed", total_quantity: totalQuantity });
+
       toast.success("Đã tạo phiếu nhập kho thành công");
       setOpen(false);
       form.reset();
@@ -295,8 +313,18 @@ export function AddGoodsReceiptDialog() {
       setNewSkuItems([]);
     } catch (error) {
       console.error("Create error:", error);
-      const errorMessage = error instanceof Error ? error.message : "Lỗi không xác định";
-      if (errorMessage.includes("row-level security") || errorMessage.includes("permission")) {
+      const errorMessage = getErrorMessage(error);
+
+      // Best-effort rollback nếu đã tạo receipt nhưng fail ở bước tạo items/update
+      try {
+        if (createdReceiptId) {
+          await deleteReceipt.mutateAsync(createdReceiptId);
+        }
+      } catch (rollbackErr) {
+        console.warn("Rollback goods receipt failed:", rollbackErr);
+      }
+
+      if (errorMessage.toLowerCase().includes("row-level security") || errorMessage.toLowerCase().includes("permission")) {
         toast.error("Bạn không có quyền tạo phiếu nhập kho");
       } else {
         toast.error(`Không thể tạo phiếu nhập kho: ${errorMessage}`);
