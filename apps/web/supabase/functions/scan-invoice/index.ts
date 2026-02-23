@@ -234,6 +234,11 @@ ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slic
                   invoice_date: { type: "string" },
                   supplier_name: { type: "string" },
                   vat_amount: { type: "number" },
+                  seller_name_candidates: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Danh sách tên ứng viên bên bán nhìn thấy trên phiếu"
+                  },
                   items: {
                     type: "array",
                     items: {
@@ -284,12 +289,16 @@ ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slic
 
     const extractedData = JSON.parse(toolCall.function.arguments || "{}");
 
-    // Canonicalize supplier to master list (alias first, then scoring fallback)
+    // Canonicalize supplier to master list (alias first on multiple candidates, then scoring fallback)
     let supplierMatch: { id: string; name: string; score: number; source: "alias" | "scoring" } | null = null;
     const scannedSupplierName = String(extractedData?.supplier_name || "").trim();
-    const scannedSupplierKey = normalizeText(scannedSupplierName);
 
-    if (scannedSupplierKey && aliases.length) {
+    const candidateTexts = Array.from(new Set([
+      scannedSupplierName,
+      ...((Array.isArray((extractedData as any)?.seller_name_candidates) ? (extractedData as any).seller_name_candidates : []) as string[]),
+    ].map((x) => String(x || "").trim()).filter(Boolean)));
+
+    if (candidateTexts.length && aliases.length) {
       const resolveSupplier = async (supplierId: string) => {
         const fromPayload = supplierList.find((s) => s.id === supplierId);
         if (fromPayload) return fromPayload;
@@ -301,22 +310,27 @@ ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slic
         return data ? ({ id: String((data as any).id), name: String((data as any).name || "") }) : null;
       };
 
-      const directAlias = aliases.find((a) => a.alias_key === scannedSupplierKey);
-      if (directAlias) {
-        const hit = await resolveSupplier(directAlias.supplier_id);
-        if (hit) {
-          supplierMatch = { id: hit.id, name: hit.name, score: 100, source: "alias" };
-          extractedData.supplier_name = hit.name;
-        }
-      }
+      for (const candidate of candidateTexts) {
+        const key = normalizeText(candidate);
+        if (!key) continue;
 
-      if (!supplierMatch) {
-        const containsAlias = aliases.find((a) => scannedSupplierKey.includes(a.alias_key) || a.alias_key.includes(scannedSupplierKey));
+        const directAlias = aliases.find((a) => a.alias_key === key);
+        if (directAlias) {
+          const hit = await resolveSupplier(directAlias.supplier_id);
+          if (hit) {
+            supplierMatch = { id: hit.id, name: hit.name, score: 100, source: "alias" };
+            extractedData.supplier_name = hit.name;
+            break;
+          }
+        }
+
+        const containsAlias = aliases.find((a) => key.includes(a.alias_key) || a.alias_key.includes(key));
         if (containsAlias) {
           const hit = await resolveSupplier(containsAlias.supplier_id);
           if (hit) {
             supplierMatch = { id: hit.id, name: hit.name, score: 95, source: "alias" };
             extractedData.supplier_name = hit.name;
+            break;
           }
         }
       }
