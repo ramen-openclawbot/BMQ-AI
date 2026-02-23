@@ -28,6 +28,7 @@
 9. User xác nhận đã chạy xong migration SQL production.
 
 ## Migration mới quan trọng
+- `apps/web/supabase/migrations/20260223203000_supplier_aliases.sql`
 - `apps/web/supabase/migrations/20260223173000_sku_type_and_goods_receipt_guardrails.sql`
 - `apps/web/supabase/migrations/20260223193000_supplier_scan_templates.sql`
 
@@ -42,6 +43,7 @@
 3. (Tuỳ chọn) tăng ràng buộc DB cho các flow nhập/xuất thành phẩm nếu mở rộng kho thành phẩm đầy đủ.
 
 ## Recent commits
+- `758edf6` feat(ncc-alias): implement Supplier Alias Manager UI and alias-priority scan matching
 - `dd4f74d` feat(scan-learning): add supplier template memory and stronger canonical supplier matching
 - `95dfe16` feat(domain): enforce SKU type separation for raw-material receiving vs finished-goods COGS
 - `0ab6b3e` refactor(domain): separate raw-material GRN SKU flow from finished-goods COGS module
@@ -64,3 +66,10 @@
   - `output/_latest/latest-migration.sql` -> migration SQL mới nhất
   - `output/_latest/<ten-file-goc>.sql` -> shortcut theo đúng tên file
 - Nếu đã có shortcut cũ, cập nhật lại bằng symlink mới nhất (`ln -sfn`).
+
+
+## Latest update (NCC Alias Manager UI)
+- Added Settings section **NCC Alias Manager** for alias CRUD (map alias -> NCC chuẩn).
+- Scan backend now ưu tiên alias match trước scoring fallback, giúp case STC ổn định hơn.
+- Goods Receipt dialog hiển thị metadata NCC quét được + nguồn match (alias/scoring).
+- Shortcut migration đã tạo tại `output/_latest/latest-migration.sql` và `output/_latest/20260223203000_supplier_aliases.sql`.
