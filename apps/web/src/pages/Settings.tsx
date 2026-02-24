@@ -11,7 +11,6 @@ import { Separator } from "@/components/ui/separator";
 import { supabase } from "@/integrations/supabase/client";
 import { GoogleDriveSettings } from "@/components/settings/GoogleDriveSettings";
 import { AppVersionSection } from "@/components/settings/AppVersionSection";
-import { SupplierAliasManager } from "@/components/settings/SupplierAliasManager";
 import {
   Select,
   SelectContent,
@@ -195,9 +194,6 @@ const Settings = () => {
           </Button>
         </div>
       </div>
-
-      {/* Supplier Alias Manager */}
-      <SupplierAliasManager />
 
       {/* App Version Section */}
       <AppVersionSection />

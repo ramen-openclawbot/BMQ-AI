@@ -19,6 +19,12 @@ type SupplierAlias = {
   created_at: string;
 };
 
+interface SupplierAliasManagerProps {
+  supplierId?: string;
+  title?: string;
+  compact?: boolean;
+}
+
 const normalizeText = (v: string) =>
   String(v || "")
     .toLowerCase()
@@ -28,23 +34,36 @@ const normalizeText = (v: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-export function SupplierAliasManager() {
+export function SupplierAliasManager({
+  supplierId,
+  title = "NCC Alias Manager",
+  compact = false,
+}: SupplierAliasManagerProps = {}) {
   const { data: suppliers } = useSuppliers();
   const [aliases, setAliases] = useState<SupplierAlias[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [newSupplierId, setNewSupplierId] = useState("");
+  const [newSupplierId, setNewSupplierId] = useState(supplierId || "");
   const [newAliasText, setNewAliasText] = useState("");
 
   const supplierMap = useMemo(() => new Map((suppliers || []).map((s) => [s.id, s.name])), [suppliers]);
+  const lockedSupplierId = supplierId || "";
+
+  useEffect(() => {
+    setNewSupplierId(supplierId || "");
+  }, [supplierId]);
 
   const fetchAliases = async () => {
     setLoading(true);
     try {
-      const { data, error } = await (supabase as any)
+      let query = (supabase as any)
         .from("supplier_aliases")
         .select("id,supplier_id,alias_text,alias_key,active,created_at")
         .order("created_at", { ascending: false });
+
+      if (lockedSupplierId) query = query.eq("supplier_id", lockedSupplierId);
+
+      const { data, error } = await query;
       if (error) throw error;
       setAliases((data || []) as SupplierAlias[]);
     } catch (error: any) {
@@ -56,10 +75,11 @@ export function SupplierAliasManager() {
 
   useEffect(() => {
     fetchAliases();
-  }, []);
+  }, [lockedSupplierId]);
 
   const handleCreate = async () => {
-    if (!newSupplierId || !newAliasText.trim()) {
+    const targetSupplierId = lockedSupplierId || newSupplierId;
+    if (!targetSupplierId || !newAliasText.trim()) {
       toast.error("Vui lòng chọn NCC và nhập alias");
       return;
     }
@@ -76,7 +96,7 @@ export function SupplierAliasManager() {
       const { error } = await (supabase as any)
         .from("supplier_aliases")
         .insert({
-          supplier_id: newSupplierId,
+          supplier_id: targetSupplierId,
           alias_text: newAliasText.trim(),
           alias_key: aliasKey,
           active: true,
@@ -120,28 +140,30 @@ export function SupplierAliasManager() {
   };
 
   return (
-    <div className="card-elevated rounded-xl border border-border p-6 space-y-4">
+    <div className={compact ? "space-y-3 rounded-lg border p-3" : "card-elevated rounded-xl border border-border p-6 space-y-4"}>
       <div className="flex items-center gap-3">
         <Building2 className="h-5 w-5 text-primary" />
-        <h2 className="font-display font-semibold text-lg">NCC Alias Manager</h2>
+        <h2 className={compact ? "font-semibold" : "font-display font-semibold text-lg"}>{title}</h2>
       </div>
       <Separator />
 
       <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2">
-        <div>
-          <Label>Nhà cung cấp chuẩn</Label>
-          <Select value={newSupplierId} onValueChange={setNewSupplierId}>
-            <SelectTrigger>
-              <SelectValue placeholder="Chọn NCC" />
-            </SelectTrigger>
-            <SelectContent>
-              {(suppliers || []).map((s) => (
-                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
+        {!lockedSupplierId && (
+          <div>
+            <Label>Nhà cung cấp chuẩn</Label>
+            <Select value={newSupplierId} onValueChange={setNewSupplierId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Chọn NCC" />
+              </SelectTrigger>
+              <SelectContent>
+                {(suppliers || []).map((s) => (
+                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        <div className={!lockedSupplierId ? "" : "md:col-span-2"}>
           <Label>Tên alias trên phiếu (OCR)</Label>
           <Input value={newAliasText} onChange={(e) => setNewAliasText(e.target.value)} placeholder="Ví dụ: STC, Cty TNHH TP STC" />
         </div>
@@ -155,10 +177,12 @@ export function SupplierAliasManager() {
       <div className="space-y-2">
         {(loading ? [] : aliases).map((a) => (
           <div key={a.id} className="rounded-md border p-3 flex items-center justify-between gap-3">
-            <div className="space-y-1">
-              <div className="font-medium">{a.alias_text}</div>
-              <div className="text-xs text-muted-foreground">{supplierMap.get(a.supplier_id) || a.supplier_id}</div>
-              <div className="text-xs text-muted-foreground">key: {a.alias_key}</div>
+            <div className="space-y-1 min-w-0">
+              <div className="font-medium break-words">{a.alias_text}</div>
+              {!lockedSupplierId && (
+                <div className="text-xs text-muted-foreground break-words">{supplierMap.get(a.supplier_id) || a.supplier_id}</div>
+              )}
+              <div className="text-xs text-muted-foreground break-words">key: {a.alias_key}</div>
             </div>
             <div className="flex items-center gap-2">
               <Badge variant={a.active ? "secondary" : "outline"}>{a.active ? "active" : "inactive"}</Badge>

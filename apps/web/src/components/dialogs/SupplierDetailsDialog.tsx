@@ -12,6 +12,7 @@ import { Supplier } from "@/hooks/useSuppliers";
 import { db } from "@/lib/supabase-helpers";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { SupplierAliasManager } from "@/components/settings/SupplierAliasManager";
 
 const categories = ["Flour", "Sugar", "Dairy", "Chocolate", "Nuts", "Yeast", "Eggs", "Packaging", "General"];
 
@@ -237,6 +238,12 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
                   Dùng để khớp với UNC khi tên chuyển khoản khác tên NCC
                 </p>
               </div>
+
+              <SupplierAliasManager
+                supplierId={supplier.id}
+                title="Tên gọi khác (Alias OCR)"
+                compact
+              />
 
               {/* Payment Method */}
               <div className="space-y-2">
