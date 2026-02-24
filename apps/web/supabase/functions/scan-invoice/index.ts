@@ -47,7 +47,7 @@ const acronymOf = (v: string) => {
   return tokens.map((x) => x[0]).join("");
 };
 
-const scoreSupplierMatch = (scanned: string, candidate: string): number => {
+const parseNumericVN = (v: unknown): number | null => {\n  if (typeof v === "number") return Number.isFinite(v) ? v : null;\n  const raw = String(v ?? "").trim();\n  if (!raw) return null;\n  const normalized = raw\n    .replace(/\s+/g, "")\n    .replace(/\.(?=\d{3}(\D|$))/g, "")\n    .replace(/,/g, ".")\n    .replace(/[^0-9.-]/g, "");\n  const n = Number(normalized);\n  return Number.isFinite(n) ? n : null;\n};\n\nconst scoreSupplierMatch = (scanned: string, candidate: string): number => {
   const a = normalizeText(scanned);
   const b = normalizeText(candidate);
   if (!a || !b) return 0;
@@ -189,7 +189,7 @@ Important notes:
 - Prioritize seller/company logo header text for supplier_name.
 - Vietnamese numbers may use comma as decimal separator.
 - Extract ALL visible line items.
-- For quantities and prices, convert to numbers.
+- CHỈ lấy quantity từ cột Số lượng/SL của bảng hàng.\n- KHÔNG lấy số trong tên hàng/quy cách (ví dụ "(25kg)" không phải quantity).\n- For quantities and prices, convert to numbers.
 ${knownSuppliersPrompt}
 ${learnedTemplatePrompt}
 ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slice(0,150).map((a)=>`- ${a.alias_text} => ${(supplierList.find((x)=>x.id===a.supplier_id)?.name)||a.supplier_id}`).join("\n")}` : ""}`;
@@ -288,6 +288,16 @@ ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slic
     }
 
     const extractedData = JSON.parse(toolCall.function.arguments || "{}");
+
+    // Normalize numeric fields from Vietnamese OCR formats
+    if (Array.isArray(extractedData?.items)) {
+      extractedData.items = extractedData.items.map((it: any) => ({
+        ...it,
+        quantity: parseNumericVN(it?.quantity) ?? 0,
+        unit_price: parseNumericVN(it?.unit_price) ?? null,
+      }));
+    }
+    extractedData.vat_amount = parseNumericVN(extractedData?.vat_amount) ?? extractedData?.vat_amount ?? null;
 
     // Canonicalize supplier to master list (alias first on multiple candidates, then scoring fallback)
     let supplierMatch: { id: string; name: string; score: number; source: "alias" | "scoring" } | null = null;

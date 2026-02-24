@@ -85,8 +85,16 @@ export function AddGoodsReceiptDialog() {
   });
 
   const watchedItems = form.watch("items");
+  const parseQuantity = (v: unknown) => {
+    if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+    const raw = String(v ?? "").trim();
+    if (!raw) return 0;
+    const normalized = raw.replace(/\s+/g, "").replace(/\./g, "").replace(/,/g, ".").replace(/[^0-9.-]/g, "");
+    const n = Number(normalized);
+    return Number.isFinite(n) ? n : 0;
+  };
   const totalQuantity = useMemo(() => {
-    return watchedItems.reduce((sum, item) => sum + (item.quantity || 0), 0);
+    return (watchedItems || []).reduce((sum, item) => sum + parseQuantity(item?.quantity), 0);
   }, [watchedItems]);
 
   const getErrorMessage = (error: unknown): string => {
@@ -314,7 +322,7 @@ export function AddGoodsReceiptDialog() {
             if (matchedSku) {
               return {
                 product_name: matchedSku.product_name,
-                quantity: item.quantity,
+                quantity: parseQuantity(item.quantity),
                 unit: item.unit || matchedSku.unit || "kg",
                 expiry_date: "",
                 sku_id: matchedSku.id,
@@ -328,7 +336,7 @@ export function AddGoodsReceiptDialog() {
             autoCreatedSkuCount.value += 1;
             return {
               product_name: item.product_name,
-              quantity: item.quantity,
+              quantity: parseQuantity(item.quantity),
               unit: item.unit || "kg",
               expiry_date: "",
               sku_id: createdSku.id,
