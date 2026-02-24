@@ -47,7 +47,20 @@ const acronymOf = (v: string) => {
   return tokens.map((x) => x[0]).join("");
 };
 
-const parseNumericVN = (v: unknown): number | null => {\n  if (typeof v === "number") return Number.isFinite(v) ? v : null;\n  const raw = String(v ?? "").trim();\n  if (!raw) return null;\n  const normalized = raw\n    .replace(/\s+/g, "")\n    .replace(/\.(?=\d{3}(\D|$))/g, "")\n    .replace(/,/g, ".")\n    .replace(/[^0-9.-]/g, "");\n  const n = Number(normalized);\n  return Number.isFinite(n) ? n : null;\n};\n\nconst scoreSupplierMatch = (scanned: string, candidate: string): number => {
+const parseNumericVN = (v: unknown): number | null => {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  const raw = String(v ?? "").trim();
+  if (!raw) return null;
+  const normalized = raw
+    .replace(/\s+/g, "")
+    .replace(/\.(?=\d{3}(\D|$))/g, "")
+    .replace(/,/g, ".")
+    .replace(/[^0-9.-]/g, "");
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : null;
+};
+
+const scoreSupplierMatch = (scanned: string, candidate: string): number => {
   const a = normalizeText(scanned);
   const b = normalizeText(candidate);
   if (!a || !b) return 0;
