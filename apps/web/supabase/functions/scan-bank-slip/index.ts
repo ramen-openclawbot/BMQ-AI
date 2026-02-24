@@ -2,6 +2,21 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 // NOTE: Use npm specifier to avoid esm.sh drift/caching issues in edge runtime
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const parseAmountVN = (v: unknown): number | null => {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  const raw = String(v ?? "").trim();
+  if (!raw) return null;
+  const normalized = raw
+    .replace(/\s+/g, "")
+    .replace(/\.(?=\d{3}(\D|$))/g, "")
+    .replace(/,/g, ".")
+    .replace(/[^0-9.-]/g, "");
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : null;
+};
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
@@ -86,121 +101,106 @@ serve(async (req) => {
     }
 
     // System prompt for bank slip extraction
-    const systemPrompt = `You are an expert at extracting data from Vietnamese bank transfer receipts (Ủy nhiệm chi / UNC).
-You will receive an image of a bank transfer slip, typically from VCB DigiBiz or similar banking apps.
+    const systemPrompt = `Bạn là chuyên gia trích xuất dữ liệu từ ảnh UNC/ủy nhiệm chi tiếng Việt.
 
-Extract the following information:
-1. amount: The transfer amount in VND (number only, no formatting)
-2. recipient_name: The name of the recipient/beneficiary (người thụ hưởng)
-3. recipient_account: The recipient's bank account number
-4. recipient_bank: The recipient's bank name
-5. transaction_date: The date of the transaction (format: YYYY-MM-DD)
-6. transaction_id: The transaction reference number or ID
-7. content: The transfer content/description (nội dung chuyển khoản)
-8. sender_name: The name of the sender
+Hãy trích xuất các trường sau:
+1. amount: số tiền chuyển khoản (VND, chỉ lấy số)
+2. recipient_name: tên người thụ hưởng
+3. recipient_account: số tài khoản thụ hưởng
+4. recipient_bank: ngân hàng thụ hưởng
+5. transaction_date: ngày giao dịch (YYYY-MM-DD nếu có thể)
+6. transaction_id: mã giao dịch/tham chiếu
+7. content: nội dung chuyển khoản
+8. sender_name: tên người chuyển
 
-Return the data in JSON format. If a field cannot be extracted, use null.`;
+Quy tắc quan trọng:
+- amount phải là số dương.
+- Nếu ảnh mờ, vẫn cố gắng suy luận từ vùng số tiền.
+- Nếu không chắc một trường, trả null cho trường đó.
 
-    // Call OpenAI Gateway
+Trả về JSON.`;
+
+    // Call OpenAI Gateway (retry on transient errors)
     console.log("[scan-bank-slip] Calling AI gateway");
-    const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${openaiApiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image_url',
-                image_url: {
-                  url: `data:${mimeType};base64,${imageBase64}`,
-                },
-              },
-              {
-                type: 'text',
-                text: 'Please extract the bank transfer information from this image.',
-              },
-            ],
-          },
-        ],
-        tools: [
-          {
-            type: 'function',
-            function: {
-              name: 'extract_bank_slip_data',
-              description: 'Extract structured data from a bank transfer slip image',
-              parameters: {
-                type: 'object',
-                properties: {
-                  amount: {
-                    type: 'number',
-                    description: 'Transfer amount in VND (number only)',
-                  },
-                  recipient_name: {
-                    type: 'string',
-                    description: 'Name of the recipient/beneficiary',
-                  },
-                  recipient_account: {
-                    type: 'string',
-                    description: 'Recipient bank account number',
-                  },
-                  recipient_bank: {
-                    type: 'string',
-                    description: 'Recipient bank name',
-                  },
-                  transaction_date: {
-                    type: 'string',
-                    description: 'Transaction date in YYYY-MM-DD format',
-                  },
-                  transaction_id: {
-                    type: 'string',
-                    description: 'Transaction reference number',
-                  },
-                  content: {
-                    type: 'string',
-                    description: 'Transfer content/description',
-                  },
-                  sender_name: {
-                    type: 'string',
-                    description: 'Name of the sender',
+    let aiResponse: Response | null = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${openaiApiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: `data:${mimeType};base64,${imageBase64}`,
+                    detail: 'high',
                   },
                 },
-                required: ['amount', 'recipient_name'],
+                {
+                  type: 'text',
+                  text: 'Trích xuất thông tin UNC từ ảnh này.',
+                },
+              ],
+            },
+          ],
+          tools: [
+            {
+              type: 'function',
+              function: {
+                name: 'extract_bank_slip_data',
+                description: 'Extract structured data from a bank transfer slip image',
+                parameters: {
+                  type: 'object',
+                  properties: {
+                    amount: { type: ['number', 'string', 'null'] },
+                    recipient_name: { type: ['string', 'null'] },
+                    recipient_account: { type: ['string', 'null'] },
+                    recipient_bank: { type: ['string', 'null'] },
+                    transaction_date: { type: ['string', 'null'] },
+                    transaction_id: { type: ['string', 'null'] },
+                    content: { type: ['string', 'null'] },
+                    sender_name: { type: ['string', 'null'] },
+                  },
+                },
               },
             },
-          },
-        ],
-        tool_choice: { type: 'function', function: { name: 'extract_bank_slip_data' } },
-        max_tokens: 1000,
-      }),
-    });
+          ],
+          tool_choice: { type: 'function', function: { name: 'extract_bank_slip_data' } },
+          max_tokens: 1000,
+        }),
+      });
 
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error('[scan-bank-slip] AI API error:', errorText);
-      
-      if (aiResponse.status === 429 || aiResponse.status === 402) {
-        return new Response(JSON.stringify({ 
-          error: 'AI service temporarily unavailable. Please try again later.' 
-        }), {
+      if (aiResponse.ok) break;
+      const status = aiResponse.status;
+      const errTxt = await aiResponse.text();
+      console.error(`[scan-bank-slip] AI API error attempt ${attempt}:`, status, errTxt);
+      if ((status === 429 || status >= 500) && attempt < 3) {
+        await sleep(400 * attempt);
+        continue;
+      }
+
+      if (status === 429 || status === 402) {
+        return new Response(JSON.stringify({ error: 'AI service temporarily unavailable. Please try again later.' }), {
           status: 429,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-      
+
       return new Response(JSON.stringify({ error: 'Failed to process image with AI' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const aiData = await aiResponse.json();
+    const aiData = await aiResponse!.json();
     
     // Extract the function call result
     const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
@@ -212,7 +212,8 @@ Return the data in JSON format. If a field cannot be extracted, use null.`;
       });
     }
 
-    const extractedData = JSON.parse(toolCall.function.arguments);
+    const extractedData = JSON.parse(toolCall.function.arguments || '{}');
+    extractedData.amount = parseAmountVN(extractedData.amount);
 
     console.log(`[scan-bank-slip] Completed in ${Date.now() - startTime}ms`);
     return new Response(JSON.stringify({ 
