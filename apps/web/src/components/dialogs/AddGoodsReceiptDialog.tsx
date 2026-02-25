@@ -654,6 +654,9 @@ export function AddGoodsReceiptDialog() {
                     className="hidden"
                     onChange={handleInvoiceUpload}
                   />
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Quy định upload: JPG/PNG/WebP (scan tự động), PDF (chưa hỗ trợ scan tự động ở màn này), tối đa {MAX_UPLOAD_FILES} file/lần, mỗi file tối đa {MAX_FILE_SIZE_MB}MB.
+                  </p>
 
                 </div>
                 
