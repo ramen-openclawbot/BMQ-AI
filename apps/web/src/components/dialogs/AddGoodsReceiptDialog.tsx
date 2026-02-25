@@ -48,6 +48,27 @@ interface ExtractedItem {
   quantity: number;
 }
 
+type MatchedFormItem = {
+  product_name: string;
+  quantity: number;
+  unit?: string;
+  expiry_date?: string;
+  sku_id?: string;
+  sku_code?: string;
+  sku_status?: "found" | "not_found" | "new";
+};
+
+type BatchScanStatus = "queued" | "running" | "success" | "error" | "skipped";
+
+type BatchScanFile = {
+  id: string;
+  file: File;
+  status: BatchScanStatus;
+  error?: string;
+  matchedItems?: MatchedFormItem[];
+  supplierId?: string;
+  supplierInfo?: { detected?: string; matched?: string; source?: string; score?: number };
+};
 
 export function AddGoodsReceiptDialog() {
   const { t } = useLanguage();
@@ -60,6 +81,11 @@ export function AddGoodsReceiptDialog() {
   const [scanError, setScanError] = useState<string | null>(null);
   const [newSkuItems, setNewSkuItems] = useState<number[]>([]);
   const [scanSupplierInfo, setScanSupplierInfo] = useState<{ detected?: string; matched?: string; source?: string; score?: number } | null>(null);
+  const [batchFiles, setBatchFiles] = useState<BatchScanFile[]>([]);
+  const [isBatchScanning, setIsBatchScanning] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 });
+  const [batchSupplierId, setBatchSupplierId] = useState<string>("");
+  const [showBatchPanel, setShowBatchPanel] = useState(false);
 
   const { data: suppliers } = useSuppliers();
   const { data: skus } = useProductSKUs();
@@ -210,6 +236,243 @@ export function AddGoodsReceiptDialog() {
     return { id: created.id, sku_code: (created as any).sku_code || skuCode };
   };
 
+
+  const fileToBase64 = async (file: File): Promise<string> => {
+    const reader = new FileReader();
+    return await new Promise<string>((resolve) => {
+      reader.onloadend = () => {
+        const base64 = (reader.result as string).split(",")[1];
+        resolve(base64);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const mapExtractedItemsToForm = async (extractedItems: ExtractedItem[]) => {
+    const autoCreatedSkuCount = { value: 0 };
+    const matchedItems: MatchedFormItem[] = await Promise.all(
+      extractedItems.map(async (item) => {
+        const matchedSku = ingredientSkus?.find(
+          (sku) =>
+            (item.product_code && sku.sku_code.toLowerCase().includes(item.product_code.toLowerCase())) ||
+            sku.product_name.toLowerCase().includes(item.product_name.toLowerCase()) ||
+            item.product_name.toLowerCase().includes(sku.product_name.toLowerCase())
+        );
+
+        if (matchedSku) {
+          return {
+            product_name: matchedSku.product_name,
+            quantity: parseQuantity(item.quantity),
+            unit: item.unit || matchedSku.unit || "kg",
+            expiry_date: "",
+            sku_id: matchedSku.id,
+            sku_code: matchedSku.sku_code,
+            sku_status: "found" as const,
+          };
+        }
+
+        const createdSku = await ensureRawMaterialSku(item.product_name, item.unit || "kg");
+        autoCreatedSkuCount.value += 1;
+        return {
+          product_name: item.product_name,
+          quantity: parseQuantity(item.quantity),
+          unit: item.unit || "kg",
+          expiry_date: "",
+          sku_id: createdSku.id,
+          sku_code: createdSku.sku_code,
+          sku_status: "found" as const,
+        };
+      })
+    );
+
+    return { matchedItems, autoCreatedSkuCount: autoCreatedSkuCount.value };
+  };
+
+  const resolveSupplierFromScan = (data: any, payload: any): string | null => {
+    if (data?.supplier_match?.id) return data.supplier_match.id;
+    if (!suppliers?.length) return null;
+
+    const rawCandidates = [
+      payload?.supplier_name,
+      payload?.vendor_name,
+      payload?.company_name,
+      payload?.seller_name,
+    ].filter(Boolean) as string[];
+
+    const supplierCandidates = rawCandidates
+      .map((x) => String(x || "").trim())
+      .filter((x) => isLikelySupplierToken(x));
+
+    let bestOverall: { supplier: any; score: number } | null = null;
+    for (const scannedSupplierName of supplierCandidates) {
+      const ranked = suppliers
+        .map((s) => ({ supplier: s, score: scoreSupplierMatch(scannedSupplierName, s.name) }))
+        .sort((a, b) => b.score - a.score);
+      const best = ranked[0];
+      if (best && (!bestOverall || best.score > bestOverall.score)) bestOverall = best;
+    }
+
+    return bestOverall && bestOverall.score >= 92 ? bestOverall.supplier.id : null;
+  };
+
+  const scanInvoiceFile = async (file: File, accessToken: string) => {
+    const imageBase64 = await fileToBase64(file);
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const response = await fetch(`${supabaseUrl}/functions/v1/scan-invoice`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${accessToken}`,
+        "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      },
+      body: JSON.stringify({
+        imageBase64,
+        mimeType: file.type,
+        suppliers: (suppliers || []).map((x) => ({ id: x.id, name: x.name })),
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+      throw new Error(errorData.error || `Lỗi server: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const payload = data?.data || {};
+    if (!data?.success) throw new Error("Không nhận được dữ liệu scan hợp lệ");
+
+    const extractedItems: ExtractedItem[] = payload.items || [];
+    const { matchedItems, autoCreatedSkuCount } = await mapExtractedItemsToForm(extractedItems);
+    const supplierId = resolveSupplierFromScan(data, payload);
+
+    return {
+      matchedItems,
+      autoCreatedSkuCount,
+      supplierId,
+      supplierInfo: {
+        detected: data?.detected_supplier_name || payload?.supplier_name || undefined,
+        matched: data?.supplier_match?.name || undefined,
+        source: data?.supplier_match?.source || undefined,
+        score: data?.supplier_match?.score || undefined,
+      },
+    };
+  };
+
+  const applyMergedItemsToForm = (items: MatchedFormItem[]) => {
+    const map = new Map<string, MatchedFormItem>();
+
+    for (const item of items) {
+      const key = item.sku_id
+        ? `sku:${item.sku_id}`
+        : `name:${normalizeText(item.product_name)}|unit:${normalizeText(item.unit || "kg")}`;
+
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, { ...item, quantity: parseQuantity(item.quantity) });
+      } else {
+        existing.quantity = parseQuantity(existing.quantity) + parseQuantity(item.quantity);
+        map.set(key, existing);
+      }
+    }
+
+    const merged = Array.from(map.values());
+    form.setValue("items", merged as any);
+    setNewSkuItems([]);
+  };
+
+  const handleBatchFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []).filter((f) => f.type.startsWith("image/"));
+    if (!files.length) {
+      toast.error("Chưa có file ảnh hợp lệ (JPG/PNG/WebP)");
+      return;
+    }
+
+    const incoming: BatchScanFile[] = files.map((file) => ({
+      id: `${file.name}-${file.size}-${file.lastModified}`,
+      file,
+      status: "queued",
+    }));
+
+    setBatchFiles((prev) => {
+      const existingIds = new Set(prev.map((x) => x.id));
+      return [...prev, ...incoming.filter((x) => !existingIds.has(x.id))];
+    });
+    setShowBatchPanel(true);
+    e.currentTarget.value = "";
+  };
+
+  const runBatchScan = async () => {
+    if (!batchFiles.length) return;
+
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !sessionData.session) {
+      toast.error("Phiên đăng nhập đã hết hạn");
+      return;
+    }
+
+    const targets = batchFiles.filter((f) => f.status === "queued" || f.status === "error");
+    if (!targets.length) return;
+
+    setIsBatchScanning(true);
+    setBatchProgress({ done: 0, total: targets.length });
+
+    const updateFile = (id: string, patch: Partial<BatchScanFile>) => {
+      setBatchFiles((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    };
+
+    let pointer = 0;
+    const worker = async () => {
+      while (pointer < targets.length) {
+        const current = targets[pointer++];
+        updateFile(current.id, { status: "running", error: undefined });
+        try {
+          const result = await scanInvoiceFile(current.file, sessionData.session.access_token);
+          updateFile(current.id, {
+            status: "success",
+            matchedItems: result.matchedItems,
+            supplierId: result.supplierId || undefined,
+            supplierInfo: result.supplierInfo,
+          });
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : "Lỗi quét file";
+          updateFile(current.id, { status: "error", error: errorMsg });
+        } finally {
+          setBatchProgress((p) => ({ ...p, done: p.done + 1 }));
+        }
+      }
+    };
+
+    await Promise.all([worker(), worker()]);
+    setIsBatchScanning(false);
+
+    toast.success("Batch scan hoàn tất. Vui lòng kiểm tra kết quả trước khi áp dụng.");
+  };
+
+  const applyBatchResults = () => {
+    const successFiles = batchFiles.filter((f) => f.status === "success" && f.matchedItems?.length);
+    if (!successFiles.length) {
+      toast.error("Chưa có file scan thành công để áp dụng");
+      return;
+    }
+
+    const mergedItems = successFiles.flatMap((f) => f.matchedItems || []);
+    applyMergedItemsToForm(mergedItems);
+
+    const supplierIds = Array.from(new Set(successFiles.map((x) => x.supplierId).filter(Boolean) as string[]));
+    if (batchSupplierId) {
+      form.setValue("supplier_id", batchSupplierId);
+    } else if (supplierIds.length === 1) {
+      form.setValue("supplier_id", supplierIds[0]);
+    } else if (supplierIds.length > 1) {
+      toast.warning("Batch có nhiều NCC, vui lòng chọn NCC ở dropdown trước khi lưu phiếu");
+    }
+
+    setScanCompleted(true);
+    setScanError(null);
+    setShowBatchPanel(false);
+    toast.success(`Đã áp dụng ${successFiles.length} file scan vào phiếu nhập`);
+  };
+
   // Handle image upload
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -241,7 +504,6 @@ export function AddGoodsReceiptDialog() {
       return;
     }
 
-    // Check session before calling Edge function
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
     if (sessionError || !sessionData.session) {
       setScanError("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
@@ -252,149 +514,18 @@ export function AddGoodsReceiptDialog() {
     setIsScanning(true);
     setScanError(null);
     try {
-      const reader = new FileReader();
-      const base64Promise = new Promise<string>((resolve) => {
-        reader.onloadend = () => {
-          const base64 = (reader.result as string).split(",")[1];
-          resolve(base64);
-        };
-        reader.readAsDataURL(imageFile);
-      });
+      const result = await scanInvoiceFile(imageFile, sessionData.session.access_token);
+      form.setValue("items", result.matchedItems as any);
+      setNewSkuItems([]);
 
-      const imageBase64 = await base64Promise;
+      if (result.supplierId) form.setValue("supplier_id", result.supplierId);
+      setScanSupplierInfo(result.supplierInfo);
 
-      // Use fetch() directly instead of supabase.functions.invoke() for better error handling
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const response = await fetch(`${supabaseUrl}/functions/v1/scan-invoice`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${sessionData.session.access_token}`,
-          "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-        },
-        body: JSON.stringify({
-          imageBase64,
-          mimeType: imageFile.type,
-          suppliers: (suppliers || []).map((x) => ({ id: x.id, name: x.name })),
-        }),
-      });
-
-      // Handle specific HTTP status codes
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
-        
-        if (response.status === 401) {
-          setScanError("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
-          toast.error("Phiên đăng nhập đã hết hạn");
-          return;
-        }
-        
-        if (response.status === 403) {
-          setScanError("Bạn không có quyền sử dụng tính năng quét");
-          toast.error("Bạn không có quyền sử dụng tính năng quét");
-          return;
-        }
-        
-        if (response.status === 429) {
-          setScanError("Hệ thống đang bận. Vui lòng thử lại sau ít phút.");
-          toast.error("Quá nhiều yêu cầu, vui lòng thử lại sau");
-          return;
-        }
-
-        throw new Error(errorData.error || `Lỗi server: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const payload = data?.data || {};
-
-      if (data.success && payload) {
-        const extractedItems: ExtractedItem[] = payload.items || [];
-        setScanSupplierInfo({
-          detected: data?.detected_supplier_name || payload?.supplier_name || undefined,
-          matched: data?.supplier_match?.name || undefined,
-          source: data?.supplier_match?.source || undefined,
-          score: data?.supplier_match?.score || undefined,
-        });
-
-        // Match items with existing raw-material SKUs; auto-create missing SKU from scan result
-        const autoCreatedSkuCount = { value: 0 };
-        const matchedItems = await Promise.all(
-          extractedItems.map(async (item) => {
-            // Find SKU by product code or name
-            const matchedSku = ingredientSkus?.find(
-              (sku) =>
-                (item.product_code && sku.sku_code.toLowerCase().includes(item.product_code.toLowerCase())) ||
-                sku.product_name.toLowerCase().includes(item.product_name.toLowerCase()) ||
-                item.product_name.toLowerCase().includes(sku.product_name.toLowerCase())
-            );
-
-            if (matchedSku) {
-              return {
-                product_name: matchedSku.product_name,
-                quantity: parseQuantity(item.quantity),
-                unit: item.unit || matchedSku.unit || "kg",
-                expiry_date: "",
-                sku_id: matchedSku.id,
-                sku_code: matchedSku.sku_code,
-                sku_status: "found" as const,
-              };
-            }
-
-            // Auto create raw-material SKU right after scan
-            const createdSku = await ensureRawMaterialSku(item.product_name, item.unit || "kg");
-            autoCreatedSkuCount.value += 1;
-            return {
-              product_name: item.product_name,
-              quantity: parseQuantity(item.quantity),
-              unit: item.unit || "kg",
-              expiry_date: "",
-              sku_id: createdSku.id,
-              sku_code: createdSku.sku_code,
-              sku_status: "found" as const,
-            };
-          })
-        );
-
-        // Update form with matched items
-        form.setValue("items", matchedItems);
-        setNewSkuItems([]);
-
-        // Supplier match priority: backend canonical match -> FE fallback scoring
-        if (data?.supplier_match?.id) {
-          form.setValue("supplier_id", data.supplier_match.id);
-        } else if (suppliers?.length) {
-          const rawCandidates = [
-            payload.supplier_name,
-            payload.vendor_name,
-            payload.company_name,
-            payload.seller_name,
-          ].filter(Boolean) as string[];
-
-          const supplierCandidates = rawCandidates
-            .map((x) => String(x || "").trim())
-            .filter((x) => isLikelySupplierToken(x));
-
-          let bestOverall: { supplier: any; score: number } | null = null;
-          for (const scannedSupplierName of supplierCandidates) {
-            const ranked = suppliers
-              .map((s) => ({ supplier: s, score: scoreSupplierMatch(scannedSupplierName, s.name) }))
-              .sort((a, b) => b.score - a.score);
-            const best = ranked[0];
-            if (best && (!bestOverall || best.score > bestOverall.score)) bestOverall = best;
-          }
-
-          if (bestOverall && bestOverall.score >= 92) {
-            form.setValue("supplier_id", bestOverall.supplier.id);
-          }
-        }
-
-
-        setScanCompleted(true);
-        if (autoCreatedSkuCount.value > 0) {
-          toast.success(`Đã quét phiếu giao hàng và tự tạo ${autoCreatedSkuCount.value} SKU nguyên vật liệu mới`);
-        } else {
-          toast.success("Đã trích xuất thông tin từ phiếu giao hàng");
-        }
+      setScanCompleted(true);
+      if (result.autoCreatedSkuCount > 0) {
+        toast.success(`Đã quét phiếu giao hàng và tự tạo ${result.autoCreatedSkuCount} SKU nguyên vật liệu mới`);
+      } else {
+        toast.success("Đã trích xuất thông tin từ phiếu giao hàng");
       }
     } catch (error) {
       console.error("Scan error:", error);
@@ -485,6 +616,9 @@ export function AddGoodsReceiptDialog() {
       setImageFile(null);
       setImagePreview(null);
       setNewSkuItems([]);
+      setBatchFiles([]);
+      setBatchSupplierId("");
+      setShowBatchPanel(false);
     } catch (error) {
       console.error("Create error:", error);
       const errorMessage = getErrorMessage(error);
@@ -513,9 +647,16 @@ export function AddGoodsReceiptDialog() {
       setImageFile(null);
       setImagePreview(null);
       setNewSkuItems([]);
+      setBatchFiles([]);
+      setBatchSupplierId("");
+      setShowBatchPanel(false);
       setScanCompleted(false);
       setScanError(null);
       setScanSupplierInfo(null);
+      setBatchFiles([]);
+      setBatchSupplierId("");
+      setShowBatchPanel(false);
+      setBatchProgress({ done: 0, total: 0 });
     }
   }, [open, form]);
 
@@ -551,6 +692,25 @@ export function AddGoodsReceiptDialog() {
                     className="hidden"
                     onChange={handleImageUpload}
                   />
+
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Label htmlFor="delivery-note-batch" className="cursor-pointer inline-flex items-center rounded-md border px-2 py-1 text-xs hover:bg-muted">
+                      <Upload className="h-3 w-3 mr-1" /> Scan nhiều invoice
+                    </Label>
+                    <Input
+                      id="delivery-note-batch"
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleBatchFileUpload}
+                    />
+                    {batchFiles.length > 0 && (
+                      <Button type="button" size="sm" variant="outline" onClick={() => setShowBatchPanel((v) => !v)}>
+                        {showBatchPanel ? "Ẩn batch" : `Batch (${batchFiles.length})`}
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 
                 {/* Scanning status */}
@@ -601,6 +761,67 @@ export function AddGoodsReceiptDialog() {
                 </div>
               )}
             </div>
+
+            {showBatchPanel && (
+              <div className="border rounded-lg p-3 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-sm font-medium">Scan nhiều invoice</div>
+                  <div className="flex items-center gap-2">
+                    <Button type="button" size="sm" variant="outline" onClick={() => setBatchFiles([])} disabled={isBatchScanning}>Xoá danh sách</Button>
+                    <Button type="button" size="sm" variant="outline" onClick={runBatchScan} disabled={isBatchScanning || batchFiles.length===0}>
+                      {isBatchScanning ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Đang quét...</> : <>Bắt đầu scan</>}
+                    </Button>
+                    <Button type="button" size="sm" onClick={applyBatchResults} disabled={isBatchScanning || !batchFiles.some(f => f.status === "success")}>Áp dụng kết quả batch</Button>
+                  </div>
+                </div>
+
+                <div className="text-xs text-muted-foreground">Tiến độ: {batchProgress.done}/{batchProgress.total || batchFiles.length}</div>
+
+                <div className="max-h-48 overflow-auto border rounded-md">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>File</TableHead>
+                        <TableHead>Trạng thái</TableHead>
+                        <TableHead>KQ</TableHead>
+                        <TableHead className="w-[140px]"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {batchFiles.map((f) => (
+                        <TableRow key={f.id}>
+                          <TableCell className="text-xs">{f.file.name}</TableCell>
+                          <TableCell>
+                            <Badge variant={f.status === "success" ? "secondary" : f.status === "error" ? "destructive" : "outline"}>{f.status}</Badge>
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {f.status === "success" ? `${f.matchedItems?.length || 0} dòng` : (f.error || "-")}
+                          </TableCell>
+                          <TableCell className="space-x-1">
+                            <Button type="button" size="sm" variant="outline" onClick={() => setBatchFiles((prev) => prev.map((x) => x.id===f.id ? ({...x,status:'queued',error:undefined}) : x))} disabled={isBatchScanning}>Quét lại</Button>
+                            <Button type="button" size="sm" variant="ghost" onClick={() => setBatchFiles((prev) => prev.filter((x) => x.id!==f.id))} disabled={isBatchScanning}>Bỏ</Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <div className="text-xs text-muted-foreground">Nếu batch có nhiều NCC, chọn NCC mục tiêu trước khi áp dụng:</div>
+                  <Select value={batchSupplierId} onValueChange={setBatchSupplierId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="(Tuỳ chọn) Chọn NCC cho batch" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {suppliers?.map((supplier) => (
+                        <SelectItem key={supplier.id} value={supplier.id}>{supplier.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
 
             {/* Supplier & Date */}
             <div className="grid grid-cols-2 gap-4">
