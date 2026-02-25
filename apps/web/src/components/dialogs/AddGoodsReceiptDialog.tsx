@@ -20,6 +20,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { isRawMaterialSku } from "@/lib/skuType";
+import { getDocument, GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mjs";
 
 const itemSchema = z.object({
   product_name: z.string().min(1, "Tên sản phẩm là bắt buộc"),
@@ -72,6 +73,9 @@ type BatchScanFile = {
 
 const MAX_UPLOAD_FILES = 10;
 const MAX_FILE_SIZE_MB = 10;
+const MAX_PDF_PAGES = 10;
+
+GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.mjs", import.meta.url).toString();
 
 export function AddGoodsReceiptDialog() {
   const { t } = useLanguage();
@@ -383,17 +387,45 @@ export function AddGoodsReceiptDialog() {
     setNewSkuItems([]);
   };
 
-  const handleInvoiceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
+  const convertPdfToImageFiles = async (pdfFile: File): Promise<File[]> => {
+    const buffer = await pdfFile.arrayBuffer();
+    const loadingTask = getDocument({ data: buffer });
+    const pdf = await loadingTask.promise;
 
-    if (files.length > MAX_UPLOAD_FILES) {
+    if (pdf.numPages > MAX_PDF_PAGES) {
+      throw new Error(`PDF ${pdfFile.name} có ${pdf.numPages} trang, tối đa hỗ trợ ${MAX_PDF_PAGES} trang/file`);
+    }
+
+    const imageFiles: File[] = [];
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const viewport = page.getViewport({ scale: 2 });
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) continue;
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+      if (!blob) continue;
+      imageFiles.push(new File([blob], `${pdfFile.name.replace(/\.pdf$/i, "")}-p${pageNum}.jpg`, { type: "image/jpeg" }));
+    }
+
+    return imageFiles;
+  };
+
+  const handleInvoiceUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(e.target.files || []);
+    if (!selectedFiles.length) return;
+
+    if (selectedFiles.length > MAX_UPLOAD_FILES) {
       toast.error(`Chỉ cho phép tối đa ${MAX_UPLOAD_FILES} file mỗi lần upload`);
       e.currentTarget.value = "";
       return;
     }
 
-    const oversized = files.filter((f) => f.size > MAX_FILE_SIZE_MB * 1024 * 1024);
+    const oversized = selectedFiles.filter((f) => f.size > MAX_FILE_SIZE_MB * 1024 * 1024);
     if (oversized.length > 0) {
       toast.error(`Có file vượt quá ${MAX_FILE_SIZE_MB}MB: ${oversized[0].name}`);
       e.currentTarget.value = "";
@@ -401,16 +433,37 @@ export function AddGoodsReceiptDialog() {
     }
 
     const allowedMime = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
-    const invalidType = files.find((f) => !allowedMime.includes(f.type));
+    const invalidType = selectedFiles.find((f) => !allowedMime.includes(f.type));
     if (invalidType) {
       toast.error("Định dạng không hỗ trợ. Chỉ nhận JPG/PNG/WebP/PDF");
       e.currentTarget.value = "";
       return;
     }
 
-    const hasPdf = files.some((f) => f.type === "application/pdf");
-    if (hasPdf) {
-      toast.error("PDF hiện chưa hỗ trợ scan tự động trong màn này. Vui lòng chuyển PDF sang ảnh JPG/PNG/WebP.");
+    let files: File[] = [];
+    try {
+      for (const file of selectedFiles) {
+        if (file.type === "application/pdf") {
+          const pages = await convertPdfToImageFiles(file);
+          files.push(...pages);
+        } else {
+          files.push(file);
+        }
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Không thể xử lý PDF");
+      e.currentTarget.value = "";
+      return;
+    }
+
+    if (!files.length) {
+      toast.error("Không có trang nào hợp lệ để scan");
+      e.currentTarget.value = "";
+      return;
+    }
+
+    if (files.length > MAX_UPLOAD_FILES) {
+      toast.error(`Sau khi tách PDF, tổng số ảnh là ${files.length}. Tối đa cho phép ${MAX_UPLOAD_FILES} ảnh/lần.`);
       e.currentTarget.value = "";
       return;
     }
@@ -443,7 +496,7 @@ export function AddGoodsReceiptDialog() {
       return [...prev, ...incoming.filter((x) => !existingIds.has(x.id))];
     });
     setShowBatchPanel(true);
-    toast.success(`Đã nhận ${files.length} file, bấm 'Bắt đầu scan' để xử lý.`);
+    toast.success(`Đã nhận ${files.length} ảnh để scan.`);
     e.currentTarget.value = "";
   };
 
@@ -655,7 +708,7 @@ export function AddGoodsReceiptDialog() {
                     onChange={handleInvoiceUpload}
                   />
                   <p className="mt-2 text-xs text-muted-foreground">
-                    Quy định upload: JPG/PNG/WebP (scan tự động), PDF (chưa hỗ trợ scan tự động ở màn này), tối đa {MAX_UPLOAD_FILES} file/lần, mỗi file tối đa {MAX_FILE_SIZE_MB}MB.
+                    Quy định upload: JPG/PNG/WebP/PDF. PDF sẽ tự tách trang để scan. Tối đa {MAX_UPLOAD_FILES} ảnh/lần (sau khi tách PDF), mỗi file tối đa {MAX_FILE_SIZE_MB}MB, tối đa {MAX_PDF_PAGES} trang/PDF.
                   </p>
 
                 </div>
