@@ -89,7 +89,16 @@ export function AddGoodsReceiptDialog() {
     if (typeof v === "number") return Number.isFinite(v) ? v : 0;
     const raw = String(v ?? "").trim();
     if (!raw) return 0;
-    const normalized = raw.replace(/\s+/g, "").replace(/\./g, "").replace(/,/g, ".").replace(/[^0-9.-]/g, "");
+
+    const m = raw.match(/-?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?|-?\d+(?:[.,]\d+)?/);
+    if (!m) return 0;
+    const token = m[0];
+
+    const normalized = token
+      .replace(/\.(?=\d{3}(\D|$))/g, "")
+      .replace(/,/g, ".")
+      .replace(/[^0-9.-]/g, "");
+
     const n = Number(normalized);
     return Number.isFinite(n) ? n : 0;
   };
