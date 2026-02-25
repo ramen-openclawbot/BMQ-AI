@@ -70,6 +70,9 @@ type BatchScanFile = {
   supplierInfo?: { detected?: string; matched?: string; source?: string; score?: number };
 };
 
+const MAX_UPLOAD_FILES = 10;
+const MAX_FILE_SIZE_MB = 10;
+
 export function AddGoodsReceiptDialog() {
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -380,10 +383,50 @@ export function AddGoodsReceiptDialog() {
     setNewSkuItems([]);
   };
 
-  const handleBatchFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []).filter((f) => f.type.startsWith("image/"));
-    if (!files.length) {
-      toast.error("Chưa có file ảnh hợp lệ (JPG/PNG/WebP)");
+  const handleInvoiceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    if (files.length > MAX_UPLOAD_FILES) {
+      toast.error(`Chỉ cho phép tối đa ${MAX_UPLOAD_FILES} file mỗi lần upload`);
+      e.currentTarget.value = "";
+      return;
+    }
+
+    const oversized = files.filter((f) => f.size > MAX_FILE_SIZE_MB * 1024 * 1024);
+    if (oversized.length > 0) {
+      toast.error(`Có file vượt quá ${MAX_FILE_SIZE_MB}MB: ${oversized[0].name}`);
+      e.currentTarget.value = "";
+      return;
+    }
+
+    const allowedMime = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+    const invalidType = files.find((f) => !allowedMime.includes(f.type));
+    if (invalidType) {
+      toast.error("Định dạng không hỗ trợ. Chỉ nhận JPG/PNG/WebP/PDF");
+      e.currentTarget.value = "";
+      return;
+    }
+
+    const hasPdf = files.some((f) => f.type === "application/pdf");
+    if (hasPdf) {
+      toast.error("PDF hiện chưa hỗ trợ scan tự động trong màn này. Vui lòng chuyển PDF sang ảnh JPG/PNG/WebP.");
+      e.currentTarget.value = "";
+      return;
+    }
+
+    if (files.length === 1) {
+      const file = files[0];
+      setBatchFiles([]);
+      setShowBatchPanel(false);
+      setBatchProgress({ done: 0, total: 0 });
+      setImageFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+      e.currentTarget.value = "";
       return;
     }
 
@@ -393,97 +436,15 @@ export function AddGoodsReceiptDialog() {
       status: "queued",
     }));
 
+    setImageFile(null);
+    setImagePreview(null);
     setBatchFiles((prev) => {
       const existingIds = new Set(prev.map((x) => x.id));
       return [...prev, ...incoming.filter((x) => !existingIds.has(x.id))];
     });
     setShowBatchPanel(true);
+    toast.success(`Đã nhận ${files.length} file, bấm 'Bắt đầu scan' để xử lý.`);
     e.currentTarget.value = "";
-  };
-
-  const runBatchScan = async () => {
-    if (!batchFiles.length) return;
-
-    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError || !sessionData.session) {
-      toast.error("Phiên đăng nhập đã hết hạn");
-      return;
-    }
-
-    const targets = batchFiles.filter((f) => f.status === "queued" || f.status === "error");
-    if (!targets.length) return;
-
-    setIsBatchScanning(true);
-    setBatchProgress({ done: 0, total: targets.length });
-
-    const updateFile = (id: string, patch: Partial<BatchScanFile>) => {
-      setBatchFiles((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-    };
-
-    let pointer = 0;
-    const worker = async () => {
-      while (pointer < targets.length) {
-        const current = targets[pointer++];
-        updateFile(current.id, { status: "running", error: undefined });
-        try {
-          const result = await scanInvoiceFile(current.file, sessionData.session.access_token);
-          updateFile(current.id, {
-            status: "success",
-            matchedItems: result.matchedItems,
-            supplierId: result.supplierId || undefined,
-            supplierInfo: result.supplierInfo,
-          });
-        } catch (err) {
-          const errorMsg = err instanceof Error ? err.message : "Lỗi quét file";
-          updateFile(current.id, { status: "error", error: errorMsg });
-        } finally {
-          setBatchProgress((p) => ({ ...p, done: p.done + 1 }));
-        }
-      }
-    };
-
-    await Promise.all([worker(), worker()]);
-    setIsBatchScanning(false);
-
-    toast.success("Batch scan hoàn tất. Vui lòng kiểm tra kết quả trước khi áp dụng.");
-  };
-
-  const applyBatchResults = () => {
-    const successFiles = batchFiles.filter((f) => f.status === "success" && f.matchedItems?.length);
-    if (!successFiles.length) {
-      toast.error("Chưa có file scan thành công để áp dụng");
-      return;
-    }
-
-    const mergedItems = successFiles.flatMap((f) => f.matchedItems || []);
-    applyMergedItemsToForm(mergedItems);
-
-    const supplierIds = Array.from(new Set(successFiles.map((x) => x.supplierId).filter(Boolean) as string[]));
-    if (batchSupplierId) {
-      form.setValue("supplier_id", batchSupplierId);
-    } else if (supplierIds.length === 1) {
-      form.setValue("supplier_id", supplierIds[0]);
-    } else if (supplierIds.length > 1) {
-      toast.warning("Batch có nhiều NCC, vui lòng chọn NCC ở dropdown trước khi lưu phiếu");
-    }
-
-    setScanCompleted(true);
-    setScanError(null);
-    setShowBatchPanel(false);
-    toast.success(`Đã áp dụng ${successFiles.length} file scan vào phiếu nhập`);
-  };
-
-  // Handle image upload
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setImageFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
   };
 
   // Auto-scan when image is uploaded
@@ -682,35 +643,18 @@ export function AddGoodsReceiptDialog() {
                   <Label htmlFor="delivery-note-image" className="cursor-pointer">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Upload className="h-4 w-4" />
-                      {imageFile ? imageFile.name : "Upload ảnh phiếu giao hàng"}
+                      {imageFile ? imageFile.name : batchFiles.length > 0 ? `Đã chọn ${batchFiles.length} file` : "Upload ảnh phiếu giao hàng"}
                     </div>
                   </Label>
                   <Input
                     id="delivery-note-image"
                     type="file"
-                    accept="image/*"
+                    multiple
+                    accept="image/jpeg,image/png,image/webp,application/pdf"
                     className="hidden"
-                    onChange={handleImageUpload}
+                    onChange={handleInvoiceUpload}
                   />
 
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <Label htmlFor="delivery-note-batch" className="cursor-pointer inline-flex items-center rounded-md border px-2 py-1 text-xs hover:bg-muted">
-                      <Upload className="h-3 w-3 mr-1" /> Scan nhiều invoice
-                    </Label>
-                    <Input
-                      id="delivery-note-batch"
-                      type="file"
-                      multiple
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleBatchFileUpload}
-                    />
-                    {batchFiles.length > 0 && (
-                      <Button type="button" size="sm" variant="outline" onClick={() => setShowBatchPanel((v) => !v)}>
-                        {showBatchPanel ? "Ẩn batch" : `Batch (${batchFiles.length})`}
-                      </Button>
-                    )}
-                  </div>
                 </div>
                 
                 {/* Scanning status */}
