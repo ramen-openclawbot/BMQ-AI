@@ -65,10 +65,10 @@ serve(async (req) => {
       return makeErrorResponse(400, "INVALID_IMAGE", "Invalid image type. Allowed: JPEG, PNG, WebP, GIF");
     }
 
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-    if (!GEMINI_API_KEY) {
-      console.error("[scan-purchase-order] GEMINI_API_KEY not configured");
-      throw new Error("GEMINI_API_KEY is not configured");
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    if (!OPENAI_API_KEY) {
+      console.error("[scan-purchase-order] OPENAI_API_KEY not configured");
+      throw new Error("OPENAI_API_KEY is not configured");
     }
 
     // Conditional VAT instruction based on supplier's learned preference
@@ -101,15 +101,15 @@ Lưu ý quan trọng:
 - Chuyển số lượng và giá về dạng number (bỏ separator)
 ${supplierVatConfig?.vat_included_in_price ? '- NCC này có giá đã bao gồm VAT trong đơn giá, không có dòng VAT riêng' : ''}`;
 
-    console.log("[scan-purchase-order] Calling Gemini gateway");
-    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+    console.log("[scan-purchase-order] Calling AI gateway");
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${GEMINI_API_KEY}`,
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gemini-2.0-flash",
+        model: "gpt-4o-mini",
         messages: [
           { role: "system", content: systemPrompt },
           {
@@ -222,8 +222,8 @@ ${supplierVatConfig?.vat_included_in_price ? '- NCC này có giá đã bao gồm
         return makeErrorResponse(402, "CREDITS_EXHAUSTED", "AI credits exhausted. Please add more credits.");
       }
       const errorText = await response.text();
-      console.error("[scan-purchase-order] Gemini gateway error:", response.status, errorText);
-      throw new Error(`Gemini gateway error: ${response.status}`);
+      console.error("[scan-purchase-order] AI gateway error:", response.status, errorText);
+      throw new Error(`AI gateway error: ${response.status}`);
     }
 
     const aiResponse = await response.json();
