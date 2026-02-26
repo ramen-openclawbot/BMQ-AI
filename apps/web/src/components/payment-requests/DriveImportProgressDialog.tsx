@@ -673,9 +673,6 @@ export function DriveImportProgressDialog({
     poFiles: Array<{ id: string; base64?: string; mimeType?: string }>,
     token: string
   ): Promise<Record<string, POScanBatchResult>> => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 100000);
-
     const res = await fetch(
       `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-purchase-orders-batch`,
       {
@@ -685,10 +682,8 @@ export function DriveImportProgressDialog({
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({ files: poFiles }),
-        signal: controller.signal,
       }
     );
-    clearTimeout(timeout);
 
     if (!res.ok) {
       const errText = await res.text();
