@@ -142,6 +142,7 @@ const AUTO_CONFIRM_THRESHOLD = 0.85;
 // Parallel processing limit
 const PARALLEL_LIMIT = 3;
 const MAX_BATCH_SCAN_FILES = 10;
+const PO_BATCH_SCAN_CHUNK_SIZE = 2;
 
 // Timeout for import initialization to prevent Safari deadlock
 const IMPORT_INIT_TIMEOUT = 25000;
@@ -715,46 +716,49 @@ export function DriveImportProgressDialog({
         : f
     ));
 
-    const scanMap = await scanPOBatch(
-      filesToProcess.map((file) => ({ id: file.id, base64: file.base64, mimeType: file.mimeType })),
-      authToken
-    );
-
-    // 2) Create PO from successful scan results
-    for (let i = 0; i < filesToProcess.length; i += PARALLEL_LIMIT) {
-      const batch = filesToProcess.slice(i, i + PARALLEL_LIMIT);
-
-      await Promise.all(
-        batch.map(async (file) => {
-          const result = scanMap[file.id];
-          if (!result?.success || !result?.data) {
-            const msg = result?.error_message || 'Không thể đọc thông tin PO';
-            setFiles(prev => prev.map(f => 
-              f.id === file.id ? { ...f, status: 'failed', message: msg } : f
-            ));
-            setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
-            setProcessedCount(prev => prev + 1);
-            return;
-          }
-
-          try {
-            await processPOFileAuto(
-              { id: file.id, name: file.name, base64: file.base64, mimeType: file.mimeType },
-              currentDate,
-              authToken,
-              result.data
-            );
-            setProcessedCount(prev => prev + 1);
-          } catch (err: any) {
-            console.error(`Error processing file ${file.name}:`, err);
-            setFiles(prev => prev.map(f => 
-              f.id === file.id ? { ...f, status: 'failed', message: err.message } : f
-            ));
-            setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
-            setProcessedCount(prev => prev + 1);
-          }
-        })
+    // 2) Pipeline theo chunk nhỏ để có tiến độ sớm, không chờ full batch mới thấy kết quả
+    for (let i = 0; i < filesToProcess.length; i += PO_BATCH_SCAN_CHUNK_SIZE) {
+      const scanChunk = filesToProcess.slice(i, i + PO_BATCH_SCAN_CHUNK_SIZE);
+      const scanMap = await scanPOBatch(
+        scanChunk.map((file) => ({ id: file.id, base64: file.base64, mimeType: file.mimeType })),
+        authToken
       );
+
+      for (let j = 0; j < scanChunk.length; j += PARALLEL_LIMIT) {
+        const batch = scanChunk.slice(j, j + PARALLEL_LIMIT);
+
+        await Promise.all(
+          batch.map(async (file) => {
+            const result = scanMap[file.id];
+            if (!result?.success || !result?.data) {
+              const msg = result?.error_message || 'Không thể đọc thông tin PO';
+              setFiles(prev => prev.map(f => 
+                f.id === file.id ? { ...f, status: 'failed', message: msg } : f
+              ));
+              setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
+              setProcessedCount(prev => prev + 1);
+              return;
+            }
+
+            try {
+              await processPOFileAuto(
+                { id: file.id, name: file.name, base64: file.base64, mimeType: file.mimeType },
+                currentDate,
+                authToken,
+                result.data
+              );
+              setProcessedCount(prev => prev + 1);
+            } catch (err: any) {
+              console.error(`Error processing file ${file.name}:`, err);
+              setFiles(prev => prev.map(f => 
+                f.id === file.id ? { ...f, status: 'failed', message: err.message } : f
+              ));
+              setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
+              setProcessedCount(prev => prev + 1);
+            }
+          })
+        );
+      }
     }
 
     // After ALL files processed, check pendingPOQueue first, then unmatched files
@@ -884,49 +888,52 @@ export function DriveImportProgressDialog({
           : f
       ));
 
-      const scanMap = await scanPOBatch(
-        processPOBatch.map((file) => ({ id: file.id, base64: file.base64, mimeType: file.mimeType })),
-        authToken
-      );
-
-      // 2) Create PO from successful scan results
-      for (let i = 0; i < processPOBatch.length; i += PARALLEL_LIMIT) {
-        const batch = processPOBatch.slice(i, i + PARALLEL_LIMIT);
-
-        await Promise.all(
-          batch.map(async (file, batchIndex) => {
-            const idx = i + batchIndex;
-            const folderDate = allFolderDates[idx];
-            const result = scanMap[file.id];
-
-            if (!result?.success || !result?.data) {
-              const msg = result?.error_message || 'Không thể đọc thông tin PO';
-              setFiles(prev => prev.map(f => 
-                f.id === file.id ? { ...f, status: 'failed', message: msg } : f
-              ));
-              setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
-              setProcessedCount(prev => prev + 1);
-              return;
-            }
-
-            try {
-              await processPOFileAuto(
-                { id: file.id, name: file.name, base64: file.base64, mimeType: file.mimeType },
-                folderDate,
-                authToken,
-                result.data
-              );
-              setProcessedCount(prev => prev + 1);
-            } catch (err: any) {
-              console.error(`Error processing file ${file.name}:`, err);
-              setFiles(prev => prev.map(f => 
-                f.id === file.id ? { ...f, status: 'failed', message: err.message } : f
-              ));
-              setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
-              setProcessedCount(prev => prev + 1);
-            }
-          })
+      // 2) Pipeline theo chunk nhỏ để có tiến độ sớm, không chờ full batch mới thấy kết quả
+      for (let i = 0; i < processPOBatch.length; i += PO_BATCH_SCAN_CHUNK_SIZE) {
+        const scanChunk = processPOBatch.slice(i, i + PO_BATCH_SCAN_CHUNK_SIZE);
+        const scanMap = await scanPOBatch(
+          scanChunk.map((file) => ({ id: file.id, base64: file.base64, mimeType: file.mimeType })),
+          authToken
         );
+
+        for (let j = 0; j < scanChunk.length; j += PARALLEL_LIMIT) {
+          const batch = scanChunk.slice(j, j + PARALLEL_LIMIT);
+
+          await Promise.all(
+            batch.map(async (file) => {
+              const originalIndex = processPOBatch.findIndex((f) => f.id === file.id);
+              const folderDate = allFolderDates[originalIndex];
+              const result = scanMap[file.id];
+
+              if (!result?.success || !result?.data) {
+                const msg = result?.error_message || 'Không thể đọc thông tin PO';
+                setFiles(prev => prev.map(f => 
+                  f.id === file.id ? { ...f, status: 'failed', message: msg } : f
+                ));
+                setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
+                setProcessedCount(prev => prev + 1);
+                return;
+              }
+
+              try {
+                await processPOFileAuto(
+                  { id: file.id, name: file.name, base64: file.base64, mimeType: file.mimeType },
+                  folderDate,
+                  authToken,
+                  result.data
+                );
+                setProcessedCount(prev => prev + 1);
+              } catch (err: any) {
+                console.error(`Error processing file ${file.name}:`, err);
+                setFiles(prev => prev.map(f => 
+                  f.id === file.id ? { ...f, status: 'failed', message: err.message } : f
+                ));
+                setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
+                setProcessedCount(prev => prev + 1);
+              }
+            })
+          );
+        }
       }
 
       // After ALL files processed, check pendingPOQueue first, then unmatched files
