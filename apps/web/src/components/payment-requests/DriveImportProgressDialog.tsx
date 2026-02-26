@@ -132,8 +132,6 @@ const AUTO_CONFIRM_THRESHOLD = 0.85;
 
 // Parallel processing limit
 const PARALLEL_LIMIT = 3;
-const PO_SCAN_PARALLEL_LIMIT = 1;
-const PO_SCAN_RETRY_DELAYS_MS = [4000, 8000];
 const MAX_BATCH_SCAN_FILES = 10;
 
 // Timeout for import initialization to prevent Safari deadlock
@@ -683,8 +681,8 @@ export function DriveImportProgressDialog({
     ));
 
     // Process trực tiếp từng file (ổn định hơn batch wrapper)
-    for (let i = 0; i < filesToProcess.length; i += PO_SCAN_PARALLEL_LIMIT) {
-      const batch = filesToProcess.slice(i, i + PO_SCAN_PARALLEL_LIMIT);
+    for (let i = 0; i < filesToProcess.length; i += PARALLEL_LIMIT) {
+      const batch = filesToProcess.slice(i, i + PARALLEL_LIMIT);
 
       await Promise.all(
         batch.map(async (file) => {
@@ -835,8 +833,8 @@ export function DriveImportProgressDialog({
       ));
 
       // Process trực tiếp từng file (ổn định hơn batch wrapper)
-      for (let i = 0; i < processPOBatch.length; i += PO_SCAN_PARALLEL_LIMIT) {
-        const batch = processPOBatch.slice(i, i + PO_SCAN_PARALLEL_LIMIT);
+      for (let i = 0; i < processPOBatch.length; i += PARALLEL_LIMIT) {
+        const batch = processPOBatch.slice(i, i + PARALLEL_LIMIT);
 
         await Promise.all(
           batch.map(async (file, batchIndex) => {
@@ -1145,61 +1143,38 @@ export function DriveImportProgressDialog({
     // 1. Get scanned PO data (prefer batch result)
     let poData = preScannedPOData;
     if (!poData) {
-      let scanResponse: Response | null = null;
-      let lastErrorMessage = 'Không thể đọc thông tin PO';
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 25000);
 
-      for (let attempt = 0; attempt <= PO_SCAN_RETRY_DELAYS_MS.length; attempt++) {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 25000);
-
-        try {
-          scanResponse = await fetch(
-            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-purchase-order`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
-              },
-              body: JSON.stringify({
-                imageBase64: originalFile.base64,
-                mimeType: originalFile.mimeType,
-              }),
-              signal: controller.signal,
-            }
-          );
-          clearTimeout(timeout);
-
-          if (scanResponse.ok) break;
-
-          const errJson = await scanResponse.json().catch(() => ({}));
-          const errorMessage = `${errJson?.error_message || errJson?.error || 'Không thể đọc thông tin PO'}${errJson?.error_code ? ` [${errJson.error_code}]` : ''}${errJson?.trace_id ? ` (trace: ${String(errJson.trace_id).slice(0, 8)})` : ''}`;
-          lastErrorMessage = errorMessage;
-
-          const isRateLimit = String(errJson?.error_code || '').includes('RATE_LIMIT') || scanResponse.status === 429;
-          if (!isRateLimit || attempt === PO_SCAN_RETRY_DELAYS_MS.length) {
-            throw new Error(errorMessage);
-          }
-
-          await new Promise((r) => setTimeout(r, PO_SCAN_RETRY_DELAYS_MS[attempt]));
-        } catch (e: any) {
-          clearTimeout(timeout);
-          if (String(e?.name || '').toLowerCase().includes('abort')) {
-            lastErrorMessage = 'Scan PO timeout sau 25s [TIMEOUT]';
-          } else if (e instanceof Error) {
-            lastErrorMessage = e.message;
-          }
-
-          if (attempt === PO_SCAN_RETRY_DELAYS_MS.length) {
-            throw new Error(lastErrorMessage);
-          }
-
-          await new Promise((r) => setTimeout(r, PO_SCAN_RETRY_DELAYS_MS[attempt]));
+      let scanResponse: Response;
+      try {
+        scanResponse = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-purchase-order`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            imageBase64: originalFile.base64,
+            mimeType: originalFile.mimeType,
+          }),
+          signal: controller.signal,
         }
+      );
+      clearTimeout(timeout);
+      } catch (e: any) {
+        clearTimeout(timeout);
+        if (String(e?.name || '').toLowerCase().includes('abort')) {
+          throw new Error('Scan PO timeout sau 25s [TIMEOUT]');
+        }
+        throw e;
       }
 
-      if (!scanResponse?.ok) {
-        throw new Error(lastErrorMessage);
+      if (!scanResponse.ok) {
+        const errJson = await scanResponse.json().catch(() => ({}));
+        throw new Error(`${errJson?.error_message || errJson?.error || 'Không thể đọc thông tin PO'}${errJson?.error_code ? ` [${errJson.error_code}]` : ''}${errJson?.trace_id ? ` (trace: ${String(errJson.trace_id).slice(0, 8)})` : ''}`);
       }
 
       const scanData = await scanResponse.json();
@@ -1812,8 +1787,8 @@ export function DriveImportProgressDialog({
     const newUnmatchedSlips: UnmatchedSlip[] = [];
 
     // Process in parallel batches
-    for (let i = 0; i < filesToProcess.length; i += PO_SCAN_PARALLEL_LIMIT) {
-      const batch = filesToProcess.slice(i, i + PO_SCAN_PARALLEL_LIMIT);
+    for (let i = 0; i < filesToProcess.length; i += PARALLEL_LIMIT) {
+      const batch = filesToProcess.slice(i, i + PARALLEL_LIMIT);
       
       await Promise.all(
         batch.map(async (file) => {
