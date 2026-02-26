@@ -22,8 +22,19 @@ export function AICreditBalanceSection() {
   const load = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("get-ai-credit-balance", { method: "GET" });
-      if (error) throw error;
+      const { data: auth } = await supabase.auth.getSession();
+      const accessToken = auth?.session?.access_token;
+
+      const { data, error } = await supabase.functions.invoke("get-ai-credit-balance", {
+        method: "GET",
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      });
+
+      if (error) {
+        const msg = (error as any)?.context?.message || error.message || "Không lấy được thông tin credit";
+        throw new Error(msg);
+      }
+
       setData(data || null);
     } catch (e: any) {
       setData({ status: "error", message: e?.message || "Không lấy được thông tin credit" });
