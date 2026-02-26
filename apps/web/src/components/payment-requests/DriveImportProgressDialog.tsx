@@ -135,6 +135,7 @@ const AUTO_CONFIRM_THRESHOLD = 0.85;
 const PARALLEL_LIMIT = 3;
 const PO_SCAN_PARALLEL_LIMIT = 2; // chạy nhanh hơn, vẫn có throttle thích ứng
 const PO_SCAN_MIN_GAP_MS = 1200; // khoảng cách tối thiểu giữa các request scan PO
+const PO_SCAN_MAX_RETRIES = 8;
 const MAX_BATCH_SCAN_FILES = 10;
 
 // Timeout for import initialization to prevent Safari deadlock
@@ -297,6 +298,7 @@ export function DriveImportProgressDialog({
   const shouldTransitionToAskPR = useRef(false);
   // Global throttle for PO OCR requests (adaptive on rate-limit)
   const poScanNextAllowedAtRef = useRef(0);
+  const poScanStartChainRef = useRef<Promise<void>>(Promise.resolve());
 
   const getTodayFolderName = () => {
     return format(new Date(), 'ddMMyy');
@@ -1137,12 +1139,23 @@ export function DriveImportProgressDialog({
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     let lastError = '';
 
-    for (let attempt = 1; attempt <= 6; attempt++) {
+    const waitForPOSlot = async () => {
+      let release: (() => void) | null = null;
+      const previous = poScanStartChainRef.current;
+      poScanStartChainRef.current = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+
+      await previous;
       const now = Date.now();
-      const waitBeforeCall = Math.max(0, poScanNextAllowedAtRef.current - now);
-      if (waitBeforeCall > 0) {
-        await sleep(waitBeforeCall);
-      }
+      const waitMs = Math.max(0, poScanNextAllowedAtRef.current - now);
+      if (waitMs > 0) await sleep(waitMs);
+      poScanNextAllowedAtRef.current = Date.now() + PO_SCAN_MIN_GAP_MS;
+      release?.();
+    };
+
+    for (let attempt = 1; attempt <= PO_SCAN_MAX_RETRIES; attempt++) {
+      await waitForPOSlot();
 
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 120000);
@@ -1169,9 +1182,6 @@ export function DriveImportProgressDialog({
         let json: any = null;
         try { json = await res.json(); } catch {}
 
-        // Base throttle for next request
-        poScanNextAllowedAtRef.current = Date.now() + PO_SCAN_MIN_GAP_MS;
-
         if (res.ok && json?.success && json?.data) {
           return json.data;
         }
@@ -1180,18 +1190,18 @@ export function DriveImportProgressDialog({
         lastError = errText;
         const rateLimited = res.status === 429 || errText.toLowerCase().includes('rate limit');
 
-        if (!rateLimited || attempt === 6) break;
+        if (!rateLimited || attempt === PO_SCAN_MAX_RETRIES) break;
 
-        const backoffMs = Math.max(retryAfterMs, 2500 * attempt);
+        const backoffMs = Math.max(retryAfterMs, Math.min(60000, 3000 * attempt));
         poScanNextAllowedAtRef.current = Math.max(poScanNextAllowedAtRef.current, Date.now() + backoffMs);
       } catch (err: any) {
         clearTimeout(timeout);
         const msg = String(err?.message || err || 'Scan thất bại');
         lastError = msg;
         const retriable = msg.toLowerCase().includes('rate') || msg.toLowerCase().includes('429') || msg.toLowerCase().includes('timeout') || msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('abort');
-        if (!retriable || attempt === 6) break;
+        if (!retriable || attempt === PO_SCAN_MAX_RETRIES) break;
 
-        const backoffMs = 2500 * attempt;
+        const backoffMs = Math.min(60000, 3000 * attempt);
         poScanNextAllowedAtRef.current = Math.max(poScanNextAllowedAtRef.current, Date.now() + backoffMs);
       }
     }
