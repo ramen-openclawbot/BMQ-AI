@@ -103,94 +103,117 @@ Lưu ý quan trọng:
 - Nếu không thấy giá trị, để null hoặc chuỗi rỗng
 - Chuyển số lượng và giá về dạng number (bỏ separator)
 ${supplierVatConfig?.vat_included_in_price ? '- NCC này có giá đã bao gồm VAT trong đơn giá, không có dòng VAT riêng' : ''}`;
-    const requestPayload = {
-      model: "gemini-2.0-flash",
-      messages: [
-        { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: [
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:${mimeType || "image/jpeg"};base64,${imageBase64}`,
+
+    console.log(`[scan-purchase-order] Calling ${useGemini ? "Gemini" : "OpenAI"} gateway`);
+    const response = await fetch(useGemini ? "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" : "https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${useGemini ? GEMINI_API_KEY : OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: useGemini ? "gemini-2.0-flash" : "gpt-4o-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: [
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:${mimeType || "image/jpeg"};base64,${imageBase64}`,
+                },
               },
-            },
-            {
-              type: "text",
-              text: "Vui lòng trích xuất tất cả dữ liệu từ đơn đặt hàng này.",
-            },
-          ],
-        },
-      ],
-      tools: [
-        {
-          type: "function",
-          function: {
-            name: "extract_purchase_order_data",
-            description: "Trích xuất dữ liệu đơn đặt hàng từ ảnh",
-            parameters: {
-              type: "object",
-              properties: {
-                po_number: { type: "string", description: "Số đơn đặt hàng/Purchase Order number" },
-                order_date: { type: "string", description: "Ngày đặt hàng format YYYY-MM-DD" },
-                expected_date: { type: "string", description: "Ngày giao dự kiến format YYYY-MM-DD" },
-                supplier_name: { type: "string", description: "Tên nhà cung cấp" },
-                vat_amount: { type: "number", description: "Số tiền thuế VAT (VND)" },
-                total_amount: { type: "number", description: "Tổng tiền đơn hàng (VND)" },
-                items: {
-                  type: "array",
+              {
+                type: "text",
+                text: "Vui lòng trích xuất tất cả dữ liệu từ đơn đặt hàng này.",
+              },
+            ],
+          },
+        ],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "extract_purchase_order_data",
+              description: "Trích xuất dữ liệu đơn đặt hàng từ ảnh",
+              parameters: {
+                type: "object",
+                properties: {
+                  po_number: {
+                    type: "string",
+                    description: "Số đơn đặt hàng/Purchase Order number",
+                  },
+                  order_date: {
+                    type: "string",
+                    description: "Ngày đặt hàng format YYYY-MM-DD",
+                  },
+                  expected_date: {
+                    type: "string",
+                    description: "Ngày giao dự kiến format YYYY-MM-DD",
+                  },
+                  supplier_name: {
+                    type: "string",
+                    description: "Tên nhà cung cấp",
+                  },
+                  vat_amount: {
+                    type: "number",
+                    description: "Số tiền thuế VAT (VND)",
+                  },
+                  total_amount: {
+                    type: "number",
+                    description: "Tổng tiền đơn hàng (VND)",
+                  },
                   items: {
-                    type: "object",
-                    properties: {
-                      product_code: { type: "string", description: "Mã sản phẩm" },
-                      product_name: { type: "string", description: "Tên sản phẩm" },
-                      unit: { type: "string", description: "Đơn vị tính (kg, g, con, etc.)" },
-                      quantity: { type: "number", description: "Số lượng đặt" },
-                      unit_price: { type: "number", description: "Đơn giá (VND)" },
-                      line_total: { type: "number", description: "Thành tiền (VND)" },
-                      notes: { type: "string", description: "Ghi chú (NSX, HSD, etc.)" },
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        product_code: {
+                          type: "string",
+                          description: "Mã sản phẩm",
+                        },
+                        product_name: {
+                          type: "string",
+                          description: "Tên sản phẩm",
+                        },
+                        unit: {
+                          type: "string",
+                          description: "Đơn vị tính (kg, g, con, etc.)",
+                        },
+                        quantity: {
+                          type: "number",
+                          description: "Số lượng đặt",
+                        },
+                        unit_price: {
+                          type: "number",
+                          description: "Đơn giá (VND)",
+                        },
+                        line_total: {
+                          type: "number",
+                          description: "Thành tiền (VND)",
+                        },
+                        notes: {
+                          type: "string",
+                          description: "Ghi chú (NSX, HSD, etc.)",
+                        },
+                      },
+                      required: ["product_name", "quantity"],
                     },
-                    required: ["product_name", "quantity"],
+                  },
+                  notes: {
+                    type: "string",
+                    description: "Ghi chú chung của đơn hàng",
                   },
                 },
-                notes: { type: "string", description: "Ghi chú chung của đơn hàng" },
+                required: ["items"],
               },
-              required: ["items"],
             },
           },
-        },
-      ],
-      tool_choice: { type: "function", function: { name: "extract_purchase_order_data" } },
-    };
-
-    const callProvider = async (provider: "gemini" | "openai") => {
-      const endpoint = provider === "gemini"
-        ? "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-        : "https://api.openai.com/v1/chat/completions";
-      const apiKey = provider === "gemini" ? GEMINI_API_KEY : OPENAI_API_KEY;
-      const model = provider === "gemini" ? "gemini-2.0-flash" : "gpt-4o-mini";
-
-      return await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ ...requestPayload, model }),
-      });
-    };
-
-    let provider: "gemini" | "openai" = useGemini ? "gemini" : "openai";
-    console.log(`[scan-purchase-order] Calling ${provider} gateway`);
-    let response = await callProvider(provider);
-
-    // Fallback: nếu Gemini bị RATE_LIMIT thì thử OpenAI ngay
-    if (response.status === 429 && provider === "gemini" && OPENAI_API_KEY) {
-      console.log("[scan-purchase-order] Gemini rate-limited, falling back to OpenAI");
-      provider = "openai";
-      response = await callProvider(provider);
-    }
+        ],
+        tool_choice: { type: "function", function: { name: "extract_purchase_order_data" } },
+      }),
+    });
 
     if (!response.ok) {
       if (response.status === 429) {
@@ -202,7 +225,7 @@ ${supplierVatConfig?.vat_included_in_price ? '- NCC này có giá đã bao gồm
         return makeErrorResponse(402, "CREDITS_EXHAUSTED", "AI credits exhausted. Please add more credits.");
       }
       const errorText = await response.text();
-      console.error(`[scan-purchase-order] ${provider} gateway error:`, response.status, errorText);
+      console.error(`[scan-purchase-order] ${useGemini ? "Gemini" : "OpenAI"} gateway error:`, response.status, errorText);
       throw new Error(`OCR gateway error: ${response.status}`);
     }
 
