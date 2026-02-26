@@ -99,6 +99,15 @@ interface SupplierOption {
   bank_account_name?: string | null;
 }
 
+interface POScanBatchResult {
+  file_id: string;
+  success: boolean;
+  data?: any;
+  error_code?: string;
+  error_message?: string;
+  trace_id?: string;
+}
+
 type ImportPhase = 
   | 'idle' 
   | 'checking_config' 
@@ -652,6 +661,32 @@ export function DriveImportProgressDialog({
     }
   };
 
+  const scanPOBatch = async (
+    poFiles: Array<{ id: string; base64?: string; mimeType?: string }>,
+    token: string
+  ): Promise<Record<string, POScanBatchResult>> => {
+    const res = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-purchase-orders-batch`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ files: poFiles }),
+      }
+    );
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Batch scan failed: ${res.status} ${errText}`);
+    }
+
+    const json = await res.json();
+    const arr: POScanBatchResult[] = json?.results || [];
+    return Object.fromEntries(arr.map((r) => [r.file_id, r]));
+  };
+
   // Start processing selected PO files
   const startProcessingSelectedPO = async () => {
     const selectedFiles = poSelectionMode === 'all'
@@ -673,21 +708,41 @@ export function DriveImportProgressDialog({
     setProcessedCount(0);
     setPhase('processing_files');
 
-    // Process files in parallel batches
+    // 1) Mark all as processing and scan in backend batch (phase 2)
+    setFiles(prev => prev.map(f => 
+      filesToProcess.some(x => x.id === f.id)
+        ? { ...f, status: 'processing', message: 'Đang scan PO...' }
+        : f
+    ));
+
+    const scanMap = await scanPOBatch(
+      filesToProcess.map((file) => ({ id: file.id, base64: file.base64, mimeType: file.mimeType })),
+      authToken
+    );
+
+    // 2) Create PO from successful scan results
     for (let i = 0; i < filesToProcess.length; i += PARALLEL_LIMIT) {
       const batch = filesToProcess.slice(i, i + PARALLEL_LIMIT);
-      
+
       await Promise.all(
         batch.map(async (file) => {
-          setFiles(prev => prev.map(f => 
-            f.id === file.id ? { ...f, status: 'processing' } : f
-          ));
-          
+          const result = scanMap[file.id];
+          if (!result?.success || !result?.data) {
+            const msg = result?.error_message || 'Không thể đọc thông tin PO';
+            setFiles(prev => prev.map(f => 
+              f.id === file.id ? { ...f, status: 'failed', message: msg } : f
+            ));
+            setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
+            setProcessedCount(prev => prev + 1);
+            return;
+          }
+
           try {
             await processPOFileAuto(
               { id: file.id, name: file.name, base64: file.base64, mimeType: file.mimeType },
               currentDate,
-              authToken
+              authToken,
+              result.data
             );
             setProcessedCount(prev => prev + 1);
           } catch (err: any) {
@@ -822,24 +877,44 @@ export function DriveImportProgressDialog({
       setProcessedCount(0);
       setPhase('processing_files');
 
-      // Process all files in parallel batches
+      // 1) Mark processing and scan PO in backend batch
+      setFiles(prev => prev.map(f => 
+        processPOBatch.some(x => x.id === f.id)
+          ? { ...f, status: 'processing', message: 'Đang scan PO...' }
+          : f
+      ));
+
+      const scanMap = await scanPOBatch(
+        processPOBatch.map((file) => ({ id: file.id, base64: file.base64, mimeType: file.mimeType })),
+        authToken
+      );
+
+      // 2) Create PO from successful scan results
       for (let i = 0; i < processPOBatch.length; i += PARALLEL_LIMIT) {
         const batch = processPOBatch.slice(i, i + PARALLEL_LIMIT);
-        
+
         await Promise.all(
           batch.map(async (file, batchIndex) => {
             const idx = i + batchIndex;
             const folderDate = allFolderDates[idx];
+            const result = scanMap[file.id];
 
-            setFiles(prev => prev.map(f => 
-              f.id === file.id ? { ...f, status: 'processing' } : f
-            ));
+            if (!result?.success || !result?.data) {
+              const msg = result?.error_message || 'Không thể đọc thông tin PO';
+              setFiles(prev => prev.map(f => 
+                f.id === file.id ? { ...f, status: 'failed', message: msg } : f
+              ));
+              setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
+              setProcessedCount(prev => prev + 1);
+              return;
+            }
 
             try {
               await processPOFileAuto(
                 { id: file.id, name: file.name, base64: file.base64, mimeType: file.mimeType },
                 folderDate,
-                authToken
+                authToken,
+                result.data
               );
               setProcessedCount(prev => prev + 1);
             } catch (err: any) {
@@ -1131,30 +1206,35 @@ export function DriveImportProgressDialog({
   const processPOFileAuto = async (
     originalFile: any,
     folderDate: string,
-    token: string
+    token: string,
+    preScannedPOData?: any
   ): Promise<boolean> => {
-    // 1. Call AI to scan PO
-    const scanResponse = await fetch(
-      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-purchase-order`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          imageBase64: originalFile.base64,
-          mimeType: originalFile.mimeType,
-        }),
+    // 1. Get scanned PO data (prefer batch result)
+    let poData = preScannedPOData;
+    if (!poData) {
+      const scanResponse = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-purchase-order`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            imageBase64: originalFile.base64,
+            mimeType: originalFile.mimeType,
+          }),
+        }
+      );
+
+      if (!scanResponse.ok) {
+        const errJson = await scanResponse.json().catch(() => ({}));
+        throw new Error(errJson?.error_message || errJson?.error || 'Không thể đọc thông tin PO');
       }
-    );
 
-    if (!scanResponse.ok) {
-      throw new Error('Không thể đọc thông tin PO');
+      const scanData = await scanResponse.json();
+      poData = scanData.data;
     }
-
-    const scanData = await scanResponse.json();
-    const poData = scanData.data;
 
     // 2. Find or match supplier with fuzzy matching
     let supplierId: string | null = null;

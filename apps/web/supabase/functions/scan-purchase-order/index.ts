@@ -9,7 +9,14 @@ const corsHeaders = {
 
 serve(async (req) => {
   const startTime = Date.now();
-  console.log("[scan-purchase-order] Request started");
+  const traceId = crypto.randomUUID();
+  const makeErrorResponse = (status: number, error_code: string, error_message: string, details?: string) =>
+    new Response(
+      JSON.stringify({ error_code, error_message, details, trace_id: traceId }),
+      { status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+
+  console.log("[scan-purchase-order] Request started", { traceId });
 
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -20,10 +27,7 @@ serve(async (req) => {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       console.log("[scan-purchase-order] Missing authorization header");
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return makeErrorResponse(401, "UNAUTHORIZED", "Unauthorized");
     }
 
     const token = authHeader.replace("Bearer ", "");
@@ -39,10 +43,7 @@ serve(async (req) => {
     const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
     if (authError || !user) {
       console.log("[scan-purchase-order] Invalid JWT:", authError?.message);
-      return new Response(
-        JSON.stringify({ code: 401, message: "Invalid JWT", details: authError?.message }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return makeErrorResponse(401, "UNAUTHORIZED", "Invalid JWT", authError?.message);
     }
 
     console.log("[scan-purchase-order] User authenticated:", user.id);
@@ -50,27 +51,18 @@ serve(async (req) => {
     const { imageBase64, mimeType, supplierVatConfig } = await req.json();
 
     if (!imageBase64) {
-      return new Response(
-        JSON.stringify({ error: "No image provided" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return makeErrorResponse(400, "INVALID_IMAGE", "No image provided");
     }
 
     // Validate image size (max 10MB base64 ~ 7.5MB raw)
     if (imageBase64.length > 10 * 1024 * 1024) {
-      return new Response(
-        JSON.stringify({ error: "Image too large. Maximum size is 10MB." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return makeErrorResponse(400, "INVALID_IMAGE", "Image too large. Maximum size is 10MB.");
     }
 
     // Validate MIME type
     const allowedMimeTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
     if (mimeType && !allowedMimeTypes.includes(mimeType)) {
-      return new Response(
-        JSON.stringify({ error: "Invalid image type. Allowed: JPEG, PNG, WebP, GIF" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return makeErrorResponse(400, "INVALID_IMAGE", "Invalid image type. Allowed: JPEG, PNG, WebP, GIF");
     }
 
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
@@ -223,17 +215,11 @@ ${supplierVatConfig?.vat_included_in_price ? '- NCC này có giá đã bao gồm
     if (!response.ok) {
       if (response.status === 429) {
         console.log("[scan-purchase-order] Rate limit exceeded");
-        return new Response(
-          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        return makeErrorResponse(429, "RATE_LIMIT", "Rate limit exceeded. Please try again later.");
       }
       if (response.status === 402) {
         console.log("[scan-purchase-order] AI credits exhausted");
-        return new Response(
-          JSON.stringify({ error: "AI credits exhausted. Please add more credits." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        return makeErrorResponse(402, "CREDITS_EXHAUSTED", "AI credits exhausted. Please add more credits.");
       }
       const errorText = await response.text();
       console.error("[scan-purchase-order] AI gateway error:", response.status, errorText);
@@ -254,22 +240,10 @@ ${supplierVatConfig?.vat_included_in_price ? '- NCC này có giá đã bao gồm
           textContent.toLowerCase().includes("không phải") ||
           textContent.toLowerCase().includes("refund") ||
           textContent.toLowerCase().includes("receipt")) {
-        return new Response(
-          JSON.stringify({ 
-            error: "Hình ảnh không phải là đơn đặt hàng (PO)", 
-            details: textContent || "AI không thể nhận dạng đây là PO"
-          }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        return makeErrorResponse(400, "INVALID_DOCUMENT", "Hình ảnh không phải là đơn đặt hàng (PO)", textContent || "AI không thể nhận dạng đây là PO");
       }
       
-      return new Response(
-        JSON.stringify({ 
-          error: "Không thể trích xuất dữ liệu từ hình ảnh",
-          details: textContent || "AI không trả về dữ liệu cấu trúc"
-        }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return makeErrorResponse(400, "OCR_EMPTY", "Không thể trích xuất dữ liệu từ hình ảnh", textContent || "AI không trả về dữ liệu cấu trúc");
     }
 
     const extractedData = JSON.parse(toolCall.function.arguments);
@@ -281,9 +255,6 @@ ${supplierVatConfig?.vat_included_in_price ? '- NCC này có giá đã bao gồm
     );
   } catch (error) {
     console.error("[scan-purchase-order] Error:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return makeErrorResponse(500, "PROVIDER_ERROR", error instanceof Error ? error.message : "Unknown error");
   }
 });
