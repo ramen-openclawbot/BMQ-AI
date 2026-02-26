@@ -1,10 +1,10 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.7**
+- apps/web: **0.0.8**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
-- Latest commit at handoff time: `e1c8670`
+- Latest commit at handoff time: `TBD_AFTER_COMMIT`
 
 ## What is done (latest)
 1. Dashboard đã rút gọn theo hướng overview ngắn; bỏ các block dài gây rối.
@@ -60,7 +60,7 @@
   - `/goods-receipts`: chỉ nhận SKU nguyên vật liệu.
   - `/sku-costs/*`: chỉ xử lý SKU thành phẩm cho COGS.
   - Add Invoice scan hoạt động ổn trên mobile.
-  - `/settings` hiển thị version từ semver package (`0.0.6`).
+  - `/settings` hiển thị version từ semver package (`0.0.8`).
 
 
 ## Shortcut/output rule (user preference)
@@ -73,7 +73,6 @@
 
 ## Latest update (2026-02-26)
 - Đã rollback về nhánh ổn định theo xác nhận user: nguyên nhân 429 do hết quota API, không phải lỗi code.
-- Đã bump version app web lên **0.0.7**.
-- Đã thêm Settings section **AI API Credit** để kiểm tra credit balance của provider đang dùng (OpenAI).
-- Đã thêm Supabase Edge Function mới: `get-ai-credit-balance`.
-- Lưu ý: endpoint credit của OpenAI có thể không khả dụng với mọi loại API key; UI sẽ hiển thị trạng thái `unavailable` kèm message thay vì crash.
+- Đã bump version app web lên **0.0.8**.
+- Đã xoá hoàn toàn tính năng **AI API Credit** khỏi Settings theo yêu cầu user.
+- Đã xoá Edge Function `get-ai-credit-balance` khỏi codebase web app.
