@@ -299,6 +299,7 @@ export function DriveImportProgressDialog({
   // Global throttle for PO OCR requests (adaptive on rate-limit)
   const poScanNextAllowedAtRef = useRef(0);
   const poScanStartChainRef = useRef<Promise<void>>(Promise.resolve());
+  const poRateLimitStreakRef = useRef(0);
 
   const getTodayFolderName = () => {
     return format(new Date(), 'ddMMyy');
@@ -691,7 +692,7 @@ export function DriveImportProgressDialog({
           ));
           
           try {
-            await processPOFileAuto(
+            await processPOFileWithRecovery(
               { id: file.id, name: file.name, base64: file.base64, mimeType: file.mimeType },
               currentDate,
               authToken
@@ -844,7 +845,7 @@ export function DriveImportProgressDialog({
             ));
 
             try {
-              await processPOFileAuto(
+              await processPOFileWithRecovery(
                 { id: file.id, name: file.name, base64: file.base64, mimeType: file.mimeType },
                 folderDate,
                 authToken
@@ -1207,6 +1208,35 @@ export function DriveImportProgressDialog({
     }
 
     throw new Error(lastError || 'Không thể đọc thông tin PO');
+  };
+
+  const processPOFileWithRecovery = async (
+    originalFile: any,
+    folderDate: string,
+    token: string
+  ): Promise<boolean> => {
+    const isRateLimitError = (msg: string) => {
+      const m = msg.toLowerCase();
+      return m.includes('rate limit') || m.includes('429') || m.includes('too many requests');
+    };
+
+    try {
+      const result = await processPOFileAuto(originalFile, folderDate, token);
+      poRateLimitStreakRef.current = 0;
+      return result;
+    } catch (err: any) {
+      const msg = String(err?.message || err || '');
+      if (!isRateLimitError(msg)) throw err;
+
+      poRateLimitStreakRef.current += 1;
+      const coolDownMs = poRateLimitStreakRef.current >= 2 ? 90000 : 45000;
+      console.warn(`[po-scan] rate limited, cooling down ${coolDownMs}ms then retry`);
+      await new Promise((r) => setTimeout(r, coolDownMs));
+
+      const retryResult = await processPOFileAuto(originalFile, folderDate, token);
+      poRateLimitStreakRef.current = 0;
+      return retryResult;
+    }
   };
 
   // NEW: Process single PO file - Creates Purchase Order AND Payment Request
