@@ -40,6 +40,7 @@ import { uploadPaymentRequestImage } from "@/hooks/usePaymentRequests";
 import { generatePONumber } from "@/hooks/usePurchaseOrders";
 import { generateShortCode } from "@/components/dialogs/AddSupplierDialog";
 import { AddPaymentRequestDialog, PRPrefillData } from "@/components/dialogs/AddPaymentRequestDialog";
+import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 
 interface DriveImportProgressDialogProps {
   open: boolean;
