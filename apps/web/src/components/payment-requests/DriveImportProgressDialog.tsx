@@ -133,6 +133,7 @@ const AUTO_CONFIRM_THRESHOLD = 0.85;
 
 // Parallel processing limit
 const PARALLEL_LIMIT = 3;
+const PO_SCAN_PARALLEL_LIMIT = 1; // tránh rate-limit OCR khi scan PO
 const MAX_BATCH_SCAN_FILES = 10;
 
 // Timeout for import initialization to prevent Safari deadlock
@@ -675,8 +676,8 @@ export function DriveImportProgressDialog({
     setPhase('processing_files');
 
     // Process files in parallel batches
-    for (let i = 0; i < filesToProcess.length; i += PARALLEL_LIMIT) {
-      const batch = filesToProcess.slice(i, i + PARALLEL_LIMIT);
+    for (let i = 0; i < filesToProcess.length; i += PO_SCAN_PARALLEL_LIMIT) {
+      const batch = filesToProcess.slice(i, i + PO_SCAN_PARALLEL_LIMIT);
       
       await Promise.all(
         batch.map(async (file) => {
@@ -824,8 +825,8 @@ export function DriveImportProgressDialog({
       setPhase('processing_files');
 
       // Process all files in parallel batches
-      for (let i = 0; i < processPOBatch.length; i += PARALLEL_LIMIT) {
-        const batch = processPOBatch.slice(i, i + PARALLEL_LIMIT);
+      for (let i = 0; i < processPOBatch.length; i += PO_SCAN_PARALLEL_LIMIT) {
+        const batch = processPOBatch.slice(i, i + PO_SCAN_PARALLEL_LIMIT);
         
         await Promise.all(
           batch.map(async (file, batchIndex) => {
@@ -1127,6 +1128,33 @@ export function DriveImportProgressDialog({
   };
 
 
+  const scanPOWithRetry = async (payload: { imageBase64: string; mimeType: string }, token: string) => {
+    let lastError = '';
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      const result = await callEdgeFunction<{ success: boolean; data: any; error?: string }>(
+        'scan-purchase-order',
+        payload,
+        token,
+        90000
+      );
+
+      const errMsg = String(result.error || result.data?.error || '').toLowerCase();
+      const rateLimited = errMsg.includes('rate limit') || errMsg.includes('429');
+
+      if (!result.error && result.data?.success && result.data?.data) {
+        return result.data.data;
+      }
+
+      lastError = String(result.error || result.data?.error || 'Không thể đọc thông tin PO');
+      if (!rateLimited || attempt === 4) break;
+
+      const waitMs = 1200 * attempt;
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+
+    throw new Error(lastError || 'Không thể đọc thông tin PO');
+  };
+
   // NEW: Process single PO file - Creates Purchase Order AND Payment Request
   // Returns true if processed immediately, false if needs user confirmation for supplier
   const processPOFileAuto = async (
@@ -1134,23 +1162,14 @@ export function DriveImportProgressDialog({
     folderDate: string,
     token: string
   ): Promise<boolean> => {
-    // 1. Call AI to scan PO (timeout + retry-friendly wrapper)
-    const scanResult = await callEdgeFunction<{ success: boolean; data: any; error?: string }>(
-      'scan-purchase-order',
+    // 1. Call AI to scan PO (retry when hitting rate limit)
+    const poData = await scanPOWithRetry(
       {
         imageBase64: originalFile.base64,
         mimeType: originalFile.mimeType,
       },
-      token,
-      90000
+      token
     );
-
-    if (scanResult.error || !scanResult.data?.success || !scanResult.data?.data) {
-      const msg = scanResult.error || scanResult.data?.error || 'Không thể đọc thông tin PO';
-      throw new Error(msg);
-    }
-
-    const poData = scanResult.data.data;
 
     // 2. Find or match supplier with fuzzy matching
     let supplierId: string | null = null;
@@ -1758,8 +1777,8 @@ export function DriveImportProgressDialog({
     const newUnmatchedSlips: UnmatchedSlip[] = [];
 
     // Process in parallel batches
-    for (let i = 0; i < filesToProcess.length; i += PARALLEL_LIMIT) {
-      const batch = filesToProcess.slice(i, i + PARALLEL_LIMIT);
+    for (let i = 0; i < filesToProcess.length; i += PO_SCAN_PARALLEL_LIMIT) {
+      const batch = filesToProcess.slice(i, i + PO_SCAN_PARALLEL_LIMIT);
       
       await Promise.all(
         batch.map(async (file) => {
