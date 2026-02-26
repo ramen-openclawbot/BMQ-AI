@@ -132,8 +132,6 @@ const AUTO_CONFIRM_THRESHOLD = 0.85;
 
 // Parallel processing limit
 const PARALLEL_LIMIT = 3;
-const PO_SCAN_PARALLEL_LIMIT = 1;
-const PO_SCAN_RETRY_DELAYS_MS = [4000, 8000];
 const MAX_BATCH_SCAN_FILES = 10;
 
 // Timeout for import initialization to prevent Safari deadlock
@@ -682,22 +680,39 @@ export function DriveImportProgressDialog({
         : f
     ));
 
-    // Process trực tiếp từng file (ổn định hơn batch wrapper)
-    for (let i = 0; i < filesToProcess.length; i += PO_SCAN_PARALLEL_LIMIT) {
-      const batch = filesToProcess.slice(i, i + PO_SCAN_PARALLEL_LIMIT);
+    // Scan tập trung qua batch function để kiểm soát retry/rate-limit tại một nơi
+    const scanMap = await scanPOBatch(
+      filesToProcess.map((file) => ({ id: file.id, base64: file.base64, mimeType: file.mimeType })),
+      authToken
+    );
+
+    for (let i = 0; i < filesToProcess.length; i += PARALLEL_LIMIT) {
+      const batch = filesToProcess.slice(i, i + PARALLEL_LIMIT);
 
       await Promise.all(
         batch.map(async (file) => {
+          const result = scanMap[file.id];
+          if (!result?.success || !result?.data) {
+            const msg = `${result?.error_message || 'Không thể đọc thông tin PO'}${result?.error_code ? ` [${result.error_code}]` : ''}${result?.trace_id ? ` (trace: ${result.trace_id.slice(0, 8)})` : ''}`;
+            setFiles(prev => prev.map(f =>
+              f.id === file.id ? { ...f, status: 'failed', message: msg } : f
+            ));
+            setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
+            setProcessedCount(prev => prev + 1);
+            return;
+          }
+
           try {
             await processPOFileAuto(
               { id: file.id, name: file.name, base64: file.base64, mimeType: file.mimeType },
               currentDate,
-              authToken
+              authToken,
+              result.data
             );
             setProcessedCount(prev => prev + 1);
           } catch (err: any) {
             console.error(`Error processing file ${file.name}:`, err);
-            setFiles(prev => prev.map(f => 
+            setFiles(prev => prev.map(f =>
               f.id === file.id ? { ...f, status: 'failed', message: err.message } : f
             ));
             setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
@@ -834,25 +849,42 @@ export function DriveImportProgressDialog({
           : f
       ));
 
-      // Process trực tiếp từng file (ổn định hơn batch wrapper)
-      for (let i = 0; i < processPOBatch.length; i += PO_SCAN_PARALLEL_LIMIT) {
-        const batch = processPOBatch.slice(i, i + PO_SCAN_PARALLEL_LIMIT);
+      // Scan tập trung qua batch function để kiểm soát retry/rate-limit tại một nơi
+      const scanMap = await scanPOBatch(
+        processPOBatch.map((file) => ({ id: file.id, base64: file.base64, mimeType: file.mimeType })),
+        authToken
+      );
+
+      for (let i = 0; i < processPOBatch.length; i += PARALLEL_LIMIT) {
+        const batch = processPOBatch.slice(i, i + PARALLEL_LIMIT);
 
         await Promise.all(
           batch.map(async (file, batchIndex) => {
             const idx = i + batchIndex;
             const folderDate = allFolderDates[idx];
+            const result = scanMap[file.id];
+
+            if (!result?.success || !result?.data) {
+              const msg = `${result?.error_message || 'Không thể đọc thông tin PO'}${result?.error_code ? ` [${result.error_code}]` : ''}${result?.trace_id ? ` (trace: ${result.trace_id.slice(0, 8)})` : ''}`;
+              setFiles(prev => prev.map(f =>
+                f.id === file.id ? { ...f, status: 'failed', message: msg } : f
+              ));
+              setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
+              setProcessedCount(prev => prev + 1);
+              return;
+            }
 
             try {
               await processPOFileAuto(
                 { id: file.id, name: file.name, base64: file.base64, mimeType: file.mimeType },
                 folderDate,
-                authToken
+                authToken,
+                result.data
               );
               setProcessedCount(prev => prev + 1);
             } catch (err: any) {
               console.error(`Error processing file ${file.name}:`, err);
-              setFiles(prev => prev.map(f => 
+              setFiles(prev => prev.map(f =>
                 f.id === file.id ? { ...f, status: 'failed', message: err.message } : f
               ));
               setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
@@ -1134,6 +1166,46 @@ export function DriveImportProgressDialog({
   };
 
 
+interface POScanBatchResult {
+  file_id: string;
+  success: boolean;
+  data?: any;
+  error_code?: string;
+  error_message?: string;
+  trace_id?: string;
+}
+
+
+
+  const scanPOBatch = async (
+    poFiles: Array<{ id: string; base64?: string; mimeType?: string }>,
+    token: string
+  ): Promise<Record<string, POScanBatchResult>> => {
+    const res = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-purchase-orders-batch`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ files: poFiles }),
+      }
+    );
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Batch scan failed: ${res.status} ${errText}`);
+    }
+
+    const json = await res.json();
+    const arr: POScanBatchResult[] = Array.isArray(json?.results) ? json.results : [];
+    return arr.reduce((acc, item) => {
+      acc[item.file_id] = item;
+      return acc;
+    }, {} as Record<string, POScanBatchResult>);
+  };
+
   // NEW: Process single PO file - Creates Purchase Order AND Payment Request
   // Returns true if processed immediately, false if needs user confirmation for supplier
   const processPOFileAuto = async (
@@ -1142,68 +1214,10 @@ export function DriveImportProgressDialog({
     token: string,
     preScannedPOData?: any
   ): Promise<boolean> => {
-    // 1. Get scanned PO data (prefer batch result)
-    let poData = preScannedPOData;
+    // 1. Nhận dữ liệu scan PO từ batch-scan tập trung
+    const poData = preScannedPOData;
     if (!poData) {
-      let scanResponse: Response | null = null;
-      let lastErrorMessage = 'Không thể đọc thông tin PO';
-
-      for (let attempt = 0; attempt <= PO_SCAN_RETRY_DELAYS_MS.length; attempt++) {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 25000);
-
-        try {
-          scanResponse = await fetch(
-            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-purchase-order`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
-              },
-              body: JSON.stringify({
-                imageBase64: originalFile.base64,
-                mimeType: originalFile.mimeType,
-              }),
-              signal: controller.signal,
-            }
-          );
-          clearTimeout(timeout);
-
-          if (scanResponse.ok) break;
-
-          const errJson = await scanResponse.json().catch(() => ({}));
-          const errorMessage = `${errJson?.error_message || errJson?.error || 'Không thể đọc thông tin PO'}${errJson?.error_code ? ` [${errJson.error_code}]` : ''}${errJson?.trace_id ? ` (trace: ${String(errJson.trace_id).slice(0, 8)})` : ''}`;
-          lastErrorMessage = errorMessage;
-
-          const isRateLimit = String(errJson?.error_code || '').includes('RATE_LIMIT') || scanResponse.status === 429;
-          if (!isRateLimit || attempt === PO_SCAN_RETRY_DELAYS_MS.length) {
-            throw new Error(errorMessage);
-          }
-
-          await new Promise((r) => setTimeout(r, PO_SCAN_RETRY_DELAYS_MS[attempt]));
-        } catch (e: any) {
-          clearTimeout(timeout);
-          if (String(e?.name || '').toLowerCase().includes('abort')) {
-            lastErrorMessage = 'Scan PO timeout sau 25s [TIMEOUT]';
-          } else if (e instanceof Error) {
-            lastErrorMessage = e.message;
-          }
-
-          if (attempt === PO_SCAN_RETRY_DELAYS_MS.length) {
-            throw new Error(lastErrorMessage);
-          }
-
-          await new Promise((r) => setTimeout(r, PO_SCAN_RETRY_DELAYS_MS[attempt]));
-        }
-      }
-
-      if (!scanResponse?.ok) {
-        throw new Error(lastErrorMessage);
-      }
-
-      const scanData = await scanResponse.json();
-      poData = scanData.data;
+      throw new Error('Thiếu dữ liệu scan PO từ batch pipeline [SCAN_PIPELINE]');
     }
 
     // 2. Find or match supplier with fuzzy matching
@@ -1812,8 +1826,8 @@ export function DriveImportProgressDialog({
     const newUnmatchedSlips: UnmatchedSlip[] = [];
 
     // Process in parallel batches
-    for (let i = 0; i < filesToProcess.length; i += PO_SCAN_PARALLEL_LIMIT) {
-      const batch = filesToProcess.slice(i, i + PO_SCAN_PARALLEL_LIMIT);
+    for (let i = 0; i < filesToProcess.length; i += PARALLEL_LIMIT) {
+      const batch = filesToProcess.slice(i, i + PARALLEL_LIMIT);
       
       await Promise.all(
         batch.map(async (file) => {
