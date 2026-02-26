@@ -66,12 +66,9 @@ serve(async (req) => {
     }
 
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-
-    const useGemini = Boolean(GEMINI_API_KEY);
-    if (!useGemini && !OPENAI_API_KEY) {
-      console.error("[scan-purchase-order] Neither GEMINI_API_KEY nor OPENAI_API_KEY configured");
-      throw new Error("Missing OCR provider API key");
+    if (!GEMINI_API_KEY) {
+      console.error("[scan-purchase-order] GEMINI_API_KEY not configured");
+      throw new Error("GEMINI_API_KEY is not configured");
     }
 
     // Conditional VAT instruction based on supplier's learned preference
@@ -104,15 +101,15 @@ Lưu ý quan trọng:
 - Chuyển số lượng và giá về dạng number (bỏ separator)
 ${supplierVatConfig?.vat_included_in_price ? '- NCC này có giá đã bao gồm VAT trong đơn giá, không có dòng VAT riêng' : ''}`;
 
-    console.log(`[scan-purchase-order] Calling ${useGemini ? "Gemini" : "OpenAI"} gateway`);
-    const response = await fetch(useGemini ? "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" : "https://api.openai.com/v1/chat/completions", {
+    console.log("[scan-purchase-order] Calling Gemini gateway");
+    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${useGemini ? GEMINI_API_KEY : OPENAI_API_KEY}`,
+        Authorization: `Bearer ${GEMINI_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: useGemini ? "gemini-2.0-flash" : "gpt-4o-mini",
+        model: "gemini-2.0-flash",
         messages: [
           { role: "system", content: systemPrompt },
           {
@@ -225,8 +222,8 @@ ${supplierVatConfig?.vat_included_in_price ? '- NCC này có giá đã bao gồm
         return makeErrorResponse(402, "CREDITS_EXHAUSTED", "AI credits exhausted. Please add more credits.");
       }
       const errorText = await response.text();
-      console.error(`[scan-purchase-order] ${useGemini ? "Gemini" : "OpenAI"} gateway error:`, response.status, errorText);
-      throw new Error(`OCR gateway error: ${response.status}`);
+      console.error("[scan-purchase-order] Gemini gateway error:", response.status, errorText);
+      throw new Error(`Gemini gateway error: ${response.status}`);
     }
 
     const aiResponse = await response.json();
