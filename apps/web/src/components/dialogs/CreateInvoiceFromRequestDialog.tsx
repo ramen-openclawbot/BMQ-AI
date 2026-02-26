@@ -138,28 +138,39 @@ export function CreateInvoiceFromRequestDialog({
         uploadedPaymentSlipUrl = signedData?.signedUrl || null;
       }
 
-      // Call edge function to create invoice + items atomically
-      const result = await callEdgeFunction<{
-        success: boolean;
-        invoice_id: string;
-        items_count: number;
-      }>(
-        "create-invoice-from-pr",
-        {
-          payment_request_id: request.id,
-          invoice_number: invoiceNumber,
-          invoice_date: invoiceDate,
-          vat_amount: vatAmount,
-          notes,
-          payment_slip_url: uploadedPaymentSlipUrl,
-        },
-        session.access_token,
-        30000 // 30 second timeout
-      );
+      // Call edge function to create invoice + items atomically (retry once on network failure)
+      let result: {
+        data?: { success: boolean; invoice_id: string; items_count: number };
+        error?: string;
+        isSessionExpired?: boolean;
+      } = {};
+
+      const payload = {
+        payment_request_id: request.id,
+        invoice_number: invoiceNumber,
+        invoice_date: invoiceDate,
+        vat_amount: vatAmount,
+        notes,
+        payment_slip_url: uploadedPaymentSlipUrl,
+      };
+
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        result = await callEdgeFunction<{
+          success: boolean;
+          invoice_id: string;
+          items_count: number;
+        }>("create-invoice-from-pr", payload, session.access_token, 60000);
+
+        const errMsg = String(result?.error || "").toLowerCase();
+        const isNetworkError = errMsg.includes("failed to fetch") || errMsg.includes("network") || errMsg.includes("timeout");
+        if (!result.error || !isNetworkError || attempt === 2) break;
+      }
 
       if (result.error) {
         if (result.isSessionExpired) {
           toast.error("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
+        } else if (String(result.error).toLowerCase().includes("failed to fetch")) {
+          toast.error("Kết nối mạng/Edge function không ổn định. Vui lòng thử lại.");
         } else {
           toast.error(result.error);
         }

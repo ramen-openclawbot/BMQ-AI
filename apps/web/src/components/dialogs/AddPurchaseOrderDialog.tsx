@@ -107,6 +107,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
   const [isScanning, setIsScanning] = useState(false);
   const [scannedImage, setScannedImage] = useState<string | null>(null);
   const [scannedData, setScannedData] = useState<ScannedPOData | null>(null);
+  const [selectedImagePreviews, setSelectedImagePreviews] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { user } = useAuth();
@@ -253,6 +254,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
           reader.readAsDataURL(f);
         });
         setScannedImage(dataUrl);
+        setSelectedImagePreviews([dataUrl]);
 
         const scanned = await scanSinglePOFile(f, token);
         setScannedData(scanned);
@@ -272,6 +274,9 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
         toast.success("Đã scan thành công đơn đặt hàng");
       } else {
         setScannedImage(null);
+        setSelectedImagePreviews([]);
+        const previewUrls = await Promise.all(files.map((f) => new Promise<string>((resolve) => { const r = new FileReader(); r.onloadend = () => resolve(r.result as string); r.readAsDataURL(f); })));
+        setSelectedImagePreviews(previewUrls.slice(0, 3));
         const scans: ScannedPOData[] = [];
         for (const f of files) {
           try {
@@ -309,6 +314,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
 
   const handleRemoveImage = () => {
     setScannedImage(null);
+    setSelectedImagePreviews([]);
     setScannedData(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -384,6 +390,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
       toast.success(`Đã tạo đơn đặt hàng ${poNumber}`);
       form.reset();
       setScannedImage(null);
+      setSelectedImagePreviews([]);
       setScannedData(null);
       setOpen(false);
     } catch (error) {
@@ -400,6 +407,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
       // Reset scan-related state when closing
       setIsScanning(false);
       setScannedImage(null);
+      setSelectedImagePreviews([]);
       setScannedData(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
@@ -433,7 +441,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
             id="po-image-upload"
           />
           
-          {!scannedImage ? (
+          {!scannedData ? (
             <div className="flex flex-col items-center justify-center py-6">
               <ImageIcon className="h-12 w-12 text-muted-foreground mb-3" />
               <p className="text-sm text-muted-foreground mb-3">
@@ -462,7 +470,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
             <div className="flex gap-4">
               <div className="relative w-48 h-32 flex-shrink-0">
                 <img
-                  src={scannedImage}
+                  src={scannedImage || selectedImagePreviews[0]}
                   alt="Scanned PO"
                   className="w-full h-full object-cover rounded-lg"
                 />
@@ -503,6 +511,16 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                       <span className="text-muted-foreground">Sản phẩm:</span>{" "}
                       <Badge>{scannedData.items?.length || 0} items</Badge>
                     </p>
+                    {selectedImagePreviews.length > 1 && (
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary">Batch: {selectedImagePreviews.length} ảnh</Badge>
+                        <div className="flex gap-1">
+                          {selectedImagePreviews.slice(0, 3).map((src, idx) => (
+                            <img key={idx} src={src} alt={`preview-${idx}`} className="h-8 w-8 rounded object-cover border" />
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {scannedData.total_amount && (
                       <p className="text-sm">
                         <span className="text-muted-foreground">Tổng:</span>{" "}
