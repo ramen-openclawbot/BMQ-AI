@@ -40,7 +40,6 @@ import { uploadPaymentRequestImage } from "@/hooks/usePaymentRequests";
 import { generatePONumber } from "@/hooks/usePurchaseOrders";
 import { generateShortCode } from "@/components/dialogs/AddSupplierDialog";
 import { AddPaymentRequestDialog, PRPrefillData } from "@/components/dialogs/AddPaymentRequestDialog";
-import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 
 interface DriveImportProgressDialogProps {
   open: boolean;
@@ -133,9 +132,6 @@ const AUTO_CONFIRM_THRESHOLD = 0.85;
 
 // Parallel processing limit
 const PARALLEL_LIMIT = 3;
-const PO_SCAN_PARALLEL_LIMIT = 2; // chạy nhanh hơn, vẫn có throttle thích ứng
-const PO_SCAN_MIN_GAP_MS = 1200; // khoảng cách tối thiểu giữa các request scan PO
-const PO_SCAN_MAX_RETRIES = 8;
 const MAX_BATCH_SCAN_FILES = 10;
 
 // Timeout for import initialization to prevent Safari deadlock
@@ -296,10 +292,6 @@ export function DriveImportProgressDialog({
 
   // Ref to track when we should transition to ask_pr_mode after queue update
   const shouldTransitionToAskPR = useRef(false);
-  // Global throttle for PO OCR requests (adaptive on rate-limit)
-  const poScanNextAllowedAtRef = useRef(0);
-  const poScanStartChainRef = useRef<Promise<void>>(Promise.resolve());
-  const poRateLimitStreakRef = useRef(0);
 
   const getTodayFolderName = () => {
     return format(new Date(), 'ddMMyy');
@@ -682,8 +674,8 @@ export function DriveImportProgressDialog({
     setPhase('processing_files');
 
     // Process files in parallel batches
-    for (let i = 0; i < filesToProcess.length; i += PO_SCAN_PARALLEL_LIMIT) {
-      const batch = filesToProcess.slice(i, i + PO_SCAN_PARALLEL_LIMIT);
+    for (let i = 0; i < filesToProcess.length; i += PARALLEL_LIMIT) {
+      const batch = filesToProcess.slice(i, i + PARALLEL_LIMIT);
       
       await Promise.all(
         batch.map(async (file) => {
@@ -692,7 +684,7 @@ export function DriveImportProgressDialog({
           ));
           
           try {
-            await processPOFileWithRecovery(
+            await processPOFileAuto(
               { id: file.id, name: file.name, base64: file.base64, mimeType: file.mimeType },
               currentDate,
               authToken
@@ -708,7 +700,6 @@ export function DriveImportProgressDialog({
           }
         })
       );
-
     }
 
     // After ALL files processed, check pendingPOQueue first, then unmatched files
@@ -832,8 +823,8 @@ export function DriveImportProgressDialog({
       setPhase('processing_files');
 
       // Process all files in parallel batches
-      for (let i = 0; i < processPOBatch.length; i += PO_SCAN_PARALLEL_LIMIT) {
-        const batch = processPOBatch.slice(i, i + PO_SCAN_PARALLEL_LIMIT);
+      for (let i = 0; i < processPOBatch.length; i += PARALLEL_LIMIT) {
+        const batch = processPOBatch.slice(i, i + PARALLEL_LIMIT);
         
         await Promise.all(
           batch.map(async (file, batchIndex) => {
@@ -845,7 +836,7 @@ export function DriveImportProgressDialog({
             ));
 
             try {
-              await processPOFileWithRecovery(
+              await processPOFileAuto(
                 { id: file.id, name: file.name, base64: file.base64, mimeType: file.mimeType },
                 folderDate,
                 authToken
@@ -861,7 +852,6 @@ export function DriveImportProgressDialog({
             }
           })
         );
-
       }
 
       // After ALL files processed, check pendingPOQueue first, then unmatched files
@@ -1136,109 +1126,6 @@ export function DriveImportProgressDialog({
   };
 
 
-  const scanPOWithRetry = async (payload: { imageBase64: string; mimeType: string }, token: string) => {
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    let lastError = '';
-
-    const waitForPOSlot = async () => {
-      let release: (() => void) | null = null;
-      const previous = poScanStartChainRef.current;
-      poScanStartChainRef.current = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-
-      await previous;
-      const now = Date.now();
-      const waitMs = Math.max(0, poScanNextAllowedAtRef.current - now);
-      if (waitMs > 0) await sleep(waitMs);
-      poScanNextAllowedAtRef.current = Date.now() + PO_SCAN_MIN_GAP_MS;
-      release?.();
-    };
-
-    for (let attempt = 1; attempt <= PO_SCAN_MAX_RETRIES; attempt++) {
-      await waitForPOSlot();
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 120000);
-
-      try {
-        const res = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-purchase-order`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`,
-            },
-            body: JSON.stringify(payload),
-            signal: controller.signal,
-          }
-        );
-
-        clearTimeout(timeout);
-
-        const retryAfterHeader = res.headers.get('retry-after');
-        const retryAfterMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : 0;
-
-        let json: any = null;
-        try { json = await res.json(); } catch {}
-
-        if (res.ok && json?.success && json?.data) {
-          return json.data;
-        }
-
-        const errText = String(json?.error || json?.message || `HTTP ${res.status}`);
-        lastError = errText;
-        const rateLimited = res.status === 429 || errText.toLowerCase().includes('rate limit');
-
-        if (!rateLimited || attempt === PO_SCAN_MAX_RETRIES) break;
-
-        const backoffMs = Math.max(retryAfterMs, Math.min(60000, 3000 * attempt));
-        poScanNextAllowedAtRef.current = Math.max(poScanNextAllowedAtRef.current, Date.now() + backoffMs);
-      } catch (err: any) {
-        clearTimeout(timeout);
-        const msg = String(err?.message || err || 'Scan thất bại');
-        lastError = msg;
-        const retriable = msg.toLowerCase().includes('rate') || msg.toLowerCase().includes('429') || msg.toLowerCase().includes('timeout') || msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('abort');
-        if (!retriable || attempt === PO_SCAN_MAX_RETRIES) break;
-
-        const backoffMs = Math.min(60000, 3000 * attempt);
-        poScanNextAllowedAtRef.current = Math.max(poScanNextAllowedAtRef.current, Date.now() + backoffMs);
-      }
-    }
-
-    throw new Error(lastError || 'Không thể đọc thông tin PO');
-  };
-
-  const processPOFileWithRecovery = async (
-    originalFile: any,
-    folderDate: string,
-    token: string
-  ): Promise<boolean> => {
-    const isRateLimitError = (msg: string) => {
-      const m = msg.toLowerCase();
-      return m.includes('rate limit') || m.includes('429') || m.includes('too many requests');
-    };
-
-    try {
-      const result = await processPOFileAuto(originalFile, folderDate, token);
-      poRateLimitStreakRef.current = 0;
-      return result;
-    } catch (err: any) {
-      const msg = String(err?.message || err || '');
-      if (!isRateLimitError(msg)) throw err;
-
-      poRateLimitStreakRef.current += 1;
-      const coolDownMs = poRateLimitStreakRef.current >= 2 ? 90000 : 45000;
-      console.warn(`[po-scan] rate limited, cooling down ${coolDownMs}ms then retry`);
-      await new Promise((r) => setTimeout(r, coolDownMs));
-
-      const retryResult = await processPOFileAuto(originalFile, folderDate, token);
-      poRateLimitStreakRef.current = 0;
-      return retryResult;
-    }
-  };
-
   // NEW: Process single PO file - Creates Purchase Order AND Payment Request
   // Returns true if processed immediately, false if needs user confirmation for supplier
   const processPOFileAuto = async (
@@ -1246,14 +1133,28 @@ export function DriveImportProgressDialog({
     folderDate: string,
     token: string
   ): Promise<boolean> => {
-    // 1. Call AI to scan PO (retry when hitting rate limit)
-    const poData = await scanPOWithRetry(
+    // 1. Call AI to scan PO
+    const scanResponse = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-purchase-order`,
       {
-        imageBase64: originalFile.base64,
-        mimeType: originalFile.mimeType,
-      },
-      token
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          imageBase64: originalFile.base64,
+          mimeType: originalFile.mimeType,
+        }),
+      }
     );
+
+    if (!scanResponse.ok) {
+      throw new Error('Không thể đọc thông tin PO');
+    }
+
+    const scanData = await scanResponse.json();
+    const poData = scanData.data;
 
     // 2. Find or match supplier with fuzzy matching
     let supplierId: string | null = null;
