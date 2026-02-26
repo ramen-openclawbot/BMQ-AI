@@ -4,7 +4,7 @@
 - apps/web: **0.0.7**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
-- Latest commit at handoff time: `TBD_AFTER_COMMIT`
+- Latest commit at handoff time: `e1c8670`
 
 ## What is done (latest)
 1. Dashboard đã rút gọn theo hướng overview ngắn; bỏ các block dài gây rối.
