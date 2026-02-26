@@ -662,6 +662,13 @@ export function DriveImportProgressDialog({
     }
   };
 
+  const formatPOScanError = (result?: POScanBatchResult) => {
+    const base = result?.error_message || 'Không thể đọc thông tin PO';
+    const code = result?.error_code ? ` [${result.error_code}]` : '';
+    const trace = result?.trace_id ? ` (trace: ${result.trace_id.slice(0, 8)})` : '';
+    return `${base}${code}${trace}`;
+  };
+
   const scanPOBatch = async (
     poFiles: Array<{ id: string; base64?: string; mimeType?: string }>,
     token: string
@@ -731,7 +738,7 @@ export function DriveImportProgressDialog({
           batch.map(async (file) => {
             const result = scanMap[file.id];
             if (!result?.success || !result?.data) {
-              const msg = result?.error_message || 'Không thể đọc thông tin PO';
+              const msg = formatPOScanError(result);
               setFiles(prev => prev.map(f => 
                 f.id === file.id ? { ...f, status: 'failed', message: msg } : f
               ));
@@ -906,7 +913,7 @@ export function DriveImportProgressDialog({
               const result = scanMap[file.id];
 
               if (!result?.success || !result?.data) {
-                const msg = result?.error_message || 'Không thể đọc thông tin PO';
+                const msg = formatPOScanError(result);
                 setFiles(prev => prev.map(f => 
                   f.id === file.id ? { ...f, status: 'failed', message: msg } : f
                 ));
@@ -1236,7 +1243,7 @@ export function DriveImportProgressDialog({
 
       if (!scanResponse.ok) {
         const errJson = await scanResponse.json().catch(() => ({}));
-        throw new Error(errJson?.error_message || errJson?.error || 'Không thể đọc thông tin PO');
+        throw new Error(`${errJson?.error_message || errJson?.error || 'Không thể đọc thông tin PO'}${errJson?.error_code ? ` [${errJson.error_code}]` : ''}${errJson?.trace_id ? ` (trace: ${String(errJson.trace_id).slice(0, 8)})` : ''}`);
       }
 
       const scanData = await scanResponse.json();
