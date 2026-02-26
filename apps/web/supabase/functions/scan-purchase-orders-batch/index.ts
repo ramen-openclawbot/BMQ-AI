@@ -18,6 +18,7 @@ type BatchResult = {
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const PER_FILE_TIMEOUT_MS = 90000;
 
 const errorCodeFrom = (status: number, message = "") => {
   const m = message.toLowerCase();
@@ -78,6 +79,9 @@ serve(async (req) => {
 
       for (let attempt = 1; attempt <= 5; attempt++) {
         try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), PER_FILE_TIMEOUT_MS);
+
           const res = await fetch(endpoint, {
             method: "POST",
             headers: {
@@ -88,7 +92,9 @@ serve(async (req) => {
               imageBase64: file.base64,
               mimeType: file.mimeType,
             }),
+            signal: controller.signal,
           });
+          clearTimeout(timeout);
 
           let json: any = null;
           try { json = await res.json(); } catch {}
@@ -125,7 +131,7 @@ serve(async (req) => {
           await sleep(waitMs);
         } catch (err: any) {
           lastStatus = 500;
-          lastMessage = String(err?.message || err || "Unknown error");
+          lastMessage = String(err?.name === "AbortError" ? "Scan timeout" : (err?.message || err || "Unknown error"));
 
           if (attempt === 5) {
             results.push({
