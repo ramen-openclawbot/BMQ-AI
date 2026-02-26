@@ -99,6 +99,15 @@ interface SupplierOption {
   bank_account_name?: string | null;
 }
 
+interface POScanBatchResult {
+  file_id: string;
+  success: boolean;
+  data?: any;
+  error_code?: string;
+  error_message?: string;
+  trace_id?: string;
+}
+
 type ImportPhase = 
   | 'idle' 
   | 'checking_config' 
@@ -133,6 +142,7 @@ const AUTO_CONFIRM_THRESHOLD = 0.85;
 // Parallel processing limit
 const PARALLEL_LIMIT = 3;
 const MAX_BATCH_SCAN_FILES = 10;
+const PO_BATCH_SCAN_CHUNK_SIZE = 2;
 
 // Timeout for import initialization to prevent Safari deadlock
 const IMPORT_INIT_TIMEOUT = 25000;
@@ -652,6 +662,44 @@ export function DriveImportProgressDialog({
     }
   };
 
+  const formatPOScanError = (result?: POScanBatchResult) => {
+    const base = result?.error_message || 'Không thể đọc thông tin PO';
+    const code = result?.error_code ? ` [${result.error_code}]` : '';
+    const trace = result?.trace_id ? ` (trace: ${result.trace_id.slice(0, 8)})` : '';
+    return `${base}${code}${trace}`;
+  };
+
+  const scanPOBatch = async (
+    poFiles: Array<{ id: string; base64?: string; mimeType?: string }>,
+    token: string
+  ): Promise<Record<string, POScanBatchResult>> => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 100000);
+
+    const res = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-purchase-orders-batch`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ files: poFiles }),
+        signal: controller.signal,
+      }
+    );
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Batch scan failed: ${res.status} ${errText}`);
+    }
+
+    const json = await res.json();
+    const arr: POScanBatchResult[] = json?.results || [];
+    return Object.fromEntries(arr.map((r) => [r.file_id, r]));
+  };
+
   // Start processing selected PO files
   const startProcessingSelectedPO = async () => {
     const selectedFiles = poSelectionMode === 'all'
@@ -680,29 +728,49 @@ export function DriveImportProgressDialog({
         : f
     ));
 
-    // Process trực tiếp từng file (ổn định hơn batch wrapper)
-    for (let i = 0; i < filesToProcess.length; i += PARALLEL_LIMIT) {
-      const batch = filesToProcess.slice(i, i + PARALLEL_LIMIT);
-
-      await Promise.all(
-        batch.map(async (file) => {
-          try {
-            await processPOFileAuto(
-              { id: file.id, name: file.name, base64: file.base64, mimeType: file.mimeType },
-              currentDate,
-              authToken
-            );
-            setProcessedCount(prev => prev + 1);
-          } catch (err: any) {
-            console.error(`Error processing file ${file.name}:`, err);
-            setFiles(prev => prev.map(f => 
-              f.id === file.id ? { ...f, status: 'failed', message: err.message } : f
-            ));
-            setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
-            setProcessedCount(prev => prev + 1);
-          }
-        })
+    // 2) Pipeline theo chunk nhỏ để có tiến độ sớm, không chờ full batch mới thấy kết quả
+    for (let i = 0; i < filesToProcess.length; i += PO_BATCH_SCAN_CHUNK_SIZE) {
+      const scanChunk = filesToProcess.slice(i, i + PO_BATCH_SCAN_CHUNK_SIZE);
+      const scanMap = await scanPOBatch(
+        scanChunk.map((file) => ({ id: file.id, base64: file.base64, mimeType: file.mimeType })),
+        authToken
       );
+
+      for (let j = 0; j < scanChunk.length; j += PARALLEL_LIMIT) {
+        const batch = scanChunk.slice(j, j + PARALLEL_LIMIT);
+
+        await Promise.all(
+          batch.map(async (file) => {
+            const result = scanMap[file.id];
+            if (!result?.success || !result?.data) {
+              const msg = formatPOScanError(result);
+              setFiles(prev => prev.map(f => 
+                f.id === file.id ? { ...f, status: 'failed', message: msg } : f
+              ));
+              setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
+              setProcessedCount(prev => prev + 1);
+              return;
+            }
+
+            try {
+              await processPOFileAuto(
+                { id: file.id, name: file.name, base64: file.base64, mimeType: file.mimeType },
+                currentDate,
+                authToken,
+                result.data
+              );
+              setProcessedCount(prev => prev + 1);
+            } catch (err: any) {
+              console.error(`Error processing file ${file.name}:`, err);
+              setFiles(prev => prev.map(f => 
+                f.id === file.id ? { ...f, status: 'failed', message: err.message } : f
+              ));
+              setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
+              setProcessedCount(prev => prev + 1);
+            }
+          })
+        );
+      }
     }
 
     // After ALL files processed, check pendingPOQueue first, then unmatched files
@@ -832,32 +900,52 @@ export function DriveImportProgressDialog({
           : f
       ));
 
-      // Process trực tiếp từng file (ổn định hơn batch wrapper)
-      for (let i = 0; i < processPOBatch.length; i += PARALLEL_LIMIT) {
-        const batch = processPOBatch.slice(i, i + PARALLEL_LIMIT);
-
-        await Promise.all(
-          batch.map(async (file, batchIndex) => {
-            const idx = i + batchIndex;
-            const folderDate = allFolderDates[idx];
-
-            try {
-              await processPOFileAuto(
-                { id: file.id, name: file.name, base64: file.base64, mimeType: file.mimeType },
-                folderDate,
-                authToken
-              );
-              setProcessedCount(prev => prev + 1);
-            } catch (err: any) {
-              console.error(`Error processing file ${file.name}:`, err);
-              setFiles(prev => prev.map(f => 
-                f.id === file.id ? { ...f, status: 'failed', message: err.message } : f
-              ));
-              setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
-              setProcessedCount(prev => prev + 1);
-            }
-          })
+      // 2) Pipeline theo chunk nhỏ để có tiến độ sớm, không chờ full batch mới thấy kết quả
+      for (let i = 0; i < processPOBatch.length; i += PO_BATCH_SCAN_CHUNK_SIZE) {
+        const scanChunk = processPOBatch.slice(i, i + PO_BATCH_SCAN_CHUNK_SIZE);
+        const scanMap = await scanPOBatch(
+          scanChunk.map((file) => ({ id: file.id, base64: file.base64, mimeType: file.mimeType })),
+          authToken
         );
+
+        for (let j = 0; j < scanChunk.length; j += PARALLEL_LIMIT) {
+          const batch = scanChunk.slice(j, j + PARALLEL_LIMIT);
+
+          await Promise.all(
+            batch.map(async (file) => {
+              const originalIndex = processPOBatch.findIndex((f) => f.id === file.id);
+              const folderDate = allFolderDates[originalIndex];
+              const result = scanMap[file.id];
+
+              if (!result?.success || !result?.data) {
+                const msg = formatPOScanError(result);
+                setFiles(prev => prev.map(f => 
+                  f.id === file.id ? { ...f, status: 'failed', message: msg } : f
+                ));
+                setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
+                setProcessedCount(prev => prev + 1);
+                return;
+              }
+
+              try {
+                await processPOFileAuto(
+                  { id: file.id, name: file.name, base64: file.base64, mimeType: file.mimeType },
+                  folderDate,
+                  authToken,
+                  result.data
+                );
+                setProcessedCount(prev => prev + 1);
+              } catch (err: any) {
+                console.error(`Error processing file ${file.name}:`, err);
+                setFiles(prev => prev.map(f => 
+                  f.id === file.id ? { ...f, status: 'failed', message: err.message } : f
+                ));
+                setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
+                setProcessedCount(prev => prev + 1);
+              }
+            })
+          );
+        }
       }
 
       // After ALL files processed, check pendingPOQueue first, then unmatched files
@@ -1143,12 +1231,7 @@ export function DriveImportProgressDialog({
     // 1. Get scanned PO data (prefer batch result)
     let poData = preScannedPOData;
     if (!poData) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 25000);
-
-      let scanResponse: Response;
-      try {
-        scanResponse = await fetch(
+      const scanResponse = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-purchase-order`,
         {
           method: 'POST',
@@ -1160,17 +1243,8 @@ export function DriveImportProgressDialog({
             imageBase64: originalFile.base64,
             mimeType: originalFile.mimeType,
           }),
-          signal: controller.signal,
         }
       );
-      clearTimeout(timeout);
-      } catch (e: any) {
-        clearTimeout(timeout);
-        if (String(e?.name || '').toLowerCase().includes('abort')) {
-          throw new Error('Scan PO timeout sau 25s [TIMEOUT]');
-        }
-        throw e;
-      }
 
       if (!scanResponse.ok) {
         const errJson = await scanResponse.json().catch(() => ({}));
