@@ -133,8 +133,8 @@ const AUTO_CONFIRM_THRESHOLD = 0.85;
 
 // Parallel processing limit
 const PARALLEL_LIMIT = 3;
-const PO_SCAN_PARALLEL_LIMIT = 1; // tránh rate-limit OCR khi scan PO
-const PO_SCAN_COOLDOWN_MS = 7000; // nghỉ giữa 2 ảnh PO để tránh dính rpm limit
+const PO_SCAN_PARALLEL_LIMIT = 2; // chạy nhanh hơn, vẫn có throttle thích ứng
+const PO_SCAN_MIN_GAP_MS = 1200; // khoảng cách tối thiểu giữa các request scan PO
 const MAX_BATCH_SCAN_FILES = 10;
 
 // Timeout for import initialization to prevent Safari deadlock
@@ -295,6 +295,8 @@ export function DriveImportProgressDialog({
 
   // Ref to track when we should transition to ask_pr_mode after queue update
   const shouldTransitionToAskPR = useRef(false);
+  // Global throttle for PO OCR requests (adaptive on rate-limit)
+  const poScanNextAllowedAtRef = useRef(0);
 
   const getTodayFolderName = () => {
     return format(new Date(), 'ddMMyy');
@@ -704,9 +706,6 @@ export function DriveImportProgressDialog({
         })
       );
 
-      if (i + PO_SCAN_PARALLEL_LIMIT < filesToProcess.length) {
-        await new Promise((r) => setTimeout(r, PO_SCAN_COOLDOWN_MS));
-      }
     }
 
     // After ALL files processed, check pendingPOQueue first, then unmatched files
@@ -860,9 +859,6 @@ export function DriveImportProgressDialog({
           })
         );
 
-        if (i + PO_SCAN_PARALLEL_LIMIT < processPOBatch.length) {
-          await new Promise((r) => setTimeout(r, PO_SCAN_COOLDOWN_MS));
-        }
       }
 
       // After ALL files processed, check pendingPOQueue first, then unmatched files
@@ -1142,6 +1138,12 @@ export function DriveImportProgressDialog({
     let lastError = '';
 
     for (let attempt = 1; attempt <= 6; attempt++) {
+      const now = Date.now();
+      const waitBeforeCall = Math.max(0, poScanNextAllowedAtRef.current - now);
+      if (waitBeforeCall > 0) {
+        await sleep(waitBeforeCall);
+      }
+
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 120000);
 
@@ -1167,6 +1169,9 @@ export function DriveImportProgressDialog({
         let json: any = null;
         try { json = await res.json(); } catch {}
 
+        // Base throttle for next request
+        poScanNextAllowedAtRef.current = Date.now() + PO_SCAN_MIN_GAP_MS;
+
         if (res.ok && json?.success && json?.data) {
           return json.data;
         }
@@ -1177,15 +1182,17 @@ export function DriveImportProgressDialog({
 
         if (!rateLimited || attempt === 6) break;
 
-        const backoffMs = Math.max(retryAfterMs, 4000 * attempt);
-        await sleep(backoffMs);
+        const backoffMs = Math.max(retryAfterMs, 2500 * attempt);
+        poScanNextAllowedAtRef.current = Math.max(poScanNextAllowedAtRef.current, Date.now() + backoffMs);
       } catch (err: any) {
         clearTimeout(timeout);
         const msg = String(err?.message || err || 'Scan thất bại');
         lastError = msg;
         const retriable = msg.toLowerCase().includes('rate') || msg.toLowerCase().includes('429') || msg.toLowerCase().includes('timeout') || msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('abort');
         if (!retriable || attempt === 6) break;
-        await sleep(4000 * attempt);
+
+        const backoffMs = 2500 * attempt;
+        poScanNextAllowedAtRef.current = Math.max(poScanNextAllowedAtRef.current, Date.now() + backoffMs);
       }
     }
 
@@ -1814,8 +1821,8 @@ export function DriveImportProgressDialog({
     const newUnmatchedSlips: UnmatchedSlip[] = [];
 
     // Process in parallel batches
-    for (let i = 0; i < filesToProcess.length; i += PO_SCAN_PARALLEL_LIMIT) {
-      const batch = filesToProcess.slice(i, i + PO_SCAN_PARALLEL_LIMIT);
+    for (let i = 0; i < filesToProcess.length; i += PARALLEL_LIMIT) {
+      const batch = filesToProcess.slice(i, i + PARALLEL_LIMIT);
       
       await Promise.all(
         batch.map(async (file) => {
