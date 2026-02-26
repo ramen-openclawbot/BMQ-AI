@@ -146,6 +146,22 @@ const formatFolderDate = (dateStr: string): string => {
   return `${day}/${month}/20${year}`;
 };
 
+const upsertDriveFileIndex = async (
+  payload: {
+    file_id: string;
+    folder_type: 'po' | 'bank_slip';
+    processed?: boolean;
+    processed_at?: string;
+    payment_request_id?: string | null;
+    invoice_id?: string | null;
+    purchase_order_id?: string | null;
+  }
+) => {
+  await supabase
+    .from('drive_file_index')
+    .upsert(payload, { onConflict: 'file_id,folder_type' });
+};
+
 // Helper function to find best matching supplier by fuzzy name match
 const findBestMatchingSupplier = (
   recipientName: string, 
@@ -1296,14 +1312,13 @@ export function DriveImportProgressDialog({
     }
 
     // 6. Update drive_file_index to mark as processed
-    await supabase
-      .from('drive_file_index')
-      .update({
-        processed: true,
-        processed_at: new Date().toISOString(),
-        purchase_order_id: createdPO.id,
-      })
-      .eq('file_id', originalFile.id);
+    await upsertDriveFileIndex({
+      file_id: originalFile.id,
+      folder_type: 'po',
+      processed: true,
+      processed_at: new Date().toISOString(),
+      purchase_order_id: createdPO.id,
+    });
 
     // 7. Update file status to show PO created
     setFiles(prev => prev.map(f => 
@@ -1370,10 +1385,11 @@ export function DriveImportProgressDialog({
     }
 
     // Update drive_file_index with PR id
-    await supabase
-      .from('drive_file_index')
-      .update({ payment_request_id: createdPR.id })
-      .eq('file_id', pendingPO.originalFileId);
+    await upsertDriveFileIndex({
+      file_id: pendingPO.originalFileId,
+      folder_type: 'po',
+      payment_request_id: createdPR.id,
+    });
 
     // Update file status
     setFiles(prev => prev.map(f => 
@@ -2074,6 +2090,60 @@ export function DriveImportProgressDialog({
     setIsConfirming(true);
     
     try {
+      // 0) Idempotency guard: check existing processing by file_id / transaction_id
+      const { data: existedByFile } = await supabase
+        .from('drive_file_index')
+        .select('file_id, payment_request_id, invoice_id, processed')
+        .eq('file_id', current.file.id)
+        .eq('folder_type', 'bank_slip')
+        .maybeSingle();
+
+      if (existedByFile?.processed && existedByFile?.payment_request_id) {
+        const { data: existingPR } = await supabase
+          .from('payment_requests')
+          .select('request_number')
+          .eq('id', existedByFile.payment_request_id)
+          .maybeSingle();
+
+        setFiles(prev => prev.map(f => 
+          f.id === current.file.id 
+            ? { ...f, status: 'success', message: `Đã tồn tại ${existingPR?.request_number || 'PR'} (bỏ tạo trùng)` }
+            : f
+        ));
+        toast.info('UNC này đã được xử lý trước đó, hệ thống bỏ qua tạo trùng.');
+        moveToNextUnmatched();
+        return;
+      }
+
+      if (current.slipData.transaction_id) {
+        const { data: existedPRByTxn } = await supabase
+          .from('payment_requests')
+          .select('id, request_number, total_amount, invoice_id, invoice_created')
+          .ilike('description', `%${current.slipData.transaction_id}%`)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (existedPRByTxn?.id && Math.abs((Number(existedPRByTxn.total_amount) || 0) - (Number(current.slipData.amount) || 0)) <= Math.max(1000, Number(current.slipData.amount || 0) * 0.01)) {
+          await upsertDriveFileIndex({
+            file_id: current.file.id,
+            folder_type: 'bank_slip',
+            processed: true,
+            processed_at: new Date().toISOString(),
+            payment_request_id: existedPRByTxn.id,
+            invoice_id: existedPRByTxn.invoice_id || null,
+          });
+          setFiles(prev => prev.map(f => 
+            f.id === current.file.id 
+              ? { ...f, status: 'success', message: `Đã tồn tại ${existedPRByTxn.request_number} (bỏ tạo trùng)` }
+              : f
+          ));
+          toast.info('UNC này đã có PR theo mã giao dịch, hệ thống bỏ qua tạo trùng.');
+          moveToNextUnmatched();
+          return;
+        }
+      }
+
       // 1. Upload UNC image
       let imagePath: string | null = null;
       try {
@@ -2153,16 +2223,15 @@ export function DriveImportProgressDialog({
         .update({ invoice_created: true, invoice_id: invoiceData.id })
         .eq('id', prData.id);
 
-      // 7. Update drive_file_index to mark as processed
-      await supabase
-        .from('drive_file_index')
-        .update({
-          processed: true,
-          processed_at: new Date().toISOString(),
-          payment_request_id: prData.id,
-          invoice_id: invoiceData.id,
-        })
-        .eq('file_id', current.file.id);
+      // 7. Update drive_file_index to mark as processed (idempotent)
+      await upsertDriveFileIndex({
+        file_id: current.file.id,
+        folder_type: 'bank_slip',
+        processed: true,
+        processed_at: new Date().toISOString(),
+        payment_request_id: prData.id,
+        invoice_id: invoiceData.id,
+      });
 
       // Update file status
       setFiles(prev => prev.map(f => 
@@ -2283,16 +2352,15 @@ export function DriveImportProgressDialog({
       }
     }
 
-    // Update drive_file_index to mark as processed
-    await supabase
-      .from('drive_file_index')
-      .update({
-        processed: true,
-        processed_at: new Date().toISOString(),
-        payment_request_id: matchedPR.id,
-        invoice_id: invoiceId,
-      })
-      .eq('file_id', file.id);
+    // Update drive_file_index to mark as processed (idempotent)
+    await upsertDriveFileIndex({
+      file_id: file.id,
+      folder_type: 'bank_slip',
+      processed: true,
+      processed_at: new Date().toISOString(),
+      payment_request_id: matchedPR.id,
+      invoice_id: invoiceId,
+    });
 
     setFiles(prev => prev.map(f => 
       f.id === file.id ? { 
@@ -2340,13 +2408,13 @@ export function DriveImportProgressDialog({
 
     // Find matching payment request
     // Include bank_account_name for matching
-    const { data: unpaidRequests } = await supabase
+    const { data: candidateRequests } = await supabase
       .from('payment_requests')
       .select('*, suppliers(id, name, bank_account_name)')
       .eq('status', 'approved')
-      .eq('payment_status', 'unpaid');
+      .or('payment_status.eq.unpaid,invoice_created.is.false');
 
-    if (!unpaidRequests || unpaidRequests.length === 0) {
+    if (!candidateRequests || candidateRequests.length === 0) {
       // No unpaid PRs - return as unmatched to allow creating new PR
       const suggestedSupplier = findBestMatchingSupplier(slipData.recipient_name, allSuppliers);
       return {
@@ -2365,7 +2433,7 @@ export function DriveImportProgressDialog({
     const recipientLower = slipData.recipient_name?.toLowerCase() || '';
 
     // Find exact matches (amount + supplier name OR bank_account_name)
-    const exactMatches = unpaidRequests.filter(pr => {
+    const exactMatches = candidateRequests.filter(pr => {
       const amountMatch = Math.abs((pr.total_amount || 0) - slipData.amount) <= amountTolerance;
       if (!amountMatch) return false;
       
@@ -2390,7 +2458,7 @@ export function DriveImportProgressDialog({
     }
 
     // No exact match - find amount-only matches for confirmation
-    const amountOnlyMatches = unpaidRequests.filter(pr => {
+    const amountOnlyMatches = candidateRequests.filter(pr => {
       const amountMatch = Math.abs((pr.total_amount || 0) - slipData.amount) <= amountTolerance;
       return amountMatch;
     });
