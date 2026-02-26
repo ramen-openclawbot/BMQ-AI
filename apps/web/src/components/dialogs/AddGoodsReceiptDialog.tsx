@@ -484,17 +484,17 @@ export function AddGoodsReceiptDialog() {
     }
 
     const incoming: BatchScanFile[] = files.map((file) => ({
-      id: `${file.name}-${file.size}-${file.lastModified}`,
+      id: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       file,
       status: "queued",
     }));
 
     setImageFile(null);
     setImagePreview(null);
-    setBatchFiles((prev) => {
-      const existingIds = new Set(prev.map((x) => x.id));
-      return [...prev, ...incoming.filter((x) => !existingIds.has(x.id))];
-    });
+    setBatchSupplierId("");
+    setBatchProgress({ done: 0, total: 0 });
+    // Mỗi lần upload nhiều file sẽ tạo một batch mới, tránh bị kẹt vì trạng thái batch cũ
+    setBatchFiles(incoming);
     setShowBatchPanel(true);
     toast.success(`Đã nhận ${files.length} ảnh để scan.`);
     e.currentTarget.value = "";
