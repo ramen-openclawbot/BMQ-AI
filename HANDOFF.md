@@ -1,10 +1,10 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.6**
+- apps/web: **0.0.7**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
-- Latest commit at handoff time: `3881f08`
+- Latest commit at handoff time: `TBD_AFTER_COMMIT`
 
 ## What is done (latest)
 1. Dashboard đã rút gọn theo hướng overview ngắn; bỏ các block dài gây rối.
@@ -71,8 +71,9 @@
 - Nếu đã có shortcut cũ, cập nhật lại bằng symlink mới nhất (`ln -sfn`).
 
 
-## Latest update (NCC Alias Manager UI)
-- Added Settings section **NCC Alias Manager** for alias CRUD (map alias -> NCC chuẩn).
-- Scan backend now ưu tiên alias match trước scoring fallback, giúp case STC ổn định hơn.
-- Goods Receipt dialog hiển thị metadata NCC quét được + nguồn match (alias/scoring).
-- Shortcut migration đã tạo tại `output/_latest/latest-migration.sql` và `output/_latest/20260223203000_supplier_aliases.sql`.
+## Latest update (2026-02-26)
+- Đã rollback về nhánh ổn định theo xác nhận user: nguyên nhân 429 do hết quota API, không phải lỗi code.
+- Đã bump version app web lên **0.0.7**.
+- Đã thêm Settings section **AI API Credit** để kiểm tra credit balance của provider đang dùng (OpenAI).
+- Đã thêm Supabase Edge Function mới: `get-ai-credit-balance`.
+- Lưu ý: endpoint credit của OpenAI có thể không khả dụng với mọi loại API key; UI sẽ hiển thị trạng thái `unavailable` kèm message thay vì crash.
