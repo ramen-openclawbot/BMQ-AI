@@ -1133,28 +1133,23 @@ export function DriveImportProgressDialog({
     folderDate: string,
     token: string
   ): Promise<boolean> => {
-    // 1. Call AI to scan PO
-    const scanResponse = await fetch(
-      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-purchase-order`,
+    // 1. Call AI to scan PO (timeout + retry-friendly wrapper)
+    const scanResult = await callEdgeFunction<{ success: boolean; data: any; error?: string }>(
+      'scan-purchase-order',
       {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          imageBase64: originalFile.base64,
-          mimeType: originalFile.mimeType,
-        }),
-      }
+        imageBase64: originalFile.base64,
+        mimeType: originalFile.mimeType,
+      },
+      token,
+      90000
     );
 
-    if (!scanResponse.ok) {
-      throw new Error('Không thể đọc thông tin PO');
+    if (scanResult.error || !scanResult.data?.success || !scanResult.data?.data) {
+      const msg = scanResult.error || scanResult.data?.error || 'Không thể đọc thông tin PO';
+      throw new Error(msg);
     }
 
-    const scanData = await scanResponse.json();
-    const poData = scanData.data;
+    const poData = scanResult.data.data;
 
     // 2. Find or match supplier with fuzzy matching
     let supplierId: string | null = null;
