@@ -134,6 +134,7 @@ const AUTO_CONFIRM_THRESHOLD = 0.85;
 // Parallel processing limit
 const PARALLEL_LIMIT = 3;
 const PO_SCAN_PARALLEL_LIMIT = 1; // tránh rate-limit OCR khi scan PO
+const PO_SCAN_COOLDOWN_MS = 7000; // nghỉ giữa 2 ảnh PO để tránh dính rpm limit
 const MAX_BATCH_SCAN_FILES = 10;
 
 // Timeout for import initialization to prevent Safari deadlock
@@ -702,6 +703,10 @@ export function DriveImportProgressDialog({
           }
         })
       );
+
+      if (i + PO_SCAN_PARALLEL_LIMIT < filesToProcess.length) {
+        await new Promise((r) => setTimeout(r, PO_SCAN_COOLDOWN_MS));
+      }
     }
 
     // After ALL files processed, check pendingPOQueue first, then unmatched files
@@ -854,6 +859,10 @@ export function DriveImportProgressDialog({
             }
           })
         );
+
+        if (i + PO_SCAN_PARALLEL_LIMIT < processPOBatch.length) {
+          await new Promise((r) => setTimeout(r, PO_SCAN_COOLDOWN_MS));
+        }
       }
 
       // After ALL files processed, check pendingPOQueue first, then unmatched files
@@ -1129,27 +1138,55 @@ export function DriveImportProgressDialog({
 
 
   const scanPOWithRetry = async (payload: { imageBase64: string; mimeType: string }, token: string) => {
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     let lastError = '';
-    for (let attempt = 1; attempt <= 4; attempt++) {
-      const result = await callEdgeFunction<{ success: boolean; data: any; error?: string }>(
-        'scan-purchase-order',
-        payload,
-        token,
-        90000
-      );
 
-      const errMsg = String(result.error || result.data?.error || '').toLowerCase();
-      const rateLimited = errMsg.includes('rate limit') || errMsg.includes('429');
+    for (let attempt = 1; attempt <= 6; attempt++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120000);
 
-      if (!result.error && result.data?.success && result.data?.data) {
-        return result.data.data;
+      try {
+        const res = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-purchase-order`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify(payload),
+            signal: controller.signal,
+          }
+        );
+
+        clearTimeout(timeout);
+
+        const retryAfterHeader = res.headers.get('retry-after');
+        const retryAfterMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : 0;
+
+        let json: any = null;
+        try { json = await res.json(); } catch {}
+
+        if (res.ok && json?.success && json?.data) {
+          return json.data;
+        }
+
+        const errText = String(json?.error || json?.message || `HTTP ${res.status}`);
+        lastError = errText;
+        const rateLimited = res.status === 429 || errText.toLowerCase().includes('rate limit');
+
+        if (!rateLimited || attempt === 6) break;
+
+        const backoffMs = Math.max(retryAfterMs, 4000 * attempt);
+        await sleep(backoffMs);
+      } catch (err: any) {
+        clearTimeout(timeout);
+        const msg = String(err?.message || err || 'Scan thất bại');
+        lastError = msg;
+        const retriable = msg.toLowerCase().includes('rate') || msg.toLowerCase().includes('429') || msg.toLowerCase().includes('timeout') || msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('abort');
+        if (!retriable || attempt === 6) break;
+        await sleep(4000 * attempt);
       }
-
-      lastError = String(result.error || result.data?.error || 'Không thể đọc thông tin PO');
-      if (!rateLimited || attempt === 4) break;
-
-      const waitMs = 1200 * attempt;
-      await new Promise((r) => setTimeout(r, waitMs));
     }
 
     throw new Error(lastError || 'Không thể đọc thông tin PO');
