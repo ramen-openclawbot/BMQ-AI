@@ -132,6 +132,7 @@ const AUTO_CONFIRM_THRESHOLD = 0.85;
 
 // Parallel processing limit
 const PARALLEL_LIMIT = 3;
+const MAX_BATCH_SCAN_FILES = 10;
 
 // Timeout for import initialization to prevent Safari deadlock
 const IMPORT_INIT_TIMEOUT = 25000;
@@ -637,9 +638,13 @@ export function DriveImportProgressDialog({
 
   // Start processing selected PO files
   const startProcessingSelectedPO = async () => {
-    const filesToProcess = poSelectionMode === 'all'
+    const selectedFiles = poSelectionMode === 'all'
       ? files.filter(f => f.status === 'pending')
       : files.filter(f => selectedPOFiles.includes(f.id));
+    const filesToProcess = selectedFiles.slice(0, MAX_BATCH_SCAN_FILES);
+    if (selectedFiles.length > MAX_BATCH_SCAN_FILES) {
+      toast.warning(`Chỉ xử lý tối đa ${MAX_BATCH_SCAN_FILES} file mỗi lần. Vui lòng chạy tiếp cho các file còn lại.`);
+    }
 
     if (filesToProcess.length === 0) {
       toast.error('Vui lòng chọn ít nhất 1 file');
@@ -791,14 +796,19 @@ export function DriveImportProgressDialog({
         return;
       }
 
+      const processPOBatch = allFilesToProcess.slice(0, MAX_BATCH_SCAN_FILES);
+      if (allFilesToProcess.length > MAX_BATCH_SCAN_FILES) {
+        toast.warning(`Chỉ xử lý tối đa ${MAX_BATCH_SCAN_FILES} file mỗi lần. Vui lòng chạy tiếp cho các file còn lại.`);
+      }
+
       // Set total count for progress tracking
-      setTotalFilesToProcess(allFilesToProcess.length);
+      setTotalFilesToProcess(processPOBatch.length);
       setProcessedCount(0);
       setPhase('processing_files');
 
       // Process all files in parallel batches
-      for (let i = 0; i < allFilesToProcess.length; i += PARALLEL_LIMIT) {
-        const batch = allFilesToProcess.slice(i, i + PARALLEL_LIMIT);
+      for (let i = 0; i < processPOBatch.length; i += PARALLEL_LIMIT) {
+        const batch = processPOBatch.slice(i, i + PARALLEL_LIMIT);
         
         await Promise.all(
           batch.map(async (file, batchIndex) => {
@@ -1727,7 +1737,11 @@ export function DriveImportProgressDialog({
     folderDate: string,
     token: string
   ): Promise<{ pendingMatches: PendingMatch[]; unmatchedSlips: UnmatchedSlip[] }> => {
-    const filesToProcess = fileStatuses.filter(f => f.status === 'pending');
+    const pendingFiles = fileStatuses.filter(f => f.status === 'pending');
+    const filesToProcess = pendingFiles.slice(0, MAX_BATCH_SCAN_FILES);
+    if (pendingFiles.length > MAX_BATCH_SCAN_FILES) {
+      toast.warning(`Chỉ xử lý tối đa ${MAX_BATCH_SCAN_FILES} file mỗi lần. Vui lòng chạy tiếp cho các file còn lại.`);
+    }
     const newPendingMatches: PendingMatch[] = [];
     const newUnmatchedSlips: UnmatchedSlip[] = [];
 
@@ -1889,14 +1903,19 @@ export function DriveImportProgressDialog({
         setStats(prev => ({ ...prev, skipped: prev.skipped + processedIds.size }));
       }
 
+      const processSlipBatch = allFilesToProcess.slice(0, MAX_BATCH_SCAN_FILES);
+      if (allFilesToProcess.length > MAX_BATCH_SCAN_FILES) {
+        toast.warning(`Chỉ xử lý tối đa ${MAX_BATCH_SCAN_FILES} file mỗi lần. Vui lòng chạy tiếp cho các file còn lại.`);
+      }
+
       // Set total count for progress tracking
-      setTotalFilesToProcess(allFilesToProcess.length);
+      setTotalFilesToProcess(processSlipBatch.length);
       setProcessedCount(0);
       setPhase('processing_files');
 
       // Process all files in parallel
-      for (let i = 0; i < allFilesToProcess.length; i += PARALLEL_LIMIT) {
-        const batch = allFilesToProcess.slice(i, i + PARALLEL_LIMIT);
+      for (let i = 0; i < processSlipBatch.length; i += PARALLEL_LIMIT) {
+        const batch = processSlipBatch.slice(i, i + PARALLEL_LIMIT);
         
         await Promise.all(
           batch.map(async (file, batchIndex) => {

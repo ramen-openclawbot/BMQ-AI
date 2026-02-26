@@ -98,6 +98,9 @@ interface AddPurchaseOrderDialogProps {
   children?: React.ReactNode;
 }
 
+const MAX_PO_BATCH_FILES = 10;
+const MAX_PO_FILE_SIZE_MB = 10;
+
 export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -164,146 +167,143 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
     }
   };
 
-  // Handle image upload and scan - using fetch with timeout instead of invoke
+  const scanSinglePOFile = async (file: File, token: string): Promise<ScannedPOData> => {
+    const base64 = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve((reader.result as string).split(",")[1]);
+      reader.readAsDataURL(file);
+    });
+
+    const { data, error } = await callEdgeFunction<{ success: boolean; data: ScannedPOData; error?: string }>(
+      "scan-purchase-order",
+      { imageBase64: base64, mimeType: file.type },
+      token,
+      60000
+    );
+
+    if (error) throw new Error(error);
+    if (!data?.success || !data?.data) throw new Error("Không nhận được dữ liệu scan hợp lệ");
+    return data.data;
+  };
+
+  const mergeScannedPOItems = (scans: ScannedPOData[]) => {
+    const map = new Map<string, { product_name: string; quantity: number; unit: string; unit_price: number; notes: string }>();
+    for (const scanned of scans) {
+      for (const item of scanned.items || []) {
+        const key = `${(item.product_name || "").trim().toLowerCase()}|${(item.unit || "kg").trim().toLowerCase()}`;
+        const existing = map.get(key);
+        if (!existing) {
+          map.set(key, {
+            product_name: item.product_name || "",
+            quantity: Number(item.quantity || 0),
+            unit: item.unit || "kg",
+            unit_price: Number(item.unit_price || 0),
+            notes: item.notes || "",
+          });
+        } else {
+          existing.quantity += Number(item.quantity || 0);
+          if (!existing.unit_price && item.unit_price) existing.unit_price = Number(item.unit_price || 0);
+          map.set(key, existing);
+        }
+      }
+    }
+
+    return Array.from(map.values()).map((x) => ({ sku_id: "", ...x }));
+  };
+
+  // Handle image upload and scan (single or batch up to 10 images)
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
 
-    // Validate file type
-    if (!file.type.startsWith("image/")) {
-      toast.error("Vui lòng chọn file ảnh");
+    if (files.length > MAX_PO_BATCH_FILES) {
+      toast.error(`PO scan chỉ cho phép tối đa ${MAX_PO_BATCH_FILES} ảnh mỗi lần`);
+      event.currentTarget.value = "";
       return;
     }
 
-    // Validate file size (max 10MB)
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error("File ảnh quá lớn (tối đa 10MB)");
+    const invalid = files.find((f) => !f.type.startsWith("image/"));
+    if (invalid) {
+      toast.error("PO scan hiện chỉ hỗ trợ file ảnh");
+      event.currentTarget.value = "";
       return;
     }
 
-    console.log("[po-scan] start");
+    const oversized = files.find((f) => f.size > MAX_PO_FILE_SIZE_MB * 1024 * 1024);
+    if (oversized) {
+      toast.error(`File quá lớn: ${oversized.name} (tối đa ${MAX_PO_FILE_SIZE_MB}MB)`);
+      event.currentTarget.value = "";
+      return;
+    }
+
     setIsScanning(true);
-
     try {
-      // Get fresh session token
-      console.log("[po-scan] getting-token");
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
-
       if (!token) {
-        console.log("[po-scan] no-token");
         toast.error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
-        setIsScanning(false);
         return;
       }
 
-      console.log("[po-scan] got-token");
+      if (files.length === 1) {
+        const f = files[0];
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(f);
+        });
+        setScannedImage(dataUrl);
 
-      // Convert to base64
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        try {
-          const base64 = (reader.result as string).split(",")[1];
-          const dataUrl = reader.result as string;
-          setScannedImage(dataUrl);
+        const scanned = await scanSinglePOFile(f, token);
+        setScannedData(scanned);
 
-          console.log("[po-scan] fetch-start");
-          // Call scan edge function using fetch with timeout (60s)
-          const { data, error } = await callEdgeFunction<{ success: boolean; data: ScannedPOData; error?: string }>(
-            "scan-purchase-order",
-            { imageBase64: base64, mimeType: file.type },
-            token,
-            60000 // 60 second timeout
+        if (scanned.supplier_name && suppliers) {
+          const matchedSupplier = suppliers.find(
+            (s) => s.name.toLowerCase().includes(scanned.supplier_name!.toLowerCase()) || scanned.supplier_name!.toLowerCase().includes(s.name.toLowerCase())
           );
-          console.log("[po-scan] fetch-done", { hasData: !!data, error });
-
-          if (error) {
-            console.error("[po-scan] error:", error);
-            toast.error("Lỗi khi scan ảnh: " + error);
-            return;
-          }
-
-          if (data?.success && data?.data) {
-            const scanned = data.data;
-            setScannedData(scanned);
-
-            // Try to match supplier by name
-            if (scanned.supplier_name && suppliers) {
-              const matchedSupplier = suppliers.find(
-                (s) =>
-                  s.name.toLowerCase().includes(scanned.supplier_name!.toLowerCase()) ||
-                  scanned.supplier_name!.toLowerCase().includes(s.name.toLowerCase())
-              );
-              if (matchedSupplier) {
-                form.setValue("supplier_id", matchedSupplier.id);
-              }
-            }
-
-            // Set order date if available
-            if (scanned.order_date) {
-              try {
-                form.setValue("order_date", new Date(scanned.order_date));
-              } catch (e) {
-                console.warn("Could not parse order date:", scanned.order_date);
-              }
-            }
-
-            // Set expected date if available
-            if (scanned.expected_date) {
-              try {
-                form.setValue("expected_date", new Date(scanned.expected_date));
-              } catch (e) {
-                console.warn("Could not parse expected date:", scanned.expected_date);
-              }
-            }
-
-            // Set notes
-            if (scanned.notes) {
-              form.setValue("notes", scanned.notes);
-            }
-
-            // Set VAT amount if available
-            if (scanned.vat_amount) {
-              form.setValue("vat_amount", scanned.vat_amount);
-            }
-
-            // Fill in items
-            if (scanned.items && scanned.items.length > 0) {
-              const formItems = scanned.items.map((item) => ({
-                sku_id: "",
-                product_name: item.product_name || "",
-                quantity: item.quantity || 1,
-                unit: item.unit || "kg",
-                unit_price: item.unit_price || 0,
-                notes: item.notes || "",
-              }));
-              replace(formItems);
-            }
-
-            toast.success(`Đã scan được ${scanned.items?.length || 0} sản phẩm từ ảnh`);
-          } else {
-            toast.error((data as any)?.error || "Không thể trích xuất dữ liệu từ ảnh");
-          }
-        } catch (innerError) {
-          console.error("[po-scan] inner-error:", innerError);
-          toast.error("Lỗi khi xử lý ảnh");
-        } finally {
-          console.log("[po-scan] finally");
-          setIsScanning(false);
+          if (matchedSupplier) form.setValue("supplier_id", matchedSupplier.id);
         }
-      };
+        if (scanned.order_date) { try { form.setValue("order_date", new Date(scanned.order_date)); } catch {} }
+        if (scanned.expected_date) { try { form.setValue("expected_date", new Date(scanned.expected_date)); } catch {} }
+        if (scanned.notes) form.setValue("notes", scanned.notes);
+        if (scanned.vat_amount) form.setValue("vat_amount", scanned.vat_amount);
+        if (scanned.items?.length) replace(scanned.items.map((item) => ({ sku_id: "", product_name: item.product_name || "", quantity: item.quantity || 1, unit: item.unit || "kg", unit_price: item.unit_price || 0, notes: item.notes || "" })));
 
-      reader.onerror = () => {
-        console.error("[po-scan] reader-error");
-        toast.error("Lỗi khi đọc file ảnh");
-        setIsScanning(false);
-      };
+        toast.success("Đã scan thành công đơn đặt hàng");
+      } else {
+        setScannedImage(null);
+        const scans: ScannedPOData[] = [];
+        for (const f of files) {
+          try {
+            const scanned = await scanSinglePOFile(f, token);
+            scans.push(scanned);
+          } catch (e) {
+            console.error(`[po-scan] fail ${f.name}`, e);
+          }
+        }
 
-      reader.readAsDataURL(file);
+        if (!scans.length) throw new Error("Không scan được file nào trong batch");
+
+        setScannedData({ items: mergeScannedPOItems(scans) as any, supplier_name: scans[0]?.supplier_name, vat_amount: scans.reduce((x, y) => x + Number(y.vat_amount || 0), 0), total_amount: scans.reduce((x, y) => x + Number(y.total_amount || 0), 0), notes: `Batch scan ${files.length} ảnh` });
+
+        const mergedItems = mergeScannedPOItems(scans);
+        replace(mergedItems as any);
+
+        const supplierNames = scans.map((x) => x.supplier_name).filter(Boolean) as string[];
+        const firstSupplier = supplierNames[0];
+        if (firstSupplier && suppliers) {
+          const matchedSupplier = suppliers.find((s) => s.name.toLowerCase().includes(firstSupplier.toLowerCase()) || firstSupplier.toLowerCase().includes(s.name.toLowerCase()));
+          if (matchedSupplier) form.setValue("supplier_id", matchedSupplier.id);
+        }
+
+        toast.success(`Đã scan ${scans.length}/${files.length} ảnh PO`);
+      }
     } catch (error) {
-      console.error("[po-scan] outer-error:", error);
-      toast.error("Lỗi khi xử lý ảnh");
+      console.error("[po-scan] error:", error);
+      toast.error(error instanceof Error ? error.message : "Lỗi khi scan ảnh");
+    } finally {
       setIsScanning(false);
+      event.currentTarget.value = "";
     }
   };
 
@@ -427,6 +427,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
             ref={fileInputRef}
             type="file"
             accept="image/*"
+            multiple
             onChange={handleImageUpload}
             className="hidden"
             id="po-image-upload"
@@ -436,7 +437,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
             <div className="flex flex-col items-center justify-center py-6">
               <ImageIcon className="h-12 w-12 text-muted-foreground mb-3" />
               <p className="text-sm text-muted-foreground mb-3">
-                Upload ảnh đơn đặt hàng từ nhà cung cấp để tự động điền thông tin
+                Upload ảnh đơn đặt hàng từ NCC để tự động điền thông tin (hỗ trợ batch tối đa 10 ảnh/lần, 10MB/file)
               </p>
               <Button
                 type="button"
@@ -452,7 +453,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                 ) : (
                   <>
                     <Upload className="h-4 w-4 mr-2" />
-                    Chọn ảnh để scan
+                    Chọn ảnh để scan (1-10 ảnh)
                   </>
                 )}
               </Button>
