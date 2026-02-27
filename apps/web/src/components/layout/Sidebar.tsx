@@ -28,7 +28,8 @@ import bmqLogo from "@/assets/bmq-logo.png";
 
 interface NavItem {
   icon: LucideIcon;
-  labelKey: keyof ReturnType<typeof useLanguage>["t"];
+  labelKey?: keyof ReturnType<typeof useLanguage>["t"];
+  label?: string;
   path: string;
   showBadge?: boolean;
   showPOBadge?: boolean;
@@ -36,6 +37,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { icon: LayoutDashboard, labelKey: "dashboard", path: "/" },
+  { icon: BarChart3, label: "Niraan Dashboard", path: "/niraan-dashboard" },
   { icon: BarChart3, labelKey: "reports", path: "/reports" },
   { icon: Package, labelKey: "inventory", path: "/inventory" },
   { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts" },
@@ -112,7 +114,7 @@ export function Sidebar() {
                 }
               >
                 <item.icon className="h-5 w-5" />
-                {!collapsed && <span className="flex-1">{t[item.labelKey]}</span>}
+                {!collapsed && <span className="flex-1">{item.label || (item.labelKey ? t[item.labelKey] : "")}</span>}
                 {!collapsed && item.showBadge && badgeCount > 0 && (
                   <Badge variant="destructive" className="h-5 min-w-5 flex items-center justify-center text-xs">
                     {badgeCount}
