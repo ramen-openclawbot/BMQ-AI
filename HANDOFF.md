@@ -1,10 +1,10 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.8**
+- apps/web: **0.0.9**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
-- Latest commit at handoff time: `86cf90d`
+- Latest commit at handoff time: `TBD_AFTER_COMMIT`
 
 ## What is done (latest)
 1. Dashboard đã rút gọn theo hướng overview ngắn; bỏ các block dài gây rối.
@@ -60,7 +60,7 @@
   - `/goods-receipts`: chỉ nhận SKU nguyên vật liệu.
   - `/sku-costs/*`: chỉ xử lý SKU thành phẩm cho COGS.
   - Add Invoice scan hoạt động ổn trên mobile.
-  - `/settings` hiển thị version từ semver package (`0.0.8`).
+  - `/settings` hiển thị version từ semver package (`0.0.9`).
 
 
 ## Shortcut/output rule (user preference)
@@ -72,7 +72,10 @@
 
 
 ## Latest update (2026-02-26)
-- Đã rollback về nhánh ổn định theo xác nhận user: nguyên nhân 429 do hết quota API, không phải lỗi code.
-- Đã bump version app web lên **0.0.8**.
-- Đã xoá hoàn toàn tính năng **AI API Credit** khỏi Settings theo yêu cầu user.
-- Đã xoá Edge Function `get-ai-credit-balance` khỏi codebase web app.
+- Đã rollback OCR về default OpenAI-only (gỡ hoàn toàn flow Ollama hybrid).
+- Đã triển khai trang **Niraan Dashboard** cho investor:
+  - route mới `/niraan-dashboard`, menu mới ở sidebar,
+  - UI tiếng Anh, layout đơn giản/chuyên nghiệp,
+  - quy đổi số liệu từ VND sang USD bằng realtime FX (API + cache refresh định kỳ),
+  - hiển thị FX rate và thời điểm cập nhật.
+- Đã bump version app web lên **0.0.9**.
