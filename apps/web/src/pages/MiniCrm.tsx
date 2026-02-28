@@ -19,6 +19,24 @@ const GROUP_OPTIONS = [
   { value: "cake_cafe", label: "Bánh ngọt - Quán cafe" },
 ];
 
+const extractPoNumberFromSubject = (subject?: string) => {
+  const s = String(subject || "");
+  const m = s.match(/\b(PO\d{6,})\b/i) || s.match(/PO\s*(\d{6,})/i);
+  if (!m) return "";
+  return m[1].toUpperCase().startsWith("PO") ? m[1].toUpperCase() : `PO${m[1]}`;
+};
+
+const extractDeliveryDateFromSubject = (subject?: string) => {
+  const s = String(subject || "");
+  const m = s.match(/GIAO\s*NGÀY\s*(\d{2})[./-](\d{2})[./-](\d{4})/i);
+  if (!m) return "";
+  return `${m[3]}-${m[2]}-${m[1]}`;
+};
+
+const calcSubtotalFromItems = (items: any[]) =>
+  (Array.isArray(items) ? items : []).reduce((sum: number, it: any) => sum + Number(it?.line_total || 0), 0);
+
+
 export default function MiniCrm() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -171,17 +189,19 @@ export default function MiniCrm() {
 
   useEffect(() => {
     if (!selectedPo) return;
+    const items = Array.isArray(selectedPo.production_items)
+      ? selectedPo.production_items
+      : Array.isArray(selectedPo?.raw_payload?.parsed_items_preview)
+        ? selectedPo.raw_payload.parsed_items_preview
+        : [];
+    const subtotal = Number(selectedPo.subtotal_amount || selectedPo?.raw_payload?.parse_meta?.subtotal || calcSubtotalFromItems(items) || 0);
     setPoSummaryDraft({
-      po_number: selectedPo.po_number || "",
-      delivery_date: selectedPo.delivery_date || "",
-      subtotal_amount: selectedPo.subtotal_amount || "",
-      vat_amount: selectedPo.vat_amount || "",
-      total_amount: selectedPo.total_amount || "",
-      production_items: Array.isArray(selectedPo.production_items)
-        ? selectedPo.production_items
-        : Array.isArray(selectedPo?.raw_payload?.parsed_items_preview)
-          ? selectedPo.raw_payload.parsed_items_preview
-          : [],
+      po_number: selectedPo.po_number || extractPoNumberFromSubject(selectedPo.email_subject) || "",
+      delivery_date: selectedPo.delivery_date || extractDeliveryDateFromSubject(selectedPo.email_subject) || "",
+      subtotal_amount: subtotal || "",
+      vat_amount: selectedPo.vat_amount || 0,
+      total_amount: Number(selectedPo.total_amount || subtotal || 0) || "",
+      production_items: items,
     });
   }, [selectedPo]);
 
@@ -204,7 +224,16 @@ export default function MiniCrm() {
     onSuccess: async (result: any) => {
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
       if (Array.isArray(result?.parsed?.items)) {
-        setPoSummaryDraft((s: any) => ({ ...s, production_items: result.parsed.items }));
+        const parsedItems = result.parsed.items;
+        const subtotal = Number(result?.parsed?.subtotal || calcSubtotalFromItems(parsedItems) || 0);
+        setPoSummaryDraft((s: any) => ({
+          ...s,
+          po_number: s?.po_number || extractPoNumberFromSubject(selectedPo?.email_subject),
+          delivery_date: s?.delivery_date || extractDeliveryDateFromSubject(selectedPo?.email_subject),
+          production_items: parsedItems,
+          subtotal_amount: subtotal || s?.subtotal_amount,
+          total_amount: subtotal || s?.total_amount,
+        }));
       }
       toast({ title: "Đã parse file đính kèm", description: `${result?.parsed?.itemCount || 0} dòng sản phẩm` });
     },
