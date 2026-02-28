@@ -6,21 +6,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const vnd = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value || 0);
 
 const breadChannels = [
-  { key: "banhmi_point", label: "Doanh thu điểm bán" },
-  { key: "banhmi_agency", label: "Doanh thu đại lý" },
-  { key: "online_grab", label: "Online - GrabFood" },
-  { key: "online_shopee", label: "Online - ShopeeFood" },
-  { key: "online_be", label: "Online - Be" },
-  { key: "online_facebook", label: "Online - Facebook" },
+  { key: "banhmi_point", labelVi: "Doanh thu điểm bán", labelEn: "Storefront revenue" },
+  { key: "banhmi_agency", labelVi: "Doanh thu đại lý", labelEn: "Agency revenue" },
+  { key: "online_grab", labelVi: "Online - GrabFood", labelEn: "Online - GrabFood" },
+  { key: "online_shopee", labelVi: "Online - ShopeeFood", labelEn: "Online - ShopeeFood" },
+  { key: "online_be", labelVi: "Online - Be", labelEn: "Online - Be" },
+  { key: "online_facebook", labelVi: "Online - Facebook", labelEn: "Online - Facebook" },
 ] as const;
 
 const cakeChannels = [
-  { key: "cake_kingfoodmart", label: "Kingfoodmart" },
-  { key: "cake_cafe", label: "Quán cafe" },
+  { key: "cake_kingfoodmart", labelVi: "Kingfoodmart", labelEn: "Kingfoodmart" },
+  { key: "cake_cafe", labelVi: "Quán cafe", labelEn: "Cafe" },
 ] as const;
 
 type RevenueState = Record<string, number>;
@@ -62,6 +63,8 @@ const todayLocal = () => {
 };
 
 export default function FinanceRevenueControl() {
+  const { language } = useLanguage();
+  const isVi = language === "vi";
   const [selectedDate, setSelectedDate] = useState<string>(todayLocal());
   const [manualAdjust, setManualAdjust] = useState<RevenueState>({});
 
@@ -129,35 +132,35 @@ export default function FinanceRevenueControl() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-display font-bold">Kiểm soát doanh thu</h1>
-        <p className="text-muted-foreground">Phân tách doanh thu theo nhóm Bánh mì / Bánh ngọt và theo từng kênh bán.</p>
+        <h1 className="text-3xl font-display font-bold">{isVi ? "Kiểm soát doanh thu" : "Revenue control"}</h1>
+        <p className="text-muted-foreground">{isVi ? "Phân tách doanh thu theo nhóm Bánh mì / Bánh ngọt và theo từng kênh bán." : "Split revenue by Bread / Cake group and by channel."}</p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Bộ lọc ngày</CardTitle>
-          <CardDescription>Ghi nhận doanh thu theo từng ngày vận hành.</CardDescription>
+          <CardTitle>{isVi ? "Bộ lọc ngày" : "Date filter"}</CardTitle>
+          <CardDescription>{isVi ? "Ghi nhận doanh thu theo từng ngày vận hành." : "Record revenue by operating date."}</CardDescription>
         </CardHeader>
         <CardContent className="max-w-xs">
-          <Label>Ngày</Label>
+          <Label>{isVi ? "Ngày" : "Date"}</Label>
           <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>PO đã đẩy từ Mini-CRM</CardTitle>
-          <CardDescription>Tự động tổng hợp theo ngày đặt PO (ưu tiên po_order_date/received_at).</CardDescription>
+          <CardTitle>{isVi ? "PO đã đẩy từ Mini-CRM" : "Posted POs from Mini-CRM"}</CardTitle>
+          <CardDescription>{isVi ? "Tự động tổng hợp theo ngày đặt PO (ưu tiên po_order_date/received_at)." : "Auto aggregate by PO order date (priority: po_order_date/received_at)."}</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="text-sm text-muted-foreground mb-1">Số PO trong ngày: {postedRowsByDate.length}</div>
-          <div className="text-xs text-muted-foreground mb-3">Tổng PO đã đẩy (mọi ngày): {postedRows.length}</div>
+          <div className="text-sm text-muted-foreground mb-1">{isVi ? "Số PO trong ngày" : "PO count today"}: {postedRowsByDate.length}</div>
+          <div className="text-xs text-muted-foreground mb-3">{isVi ? "Tổng PO đã đẩy (mọi ngày)" : "Total posted POs (all days)"}: {postedRows.length}</div>
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>PO</TableHead>
-                <TableHead>Kênh</TableHead>
-                <TableHead className="text-right">Giá trị</TableHead>
+                <TableHead>{isVi ? "Kênh" : "Channel"}</TableHead>
+                <TableHead className="text-right">{isVi ? "Giá trị" : "Amount"}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -170,7 +173,7 @@ export default function FinanceRevenueControl() {
               ))}
               {postedRowsByDate.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={3} className="text-center text-muted-foreground py-6">Chưa có PO nào được đẩy cho ngày này.</TableCell>
+                  <TableCell colSpan={3} className="text-center text-muted-foreground py-6">{isVi ? "Chưa có PO nào được đẩy cho ngày này." : "No posted PO for this date."}</TableCell>
                 </TableRow>
               )}
             </TableBody>
@@ -181,19 +184,19 @@ export default function FinanceRevenueControl() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">Tổng doanh thu Bánh mì</div>
+            <div className="text-xs text-muted-foreground">{isVi ? "Tổng doanh thu Bánh mì" : "Total Bread revenue"}</div>
             <div className="text-xl font-semibold">{vnd(totals.breadTotal)}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">Tổng doanh thu Bánh ngọt</div>
+            <div className="text-xs text-muted-foreground">{isVi ? "Tổng doanh thu Bánh ngọt" : "Total Cake revenue"}</div>
             <div className="text-xl font-semibold">{vnd(totals.cakeTotal)}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">Tổng doanh thu toàn bộ</div>
+            <div className="text-xs text-muted-foreground">{isVi ? "Tổng doanh thu toàn bộ" : "Total revenue"}</div>
             <div className="text-xl font-semibold">{vnd(totals.grandTotal)}</div>
           </CardContent>
         </Card>
@@ -201,20 +204,20 @@ export default function FinanceRevenueControl() {
 
       <Card>
         <CardHeader>
-          <CardTitle>I. Doanh thu Bánh mì</CardTitle>
-          <CardDescription>Giá trị ô = tự động từ PO đã đẩy + điều chỉnh tay (nếu cần).</CardDescription>
+          <CardTitle>{isVi ? "I. Doanh thu Bánh mì" : "I. Bread revenue"}</CardTitle>
+          <CardDescription>{isVi ? "Giá trị ô = tự động từ PO đã đẩy + điều chỉnh tay (nếu cần)." : "Cell value = auto from posted POs + manual adjustment (if needed)."}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           {breadChannels.map((channel) => (
             <div key={channel.key} className="space-y-2">
-              <Label>{channel.label}</Label>
+              <Label>{isVi ? channel.labelVi : channel.labelEn}</Label>
               <Input
                 type="number"
                 value={Number(manualAdjust[channel.key] || 0)}
                 onChange={(e) => setAmount(channel.key, e.target.value)}
-                placeholder="Điều chỉnh thêm (VND)"
+                placeholder={isVi ? "Điều chỉnh thêm (VND)" : "Additional adjustment (VND)"}
               />
-              <div className="text-xs text-muted-foreground">Tự động: {vnd(Number(autoData[channel.key] || 0))} • Tổng hiển thị: {vnd(Number(mergedData[channel.key] || 0))}</div>
+              <div className="text-xs text-muted-foreground">{isVi ? "Tự động" : "Auto"}: {vnd(Number(autoData[channel.key] || 0))} • {isVi ? "Tổng hiển thị" : "Displayed total"}: {vnd(Number(mergedData[channel.key] || 0))}</div>
             </div>
           ))}
         </CardContent>
@@ -222,20 +225,20 @@ export default function FinanceRevenueControl() {
 
       <Card>
         <CardHeader>
-          <CardTitle>II. Doanh thu Bánh ngọt</CardTitle>
-          <CardDescription>Giá trị ô = tự động từ PO đã đẩy + điều chỉnh tay (nếu cần).</CardDescription>
+          <CardTitle>{isVi ? "II. Doanh thu Bánh ngọt" : "II. Cake revenue"}</CardTitle>
+          <CardDescription>{isVi ? "Giá trị ô = tự động từ PO đã đẩy + điều chỉnh tay (nếu cần)." : "Cell value = auto from posted POs + manual adjustment (if needed)."}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           {cakeChannels.map((channel) => (
             <div key={channel.key} className="space-y-2">
-              <Label>{channel.label}</Label>
+              <Label>{isVi ? channel.labelVi : channel.labelEn}</Label>
               <Input
                 type="number"
                 value={Number(manualAdjust[channel.key] || 0)}
                 onChange={(e) => setAmount(channel.key, e.target.value)}
-                placeholder="Điều chỉnh thêm (VND)"
+                placeholder={isVi ? "Điều chỉnh thêm (VND)" : "Additional adjustment (VND)"}
               />
-              <div className="text-xs text-muted-foreground">Tự động: {vnd(Number(autoData[channel.key] || 0))} • Tổng hiển thị: {vnd(Number(mergedData[channel.key] || 0))}</div>
+              <div className="text-xs text-muted-foreground">{isVi ? "Tự động" : "Auto"}: {vnd(Number(autoData[channel.key] || 0))} • {isVi ? "Tổng hiển thị" : "Displayed total"}: {vnd(Number(mergedData[channel.key] || 0))}</div>
             </div>
           ))}
         </CardContent>
@@ -243,38 +246,38 @@ export default function FinanceRevenueControl() {
 
       <Card>
         <CardHeader>
-          <CardTitle>RO - Recipe of Operation (PO qua email po@bmq.vn)</CardTitle>
-          <CardDescription>Thiết kế luồng vận hành cho Phase 4: nhận PO email, nhận diện khách hàng từ mini-CRM và bắt buộc duyệt tay.</CardDescription>
+          <CardTitle>{isVi ? "RO - Recipe of Operation (PO qua email po@bmq.vn)" : "RO - Recipe of Operation (PO via email po@bmq.vn)"}</CardTitle>
+          <CardDescription>{isVi ? "Thiết kế luồng vận hành cho Phase 4: nhận PO email, nhận diện khách hàng từ mini-CRM và bắt buộc duyệt tay." : "Operational flow for Phase 4: receive PO emails, identify customer from mini-CRM, and require manual approval."}</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Bước</TableHead>
-                <TableHead>Mô tả</TableHead>
-                <TableHead>Trạng thái</TableHead>
+                <TableHead>{isVi ? "Bước" : "Step"}</TableHead>
+                <TableHead>{isVi ? "Mô tả" : "Description"}</TableHead>
+                <TableHead>{isVi ? "Trạng thái" : "Status"}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow>
                 <TableCell>1. Ingest Gmail</TableCell>
-                <TableCell>Đọc email mới từ po@bmq.vn (Google Workspace).</TableCell>
-                <TableCell><Badge variant="secondary">Done</Badge></TableCell>
+                <TableCell>{isVi ? "Đọc email mới từ po@bmq.vn (Google Workspace)." : "Read new emails from po@bmq.vn (Google Workspace)."}</TableCell>
+                <TableCell><Badge variant="secondary">{isVi ? "Xong" : "Done"}</Badge></TableCell>
               </TableRow>
               <TableRow>
                 <TableCell>2. Parse PO</TableCell>
-                <TableCell>Tách subject/body/attachment + số PO + giá trị tạm tính/VAT/tổng tiền.</TableCell>
-                <TableCell><Badge variant="secondary">Done</Badge></TableCell>
+                <TableCell>{isVi ? "Tách subject/body/attachment + số PO + giá trị tạm tính/VAT/tổng tiền." : "Parse subject/body/attachments + PO number + subtotal/VAT/total."}</TableCell>
+                <TableCell><Badge variant="secondary">{isVi ? "Xong" : "Done"}</Badge></TableCell>
               </TableRow>
               <TableRow>
                 <TableCell>3. Match mini-CRM</TableCell>
-                <TableCell>Map email người gửi với khách hàng đã khai báo ở mini-CRM.</TableCell>
-                <TableCell><Badge variant="secondary">Done</Badge></TableCell>
+                <TableCell>{isVi ? "Map email người gửi với khách hàng đã khai báo ở mini-CRM." : "Map sender email to customer records in mini-CRM."}</TableCell>
+                <TableCell><Badge variant="secondary">{isVi ? "Xong" : "Done"}</Badge></TableCell>
               </TableRow>
               <TableRow>
                 <TableCell>4. Manual Approval + Post revenue</TableCell>
-                <TableCell>Bắt buộc duyệt tay trước khi đẩy sang màn Kiểm soát doanh thu.</TableCell>
-                <TableCell><Badge className="bg-emerald-600">Done</Badge></TableCell>
+                <TableCell>Bắt buộc duyệt tay trước khi đẩy sang màn {isVi ? "Kiểm soát doanh thu" : "Revenue control"}.</TableCell>
+                <TableCell><Badge className="bg-emerald-600">{isVi ? "Xong" : "Done"}</Badge></TableCell>
               </TableRow>
             </TableBody>
           </Table>

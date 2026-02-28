@@ -14,6 +14,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const COLORS = ["hsl(35, 85%, 45%)", "hsl(142, 60%, 40%)", "hsl(25, 70%, 35%)", "hsl(200, 70%, 50%)", "hsl(280, 60%, 50%)"];
 
@@ -35,6 +36,8 @@ const truncateSupplierName = (name: string, maxLength = 20) => {
 };
 
 export default function Reports() {
+  const { language } = useLanguage();
+  const isVi = language === "vi";
   const [selectedMonth, setSelectedMonth] = useState(new Date());
 
   const { data: monthlyStats, isLoading: monthlyLoading } = useMonthlyReceiptStats(selectedMonth);
@@ -62,14 +65,14 @@ export default function Reports() {
   const debtPieData = useMemo(() => {
     if (!debtStats) return [];
     return [
-      { name: "Chuyển khoản (UNC)", value: debtStats.uncDebt },
-      { name: "Tiền mặt", value: debtStats.cashDebt },
+      { name: isVi ? "Chuyển khoản (UNC)" : "Bank Transfer (UNC)", value: debtStats.uncDebt },
+      { name: isVi ? "Tiền mặt" : "Cash", value: debtStats.cashDebt },
     ].filter((d) => d.value > 0);
-  }, [debtStats]);
+  }, [debtStats, isVi]);
 
   const chartConfig = {
-    value: { label: "Giá trị nhập", color: "hsl(35, 85%, 45%)" },
-    debt: { label: "Công nợ", color: "hsl(0, 65%, 50%)" },
+    value: { label: isVi ? "Giá trị nhập" : "Receipt value", color: "hsl(35, 85%, 45%)" },
+    debt: { label: isVi ? "Công nợ" : "Debt", color: "hsl(0, 65%, 50%)" },
   };
 
   const isLoading = monthlyLoading || debtLoading || supplierLoading;
@@ -80,9 +83,9 @@ export default function Reports() {
       <div>
         <h1 className="text-3xl font-display font-bold text-foreground flex items-center gap-2">
           <BarChart3 className="h-8 w-8 text-primary" />
-          Dashboard Báo Cáo
+          {isVi ? "Dashboard Báo Cáo" : "Reports Dashboard"}
         </h1>
-        <p className="text-muted-foreground">Tổng quan hoạt động mua hàng và công nợ</p>
+        <p className="text-muted-foreground">{isVi ? "Tổng quan hoạt động mua hàng và công nợ" : "Overview of procurement and debt operations"}</p>
       </div>
 
       {/* Summary Cards */}
@@ -91,7 +94,7 @@ export default function Reports() {
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-1">
               <Package className="h-4 w-4" />
-              Tổng giá trị nhập tháng này
+              {isVi ? "Tổng giá trị nhập tháng này" : "Total receipt value this month"}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -99,7 +102,7 @@ export default function Reports() {
               {isLoading ? "..." : formatCurrency(monthlyStats?.totalValue || 0)}
             </div>
             <p className="text-sm text-muted-foreground">
-              {monthlyStats?.totalPOs || 0} PO trong tháng
+              {monthlyStats?.totalPOs || 0} {isVi ? "PO trong tháng" : "POs this month"}
             </p>
           </CardContent>
         </Card>
@@ -108,7 +111,7 @@ export default function Reports() {
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-1">
               <Wallet className="h-4 w-4" />
-              Tổng công nợ
+              {isVi ? "Tổng công nợ" : "Total debt"}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -116,7 +119,7 @@ export default function Reports() {
               {isLoading ? "..." : formatCurrency(debtStats?.totalDebt || 0)}
             </div>
             <p className="text-sm text-muted-foreground">
-              {debtStats?.bySupplier?.length || 0} nhà cung cấp
+              {debtStats?.bySupplier?.length || 0} {isVi ? "nhà cung cấp" : "suppliers"}
             </p>
           </CardContent>
         </Card>
@@ -125,14 +128,14 @@ export default function Reports() {
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-1">
               <TrendingUp className="h-4 w-4" />
-              UNC chưa thanh toán
+              {isVi ? "UNC chưa thanh toán" : "Unpaid UNC"}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-blue-600">
               {isLoading ? "..." : formatCurrency(paymentStats?.uncTotal || 0)}
             </div>
-            <p className="text-sm text-muted-foreground">Chuyển khoản</p>
+            <p className="text-sm text-muted-foreground">{isVi ? "Chuyển khoản" : "Bank transfer"}</p>
           </CardContent>
         </Card>
 
@@ -140,14 +143,14 @@ export default function Reports() {
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-1">
               <Wallet className="h-4 w-4" />
-              Tiền mặt chưa thanh toán
+              {isVi ? "Tiền mặt chưa thanh toán" : "Unpaid cash"}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
               {isLoading ? "..." : formatCurrency(paymentStats?.cashTotal || 0)}
             </div>
-            <p className="text-sm text-muted-foreground">Cash</p>
+            <p className="text-sm text-muted-foreground">{isVi ? "Tiền mặt" : "Cash"}</p>
           </CardContent>
         </Card>
       </div>
@@ -159,9 +162,9 @@ export default function Reports() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-lg">Giá trị nhập theo NCC</CardTitle>
+                <CardTitle className="text-lg">{isVi ? "Giá trị nhập theo NCC" : "Receipt value by supplier"}</CardTitle>
                 <CardDescription>
-                  Tháng {format(selectedMonth, "MM/yyyy", { locale: vi })}
+                  {isVi ? "Tháng" : "Month"} {format(selectedMonth, "MM/yyyy", { locale: isVi ? vi : undefined })}
                 </CardDescription>
               </div>
               <div className="flex items-center gap-1">
@@ -194,7 +197,7 @@ export default function Reports() {
               </ChartContainer>
             ) : (
               <div className="h-[250px] flex items-center justify-center text-muted-foreground">
-                Không có dữ liệu trong tháng này
+                {isVi ? "Không có dữ liệu trong tháng này" : "No data in this month"}
               </div>
             )}
           </CardContent>
@@ -203,8 +206,8 @@ export default function Reports() {
         {/* Debt by Supplier */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Công nợ theo NCC</CardTitle>
-            <CardDescription>Top 5 nhà cung cấp có công nợ cao nhất</CardDescription>
+            <CardTitle className="text-lg">{isVi ? "Công nợ theo NCC" : "Debt by supplier"}</CardTitle>
+            <CardDescription>{isVi ? "Top 5 nhà cung cấp có công nợ cao nhất" : "Top 5 suppliers with highest debt"}</CardDescription>
           </CardHeader>
           <CardContent>
             {debtChartData.length > 0 ? (
@@ -226,7 +229,7 @@ export default function Reports() {
               </ChartContainer>
             ) : (
               <div className="h-[250px] flex items-center justify-center text-muted-foreground">
-                Không có công nợ
+                {isVi ? "Không có công nợ" : "No debt"}
               </div>
             )}
           </CardContent>
@@ -238,8 +241,8 @@ export default function Reports() {
         {/* Pie Chart */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Phân loại công nợ</CardTitle>
-            <CardDescription>Theo phương thức thanh toán</CardDescription>
+            <CardTitle className="text-lg">{isVi ? "Phân loại công nợ" : "Debt breakdown"}</CardTitle>
+            <CardDescription>{isVi ? "Theo phương thức thanh toán" : "By payment method"}</CardDescription>
           </CardHeader>
           <CardContent>
             {debtPieData.length > 0 ? (
@@ -266,7 +269,7 @@ export default function Reports() {
               </div>
             ) : (
               <div className="h-[200px] flex items-center justify-center text-muted-foreground">
-                Không có công nợ
+                {isVi ? "Không có công nợ" : "No debt"}
               </div>
             )}
           </CardContent>
@@ -277,20 +280,20 @@ export default function Reports() {
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
               <Users className="h-5 w-5" />
-              Thống kê theo NCC
+              {isVi ? "Thống kê theo NCC" : "Supplier statistics"}
             </CardTitle>
-            <CardDescription>Tổng hợp đơn hàng, nhập kho và công nợ</CardDescription>
+            <CardDescription>{isVi ? "Tổng hợp đơn hàng, nhập kho và công nợ" : "Summary of orders, receipts, and debt"}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="max-h-[300px] overflow-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Nhà cung cấp</TableHead>
-                    <TableHead className="text-right">Đơn hàng</TableHead>
-                    <TableHead className="text-right">Giá trị</TableHead>
-                    <TableHead className="text-right">Phiếu nhập</TableHead>
-                    <TableHead className="text-right">Công nợ</TableHead>
+                    <TableHead>{isVi ? "Nhà cung cấp" : "Supplier"}</TableHead>
+                    <TableHead className="text-right">{isVi ? "Đơn hàng" : "Orders"}</TableHead>
+                    <TableHead className="text-right">{isVi ? "Giá trị" : "Value"}</TableHead>
+                    <TableHead className="text-right">{isVi ? "Phiếu nhập" : "Receipts"}</TableHead>
+                    <TableHead className="text-right">{isVi ? "Công nợ" : "Debt"}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -312,7 +315,7 @@ export default function Reports() {
                   {(!supplierStats || supplierStats.length === 0) && (
                     <TableRow>
                       <TableCell colSpan={5} className="text-center text-muted-foreground">
-                        Không có dữ liệu
+                        {isVi ? "Không có dữ liệu" : "No data"}
                       </TableCell>
                     </TableRow>
                   )}
