@@ -101,6 +101,15 @@ function mapKingfoodFlatRows(rows: any[][]) {
     .filter((x) => /^SP\d+/i.test(x.sku) && x.product_name && x.qty > 0);
 }
 
+function extractKingfoodTotals(rows: any[][]) {
+  const candidate = rows.find((r) => /^SP\d+/i.test(String(r?.[14] || "").trim()));
+  if (!candidate) return { subtotal: 0, vat: 0, total: 0 };
+  const subtotal = toNum(candidate?.[33] ?? 0);
+  const vat = toNum(candidate?.[34] ?? 0);
+  const total = toNum(candidate?.[35] ?? 0);
+  return { subtotal, vat, total };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -162,6 +171,8 @@ serve(async (req) => {
 
     let items: any[] = [];
     let chosenSheet: string | null = null;
+    let extractedVat = 0;
+    let extractedTotal = 0;
     if (xlsxFile) {
       const attachment = await gmailApi(accessToken, `messages/${inbox.gmail_message_id}/attachments/${xlsxFile.attachmentId}`);
       const bytes = decodeBase64UrlToBytes(String(attachment?.data || ""));
@@ -173,16 +184,21 @@ serve(async (req) => {
 
         const rowsFlat = XLSX.utils.sheet_to_json<any[]>(workbook.Sheets[sheetName], { header: 1, raw: false, defval: "" });
         const byFlat = mapKingfoodFlatRows(rowsFlat);
+        const totalsFlat = extractKingfoodTotals(rowsFlat);
 
         const parsed = byFlat.length > byHeader.length ? byFlat : byHeader;
         if (parsed.length > items.length) {
           items = parsed;
           chosenSheet = sheetName;
+          extractedVat = totalsFlat.vat || 0;
+          extractedTotal = totalsFlat.total || 0;
         }
       }
     }
 
     const subtotal = items.reduce((s, i) => s + Number(i.line_total || 0), 0);
+    const vatAmount = extractedVat || 0;
+    const totalAmount = extractedTotal || subtotal + vatAmount;
     const parseMeta = {
       parsed_at: new Date().toISOString(),
       parsed_by: user.id,
@@ -191,6 +207,8 @@ serve(async (req) => {
       source_xlsx: xlsxFile?.filename || null,
       source_pdf: pdfFile?.filename || null,
       item_count: items.length,
+      vat_amount: vatAmount,
+      total_amount: totalAmount,
     };
 
     const rawPayload = {
@@ -204,7 +222,8 @@ serve(async (req) => {
       .update({
         production_items: items,
         subtotal_amount: subtotal || null,
-        total_amount: subtotal || null,
+        vat_amount: vatAmount || 0,
+        total_amount: totalAmount || subtotal || null,
         raw_payload: rawPayload,
       })
       .eq("id", inboxId);
@@ -219,6 +238,8 @@ serve(async (req) => {
         pdf: pdfFile?.filename || null,
         itemCount: items.length,
         subtotal,
+        vat: vatAmount,
+        total: totalAmount,
         items,
       },
     }), {

@@ -36,6 +36,8 @@ const extractDeliveryDateFromSubject = (subject?: string) => {
 const calcSubtotalFromItems = (items: any[]) =>
   (Array.isArray(items) ? items : []).reduce((sum: number, it: any) => sum + Number(it?.line_total || 0), 0);
 
+const formatVnd = (value: any) => `${Number(value || 0).toLocaleString("vi-VN")} ₫`;
+
 
 export default function MiniCrm() {
   const queryClient = useQueryClient();
@@ -226,13 +228,16 @@ export default function MiniCrm() {
       if (Array.isArray(result?.parsed?.items)) {
         const parsedItems = result.parsed.items;
         const subtotal = Number(result?.parsed?.subtotal || calcSubtotalFromItems(parsedItems) || 0);
+        const vat = Number(result?.parsed?.vat || 0);
+        const total = Number(result?.parsed?.total || subtotal + vat);
         setPoSummaryDraft((s: any) => ({
           ...s,
           po_number: s?.po_number || extractPoNumberFromSubject(selectedPo?.email_subject),
           delivery_date: s?.delivery_date || extractDeliveryDateFromSubject(selectedPo?.email_subject),
           production_items: parsedItems,
           subtotal_amount: subtotal || s?.subtotal_amount,
-          total_amount: subtotal || s?.total_amount,
+          vat_amount: vat,
+          total_amount: total || s?.total_amount,
         }));
       }
       toast({ title: "Đã parse file đính kèm", description: `${result?.parsed?.itemCount || 0} dòng sản phẩm` });
@@ -454,14 +459,17 @@ export default function MiniCrm() {
                   <div>
                     <Label>Tạm tính</Label>
                     <Input type="number" value={poSummaryDraft.subtotal_amount || ""} onChange={(e) => setPoSummaryDraft((s: any) => ({ ...s, subtotal_amount: e.target.value }))} />
+                    <div className="text-xs text-muted-foreground mt-1">{formatVnd(poSummaryDraft.subtotal_amount)}</div>
                   </div>
                   <div>
                     <Label>VAT</Label>
                     <Input type="number" value={poSummaryDraft.vat_amount || ""} onChange={(e) => setPoSummaryDraft((s: any) => ({ ...s, vat_amount: e.target.value }))} />
+                    <div className="text-xs text-muted-foreground mt-1">{formatVnd(poSummaryDraft.vat_amount)}</div>
                   </div>
                   <div>
                     <Label>Tổng tiền đơn hàng</Label>
                     <Input type="number" value={poSummaryDraft.total_amount || ""} onChange={(e) => setPoSummaryDraft((s: any) => ({ ...s, total_amount: e.target.value }))} />
+                    <div className="text-xs text-muted-foreground mt-1">{formatVnd(poSummaryDraft.total_amount)}</div>
                   </div>
                 </div>
               </TabsContent>
@@ -493,8 +501,8 @@ export default function MiniCrm() {
                           <TableCell>{item?.product_name || item?.name || "-"}</TableCell>
                           <TableCell>{item?.unit || "-"}</TableCell>
                           <TableCell className="text-right">{Number(item?.qty || item?.quantity || 0).toLocaleString("vi-VN")}</TableCell>
-                          <TableCell className="text-right">{Number(item?.unit_price || 0).toLocaleString("vi-VN")}</TableCell>
-                          <TableCell className="text-right">{Number(item?.line_total || 0).toLocaleString("vi-VN")}</TableCell>
+                          <TableCell className="text-right">{formatVnd(item?.unit_price || 0)}</TableCell>
+                          <TableCell className="text-right">{formatVnd(item?.line_total || 0)}</TableCell>
                         </TableRow>
                       ))}
                       {(!Array.isArray(poSummaryDraft.production_items) || poSummaryDraft.production_items.length === 0) && (
