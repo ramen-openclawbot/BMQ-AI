@@ -113,3 +113,21 @@ Finance Control
      - Total UNC Detail / Declared / Net Variance / Match Rate
      - Daily result table (MATCH/MISMATCH/PENDING)
 ```
+
+### Auto reconcile 23:59 + email (new)
+- Added Edge Function: `finance-auto-reconcile`
+  - computes daily reconciliation automatically,
+  - upserts `daily_reconciliations`,
+  - sends email report via Resend.
+- Email settings:
+  - From: `ramen@bmq.vn`
+  - To: `ketoantruong@bmq.vn`, `tam@bmq.vn`
+- Added scheduler job at 23:59 Asia/Saigon:
+  - Job name: `finance-auto-reconcile-2359`
+  - Trigger endpoint: `/functions/v1/finance-auto-reconcile`
+- Required env/secrets for full operation:
+  - `RESEND_API_KEY`
+  - `FINANCE_CRON_SECRET`
+  - `FINANCE_REPORT_FROM`
+  - `FINANCE_REPORT_TO`
+- Note: if reconciliation tables migration is not yet applied in production, auto job will fail until migration is run.

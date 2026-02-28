@@ -26,3 +26,5 @@ verify_jwt = false
 
 [functions.create-warehouse-receipt]
 verify_jwt = false
+[functions.finance-auto-reconcile]
+verify_jwt = false
