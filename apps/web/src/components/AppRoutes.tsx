@@ -139,6 +139,7 @@ export function AppRoutes() {
         <Route path="/finance-control/cost" element={<FinanceControl />} />
         <Route path="/finance-control/revenue" element={<FinanceRevenueControl />} />
         <Route path="/mini-crm" element={<MiniCrm />} />
+        <Route path="/sales-po-inbox" element={<MiniCrm />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<NotFound />} />

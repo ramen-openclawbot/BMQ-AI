@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
+import { useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -68,6 +69,8 @@ const calcTotalFromRawPayload = (rawPayload: any) => {
 export default function MiniCrm() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const location = useLocation();
+  const isSalesPoPage = location.pathname === "/sales-po-inbox";
 
   const [customerName, setCustomerName] = useState("");
   const [customerCode, setCustomerCode] = useState("");
@@ -377,26 +380,36 @@ export default function MiniCrm() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-display font-bold">Mini-CRM & PO Inbox</h1>
-          <p className="text-muted-foreground">Phase 4: nhận diện khách hàng qua email và duyệt tay PO từ hộp thư po@bmq.vn.</p>
-          <p className="text-xs text-muted-foreground mt-1">Kết nối Gmail PO được cấu hình trong Settings.</p>
+          <h1 className="text-3xl font-display font-bold">{isSalesPoPage ? "PO (Bán hàng)" : "CRM"}</h1>
+          <p className="text-muted-foreground">
+            {isSalesPoPage
+              ? "Duyệt tay PO từ hộp thư po@bmq.vn và đẩy doanh thu."
+              : "Quản lý thông tin khách hàng và map email nhận diện."}
+          </p>
+          {isSalesPoPage && <p className="text-xs text-muted-foreground mt-1">Kết nối Gmail PO được cấu hình trong Settings.</p>}
         </div>
-        <div className="flex flex-col gap-2 items-end">
-          {gmailConnectedEmail ? <Badge>{gmailConnectedEmail}</Badge> : <Badge variant="secondary">Chưa kết nối Gmail PO</Badge>}
-          <Button onClick={() => syncGmailMutation.mutate()} disabled={syncGmailMutation.isPending || !gmailConnectedEmail}>
-            {syncGmailMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-            Sync Gmail PO
-          </Button>
-        </div>
+        {isSalesPoPage && (
+          <div className="flex flex-col gap-2 items-end">
+            {gmailConnectedEmail ? <Badge>{gmailConnectedEmail}</Badge> : <Badge variant="secondary">Chưa kết nối Gmail PO</Badge>}
+            <Button onClick={() => syncGmailMutation.mutate()} disabled={syncGmailMutation.isPending || !gmailConnectedEmail}>
+              {syncGmailMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+              Sync Gmail PO
+            </Button>
+          </div>
+        )}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Tổng PO inbox</div><div className="text-xl font-semibold">{poInbox.length}</div></CardContent></Card>
-        <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Pending approval</div><div className="text-xl font-semibold">{statusCounts.pending_approval || 0}</div></CardContent></Card>
-        <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Approved</div><div className="text-xl font-semibold">{statusCounts.approved || 0}</div></CardContent></Card>
-        <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Unmatched</div><div className="text-xl font-semibold">{statusCounts.unmatched || 0}</div></CardContent></Card>
-      </div>
+      {isSalesPoPage && (
+        <div className="grid gap-4 md:grid-cols-4">
+          <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Tổng PO inbox</div><div className="text-xl font-semibold">{poInbox.length}</div></CardContent></Card>
+          <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Pending approval</div><div className="text-xl font-semibold">{statusCounts.pending_approval || 0}</div></CardContent></Card>
+          <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Approved</div><div className="text-xl font-semibold">{statusCounts.approved || 0}</div></CardContent></Card>
+          <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Unmatched</div><div className="text-xl font-semibold">{statusCounts.unmatched || 0}</div></CardContent></Card>
+        </div>
+      )}
 
+      {!isSalesPoPage && (
+      <> 
       <Card>
         <CardHeader>
           <CardTitle>Thiết lập khách hàng mini-CRM</CardTitle>
@@ -458,7 +471,11 @@ export default function MiniCrm() {
           </Table>
         </CardContent>
       </Card>
+      </>
+      )}
 
+      {isSalesPoPage && (
+      <>
       <Card>
         <CardHeader>
           <CardTitle>PO Inbox (manual approval bắt buộc)</CardTitle>
@@ -512,7 +529,7 @@ export default function MiniCrm() {
         </CardContent>
       </Card>
 
-      {selectedPo && (
+      {isSalesPoPage && selectedPo && (
         <Card>
           <CardHeader>
             <CardTitle>PO Quick View: {poSummaryDraft.po_number || selectedPo.po_number || selectedPo.email_subject}</CardTitle>
@@ -624,6 +641,8 @@ export default function MiniCrm() {
             )}
           </CardContent>
         </Card>
+      )}
+      </>
       )}
     </div>
   );
