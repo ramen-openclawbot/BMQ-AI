@@ -16,6 +16,7 @@ import {
   useUncDetailAmount,
 } from "@/hooks/useFinanceReconciliation";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const vnd = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value || 0);
 
@@ -30,6 +31,8 @@ async function fileToBase64(file: File): Promise<string> {
 
 export default function FinanceControl() {
   const { toast } = useToast();
+  const { language } = useLanguage();
+  const isVi = language === "vi";
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date());
   const [saving, setSaving] = useState(false);
@@ -201,7 +204,7 @@ export default function FinanceControl() {
 
       toast({
         title: status === "match" ? "Reconciled: MATCH" : "Reconciled: MISMATCH",
-        description: `Variance: ${vnd(variance)}`,
+        description: `${isVi ? "Chênh lệch" : "Variance"}: ${vnd(variance)}`, 
         variant: status === "match" ? "default" : "destructive",
       });
 
@@ -216,21 +219,21 @@ export default function FinanceControl() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-display font-bold">Quản lý chi phí</h1>
-        <p className="text-muted-foreground">Daily & monthly reconciliation for UNC and cash fund top-up.</p>
+        <h1 className="text-3xl font-display font-bold">{isVi ? "Quản lý chi phí" : "Cost management"}</h1>
+        <p className="text-muted-foreground">{isVi ? "Đối soát hằng ngày và hằng tháng cho UNC và quỹ tiền mặt." : "Daily & monthly reconciliation for UNC and cash fund top-up."}</p>
       </div>
 
       <Tabs defaultValue="daily" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="daily">Daily Reconciliation</TabsTrigger>
-          <TabsTrigger value="monthly">Monthly Closing</TabsTrigger>
+          <TabsTrigger value="daily">{isVi ? "Đối soát ngày" : "Daily Reconciliation"}</TabsTrigger>
+          <TabsTrigger value="monthly">{isVi ? "Chốt tháng" : "Monthly Closing"}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="daily" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>CEO Slip Upload (Auto Extract)</CardTitle>
-              <CardDescription>Upload 1 or both slips (QTM / UNC). System auto scans amount right after upload and stores image in DB.</CardDescription>
+              <CardTitle>{isVi ? "Tải slip CEO (tự động trích xuất)" : "CEO Slip Upload (Auto Extract)"}</CardTitle>
+              <CardDescription>{isVi ? "Tải 1 hoặc cả 2 slip (QTM/UNC). Hệ thống tự quét số tiền ngay sau upload và lưu ảnh vào DB." : "Upload 1 or both slips (QTM / UNC). System auto scans amount right after upload and stores image in DB."}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
@@ -254,26 +257,26 @@ export default function FinanceControl() {
                 </div>
               </div>
 
-              {extracting && <div className="text-sm text-muted-foreground">Đang scan slip và cập nhật số tiền...</div>}
+              {extracting && <div className="text-sm text-muted-foreground">{isVi ? "Đang scan slip và cập nhật số tiền..." : "Scanning slips and updating amount..."}</div>}
               {(pendingQtmImageBase64 || pendingUncImageBase64) && (
-                <div className="text-sm text-amber-600">Có dữ liệu slip mới chưa lưu. Vui lòng bấm Save Declaration để lưu vào DB.</div>
+                <div className="text-sm text-amber-600">{isVi ? "Có dữ liệu slip mới chưa lưu. Vui lòng bấm Lưu khai báo để lưu vào DB." : "There are unsaved slip data. Please click Save Declaration to persist to DB."}</div>
               )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Daily Closing</CardTitle>
-              <CardDescription>Compare UNC detail (auto) vs CEO declared total</CardDescription>
+              <CardTitle>{isVi ? "Chốt ngày" : "Daily Closing"}</CardTitle>
+              <CardDescription>{isVi ? "So sánh UNC chi tiết (tự động) với tổng khai báo CEO" : "Compare UNC detail (auto) vs CEO declared total"}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
-                  <Label>Closing Date</Label>
+                  <Label>{isVi ? "Ngày chốt" : "Closing Date"}</Label>
                   <Input type="date" value={dateKey} onChange={(e) => setSelectedDate(new Date(e.target.value))} />
                 </div>
                 <div className="space-y-2">
-                  <Label>UNC Detail (Auto from slips)</Label>
+                  <Label>{isVi ? "UNC chi tiết (tự động từ slip)" : "UNC Detail (Auto from slips)"}</Label>
                   <Input value={vnd(Number(uncDetailAmount || 0))} readOnly />
                 </div>
                 <div className="space-y-2">
@@ -281,37 +284,37 @@ export default function FinanceControl() {
                   <div className="h-10 px-3 rounded-md border flex items-center">
                     {dailyReconciliation?.status === "match" && <Badge className="bg-green-600">MATCH</Badge>}
                     {dailyReconciliation?.status === "mismatch" && <Badge variant="destructive">MISMATCH</Badge>}
-                    {!dailyReconciliation?.status && <span className="text-muted-foreground">Pending</span>}
+                    {!dailyReconciliation?.status && <span className="text-muted-foreground">{isVi ? "Chờ" : "Pending"}</span>}
                   </div>
                 </div>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>CEO UNC Total Declared</Label>
+                  <Label>{isVi ? "Tổng UNC CEO khai báo" : "CEO UNC Total Declared"}</Label>
                   <Input value={vnd(Number(uncTotalDeclared || 0))} readOnly />
                 </div>
                 <div className="space-y-2">
-                  <Label>Cash Fund Top-up Amount</Label>
+                  <Label>{isVi ? "Số tiền bù quỹ tiền mặt" : "Cash Fund Top-up Amount"}</Label>
                   <Input value={vnd(Number(cashFundTopupAmount || 0))} readOnly />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label>Notes</Label>
-                <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional note" />
+                <Label>{isVi ? "Ghi chú" : "Notes"}</Label>
+                <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={isVi ? "Ghi chú (tuỳ chọn)" : "Optional note"} />
               </div>
 
               <div className="grid gap-4 md:grid-cols-3">
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">UNC Detail</div><div className="text-xl font-semibold">{vnd(Number(uncDetailAmount || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">UNC Declared</div><div className="text-xl font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Variance</div><div className="text-xl font-semibold">{vnd(Number((uncDetailAmount || 0) - (uncTotalDeclared || 0)))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "UNC chi tiết" : "UNC Detail"}</div><div className="text-xl font-semibold">{vnd(Number(uncDetailAmount || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "UNC khai báo" : "UNC Declared"}</div><div className="text-xl font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch" : "Variance"}</div><div className="text-xl font-semibold">{vnd(Number((uncDetailAmount || 0) - (uncTotalDeclared || 0)))}</div></CardContent></Card>
               </div>
 
               <div className="flex gap-2">
-                <Button onClick={saveDeclaration} disabled={saving}>{saving ? "Saving..." : "Save Declaration"}</Button>
+                <Button onClick={saveDeclaration} disabled={saving}>{saving ? (isVi ? "Đang lưu..." : "Saving...") : (isVi ? "Lưu khai báo" : "Save Declaration")}</Button>
                 <Button variant="outline" onClick={async () => { await refetchUncDetail(); await runReconcile(); }} disabled={reconciling}>
-                  {reconciling ? "Reconciling..." : "Run Reconcile"}
+                  {reconciling ? (isVi ? "Đang đối soát..." : "Reconciling...") : (isVi ? "Chạy đối soát" : "Run Reconcile")}
                 </Button>
               </div>
             </CardContent>
@@ -321,33 +324,33 @@ export default function FinanceControl() {
         <TabsContent value="monthly" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Monthly Closing</CardTitle>
-              <CardDescription>Aggregate daily reconciliation results</CardDescription>
+              <CardTitle>{isVi ? "Chốt tháng" : "Monthly Closing"}</CardTitle>
+              <CardDescription>{isVi ? "Tổng hợp kết quả đối soát theo ngày" : "Aggregate daily reconciliation results"}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-end gap-3">
                 <div className="space-y-2">
-                  <Label>Month</Label>
+                  <Label>{isVi ? "Tháng" : "Month"}</Label>
                   <Input type="month" value={format(selectedMonth, "yyyy-MM")} onChange={(e) => setSelectedMonth(new Date(`${e.target.value}-01`))} />
                 </div>
-                <Button variant="outline" onClick={() => refetchMonthly()}>Refresh</Button>
+                <Button variant="outline" onClick={() => refetchMonthly()}>{isVi ? "Làm mới" : "Refresh"}</Button>
               </div>
 
               <div className="grid gap-4 md:grid-cols-4">
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Total UNC Detail</div><div className="text-xl font-semibold">{vnd(Number(monthlySummary?.totalUncDetail || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Total UNC Declared</div><div className="text-xl font-semibold">{vnd(Number(monthlySummary?.totalUncDeclared || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Net Variance</div><div className="text-xl font-semibold">{vnd(Number(monthlySummary?.netVariance || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Match Rate</div><div className="text-xl font-semibold">{monthlySummary?.totalDays ? `${monthlySummary.matchDays}/${monthlySummary.totalDays}` : "0/0"}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Total {isVi ? "UNC chi tiết" : "UNC Detail"}</div><div className="text-xl font-semibold">{vnd(Number(monthlySummary?.totalUncDetail || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Total {isVi ? "UNC khai báo" : "UNC Declared"}</div><div className="text-xl font-semibold">{vnd(Number(monthlySummary?.totalUncDeclared || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch ròng" : "Net variance"}</div><div className="text-xl font-semibold">{vnd(Number(monthlySummary?.netVariance || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tỷ lệ khớp" : "Match Rate"}</div><div className="text-xl font-semibold">{monthlySummary?.totalDays ? `${monthlySummary.matchDays}/${monthlySummary.totalDays}` : "0/0"}</div></CardContent></Card>
               </div>
 
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead className="text-right">UNC Detail</TableHead>
-                    <TableHead className="text-right">UNC Declared</TableHead>
-                    <TableHead className="text-right">Variance</TableHead>
-                    <TableHead>Status</TableHead>
+                    <TableHead>{isVi ? "Ngày" : "Date"}</TableHead>
+                    <TableHead className="text-right">{isVi ? "UNC chi tiết" : "UNC Detail"}</TableHead>
+                    <TableHead className="text-right">{isVi ? "UNC khai báo" : "UNC Declared"}</TableHead>
+                    <TableHead className="text-right">{isVi ? "Chênh lệch" : "Variance"}</TableHead>
+                    <TableHead>{isVi ? "Trạng thái" : "Status"}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -364,7 +367,7 @@ export default function FinanceControl() {
               </Table>
 
               {!monthlySummary?.rows?.length && (
-                <div className="text-sm text-muted-foreground">No reconciliation data in this month ({format(startOfMonth(selectedMonth), "MM/yyyy")} - {format(endOfMonth(selectedMonth), "MM/yyyy")}).</div>
+                <div className="text-sm text-muted-foreground">{isVi ? "Không có dữ liệu đối soát trong tháng" : "No reconciliation data in this month"} ({format(startOfMonth(selectedMonth), "MM/yyyy")} - {format(endOfMonth(selectedMonth), "MM/yyyy")}).</div>
               )}
             </CardContent>
           </Card>

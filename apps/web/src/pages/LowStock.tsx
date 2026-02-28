@@ -3,15 +3,18 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useLowStockItems } from "@/hooks/useInventory";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const getUrgency = (stock: number, minStock: number) => {
   const ratio = stock / minStock;
-  if (ratio <= 0.3) return { label: "Critical", className: "border-destructive/50 text-destructive bg-destructive/10" };
-  if (ratio <= 0.6) return { label: "High", className: "border-warning/50 text-warning bg-warning/10" };
-  return { label: "Medium", className: "border-primary/50 text-primary bg-primary/10" };
+  if (ratio <= 0.3) return { label: "critical", className: "border-destructive/50 text-destructive bg-destructive/10" };
+  if (ratio <= 0.6) return { label: "high", className: "border-warning/50 text-warning bg-warning/10" };
+  return { label: "medium", className: "border-primary/50 text-primary bg-primary/10" };
 };
 
 const LowStock = () => {
+  const { language } = useLanguage();
+  const isVi = language === "vi";
   const { data: lowStockItems, isLoading } = useLowStockItems();
 
   if (isLoading) {
@@ -20,10 +23,10 @@ const LowStock = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-display font-bold text-foreground">
-              Low Stock Alerts
+              {isVi ? "Cảnh báo tồn kho thấp" : "Low Stock Alerts"}
             </h1>
             <p className="text-muted-foreground mt-1">
-              Items that need to be reordered
+              {isVi ? "Các mặt hàng cần đặt lại" : "Items that need to be reordered"}
             </p>
           </div>
         </div>
@@ -41,16 +44,16 @@ const LowStock = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-display font-bold text-foreground">
-            Low Stock Alerts
+            {isVi ? "Cảnh báo tồn kho thấp" : "Low Stock Alerts"}
           </h1>
           <p className="text-muted-foreground mt-1">
-            Items that need to be reordered
+            {isVi ? "Các mặt hàng cần đặt lại" : "Items that need to be reordered"}
           </p>
         </div>
         {lowStockItems && lowStockItems.length > 0 && (
           <button className="btn-gradient px-4 py-2 rounded-lg font-medium flex items-center gap-2">
             <ShoppingCart className="h-4 w-4" />
-            Order All
+            {isVi ? "Đặt mua tất cả" : "Order All"}
           </button>
         )}
       </div>
@@ -58,7 +61,7 @@ const LowStock = () => {
       {!lowStockItems?.length ? (
         <div className="card-elevated rounded-xl border border-border p-8 text-center">
           <p className="text-muted-foreground">
-            All items are well stocked! No low stock alerts.
+            {isVi ? "Tất cả hàng hóa đang đủ tồn kho! Không có cảnh báo tồn thấp." : "All items are well stocked! No low stock alerts."}
           </p>
         </div>
       ) : (
@@ -78,17 +81,17 @@ const LowStock = () => {
                     <div>
                       <p className="font-medium">{item.name}</p>
                       <p className="text-sm text-muted-foreground">
-                        {item.quantity} {item.unit} remaining · Min: {item.min_stock || 0} {item.unit}
+                        {item.quantity} {item.unit} {isVi ? "còn lại · Tối thiểu:" : "remaining · Min:"} {item.min_stock || 0} {item.unit}
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
                     <Badge variant="outline" className={urgency.className}>
-                      {urgency.label}
+                      {isVi ? (urgency.label === "critical" ? "Khẩn cấp" : urgency.label === "high" ? "Cao" : "Trung bình") : (urgency.label === "critical" ? "Critical" : urgency.label === "high" ? "High" : "Medium")}
                     </Badge>
                     <p className="text-sm text-muted-foreground">{item.category}</p>
                     <Button size="sm" className="btn-gradient">
-                      Reorder
+                      {isVi ? "Đặt mua" : "Reorder"}
                     </Button>
                   </div>
                 </div>

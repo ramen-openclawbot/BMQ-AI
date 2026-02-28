@@ -17,6 +17,7 @@ import { GoodsReceiptDetailsDialog } from "@/components/dialogs/GoodsReceiptDeta
 export default function GoodsReceipts() {
   const { language } = useLanguage();
   const locale = language === "vi" ? vi : enUS;
+  const isVi = language === "vi";
   
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(null);
@@ -50,9 +51,9 @@ export default function GoodsReceipts() {
       case "draft":
         return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" />Nháp</Badge>;
       case "confirmed":
-        return <Badge variant="default"><FileCheck className="h-3 w-3 mr-1" />Đã xác nhận</Badge>;
+        return <Badge variant="default"><FileCheck className="h-3 w-3 mr-1" />{isVi ? "Đã xác nhận" : "Confirmed"}</Badge>;
       case "received":
-        return <Badge className="bg-green-500"><CheckCircle className="h-3 w-3 mr-1" />Đã nhập kho</Badge>;
+        return <Badge className="bg-green-500"><CheckCircle className="h-3 w-3 mr-1" />{isVi ? "Đã nhập kho" : "Received"}</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -88,8 +89,8 @@ export default function GoodsReceipts() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-display font-bold text-foreground">Phiếu Nhập Kho</h1>
-          <p className="text-muted-foreground">Quản lý phiếu nhập kho nguyên vật liệu từ nhà cung cấp</p>
+          <h1 className="text-3xl font-display font-bold text-foreground">{isVi ? "Phiếu nhập kho" : "Goods Receipts"}</h1>
+          <p className="text-muted-foreground">{isVi ? "Quản lý phiếu nhập kho nguyên vật liệu từ nhà cung cấp" : "Manage goods receipts from suppliers"}</p>
         </div>
         <AddGoodsReceiptDialog />
       </div>
@@ -98,7 +99,7 @@ export default function GoodsReceipts() {
       <div className="grid grid-cols-4 gap-4">
         <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("all")}>
           <CardHeader className="pb-2">
-            <CardDescription>Tổng phiếu</CardDescription>
+            <CardDescription>{isVi ? "Tổng phiếu" : "Total receipts"}</CardDescription>
             <CardTitle className="text-2xl">{stats.total}</CardTitle>
           </CardHeader>
         </Card>
@@ -110,13 +111,13 @@ export default function GoodsReceipts() {
         </Card>
         <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("confirmed")}>
           <CardHeader className="pb-2">
-            <CardDescription>Đã xác nhận</CardDescription>
+            <CardDescription>{isVi ? "Đã xác nhận" : "Confirmed"}</CardDescription>
             <CardTitle className="text-2xl">{stats.confirmed}</CardTitle>
           </CardHeader>
         </Card>
         <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("received")}>
           <CardHeader className="pb-2">
-            <CardDescription>Đã nhập kho</CardDescription>
+            <CardDescription>{isVi ? "Đã nhập kho" : "Received"}</CardDescription>
             <CardTitle className="text-2xl text-green-600">{stats.received}</CardTitle>
           </CardHeader>
         </Card>
@@ -126,13 +127,13 @@ export default function GoodsReceipts() {
       <div className="flex items-center gap-4">
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-48">
-            <SelectValue placeholder="Trạng thái" />
+            <SelectValue placeholder={isVi ? "Trạng thái" : "Status"} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Tất cả</SelectItem>
-            <SelectItem value="draft">Nháp</SelectItem>
-            <SelectItem value="confirmed">Đã xác nhận</SelectItem>
-            <SelectItem value="received">Đã nhập kho</SelectItem>
+            <SelectItem value="all">{isVi ? "Tất cả" : "All"}</SelectItem>
+            <SelectItem value="draft">{isVi ? "Nháp" : "Draft"}</SelectItem>
+            <SelectItem value="confirmed">{isVi ? "Đã xác nhận" : "Confirmed"}</SelectItem>
+            <SelectItem value="received">{isVi ? "Đã nhập kho" : "Received"}</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -143,26 +144,26 @@ export default function GoodsReceipts() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Mã phiếu</TableHead>
-                <TableHead>Nhà cung cấp</TableHead>
-                <TableHead>Ngày nhận</TableHead>
-                <TableHead>Số lượng</TableHead>
-                <TableHead>Trạng thái</TableHead>
-                <TableHead>Thao tác</TableHead>
+                <TableHead>{isVi ? "Mã phiếu" : "Receipt #"}</TableHead>
+                <TableHead>{isVi ? "Nhà cung cấp" : "Supplier"}</TableHead>
+                <TableHead>{isVi ? "Ngày nhận" : "Receipt date"}</TableHead>
+                <TableHead>{isVi ? "Số lượng" : "Quantity"}</TableHead>
+                <TableHead>{isVi ? "Trạng thái" : "Status"}</TableHead>
+                <TableHead>{isVi ? "Thao tác" : "Actions"}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-8">
-                    Đang tải...
+                    {isVi ? "Đang tải..." : "Loading..."}
                   </TableCell>
                 </TableRow>
               ) : filteredReceipts.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-8">
                     <Package className="h-12 w-12 mx-auto text-muted-foreground mb-2" />
-                    <p className="text-muted-foreground">Chưa có phiếu nhập kho nào</p>
+                    <p className="text-muted-foreground">{isVi ? "Chưa có phiếu nhập kho nào" : "No goods receipts yet"}</p>
                   </TableCell>
                 </TableRow>
               ) : (
@@ -193,7 +194,7 @@ export default function GoodsReceipts() {
                             disabled={confirmReceipt.isPending}
                           >
                             <CheckCircle className="h-4 w-4 mr-1" />
-                            Nhập kho
+                            {isVi ? "Nhập kho" : "Receive"}
                           </Button>
                         )}
 
@@ -210,14 +211,14 @@ export default function GoodsReceipts() {
                             </AlertDialogTrigger>
                             <AlertDialogContent>
                               <AlertDialogHeader>
-                                <AlertDialogTitle>Xóa phiếu nhập kho?</AlertDialogTitle>
+                                <AlertDialogTitle>{isVi ? "Xóa phiếu nhập kho?" : "Delete goods receipt?"}</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  Bạn có chắc chắn muốn xóa phiếu nhập kho {receipt.receipt_number}? Hành động này không thể hoàn tác.
+                                  {isVi ? `Bạn có chắc chắn muốn xóa phiếu nhập kho ${receipt.receipt_number}? Hành động này không thể hoàn tác.` : `Are you sure you want to delete goods receipt ${receipt.receipt_number}? This action cannot be undone.`}
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
-                                <AlertDialogCancel>Hủy</AlertDialogCancel>
-                                <AlertDialogAction onClick={handleDelete}>Xóa</AlertDialogAction>
+                                <AlertDialogCancel>{isVi ? "Hủy" : "Cancel"}</AlertDialogCancel>
+                                <AlertDialogAction onClick={handleDelete}>{isVi ? "Xóa" : "Delete"}</AlertDialogAction>
                               </AlertDialogFooter>
                             </AlertDialogContent>
                           </AlertDialog>
