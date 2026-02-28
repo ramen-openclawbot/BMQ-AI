@@ -13,6 +13,7 @@ import {
   LucideIcon,
   PackageCheck,
   ShoppingCart,
+  Inbox,
   BarChart3,
   Landmark,
   Scale,
@@ -47,7 +48,7 @@ const navItems: NavItem[] = [
   { icon: Scale, labelKey: "financeCostManagement", path: "/finance-control/cost", section: "finance" },
   { icon: TrendingUp, labelKey: "financeRevenueManagement", path: "/finance-control/revenue", section: "finance" },
   { icon: UserRoundCog, labelKey: "crm", path: "/mini-crm", section: "finance" },
-  { icon: ShoppingCart, labelKey: "poSales", path: "/sales-po-inbox", section: "finance" },
+  { icon: Inbox, labelKey: "poSales", path: "/sales-po-inbox", section: "finance" },
   { icon: ShoppingCart, labelKey: "poPurchasing", path: "/purchase-orders", section: "finance", showPOBadge: true },
 
   { icon: Package, labelKey: "inventory", path: "/inventory", section: "operations" },
