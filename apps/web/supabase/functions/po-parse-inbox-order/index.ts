@@ -103,11 +103,12 @@ function mapKingfoodFlatRows(rows: any[][]) {
 
 function extractKingfoodTotals(rows: any[][]) {
   const candidate = rows.find((r) => /^SP\d+/i.test(String(r?.[14] || "").trim()));
-  if (!candidate) return { subtotal: 0, vat: 0, total: 0 };
+  if (!candidate) return { subtotal: 0, vat: 0, total: 0, vatRate: 0 };
   const subtotal = toNum(candidate?.[33] ?? 0);
   const vat = toNum(candidate?.[34] ?? 0);
   const total = toNum(candidate?.[35] ?? 0);
-  return { subtotal, vat, total };
+  const vatRate = toNum(candidate?.[29] ?? 0);
+  return { subtotal, vat, total, vatRate };
 }
 
 serve(async (req) => {
@@ -173,6 +174,7 @@ serve(async (req) => {
     let chosenSheet: string | null = null;
     let extractedVat = 0;
     let extractedTotal = 0;
+    let extractedVatRate = 0;
     if (xlsxFile) {
       const attachment = await gmailApi(accessToken, `messages/${inbox.gmail_message_id}/attachments/${xlsxFile.attachmentId}`);
       const bytes = decodeBase64UrlToBytes(String(attachment?.data || ""));
@@ -192,12 +194,13 @@ serve(async (req) => {
           chosenSheet = sheetName;
           extractedVat = totalsFlat.vat || 0;
           extractedTotal = totalsFlat.total || 0;
+          extractedVatRate = totalsFlat.vatRate || 0;
         }
       }
     }
 
     const subtotal = items.reduce((s, i) => s + Number(i.line_total || 0), 0);
-    const vatAmount = extractedVat || 0;
+    const vatAmount = extractedVat || (extractedVatRate > 0 ? Math.round(subtotal * (extractedVatRate / 100)) : 0);
     const totalAmount = extractedTotal || subtotal + vatAmount;
     const parseMeta = {
       parsed_at: new Date().toISOString(),
