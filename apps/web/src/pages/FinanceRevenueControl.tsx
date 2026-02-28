@@ -54,7 +54,8 @@ export default function FinanceRevenueControl() {
 
   const postedRowsByDate = useMemo(() => {
     return postedPoRows.filter((r: any) => {
-      const d = dateOnly(r.delivery_date) || dateOnly(r.posted_to_revenue_at);
+      // Ưu tiên ngày đẩy doanh thu để user thấy ngay sau khi bấm nút
+      const d = dateOnly(r.posted_to_revenue_at) || dateOnly(r.delivery_date);
       return d === selectedDate;
     });
   }, [postedPoRows, selectedDate]);

@@ -278,6 +278,9 @@ export default function MiniCrm() {
   });
 
   const postRevenueMutation = useMutation({
+    onMutate: () => {
+      toast({ title: "Đang đẩy sang kiểm soát doanh thu..." });
+    },
     mutationFn: async (id: string) => {
       const { data, error } = await (supabase as any)
         .from("customer_po_inbox")
@@ -290,8 +293,9 @@ export default function MiniCrm() {
     },
     onSuccess: async (row: any) => {
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
+      await queryClient.invalidateQueries({ queryKey: ["finance-posted-po"] });
       toast({
-        title: "Đã đẩy sang kiểm soát doanh thu",
+        title: "✅ Đã đẩy sang kiểm soát doanh thu",
         description: `${row?.po_number || row?.id} • ${Number(row?.total_amount || 0).toLocaleString("vi-VN")} ₫ • ${row?.revenue_channel || "(chưa có kênh)"}`,
       });
     },
