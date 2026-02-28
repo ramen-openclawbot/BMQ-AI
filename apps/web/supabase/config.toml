@@ -31,3 +31,6 @@ verify_jwt = false
 
 [functions.finance-extract-slip-amount]
 verify_jwt = false
+
+[functions.google-gmail-auth]
+verify_jwt = false
