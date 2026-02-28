@@ -82,38 +82,39 @@ export default function FinanceControl() {
     return { imageBase64, extracted: result.data as { amount: number; confidence?: number; transfer_date?: string; reference?: string } };
   };
 
-  const handleExtractFromSlips = async () => {
-    if (!qtmSlipFile || !uncSlipFile) {
-      toast({ title: "Thiếu slip", description: "Vui lòng upload đủ 2 slip QTM và UNC", variant: "destructive" });
-      return;
-    }
-
+  const processSlipUpload = async (slipType: "qtm" | "unc", file: File) => {
     setExtracting(true);
     try {
-      const [qtm, unc] = await Promise.all([
-        extractSlipAmount(qtmSlipFile, "qtm"),
-        extractSlipAmount(uncSlipFile, "unc"),
-      ]);
+      const result = await extractSlipAmount(file, slipType);
 
-      setCashFundTopupAmount(Number(qtm.extracted.amount || 0));
-      setUncTotalDeclared(Number(unc.extracted.amount || 0));
-      setQtmSlipPreview(`data:${qtmSlipFile.type || "image/jpeg"};base64,${qtm.imageBase64}`);
-      setUncSlipPreview(`data:${uncSlipFile.type || "image/jpeg"};base64,${unc.imageBase64}`);
-
-      const payload = {
+      const existingMeta = (dailyDeclaration?.extraction_meta || {}) as Record<string, any>;
+      const payload: Record<string, any> = {
         closing_date: dateKey,
-        unc_total_declared: Number(unc.extracted.amount || 0),
-        cash_fund_topup_amount: Number(qtm.extracted.amount || 0),
-        qtm_extracted_amount: Number(qtm.extracted.amount || 0),
-        unc_extracted_amount: Number(unc.extracted.amount || 0),
-        qtm_slip_image_base64: qtm.imageBase64,
-        unc_slip_image_base64: unc.imageBase64,
-        extraction_meta: {
-          qtm: qtm.extracted,
-          unc: unc.extracted,
-        },
         notes: notes || null,
+        unc_total_declared: Number(uncTotalDeclared || 0),
+        cash_fund_topup_amount: Number(cashFundTopupAmount || 0),
+        qtm_extracted_amount: Number(dailyDeclaration?.qtm_extracted_amount || 0),
+        unc_extracted_amount: Number(dailyDeclaration?.unc_extracted_amount || 0),
+        qtm_slip_image_base64: dailyDeclaration?.qtm_slip_image_base64 || null,
+        unc_slip_image_base64: dailyDeclaration?.unc_slip_image_base64 || null,
+        extraction_meta: { ...existingMeta },
       };
+
+      if (slipType === "qtm") {
+        setCashFundTopupAmount(Number(result.extracted.amount || 0));
+        setQtmSlipPreview(`data:${file.type || "image/jpeg"};base64,${result.imageBase64}`);
+        payload.cash_fund_topup_amount = Number(result.extracted.amount || 0);
+        payload.qtm_extracted_amount = Number(result.extracted.amount || 0);
+        payload.qtm_slip_image_base64 = result.imageBase64;
+        payload.extraction_meta.qtm = result.extracted;
+      } else {
+        setUncTotalDeclared(Number(result.extracted.amount || 0));
+        setUncSlipPreview(`data:${file.type || "image/jpeg"};base64,${result.imageBase64}`);
+        payload.unc_total_declared = Number(result.extracted.amount || 0);
+        payload.unc_extracted_amount = Number(result.extracted.amount || 0);
+        payload.unc_slip_image_base64 = result.imageBase64;
+        payload.extraction_meta.unc = result.extracted;
+      }
 
       const { error } = await (supabase as any)
         .from("ceo_daily_closing_declarations")
@@ -121,7 +122,12 @@ export default function FinanceControl() {
 
       if (error) throw error;
       await refetchDeclaration();
-      toast({ title: "Đã trích xuất tự động", description: "Hệ thống đã đọc số tiền từ 2 slip và lưu ảnh vào DB." });
+      toast({
+        title: "Đã scan slip",
+        description: slipType === "qtm"
+          ? `QTM: ${vnd(Number(result.extracted.amount || 0))}`
+          : `UNC: ${vnd(Number(result.extracted.amount || 0))}`,
+      });
     } catch (e: any) {
       toast({ title: "Lỗi OCR slip", description: e?.message || "Không thể trích xuất số tiền", variant: "destructive" });
     } finally {
@@ -210,25 +216,31 @@ export default function FinanceControl() {
           <Card>
             <CardHeader>
               <CardTitle>CEO Slip Upload (Auto Extract)</CardTitle>
-              <CardDescription>Upload 2 slips: (1) QTM top-up and (2) UNC total. System auto reads amount and stores image in DB.</CardDescription>
+              <CardDescription>Upload 1 or both slips (QTM / UNC). System auto scans amount right after upload and stores image in DB.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>QTM Slip</Label>
-                  <Input type="file" accept="image/*" onChange={(e) => setQtmSlipFile(e.target.files?.[0] || null)} />
+                  <Input type="file" accept="image/*" onChange={async (e) => {
+                    const f = e.target.files?.[0] || null;
+                    setQtmSlipFile(f);
+                    if (f) await processSlipUpload("qtm", f);
+                  }} />
                   {qtmSlipPreview && <img src={qtmSlipPreview} alt="QTM slip" className="max-h-40 rounded border" />}
                 </div>
                 <div className="space-y-2">
                   <Label>UNC Slip</Label>
-                  <Input type="file" accept="image/*" onChange={(e) => setUncSlipFile(e.target.files?.[0] || null)} />
+                  <Input type="file" accept="image/*" onChange={async (e) => {
+                    const f = e.target.files?.[0] || null;
+                    setUncSlipFile(f);
+                    if (f) await processSlipUpload("unc", f);
+                  }} />
                   {uncSlipPreview && <img src={uncSlipPreview} alt="UNC slip" className="max-h-40 rounded border" />}
                 </div>
               </div>
 
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={handleExtractFromSlips} disabled={extracting}>{extracting ? "Extracting..." : "Extract Amount from 2 Slips"}</Button>
-              </div>
+              {extracting && <div className="text-sm text-muted-foreground">Đang scan slip và cập nhật số tiền...</div>}
             </CardContent>
           </Card>
 
