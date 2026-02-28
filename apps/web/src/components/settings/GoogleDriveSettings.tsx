@@ -16,10 +16,13 @@ export function GoogleDriveSettings() {
   const [poFolderUrl, setPoFolderUrl] = useState("");
   const [receiptsFolderUrl, setReceiptsFolderUrl] = useState("");
   const [connectedEmail, setConnectedEmail] = useState<string | null>(null);
+  const [gmailConnectedEmail, setGmailConnectedEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [gmailConnecting, setGmailConnecting] = useState(false);
+  const [gmailDisconnecting, setGmailDisconnecting] = useState(false);
   const [testingPo, setTestingPo] = useState(false);
   const [testingReceipts, setTestingReceipts] = useState(false);
   const [poFolderSaved, setPoFolderSaved] = useState(false);
@@ -31,12 +34,13 @@ export function GoogleDriveSettings() {
         const { data } = await supabase
           .from("app_settings")
           .select("key, value")
-          .in("key", ["google_drive_po_folder", "google_drive_receipts_folder", "google_drive_connected_email"]);
+          .in("key", ["google_drive_po_folder", "google_drive_receipts_folder", "google_drive_connected_email", "google_gmail_connected_email"]);
 
         if (data) {
           const poFolder = data.find(d => d.key === "google_drive_po_folder");
           const receiptsFolder = data.find(d => d.key === "google_drive_receipts_folder");
           const emailSetting = data.find(d => d.key === "google_drive_connected_email");
+          const gmailEmailSetting = data.find(d => d.key === "google_gmail_connected_email");
           
           if (poFolder?.value) {
             setPoFolderUrl(poFolder.value);
@@ -48,6 +52,9 @@ export function GoogleDriveSettings() {
           }
           if (emailSetting?.value) {
             setConnectedEmail(emailSetting.value);
+          }
+          if (gmailEmailSetting?.value) {
+            setGmailConnectedEmail(gmailEmailSetting.value);
           }
         }
       } catch (error) {
@@ -64,6 +71,9 @@ export function GoogleDriveSettings() {
     const driveSuccess = urlParams.get('drive_success');
     const driveError = urlParams.get('drive_error');
     const driveEmail = urlParams.get('drive_email');
+    const gmailSuccess = urlParams.get('gmail_success');
+    const gmailError = urlParams.get('gmail_error');
+    const gmailEmail = urlParams.get('gmail_email');
 
     if (driveSuccess === 'true') {
       toast.success("Kết nối Google Drive thành công!", {
@@ -79,6 +89,17 @@ export function GoogleDriveSettings() {
         description: driveError
       });
       // Clean up URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (gmailSuccess === 'true') {
+      toast.success("Kết nối Gmail PO thành công!", {
+        description: gmailEmail ? `Đã kết nối với ${gmailEmail}` : undefined
+      });
+      if (gmailEmail) setGmailConnectedEmail(gmailEmail);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (gmailError) {
+      toast.error("Kết nối Gmail PO thất bại", {
+        description: gmailError
+      });
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
@@ -156,6 +177,44 @@ export function GoogleDriveSettings() {
       });
     } finally {
       setDisconnecting(false);
+    }
+  };
+
+  const handleConnectGmail = async () => {
+    setGmailConnecting(true);
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/google-gmail-auth`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ redirect: window.location.origin }),
+        }
+      );
+      const result = await response.json();
+      if (result.authUrl) {
+        window.location.href = result.authUrl;
+      } else if (result.error) {
+        toast.error("Không thể kết nối Gmail", { description: result.error });
+      }
+    } catch (error: any) {
+      toast.error("Lỗi kết nối Gmail", { description: error.message || "Không thể bắt đầu quá trình kết nối" });
+    } finally {
+      setGmailConnecting(false);
+    }
+  };
+
+  const handleDisconnectGmail = async () => {
+    setGmailDisconnecting(true);
+    try {
+      await supabase.from("app_settings").delete().eq("key", "google_gmail_refresh_token");
+      await supabase.from("app_settings").delete().eq("key", "google_gmail_connected_email");
+      setGmailConnectedEmail(null);
+      toast.success("Đã ngắt kết nối Gmail PO");
+    } catch (error: any) {
+      toast.error("Không thể ngắt Gmail", { description: error.message });
+    } finally {
+      setGmailDisconnecting(false);
     }
   };
 
@@ -349,6 +408,7 @@ export function GoogleDriveSettings() {
         <p className="font-medium text-foreground mb-2">Hướng dẫn:</p>
         <ol className="list-decimal ml-4 space-y-1">
           <li>Kết nối Google account cho Drive (bấm nút bên dưới)</li>
+          <li>Kết nối Gmail PO account riêng (nếu mailbox PO dùng tài khoản khác)</li>
           <li>Tạo 2 folder trên Google Drive: 1 cho PO, 1 cho Bank Receipts</li>
           <li>Copy link folder và dán vào ô bên dưới</li>
           <li>Trong mỗi folder, tạo subfolder theo ngày (YYMMDD, VD: 260124)</li>
@@ -409,6 +469,61 @@ export function GoogleDriveSettings() {
                   <Link2 className="h-4 w-4 mr-1" />
                 )}
                 Kết nối Google Drive
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* Gmail PO Account Connection */}
+        <div className="p-4 border border-border rounded-lg bg-card">
+          <Label className="flex items-center gap-2 mb-3">
+            <Link2 className="h-4 w-4" />
+            Kết nối Gmail PO Account
+          </Label>
+
+          {gmailConnectedEmail ? (
+            <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <Check className="h-5 w-5 text-primary" />
+                  <span className="text-sm">
+                    Đã kết nối Gmail PO: <strong>{gmailConnectedEmail}</strong>
+                  </span>
+                </div>
+                <span className="text-xs text-muted-foreground">Tài khoản này dùng để đọc mailbox PO (có thể khác tài khoản Drive).</span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDisconnectGmail}
+                disabled={gmailDisconnecting}
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+              >
+                {gmailDisconnecting ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                ) : (
+                  <Unlink className="h-4 w-4 mr-1" />
+                )}
+                Ngắt Gmail PO
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground flex items-center gap-2">
+                <X className="h-4 w-4 text-destructive" />
+                Chưa kết nối Gmail PO
+              </span>
+              <Button
+                onClick={handleConnectGmail}
+                disabled={gmailConnecting}
+                size="sm"
+              >
+                {gmailConnecting ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                ) : (
+                  <Link2 className="h-4 w-4 mr-1" />
+                )}
+                Kết nối Gmail PO
               </Button>
             </div>
           )}

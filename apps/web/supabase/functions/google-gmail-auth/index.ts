@@ -26,10 +26,10 @@ serve(async (req) => {
       if (stateData.redirect) redirectBase = stateData.redirect;
     } catch (_) {}
   }
-  const miniCrmUrl = `${redirectBase}/mini-crm`;
+  const settingsUrl = `${redirectBase}/settings`;
 
   if (error) {
-    return Response.redirect(`${miniCrmUrl}?gmail_error=${encodeURIComponent(error)}`, 302);
+    return Response.redirect(`${settingsUrl}?gmail_error=${encodeURIComponent(error)}`, 302);
   }
 
   if (!code) {
@@ -67,7 +67,7 @@ serve(async (req) => {
   }
 
   if (!clientId || !clientSecret) {
-    return Response.redirect(`${miniCrmUrl}?gmail_error=${encodeURIComponent("OAuth credentials not configured")}`, 302);
+    return Response.redirect(`${settingsUrl}?gmail_error=${encodeURIComponent("OAuth credentials not configured")}`, 302);
   }
 
   try {
@@ -86,12 +86,12 @@ serve(async (req) => {
 
     if (!tokenResponse.ok) {
       const errorData = await tokenResponse.text();
-      return Response.redirect(`${miniCrmUrl}?gmail_error=${encodeURIComponent(errorData)}`, 302);
+      return Response.redirect(`${settingsUrl}?gmail_error=${encodeURIComponent(errorData)}`, 302);
     }
 
     const tokens = await tokenResponse.json();
     if (!tokens.refresh_token) {
-      return Response.redirect(`${miniCrmUrl}?gmail_error=${encodeURIComponent("No refresh token from Google")}`, 302);
+      return Response.redirect(`${settingsUrl}?gmail_error=${encodeURIComponent("No refresh token from Google")}`, 302);
     }
 
     const userInfoResponse = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
@@ -115,8 +115,8 @@ serve(async (req) => {
       { onConflict: "key" }
     );
 
-    return Response.redirect(`${miniCrmUrl}?gmail_success=true&gmail_email=${encodeURIComponent(userEmail)}`, 302);
+    return Response.redirect(`${settingsUrl}?gmail_success=true&gmail_email=${encodeURIComponent(userEmail)}`, 302);
   } catch (e: any) {
-    return Response.redirect(`${miniCrmUrl}?gmail_error=${encodeURIComponent(e?.message || "Unknown error")}`, 302);
+    return Response.redirect(`${settingsUrl}?gmail_error=${encodeURIComponent(e?.message || "Unknown error")}`, 302);
   }
 });
