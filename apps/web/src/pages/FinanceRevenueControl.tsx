@@ -50,23 +50,28 @@ export default function FinanceRevenueControl() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("customer_po_inbox")
-        .select("id,po_number,email_subject,revenue_channel,total_amount,subtotal_amount,vat_amount,delivery_date,posted_to_revenue,posted_to_revenue_at,received_at,raw_payload")
-        .eq("posted_to_revenue", true)
-        .order("posted_to_revenue_at", { ascending: false })
+        .select("id,po_number,email_subject,revenue_channel,total_amount,subtotal_amount,vat_amount,delivery_date,received_at,raw_payload")
+        .order("received_at", { ascending: false })
         .limit(500);
       if (error) throw error;
       return data || [];
     },
   });
 
+  const postedRows = useMemo(
+    () => postedPoRows.filter((r: any) => Boolean(r?.raw_payload?.revenue_post?.posted)),
+    [postedPoRows]
+  );
+
   const postedRowsByDate = useMemo(() => {
-    return postedPoRows.filter((r: any) => {
+    return postedRows.filter((r: any) => {
       // Rule: ghi nhận doanh thu theo ngày đặt PO
       const poOrderDate = dateOnly(r?.raw_payload?.parse_meta?.po_order_date) || dateOnly(r?.received_at);
-      const d = poOrderDate || dateOnly(r.posted_to_revenue_at) || dateOnly(r.delivery_date);
+      const postedDate = dateOnly(r?.raw_payload?.revenue_post?.posted_at);
+      const d = poOrderDate || postedDate || dateOnly(r.delivery_date);
       return d === selectedDate;
     });
-  }, [postedPoRows, selectedDate]);
+  }, [postedRows, selectedDate]);
 
   const autoData = useMemo(() => {
     const out: RevenueState = {};
@@ -126,7 +131,7 @@ export default function FinanceRevenueControl() {
         </CardHeader>
         <CardContent>
           <div className="text-sm text-muted-foreground mb-1">Số PO trong ngày: {postedRowsByDate.length}</div>
-          <div className="text-xs text-muted-foreground mb-3">Tổng PO đã đẩy (mọi ngày): {postedPoRows.length}</div>
+          <div className="text-xs text-muted-foreground mb-3">Tổng PO đã đẩy (mọi ngày): {postedRows.length}</div>
           <Table>
             <TableHeader>
               <TableRow>

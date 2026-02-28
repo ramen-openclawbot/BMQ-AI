@@ -286,15 +286,34 @@ export default function MiniCrm() {
     },
     mutationFn: async (id: string) => {
       const nowIso = new Date().toISOString();
+      const { data: row, error: rowErr } = await (supabase as any)
+        .from("customer_po_inbox")
+        .select("id,po_number,total_amount,revenue_channel,raw_payload")
+        .eq("id", id)
+        .single();
+      if (rowErr || !row) throw rowErr || new Error("Không tìm thấy PO để đẩy doanh thu");
+
+      const nextRawPayload = {
+        ...(row.raw_payload || {}),
+        revenue_post: {
+          posted: true,
+          posted_at: nowIso,
+          posted_by: "mini-crm-ui",
+        },
+      };
+
       const { data, error } = await (supabase as any)
         .from("customer_po_inbox")
-        .update({ posted_to_revenue: true, posted_to_revenue_at: nowIso, match_status: "approved" })
+        .update({ raw_payload: nextRawPayload, match_status: "approved" })
         .eq("id", id)
-        .select("id,po_number,total_amount,revenue_channel,posted_to_revenue,posted_to_revenue_at")
+        .select("id,po_number,total_amount,revenue_channel,raw_payload")
         .single();
       if (error) throw error;
-      if (!data?.posted_to_revenue) throw new Error("Cập nhật cờ posted_to_revenue không thành công");
-      return data;
+      if (!data?.raw_payload?.revenue_post?.posted) throw new Error("Đẩy doanh thu chưa được ghi nhận trong raw_payload.revenue_post");
+      return {
+        ...data,
+        posted_to_revenue_at: data?.raw_payload?.revenue_post?.posted_at || nowIso,
+      };
     },
     onSuccess: async (row: any) => {
       setPostRevenueStatus(`✅ Đã đẩy thành công PO ${row?.po_number || row?.id} lúc ${new Date(row?.posted_to_revenue_at || Date.now()).toLocaleString("vi-VN")}`);
@@ -548,7 +567,7 @@ export default function MiniCrm() {
               </Button>
               <Button onClick={() => savePoSummaryMutation.mutate()} disabled={savePoSummaryMutation.isPending}>Lưu tóm tắt PO</Button>
               <Button variant="outline" onClick={() => postRevenueMutation.mutate(selectedPo.id)} disabled={postRevenueMutation.isPending}>
-                {postRevenueMutation.isPending ? "Đang đẩy..." : (selectedPo.posted_to_revenue ? "Đẩy lại sang kiểm soát doanh thu" : "Đẩy sang kiểm soát doanh thu")}
+                {postRevenueMutation.isPending ? "Đang đẩy..." : "Đẩy sang kiểm soát doanh thu"
               </Button>
             </div>
             {postRevenueStatus && (
