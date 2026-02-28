@@ -1,0 +1,264 @@
+import { useEffect, useState } from "react";
+import { format, startOfMonth, endOfMonth } from "date-fns";
+import { vi } from "date-fns/locale";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import {
+  useDailyDeclaration,
+  useDailyReconciliation,
+  useMonthlyReconciliation,
+  useUncDetailAmount,
+} from "@/hooks/useFinanceReconciliation";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+
+const vnd = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value || 0);
+
+export default function FinanceControl() {
+  const { toast } = useToast();
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedMonth, setSelectedMonth] = useState<Date>(new Date());
+  const [saving, setSaving] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
+
+  const { data: dailyDeclaration, refetch: refetchDeclaration } = useDailyDeclaration(selectedDate);
+  const { data: uncDetailAmount, refetch: refetchUncDetail } = useUncDetailAmount(selectedDate);
+  const { data: dailyReconciliation, refetch: refetchDailyReconciliation } = useDailyReconciliation(selectedDate);
+  const { data: monthlySummary, refetch: refetchMonthly } = useMonthlyReconciliation(selectedMonth);
+
+  const [uncTotalDeclared, setUncTotalDeclared] = useState<number>(0);
+  const [cashFundTopupAmount, setCashFundTopupAmount] = useState<number>(0);
+  const [topupSlipFileUrl, setTopupSlipFileUrl] = useState("");
+  const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    setUncTotalDeclared(Number(dailyDeclaration?.unc_total_declared || 0));
+    setCashFundTopupAmount(Number(dailyDeclaration?.cash_fund_topup_amount || 0));
+    setTopupSlipFileUrl(String(dailyDeclaration?.topup_slip_file_url || ""));
+    setNotes(String(dailyDeclaration?.notes || ""));
+  }, [dailyDeclaration]);
+
+  const dateKey = format(selectedDate, "yyyy-MM-dd");
+
+  const saveDeclaration = async () => {
+    setSaving(true);
+    try {
+      const payload = {
+        closing_date: dateKey,
+        unc_total_declared: Number(uncTotalDeclared || 0),
+        cash_fund_topup_amount: Number(cashFundTopupAmount || 0),
+        topup_slip_file_url: topupSlipFileUrl || null,
+        notes: notes || null,
+      };
+
+      const { error } = await (supabase as any)
+        .from("ceo_daily_closing_declarations")
+        .upsert(payload, { onConflict: "closing_date" });
+
+      if (error) throw error;
+
+      toast({ title: "Saved", description: "CEO daily declaration has been updated." });
+      await refetchDeclaration();
+    } catch (e: any) {
+      toast({ title: "Error", description: e?.message || "Failed to save declaration", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const runReconcile = async () => {
+    setReconciling(true);
+    try {
+      const uncDetail = Number(uncDetailAmount || 0);
+      const uncDeclared = Number(uncTotalDeclared || 0);
+      const topup = Number(cashFundTopupAmount || 0);
+      const tolerance = 0;
+      const variance = uncDetail - uncDeclared;
+      const status = Math.abs(variance) <= tolerance ? "match" : "mismatch";
+
+      const { error } = await (supabase as any)
+        .from("daily_reconciliations")
+        .upsert({
+          closing_date: dateKey,
+          unc_detail_amount: uncDetail,
+          unc_declared_amount: uncDeclared,
+          cash_fund_topup_amount: topup,
+          variance_amount: variance,
+          status,
+          tolerance_amount: tolerance,
+          matched_at: new Date().toISOString(),
+          notes: notes || null,
+        }, { onConflict: "closing_date" });
+
+      if (error) throw error;
+
+      toast({
+        title: status === "match" ? "Reconciled: MATCH" : "Reconciled: MISMATCH",
+        description: `Variance: ${vnd(variance)}`,
+        variant: status === "match" ? "default" : "destructive",
+      });
+
+      await Promise.all([refetchDailyReconciliation(), refetchMonthly()]);
+    } catch (e: any) {
+      toast({ title: "Error", description: e?.message || "Reconciliation failed", variant: "destructive" });
+    } finally {
+      setReconciling(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-display font-bold">Finance Control</h1>
+        <p className="text-muted-foreground">Daily & monthly reconciliation for UNC and cash fund top-up.</p>
+      </div>
+
+      <Tabs defaultValue="daily" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="daily">Daily Reconciliation</TabsTrigger>
+          <TabsTrigger value="monthly">Monthly Closing</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="daily" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Daily Closing</CardTitle>
+              <CardDescription>Compare UNC detail (auto) vs CEO declared total</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>Closing Date</Label>
+                  <Input type="date" value={dateKey} onChange={(e) => setSelectedDate(new Date(e.target.value))} />
+                </div>
+                <div className="space-y-2">
+                  <Label>UNC Detail (Auto from slips)</Label>
+                  <Input value={vnd(Number(uncDetailAmount || 0))} readOnly />
+                </div>
+                <div className="space-y-2">
+                  <Label>Status</Label>
+                  <div className="h-10 px-3 rounded-md border flex items-center">
+                    {dailyReconciliation?.status === "match" && <Badge className="bg-green-600">MATCH</Badge>}
+                    {dailyReconciliation?.status === "mismatch" && <Badge variant="destructive">MISMATCH</Badge>}
+                    {!dailyReconciliation?.status && <span className="text-muted-foreground">Pending</span>}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>CEO UNC Total Declared (VND)</Label>
+                  <Input type="number" value={uncTotalDeclared} onChange={(e) => setUncTotalDeclared(Number(e.target.value || 0))} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Cash Fund Top-up Amount (VND)</Label>
+                  <Input type="number" value={cashFundTopupAmount} onChange={(e) => setCashFundTopupAmount(Number(e.target.value || 0))} />
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Top-up Slip URL (optional)</Label>
+                  <Input value={topupSlipFileUrl} onChange={(e) => setTopupSlipFileUrl(e.target.value)} placeholder="https://..." />
+                </div>
+                <div className="space-y-2">
+                  <Label>Notes</Label>
+                  <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional note" />
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="text-xs text-muted-foreground">UNC Detail</div>
+                    <div className="text-xl font-semibold">{vnd(Number(uncDetailAmount || 0))}</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="text-xs text-muted-foreground">UNC Declared</div>
+                    <div className="text-xl font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="text-xs text-muted-foreground">Variance</div>
+                    <div className="text-xl font-semibold">{vnd(Number((uncDetailAmount || 0) - (uncTotalDeclared || 0)))}</div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="flex gap-2">
+                <Button onClick={saveDeclaration} disabled={saving}>{saving ? "Saving..." : "Save Declaration"}</Button>
+                <Button variant="outline" onClick={async () => { await refetchUncDetail(); await runReconcile(); }} disabled={reconciling}>
+                  {reconciling ? "Reconciling..." : "Run Reconcile"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="monthly" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Monthly Closing</CardTitle>
+              <CardDescription>Aggregate daily reconciliation results</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-end gap-3">
+                <div className="space-y-2">
+                  <Label>Month</Label>
+                  <Input
+                    type="month"
+                    value={format(selectedMonth, "yyyy-MM")}
+                    onChange={(e) => setSelectedMonth(new Date(`${e.target.value}-01`))}
+                  />
+                </div>
+                <Button variant="outline" onClick={() => refetchMonthly()}>Refresh</Button>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-4">
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Total UNC Detail</div><div className="text-xl font-semibold">{vnd(Number(monthlySummary?.totalUncDetail || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Total UNC Declared</div><div className="text-xl font-semibold">{vnd(Number(monthlySummary?.totalUncDeclared || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Net Variance</div><div className="text-xl font-semibold">{vnd(Number(monthlySummary?.netVariance || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Match Rate</div><div className="text-xl font-semibold">{monthlySummary?.totalDays ? `${monthlySummary.matchDays}/${monthlySummary.totalDays}` : "0/0"}</div></CardContent></Card>
+              </div>
+
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead className="text-right">UNC Detail</TableHead>
+                    <TableHead className="text-right">UNC Declared</TableHead>
+                    <TableHead className="text-right">Variance</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {monthlySummary?.rows?.map((r: any) => (
+                    <TableRow key={r.id}>
+                      <TableCell>{format(new Date(r.closing_date), "dd/MM/yyyy", { locale: vi })}</TableCell>
+                      <TableCell className="text-right">{vnd(Number(r.unc_detail_amount || 0))}</TableCell>
+                      <TableCell className="text-right">{vnd(Number(r.unc_declared_amount || 0))}</TableCell>
+                      <TableCell className="text-right">{vnd(Number(r.variance_amount || 0))}</TableCell>
+                      <TableCell>{r.status === "match" ? <Badge className="bg-green-600">MATCH</Badge> : r.status === "mismatch" ? <Badge variant="destructive">MISMATCH</Badge> : <Badge variant="secondary">PENDING</Badge>}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              {!monthlySummary?.rows?.length && (
+                <div className="text-sm text-muted-foreground">No reconciliation data in this month ({format(startOfMonth(selectedMonth), "MM/yyyy")} - {format(endOfMonth(selectedMonth), "MM/yyyy")}).</div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}

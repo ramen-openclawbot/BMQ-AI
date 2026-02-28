@@ -31,6 +31,7 @@
 - `apps/web/supabase/migrations/20260223203000_supplier_aliases.sql`
 - `apps/web/supabase/migrations/20260223173000_sku_type_and_goods_receipt_guardrails.sql`
 - `apps/web/supabase/migrations/20260223193000_supplier_scan_templates.sql`
+- `apps/web/supabase/migrations/20260227093000_finance_reconciliation.sql`
 
 ## Confirmed by user
 - User đồng ý release luôn sau khi chạy SQL migration.
@@ -71,11 +72,44 @@
 - Nếu đã có shortcut cũ, cập nhật lại bằng symlink mới nhất (`ln -sfn`).
 
 
-## Latest update (2026-02-26)
+## Latest update (2026-02-27)
 - Đã rollback OCR về default OpenAI-only (gỡ hoàn toàn flow Ollama hybrid).
 - Đã triển khai trang **Niraan Dashboard** cho investor:
   - route mới `/niraan-dashboard`, menu mới ở sidebar,
   - UI tiếng Anh, layout đơn giản/chuyên nghiệp,
   - quy đổi số liệu từ VND sang USD bằng realtime FX (API + cache refresh định kỳ),
   - hiển thị FX rate và thời điểm cập nhật.
-- Đã bump version app web lên **0.0.9**.
+- Đã triển khai module mới **Finance Control** (`/finance-control`) cho đối soát chi phí ngày/tháng theo RO:
+  - Daily Reconciliation: UNC detail (auto) vs UNC declared (CEO).
+  - Monthly Closing: tổng hợp match/mismatch theo tháng.
+  - Migration DB mới: `20260227093000_finance_reconciliation.sql`.
+
+### Workflow ASCII (approved)
+```text
+[A] UNC folder (auto scan slips) -> UNC Detail Ledger (sum theo ngày)
+[B] CEO upload: top-up slip + UNC total declared -> CEO Daily Declaration
+
+Reconciliation Engine:
+  compare UNC_DETAIL(day) vs UNC_DECLARED(day)
+  variance = detail - declared
+  status = MATCH | MISMATCH | PENDING
+
+Output:
+  Daily Closing Report + Monthly Closing Summary
+```
+
+### UI/UX ASCII (implemented baseline)
+```text
+Finance Control
+ ├─ Daily Reconciliation
+ │   - Date
+ │   - UNC Detail (auto)
+ │   - UNC Declared (CEO input)
+ │   - Cash Fund Top-up (CEO input)
+ │   - Variance + Status badge
+ │   - Save Declaration / Run Reconcile
+ └─ Monthly Closing
+     - Month picker
+     - Total UNC Detail / Declared / Net Variance / Match Rate
+     - Daily result table (MATCH/MISMATCH/PENDING)
+```

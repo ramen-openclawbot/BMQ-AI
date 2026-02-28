@@ -15,6 +15,7 @@ import GoodsReceipts from "@/pages/GoodsReceipts";
 import PurchaseOrders from "@/pages/PurchaseOrders";
 import Reports from "@/pages/Reports";
 import NiraanDashboard from "@/pages/NiraanDashboard";
+import FinanceControl from "@/pages/FinanceControl";
 import Settings from "@/pages/Settings";
 import Auth from "@/pages/Auth";
 import NotFound from "@/pages/NotFound";
@@ -132,6 +133,7 @@ export function AppRoutes() {
         <Route path="/sku-costs/overhead" element={<SkuCostsOverhead />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/niraan-dashboard" element={<NiraanDashboard />} />
+        <Route path="/finance-control" element={<FinanceControl />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<NotFound />} />
