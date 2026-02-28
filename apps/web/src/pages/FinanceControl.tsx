@@ -271,12 +271,12 @@ export default function FinanceControl() {
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>CEO UNC Total Declared (VND)</Label>
-                  <Input type="number" value={uncTotalDeclared} onChange={(e) => setUncTotalDeclared(Number(e.target.value || 0))} />
+                  <Label>CEO UNC Total Declared</Label>
+                  <Input value={vnd(Number(uncTotalDeclared || 0))} readOnly />
                 </div>
                 <div className="space-y-2">
-                  <Label>Cash Fund Top-up Amount (VND)</Label>
-                  <Input type="number" value={cashFundTopupAmount} onChange={(e) => setCashFundTopupAmount(Number(e.target.value || 0))} />
+                  <Label>Cash Fund Top-up Amount</Label>
+                  <Input value={vnd(Number(cashFundTopupAmount || 0))} readOnly />
                 </div>
               </div>
 
