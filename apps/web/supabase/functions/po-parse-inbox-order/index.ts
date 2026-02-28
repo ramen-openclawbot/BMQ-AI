@@ -196,6 +196,7 @@ serve(async (req) => {
     const rawPayload = {
       ...(inbox.raw_payload || {}),
       parse_meta: parseMeta,
+      parsed_items_preview: items.slice(0, 200),
     };
 
     const { error: updateError } = await supabase
@@ -218,6 +219,7 @@ serve(async (req) => {
         pdf: pdfFile?.filename || null,
         itemCount: items.length,
         subtotal,
+        items,
       },
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

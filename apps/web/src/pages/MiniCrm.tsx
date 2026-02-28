@@ -177,7 +177,11 @@ export default function MiniCrm() {
       subtotal_amount: selectedPo.subtotal_amount || "",
       vat_amount: selectedPo.vat_amount || "",
       total_amount: selectedPo.total_amount || "",
-      production_items: Array.isArray(selectedPo.production_items) ? selectedPo.production_items : [],
+      production_items: Array.isArray(selectedPo.production_items)
+        ? selectedPo.production_items
+        : Array.isArray(selectedPo?.raw_payload?.parsed_items_preview)
+          ? selectedPo.raw_payload.parsed_items_preview
+          : [],
     });
   }, [selectedPo]);
 
@@ -199,6 +203,9 @@ export default function MiniCrm() {
     },
     onSuccess: async (result: any) => {
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
+      if (Array.isArray(result?.parsed?.items)) {
+        setPoSummaryDraft((s: any) => ({ ...s, production_items: result.parsed.items }));
+      }
       toast({ title: "Đã parse file đính kèm", description: `${result?.parsed?.itemCount || 0} dòng sản phẩm` });
     },
     onError: (e: any) => {
