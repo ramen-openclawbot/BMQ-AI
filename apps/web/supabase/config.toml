@@ -46,3 +46,9 @@ verify_jwt = false
 
 [functions.po-use-latest-kingfood-today]
 verify_jwt = false
+
+[functions.po-parse-latest-kingfood-now]
+verify_jwt = false
+
+[functions.po-debug-kingfood-xlsx]
+verify_jwt = false
