@@ -90,6 +90,14 @@
 - Áp dụng canary parse: parse mới chạy song song parse cũ 1 tuần, mismatch thì alert.
 - Không merge parser finance nếu chưa có 3 testcase pass: normal / shifted-column / locale-number-mixed.
 
+### New reusable skill (created)
+- Path: `skills/po-xlsx-parse-guardrails/SKILL.md`
+- References:
+  - `skills/po-xlsx-parse-guardrails/references/test-cases.md`
+  - `skills/po-xlsx-parse-guardrails/references/rollout-checklist.md`
+- Purpose: checklist chuẩn để tránh lặp lại vòng sửa parser PO XLSX.
+- Note: để auto-trigger ổn định qua session mới, cần add skill này vào danh sách available skills của OpenClaw runtime.
+
 
 ## Shortcut/output rule (user preference)
 - Với mọi tác vụ tạo file mới (đặc biệt SQL migration), luôn tạo shortcut tại `output/_latest/` để user mở nhanh.
