@@ -49,6 +49,10 @@ export default function FinanceControl() {
   const [uncSlipFile, setUncSlipFile] = useState<File | null>(null);
   const [qtmSlipPreview, setQtmSlipPreview] = useState<string>("");
   const [uncSlipPreview, setUncSlipPreview] = useState<string>("");
+  const [pendingQtmImageBase64, setPendingQtmImageBase64] = useState<string | null>(null);
+  const [pendingUncImageBase64, setPendingUncImageBase64] = useState<string | null>(null);
+  const [pendingQtmExtracted, setPendingQtmExtracted] = useState<any>(null);
+  const [pendingUncExtracted, setPendingUncExtracted] = useState<any>(null);
 
   useEffect(() => {
     setUncTotalDeclared(Number(dailyDeclaration?.unc_extracted_amount || dailyDeclaration?.unc_total_declared || 0));
@@ -56,6 +60,14 @@ export default function FinanceControl() {
     setNotes(String(dailyDeclaration?.notes || ""));
     setQtmSlipPreview(dailyDeclaration?.qtm_slip_image_base64 ? `data:image/jpeg;base64,${dailyDeclaration.qtm_slip_image_base64}` : "");
     setUncSlipPreview(dailyDeclaration?.unc_slip_image_base64 ? `data:image/jpeg;base64,${dailyDeclaration.unc_slip_image_base64}` : "");
+
+    // clear unsaved local state when data source changes (e.g. switch date)
+    setPendingQtmImageBase64(null);
+    setPendingUncImageBase64(null);
+    setPendingQtmExtracted(null);
+    setPendingUncExtracted(null);
+    setQtmSlipFile(null);
+    setUncSlipFile(null);
   }, [dailyDeclaration]);
 
   const dateKey = format(selectedDate, "yyyy-MM-dd");
@@ -87,43 +99,20 @@ export default function FinanceControl() {
     try {
       const result = await extractSlipAmount(file, slipType);
 
-      const existingMeta = (dailyDeclaration?.extraction_meta || {}) as Record<string, any>;
-      const payload: Record<string, any> = {
-        closing_date: dateKey,
-        notes: notes || null,
-        unc_total_declared: Number(uncTotalDeclared || 0),
-        cash_fund_topup_amount: Number(cashFundTopupAmount || 0),
-        qtm_extracted_amount: Number(dailyDeclaration?.qtm_extracted_amount || 0),
-        unc_extracted_amount: Number(dailyDeclaration?.unc_extracted_amount || 0),
-        qtm_slip_image_base64: dailyDeclaration?.qtm_slip_image_base64 || null,
-        unc_slip_image_base64: dailyDeclaration?.unc_slip_image_base64 || null,
-        extraction_meta: { ...existingMeta },
-      };
-
       if (slipType === "qtm") {
         setCashFundTopupAmount(Number(result.extracted.amount || 0));
         setQtmSlipPreview(`data:${file.type || "image/jpeg"};base64,${result.imageBase64}`);
-        payload.cash_fund_topup_amount = Number(result.extracted.amount || 0);
-        payload.qtm_extracted_amount = Number(result.extracted.amount || 0);
-        payload.qtm_slip_image_base64 = result.imageBase64;
-        payload.extraction_meta.qtm = result.extracted;
+        setPendingQtmImageBase64(result.imageBase64);
+        setPendingQtmExtracted(result.extracted);
       } else {
         setUncTotalDeclared(Number(result.extracted.amount || 0));
         setUncSlipPreview(`data:${file.type || "image/jpeg"};base64,${result.imageBase64}`);
-        payload.unc_total_declared = Number(result.extracted.amount || 0);
-        payload.unc_extracted_amount = Number(result.extracted.amount || 0);
-        payload.unc_slip_image_base64 = result.imageBase64;
-        payload.extraction_meta.unc = result.extracted;
+        setPendingUncImageBase64(result.imageBase64);
+        setPendingUncExtracted(result.extracted);
       }
 
-      const { error } = await (supabase as any)
-        .from("ceo_daily_closing_declarations")
-        .upsert(payload, { onConflict: "closing_date" });
-
-      if (error) throw error;
-      await refetchDeclaration();
       toast({
-        title: "Đã scan slip",
+        title: "Đã scan slip (chưa lưu)",
         description: slipType === "qtm"
           ? `QTM: ${vnd(Number(result.extracted.amount || 0))}`
           : `UNC: ${vnd(Number(result.extracted.amount || 0))}`,
@@ -142,6 +131,15 @@ export default function FinanceControl() {
         closing_date: dateKey,
         unc_total_declared: Number(uncTotalDeclared || 0),
         cash_fund_topup_amount: Number(cashFundTopupAmount || 0),
+        qtm_extracted_amount: Number(pendingQtmExtracted?.amount ?? dailyDeclaration?.qtm_extracted_amount ?? cashFundTopupAmount ?? 0),
+        unc_extracted_amount: Number(pendingUncExtracted?.amount ?? dailyDeclaration?.unc_extracted_amount ?? uncTotalDeclared ?? 0),
+        qtm_slip_image_base64: pendingQtmImageBase64 ?? dailyDeclaration?.qtm_slip_image_base64 ?? null,
+        unc_slip_image_base64: pendingUncImageBase64 ?? dailyDeclaration?.unc_slip_image_base64 ?? null,
+        extraction_meta: {
+          ...(dailyDeclaration?.extraction_meta || {}),
+          ...(pendingQtmExtracted ? { qtm: pendingQtmExtracted } : {}),
+          ...(pendingUncExtracted ? { unc: pendingUncExtracted } : {}),
+        },
         notes: notes || null,
       };
 
@@ -151,6 +149,10 @@ export default function FinanceControl() {
 
       if (error) throw error;
       toast({ title: "Saved", description: "CEO daily declaration has been updated." });
+      setPendingQtmImageBase64(null);
+      setPendingUncImageBase64(null);
+      setPendingQtmExtracted(null);
+      setPendingUncExtracted(null);
       await refetchDeclaration();
     } catch (e: any) {
       toast({ title: "Error", description: e?.message || "Failed to save declaration", variant: "destructive" });
@@ -241,6 +243,9 @@ export default function FinanceControl() {
               </div>
 
               {extracting && <div className="text-sm text-muted-foreground">Đang scan slip và cập nhật số tiền...</div>}
+              {(pendingQtmImageBase64 || pendingUncImageBase64) && (
+                <div className="text-sm text-amber-600">Có dữ liệu slip mới chưa lưu. Vui lòng bấm Save Declaration để lưu vào DB.</div>
+              )}
             </CardContent>
           </Card>
 
