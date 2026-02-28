@@ -348,7 +348,7 @@ export function GoogleDriveSettings() {
       <div className="bg-muted/50 rounded-lg p-4 text-sm text-muted-foreground mb-4">
         <p className="font-medium text-foreground mb-2">Hướng dẫn:</p>
         <ol className="list-decimal ml-4 space-y-1">
-          <li>Kết nối Google account (bấm nút bên dưới)</li>
+          <li>Kết nối Google account (Drive + Gmail, bấm nút bên dưới)</li>
           <li>Tạo 2 folder trên Google Drive: 1 cho PO, 1 cho Bank Receipts</li>
           <li>Copy link folder và dán vào ô bên dưới</li>
           <li>Trong mỗi folder, tạo subfolder theo ngày (YYMMDD, VD: 260124)</li>
@@ -368,11 +368,14 @@ export function GoogleDriveSettings() {
           
           {connectedEmail ? (
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Check className="h-5 w-5 text-primary" />
-                <span className="text-sm">
-                  Đã kết nối: <strong>{connectedEmail}</strong>
-                </span>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <Check className="h-5 w-5 text-primary" />
+                  <span className="text-sm">
+                    Đã kết nối: <strong>{connectedEmail}</strong>
+                  </span>
+                </div>
+                <span className="text-xs text-muted-foreground">Nếu vừa bật tính năng PO Gmail, vui lòng ngắt kết nối rồi kết nối lại để cấp quyền Gmail.</span>
               </div>
               <Button
                 variant="outline"
@@ -405,7 +408,7 @@ export function GoogleDriveSettings() {
                 ) : (
                   <Link2 className="h-4 w-4 mr-1" />
                 )}
-                Kết nối Google Drive
+                Kết nối Google (Drive + Gmail)
               </Button>
             </div>
           )}

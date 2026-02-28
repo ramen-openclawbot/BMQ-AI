@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -95,6 +96,33 @@ export default function MiniCrm() {
     },
   });
 
+  const syncGmailMutation = useMutation({
+    mutationFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Phiên đăng nhập hết hạn");
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-gmail-sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ maxResults: 30, query: "to:po@bmq.vn newer_than:14d" }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result?.error || "Gmail sync thất bại");
+      return result;
+    },
+    onSuccess: async (result: any) => {
+      await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
+      toast({ title: "Đã sync Gmail", description: `Đã đồng bộ ${result?.synced || 0} email PO.` });
+    },
+    onError: (e: any) => {
+      toast({ title: "Lỗi Gmail sync", description: e?.message || "Không thể đồng bộ Gmail", variant: "destructive" });
+    },
+  });
+
   const reviewMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: "approved" | "rejected" }) => {
       const { error } = await (supabase as any)
@@ -125,9 +153,15 @@ export default function MiniCrm() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-display font-bold">Mini-CRM & PO Inbox</h1>
-        <p className="text-muted-foreground">Phase 4: nhận diện khách hàng qua email và duyệt tay PO từ hộp thư po@bmq.vn.</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-display font-bold">Mini-CRM & PO Inbox</h1>
+          <p className="text-muted-foreground">Phase 4: nhận diện khách hàng qua email và duyệt tay PO từ hộp thư po@bmq.vn.</p>
+        </div>
+        <Button onClick={() => syncGmailMutation.mutate()} disabled={syncGmailMutation.isPending}>
+          {syncGmailMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+          Sync Gmail PO
+        </Button>
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
