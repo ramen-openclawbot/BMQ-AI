@@ -28,3 +28,6 @@ verify_jwt = false
 verify_jwt = false
 [functions.finance-auto-reconcile]
 verify_jwt = false
+
+[functions.finance-extract-slip-amount]
+verify_jwt = false

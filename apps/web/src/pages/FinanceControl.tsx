@@ -19,12 +19,22 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 const vnd = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value || 0);
 
+async function fileToBase64(file: File): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function FinanceControl() {
   const { toast } = useToast();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date());
   const [saving, setSaving] = useState(false);
   const [reconciling, setReconciling] = useState(false);
+  const [extracting, setExtracting] = useState(false);
 
   const { data: dailyDeclaration, refetch: refetchDeclaration } = useDailyDeclaration(selectedDate);
   const { data: uncDetailAmount, refetch: refetchUncDetail } = useUncDetailAmount(selectedDate);
@@ -33,26 +43,75 @@ export default function FinanceControl() {
 
   const [uncTotalDeclared, setUncTotalDeclared] = useState<number>(0);
   const [cashFundTopupAmount, setCashFundTopupAmount] = useState<number>(0);
-  const [topupSlipFileUrl, setTopupSlipFileUrl] = useState("");
   const [notes, setNotes] = useState("");
 
+  const [qtmSlipFile, setQtmSlipFile] = useState<File | null>(null);
+  const [uncSlipFile, setUncSlipFile] = useState<File | null>(null);
+  const [qtmSlipPreview, setQtmSlipPreview] = useState<string>("");
+  const [uncSlipPreview, setUncSlipPreview] = useState<string>("");
+
   useEffect(() => {
-    setUncTotalDeclared(Number(dailyDeclaration?.unc_total_declared || 0));
-    setCashFundTopupAmount(Number(dailyDeclaration?.cash_fund_topup_amount || 0));
-    setTopupSlipFileUrl(String(dailyDeclaration?.topup_slip_file_url || ""));
+    setUncTotalDeclared(Number(dailyDeclaration?.unc_extracted_amount || dailyDeclaration?.unc_total_declared || 0));
+    setCashFundTopupAmount(Number(dailyDeclaration?.qtm_extracted_amount || dailyDeclaration?.cash_fund_topup_amount || 0));
     setNotes(String(dailyDeclaration?.notes || ""));
+    setQtmSlipPreview(dailyDeclaration?.qtm_slip_image_base64 ? `data:image/jpeg;base64,${dailyDeclaration.qtm_slip_image_base64}` : "");
+    setUncSlipPreview(dailyDeclaration?.unc_slip_image_base64 ? `data:image/jpeg;base64,${dailyDeclaration.unc_slip_image_base64}` : "");
   }, [dailyDeclaration]);
 
   const dateKey = format(selectedDate, "yyyy-MM-dd");
 
-  const saveDeclaration = async () => {
-    setSaving(true);
+  const extractSlipAmount = async (file: File, slipType: "qtm" | "unc") => {
+    const imageBase64 = await fileToBase64(file);
+    const { data: { session } } = await supabase.auth.getSession();
+
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/finance-extract-slip-amount`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      },
+      body: JSON.stringify({ imageBase64, mimeType: file.type, slipType }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err?.error || `Failed extracting ${slipType} amount`);
+    }
+
+    const result = await response.json();
+    return { imageBase64, extracted: result.data as { amount: number; confidence?: number; transfer_date?: string; reference?: string } };
+  };
+
+  const handleExtractFromSlips = async () => {
+    if (!qtmSlipFile || !uncSlipFile) {
+      toast({ title: "Thiếu slip", description: "Vui lòng upload đủ 2 slip QTM và UNC", variant: "destructive" });
+      return;
+    }
+
+    setExtracting(true);
     try {
+      const [qtm, unc] = await Promise.all([
+        extractSlipAmount(qtmSlipFile, "qtm"),
+        extractSlipAmount(uncSlipFile, "unc"),
+      ]);
+
+      setCashFundTopupAmount(Number(qtm.extracted.amount || 0));
+      setUncTotalDeclared(Number(unc.extracted.amount || 0));
+      setQtmSlipPreview(`data:${qtmSlipFile.type || "image/jpeg"};base64,${qtm.imageBase64}`);
+      setUncSlipPreview(`data:${uncSlipFile.type || "image/jpeg"};base64,${unc.imageBase64}`);
+
       const payload = {
         closing_date: dateKey,
-        unc_total_declared: Number(uncTotalDeclared || 0),
-        cash_fund_topup_amount: Number(cashFundTopupAmount || 0),
-        topup_slip_file_url: topupSlipFileUrl || null,
+        unc_total_declared: Number(unc.extracted.amount || 0),
+        cash_fund_topup_amount: Number(qtm.extracted.amount || 0),
+        qtm_extracted_amount: Number(qtm.extracted.amount || 0),
+        unc_extracted_amount: Number(unc.extracted.amount || 0),
+        qtm_slip_image_base64: qtm.imageBase64,
+        unc_slip_image_base64: unc.imageBase64,
+        extraction_meta: {
+          qtm: qtm.extracted,
+          unc: unc.extracted,
+        },
         notes: notes || null,
       };
 
@@ -61,7 +120,30 @@ export default function FinanceControl() {
         .upsert(payload, { onConflict: "closing_date" });
 
       if (error) throw error;
+      await refetchDeclaration();
+      toast({ title: "Đã trích xuất tự động", description: "Hệ thống đã đọc số tiền từ 2 slip và lưu ảnh vào DB." });
+    } catch (e: any) {
+      toast({ title: "Lỗi OCR slip", description: e?.message || "Không thể trích xuất số tiền", variant: "destructive" });
+    } finally {
+      setExtracting(false);
+    }
+  };
 
+  const saveDeclaration = async () => {
+    setSaving(true);
+    try {
+      const payload = {
+        closing_date: dateKey,
+        unc_total_declared: Number(uncTotalDeclared || 0),
+        cash_fund_topup_amount: Number(cashFundTopupAmount || 0),
+        notes: notes || null,
+      };
+
+      const { error } = await (supabase as any)
+        .from("ceo_daily_closing_declarations")
+        .upsert(payload, { onConflict: "closing_date" });
+
+      if (error) throw error;
       toast({ title: "Saved", description: "CEO daily declaration has been updated." });
       await refetchDeclaration();
     } catch (e: any) {
@@ -127,6 +209,31 @@ export default function FinanceControl() {
         <TabsContent value="daily" className="space-y-4">
           <Card>
             <CardHeader>
+              <CardTitle>CEO Slip Upload (Auto Extract)</CardTitle>
+              <CardDescription>Upload 2 slips: (1) QTM top-up and (2) UNC total. System auto reads amount and stores image in DB.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>QTM Slip</Label>
+                  <Input type="file" accept="image/*" onChange={(e) => setQtmSlipFile(e.target.files?.[0] || null)} />
+                  {qtmSlipPreview && <img src={qtmSlipPreview} alt="QTM slip" className="max-h-40 rounded border" />}
+                </div>
+                <div className="space-y-2">
+                  <Label>UNC Slip</Label>
+                  <Input type="file" accept="image/*" onChange={(e) => setUncSlipFile(e.target.files?.[0] || null)} />
+                  {uncSlipPreview && <img src={uncSlipPreview} alt="UNC slip" className="max-h-40 rounded border" />}
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={handleExtractFromSlips} disabled={extracting}>{extracting ? "Extracting..." : "Extract Amount from 2 Slips"}</Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>Daily Closing</CardTitle>
               <CardDescription>Compare UNC detail (auto) vs CEO declared total</CardDescription>
             </CardHeader>
@@ -161,36 +268,15 @@ export default function FinanceControl() {
                 </div>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Top-up Slip URL (optional)</Label>
-                  <Input value={topupSlipFileUrl} onChange={(e) => setTopupSlipFileUrl(e.target.value)} placeholder="https://..." />
-                </div>
-                <div className="space-y-2">
-                  <Label>Notes</Label>
-                  <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional note" />
-                </div>
+              <div className="space-y-2">
+                <Label>Notes</Label>
+                <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional note" />
               </div>
 
               <div className="grid gap-4 md:grid-cols-3">
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="text-xs text-muted-foreground">UNC Detail</div>
-                    <div className="text-xl font-semibold">{vnd(Number(uncDetailAmount || 0))}</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="text-xs text-muted-foreground">UNC Declared</div>
-                    <div className="text-xl font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="text-xs text-muted-foreground">Variance</div>
-                    <div className="text-xl font-semibold">{vnd(Number((uncDetailAmount || 0) - (uncTotalDeclared || 0)))}</div>
-                  </CardContent>
-                </Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">UNC Detail</div><div className="text-xl font-semibold">{vnd(Number(uncDetailAmount || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">UNC Declared</div><div className="text-xl font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Variance</div><div className="text-xl font-semibold">{vnd(Number((uncDetailAmount || 0) - (uncTotalDeclared || 0)))}</div></CardContent></Card>
               </div>
 
               <div className="flex gap-2">
@@ -213,11 +299,7 @@ export default function FinanceControl() {
               <div className="flex items-end gap-3">
                 <div className="space-y-2">
                   <Label>Month</Label>
-                  <Input
-                    type="month"
-                    value={format(selectedMonth, "yyyy-MM")}
-                    onChange={(e) => setSelectedMonth(new Date(`${e.target.value}-01`))}
-                  />
+                  <Input type="month" value={format(selectedMonth, "yyyy-MM")} onChange={(e) => setSelectedMonth(new Date(`${e.target.value}-01`))} />
                 </div>
                 <Button variant="outline" onClick={() => refetchMonthly()}>Refresh</Button>
               </div>

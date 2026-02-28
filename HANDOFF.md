@@ -32,6 +32,7 @@
 - `apps/web/supabase/migrations/20260223173000_sku_type_and_goods_receipt_guardrails.sql`
 - `apps/web/supabase/migrations/20260223193000_supplier_scan_templates.sql`
 - `apps/web/supabase/migrations/20260227093000_finance_reconciliation.sql`
+- `apps/web/supabase/migrations/20260228111500_finance_slip_images_and_amounts.sql`
 
 ## Confirmed by user
 - User đồng ý release luôn sau khi chạy SQL migration.
@@ -131,3 +132,8 @@ Finance Control
   - `FINANCE_REPORT_FROM`
   - `FINANCE_REPORT_TO`
 - Note: if reconciliation tables migration is not yet applied in production, auto job will fail until migration is run.
+- CEO daily input updated: upload 2 slips (QTM + UNC), system auto OCR amount and stores slip images directly in DB columns (`qtm_slip_image_base64`, `unc_slip_image_base64`), no manual Top-up URL field.
+- Sidebar icons updated to avoid confusion:
+  - Niraan Dashboard: `Landmark`
+  - Finance Control: `Scale`
+  - Reports: `BarChart3`
