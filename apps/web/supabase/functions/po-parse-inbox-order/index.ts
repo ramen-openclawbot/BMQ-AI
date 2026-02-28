@@ -237,6 +237,7 @@ serve(async (req) => {
 
     let items: any[] = [];
     let chosenSheet: string | null = null;
+    let extractedSubtotal = 0;
     let extractedVat = 0;
     let extractedTotal = 0;
     let extractedVatRate = 0;
@@ -258,6 +259,7 @@ serve(async (req) => {
         if (parsed.length > items.length) {
           items = parsed;
           chosenSheet = sheetName;
+          extractedSubtotal = totalsFlat.subtotal || 0;
           extractedVat = totalsFlat.vat || 0;
           extractedTotal = totalsFlat.total || 0;
           extractedVatRate = totalsFlat.vatRate || 0;
@@ -268,9 +270,11 @@ serve(async (req) => {
 
     const subtotalByLineTotal = items.reduce((s, i) => s + Number(i.line_total || 0), 0);
     const subtotalByQtyPrice = items.reduce((s, i) => s + (Number(i.qty || 0) * Number(i.unit_price || 0)), 0);
-    const subtotal = (subtotalByQtyPrice > 0 && (subtotalByLineTotal > subtotalByQtyPrice * 1.5 || subtotalByLineTotal < subtotalByQtyPrice * 0.5))
+    const subtotalFromItems = (subtotalByQtyPrice > 0 && (subtotalByLineTotal > subtotalByQtyPrice * 1.5 || subtotalByLineTotal < subtotalByQtyPrice * 0.5))
       ? subtotalByQtyPrice
       : subtotalByLineTotal;
+    // Kingfood sheet đã có subtotal chuẩn ở cột tổng hợp -> ưu tiên dùng để tránh lệch tạm tính
+    const subtotal = extractedSubtotal > 0 ? extractedSubtotal : subtotalFromItems;
     const vatAmount = sanitizeVat(subtotal, extractedVat, extractedVatRate);
     const totalAmount = sanitizeTotal(subtotal, vatAmount, extractedTotal);
     const parseMeta = {
@@ -282,9 +286,10 @@ serve(async (req) => {
       source_pdf: pdfFile?.filename || null,
       item_count: items.length,
       po_order_date: normalizeDate(extractedPoOrderDate) || normalizeDate(inbox.received_at),
+      subtotal: subtotal,
       vat_amount: vatAmount,
       total_amount: totalAmount,
-      subtotal_source: "sum(qty*unit_price)",
+      subtotal_source: extractedSubtotal > 0 ? "sheet_subtotal_col_33" : "sum(qty*unit_price)",
     };
 
     const rawPayload = {
