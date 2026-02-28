@@ -168,9 +168,31 @@ function mapKingfoodFlatRows(rows: any[][]) {
 function extractKingfoodTotals(rows: any[][]) {
   const candidate = rows.find((r) => /^SP\d+/i.test(String(r?.[14] || "").trim()));
   if (!candidate) return { subtotal: 0, vat: 0, total: 0, vatRate: 0, poOrderDate: null as string | null };
-  const subtotal = toNum(candidate?.[33] ?? 0);
-  const vat = toNum(candidate?.[34] ?? 0);
-  const total = toNum(candidate?.[35] ?? 0);
+
+  const headerRowIdx = rows.findIndex((r) =>
+    (r || []).some((c) => {
+      const t = String(c || "").toLowerCase();
+      return t.includes("tổng tiền po (-vat)") || t.includes("tong tien po (-vat)");
+    })
+  );
+
+  let subtotalIdx = 33;
+  let vatIdx = 34;
+  let totalIdx = 35;
+
+  if (headerRowIdx >= 0) {
+    const header = rows[headerRowIdx] || [];
+    header.forEach((c, idx) => {
+      const t = String(c || "").toLowerCase().trim();
+      if (t.includes("tổng tiền po (-vat)") || t.includes("tong tien po (-vat)")) subtotalIdx = idx;
+      if (t.includes("tổng thuế") || t.includes("tong thue")) vatIdx = idx;
+      if (t.includes("tổng tiền po (+vat)") || t.includes("tong tien po (+vat)")) totalIdx = idx;
+    });
+  }
+
+  const subtotal = toNum(candidate?.[subtotalIdx] ?? 0);
+  const vat = toNum(candidate?.[vatIdx] ?? 0);
+  const total = toNum(candidate?.[totalIdx] ?? 0);
   const vatRate = toNum(candidate?.[29] ?? 0);
   const poOrderDate = candidate?.[42] ? String(candidate[42]) : null;
   return { subtotal, vat, total, vatRate, poOrderDate };
@@ -280,7 +302,7 @@ serve(async (req) => {
     const parseMeta = {
       parsed_at: new Date().toISOString(),
       parsed_by: user.id,
-      parser: "po-parse-inbox-order:v3",
+      parser: "po-parse-inbox-order:v4",
       source_sheet: chosenSheet,
       source_xlsx: xlsxFile?.filename || null,
       source_pdf: pdfFile?.filename || null,
