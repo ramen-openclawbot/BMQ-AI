@@ -184,11 +184,11 @@ export function GoogleDriveSettings() {
     setGmailConnecting(true);
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/google-gmail-auth`,
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/google-drive-auth`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ redirect: window.location.origin }),
+          body: JSON.stringify({ redirect: window.location.origin, mode: 'gmail' }),
         }
       );
       const result = await response.json();

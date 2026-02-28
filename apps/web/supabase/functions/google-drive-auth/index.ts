@@ -23,13 +23,17 @@ serve(async (req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-  // Parse state to get redirect URL
+  // Parse state to get redirect URL + oauth mode
   let redirectBase = 'https://bmqvn.lovable.app';
+  let oauthMode: 'drive' | 'gmail' = 'drive';
   if (state) {
     try {
       const stateData = JSON.parse(atob(state));
       if (stateData.redirect) {
         redirectBase = stateData.redirect;
+      }
+      if (stateData.mode === 'gmail') {
+        oauthMode = 'gmail';
       }
     } catch (e) {
       console.log('Could not parse state:', e);
@@ -37,11 +41,14 @@ serve(async (req) => {
   }
 
   const settingsUrl = `${redirectBase}/settings`;
+  const errorKey = oauthMode === 'gmail' ? 'gmail_error' : 'drive_error';
+  const successKey = oauthMode === 'gmail' ? 'gmail_success' : 'drive_success';
+  const emailKey = oauthMode === 'gmail' ? 'gmail_email' : 'drive_email';
 
   // Handle errors from Google
   if (error) {
     console.error('Google OAuth error:', error);
-    return Response.redirect(`${settingsUrl}?drive_error=${encodeURIComponent(error)}`, 302);
+    return Response.redirect(`${settingsUrl}?${errorKey}=${encodeURIComponent(error)}`, 302);
   }
 
   // No code means this is the initial auth request - redirect to Google
@@ -53,13 +60,17 @@ serve(async (req) => {
       });
     }
 
-    // Get redirect URL from request body or query
+    // Get redirect URL and oauth mode from request body
     let appRedirect = redirectBase;
+    let requestMode: 'drive' | 'gmail' = oauthMode;
     if (req.method === 'POST') {
       try {
         const body = await req.json();
         if (body.redirect) {
           appRedirect = body.redirect;
+        }
+        if (body.mode === 'gmail') {
+          requestMode = 'gmail';
         }
       } catch (e) {
         // Ignore parse errors
@@ -67,13 +78,16 @@ serve(async (req) => {
     }
 
     const redirectUri = `${supabaseUrl}/functions/v1/google-drive-auth`;
-    const stateParam = btoa(JSON.stringify({ redirect: appRedirect }));
-    
+    const stateParam = btoa(JSON.stringify({ redirect: appRedirect, mode: requestMode }));
+    const scope = requestMode === 'gmail'
+      ? 'https://www.googleapis.com/auth/gmail.readonly email profile'
+      : 'https://www.googleapis.com/auth/drive.readonly email profile';
+
     const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
     authUrl.searchParams.set('client_id', clientId);
     authUrl.searchParams.set('redirect_uri', redirectUri);
     authUrl.searchParams.set('response_type', 'code');
-    authUrl.searchParams.set('scope', 'https://www.googleapis.com/auth/drive.readonly email profile');
+    authUrl.searchParams.set('scope', scope);
     authUrl.searchParams.set('access_type', 'offline');
     authUrl.searchParams.set('prompt', 'consent'); // Force consent to get refresh token
     authUrl.searchParams.set('state', stateParam);
@@ -86,7 +100,7 @@ serve(async (req) => {
 
   // Exchange code for tokens
   if (!clientId || !clientSecret) {
-    return Response.redirect(`${settingsUrl}?drive_error=${encodeURIComponent('OAuth credentials not configured')}`, 302);
+    return Response.redirect(`${settingsUrl}?${errorKey}=${encodeURIComponent('OAuth credentials not configured')}`, 302);
   }
 
   try {
@@ -109,7 +123,7 @@ serve(async (req) => {
     if (!tokenResponse.ok) {
       const errorData = await tokenResponse.text();
       console.error('Token exchange failed:', errorData);
-      return Response.redirect(`${settingsUrl}?drive_error=${encodeURIComponent('Failed to exchange authorization code')}`, 302);
+      return Response.redirect(`${settingsUrl}?${errorKey}=${encodeURIComponent('Failed to exchange authorization code')}`, 302);
     }
 
     const tokens = await tokenResponse.json();
@@ -120,7 +134,7 @@ serve(async (req) => {
 
     if (!tokens.refresh_token) {
       console.error('No refresh token received. User may have previously authorized without revoking.');
-      return Response.redirect(`${settingsUrl}?drive_error=${encodeURIComponent('No refresh token. Please revoke access at https://myaccount.google.com/permissions and try again.')}`, 302);
+      return Response.redirect(`${settingsUrl}?${errorKey}=${encodeURIComponent('No refresh token. Please revoke access at https://myaccount.google.com/permissions and try again.')}`, 302);
     }
 
     // Get user info
@@ -139,25 +153,28 @@ serve(async (req) => {
     // Save tokens to database using service role key
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
+    const refreshTokenKey = oauthMode === 'gmail' ? 'google_gmail_refresh_token' : 'google_drive_refresh_token';
+    const connectedEmailKey = oauthMode === 'gmail' ? 'google_gmail_connected_email' : 'google_drive_connected_email';
+
     // Save refresh token
     const { error: tokenError } = await supabaseAdmin
       .from('app_settings')
       .upsert({ 
-        key: 'google_drive_refresh_token', 
+        key: refreshTokenKey,
         value: tokens.refresh_token,
         updated_at: new Date().toISOString()
       }, { onConflict: 'key' });
 
     if (tokenError) {
       console.error('Failed to save refresh token:', tokenError);
-      return Response.redirect(`${settingsUrl}?drive_error=${encodeURIComponent('Failed to save token to database')}`, 302);
+      return Response.redirect(`${settingsUrl}?${errorKey}=${encodeURIComponent('Failed to save token to database')}`, 302);
     }
 
     // Save connected email
     const { error: emailError } = await supabaseAdmin
       .from('app_settings')
       .upsert({ 
-        key: 'google_drive_connected_email', 
+        key: connectedEmailKey,
         value: userEmail,
         updated_at: new Date().toISOString()
       }, { onConflict: 'key' });
@@ -167,17 +184,19 @@ serve(async (req) => {
     }
 
     // Delete old API key if exists (migration from old system)
-    await supabaseAdmin
-      .from('app_settings')
-      .delete()
-      .eq('key', 'google_drive_api_key');
+    if (oauthMode === 'drive') {
+      await supabaseAdmin
+        .from('app_settings')
+        .delete()
+        .eq('key', 'google_drive_api_key');
+    }
 
-    console.log('Successfully saved Google Drive OAuth tokens for:', userEmail);
-    return Response.redirect(`${settingsUrl}?drive_success=true&drive_email=${encodeURIComponent(userEmail)}`, 302);
+    console.log(`Successfully saved Google ${oauthMode} OAuth tokens for:`, userEmail);
+    return Response.redirect(`${settingsUrl}?${successKey}=true&${emailKey}=${encodeURIComponent(userEmail)}`, 302);
 
   } catch (error: unknown) {
     console.error('OAuth callback error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return Response.redirect(`${settingsUrl}?drive_error=${encodeURIComponent(message)}`, 302);
+    return Response.redirect(`${settingsUrl}?${errorKey}=${encodeURIComponent(message)}`, 302);
   }
 });
