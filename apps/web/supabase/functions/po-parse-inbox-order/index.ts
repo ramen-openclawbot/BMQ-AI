@@ -54,6 +54,8 @@ async function gmailApi(accessToken: string, path: string) {
   return await res.json();
 }
 
+const toNum = (v: any) => Number(String(v ?? "0").replace(/[,.](?=\d{3}\b)/g, "")) || 0;
+
 function mapRowsToItems(rows: Record<string, any>[]) {
   const keyOf = (row: Record<string, any>, candidates: string[]) => {
     const keys = Object.keys(row || {});
@@ -75,14 +77,28 @@ function mapRowsToItems(rows: Record<string, any>[]) {
 
       const product_name = productNameKey ? String(row[productNameKey] || "").trim() : "";
       const sku = skuKey ? String(row[skuKey] || "").trim() : "";
-      const qty = Number(String(qtyKey ? row[qtyKey] ?? 0 : 0).toString().replace(/[,.](?=\d{3}\b)/g, "")) || 0;
-      const unit_price = Number(String(priceKey ? row[priceKey] ?? 0 : 0).toString().replace(/[,.](?=\d{3}\b)/g, "")) || 0;
-      const line_total = Number(String(amountKey ? row[amountKey] ?? 0 : 0).toString().replace(/[,.](?=\d{3}\b)/g, "")) || (qty * unit_price);
+      const qty = toNum(qtyKey ? row[qtyKey] : 0);
+      const unit_price = toNum(priceKey ? row[priceKey] : 0);
+      const line_total = toNum(amountKey ? row[amountKey] : 0) || (qty * unit_price);
       const unit = unitKey ? String(row[unitKey] || "").trim() : "";
 
       return { sku, product_name, qty, unit, unit_price, line_total };
     })
     .filter((r) => r.product_name && r.qty > 0);
+}
+
+function mapKingfoodFlatRows(rows: any[][]) {
+  return rows
+    .map((r) => {
+      const sku = String(r?.[14] || "").trim();
+      const product_name = String(r?.[15] || "").trim();
+      const unit = String(r?.[16] || "").trim();
+      const qty = toNum(r?.[17] ?? r?.[18] ?? 0);
+      const unit_price = toNum(r?.[20] ?? 0);
+      const line_total = toNum(r?.[30] ?? 0) || qty * unit_price;
+      return { sku, product_name, qty, unit, unit_price, line_total };
+    })
+    .filter((x) => /^SP\d+/i.test(x.sku) && x.product_name && x.qty > 0);
 }
 
 serve(async (req) => {
@@ -145,14 +161,24 @@ serve(async (req) => {
     const pdfFile = attachmentParts.find((a) => a.filename.toLowerCase().endsWith(".pdf"));
 
     let items: any[] = [];
+    let chosenSheet: string | null = null;
     if (xlsxFile) {
       const attachment = await gmailApi(accessToken, `messages/${inbox.gmail_message_id}/attachments/${xlsxFile.attachmentId}`);
       const bytes = decodeBase64UrlToBytes(String(attachment?.data || ""));
       const workbook = XLSX.read(bytes, { type: "array" });
-      const firstSheet = workbook.SheetNames[0];
-      if (firstSheet) {
-        const rows = XLSX.utils.sheet_to_json<Record<string, any>>(workbook.Sheets[firstSheet], { defval: "" });
-        items = mapRowsToItems(rows);
+
+      for (const sheetName of workbook.SheetNames || []) {
+        const rowsObj = XLSX.utils.sheet_to_json<Record<string, any>>(workbook.Sheets[sheetName], { defval: "" });
+        const byHeader = mapRowsToItems(rowsObj);
+
+        const rowsFlat = XLSX.utils.sheet_to_json<any[]>(workbook.Sheets[sheetName], { header: 1, raw: false, defval: "" });
+        const byFlat = mapKingfoodFlatRows(rowsFlat);
+
+        const parsed = byFlat.length > byHeader.length ? byFlat : byHeader;
+        if (parsed.length > items.length) {
+          items = parsed;
+          chosenSheet = sheetName;
+        }
       }
     }
 
@@ -160,7 +186,8 @@ serve(async (req) => {
     const parseMeta = {
       parsed_at: new Date().toISOString(),
       parsed_by: user.id,
-      parser: "po-parse-inbox-order:v1",
+      parser: "po-parse-inbox-order:v2",
+      source_sheet: chosenSheet,
       source_xlsx: xlsxFile?.filename || null,
       source_pdf: pdfFile?.filename || null,
       item_count: items.length,
