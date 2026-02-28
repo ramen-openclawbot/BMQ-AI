@@ -1,7 +1,7 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.9**
+- apps/web: **0.0.10**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
 - Latest commit at handoff time: `a370e0f`
@@ -62,7 +62,33 @@
   - `/goods-receipts`: chỉ nhận SKU nguyên vật liệu.
   - `/sku-costs/*`: chỉ xử lý SKU thành phẩm cho COGS.
   - Add Invoice scan hoạt động ổn trên mobile.
-  - `/settings` hiển thị version từ semver package (`0.0.9`).
+  - `/settings` hiển thị version từ semver package (`0.0.10`).
+
+## Latest hotfix handoff (2026-03-01)
+### Context
+- User report liên tiếp trên Mini-CRM PO parse: fail schema, sai VAT, sai subtotal, sai total, sai amount khi đẩy qua Finance.
+
+### What was fixed
+1. Bỏ phụ thuộc cột `po_number` trong flow runtime, chuyển qua `raw_payload.po_number` fallback từ subject.
+2. Sửa flow post revenue: ghi snapshot `raw_payload.revenue_post` gồm `subtotal`, `vat`, `total`, `posted_at`, `posted_by`.
+3. Sửa Finance display: ưu tiên đọc snapshot `revenue_post.total` để tránh lệch nguồn.
+4. Harden parser số tiền (`toNum`) theo locale dấu `.`/`,`.
+5. Chặn số VAT/Total bất thường bằng sanity check (`sanitizeVat`, `sanitizeTotal`).
+6. Fix Kingfood parse để đọc 3 cột tổng theo **tên header**:
+   - `Tổng tiền PO (-VAT)`
+   - `Tổng thuế`
+   - `Tổng tiền PO (+VAT)`
+7. UI Mini-CRM ép `Tổng tiền = Tạm tính + VAT` cho save/post để chặn số cũ sai.
+
+### Deploy status
+- `po-parse-inbox-order` đã deploy lại nhiều vòng; bản hiện tại parser: `v4`.
+- Branch: `main`.
+
+### Process improvement (mandatory next)
+- Viết bộ test fixture xlsx thật (Kingfood) + golden expected cho subtotal/vat/total.
+- Thêm chế độ `parse_debug` lưu log cột map vào `raw_payload.parse_meta` (chỉ nội bộ).
+- Áp dụng canary parse: parse mới chạy song song parse cũ 1 tuần, mismatch thì alert.
+- Không merge parser finance nếu chưa có 3 testcase pass: normal / shifted-column / locale-number-mixed.
 
 
 ## Shortcut/output rule (user preference)
