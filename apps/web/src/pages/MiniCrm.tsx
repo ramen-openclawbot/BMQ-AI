@@ -567,7 +567,7 @@ export default function MiniCrm() {
               </Button>
               <Button onClick={() => savePoSummaryMutation.mutate()} disabled={savePoSummaryMutation.isPending}>Lưu tóm tắt PO</Button>
               <Button variant="outline" onClick={() => postRevenueMutation.mutate(selectedPo.id)} disabled={postRevenueMutation.isPending}>
-                {postRevenueMutation.isPending ? "Đang đẩy..." : "Đẩy sang kiểm soát doanh thu"
+                {postRevenueMutation.isPending ? "Đang đẩy..." : "Đẩy sang kiểm soát doanh thu"}
               </Button>
             </div>
             {postRevenueStatus && (
