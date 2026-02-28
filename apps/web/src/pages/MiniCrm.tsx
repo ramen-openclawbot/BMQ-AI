@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -168,6 +168,18 @@ export default function MiniCrm() {
   }, [poInbox]);
 
   const selectedPo = useMemo(() => poInbox.find((r: any) => r.id === selectedPoId) || null, [poInbox, selectedPoId]);
+
+  useEffect(() => {
+    if (!selectedPo) return;
+    setPoSummaryDraft({
+      po_number: selectedPo.po_number || "",
+      delivery_date: selectedPo.delivery_date || "",
+      subtotal_amount: selectedPo.subtotal_amount || "",
+      vat_amount: selectedPo.vat_amount || "",
+      total_amount: selectedPo.total_amount || "",
+      production_items: Array.isArray(selectedPo.production_items) ? selectedPo.production_items : [],
+    });
+  }, [selectedPo]);
 
   const parseAttachmentMutation = useMutation({
     mutationFn: async (inboxId: string) => {
