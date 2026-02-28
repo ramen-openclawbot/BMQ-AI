@@ -55,7 +55,7 @@ const navItems: NavItem[] = [
   { icon: UserRoundCog, label: "CRM", path: "/mini-crm", section: "finance" },
   { icon: ShoppingCart, label: "PO (Mua hàng)", path: "/purchase-orders", section: "finance", showPOBadge: true },
 
-  { icon: Landmark, label: "Niraan Dashboard", path: "/niraan-dashboard", section: "operations" },
+  { icon: Landmark, label: "Niraan Dashboard", path: "/niraan-dashboard", section: "execution" },
   { icon: Package, labelKey: "inventory", path: "/inventory", section: "operations" },
   { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts", section: "operations" },
   { icon: Barcode, labelKey: "skuCosts", path: "/sku-costs", section: "operations" },
