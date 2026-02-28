@@ -7,6 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -27,6 +29,8 @@ export default function MiniCrm() {
   const [customerGroup, setCustomerGroup] = useState("banhmi_point");
   const [defaultRevenueChannel, setDefaultRevenueChannel] = useState("");
   const [emailsInput, setEmailsInput] = useState("");
+  const [selectedPoId, setSelectedPoId] = useState<string | null>(null);
+  const [poSummaryDraft, setPoSummaryDraft] = useState<any>({});
 
   const { data: gmailConnectedEmail } = useQuery({
     queryKey: ["gmail-connected-email"],
@@ -164,6 +168,48 @@ export default function MiniCrm() {
     );
   }, [poInbox]);
 
+  const selectedPo = useMemo(() => poInbox.find((r: any) => r.id === selectedPoId) || null, [poInbox, selectedPoId]);
+
+  const savePoSummaryMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedPoId) throw new Error("Chưa chọn PO");
+      const payload = {
+        po_number: poSummaryDraft.po_number || null,
+        delivery_date: poSummaryDraft.delivery_date || null,
+        subtotal_amount: Number(poSummaryDraft.subtotal_amount || 0) || null,
+        vat_amount: Number(poSummaryDraft.vat_amount || 0) || null,
+        total_amount: Number(poSummaryDraft.total_amount || 0) || null,
+        production_items: poSummaryDraft.production_items || [],
+      };
+      const { error } = await (supabase as any).from("customer_po_inbox").update(payload).eq("id", selectedPoId);
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
+      toast({ title: "Đã lưu tóm tắt PO" });
+    },
+    onError: (e: any) => {
+      toast({ title: "Lỗi lưu PO", description: e?.message || "Không lưu được", variant: "destructive" });
+    },
+  });
+
+  const postRevenueMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await (supabase as any)
+        .from("customer_po_inbox")
+        .update({ posted_to_revenue: true, posted_to_revenue_at: new Date().toISOString(), match_status: "approved" })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
+      toast({ title: "Đã đánh dấu đẩy doanh thu" });
+    },
+    onError: (e: any) => {
+      toast({ title: "Lỗi đẩy doanh thu", description: e?.message || "Không thể cập nhật", variant: "destructive" });
+    },
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-3">
@@ -276,6 +322,23 @@ export default function MiniCrm() {
                   <TableCell>{row.mini_crm_customers?.customer_name || "Chưa match"}</TableCell>
                   <TableCell><Badge variant={row.match_status === "approved" ? "default" : "secondary"}>{row.match_status}</Badge></TableCell>
                   <TableCell className="space-x-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        setSelectedPoId(row.id);
+                        setPoSummaryDraft({
+                          po_number: row.po_number || "",
+                          delivery_date: row.delivery_date || "",
+                          subtotal_amount: row.subtotal_amount || "",
+                          vat_amount: row.vat_amount || "",
+                          total_amount: row.total_amount || "",
+                          production_items: Array.isArray(row.production_items) ? row.production_items : [],
+                        });
+                      }}
+                    >
+                      Xem nhanh
+                    </Button>
                     <Button size="sm" onClick={() => reviewMutation.mutate({ id: row.id, status: "approved" })} disabled={reviewMutation.isPending || row.match_status === "approved"}>Approve</Button>
                     <Button size="sm" variant="outline" onClick={() => reviewMutation.mutate({ id: row.id, status: "rejected" })} disabled={reviewMutation.isPending || row.match_status === "rejected"}>Reject</Button>
                   </TableCell>
@@ -285,6 +348,78 @@ export default function MiniCrm() {
           </Table>
         </CardContent>
       </Card>
+
+      {selectedPo && (
+        <Card>
+          <CardHeader>
+            <CardTitle>PO Quick View: {poSummaryDraft.po_number || selectedPo.po_number || selectedPo.email_subject}</CardTitle>
+            <CardDescription>Giao diện xem nhanh cho Kế toán và Quản lí sản xuất (không cần mở email).</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-sm text-muted-foreground">
+              <div><b>From:</b> {selectedPo.from_email}</div>
+              <div><b>Subject:</b> {selectedPo.email_subject}</div>
+              <div><b>Nội dung nhanh:</b> {selectedPo.body_preview || "(trống)"}</div>
+              <div><b>Attachments:</b> {(selectedPo.attachment_names || []).join(", ") || "Không có"}</div>
+            </div>
+
+            <Tabs defaultValue="accounting" className="w-full">
+              <TabsList>
+                <TabsTrigger value="accounting">Kế toán</TabsTrigger>
+                <TabsTrigger value="production">QL Sản xuất</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="accounting" className="space-y-3 pt-3">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <Label>PO Number</Label>
+                    <Input value={poSummaryDraft.po_number || ""} onChange={(e) => setPoSummaryDraft((s: any) => ({ ...s, po_number: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>Ngày giao</Label>
+                    <Input type="date" value={poSummaryDraft.delivery_date || ""} onChange={(e) => setPoSummaryDraft((s: any) => ({ ...s, delivery_date: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>Tạm tính</Label>
+                    <Input type="number" value={poSummaryDraft.subtotal_amount || ""} onChange={(e) => setPoSummaryDraft((s: any) => ({ ...s, subtotal_amount: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>VAT</Label>
+                    <Input type="number" value={poSummaryDraft.vat_amount || ""} onChange={(e) => setPoSummaryDraft((s: any) => ({ ...s, vat_amount: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>Tổng tiền đơn hàng</Label>
+                    <Input type="number" value={poSummaryDraft.total_amount || ""} onChange={(e) => setPoSummaryDraft((s: any) => ({ ...s, total_amount: e.target.value }))} />
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="production" className="space-y-3 pt-3">
+                <Label>Danh sách sản phẩm (JSON): [{`{sku,name,qty,unit}`}, ...]</Label>
+                <Textarea
+                  rows={8}
+                  value={JSON.stringify(poSummaryDraft.production_items || [], null, 2)}
+                  onChange={(e) => {
+                    try {
+                      const parsed = JSON.parse(e.target.value || "[]");
+                      setPoSummaryDraft((s: any) => ({ ...s, production_items: Array.isArray(parsed) ? parsed : [] }));
+                    } catch {
+                      // ignore invalid JSON while typing
+                    }
+                  }}
+                />
+              </TabsContent>
+            </Tabs>
+
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => savePoSummaryMutation.mutate()} disabled={savePoSummaryMutation.isPending}>Lưu tóm tắt PO</Button>
+              <Button variant="outline" onClick={() => postRevenueMutation.mutate(selectedPo.id)} disabled={postRevenueMutation.isPending || selectedPo.posted_to_revenue}>
+                {selectedPo.posted_to_revenue ? "Đã đẩy doanh thu" : "Đẩy sang kiểm soát doanh thu"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

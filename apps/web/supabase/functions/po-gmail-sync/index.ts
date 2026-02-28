@@ -11,6 +11,18 @@ type GmailMessage = {
   threadId: string;
 };
 
+const extractPoNumber = (subject: string) => {
+  const m = subject.match(/PO\s*([0-9]{6,})/i) || subject.match(/\b(PO[0-9]{6,})\b/i);
+  if (!m) return null;
+  return m[1].toUpperCase().startsWith("PO") ? m[1].toUpperCase() : `PO${m[1]}`;
+};
+
+const extractDeliveryDate = (subject: string) => {
+  const m = subject.match(/GIAO\s*NGÀY\s*(\d{2})[./-](\d{2})[./-](\d{4})/i);
+  if (!m) return null;
+  return `${m[3]}-${m[2]}-${m[1]}`;
+};
+
 const decodeBase64Url = (input: string) => {
   const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
   const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
@@ -165,6 +177,8 @@ serve(async (req) => {
         matched_customer_id: match?.customerId || null,
         match_status: match ? "pending_approval" : "unmatched",
         revenue_channel: match?.defaultRevenueChannel || null,
+        po_number: extractPoNumber(subject || ""),
+        delivery_date: extractDeliveryDate(subject || ""),
         raw_payload: {
           gmail_id: m.id,
           thread_id: m.threadId,
