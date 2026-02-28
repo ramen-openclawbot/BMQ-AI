@@ -286,7 +286,7 @@ const translations: Record<Language, Translations> = {
     profileUpdateFailed: "Failed to update profile",
     
     // App title
-    appTitle: "Procurement AI Agent",
+    appTitle: "AI Agent",
   },
   vi: {
     // Navigation
@@ -428,7 +428,7 @@ const translations: Record<Language, Translations> = {
     profileUpdateFailed: "Không thể cập nhật hồ sơ",
     
     // App title
-    appTitle: "Procurement AI Agent",
+    appTitle: "AI Agent",
   },
 };
 
