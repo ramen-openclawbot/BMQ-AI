@@ -16,6 +16,7 @@ import {
   BarChart3,
   Landmark,
   Scale,
+  TrendingUp,
   FolderSearch,
   ChevronLeft,
   ChevronRight,
@@ -40,7 +41,8 @@ interface NavItem {
 const navItems: NavItem[] = [
   { icon: LayoutDashboard, labelKey: "dashboard", path: "/" },
   { icon: Landmark, label: "Niraan Dashboard", path: "/niraan-dashboard" },
-  { icon: Scale, label: "Finance Control", path: "/finance-control" },
+  { icon: Scale, label: "Finance - Quản lý chi phí", path: "/finance-control/cost" },
+  { icon: TrendingUp, label: "Finance - Kiểm soát doanh thu", path: "/finance-control/revenue" },
   { icon: BarChart3, labelKey: "reports", path: "/reports" },
   { icon: Package, labelKey: "inventory", path: "/inventory" },
   { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts" },

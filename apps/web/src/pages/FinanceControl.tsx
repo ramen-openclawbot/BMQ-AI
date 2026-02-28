@@ -204,7 +204,7 @@ export default function FinanceControl() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-display font-bold">Finance Control</h1>
+        <h1 className="text-3xl font-display font-bold">Quản lý chi phí</h1>
         <p className="text-muted-foreground">Daily & monthly reconciliation for UNC and cash fund top-up.</p>
       </div>
 
