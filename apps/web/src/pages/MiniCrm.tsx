@@ -38,6 +38,14 @@ const calcSubtotalFromItems = (items: any[]) =>
 
 const formatVnd = (value: any) => `${Number(value || 0).toLocaleString("vi-VN")} ₫`;
 const calcVatFromSubtotal = (subtotal: any, rate = 0.08) => Math.round(Number(subtotal || 0) * rate);
+const normalizeVatDisplay = (subtotal: any, vat: any) => {
+  const s = Number(subtotal || 0);
+  const v = Number(vat || 0);
+  if (s <= 0) return 0;
+  if (v <= 0) return calcVatFromSubtotal(s, 0.08);
+  if (v > s * 0.3) return calcVatFromSubtotal(s, 0.08);
+  return v;
+};
 const calcTotalFromRawPayload = (rawPayload: any) => {
   const meta = rawPayload?.parse_meta || {};
   const metaTotal = Number(meta?.total_amount || 0);
@@ -210,10 +218,9 @@ export default function MiniCrm() {
         ? selectedPo.raw_payload.parsed_items_preview
         : [];
     const subtotal = Number(selectedPo.subtotal_amount || selectedPo?.raw_payload?.parse_meta?.subtotal || calcSubtotalFromItems(items) || 0);
-    const vat = Number(
-      selectedPo.vat_amount ||
-      selectedPo?.raw_payload?.parse_meta?.vat_amount ||
-      (subtotal > 0 ? calcVatFromSubtotal(subtotal, 0.08) : 0)
+    const vat = normalizeVatDisplay(
+      subtotal,
+      selectedPo.vat_amount || selectedPo?.raw_payload?.parse_meta?.vat_amount || 0
     );
     const total = Number(selectedPo.total_amount || selectedPo?.raw_payload?.parse_meta?.total_amount || subtotal + vat || 0);
     setPoSummaryDraft({
@@ -247,7 +254,7 @@ export default function MiniCrm() {
       if (Array.isArray(result?.parsed?.items)) {
         const parsedItems = result.parsed.items;
         const subtotal = Number(result?.parsed?.subtotal || calcSubtotalFromItems(parsedItems) || 0);
-        const vat = Number(result?.parsed?.vat || calcVatFromSubtotal(subtotal, 0.08) || 0);
+        const vat = normalizeVatDisplay(subtotal, result?.parsed?.vat || 0);
         const total = Number(result?.parsed?.total || subtotal + vat);
         setPoSummaryDraft((s: any) => ({
           ...s,

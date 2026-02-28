@@ -67,6 +67,17 @@ const normalizeDate = (v: any): string | null => {
   return s.slice(0, 10);
 };
 
+const sanitizeVat = (subtotal: number, vat: number, vatRate: number) => {
+  const s = Number(subtotal || 0);
+  const v = Number(vat || 0);
+  const byRate = vatRate > 0 ? Math.round(s * (vatRate / 100)) : Math.round(s * 0.08);
+  if (s <= 0) return 0;
+  if (v <= 0) return byRate;
+  // VAT thực tế không thể lớn hơn 30% subtotal cho case PO hiện tại
+  if (v > s * 0.3) return byRate;
+  return v;
+};
+
 function mapRowsToItems(rows: Record<string, any>[]) {
   const keyOf = (row: Record<string, any>, candidates: string[]) => {
     const keys = Object.keys(row || {});
@@ -214,8 +225,8 @@ serve(async (req) => {
     }
 
     const subtotal = items.reduce((s, i) => s + Number(i.line_total || 0), 0);
-    const vatAmount = extractedVat || (extractedVatRate > 0 ? Math.round(subtotal * (extractedVatRate / 100)) : 0);
-    const totalAmount = extractedTotal || subtotal + vatAmount;
+    const vatAmount = sanitizeVat(subtotal, extractedVat, extractedVatRate);
+    const totalAmount = extractedTotal > 0 ? extractedTotal : subtotal + vatAmount;
     const parseMeta = {
       parsed_at: new Date().toISOString(),
       parsed_by: user.id,
