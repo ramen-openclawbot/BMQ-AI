@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -420,19 +419,46 @@ export default function MiniCrm() {
               </TabsContent>
 
               <TabsContent value="production" className="space-y-3 pt-3">
-                <Label>Danh sách sản phẩm (JSON): [{`{sku,name,qty,unit}`}, ...]</Label>
-                <Textarea
-                  rows={8}
-                  value={JSON.stringify(poSummaryDraft.production_items || [], null, 2)}
-                  onChange={(e) => {
-                    try {
-                      const parsed = JSON.parse(e.target.value || "[]");
-                      setPoSummaryDraft((s: any) => ({ ...s, production_items: Array.isArray(parsed) ? parsed : [] }));
-                    } catch {
-                      // ignore invalid JSON while typing
-                    }
-                  }}
-                />
+                <div className="flex items-center justify-between">
+                  <Label>Danh sách sản phẩm cho quản lí sản xuất</Label>
+                  <div className="text-xs text-muted-foreground">
+                    Tổng dòng: {Array.isArray(poSummaryDraft.production_items) ? poSummaryDraft.production_items.length : 0}
+                  </div>
+                </div>
+
+                <div className="rounded-md border overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>SKU</TableHead>
+                        <TableHead>Tên sản phẩm</TableHead>
+                        <TableHead>ĐVT</TableHead>
+                        <TableHead className="text-right">SL</TableHead>
+                        <TableHead className="text-right">Đơn giá</TableHead>
+                        <TableHead className="text-right">Thành tiền</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(Array.isArray(poSummaryDraft.production_items) ? poSummaryDraft.production_items : []).map((item: any, idx: number) => (
+                        <TableRow key={`${item?.sku || "row"}-${idx}`}>
+                          <TableCell>{item?.sku || "-"}</TableCell>
+                          <TableCell>{item?.product_name || item?.name || "-"}</TableCell>
+                          <TableCell>{item?.unit || "-"}</TableCell>
+                          <TableCell className="text-right">{Number(item?.qty || item?.quantity || 0).toLocaleString("vi-VN")}</TableCell>
+                          <TableCell className="text-right">{Number(item?.unit_price || 0).toLocaleString("vi-VN")}</TableCell>
+                          <TableCell className="text-right">{Number(item?.line_total || 0).toLocaleString("vi-VN")}</TableCell>
+                        </TableRow>
+                      ))}
+                      {(!Array.isArray(poSummaryDraft.production_items) || poSummaryDraft.production_items.length === 0) && (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
+                            Chưa có dữ liệu sản phẩm. Bấm "Parse từ file đính kèm" để lấy tự động.
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
               </TabsContent>
             </Tabs>
 
