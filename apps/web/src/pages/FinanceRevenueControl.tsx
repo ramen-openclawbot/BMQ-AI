@@ -39,6 +39,20 @@ const extractPoNumberFromSubject = (subject?: string) => {
   if (!m) return "";
   return m[1].toUpperCase().startsWith("PO") ? m[1].toUpperCase() : `PO${m[1]}`;
 };
+const calcAmountFromRow = (row: any) => {
+  const direct = Number(row?.total_amount || row?.subtotal_amount || 0);
+  if (direct > 0) return direct;
+  const postedAmount = Number(row?.raw_payload?.revenue_post?.amount || 0);
+  if (postedAmount > 0) return postedAmount;
+  const meta = row?.raw_payload?.parse_meta || {};
+  const metaTotal = Number(meta?.total_amount || 0);
+  if (metaTotal > 0) return metaTotal;
+  const metaSubtotal = Number(meta?.subtotal || 0);
+  const metaVat = Number(meta?.vat_amount || 0);
+  if (metaSubtotal > 0) return metaSubtotal + metaVat;
+  const items = Array.isArray(row?.raw_payload?.parsed_items_preview) ? row.raw_payload.parsed_items_preview : [];
+  return items.reduce((sum: number, it: any) => sum + Number(it?.line_total || 0), 0);
+};
 const todayLocal = () => {
   const d = new Date();
   const y = d.getFullYear();
@@ -84,7 +98,7 @@ export default function FinanceRevenueControl() {
     for (const row of postedRowsByDate) {
       const channel = normalizeChannel(row.revenue_channel);
       if (!channel) continue;
-      const amount = Number(row.total_amount || row.subtotal_amount || 0);
+      const amount = calcAmountFromRow(row);
       out[channel] = (out[channel] || 0) + amount;
     }
     return out;
@@ -151,7 +165,7 @@ export default function FinanceRevenueControl() {
                 <TableRow key={row.id}>
                   <TableCell>{extractPoNumberFromSubject(row.email_subject) || row.email_subject || "-"}</TableCell>
                   <TableCell>{normalizeChannel(row.revenue_channel) || "-"}</TableCell>
-                  <TableCell className="text-right">{vnd(Number(row.total_amount || row.subtotal_amount || 0))}</TableCell>
+                  <TableCell className="text-right">{vnd(calcAmountFromRow(row))}</TableCell>
                 </TableRow>
               ))}
               {postedRowsByDate.length === 0 && (

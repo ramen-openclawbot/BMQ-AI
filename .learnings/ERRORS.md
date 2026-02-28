@@ -86,3 +86,73 @@ Use `sessions_spawn` for complex coding delegation when local codex binary is un
 - Related Files: .learnings/ERRORS.md
 
 ---
+
+## [ERR-20260228-003] openclaw-edit-tool
+
+**Logged**: 2026-02-28T22:56:00+07:00
+**Priority**: medium
+**Status**: resolved
+**Area**: backend
+
+### Summary
+Tool edit báo lỗi khi thay chuỗi không khớp chính xác hoặc thiếu tham số new_string/newText.
+
+### Error
+```
+⚠️ 📝 Edit: in ~/.openclaw/workspace/BMQ-AI/apps/web/supabase/functions/po-use-latest-kingfood-today/index.ts failed
+```
+
+### Context
+- Đang chỉnh edge function nhanh trong nhiều lần edit liên tiếp.
+- Có lần gửi thiếu `new_string`, có lần `old_string` không còn khớp sau khi file đã thay đổi.
+
+### Suggested Fix
+- Luôn `read` lại block gần nhất trước khi `edit`.
+- Chỉ dùng `old_string` ngắn và đặc trưng để giảm mismatch.
+- Nếu chỉnh nhiều đoạn lớn, dùng `write` để ghi lại toàn bộ file.
+
+### Metadata
+- Reproducible: yes
+- Related Files: apps/web/supabase/functions/po-use-latest-kingfood-today/index.ts
+
+### Resolution
+- **Resolved**: 2026-02-28T22:57:00+07:00
+- **Commit/PR**: N/A (tooling/process)
+- **Notes**: Đã read lại file, sửa đúng block, deploy và invoke thành công.
+
+---
+## [ERR-20260301-001] mini-crm-revenue-post-schema-mismatch
+
+**Logged**: 2026-03-01T00:04:00+07:00
+**Priority**: high
+**Status**: resolved
+**Area**: backend
+
+### Summary
+Luồng "Đẩy sang kiểm soát doanh thu" fail do frontend/select phụ thuộc cột schema cache chưa expose ổn định (`posted_to_revenue`, `po_number`).
+
+### Error
+```
+Could not find the 'posted_to_revenue' column of 'customer_po_inbox' in the schema cache
+column customer_po_inbox.po_number does not exist
+```
+
+### Context
+- Operation: update/select trên `customer_po_inbox` từ MiniCrm.tsx
+- Ảnh hưởng: không đẩy được PO sang finance, user thấy thông báo lỗi liên tục
+
+### Suggested Fix
+- Không phụ thuộc cột optional trong flow runtime; ưu tiên `raw_payload.revenue_post` để đánh dấu post.
+- Đồng bộ migration compatibility + grants để PostgREST expose cột ổn định.
+
+### Metadata
+- Reproducible: yes
+- Related Files: apps/web/src/pages/MiniCrm.tsx, apps/web/src/pages/FinanceRevenueControl.tsx, apps/web/supabase/migrations/20260228235800_customer_po_inbox_compat_columns.sql
+- See Also: N/A
+
+### Resolution
+- **Resolved**: 2026-03-01T00:00:00+07:00
+- **Commit/PR**: a412686, 84a1deb
+- **Notes**: Bỏ phụ thuộc `po_number`/`posted_to_revenue` trong query cập nhật chính; thêm migration compatibility + grants.
+
+---

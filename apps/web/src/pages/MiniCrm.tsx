@@ -38,6 +38,16 @@ const calcSubtotalFromItems = (items: any[]) =>
 
 const formatVnd = (value: any) => `${Number(value || 0).toLocaleString("vi-VN")} ₫`;
 const calcVatFromSubtotal = (subtotal: any, rate = 0.08) => Math.round(Number(subtotal || 0) * rate);
+const calcTotalFromRawPayload = (rawPayload: any) => {
+  const meta = rawPayload?.parse_meta || {};
+  const metaTotal = Number(meta?.total_amount || 0);
+  if (metaTotal > 0) return metaTotal;
+  const metaSubtotal = Number(meta?.subtotal || 0);
+  const metaVat = Number(meta?.vat_amount || 0);
+  if (metaSubtotal > 0) return metaSubtotal + metaVat;
+  const items = Array.isArray(rawPayload?.parsed_items_preview) ? rawPayload.parsed_items_preview : [];
+  return items.reduce((sum: number, it: any) => sum + Number(it?.line_total || 0), 0);
+};
 
 
 export default function MiniCrm() {
@@ -296,12 +306,14 @@ export default function MiniCrm() {
         .single();
       if (rowErr || !row) throw rowErr || new Error("Không tìm thấy PO để đẩy doanh thu");
 
+      const postedAmount = Number(row?.total_amount || calcTotalFromRawPayload(row?.raw_payload || {}) || 0);
       const nextRawPayload = {
         ...(row.raw_payload || {}),
         revenue_post: {
           posted: true,
           posted_at: nowIso,
           posted_by: "mini-crm-ui",
+          amount: postedAmount,
         },
       };
 
