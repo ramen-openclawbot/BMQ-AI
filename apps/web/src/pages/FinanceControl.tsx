@@ -72,6 +72,18 @@ export default function FinanceControl() {
 
   const dateKey = format(selectedDate, "yyyy-MM-dd");
 
+  useEffect(() => {
+    // Prevent stale slip previews when switching date while query is refetching
+    setQtmSlipPreview("");
+    setUncSlipPreview("");
+    setPendingQtmImageBase64(null);
+    setPendingUncImageBase64(null);
+    setPendingQtmExtracted(null);
+    setPendingUncExtracted(null);
+    setQtmSlipFile(null);
+    setUncSlipFile(null);
+  }, [dateKey]);
+
   const extractSlipAmount = async (file: File, slipType: "qtm" | "unc") => {
     const imageBase64 = await fileToBase64(file);
     const { data: { session } } = await supabase.auth.getSession();
