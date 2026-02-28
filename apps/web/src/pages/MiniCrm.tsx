@@ -306,14 +306,26 @@ export default function MiniCrm() {
         .single();
       if (rowErr || !row) throw rowErr || new Error("Không tìm thấy PO để đẩy doanh thu");
 
-      const postedAmount = Number(row?.total_amount || calcTotalFromRawPayload(row?.raw_payload || {}) || 0);
+      const postedSubtotal = Number(poSummaryDraft?.subtotal_amount || row?.subtotal_amount || 0);
+      const postedVat = Number(poSummaryDraft?.vat_amount || row?.vat_amount || 0);
+      const postedTotal = Number(
+        poSummaryDraft?.total_amount ||
+        (postedSubtotal > 0 ? postedSubtotal + postedVat : 0) ||
+        row?.total_amount ||
+        calcTotalFromRawPayload(row?.raw_payload || {}) ||
+        0
+      );
+
       const nextRawPayload = {
         ...(row.raw_payload || {}),
         revenue_post: {
           posted: true,
           posted_at: nowIso,
           posted_by: "mini-crm-ui",
-          amount: postedAmount,
+          amount: postedTotal,
+          subtotal: postedSubtotal,
+          vat: postedVat,
+          total: postedTotal,
         },
       };
 
@@ -335,9 +347,10 @@ export default function MiniCrm() {
       setPostRevenueStatus(`✅ Đã đẩy thành công PO ${poCode} lúc ${new Date(row?.posted_to_revenue_at || Date.now()).toLocaleString("vi-VN")}`);
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
       await queryClient.invalidateQueries({ queryKey: ["finance-posted-po"] });
+      const postedDisplay = Number(row?.raw_payload?.revenue_post?.total || row?.raw_payload?.revenue_post?.amount || row?.total_amount || 0);
       toast({
         title: "✅ Đã đẩy sang kiểm soát doanh thu",
-        description: `${extractPoNumberFromSubject(row?.email_subject) || row?.id} • ${Number(row?.total_amount || 0).toLocaleString("vi-VN")} ₫ • ${row?.revenue_channel || "(chưa có kênh)"}`,
+        description: `${extractPoNumberFromSubject(row?.email_subject) || row?.id} • ${postedDisplay.toLocaleString("vi-VN")} ₫ • ${row?.revenue_channel || "(chưa có kênh)"}`,
       });
     },
     onError: (e: any) => {

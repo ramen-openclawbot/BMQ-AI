@@ -40,10 +40,10 @@ const extractPoNumberFromSubject = (subject?: string) => {
   return m[1].toUpperCase().startsWith("PO") ? m[1].toUpperCase() : `PO${m[1]}`;
 };
 const calcAmountFromRow = (row: any) => {
+  const postedTotal = Number(row?.raw_payload?.revenue_post?.total || row?.raw_payload?.revenue_post?.amount || 0);
+  if (postedTotal > 0) return postedTotal;
   const direct = Number(row?.total_amount || row?.subtotal_amount || 0);
   if (direct > 0) return direct;
-  const postedAmount = Number(row?.raw_payload?.revenue_post?.amount || 0);
-  if (postedAmount > 0) return postedAmount;
   const meta = row?.raw_payload?.parse_meta || {};
   const metaTotal = Number(meta?.total_amount || 0);
   if (metaTotal > 0) return metaTotal;
