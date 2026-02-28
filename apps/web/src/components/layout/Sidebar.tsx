@@ -35,25 +35,34 @@ interface NavItem {
   labelKey?: keyof ReturnType<typeof useLanguage>["t"];
   label?: string;
   path: string;
+  section: "operations" | "finance" | "execution";
   showBadge?: boolean;
   showPOBadge?: boolean;
 }
 
+const sectionLabels: Record<NavItem["section"], string> = {
+  execution: "Điều hành",
+  finance: "Tài chính",
+  operations: "Vận hành",
+};
+
 const navItems: NavItem[] = [
-  { icon: LayoutDashboard, labelKey: "dashboard", path: "/" },
-  { icon: BarChart3, labelKey: "reports", path: "/reports" },
-  { icon: Scale, label: "Quản lý chi phí (Mua hàng)", path: "/finance-control/cost" },
-  { icon: TrendingUp, label: "Quản lý doanh thu", path: "/finance-control/revenue" },
-  { icon: UserRoundCog, label: "CRM", path: "/mini-crm" },
-  { icon: ShoppingCart, label: "PO (Mua hàng)", path: "/purchase-orders", showPOBadge: true },
-  { icon: Landmark, label: "Niraan Dashboard", path: "/niraan-dashboard" },
-  { icon: Package, labelKey: "inventory", path: "/inventory" },
-  { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts" },
-  { icon: Barcode, labelKey: "skuCosts", path: "/sku-costs" },
-  { icon: Users, labelKey: "suppliers", path: "/suppliers" },
-  { icon: FileText, labelKey: "invoices", path: "/invoices" },
-  { icon: FileCheck, labelKey: "paymentRequests", path: "/payment-requests", showBadge: true },
-  { icon: AlertTriangle, labelKey: "lowStock", path: "/low-stock" },
+  { icon: LayoutDashboard, labelKey: "dashboard", path: "/", section: "execution" },
+  { icon: BarChart3, labelKey: "reports", path: "/reports", section: "execution" },
+
+  { icon: Scale, label: "Quản lý chi phí (Mua hàng)", path: "/finance-control/cost", section: "finance" },
+  { icon: TrendingUp, label: "Quản lý doanh thu", path: "/finance-control/revenue", section: "finance" },
+  { icon: UserRoundCog, label: "CRM", path: "/mini-crm", section: "finance" },
+  { icon: ShoppingCart, label: "PO (Mua hàng)", path: "/purchase-orders", section: "finance", showPOBadge: true },
+
+  { icon: Landmark, label: "Niraan Dashboard", path: "/niraan-dashboard", section: "operations" },
+  { icon: Package, labelKey: "inventory", path: "/inventory", section: "operations" },
+  { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts", section: "operations" },
+  { icon: Barcode, labelKey: "skuCosts", path: "/sku-costs", section: "operations" },
+  { icon: Users, labelKey: "suppliers", path: "/suppliers", section: "operations" },
+  { icon: FileText, labelKey: "invoices", path: "/invoices", section: "operations" },
+  { icon: FileCheck, labelKey: "paymentRequests", path: "/payment-requests", section: "operations", showBadge: true },
+  { icon: AlertTriangle, labelKey: "lowStock", path: "/low-stock", section: "operations" },
 ];
 
 export function Sidebar() {
@@ -107,55 +116,64 @@ export function Sidebar() {
 
         {/* Navigation - scrollable */}
         <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
-          {navItems.map((item) => (
-            <div key={item.path}>
-              <NavLink
-                to={item.path}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200",
-                    isActive
-                      ? "bg-sidebar-accent text-sidebar-primary"
-                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                  )
-                }
-              >
-                <item.icon className="h-5 w-5" />
-                {!collapsed && <span className="flex-1">{item.label || (item.labelKey ? t[item.labelKey] : "")}</span>}
-                {!collapsed && item.showBadge && badgeCount > 0 && (
-                  <Badge variant="destructive" className="h-5 min-w-5 flex items-center justify-center text-xs">
-                    {badgeCount}
-                  </Badge>
+          {navItems.map((item, idx) => {
+            const showSectionHeader = idx === 0 || navItems[idx - 1].section !== item.section;
+            return (
+              <div key={item.path}>
+                {!collapsed && showSectionHeader && (
+                  <div className="px-4 pt-3 pb-1 text-[11px] uppercase tracking-wide text-sidebar-foreground/50 font-semibold">
+                    {sectionLabels[item.section]}
+                  </div>
                 )}
-                {!collapsed && item.showPOBadge && draftPOCount && draftPOCount > 0 && (
-                  <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center text-xs">
-                    {draftPOCount}
-                  </Badge>
-                )}
-              </NavLink>
-              
-              {/* Quick Action: Tạo PO từ GG Drive - under Purchase Orders */}
-              {item.path === "/purchase-orders" && !collapsed && (
-                <div className="ml-8 mt-1">
-                  <button
-                    onClick={handleScanDrive}
-                    className="flex items-center gap-1.5 text-xs text-blue-500 hover:text-blue-600 px-4 py-1.5 w-full rounded hover:bg-sidebar-accent/30 transition-colors"
-                  >
-                    <FolderSearch className="h-3 w-3" />
-                    <span>Tạo PO từ GG Drive</span>
-                  </button>
-                </div>
-              )}
 
-              {item.path === "/sku-costs" && !collapsed && (
-                <div className="ml-8 mt-2 space-y-1">
-                  <NavLink to="/sku-costs/dashboard" className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground px-4 py-2 w-full rounded hover:bg-sidebar-accent/30 transition-colors">{t.skuCostDashboard}</NavLink>
-                  <NavLink to="/sku-costs/management" className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground px-4 py-2 w-full rounded hover:bg-sidebar-accent/30 transition-colors">{t.skuCostManagement}</NavLink>
-                  <NavLink to="/sku-costs/analysis" className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground px-4 py-2 w-full rounded hover:bg-sidebar-accent/30 transition-colors">{t.skuCostAnalysis}</NavLink>
-                </div>
-              )}
-            </div>
-          ))}
+                <NavLink
+                  to={item.path}
+                  className={({ isActive }) =>
+                    cn(
+                      "flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200",
+                      isActive
+                        ? "bg-sidebar-accent text-sidebar-primary"
+                        : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                    )
+                  }
+                >
+                  <item.icon className="h-5 w-5" />
+                  {!collapsed && <span className="flex-1">{item.label || (item.labelKey ? t[item.labelKey] : "")}</span>}
+                  {!collapsed && item.showBadge && badgeCount > 0 && (
+                    <Badge variant="destructive" className="h-5 min-w-5 flex items-center justify-center text-xs">
+                      {badgeCount}
+                    </Badge>
+                  )}
+                  {!collapsed && item.showPOBadge && draftPOCount && draftPOCount > 0 && (
+                    <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center text-xs">
+                      {draftPOCount}
+                    </Badge>
+                  )}
+                </NavLink>
+                
+                {/* Quick Action: Tạo PO từ GG Drive - under Purchase Orders */}
+                {item.path === "/purchase-orders" && !collapsed && (
+                  <div className="ml-8 mt-1">
+                    <button
+                      onClick={handleScanDrive}
+                      className="flex items-center gap-1.5 text-xs text-blue-500 hover:text-blue-600 px-4 py-1.5 w-full rounded hover:bg-sidebar-accent/30 transition-colors"
+                    >
+                      <FolderSearch className="h-3 w-3" />
+                      <span>Tạo PO từ GG Drive</span>
+                    </button>
+                  </div>
+                )}
+
+                {item.path === "/sku-costs" && !collapsed && (
+                  <div className="ml-8 mt-2 space-y-1">
+                    <NavLink to="/sku-costs/dashboard" className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground px-4 py-2 w-full rounded hover:bg-sidebar-accent/30 transition-colors">{t.skuCostDashboard}</NavLink>
+                    <NavLink to="/sku-costs/management" className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground px-4 py-2 w-full rounded hover:bg-sidebar-accent/30 transition-colors">{t.skuCostManagement}</NavLink>
+                    <NavLink to="/sku-costs/analysis" className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground px-4 py-2 w-full rounded hover:bg-sidebar-accent/30 transition-colors">{t.skuCostAnalysis}</NavLink>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
 
         {/* Settings */}
