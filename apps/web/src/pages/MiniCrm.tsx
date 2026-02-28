@@ -51,6 +51,7 @@ export default function MiniCrm() {
   const [emailsInput, setEmailsInput] = useState("");
   const [selectedPoId, setSelectedPoId] = useState<string | null>(null);
   const [poSummaryDraft, setPoSummaryDraft] = useState<any>({});
+  const [postRevenueStatus, setPostRevenueStatus] = useState<string>("");
 
   const { data: gmailConnectedEmail } = useQuery({
     queryKey: ["gmail-connected-email"],
@@ -192,6 +193,7 @@ export default function MiniCrm() {
 
   useEffect(() => {
     if (!selectedPo) return;
+    setPostRevenueStatus("");
     const items = Array.isArray(selectedPo.production_items)
       ? selectedPo.production_items
       : Array.isArray(selectedPo?.raw_payload?.parsed_items_preview)
@@ -279,19 +281,23 @@ export default function MiniCrm() {
 
   const postRevenueMutation = useMutation({
     onMutate: () => {
+      setPostRevenueStatus("Đang đẩy dữ liệu sang Kiểm soát doanh thu...");
       toast({ title: "Đang đẩy sang kiểm soát doanh thu..." });
     },
     mutationFn: async (id: string) => {
+      const nowIso = new Date().toISOString();
       const { data, error } = await (supabase as any)
         .from("customer_po_inbox")
-        .update({ posted_to_revenue: true, posted_to_revenue_at: new Date().toISOString(), match_status: "approved" })
+        .update({ posted_to_revenue: true, posted_to_revenue_at: nowIso, match_status: "approved" })
         .eq("id", id)
-        .select("id,po_number,total_amount,revenue_channel,posted_to_revenue")
+        .select("id,po_number,total_amount,revenue_channel,posted_to_revenue,posted_to_revenue_at")
         .single();
       if (error) throw error;
+      if (!data?.posted_to_revenue) throw new Error("Cập nhật cờ posted_to_revenue không thành công");
       return data;
     },
     onSuccess: async (row: any) => {
+      setPostRevenueStatus(`✅ Đã đẩy thành công PO ${row?.po_number || row?.id} lúc ${new Date(row?.posted_to_revenue_at || Date.now()).toLocaleString("vi-VN")}`);
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
       await queryClient.invalidateQueries({ queryKey: ["finance-posted-po"] });
       toast({
@@ -300,6 +306,7 @@ export default function MiniCrm() {
       });
     },
     onError: (e: any) => {
+      setPostRevenueStatus(`❌ Đẩy thất bại: ${e?.message || "Không thể cập nhật"}`);
       toast({ title: "Lỗi đẩy doanh thu", description: e?.message || "Không thể cập nhật", variant: "destructive" });
     },
   });
@@ -540,10 +547,15 @@ export default function MiniCrm() {
                 {parseAttachmentMutation.isPending ? "Đang parse..." : "Parse từ file đính kèm"}
               </Button>
               <Button onClick={() => savePoSummaryMutation.mutate()} disabled={savePoSummaryMutation.isPending}>Lưu tóm tắt PO</Button>
-              <Button variant="outline" onClick={() => postRevenueMutation.mutate(selectedPo.id)} disabled={postRevenueMutation.isPending || selectedPo.posted_to_revenue}>
-                {selectedPo.posted_to_revenue ? "Đã đẩy doanh thu" : "Đẩy sang kiểm soát doanh thu"}
+              <Button variant="outline" onClick={() => postRevenueMutation.mutate(selectedPo.id)} disabled={postRevenueMutation.isPending}>
+                {postRevenueMutation.isPending ? "Đang đẩy..." : (selectedPo.posted_to_revenue ? "Đẩy lại sang kiểm soát doanh thu" : "Đẩy sang kiểm soát doanh thu")}
               </Button>
             </div>
+            {postRevenueStatus && (
+              <div className="text-sm rounded-md border px-3 py-2 bg-muted/40">
+                {postRevenueStatus}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

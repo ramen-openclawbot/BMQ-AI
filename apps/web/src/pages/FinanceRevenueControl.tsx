@@ -33,9 +33,16 @@ const normalizeChannel = (channel?: string | null) => {
 };
 
 const dateOnly = (value?: string | null) => String(value || "").slice(0, 10);
+const todayLocal = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
 
 export default function FinanceRevenueControl() {
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [selectedDate, setSelectedDate] = useState<string>(todayLocal());
   const [manualAdjust, setManualAdjust] = useState<RevenueState>({});
 
   const { data: postedPoRows = [] } = useQuery({
@@ -117,7 +124,8 @@ export default function FinanceRevenueControl() {
           <CardDescription>Tự động tổng hợp theo ngày từ nút "Đẩy sang kiểm soát doanh thu".</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="text-sm text-muted-foreground mb-3">Số PO trong ngày: {postedRowsByDate.length}</div>
+          <div className="text-sm text-muted-foreground mb-1">Số PO trong ngày: {postedRowsByDate.length}</div>
+          <div className="text-xs text-muted-foreground mb-3">Tổng PO đã đẩy (mọi ngày): {postedPoRows.length}</div>
           <Table>
             <TableHeader>
               <TableRow>
