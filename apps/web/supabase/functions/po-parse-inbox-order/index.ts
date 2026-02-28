@@ -54,7 +54,36 @@ async function gmailApi(accessToken: string, path: string) {
   return await res.json();
 }
 
-const toNum = (v: any) => Number(String(v ?? "0").replace(/[,.](?=\d{3}\b)/g, "")) || 0;
+const toNum = (v: any) => {
+  const raw = String(v ?? "").trim();
+  if (!raw) return 0;
+
+  // Giữ lại ký tự số + dấu phân cách thập phân/nghìn
+  const s = raw.replace(/[^\d,.-]/g, "");
+  const hasComma = s.includes(",");
+  const hasDot = s.includes(".");
+
+  const normalize = (input: string, decimalSep: "," | ".") => {
+    const parts = input.split(decimalSep);
+    if (parts.length === 1) return input.replace(/[,.]/g, "");
+    const decimal = parts.pop() || "";
+    const integer = parts.join("").replace(/[,.]/g, "");
+    return `${integer}.${decimal}`;
+  };
+
+  let normalized = s;
+  if (hasComma && hasDot) {
+    // Dấu xuất hiện sau cùng được xem là dấu thập phân
+    normalized = s.lastIndexOf(",") > s.lastIndexOf(".") ? normalize(s, ",") : normalize(s, ".");
+  } else if (hasComma) {
+    normalized = /,\d{1,2}$/.test(s) ? normalize(s, ",") : s.replace(/,/g, "");
+  } else if (hasDot) {
+    normalized = /\.\d{1,2}$/.test(s) ? normalize(s, ".") : s.replace(/\./g, "");
+  }
+
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : 0;
+};
 const normalizeDate = (v: any): string | null => {
   const s = String(v || "").trim();
   if (!s) return null;
@@ -236,7 +265,11 @@ serve(async (req) => {
       }
     }
 
-    const subtotal = items.reduce((s, i) => s + Number(i.line_total || 0), 0);
+    const subtotalByLineTotal = items.reduce((s, i) => s + Number(i.line_total || 0), 0);
+    const subtotalByQtyPrice = items.reduce((s, i) => s + (Number(i.qty || 0) * Number(i.unit_price || 0)), 0);
+    const subtotal = (subtotalByQtyPrice > 0 && (subtotalByLineTotal > subtotalByQtyPrice * 1.5 || subtotalByLineTotal < subtotalByQtyPrice * 0.5))
+      ? subtotalByQtyPrice
+      : subtotalByLineTotal;
     const vatAmount = sanitizeVat(subtotal, extractedVat, extractedVatRate);
     const totalAmount = sanitizeTotal(subtotal, vatAmount, extractedTotal);
     const parseMeta = {
