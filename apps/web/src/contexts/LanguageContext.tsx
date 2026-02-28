@@ -22,6 +22,15 @@ interface Translations {
   purchaseOrders: string;
   lowStock: string;
   reports: string;
+  investorDashboard: string;
+  financeCostManagement: string;
+  financeRevenueManagement: string;
+  crm: string;
+  poPurchasing: string;
+  sectionExecution: string;
+  sectionFinance: string;
+  sectionOperations: string;
+  createPOFromDrive: string;
   team: string;
   settings: string;
   
@@ -166,6 +175,15 @@ const translations: Record<Language, Translations> = {
     purchaseOrders: "Purchase Orders",
     lowStock: "Low Stock",
     reports: "Reports",
+    investorDashboard: "Investor Dashboard",
+    financeCostManagement: "Cost Management (Procurement)",
+    financeRevenueManagement: "Revenue Management",
+    crm: "CRM",
+    poPurchasing: "PO (Procurement)",
+    sectionExecution: "Executive",
+    sectionFinance: "Finance",
+    sectionOperations: "Operations",
+    createPOFromDrive: "Create PO from Google Drive",
     team: "Team",
     settings: "Settings",
     
@@ -308,6 +326,15 @@ const translations: Record<Language, Translations> = {
     purchaseOrders: "Đơn đặt hàng",
     lowStock: "Sắp hết hàng",
     reports: "Báo cáo",
+    investorDashboard: "Investor Dashboard",
+    financeCostManagement: "Quản lý chi phí (Mua hàng)",
+    financeRevenueManagement: "Quản lý doanh thu",
+    crm: "CRM",
+    poPurchasing: "PO (Mua hàng)",
+    sectionExecution: "Điều hành",
+    sectionFinance: "Tài chính",
+    sectionOperations: "Vận hành",
+    createPOFromDrive: "Tạo PO từ Google Drive",
     team: "Đội ngũ",
     settings: "Cài đặt",
     

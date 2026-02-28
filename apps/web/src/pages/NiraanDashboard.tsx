@@ -10,6 +10,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, PieChart, Pie, Cell, Legend } from "recharts";
 import { format, addMonths, subMonths } from "date-fns";
 import { ChevronLeft, ChevronRight, Landmark, TrendingUp, Wallet, Users } from "lucide-react";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 const COLORS = ["hsl(216, 90%, 55%)", "hsl(142, 70%, 40%)", "hsl(35, 90%, 50%)", "hsl(0, 70%, 55%)"];
 
@@ -35,6 +36,7 @@ function useUsdVndFx() {
 }
 
 export default function NiraanDashboard() {
+  const { language } = useLanguage();
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const { data: fx, isLoading: fxLoading } = useUsdVndFx();
 
@@ -61,10 +63,10 @@ export default function NiraanDashboard() {
   const debtPieData = useMemo(() => {
     if (!paymentStats) return [];
     return [
-      { name: "Bank Transfer", value: vndToUsd(paymentStats.uncTotal || 0) },
-      { name: "Cash", value: vndToUsd(paymentStats.cashTotal || 0) },
+      { name: language === "vi" ? "UNC" : "Bank Transfer", value: vndToUsd(paymentStats.uncTotal || 0) },
+      { name: language === "vi" ? "Tiền mặt" : "Cash", value: vndToUsd(paymentStats.cashTotal || 0) },
     ].filter((d) => d.value > 0);
-  }, [paymentStats, fx]);
+  }, [paymentStats, fx, language]);
 
   const handlePrevMonth = () => setSelectedMonth((m) => subMonths(m, 1));
   const handleNextMonth = () => setSelectedMonth((m) => addMonths(m, 1));
@@ -73,34 +75,40 @@ export default function NiraanDashboard() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-display font-bold text-foreground">Investor Dashboard</h1>
-          <p className="text-muted-foreground mt-1">Tổng quan nhà đầu tư theo USD (quy đổi từ VND theo tỷ giá live).</p>
+          <h1 className="text-3xl font-display font-bold text-foreground">
+            {language === "vi" ? "Investor Dashboard" : "Investor Dashboard"}
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            {language === "vi"
+              ? "Tổng quan nhà đầu tư theo USD (quy đổi từ VND theo tỷ giá trực tiếp)."
+              : "Investor snapshot in USD (converted from VND with live FX)."}
+          </p>
         </div>
         <div className="text-right text-sm text-muted-foreground">
-          <div>FX: {fx?.rate ? `1 USD = ${new Intl.NumberFormat("en-US").format(Math.round(fx.rate))} VND` : "Loading..."}</div>
-          <div>Updated: {fx?.fetchedAt ? new Date(fx.fetchedAt).toLocaleString("en-US") : "-"}</div>
+          <div>{language === "vi" ? "Tỷ giá" : "FX"}: {fx?.rate ? `1 USD = ${new Intl.NumberFormat("en-US").format(Math.round(fx.rate))} VND` : (language === "vi" ? "Đang tải..." : "Loading...")}</div>
+          <div>{language === "vi" ? "Cập nhật" : "Updated"}: {fx?.fetchedAt ? new Date(fx.fetchedAt).toLocaleString(language === "vi" ? "vi-VN" : "en-US") : "-"}</div>
         </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
-          <CardHeader className="pb-2"><CardDescription className="flex items-center gap-1"><Landmark className="h-4 w-4" />Monthly Procurement Value</CardDescription></CardHeader>
-          <CardContent><div className="text-2xl font-bold">{isLoading ? "..." : usd(vndToUsd(monthlyStats?.totalValue || 0))}</div><p className="text-sm text-muted-foreground">{monthlyStats?.totalPOs || 0} POs in {format(selectedMonth, "MMM yyyy")}</p></CardContent>
+          <CardHeader className="pb-2"><CardDescription className="flex items-center gap-1"><Landmark className="h-4 w-4" />{language === "vi" ? "Giá trị mua hàng theo tháng" : "Monthly Procurement Value"}</CardDescription></CardHeader>
+          <CardContent><div className="text-2xl font-bold">{isLoading ? "..." : usd(vndToUsd(monthlyStats?.totalValue || 0))}</div><p className="text-sm text-muted-foreground">{monthlyStats?.totalPOs || 0} {language === "vi" ? "PO trong" : "POs in"} {format(selectedMonth, "MMM yyyy")}</p></CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="pb-2"><CardDescription className="flex items-center gap-1"><Wallet className="h-4 w-4" />Outstanding Debt</CardDescription></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-destructive">{isLoading ? "..." : usd(vndToUsd(debtStats?.totalDebt || 0))}</div><p className="text-sm text-muted-foreground">Across {debtStats?.bySupplier?.length || 0} suppliers</p></CardContent>
+          <CardHeader className="pb-2"><CardDescription className="flex items-center gap-1"><Wallet className="h-4 w-4" />{language === "vi" ? "Công nợ còn lại" : "Outstanding Debt"}</CardDescription></CardHeader>
+          <CardContent><div className="text-2xl font-bold text-destructive">{isLoading ? "..." : usd(vndToUsd(debtStats?.totalDebt || 0))}</div><p className="text-sm text-muted-foreground">{language === "vi" ? "Trên" : "Across"} {debtStats?.bySupplier?.length || 0} {language === "vi" ? "nhà cung cấp" : "suppliers"}</p></CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="pb-2"><CardDescription className="flex items-center gap-1"><TrendingUp className="h-4 w-4" />Unpaid via Bank Transfer</CardDescription></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-blue-600">{isLoading ? "..." : usd(vndToUsd(paymentStats?.uncTotal || 0))}</div><p className="text-sm text-muted-foreground">Operational payable (UNC)</p></CardContent>
+          <CardHeader className="pb-2"><CardDescription className="flex items-center gap-1"><TrendingUp className="h-4 w-4" />{language === "vi" ? "Chưa thanh toán qua UNC" : "Unpaid via Bank Transfer"}</CardDescription></CardHeader>
+          <CardContent><div className="text-2xl font-bold text-blue-600">{isLoading ? "..." : usd(vndToUsd(paymentStats?.uncTotal || 0))}</div><p className="text-sm text-muted-foreground">{language === "vi" ? "Khoản phải trả vận hành (UNC)" : "Operational payable (UNC)"}</p></CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="pb-2"><CardDescription className="flex items-center gap-1"><Users className="h-4 w-4" />Unpaid via Cash</CardDescription></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-green-600">{isLoading ? "..." : usd(vndToUsd(paymentStats?.cashTotal || 0))}</div><p className="text-sm text-muted-foreground">Cash settlements pending</p></CardContent>
+          <CardHeader className="pb-2"><CardDescription className="flex items-center gap-1"><Users className="h-4 w-4" />{language === "vi" ? "Chưa thanh toán tiền mặt" : "Unpaid via Cash"}</CardDescription></CardHeader>
+          <CardContent><div className="text-2xl font-bold text-green-600">{isLoading ? "..." : usd(vndToUsd(paymentStats?.cashTotal || 0))}</div><p className="text-sm text-muted-foreground">{language === "vi" ? "Khoản quyết toán tiền mặt đang chờ" : "Cash settlements pending"}</p></CardContent>
         </Card>
       </div>
 
@@ -109,7 +117,7 @@ export default function NiraanDashboard() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-lg">Top Supplier Spend (USD)</CardTitle>
+                <CardTitle className="text-lg">{language === "vi" ? "Chi tiêu nhà cung cấp hàng đầu (USD)" : "Top Supplier Spend (USD)"}</CardTitle>
                 <CardDescription>{format(selectedMonth, "MMMM yyyy")}</CardDescription>
               </div>
               <div className="flex items-center gap-1">
@@ -128,14 +136,14 @@ export default function NiraanDashboard() {
                   <Bar dataKey="value" fill="hsl(216, 90%, 55%)" radius={4} />
                 </BarChart>
               </ChartContainer>
-            ) : <div className="h-[260px] flex items-center justify-center text-muted-foreground">No data for this month</div>}
+            ) : <div className="h-[260px] flex items-center justify-center text-muted-foreground">{language === "vi" ? "Không có dữ liệu cho tháng này" : "No data for this month"}</div>}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Payable Mix</CardTitle>
-            <CardDescription>By payment method (USD)</CardDescription>
+            <CardTitle className="text-lg">{language === "vi" ? "Cơ cấu khoản phải trả" : "Payable Mix"}</CardTitle>
+            <CardDescription>{language === "vi" ? "Theo phương thức thanh toán (USD)" : "By payment method (USD)"}</CardDescription>
           </CardHeader>
           <CardContent>
             {debtPieData.length > 0 ? (
@@ -149,26 +157,26 @@ export default function NiraanDashboard() {
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-            ) : <div className="h-[260px] flex items-center justify-center text-muted-foreground">No payable data</div>}
+            ) : <div className="h-[260px] flex items-center justify-center text-muted-foreground">{language === "vi" ? "Không có dữ liệu công nợ" : "No payable data"}</div>}
           </CardContent>
         </Card>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Supplier Snapshot (Investor View)</CardTitle>
-          <CardDescription>Top 10 suppliers by total procurement value</CardDescription>
+          <CardTitle className="text-lg">{language === "vi" ? "Tổng hợp nhà cung cấp (Góc nhìn nhà đầu tư)" : "Supplier Snapshot (Investor View)"}</CardTitle>
+          <CardDescription>{language === "vi" ? "Top 10 nhà cung cấp theo tổng giá trị mua hàng" : "Top 10 suppliers by total procurement value"}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="max-h-[340px] overflow-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Supplier</TableHead>
-                  <TableHead className="text-right">Orders</TableHead>
-                  <TableHead className="text-right">Total Value (USD)</TableHead>
-                  <TableHead className="text-right">Receipts</TableHead>
-                  <TableHead className="text-right">Unpaid (USD)</TableHead>
+                  <TableHead>{language === "vi" ? "Nhà cung cấp" : "Supplier"}</TableHead>
+                  <TableHead className="text-right">{language === "vi" ? "Đơn hàng" : "Orders"}</TableHead>
+                  <TableHead className="text-right">{language === "vi" ? "Tổng giá trị (USD)" : "Total Value (USD)"}</TableHead>
+                  <TableHead className="text-right">{language === "vi" ? "Phiếu nhập" : "Receipts"}</TableHead>
+                  <TableHead className="text-right">{language === "vi" ? "Chưa thanh toán (USD)" : "Unpaid (USD)"}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

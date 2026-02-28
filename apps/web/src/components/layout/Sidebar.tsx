@@ -32,29 +32,22 @@ import bmqLogo from "@/assets/bmq-logo.png";
 
 interface NavItem {
   icon: LucideIcon;
-  labelKey?: keyof ReturnType<typeof useLanguage>["t"];
-  label?: string;
+  labelKey: keyof ReturnType<typeof useLanguage>["t"];
   path: string;
   section: "operations" | "finance" | "execution";
   showBadge?: boolean;
   showPOBadge?: boolean;
 }
 
-const sectionLabels: Record<NavItem["section"], string> = {
-  execution: "Điều hành",
-  finance: "Tài chính",
-  operations: "Vận hành",
-};
-
 const navItems: NavItem[] = [
-  { icon: Landmark, label: "Investor Dashboard", path: "/niraan-dashboard", section: "execution" },
-  { icon: LayoutDashboard, label: "Tổng quan", path: "/", section: "execution" },
-  { icon: BarChart3, label: "Báo cáo", path: "/reports", section: "execution" },
+  { icon: Landmark, labelKey: "investorDashboard", path: "/niraan-dashboard", section: "execution" },
+  { icon: LayoutDashboard, labelKey: "dashboard", path: "/", section: "execution" },
+  { icon: BarChart3, labelKey: "reports", path: "/reports", section: "execution" },
 
-  { icon: Scale, label: "Quản lý chi phí (Mua hàng)", path: "/finance-control/cost", section: "finance" },
-  { icon: TrendingUp, label: "Quản lý doanh thu", path: "/finance-control/revenue", section: "finance" },
-  { icon: UserRoundCog, label: "CRM", path: "/mini-crm", section: "finance" },
-  { icon: ShoppingCart, label: "PO (Mua hàng)", path: "/purchase-orders", section: "finance", showPOBadge: true },
+  { icon: Scale, labelKey: "financeCostManagement", path: "/finance-control/cost", section: "finance" },
+  { icon: TrendingUp, labelKey: "financeRevenueManagement", path: "/finance-control/revenue", section: "finance" },
+  { icon: UserRoundCog, labelKey: "crm", path: "/mini-crm", section: "finance" },
+  { icon: ShoppingCart, labelKey: "poPurchasing", path: "/purchase-orders", section: "finance", showPOBadge: true },
 
   { icon: Package, labelKey: "inventory", path: "/inventory", section: "operations" },
   { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts", section: "operations" },
@@ -67,6 +60,11 @@ const navItems: NavItem[] = [
 
 export function Sidebar() {
   const { t } = useLanguage();
+  const sectionLabels: Record<NavItem["section"], string> = {
+    execution: t.sectionExecution,
+    finance: t.sectionFinance,
+    operations: t.sectionOperations,
+  };
   const queryClient = useQueryClient();
   const { data: paymentStats } = usePaymentStats();
   const { data: draftPOCount } = useDraftPOCount();
@@ -143,7 +141,7 @@ export function Sidebar() {
                   <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-sidebar-accent/30 group-hover:bg-sidebar-accent/50 transition-colors">
                     <item.icon className="h-4 w-4" />
                   </span>
-                  {!collapsed && <span className="flex-1">{item.label || (item.labelKey ? t[item.labelKey] : "")}</span>}
+                  {!collapsed && <span className="flex-1">{t[item.labelKey]}</span>}
                   {!collapsed && item.showBadge && badgeCount > 0 && (
                     <Badge variant="destructive" className="h-5 min-w-5 flex items-center justify-center text-xs">
                       {badgeCount}
@@ -164,7 +162,7 @@ export function Sidebar() {
                       className="flex items-center gap-1.5 text-xs text-blue-500/90 hover:text-blue-500 px-3 py-1.5 w-full rounded-md hover:bg-sidebar-accent/30 transition-colors"
                     >
                       <FolderSearch className="h-3 w-3" />
-                      <span>Tạo PO từ GG Drive</span>
+                      <span>{t.createPOFromDrive}</span>
                     </button>
                   </div>
                 )}
