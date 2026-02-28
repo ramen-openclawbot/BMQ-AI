@@ -23,14 +23,23 @@ const decodeBase64Url = (input: string) => {
 };
 
 async function getGoogleAccessToken(supabaseAdmin: any): Promise<string> {
-  const { data: tokenData, error } = await supabaseAdmin
+  const { data: gmailTokenData } = await supabaseAdmin
+    .from("app_settings")
+    .select("value")
+    .eq("key", "google_gmail_refresh_token")
+    .maybeSingle();
+
+  // backward compatibility: fallback to old shared token key
+  const { data: legacyTokenData } = await supabaseAdmin
     .from("app_settings")
     .select("value")
     .eq("key", "google_drive_refresh_token")
     .maybeSingle();
 
-  if (error || !tokenData?.value) {
-    throw new Error("Google chưa kết nối hoặc thiếu refresh token");
+  const refreshToken = gmailTokenData?.value || legacyTokenData?.value;
+
+  if (!refreshToken) {
+    throw new Error("Chưa kết nối Gmail PO hoặc thiếu refresh token");
   }
 
   const clientId = Deno.env.get("GOOGLE_CLIENT_ID");
@@ -41,7 +50,7 @@ async function getGoogleAccessToken(supabaseAdmin: any): Promise<string> {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      refresh_token: tokenData.value,
+      refresh_token: refreshToken,
       client_id: clientId,
       client_secret: clientSecret,
       grant_type: "refresh_token",

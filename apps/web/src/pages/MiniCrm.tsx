@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,6 +27,20 @@ export default function MiniCrm() {
   const [customerGroup, setCustomerGroup] = useState("banhmi_point");
   const [defaultRevenueChannel, setDefaultRevenueChannel] = useState("");
   const [emailsInput, setEmailsInput] = useState("");
+  const [gmailConnecting, setGmailConnecting] = useState(false);
+
+  const { data: gmailConnectedEmail, refetch: refetchGmailConnectedEmail } = useQuery({
+    queryKey: ["gmail-connected-email"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("app_settings")
+        .select("value")
+        .eq("key", "google_gmail_connected_email")
+        .maybeSingle();
+      if (error) throw error;
+      return data?.value || null;
+    },
+  });
 
   const { data: customers = [] } = useQuery({
     queryKey: ["mini-crm-customers"],
@@ -52,6 +66,22 @@ export default function MiniCrm() {
       return data || [];
     },
   });
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const gmailSuccess = params.get("gmail_success");
+    const gmailError = params.get("gmail_error");
+    const gmailEmail = params.get("gmail_email");
+
+    if (gmailSuccess === "true") {
+      toast({ title: "Kết nối Gmail thành công", description: gmailEmail ? `Đã kết nối: ${gmailEmail}` : "" });
+      refetchGmailConnectedEmail();
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (gmailError) {
+      toast({ title: "Kết nối Gmail thất bại", description: gmailError, variant: "destructive" });
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [refetchGmailConnectedEmail, toast]);
 
   const addCustomerMutation = useMutation({
     mutationFn: async () => {
@@ -95,6 +125,33 @@ export default function MiniCrm() {
       toast({ title: "Lỗi", description: e?.message || "Không thể thêm khách hàng", variant: "destructive" });
     },
   });
+
+  const connectGmail = async () => {
+    setGmailConnecting(true);
+    try {
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/google-gmail-auth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ redirect: window.location.origin }),
+      });
+      const result = await response.json();
+      if (result?.authUrl) {
+        window.location.href = result.authUrl;
+        return;
+      }
+      throw new Error(result?.error || "Không lấy được URL OAuth Gmail");
+    } catch (e: any) {
+      toast({ title: "Lỗi kết nối Gmail", description: e?.message || "Vui lòng thử lại", variant: "destructive" });
+    } finally {
+      setGmailConnecting(false);
+    }
+  };
+
+  const disconnectGmail = async () => {
+    await supabase.from("app_settings").delete().in("key", ["google_gmail_refresh_token", "google_gmail_connected_email"]);
+    await refetchGmailConnectedEmail();
+    toast({ title: "Đã ngắt kết nối Gmail PO" });
+  };
 
   const syncGmailMutation = useMutation({
     mutationFn: async () => {
@@ -157,11 +214,25 @@ export default function MiniCrm() {
         <div>
           <h1 className="text-3xl font-display font-bold">Mini-CRM & PO Inbox</h1>
           <p className="text-muted-foreground">Phase 4: nhận diện khách hàng qua email và duyệt tay PO từ hộp thư po@bmq.vn.</p>
+          <p className="text-xs text-muted-foreground mt-1">Gmail PO và Google Drive có thể dùng 2 tài khoản độc lập.</p>
         </div>
-        <Button onClick={() => syncGmailMutation.mutate()} disabled={syncGmailMutation.isPending}>
-          {syncGmailMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-          Sync Gmail PO
-        </Button>
+        <div className="flex flex-col gap-2 items-end">
+          {gmailConnectedEmail ? (
+            <div className="flex items-center gap-2">
+              <Badge>{gmailConnectedEmail}</Badge>
+              <Button variant="outline" size="sm" onClick={disconnectGmail}>Ngắt Gmail PO</Button>
+            </div>
+          ) : (
+            <Button variant="outline" onClick={connectGmail} disabled={gmailConnecting}>
+              {gmailConnecting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Kết nối Gmail PO
+            </Button>
+          )}
+          <Button onClick={() => syncGmailMutation.mutate()} disabled={syncGmailMutation.isPending || !gmailConnectedEmail}>
+            {syncGmailMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+            Sync Gmail PO
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
