@@ -170,6 +170,31 @@ export default function MiniCrm() {
 
   const selectedPo = useMemo(() => poInbox.find((r: any) => r.id === selectedPoId) || null, [poInbox, selectedPoId]);
 
+  const parseAttachmentMutation = useMutation({
+    mutationFn: async (inboxId: string) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Phiên đăng nhập hết hạn");
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-parse-inbox-order`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ inboxId }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result?.error || "Parse attachment thất bại");
+      return result;
+    },
+    onSuccess: async (result: any) => {
+      await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
+      toast({ title: "Đã parse file đính kèm", description: `${result?.parsed?.itemCount || 0} dòng sản phẩm` });
+    },
+    onError: (e: any) => {
+      toast({ title: "Lỗi parse file", description: e?.message || "Không parse được", variant: "destructive" });
+    },
+  });
+
   const savePoSummaryMutation = useMutation({
     mutationFn: async () => {
       if (!selectedPoId) throw new Error("Chưa chọn PO");
@@ -412,6 +437,9 @@ export default function MiniCrm() {
             </Tabs>
 
             <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={() => parseAttachmentMutation.mutate(selectedPo.id)} disabled={parseAttachmentMutation.isPending}>
+                {parseAttachmentMutation.isPending ? "Đang parse..." : "Parse từ file đính kèm"}
+              </Button>
               <Button onClick={() => savePoSummaryMutation.mutate()} disabled={savePoSummaryMutation.isPending}>Lưu tóm tắt PO</Button>
               <Button variant="outline" onClick={() => postRevenueMutation.mutate(selectedPo.id)} disabled={postRevenueMutation.isPending || selectedPo.posted_to_revenue}>
                 {selectedPo.posted_to_revenue ? "Đã đẩy doanh thu" : "Đẩy sang kiểm soát doanh thu"}

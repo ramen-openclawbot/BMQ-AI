@@ -34,3 +34,9 @@ verify_jwt = false
 
 [functions.google-gmail-auth]
 verify_jwt = false
+
+[functions.po-gmail-debug-check]
+verify_jwt = false
+
+[functions.po-parse-inbox-order]
+verify_jwt = false
