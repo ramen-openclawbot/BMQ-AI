@@ -19,6 +19,11 @@ const vnDate = (d = new Date()) => {
 };
 
 const sendEmail = async (subject: string, html: string) => {
+  const emailEnabled = (Deno.env.get("FINANCE_EMAIL_ENABLED") || "true").toLowerCase() !== "false";
+  if (!emailEnabled) {
+    return { skipped: true, reason: "FINANCE_EMAIL_ENABLED=false" };
+  }
+
   const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
   const from = Deno.env.get("FINANCE_REPORT_FROM") || "ramen@bmq.vn";
   const toRaw = Deno.env.get("FINANCE_REPORT_TO") || "ketoantruong@bmq.vn,tam@bmq.vn";
