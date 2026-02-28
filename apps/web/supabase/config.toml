@@ -40,3 +40,9 @@ verify_jwt = false
 
 [functions.po-parse-inbox-order]
 verify_jwt = false
+
+[functions.po-promote-latest-kingfood]
+verify_jwt = false
+
+[functions.po-use-latest-kingfood-today]
+verify_jwt = false
