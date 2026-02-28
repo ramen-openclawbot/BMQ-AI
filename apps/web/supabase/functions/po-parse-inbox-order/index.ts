@@ -55,6 +55,17 @@ async function gmailApi(accessToken: string, path: string) {
 }
 
 const toNum = (v: any) => Number(String(v ?? "0").replace(/[,.](?=\d{3}\b)/g, "")) || 0;
+const normalizeDate = (v: any): string | null => {
+  const s = String(v || "").trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (m) {
+    const mm = m[1].padStart(2, "0");
+    const dd = m[2].padStart(2, "0");
+    return `${m[3]}-${mm}-${dd}`;
+  }
+  return s.slice(0, 10);
+};
 
 function mapRowsToItems(rows: Record<string, any>[]) {
   const keyOf = (row: Record<string, any>, candidates: string[]) => {
@@ -103,12 +114,13 @@ function mapKingfoodFlatRows(rows: any[][]) {
 
 function extractKingfoodTotals(rows: any[][]) {
   const candidate = rows.find((r) => /^SP\d+/i.test(String(r?.[14] || "").trim()));
-  if (!candidate) return { subtotal: 0, vat: 0, total: 0, vatRate: 0 };
+  if (!candidate) return { subtotal: 0, vat: 0, total: 0, vatRate: 0, poOrderDate: null as string | null };
   const subtotal = toNum(candidate?.[33] ?? 0);
   const vat = toNum(candidate?.[34] ?? 0);
   const total = toNum(candidate?.[35] ?? 0);
   const vatRate = toNum(candidate?.[29] ?? 0);
-  return { subtotal, vat, total, vatRate };
+  const poOrderDate = candidate?.[42] ? String(candidate[42]) : null;
+  return { subtotal, vat, total, vatRate, poOrderDate };
 }
 
 serve(async (req) => {
@@ -144,7 +156,7 @@ serve(async (req) => {
 
     const { data: inbox, error: inboxErr } = await supabase
       .from("customer_po_inbox")
-      .select("id,gmail_message_id,raw_payload")
+      .select("id,gmail_message_id,raw_payload,received_at")
       .eq("id", inboxId)
       .single();
     if (inboxErr || !inbox?.gmail_message_id) throw new Error("Không tìm thấy gmail_message_id");
@@ -175,6 +187,7 @@ serve(async (req) => {
     let extractedVat = 0;
     let extractedTotal = 0;
     let extractedVatRate = 0;
+    let extractedPoOrderDate: string | null = null;
     if (xlsxFile) {
       const attachment = await gmailApi(accessToken, `messages/${inbox.gmail_message_id}/attachments/${xlsxFile.attachmentId}`);
       const bytes = decodeBase64UrlToBytes(String(attachment?.data || ""));
@@ -195,6 +208,7 @@ serve(async (req) => {
           extractedVat = totalsFlat.vat || 0;
           extractedTotal = totalsFlat.total || 0;
           extractedVatRate = totalsFlat.vatRate || 0;
+          extractedPoOrderDate = totalsFlat.poOrderDate || null;
         }
       }
     }
@@ -210,6 +224,7 @@ serve(async (req) => {
       source_xlsx: xlsxFile?.filename || null,
       source_pdf: pdfFile?.filename || null,
       item_count: items.length,
+      po_order_date: normalizeDate(extractedPoOrderDate) || normalizeDate(inbox.received_at),
       vat_amount: vatAmount,
       total_amount: totalAmount,
     };

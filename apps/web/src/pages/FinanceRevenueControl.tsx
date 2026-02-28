@@ -50,7 +50,7 @@ export default function FinanceRevenueControl() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("customer_po_inbox")
-        .select("id,po_number,email_subject,revenue_channel,total_amount,subtotal_amount,vat_amount,delivery_date,posted_to_revenue,posted_to_revenue_at")
+        .select("id,po_number,email_subject,revenue_channel,total_amount,subtotal_amount,vat_amount,delivery_date,posted_to_revenue,posted_to_revenue_at,received_at,raw_payload")
         .eq("posted_to_revenue", true)
         .order("posted_to_revenue_at", { ascending: false })
         .limit(500);
@@ -61,8 +61,9 @@ export default function FinanceRevenueControl() {
 
   const postedRowsByDate = useMemo(() => {
     return postedPoRows.filter((r: any) => {
-      // Ưu tiên ngày đẩy doanh thu để user thấy ngay sau khi bấm nút
-      const d = dateOnly(r.posted_to_revenue_at) || dateOnly(r.delivery_date);
+      // Rule: ghi nhận doanh thu theo ngày đặt PO
+      const poOrderDate = dateOnly(r?.raw_payload?.parse_meta?.po_order_date) || dateOnly(r?.received_at);
+      const d = poOrderDate || dateOnly(r.posted_to_revenue_at) || dateOnly(r.delivery_date);
       return d === selectedDate;
     });
   }, [postedPoRows, selectedDate]);
@@ -121,7 +122,7 @@ export default function FinanceRevenueControl() {
       <Card>
         <CardHeader>
           <CardTitle>PO đã đẩy từ Mini-CRM</CardTitle>
-          <CardDescription>Tự động tổng hợp theo ngày từ nút "Đẩy sang kiểm soát doanh thu".</CardDescription>
+          <CardDescription>Tự động tổng hợp theo ngày đặt PO (ưu tiên po_order_date/received_at).</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-sm text-muted-foreground mb-1">Số PO trong ngày: {postedRowsByDate.length}</div>
