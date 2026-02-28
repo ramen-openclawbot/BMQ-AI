@@ -158,7 +158,8 @@ function mapKingfoodFlatRows(rows: any[][]) {
       const unit = String(r?.[16] || "").trim();
       const qty = toNum(r?.[17] ?? r?.[18] ?? 0);
       const unit_price = toNum(r?.[20] ?? 0);
-      const line_total = toNum(r?.[30] ?? 0) || qty * unit_price;
+      // Không dùng cột [30] vì có file chứa giá trị tổng/định dạng gây nhân sai
+      const line_total = qty * unit_price;
       return { sku, product_name, qty, unit, unit_price, line_total };
     })
     .filter((x) => /^SP\d+/i.test(x.sku) && x.product_name && x.qty > 0);
@@ -275,7 +276,7 @@ serve(async (req) => {
     const parseMeta = {
       parsed_at: new Date().toISOString(),
       parsed_by: user.id,
-      parser: "po-parse-inbox-order:v2",
+      parser: "po-parse-inbox-order:v3",
       source_sheet: chosenSheet,
       source_xlsx: xlsxFile?.filename || null,
       source_pdf: pdfFile?.filename || null,
@@ -283,6 +284,7 @@ serve(async (req) => {
       po_order_date: normalizeDate(extractedPoOrderDate) || normalizeDate(inbox.received_at),
       vat_amount: vatAmount,
       total_amount: totalAmount,
+      subtotal_source: "sum(qty*unit_price)",
     };
 
     const rawPayload = {

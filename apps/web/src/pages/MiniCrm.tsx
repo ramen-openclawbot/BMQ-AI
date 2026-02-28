@@ -222,7 +222,7 @@ export default function MiniCrm() {
       subtotal,
       selectedPo.vat_amount || selectedPo?.raw_payload?.parse_meta?.vat_amount || 0
     );
-    const total = Number(selectedPo.total_amount || selectedPo?.raw_payload?.parse_meta?.total_amount || subtotal + vat || 0);
+    const total = Number((subtotal > 0 ? subtotal + vat : 0) || selectedPo.total_amount || selectedPo?.raw_payload?.parse_meta?.total_amount || 0);
     setPoSummaryDraft({
       po_number: selectedPo.po_number || extractPoNumberFromSubject(selectedPo.email_subject) || "",
       delivery_date: selectedPo.delivery_date || extractDeliveryDateFromSubject(selectedPo.email_subject) || "",
