@@ -73,8 +73,8 @@ export default function NiraanDashboard() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-display font-bold text-foreground">Niraan Dashboard</h1>
-          <p className="text-muted-foreground mt-1">Investor snapshot in USD (converted from VND with live FX).</p>
+          <h1 className="text-3xl font-display font-bold text-foreground">Investor Dashboard</h1>
+          <p className="text-muted-foreground mt-1">Tổng quan nhà đầu tư theo USD (quy đổi từ VND theo tỷ giá live).</p>
         </div>
         <div className="text-right text-sm text-muted-foreground">
           <div>FX: {fx?.rate ? `1 USD = ${new Intl.NumberFormat("en-US").format(Math.round(fx.rate))} VND` : "Loading..."}</div>
