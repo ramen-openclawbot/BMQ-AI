@@ -255,7 +255,7 @@ export default function MiniCrm() {
         const parsedItems = result.parsed.items;
         const subtotal = Number(result?.parsed?.subtotal || calcSubtotalFromItems(parsedItems) || 0);
         const vat = normalizeVatDisplay(subtotal, result?.parsed?.vat || 0);
-        const total = Number(result?.parsed?.total || subtotal + vat);
+        const total = subtotal + vat;
         setPoSummaryDraft((s: any) => ({
           ...s,
           po_number: s?.po_number || extractPoNumberFromSubject(selectedPo?.email_subject),
@@ -263,7 +263,7 @@ export default function MiniCrm() {
           production_items: parsedItems,
           subtotal_amount: subtotal || s?.subtotal_amount,
           vat_amount: vat,
-          total_amount: total || s?.total_amount,
+          total_amount: total,
         }));
       }
       toast({ title: "Đã parse file đính kèm", description: `${result?.parsed?.itemCount || 0} dòng sản phẩm` });

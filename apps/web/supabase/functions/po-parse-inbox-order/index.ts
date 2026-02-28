@@ -78,6 +78,18 @@ const sanitizeVat = (subtotal: number, vat: number, vatRate: number) => {
   return v;
 };
 
+const sanitizeTotal = (subtotal: number, vat: number, total: number) => {
+  const s = Number(subtotal || 0);
+  const v = Number(vat || 0);
+  const t = Number(total || 0);
+  const expected = s + v;
+  if (expected <= 0) return t > 0 ? t : 0;
+  if (t <= 0) return expected;
+  // chống parse nhầm cột gây total bị nhân/cộng sai lệch lớn
+  if (t > expected * 1.5 || t < expected * 0.5) return expected;
+  return t;
+};
+
 function mapRowsToItems(rows: Record<string, any>[]) {
   const keyOf = (row: Record<string, any>, candidates: string[]) => {
     const keys = Object.keys(row || {});
@@ -226,7 +238,7 @@ serve(async (req) => {
 
     const subtotal = items.reduce((s, i) => s + Number(i.line_total || 0), 0);
     const vatAmount = sanitizeVat(subtotal, extractedVat, extractedVatRate);
-    const totalAmount = extractedTotal > 0 ? extractedTotal : subtotal + vatAmount;
+    const totalAmount = sanitizeTotal(subtotal, vatAmount, extractedTotal);
     const parseMeta = {
       parsed_at: new Date().toISOString(),
       parsed_by: user.id,
