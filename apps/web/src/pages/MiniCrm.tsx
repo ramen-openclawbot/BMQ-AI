@@ -1,0 +1,239 @@
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+
+const GROUP_OPTIONS = [
+  { value: "banhmi_point", label: "Bánh mì - Điểm bán" },
+  { value: "banhmi_agency", label: "Bánh mì - Đại lý" },
+  { value: "online", label: "Bánh mì - Online" },
+  { value: "cake_kingfoodmart", label: "Bánh ngọt - Kingfoodmart" },
+  { value: "cake_cafe", label: "Bánh ngọt - Quán cafe" },
+];
+
+export default function MiniCrm() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const [customerName, setCustomerName] = useState("");
+  const [customerCode, setCustomerCode] = useState("");
+  const [customerGroup, setCustomerGroup] = useState("banhmi_point");
+  const [defaultRevenueChannel, setDefaultRevenueChannel] = useState("");
+  const [emailsInput, setEmailsInput] = useState("");
+
+  const { data: customers = [] } = useQuery({
+    queryKey: ["mini-crm-customers"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("mini_crm_customers")
+        .select("*, mini_crm_customer_emails(*)")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const { data: poInbox = [] } = useQuery({
+    queryKey: ["customer-po-inbox"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("customer_po_inbox")
+        .select("*, mini_crm_customers(customer_name)")
+        .order("received_at", { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const addCustomerMutation = useMutation({
+    mutationFn: async () => {
+      const trimmedName = customerName.trim();
+      if (!trimmedName) throw new Error("Vui lòng nhập tên khách hàng");
+
+      const { data: created, error: createError } = await (supabase as any)
+        .from("mini_crm_customers")
+        .insert({
+          customer_name: trimmedName,
+          customer_code: customerCode.trim() || null,
+          customer_group: customerGroup,
+          default_revenue_channel: defaultRevenueChannel.trim() || null,
+        })
+        .select("id")
+        .single();
+
+      if (createError) throw createError;
+
+      const emails = emailsInput
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+
+      if (emails.length) {
+        const { error: emailError } = await (supabase as any)
+          .from("mini_crm_customer_emails")
+          .insert(emails.map((email, idx) => ({ customer_id: created.id, email, is_primary: idx === 0 })));
+        if (emailError) throw emailError;
+      }
+    },
+    onSuccess: async () => {
+      setCustomerName("");
+      setCustomerCode("");
+      setDefaultRevenueChannel("");
+      setEmailsInput("");
+      await queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] });
+      toast({ title: "Đã thêm khách hàng", description: "Mini-CRM đã cập nhật." });
+    },
+    onError: (e: any) => {
+      toast({ title: "Lỗi", description: e?.message || "Không thể thêm khách hàng", variant: "destructive" });
+    },
+  });
+
+  const reviewMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: "approved" | "rejected" }) => {
+      const { error } = await (supabase as any)
+        .from("customer_po_inbox")
+        .update({ match_status: status, reviewed_at: new Date().toISOString(), review_note: status === "approved" ? "Manual approved" : "Manual rejected" })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
+      toast({ title: "Đã cập nhật duyệt", description: "Trạng thái PO inbox đã đổi." });
+    },
+    onError: (e: any) => {
+      toast({ title: "Lỗi", description: e?.message || "Không thể cập nhật trạng thái", variant: "destructive" });
+    },
+  });
+
+  const statusCounts = useMemo(() => {
+    return poInbox.reduce(
+      (acc: Record<string, number>, row: any) => {
+        const key = row.match_status || "unknown";
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      },
+      {}
+    );
+  }, [poInbox]);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-display font-bold">Mini-CRM & PO Inbox</h1>
+        <p className="text-muted-foreground">Phase 4: nhận diện khách hàng qua email và duyệt tay PO từ hộp thư po@bmq.vn.</p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Tổng PO inbox</div><div className="text-xl font-semibold">{poInbox.length}</div></CardContent></Card>
+        <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Pending approval</div><div className="text-xl font-semibold">{statusCounts.pending_approval || 0}</div></CardContent></Card>
+        <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Approved</div><div className="text-xl font-semibold">{statusCounts.approved || 0}</div></CardContent></Card>
+        <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Unmatched</div><div className="text-xl font-semibold">{statusCounts.unmatched || 0}</div></CardContent></Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Thiết lập khách hàng mini-CRM</CardTitle>
+          <CardDescription>Map email khách hàng để hệ thống tự nhận diện khi PO gửi vào po@bmq.vn.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label>Tên khách hàng</Label>
+            <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Ví dụ: Đại lý Hòa Bình" />
+          </div>
+          <div className="space-y-2">
+            <Label>Mã khách hàng</Label>
+            <Input value={customerCode} onChange={(e) => setCustomerCode(e.target.value)} placeholder="VD: DL-HB" />
+          </div>
+          <div className="space-y-2">
+            <Label>Nhóm khách hàng</Label>
+            <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={customerGroup} onChange={(e) => setCustomerGroup(e.target.value)}>
+              {GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <Label>Revenue channel mặc định</Label>
+            <Input value={defaultRevenueChannel} onChange={(e) => setDefaultRevenueChannel(e.target.value)} placeholder="VD: online_grab" />
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <Label>Email nhận diện (phân tách dấu phẩy)</Label>
+            <Input value={emailsInput} onChange={(e) => setEmailsInput(e.target.value)} placeholder="buyer@agency.com, order@agency.com" />
+          </div>
+          <div className="md:col-span-2">
+            <Button onClick={() => addCustomerMutation.mutate()} disabled={addCustomerMutation.isPending}>Thêm khách hàng</Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Danh sách khách hàng</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Tên</TableHead>
+                <TableHead>Nhóm</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Trạng thái</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {customers.map((c: any) => (
+                <TableRow key={c.id}>
+                  <TableCell>{c.customer_name}</TableCell>
+                  <TableCell>{c.customer_group}</TableCell>
+                  <TableCell>{(c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"}</TableCell>
+                  <TableCell>{c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Inactive</Badge>}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>PO Inbox (manual approval bắt buộc)</CardTitle>
+          <CardDescription>PO đọc từ email po@bmq.vn sẽ nằm ở đây trước khi duyệt tay.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Received</TableHead>
+                <TableHead>From</TableHead>
+                <TableHead>Subject</TableHead>
+                <TableHead>Matched Customer</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {poInbox.map((row: any) => (
+                <TableRow key={row.id}>
+                  <TableCell>{new Date(row.received_at).toLocaleString("vi-VN")}</TableCell>
+                  <TableCell>{row.from_email}</TableCell>
+                  <TableCell>{row.email_subject || "(no subject)"}</TableCell>
+                  <TableCell>{row.mini_crm_customers?.customer_name || "Chưa match"}</TableCell>
+                  <TableCell><Badge variant={row.match_status === "approved" ? "default" : "secondary"}>{row.match_status}</Badge></TableCell>
+                  <TableCell className="space-x-2">
+                    <Button size="sm" onClick={() => reviewMutation.mutate({ id: row.id, status: "approved" })} disabled={reviewMutation.isPending || row.match_status === "approved"}>Approve</Button>
+                    <Button size="sm" variant="outline" onClick={() => reviewMutation.mutate({ id: row.id, status: "rejected" })} disabled={reviewMutation.isPending || row.match_status === "rejected"}>Reject</Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

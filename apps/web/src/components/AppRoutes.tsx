@@ -18,6 +18,7 @@ import NiraanDashboard from "@/pages/NiraanDashboard";
 import FinanceControl from "@/pages/FinanceControl";
 import FinanceRevenueControl from "@/pages/FinanceRevenueControl";
 import Settings from "@/pages/Settings";
+import MiniCrm from "@/pages/MiniCrm";
 import Auth from "@/pages/Auth";
 import NotFound from "@/pages/NotFound";
 import SkuCostsDjango from "@/pages/SkuCostsDjango";
@@ -137,6 +138,7 @@ export function AppRoutes() {
         <Route path="/finance-control" element={<Navigate to="/finance-control/cost" replace />} />
         <Route path="/finance-control/cost" element={<FinanceControl />} />
         <Route path="/finance-control/revenue" element={<FinanceRevenueControl />} />
+        <Route path="/mini-crm" element={<MiniCrm />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<NotFound />} />
