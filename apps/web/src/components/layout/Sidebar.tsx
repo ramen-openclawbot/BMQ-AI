@@ -121,8 +121,11 @@ export function Sidebar() {
             return (
               <div key={item.path}>
                 {!collapsed && showSectionHeader && (
-                  <div className="px-4 pt-3 pb-1 text-[11px] uppercase tracking-wide text-sidebar-foreground/50 font-semibold">
-                    {sectionLabels[item.section]}
+                  <div className="pt-4 first:pt-0">
+                    {idx !== 0 && <div className="mx-4 mb-3 border-t border-sidebar-border/70" />}
+                    <div className="px-4 pb-1 text-[11px] uppercase tracking-[0.08em] text-sidebar-foreground/45 font-semibold">
+                      {sectionLabels[item.section]}
+                    </div>
                   </div>
                 )}
 
@@ -130,14 +133,16 @@ export function Sidebar() {
                   to={item.path}
                   className={({ isActive }) =>
                     cn(
-                      "flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200",
+                      "group relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 border border-transparent",
                       isActive
-                        ? "bg-sidebar-accent text-sidebar-primary"
-                        : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                        ? "bg-sidebar-accent/80 text-sidebar-primary font-semibold border-sidebar-border/80 shadow-sm"
+                        : "text-sidebar-foreground/75 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
                     )
                   }
                 >
-                  <item.icon className="h-5 w-5" />
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-sidebar-accent/30 group-hover:bg-sidebar-accent/50 transition-colors">
+                    <item.icon className="h-4 w-4" />
+                  </span>
                   {!collapsed && <span className="flex-1">{item.label || (item.labelKey ? t[item.labelKey] : "")}</span>}
                   {!collapsed && item.showBadge && badgeCount > 0 && (
                     <Badge variant="destructive" className="h-5 min-w-5 flex items-center justify-center text-xs">
@@ -153,10 +158,10 @@ export function Sidebar() {
                 
                 {/* Quick Action: Tạo PO từ GG Drive - under Purchase Orders */}
                 {item.path === "/purchase-orders" && !collapsed && (
-                  <div className="ml-8 mt-1">
+                  <div className="ml-10 mt-1">
                     <button
                       onClick={handleScanDrive}
-                      className="flex items-center gap-1.5 text-xs text-blue-500 hover:text-blue-600 px-4 py-1.5 w-full rounded hover:bg-sidebar-accent/30 transition-colors"
+                      className="flex items-center gap-1.5 text-xs text-blue-500/90 hover:text-blue-500 px-3 py-1.5 w-full rounded-md hover:bg-sidebar-accent/30 transition-colors"
                     >
                       <FolderSearch className="h-3 w-3" />
                       <span>Tạo PO từ GG Drive</span>
@@ -165,10 +170,10 @@ export function Sidebar() {
                 )}
 
                 {item.path === "/sku-costs" && !collapsed && (
-                  <div className="ml-8 mt-2 space-y-1">
-                    <NavLink to="/sku-costs/dashboard" className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground px-4 py-2 w-full rounded hover:bg-sidebar-accent/30 transition-colors">{t.skuCostDashboard}</NavLink>
-                    <NavLink to="/sku-costs/management" className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground px-4 py-2 w-full rounded hover:bg-sidebar-accent/30 transition-colors">{t.skuCostManagement}</NavLink>
-                    <NavLink to="/sku-costs/analysis" className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground px-4 py-2 w-full rounded hover:bg-sidebar-accent/30 transition-colors">{t.skuCostAnalysis}</NavLink>
+                  <div className="ml-10 mt-2 space-y-1">
+                    <NavLink to="/sku-costs/dashboard" className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground px-3 py-1.5 w-full rounded-md hover:bg-sidebar-accent/30 transition-colors">{t.skuCostDashboard}</NavLink>
+                    <NavLink to="/sku-costs/management" className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground px-3 py-1.5 w-full rounded-md hover:bg-sidebar-accent/30 transition-colors">{t.skuCostManagement}</NavLink>
+                    <NavLink to="/sku-costs/analysis" className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground px-3 py-1.5 w-full rounded-md hover:bg-sidebar-accent/30 transition-colors">{t.skuCostAnalysis}</NavLink>
                   </div>
                 )}
               </div>
@@ -180,9 +185,11 @@ export function Sidebar() {
         <div className="px-4 py-4 border-t border-sidebar-border">
           <NavLink
             to="/settings"
-            className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-all duration-200"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-sidebar-foreground/75 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground transition-all duration-200"
           >
-            <Settings className="h-5 w-5" />
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-sidebar-accent/30">
+              <Settings className="h-4 w-4" />
+            </span>
             {!collapsed && t.settings}
           </NavLink>
         </div>
