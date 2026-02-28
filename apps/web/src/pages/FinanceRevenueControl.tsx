@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { supabase } from "@/integrations/supabase/client";
 
 const vnd = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value || 0);
 
@@ -23,23 +25,72 @@ const cakeChannels = [
 
 type RevenueState = Record<string, number>;
 
+const normalizeChannel = (channel?: string | null) => {
+  const key = String(channel || "").trim();
+  if (!key) return "";
+  if (key === "wholesale_kfm") return "cake_kingfoodmart";
+  return key;
+};
+
+const dateOnly = (value?: string | null) => String(value || "").slice(0, 10);
+
 export default function FinanceRevenueControl() {
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().slice(0, 10));
-  const [data, setData] = useState<RevenueState>({});
+  const [manualAdjust, setManualAdjust] = useState<RevenueState>({});
+
+  const { data: postedPoRows = [] } = useQuery({
+    queryKey: ["finance-posted-po"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("customer_po_inbox")
+        .select("id,po_number,email_subject,revenue_channel,total_amount,subtotal_amount,vat_amount,delivery_date,posted_to_revenue,posted_to_revenue_at")
+        .eq("posted_to_revenue", true)
+        .order("posted_to_revenue_at", { ascending: false })
+        .limit(500);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const postedRowsByDate = useMemo(() => {
+    return postedPoRows.filter((r: any) => {
+      const d = dateOnly(r.delivery_date) || dateOnly(r.posted_to_revenue_at);
+      return d === selectedDate;
+    });
+  }, [postedPoRows, selectedDate]);
+
+  const autoData = useMemo(() => {
+    const out: RevenueState = {};
+    for (const row of postedRowsByDate) {
+      const channel = normalizeChannel(row.revenue_channel);
+      if (!channel) continue;
+      const amount = Number(row.total_amount || row.subtotal_amount || 0);
+      out[channel] = (out[channel] || 0) + amount;
+    }
+    return out;
+  }, [postedRowsByDate]);
+
+  const mergedData = useMemo(() => {
+    const out: RevenueState = { ...autoData };
+    for (const [k, v] of Object.entries(manualAdjust)) {
+      out[k] = Number(out[k] || 0) + Number(v || 0);
+    }
+    return out;
+  }, [autoData, manualAdjust]);
 
   const setAmount = (key: string, value: string) => {
-    setData((prev) => ({ ...prev, [key]: Number(value || 0) }));
+    setManualAdjust((prev) => ({ ...prev, [key]: Number(value || 0) }));
   };
 
   const totals = useMemo(() => {
-    const breadTotal = breadChannels.reduce((sum, c) => sum + Number(data[c.key] || 0), 0);
-    const cakeTotal = cakeChannels.reduce((sum, c) => sum + Number(data[c.key] || 0), 0);
+    const breadTotal = breadChannels.reduce((sum, c) => sum + Number(mergedData[c.key] || 0), 0);
+    const cakeTotal = cakeChannels.reduce((sum, c) => sum + Number(mergedData[c.key] || 0), 0);
     return {
       breadTotal,
       cakeTotal,
       grandTotal: breadTotal + cakeTotal,
     };
-  }, [data]);
+  }, [mergedData]);
 
   return (
     <div className="space-y-6">
@@ -56,6 +107,39 @@ export default function FinanceRevenueControl() {
         <CardContent className="max-w-xs">
           <Label>Ngày</Label>
           <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>PO đã đẩy từ Mini-CRM</CardTitle>
+          <CardDescription>Tự động tổng hợp theo ngày từ nút "Đẩy sang kiểm soát doanh thu".</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="text-sm text-muted-foreground mb-3">Số PO trong ngày: {postedRowsByDate.length}</div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>PO</TableHead>
+                <TableHead>Kênh</TableHead>
+                <TableHead className="text-right">Giá trị</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {postedRowsByDate.map((row: any) => (
+                <TableRow key={row.id}>
+                  <TableCell>{row.po_number || row.email_subject || "-"}</TableCell>
+                  <TableCell>{normalizeChannel(row.revenue_channel) || "-"}</TableCell>
+                  <TableCell className="text-right">{vnd(Number(row.total_amount || row.subtotal_amount || 0))}</TableCell>
+                </TableRow>
+              ))}
+              {postedRowsByDate.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={3} className="text-center text-muted-foreground py-6">Chưa có PO nào được đẩy cho ngày này.</TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
 
@@ -83,7 +167,7 @@ export default function FinanceRevenueControl() {
       <Card>
         <CardHeader>
           <CardTitle>I. Doanh thu Bánh mì</CardTitle>
-          <CardDescription>Điểm bán, đại lý và các kênh bán online.</CardDescription>
+          <CardDescription>Giá trị ô = tự động từ PO đã đẩy + điều chỉnh tay (nếu cần).</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           {breadChannels.map((channel) => (
@@ -91,10 +175,11 @@ export default function FinanceRevenueControl() {
               <Label>{channel.label}</Label>
               <Input
                 type="number"
-                value={Number(data[channel.key] || 0)}
+                value={Number(manualAdjust[channel.key] || 0)}
                 onChange={(e) => setAmount(channel.key, e.target.value)}
-                placeholder="Nhập doanh thu VND"
+                placeholder="Điều chỉnh thêm (VND)"
               />
+              <div className="text-xs text-muted-foreground">Tự động: {vnd(Number(autoData[channel.key] || 0))} • Tổng hiển thị: {vnd(Number(mergedData[channel.key] || 0))}</div>
             </div>
           ))}
         </CardContent>
@@ -103,7 +188,7 @@ export default function FinanceRevenueControl() {
       <Card>
         <CardHeader>
           <CardTitle>II. Doanh thu Bánh ngọt</CardTitle>
-          <CardDescription>Doanh thu qua hệ thống phân phối bánh ngọt.</CardDescription>
+          <CardDescription>Giá trị ô = tự động từ PO đã đẩy + điều chỉnh tay (nếu cần).</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           {cakeChannels.map((channel) => (
@@ -111,10 +196,11 @@ export default function FinanceRevenueControl() {
               <Label>{channel.label}</Label>
               <Input
                 type="number"
-                value={Number(data[channel.key] || 0)}
+                value={Number(manualAdjust[channel.key] || 0)}
                 onChange={(e) => setAmount(channel.key, e.target.value)}
-                placeholder="Nhập doanh thu VND"
+                placeholder="Điều chỉnh thêm (VND)"
               />
+              <div className="text-xs text-muted-foreground">Tự động: {vnd(Number(autoData[channel.key] || 0))} • Tổng hiển thị: {vnd(Number(mergedData[channel.key] || 0))}</div>
             </div>
           ))}
         </CardContent>
@@ -138,22 +224,22 @@ export default function FinanceRevenueControl() {
               <TableRow>
                 <TableCell>1. Ingest Gmail</TableCell>
                 <TableCell>Đọc email mới từ po@bmq.vn (Google Workspace).</TableCell>
-                <TableCell><Badge variant="secondary">Planned</Badge></TableCell>
+                <TableCell><Badge variant="secondary">Done</Badge></TableCell>
               </TableRow>
               <TableRow>
                 <TableCell>2. Parse PO</TableCell>
-                <TableCell>Tách subject/body/attachment + số PO + giá trị tạm tính.</TableCell>
-                <TableCell><Badge variant="secondary">Planned</Badge></TableCell>
+                <TableCell>Tách subject/body/attachment + số PO + giá trị tạm tính/VAT/tổng tiền.</TableCell>
+                <TableCell><Badge variant="secondary">Done</Badge></TableCell>
               </TableRow>
               <TableRow>
                 <TableCell>3. Match mini-CRM</TableCell>
                 <TableCell>Map email người gửi với khách hàng đã khai báo ở mini-CRM.</TableCell>
-                <TableCell><Badge variant="secondary">Planned</Badge></TableCell>
+                <TableCell><Badge variant="secondary">Done</Badge></TableCell>
               </TableRow>
               <TableRow>
-                <TableCell>4. Manual Approval</TableCell>
-                <TableCell>Bắt buộc duyệt tay trước khi tạo đơn chính thức.</TableCell>
-                <TableCell><Badge className="bg-amber-600">Required</Badge></TableCell>
+                <TableCell>4. Manual Approval + Post revenue</TableCell>
+                <TableCell>Bắt buộc duyệt tay trước khi đẩy sang màn Kiểm soát doanh thu.</TableCell>
+                <TableCell><Badge className="bg-emerald-600">Done</Badge></TableCell>
               </TableRow>
             </TableBody>
           </Table>

@@ -279,15 +279,21 @@ export default function MiniCrm() {
 
   const postRevenueMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await (supabase as any)
+      const { data, error } = await (supabase as any)
         .from("customer_po_inbox")
         .update({ posted_to_revenue: true, posted_to_revenue_at: new Date().toISOString(), match_status: "approved" })
-        .eq("id", id);
+        .eq("id", id)
+        .select("id,po_number,total_amount,revenue_channel,posted_to_revenue")
+        .single();
       if (error) throw error;
+      return data;
     },
-    onSuccess: async () => {
+    onSuccess: async (row: any) => {
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
-      toast({ title: "Đã đánh dấu đẩy doanh thu" });
+      toast({
+        title: "Đã đẩy sang kiểm soát doanh thu",
+        description: `${row?.po_number || row?.id} • ${Number(row?.total_amount || 0).toLocaleString("vi-VN")} ₫ • ${row?.revenue_channel || "(chưa có kênh)"}`,
+      });
     },
     onError: (e: any) => {
       toast({ title: "Lỗi đẩy doanh thu", description: e?.message || "Không thể cập nhật", variant: "destructive" });
