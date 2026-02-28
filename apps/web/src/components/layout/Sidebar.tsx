@@ -47,15 +47,15 @@ const sectionLabels: Record<NavItem["section"], string> = {
 };
 
 const navItems: NavItem[] = [
-  { icon: LayoutDashboard, labelKey: "dashboard", path: "/", section: "execution" },
-  { icon: BarChart3, labelKey: "reports", path: "/reports", section: "execution" },
+  { icon: Landmark, label: "Investor Dashboard", path: "/niraan-dashboard", section: "execution" },
+  { icon: LayoutDashboard, label: "Tổng quan", path: "/", section: "execution" },
+  { icon: BarChart3, label: "Báo cáo", path: "/reports", section: "execution" },
 
   { icon: Scale, label: "Quản lý chi phí (Mua hàng)", path: "/finance-control/cost", section: "finance" },
   { icon: TrendingUp, label: "Quản lý doanh thu", path: "/finance-control/revenue", section: "finance" },
   { icon: UserRoundCog, label: "CRM", path: "/mini-crm", section: "finance" },
   { icon: ShoppingCart, label: "PO (Mua hàng)", path: "/purchase-orders", section: "finance", showPOBadge: true },
 
-  { icon: Landmark, label: "Niraan Dashboard", path: "/niraan-dashboard", section: "execution" },
   { icon: Package, labelKey: "inventory", path: "/inventory", section: "operations" },
   { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts", section: "operations" },
   { icon: Barcode, labelKey: "skuCosts", path: "/sku-costs", section: "operations" },
