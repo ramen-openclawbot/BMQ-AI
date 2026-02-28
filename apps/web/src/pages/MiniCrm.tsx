@@ -38,6 +38,13 @@ const calcSubtotalFromItems = (items: any[]) =>
 
 const formatVnd = (value: any) => `${Number(value || 0).toLocaleString("vi-VN")} ₫`;
 const calcVatFromSubtotal = (subtotal: any, rate = 0.08) => Math.round(Number(subtotal || 0) * rate);
+const calcSafeTotal = (subtotal: any, vat: any, fallback: any = 0) => {
+  const s = Number(subtotal || 0);
+  const v = Number(vat || 0);
+  const byParts = s + v;
+  if (byParts > 0) return byParts;
+  return Number(fallback || 0);
+};
 const normalizeVatDisplay = (subtotal: any, vat: any) => {
   const s = Number(subtotal || 0);
   const v = Number(vat || 0);
@@ -276,11 +283,12 @@ export default function MiniCrm() {
   const savePoSummaryMutation = useMutation({
     mutationFn: async () => {
       if (!selectedPoId) throw new Error("Chưa chọn PO");
+      const safeTotal = calcSafeTotal(poSummaryDraft.subtotal_amount, poSummaryDraft.vat_amount, poSummaryDraft.total_amount);
       const payload = {
         delivery_date: poSummaryDraft.delivery_date || null,
         subtotal_amount: Number(poSummaryDraft.subtotal_amount || 0) || null,
         vat_amount: Number(poSummaryDraft.vat_amount || 0) || null,
-        total_amount: Number(poSummaryDraft.total_amount || 0) || null,
+        total_amount: Number(safeTotal || 0) || null,
         production_items: poSummaryDraft.production_items || [],
         raw_payload: {
           ...(selectedPo?.raw_payload || {}),
@@ -316,8 +324,7 @@ export default function MiniCrm() {
       const postedSubtotal = Number(poSummaryDraft?.subtotal_amount || row?.subtotal_amount || 0);
       const postedVat = Number(poSummaryDraft?.vat_amount || row?.vat_amount || 0);
       const postedTotal = Number(
-        poSummaryDraft?.total_amount ||
-        (postedSubtotal > 0 ? postedSubtotal + postedVat : 0) ||
+        calcSafeTotal(postedSubtotal, postedVat, poSummaryDraft?.total_amount) ||
         row?.total_amount ||
         calcTotalFromRawPayload(row?.raw_payload || {}) ||
         0
@@ -547,8 +554,12 @@ export default function MiniCrm() {
                   </div>
                   <div>
                     <Label>Tổng tiền đơn hàng</Label>
-                    <Input type="number" value={poSummaryDraft.total_amount || ""} onChange={(e) => setPoSummaryDraft((s: any) => ({ ...s, total_amount: e.target.value }))} />
-                    <div className="text-xs text-muted-foreground mt-1">{formatVnd(poSummaryDraft.total_amount)}</div>
+                    <Input
+                      type="number"
+                      value={calcSafeTotal(poSummaryDraft.subtotal_amount, poSummaryDraft.vat_amount, poSummaryDraft.total_amount) || ""}
+                      readOnly
+                    />
+                    <div className="text-xs text-muted-foreground mt-1">{formatVnd(calcSafeTotal(poSummaryDraft.subtotal_amount, poSummaryDraft.vat_amount, poSummaryDraft.total_amount))}</div>
                   </div>
                 </div>
               </TabsContent>
