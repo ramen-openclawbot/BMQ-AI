@@ -33,6 +33,12 @@ const normalizeChannel = (channel?: string | null) => {
 };
 
 const dateOnly = (value?: string | null) => String(value || "").slice(0, 10);
+const extractPoNumberFromSubject = (subject?: string) => {
+  const s = String(subject || "");
+  const m = s.match(/\b(PO\d{6,})\b/i) || s.match(/PO\s*(\d{6,})/i);
+  if (!m) return "";
+  return m[1].toUpperCase().startsWith("PO") ? m[1].toUpperCase() : `PO${m[1]}`;
+};
 const todayLocal = () => {
   const d = new Date();
   const y = d.getFullYear();
@@ -50,7 +56,7 @@ export default function FinanceRevenueControl() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("customer_po_inbox")
-        .select("id,po_number,email_subject,revenue_channel,total_amount,subtotal_amount,vat_amount,delivery_date,received_at,raw_payload")
+        .select("id,email_subject,revenue_channel,total_amount,subtotal_amount,vat_amount,delivery_date,received_at,raw_payload")
         .order("received_at", { ascending: false })
         .limit(500);
       if (error) throw error;
@@ -143,7 +149,7 @@ export default function FinanceRevenueControl() {
             <TableBody>
               {postedRowsByDate.map((row: any) => (
                 <TableRow key={row.id}>
-                  <TableCell>{row.po_number || row.email_subject || "-"}</TableCell>
+                  <TableCell>{extractPoNumberFromSubject(row.email_subject) || row.email_subject || "-"}</TableCell>
                   <TableCell>{normalizeChannel(row.revenue_channel) || "-"}</TableCell>
                   <TableCell className="text-right">{vnd(Number(row.total_amount || row.subtotal_amount || 0))}</TableCell>
                 </TableRow>

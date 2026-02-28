@@ -260,12 +260,15 @@ export default function MiniCrm() {
     mutationFn: async () => {
       if (!selectedPoId) throw new Error("Chưa chọn PO");
       const payload = {
-        po_number: poSummaryDraft.po_number || null,
         delivery_date: poSummaryDraft.delivery_date || null,
         subtotal_amount: Number(poSummaryDraft.subtotal_amount || 0) || null,
         vat_amount: Number(poSummaryDraft.vat_amount || 0) || null,
         total_amount: Number(poSummaryDraft.total_amount || 0) || null,
         production_items: poSummaryDraft.production_items || [],
+        raw_payload: {
+          ...(selectedPo?.raw_payload || {}),
+          po_number: poSummaryDraft.po_number || extractPoNumberFromSubject(selectedPo?.email_subject) || null,
+        },
       };
       const { error } = await (supabase as any).from("customer_po_inbox").update(payload).eq("id", selectedPoId);
       if (error) throw error;
@@ -288,7 +291,7 @@ export default function MiniCrm() {
       const nowIso = new Date().toISOString();
       const { data: row, error: rowErr } = await (supabase as any)
         .from("customer_po_inbox")
-        .select("id,po_number,total_amount,revenue_channel,raw_payload")
+        .select("id,email_subject,total_amount,revenue_channel,raw_payload")
         .eq("id", id)
         .single();
       if (rowErr || !row) throw rowErr || new Error("Không tìm thấy PO để đẩy doanh thu");
@@ -306,7 +309,7 @@ export default function MiniCrm() {
         .from("customer_po_inbox")
         .update({ raw_payload: nextRawPayload, match_status: "approved" })
         .eq("id", id)
-        .select("id,po_number,total_amount,revenue_channel,raw_payload")
+        .select("id,email_subject,total_amount,revenue_channel,raw_payload")
         .single();
       if (error) throw error;
       if (!data?.raw_payload?.revenue_post?.posted) throw new Error("Đẩy doanh thu chưa được ghi nhận trong raw_payload.revenue_post");
@@ -316,12 +319,13 @@ export default function MiniCrm() {
       };
     },
     onSuccess: async (row: any) => {
-      setPostRevenueStatus(`✅ Đã đẩy thành công PO ${row?.po_number || row?.id} lúc ${new Date(row?.posted_to_revenue_at || Date.now()).toLocaleString("vi-VN")}`);
+      const poCode = extractPoNumberFromSubject(row?.email_subject) || row?.id;
+      setPostRevenueStatus(`✅ Đã đẩy thành công PO ${poCode} lúc ${new Date(row?.posted_to_revenue_at || Date.now()).toLocaleString("vi-VN")}`);
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
       await queryClient.invalidateQueries({ queryKey: ["finance-posted-po"] });
       toast({
         title: "✅ Đã đẩy sang kiểm soát doanh thu",
-        description: `${row?.po_number || row?.id} • ${Number(row?.total_amount || 0).toLocaleString("vi-VN")} ₫ • ${row?.revenue_channel || "(chưa có kênh)"}`,
+        description: `${extractPoNumberFromSubject(row?.email_subject) || row?.id} • ${Number(row?.total_amount || 0).toLocaleString("vi-VN")} ₫ • ${row?.revenue_channel || "(chưa có kênh)"}`,
       });
     },
     onError: (e: any) => {
