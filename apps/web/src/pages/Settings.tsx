@@ -11,6 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { supabase } from "@/integrations/supabase/client";
 import { GoogleDriveSettings } from "@/components/settings/GoogleDriveSettings";
 import { AppVersionSection } from "@/components/settings/AppVersionSection";
+import { DataMigrationSettings } from "@/components/settings/DataMigrationSettings";
 import {
   Select,
   SelectContent,
@@ -29,6 +30,14 @@ const Settings = () => {
   useEffect(() => {
     setDisplayName(profile?.full_name || user?.user_metadata?.full_name || "");
   }, [profile, user]);
+
+  useEffect(() => {
+    if (window.location.hash === "#data-migration") {
+      setTimeout(() => {
+        document.getElementById("data-migration")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 120);
+    }
+  }, []);
 
   const handleSaveProfile = async () => {
     if (!user) return;
@@ -51,16 +60,26 @@ const Settings = () => {
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h1 className="text-3xl font-display font-bold text-foreground">
-          {t.settingsTitle}
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          {t.settingsDescription}
-        </p>
+         <h1 className="text-3xl font-display font-bold text-foreground">
+           {t.settingsTitle}
+         </h1>
+         <p className="text-muted-foreground mt-1">
+           {t.settingsDescription}
+         </p>
+       </div>
+
+      <div className="sticky top-2 z-10 rounded-lg border border-border bg-background/95 backdrop-blur p-2">
+        <div className="flex gap-2 overflow-x-auto whitespace-nowrap">
+          <a href="#profile" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Hồ sơ</a>
+          <a href="#language" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Ngôn ngữ</a>
+          <a href="#appearance" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Giao diện</a>
+          <a href="#data-migration" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Data Migration</a>
+          <a href="#security" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Bảo mật</a>
+        </div>
       </div>
 
       {/* Profile Section */}
-      <div className="card-elevated rounded-xl border border-border p-6 space-y-4">
+      <div id="profile" className="card-elevated rounded-xl border border-border p-6 space-y-4 scroll-mt-24">
         <div className="flex items-center gap-3">
           <User className="h-5 w-5 text-primary" />
           <h2 className="font-display font-semibold text-lg">{t.profile}</h2>
@@ -87,7 +106,7 @@ const Settings = () => {
       </div>
 
       {/* Language Section */}
-      <div className="card-elevated rounded-xl border border-border p-6 space-y-4">
+      <div id="language" className="card-elevated rounded-xl border border-border p-6 space-y-4 scroll-mt-24">
         <div className="flex items-center gap-3">
           <Globe className="h-5 w-5 text-primary" />
           <h2 className="font-display font-semibold text-lg">{t.language}</h2>
@@ -136,7 +155,7 @@ const Settings = () => {
       </div>
 
       {/* Appearance Section */}
-      <div className="card-elevated rounded-xl border border-border p-6 space-y-4">
+      <div id="appearance" className="card-elevated rounded-xl border border-border p-6 space-y-4 scroll-mt-24">
         <div className="flex items-center gap-3">
           <Palette className="h-5 w-5 text-primary" />
           <h2 className="font-display font-semibold text-lg">{t.appearance}</h2>
@@ -152,7 +171,7 @@ const Settings = () => {
       </div>
 
       {/* Security Section */}
-      <div className="card-elevated rounded-xl border border-border p-6 space-y-4">
+      <div id="security" className="card-elevated rounded-xl border border-border p-6 space-y-4 scroll-mt-24">
         <div className="flex items-center gap-3">
           <Shield className="h-5 w-5 text-primary" />
           <h2 className="font-display font-semibold text-lg">{t.security}</h2>
@@ -170,6 +189,9 @@ const Settings = () => {
 
       {/* Google Drive Integration */}
       <GoogleDriveSettings />
+
+      {/* Data Migration */}
+      <DataMigrationSettings />
 
       {/* Troubleshooting Section */}
       <div className="card-elevated rounded-xl border border-border p-6 space-y-4">

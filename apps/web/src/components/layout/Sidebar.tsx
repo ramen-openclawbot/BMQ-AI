@@ -88,7 +88,7 @@ export function Sidebar() {
 
   return (
     <aside className={cn(
-      "fixed left-0 top-0 z-40 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-200",
+      "fixed left-0 top-0 z-40 h-dvh bg-sidebar border-r border-sidebar-border transition-all duration-200",
       collapsed ? "w-16" : "w-64"
     )}>
       <div className="flex h-full flex-col">
@@ -115,7 +115,7 @@ export function Sidebar() {
         </div>
 
         {/* Navigation - scrollable */}
-        <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
+        <nav className="flex-1 px-4 py-6 pb-24 space-y-1 overflow-y-auto">
           {navItems.map((item, idx) => {
             const showSectionHeader = idx === 0 || navItems[idx - 1].section !== item.section;
             return (
@@ -182,7 +182,7 @@ export function Sidebar() {
         </nav>
 
         {/* Settings */}
-        <div className="px-4 py-4 border-t border-sidebar-border">
+        <div className="px-4 py-4 border-t border-sidebar-border pb-[max(1rem,env(safe-area-inset-bottom))] bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80">
           <NavLink
             to="/settings"
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-sidebar-foreground/75 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground transition-all duration-200"
@@ -192,6 +192,15 @@ export function Sidebar() {
             </span>
             {!collapsed && t.settings}
           </NavLink>
+
+          {!collapsed && (
+            <a
+              href="/settings#data-migration"
+              className="ml-11 mt-1 block text-xs text-sidebar-foreground/65 hover:text-sidebar-foreground hover:underline"
+            >
+              Data Migration
+            </a>
+          )}
         </div>
       </div>
       

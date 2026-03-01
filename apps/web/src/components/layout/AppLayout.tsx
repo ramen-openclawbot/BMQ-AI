@@ -32,11 +32,11 @@ export function AppLayout() {
       {showRecoveryOverlay && (
         <SessionRecoveryOverlay onRetry={handleRetry} />
       )}
-      <div className="min-h-screen bg-background">
+      <div className="min-h-dvh bg-background">
         <Sidebar />
-        <div className="flex flex-col h-screen" style={{ paddingLeft: "var(--sidebar-width, 16rem)" }}>
+        <div className="flex flex-col h-dvh" style={{ paddingLeft: "var(--sidebar-width, 16rem)" }}>
           <Header />
-          <main className="p-6 flex-1 overflow-auto pb-20">
+          <main className="p-6 flex-1 overflow-auto pb-[max(5rem,env(safe-area-inset-bottom))]">
             <Outlet />
           </main>
         </div>
