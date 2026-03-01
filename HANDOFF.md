@@ -1,10 +1,31 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.10**
+- apps/web: **0.0.11**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
-- Latest commit at handoff time: `a370e0f`
+- Latest commit at handoff time: `85ee9b9`
+
+## Latest update (2026-03-01 night)
+### Data Migration + Settings UX
+- Đã thêm block **Data Migration** trong `/settings` với 5 phần:
+  1) Summary (tables/records/files/estimated size)
+  2) Export DB (Schema/JSON/SQL)
+  3) Export Storage (Manifest + ZIP)
+  4) Guardrails checklist
+  5) Import guide checklist
+- Đã deploy Edge Function mới: `migration-storage-archive` (Supabase) để tạo ZIP storage theo dữ liệu `drive_file_index`.
+- Đã fix UX mobile:
+  - dùng `h-dvh` + `safe-area-inset-bottom` để tránh cảm giác lock scroll ở iOS/WebView,
+  - thêm điều hướng nội bộ trong trang Settings,
+  - thêm anchor tới `#data-migration`.
+- Đã nới quyền fallback cho migration UI khi hệ thống chưa cấu hình role (`user_roles` rỗng/lỗi):
+  - mặc định cho phép user đã đăng nhập,
+  - nếu có role data thì chỉ `owner` mới được phép.
+
+### Commit đáng chú ý
+- `1deebef` feat(settings): add Data Migration section + mobile scroll fixes
+- `85ee9b9` fix(settings): fallback migration access when roles not configured
 
 ## What is done (latest)
 1. Dashboard đã rút gọn theo hướng overview ngắn; bỏ các block dài gây rối.
