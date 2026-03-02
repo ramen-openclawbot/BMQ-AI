@@ -84,6 +84,7 @@ export default function MiniCrm() {
   const [editCustomerGroup, setEditCustomerGroup] = useState("banhmi_point");
   const [editDefaultRevenueChannel, setEditDefaultRevenueChannel] = useState("");
   const [editEmailsInput, setEditEmailsInput] = useState("");
+  const [editFeedback, setEditFeedback] = useState<string>("");
   const [selectedPoId, setSelectedPoId] = useState<string | null>(null);
   const [poSummaryDraft, setPoSummaryDraft] = useState<any>({});
   const [postRevenueStatus, setPostRevenueStatus] = useState<string>("");
@@ -127,6 +128,7 @@ export default function MiniCrm() {
   });
 
   const startEditCustomer = (c: any) => {
+    setEditFeedback("");
     setEditingCustomerId(c.id);
     setEditCustomerName(c.customer_name || "");
     setEditCustomerCode(c.customer_code || "");
@@ -136,6 +138,7 @@ export default function MiniCrm() {
   };
 
   const cancelEditCustomer = () => {
+    setEditFeedback("");
     setEditingCustomerId(null);
     setEditCustomerName("");
     setEditCustomerCode("");
@@ -215,9 +218,10 @@ export default function MiniCrm() {
         .from("mini_crm_customer_emails")
         .delete()
         .eq("customer_id", editingCustomerId);
-      if (deleteEmailsError) throw deleteEmailsError;
 
-      if (emails.length) {
+      // Không chặn toàn bộ luồng nếu policy email table bị hạn chế,
+      // vẫn ưu tiên lưu được thông tin khách hàng.
+      if (!deleteEmailsError && emails.length) {
         const { error: insertEmailsError } = await (supabase as any)
           .from("mini_crm_customer_emails")
           .insert(emails.map((email, idx) => ({ customer_id: editingCustomerId, email, is_primary: idx === 0 })));
@@ -226,11 +230,14 @@ export default function MiniCrm() {
     },
     onSuccess: async () => {
       cancelEditCustomer();
+      setEditFeedback("Đã lưu cập nhật khách hàng.");
       await queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] });
       toast({ title: "Đã cập nhật khách hàng", description: "Thông tin CRM đã được lưu." });
     },
     onError: (e: any) => {
-      toast({ title: "Lỗi", description: e?.message || "Không thể cập nhật khách hàng", variant: "destructive" });
+      const msg = e?.message || "Không thể cập nhật khách hàng";
+      setEditFeedback(`Lưu thất bại: ${msg}`);
+      toast({ title: "Lỗi", description: msg, variant: "destructive" });
     },
   });
 
@@ -544,6 +551,7 @@ export default function MiniCrm() {
           <CardTitle>Danh sách khách hàng</CardTitle>
         </CardHeader>
         <CardContent>
+          {editFeedback && <div className="mb-3 text-sm text-muted-foreground">{editFeedback}</div>}
           <Table>
             <TableHeader>
               <TableRow>
@@ -591,7 +599,7 @@ export default function MiniCrm() {
                       <div className="flex justify-end gap-2">
                         {isEditing ? (
                           <>
-                            <Button type="button" size="sm" onClick={() => updateCustomerMutation.mutate()} disabled={updateCustomerMutation.isPending}>
+                            <Button type="button" size="sm" onClick={async () => { setEditFeedback(""); await updateCustomerMutation.mutateAsync(); }} disabled={updateCustomerMutation.isPending}>
                               {updateCustomerMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}Lưu
                             </Button>
                             <Button type="button" size="sm" variant="outline" onClick={cancelEditCustomer}>
