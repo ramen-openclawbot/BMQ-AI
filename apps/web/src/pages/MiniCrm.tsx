@@ -95,6 +95,7 @@ export default function MiniCrm() {
   const [pendingTemplatePreview, setPendingTemplatePreview] = useState<any | null>(null);
   const [templateConfirmOpen, setTemplateConfirmOpen] = useState<boolean>(false);
   const [templateReviewDraft, setTemplateReviewDraft] = useState<any | null>(null);
+  const [templateReviewTouched, setTemplateReviewTouched] = useState<boolean>(false);
   const [selectedPoId, setSelectedPoId] = useState<string | null>(null);
   const [poSummaryDraft, setPoSummaryDraft] = useState<any>({});
   const [postRevenueStatus, setPostRevenueStatus] = useState<string>("");
@@ -361,7 +362,7 @@ export default function MiniCrm() {
             parser_config: { ...(templatePreview.parserConfig || {}), version_no: versionNo },
             sample_preview: templatePreview.sampleRows || [],
             confirmation_snapshot: templatePreview?.confirmationView || {},
-            parse_confidence: 1,
+            parse_confidence: Number(templatePreview?.confidenceScore || 1),
             version_no: versionNo,
             is_active: true,
           });
@@ -493,7 +494,7 @@ export default function MiniCrm() {
         const versionNo = await getNextTemplateVersion(editingCustomerId);
         const { error: tplInsertError } = await (supabase as any)
           .from("mini_crm_po_templates")
-          .insert({ customer_id: editingCustomerId, template_name: `Template v${versionNo} - ${new Date().toLocaleString("vi-VN")}`, file_name: templateFileName || "uploaded-template.xlsx", parser_config: { ...(templatePreview.parserConfig || {}), version_no: versionNo }, sample_preview: templatePreview.sampleRows || [], confirmation_snapshot: templatePreview?.confirmationView || {}, parse_confidence: 1, version_no: versionNo, is_active: true });
+          .insert({ customer_id: editingCustomerId, template_name: `Template v${versionNo} - ${new Date().toLocaleString("vi-VN")}`, file_name: templateFileName || "uploaded-template.xlsx", parser_config: { ...(templatePreview.parserConfig || {}), version_no: versionNo }, sample_preview: templatePreview.sampleRows || [], confirmation_snapshot: templatePreview?.confirmationView || {}, parse_confidence: Number(templatePreview?.confidenceScore || 1), version_no: versionNo, is_active: true });
         if (tplInsertError) throw tplInsertError;
       }
 
@@ -588,8 +589,19 @@ export default function MiniCrm() {
       hasNoMoneyInPo: true,
     };
 
+    const confidenceScore = (() => {
+      const hasDate = Boolean(String(confirmationView.orderDate || "").trim());
+      const itemCount = (confirmationView.items || []).filter((it: any) => String(it?.product || "").trim()).length;
+      const qtyCount = (confirmationView.items || []).filter((it: any) => Number(it?.qty || 0) > 0).length;
+      let score = 0;
+      if (hasDate) score += 0.35;
+      if (itemCount > 0) score += 0.35;
+      if (qtyCount > 0) score += 0.3;
+      return Number(score.toFixed(2));
+    })();
+
     setPendingTemplateFileName(file.name);
-    setPendingTemplatePreview({ parserConfig, sampleRows, confirmationView });
+    setPendingTemplatePreview({ parserConfig, sampleRows, confirmationView, confidenceScore });
     setTemplateConfirmOpen(true);
   };
 
@@ -615,7 +627,7 @@ export default function MiniCrm() {
           parser_config: { ...(templatePreview.parserConfig || {}), version_no: versionNo },
           sample_preview: templatePreview.sampleRows || [],
           confirmation_snapshot: templatePreview?.confirmationView || {},
-          parse_confidence: 1,
+          parse_confidence: Number(templatePreview?.confidenceScore || 1),
           version_no: versionNo,
           is_active: true,
         });
@@ -794,6 +806,7 @@ export default function MiniCrm() {
   useEffect(() => {
     if (!templateConfirmOpen || !pendingTemplatePreview?.confirmationView) return;
     setTemplateReviewDraft(JSON.parse(JSON.stringify(pendingTemplatePreview.confirmationView)));
+    setTemplateReviewTouched(false);
   }, [templateConfirmOpen, pendingTemplatePreview]);
 
   useEffect(() => {
@@ -1597,6 +1610,10 @@ export default function MiniCrm() {
             <div><b>File:</b> {pendingTemplateFileName || "-"}</div>
             <div><b>Sheet:</b> {pendingTemplatePreview?.parserConfig?.sheetName || "-"}</div>
             <div><b>Header row:</b> {pendingTemplatePreview?.parserConfig?.headerRow || "-"}</div>
+            <div className={`text-xs rounded px-2 py-1 ${Number(pendingTemplatePreview?.confidenceScore || 0) >= 0.9 ? "bg-emerald-500/10 text-emerald-700" : "bg-amber-500/10 text-amber-700"}`}>
+              Độ tin cậy parse: {Math.round(Number(pendingTemplatePreview?.confidenceScore || 0) * 100)}%
+              {Number(pendingTemplatePreview?.confidenceScore || 0) < 0.9 ? " — Parse thấp, cần chỉnh tay trước khi xác nhận." : ""}
+            </div>
 
             <Tabs defaultValue="parsed" className="w-full">
               <TabsList>
@@ -1609,7 +1626,7 @@ export default function MiniCrm() {
                   <Label>Ngày đặt hàng</Label>
                   <Input
                     value={templateReviewDraft?.orderDate || ""}
-                    onChange={(e) => setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), orderDate: e.target.value }))}
+                    onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), orderDate: e.target.value })); }}
                     placeholder="YYYY-MM-DD hoặc theo mẫu PO"
                   />
                 </div>
@@ -1626,10 +1643,10 @@ export default function MiniCrm() {
                     <TableBody>
                       {(templateReviewDraft?.items || []).map((it: any, idx: number) => (
                         <TableRow key={idx}>
-                          <TableCell><Input value={it.product || ""} onChange={(e) => setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, product: e.target.value } : x) }))} /></TableCell>
-                          <TableCell><Input value={it.qty ?? ""} onChange={(e) => setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, qty: e.target.value } : x) }))} /></TableCell>
-                          <TableCell><Input value={it.unitPrice ?? ""} onChange={(e) => setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, unitPrice: e.target.value } : x) }))} placeholder="tuỳ chọn" /></TableCell>
-                          <TableCell><Input value={it.lineTotal ?? ""} onChange={(e) => setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, lineTotal: e.target.value } : x) }))} placeholder="tuỳ chọn" /></TableCell>
+                          <TableCell><Input value={it.product || ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, product: e.target.value } : x) })); }} /></TableCell>
+                          <TableCell><Input value={it.qty ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, qty: e.target.value } : x) })); }} /></TableCell>
+                          <TableCell><Input value={it.unitPrice ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, unitPrice: e.target.value } : x) })); }} placeholder="tuỳ chọn" /></TableCell>
+                          <TableCell><Input value={it.lineTotal ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, lineTotal: e.target.value } : x) })); }} placeholder="tuỳ chọn" /></TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -1639,12 +1656,12 @@ export default function MiniCrm() {
 
               <TabsContent value="totals" className="space-y-2">
                 <div className="grid md:grid-cols-3 gap-2">
-                  <div><Label>Tạm tính</Label><Input value={templateReviewDraft?.subtotal ?? ""} onChange={(e) => setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), subtotal: e.target.value }))} /></div>
-                  <div><Label>VAT</Label><Input value={templateReviewDraft?.vat ?? ""} onChange={(e) => setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), vat: e.target.value }))} /></div>
-                  <div><Label>Thành tiền</Label><Input value={templateReviewDraft?.total ?? ""} onChange={(e) => setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), total: e.target.value }))} /></div>
+                  <div><Label>Tạm tính</Label><Input value={templateReviewDraft?.subtotal ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), subtotal: e.target.value })); }} /></div>
+                  <div><Label>VAT</Label><Input value={templateReviewDraft?.vat ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), vat: e.target.value })); }} /></div>
+                  <div><Label>Thành tiền</Label><Input value={templateReviewDraft?.total ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), total: e.target.value })); }} /></div>
                 </div>
                 <label className="inline-flex items-center gap-2 text-xs">
-                  <input type="checkbox" checked={Boolean(templateReviewDraft?.hasNoMoneyInPo)} onChange={(e) => setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), hasNoMoneyInPo: e.target.checked }))} />
+                  <input type="checkbox" checked={Boolean(templateReviewDraft?.hasNoMoneyInPo)} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), hasNoMoneyInPo: e.target.checked })); }} />
                   PO này chỉ có số lượng, chưa có thông tin tiền
                 </label>
               </TabsContent>
@@ -1662,10 +1679,17 @@ export default function MiniCrm() {
                   return;
                 }
 
+                const confidence = Number(pendingTemplatePreview?.confidenceScore || 0);
+                if (confidence < 0.9 && !templateReviewTouched) {
+                  toast({ title: "Parse độ tin cậy thấp", description: "Vui lòng chỉnh tay ít nhất 1 trường trước khi xác nhận lưu mẫu", variant: "destructive" });
+                  return;
+                }
+
                 const mergedPreview = {
                   ...(pendingTemplatePreview || {}),
                   confirmationView: { ...(templateReviewDraft || {}) },
                   sampleRows: validItems,
+                  confidenceScore: confidence < 0.9 && templateReviewTouched ? 0.95 : confidence,
                 };
                 setTemplateFileName(pendingTemplateFileName);
                 setTemplatePreview(mergedPreview);
