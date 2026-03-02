@@ -89,7 +89,6 @@ export default function MiniCrm() {
   const [editEmailsInput, setEditEmailsInput] = useState("");
   const [editOriginalEmailsInput, setEditOriginalEmailsInput] = useState("");
   const [editFeedback, setEditFeedback] = useState<string>("");
-  const [templateCustomerId, setTemplateCustomerId] = useState<string>("");
   const [templateFileName, setTemplateFileName] = useState<string>("");
   const [templatePreview, setTemplatePreview] = useState<any | null>(null);
   const [selectedPoId, setSelectedPoId] = useState<string | null>(null);
@@ -174,6 +173,8 @@ export default function MiniCrm() {
     const emails = (c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ");
     setEditEmailsInput(emails);
     setEditOriginalEmailsInput(emails);
+    setTemplateFileName("");
+    setTemplatePreview(null);
   };
 
   const cancelEditCustomer = () => {
@@ -366,21 +367,21 @@ export default function MiniCrm() {
   };
 
   const saveTemplateMutation = useMutation({
-    mutationFn: async () => {
-      if (!templateCustomerId) throw new Error("Vui lòng chọn khách hàng");
+    mutationFn: async (customerId: string) => {
+      if (!customerId) throw new Error("Vui lòng chọn khách hàng");
       if (!templatePreview?.parserConfig) throw new Error("Vui lòng upload và phân tích file mẫu trước");
 
       const { error: disableError } = await (supabase as any)
         .from("mini_crm_po_templates")
         .update({ is_active: false })
-        .eq("customer_id", templateCustomerId)
+        .eq("customer_id", customerId)
         .eq("is_active", true);
       if (disableError) throw disableError;
 
       const { error: insertError } = await (supabase as any)
         .from("mini_crm_po_templates")
         .insert({
-          customer_id: templateCustomerId,
+          customer_id: customerId,
           template_name: `Template ${new Date().toLocaleString("vi-VN")}`,
           file_name: templateFileName || "uploaded-template.xlsx",
           parser_config: templatePreview.parserConfig,
@@ -391,6 +392,8 @@ export default function MiniCrm() {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["mini-crm-po-templates"] });
+      setTemplateFileName("");
+      setTemplatePreview(null);
       toast({ title: "Lưu mẫu PO thành công", description: "Đã lưu format để scan cho lần sau." });
     },
     onError: (e: any) => {
@@ -931,6 +934,7 @@ export default function MiniCrm() {
             <TableBody>
               {customers.map((c: any) => {
                 const isEditing = editingCustomerId === c.id;
+                const activeTemplate = poTemplates.find((t: any) => t.customer_id === c.id);
                 return (
                   <TableRow key={c.id}>
                     <TableCell>
@@ -961,6 +965,39 @@ export default function MiniCrm() {
                             <option value="active">Active</option>
                             <option value="paused">Tạm ngưng</option>
                           </select>
+
+                          <div className="rounded-md border p-2 text-xs space-y-2">
+                            <div><b>Mẫu PO active:</b> {activeTemplate?.file_name || activeTemplate?.template_name || "Chưa có"}</div>
+                            <Input
+                              type="file"
+                              accept=".xlsx"
+                              onChange={async (e) => {
+                                const f = e.target.files?.[0];
+                                if (!f) return;
+                                try {
+                                  await handleAnalyzeTemplateFile(f);
+                                } catch (err: any) {
+                                  toast({ title: "Đọc file mẫu thất bại", description: err?.message || "Không thể đọc file", variant: "destructive" });
+                                }
+                              }}
+                            />
+                            {templatePreview && (
+                              <div className="rounded bg-muted/40 p-2">
+                                <div>File: {templateFileName || "-"}</div>
+                                <div>Sheet: {templatePreview?.parserConfig?.sheetName || "-"}</div>
+                              </div>
+                            )}
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => saveTemplateMutation.mutate(c.id)}
+                              disabled={saveTemplateMutation.isPending || !templatePreview}
+                            >
+                              {saveTemplateMutation.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
+                              Lưu mẫu PO
+                            </Button>
+                          </div>
                         </div>
                       ) : (
                         (c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"
@@ -1005,70 +1042,6 @@ export default function MiniCrm() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Cấu hình mẫu PO theo khách hàng</CardTitle>
-          <CardDescription>Upload file mẫu PO, xem preview parse và lưu format để hệ thống scan nhanh ở các lần sau.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Khách hàng</Label>
-              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={templateCustomerId} onChange={(e) => setTemplateCustomerId(e.target.value)}>
-                <option value="">-- Chọn khách hàng --</option>
-                {customers.map((c: any) => <option key={c.id} value={c.id}>{c.customer_name}</option>)}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label>Upload mẫu PO (.xlsx)</Label>
-              <Input
-                type="file"
-                accept=".xlsx"
-                onChange={async (e) => {
-                  const f = e.target.files?.[0];
-                  if (!f) return;
-                  try {
-                    await handleAnalyzeTemplateFile(f);
-                  } catch (err: any) {
-                    toast({ title: "Đọc file mẫu thất bại", description: err?.message || "Không thể đọc file", variant: "destructive" });
-                  }
-                }}
-              />
-            </div>
-          </div>
-
-          {templatePreview && (
-            <div className="rounded-md border p-3 space-y-2 text-sm">
-              <div><b>File:</b> {templateFileName || "-"}</div>
-              <div><b>Sheet:</b> {templatePreview?.parserConfig?.sheetName || "-"}</div>
-              <div><b>Header row:</b> {templatePreview?.parserConfig?.headerRow || "-"}</div>
-              <div><b>Cột số lượng nhận diện:</b> {Array.isArray(templatePreview?.parserConfig?.quantityColumns) ? templatePreview.parserConfig.quantityColumns.length : 0}</div>
-              <div>
-                <b>Preview mẫu:</b>
-                <pre className="mt-2 max-h-40 overflow-auto rounded bg-muted/40 p-2 text-xs">{JSON.stringify(templatePreview?.sampleRows || [], null, 2)}</pre>
-              </div>
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            <Button onClick={() => saveTemplateMutation.mutate()} disabled={saveTemplateMutation.isPending || !templatePreview || !templateCustomerId}>
-              {saveTemplateMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-              Lưu format mẫu PO
-            </Button>
-          </div>
-
-          <div className="rounded-md border p-3 text-sm">
-            <b>Mẫu đang active:</b>
-            <ul className="mt-2 list-disc pl-5 space-y-1">
-              {poTemplates.length === 0 && <li className="text-muted-foreground">Chưa có mẫu nào.</li>}
-              {poTemplates.map((tpl: any) => {
-                const c = customers.find((x: any) => x.id === tpl.customer_id);
-                return <li key={tpl.id}>{c?.customer_name || tpl.customer_id} — {tpl.file_name || tpl.template_name}</li>;
-              })}
-            </ul>
-          </div>
-        </CardContent>
-      </Card>
       </>
       )}
 
