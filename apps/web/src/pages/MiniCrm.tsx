@@ -971,118 +971,130 @@ export default function MiniCrm() {
         </CardContent>
       </Card>
 
-      {isSalesPoPage && selectedPo && (
-        <Card>
-          <CardHeader>
-            <CardTitle>PO Quick View: {poSummaryDraft.po_number || selectedPo.po_number || selectedPo.email_subject}</CardTitle>
-            <CardDescription>Giao diện xem nhanh cho Kế toán và Quản lí sản xuất (không cần mở email).</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="text-sm text-muted-foreground">
-              <div><b>From:</b> {selectedPo.from_email}</div>
-              <div><b>Subject:</b> {selectedPo.email_subject}</div>
-              <div><b>Nội dung nhanh:</b> {selectedPo.body_preview || "(trống)"}</div>
-              <div><b>Attachments:</b> {(selectedPo.attachment_names || []).join(", ") || "Không có"}</div>
-            </div>
+      {isSalesPoPage && (
+        <Dialog
+          open={Boolean(selectedPo)}
+          onOpenChange={(open) => {
+            if (!open) setSelectedPoId(null);
+          }}
+        >
+          <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+            {selectedPo && (
+              <>
+                <DialogHeader>
+                  <DialogTitle>PO Quick View: {poSummaryDraft.po_number || selectedPo.po_number || selectedPo.email_subject}</DialogTitle>
+                  <DialogDescription>Giao diện xem nhanh cho Kế toán và Quản lí sản xuất (không cần mở email).</DialogDescription>
+                </DialogHeader>
 
-            <Tabs defaultValue="accounting" className="w-full">
-              <TabsList>
-                <TabsTrigger value="accounting">Kế toán</TabsTrigger>
-                <TabsTrigger value="production">QL Sản xuất</TabsTrigger>
-              </TabsList>
+                <div className="space-y-4">
+                  <div className="text-sm text-muted-foreground">
+                    <div><b>From:</b> {selectedPo.from_email}</div>
+                    <div><b>Subject:</b> {selectedPo.email_subject}</div>
+                    <div><b>Nội dung nhanh:</b> {selectedPo.body_preview || "(trống)"}</div>
+                    <div><b>Attachments:</b> {(selectedPo.attachment_names || []).join(", ") || "Không có"}</div>
+                  </div>
 
-              <TabsContent value="accounting" className="space-y-3 pt-3">
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div>
-                    <Label>PO Number</Label>
-                    <Input value={poSummaryDraft.po_number || ""} onChange={(e) => setPoSummaryDraft((s: any) => ({ ...s, po_number: e.target.value }))} />
+                  <Tabs defaultValue="accounting" className="w-full">
+                    <TabsList>
+                      <TabsTrigger value="accounting">Kế toán</TabsTrigger>
+                      <TabsTrigger value="production">QL Sản xuất</TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="accounting" className="space-y-3 pt-3">
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div>
+                          <Label>PO Number</Label>
+                          <Input value={poSummaryDraft.po_number || ""} onChange={(e) => setPoSummaryDraft((s: any) => ({ ...s, po_number: e.target.value }))} />
+                        </div>
+                        <div>
+                          <Label>Ngày giao</Label>
+                          <Input type="date" value={poSummaryDraft.delivery_date || ""} onChange={(e) => setPoSummaryDraft((s: any) => ({ ...s, delivery_date: e.target.value }))} />
+                        </div>
+                        <div>
+                          <Label>Tạm tính</Label>
+                          <Input type="number" value={poSummaryDraft.subtotal_amount || ""} onChange={(e) => setPoSummaryDraft((s: any) => ({ ...s, subtotal_amount: e.target.value }))} />
+                          <div className="text-xs text-muted-foreground mt-1">{formatVnd(poSummaryDraft.subtotal_amount)}</div>
+                        </div>
+                        <div>
+                          <Label>VAT</Label>
+                          <Input type="number" value={poSummaryDraft.vat_amount || ""} onChange={(e) => setPoSummaryDraft((s: any) => ({ ...s, vat_amount: e.target.value }))} />
+                          <div className="text-xs text-muted-foreground mt-1">{formatVnd(poSummaryDraft.vat_amount)}</div>
+                        </div>
+                        <div>
+                          <Label>Tổng tiền đơn hàng</Label>
+                          <Input
+                            type="number"
+                            value={calcSafeTotal(poSummaryDraft.subtotal_amount, poSummaryDraft.vat_amount, poSummaryDraft.total_amount) || ""}
+                            readOnly
+                          />
+                          <div className="text-xs text-muted-foreground mt-1">{formatVnd(calcSafeTotal(poSummaryDraft.subtotal_amount, poSummaryDraft.vat_amount, poSummaryDraft.total_amount))}</div>
+                        </div>
+                      </div>
+                    </TabsContent>
+
+                    <TabsContent value="production" className="space-y-3 pt-3">
+                      <div className="flex items-center justify-between">
+                        <Label>Danh sách sản phẩm cho quản lí sản xuất</Label>
+                        <div className="text-xs text-muted-foreground">
+                          Tổng dòng: {Array.isArray(poSummaryDraft.production_items) ? poSummaryDraft.production_items.length : 0}
+                        </div>
+                      </div>
+
+                      <div className="rounded-md border overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>SKU</TableHead>
+                              <TableHead>Tên sản phẩm</TableHead>
+                              <TableHead>ĐVT</TableHead>
+                              <TableHead className="text-right">SL</TableHead>
+                              <TableHead className="text-right">Đơn giá</TableHead>
+                              <TableHead className="text-right">Thành tiền</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {(Array.isArray(poSummaryDraft.production_items) ? poSummaryDraft.production_items : []).map((item: any, idx: number) => (
+                              <TableRow key={`${item?.sku || "row"}-${idx}`}>
+                                <TableCell>{item?.sku || "-"}</TableCell>
+                                <TableCell>{item?.product_name || item?.name || "-"}</TableCell>
+                                <TableCell>{item?.unit || "-"}</TableCell>
+                                <TableCell className="text-right">{Number(item?.qty || item?.quantity || 0).toLocaleString("vi-VN")}</TableCell>
+                                <TableCell className="text-right">{formatVnd(item?.unit_price || 0)}</TableCell>
+                                <TableCell className="text-right">{formatVnd(item?.line_total || 0)}</TableCell>
+                              </TableRow>
+                            ))}
+                            {(!Array.isArray(poSummaryDraft.production_items) || poSummaryDraft.production_items.length === 0) && (
+                              <TableRow>
+                                <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
+                                  Chưa có dữ liệu sản phẩm. Bấm "Parse từ file đính kèm" để lấy tự động.
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </TabsContent>
+                  </Tabs>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="secondary" onClick={() => parseAttachmentMutation.mutate(selectedPo.id)} disabled={parseAttachmentMutation.isPending}>
+                      {parseAttachmentMutation.isPending ? "Đang parse..." : "Parse từ file đính kèm"}
+                    </Button>
+                    <Button onClick={() => savePoSummaryMutation.mutate()} disabled={savePoSummaryMutation.isPending}>Lưu tóm tắt PO</Button>
+                    <Button variant="outline" onClick={() => postRevenueMutation.mutate(selectedPo.id)} disabled={postRevenueMutation.isPending}>
+                      {postRevenueMutation.isPending ? "Đang đẩy..." : "Đẩy sang kiểm soát doanh thu"}
+                    </Button>
                   </div>
-                  <div>
-                    <Label>Ngày giao</Label>
-                    <Input type="date" value={poSummaryDraft.delivery_date || ""} onChange={(e) => setPoSummaryDraft((s: any) => ({ ...s, delivery_date: e.target.value }))} />
-                  </div>
-                  <div>
-                    <Label>Tạm tính</Label>
-                    <Input type="number" value={poSummaryDraft.subtotal_amount || ""} onChange={(e) => setPoSummaryDraft((s: any) => ({ ...s, subtotal_amount: e.target.value }))} />
-                    <div className="text-xs text-muted-foreground mt-1">{formatVnd(poSummaryDraft.subtotal_amount)}</div>
-                  </div>
-                  <div>
-                    <Label>VAT</Label>
-                    <Input type="number" value={poSummaryDraft.vat_amount || ""} onChange={(e) => setPoSummaryDraft((s: any) => ({ ...s, vat_amount: e.target.value }))} />
-                    <div className="text-xs text-muted-foreground mt-1">{formatVnd(poSummaryDraft.vat_amount)}</div>
-                  </div>
-                  <div>
-                    <Label>Tổng tiền đơn hàng</Label>
-                    <Input
-                      type="number"
-                      value={calcSafeTotal(poSummaryDraft.subtotal_amount, poSummaryDraft.vat_amount, poSummaryDraft.total_amount) || ""}
-                      readOnly
-                    />
-                    <div className="text-xs text-muted-foreground mt-1">{formatVnd(calcSafeTotal(poSummaryDraft.subtotal_amount, poSummaryDraft.vat_amount, poSummaryDraft.total_amount))}</div>
-                  </div>
+                  {postRevenueStatus && (
+                    <div className="text-sm rounded-md border px-3 py-2 bg-muted/40">
+                      {postRevenueStatus}
+                    </div>
+                  )}
                 </div>
-              </TabsContent>
-
-              <TabsContent value="production" className="space-y-3 pt-3">
-                <div className="flex items-center justify-between">
-                  <Label>Danh sách sản phẩm cho quản lí sản xuất</Label>
-                  <div className="text-xs text-muted-foreground">
-                    Tổng dòng: {Array.isArray(poSummaryDraft.production_items) ? poSummaryDraft.production_items.length : 0}
-                  </div>
-                </div>
-
-                <div className="rounded-md border overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>SKU</TableHead>
-                        <TableHead>Tên sản phẩm</TableHead>
-                        <TableHead>ĐVT</TableHead>
-                        <TableHead className="text-right">SL</TableHead>
-                        <TableHead className="text-right">Đơn giá</TableHead>
-                        <TableHead className="text-right">Thành tiền</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(Array.isArray(poSummaryDraft.production_items) ? poSummaryDraft.production_items : []).map((item: any, idx: number) => (
-                        <TableRow key={`${item?.sku || "row"}-${idx}`}>
-                          <TableCell>{item?.sku || "-"}</TableCell>
-                          <TableCell>{item?.product_name || item?.name || "-"}</TableCell>
-                          <TableCell>{item?.unit || "-"}</TableCell>
-                          <TableCell className="text-right">{Number(item?.qty || item?.quantity || 0).toLocaleString("vi-VN")}</TableCell>
-                          <TableCell className="text-right">{formatVnd(item?.unit_price || 0)}</TableCell>
-                          <TableCell className="text-right">{formatVnd(item?.line_total || 0)}</TableCell>
-                        </TableRow>
-                      ))}
-                      {(!Array.isArray(poSummaryDraft.production_items) || poSummaryDraft.production_items.length === 0) && (
-                        <TableRow>
-                          <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
-                            Chưa có dữ liệu sản phẩm. Bấm "Parse từ file đính kèm" để lấy tự động.
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </TabsContent>
-            </Tabs>
-
-            <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" onClick={() => parseAttachmentMutation.mutate(selectedPo.id)} disabled={parseAttachmentMutation.isPending}>
-                {parseAttachmentMutation.isPending ? "Đang parse..." : "Parse từ file đính kèm"}
-              </Button>
-              <Button onClick={() => savePoSummaryMutation.mutate()} disabled={savePoSummaryMutation.isPending}>Lưu tóm tắt PO</Button>
-              <Button variant="outline" onClick={() => postRevenueMutation.mutate(selectedPo.id)} disabled={postRevenueMutation.isPending}>
-                {postRevenueMutation.isPending ? "Đang đẩy..." : "Đẩy sang kiểm soát doanh thu"}
-              </Button>
-            </div>
-            {postRevenueStatus && (
-              <div className="text-sm rounded-md border px-3 py-2 bg-muted/40">
-                {postRevenueStatus}
-              </div>
+              </>
             )}
-          </CardContent>
-        </Card>
+          </DialogContent>
+        </Dialog>
       )}
       </>
       )}
