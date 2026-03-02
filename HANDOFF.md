@@ -211,3 +211,36 @@ Finance Control
   - Niraan Dashboard: `Landmark`
   - Finance Control: `Scale`
   - Reports: `BarChart3`
+
+## Latest update (2026-03-02) — PO Gmail Sync popup + JWT incident
+
+### What was implemented
+- Reworked PO Gmail sync UX to **2-step flow**:
+  1) Preview in popup (không ghi DB)
+  2) Import on explicit user action (mới ghi `customer_po_inbox`)
+- Added popup states: syncing / preview success / import success / error.
+- Added preview list + selected item detail (from, subject, snippet, attachments).
+- Added explicit import button: **"Nhập PO vào hệ thống"** and cancel button.
+
+### Incident summary
+- Symptom: popup showed `HTTP 401 - Invalid JWT` even after re-login.
+- Root cause: `po-gmail-sync` function **missing config** in `supabase/config.toml`, so JWT verification remained enabled at gateway level.
+- Why other syncs still worked: those functions already had `verify_jwt = false`.
+
+### Fixes applied
+- Added:
+  - `[functions.po-gmail-sync]`
+  - `verify_jwt = false`
+- Redeployed `po-gmail-sync` with `--no-verify-jwt`.
+- Frontend error handling improved to show step + HTTP status + raw message.
+
+### Commits (main)
+- `323f083` feat(po-sync): preview popup + explicit import
+- `efdb0a8` fix(po-sync-ui): detailed HTTP errors in popup
+- `6e5e278` fix(auth): pre-validate session + friendly Invalid JWT message
+- `8822c5c` fix(po-gmail-sync): remove hard JWT gate in function code
+- `6c8405c` fix(supabase): disable JWT verification for `po-gmail-sync`
+
+### Current status
+- User confirmed flow is working again.
+- Remaining work (next session): security review for all exposed functions using `verify_jwt = false` and apply scoped auth controls where needed.
