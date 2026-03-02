@@ -68,7 +68,10 @@ const todayLocal = () => {
 export default function FinanceRevenueControl() {
   const { language } = useLanguage();
   const isVi = language === "vi";
-  const [selectedDate, setSelectedDate] = useState<string>(todayLocal());
+  const [filterMode, setFilterMode] = useState<"range" | "month">("range");
+  const [dateFrom, setDateFrom] = useState<string>(todayLocal());
+  const [dateTo, setDateTo] = useState<string>(todayLocal());
+  const [selectedMonth, setSelectedMonth] = useState<string>(todayLocal().slice(0, 7));
 
   const { data: postedPoRows = [] } = useQuery({
     queryKey: ["finance-posted-po"],
@@ -88,20 +91,28 @@ export default function FinanceRevenueControl() {
     [postedPoRows]
   );
 
-  const postedRowsByDate = useMemo(() => {
+  const postedRowsFiltered = useMemo(() => {
     return postedRows.filter((r: any) => {
       // Rule: ghi nhận doanh thu theo ngày đặt PO
       const poOrderDate = dateOnly(r?.raw_payload?.parse_meta?.po_order_date) || dateOnly(r?.received_at);
       const postedDate = dateOnly(r?.raw_payload?.revenue_post?.posted_at);
       const d = poOrderDate || postedDate || dateOnly(r.delivery_date);
-      return d === selectedDate;
+      if (!d) return false;
+
+      if (filterMode === "month") {
+        return d.slice(0, 7) === selectedMonth;
+      }
+
+      if (dateFrom && d < dateFrom) return false;
+      if (dateTo && d > dateTo) return false;
+      return true;
     });
-  }, [postedRows, selectedDate]);
+  }, [postedRows, filterMode, selectedMonth, dateFrom, dateTo]);
 
   const totals = useMemo(() => {
     let breadTotal = 0;
     let cakeTotal = 0;
-    for (const row of postedRowsByDate) {
+    for (const row of postedRowsFiltered) {
       const amount = calcAmountFromRow(row);
       if (inferProductGroup(row) === "banhngot") cakeTotal += amount;
       else breadTotal += amount;
@@ -111,7 +122,7 @@ export default function FinanceRevenueControl() {
       cakeTotal,
       grandTotal: breadTotal + cakeTotal,
     };
-  }, [postedRowsByDate]);
+  }, [postedRowsFiltered]);
 
   return (
     <div className="space-y-6">
@@ -122,12 +133,39 @@ export default function FinanceRevenueControl() {
 
       <Card>
         <CardHeader>
-          <CardTitle>{isVi ? "Bộ lọc ngày" : "Date filter"}</CardTitle>
-          <CardDescription>{isVi ? "Ghi nhận doanh thu theo từng ngày vận hành." : "Record revenue by operating date."}</CardDescription>
+          <CardTitle>{isVi ? "Bộ lọc thời gian" : "Time filter"}</CardTitle>
+          <CardDescription>{isVi ? "Cho phép lọc theo khoảng ngày hoặc theo tháng." : "Filter by date range or by month."}</CardDescription>
         </CardHeader>
-        <CardContent className="max-w-xs">
-          <Label>{isVi ? "Ngày" : "Date"}</Label>
-          <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
+        <CardContent className="space-y-3 max-w-xl">
+          <div>
+            <Label>{isVi ? "Kiểu lọc" : "Filter mode"}</Label>
+            <select
+              className="mt-1 w-full h-10 rounded-md border bg-background px-3 text-sm"
+              value={filterMode}
+              onChange={(e) => setFilterMode(e.target.value as "range" | "month")}
+            >
+              <option value="range">{isVi ? "Từ ngày đến ngày" : "Date range"}</option>
+              <option value="month">{isVi ? "Theo tháng" : "By month"}</option>
+            </select>
+          </div>
+
+          {filterMode === "range" ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <Label>{isVi ? "Từ ngày" : "From"}</Label>
+                <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+              </div>
+              <div>
+                <Label>{isVi ? "Đến ngày" : "To"}</Label>
+                <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+              </div>
+            </div>
+          ) : (
+            <div>
+              <Label>{isVi ? "Tháng" : "Month"}</Label>
+              <Input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} />
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -137,7 +175,7 @@ export default function FinanceRevenueControl() {
           <CardDescription>{isVi ? "Dữ liệu đồng bộ theo thông tin đã khai báo trong CRM." : "Synced from CRM-declared customer information."}</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="text-sm text-muted-foreground mb-1">{isVi ? "Số PO trong ngày" : "PO count today"}: {postedRowsByDate.length}</div>
+          <div className="text-sm text-muted-foreground mb-1">{isVi ? "Số PO theo bộ lọc" : "PO count (filtered)"}: {postedRowsFiltered.length}</div>
           <div className="text-xs text-muted-foreground mb-3">{isVi ? "Tổng PO đã đẩy (mọi ngày)" : "Total posted POs (all days)"}: {postedRows.length}</div>
           <Table>
             <TableHeader>
@@ -149,7 +187,7 @@ export default function FinanceRevenueControl() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {postedRowsByDate.map((row: any) => (
+              {postedRowsFiltered.map((row: any) => (
                 <TableRow key={row.id}>
                   <TableCell>{row?.mini_crm_customers?.customer_name || "-"}</TableCell>
                   <TableCell>{GROUP_LABEL_MAP[row?.mini_crm_customers?.customer_group] || row?.mini_crm_customers?.customer_group || normalizeChannel(row.revenue_channel) || "-"}</TableCell>
@@ -157,9 +195,9 @@ export default function FinanceRevenueControl() {
                   <TableCell className="text-right">{vnd(calcAmountFromRow(row))}</TableCell>
                 </TableRow>
               ))}
-              {postedRowsByDate.length === 0 && (
+              {postedRowsFiltered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground py-6">{isVi ? "Chưa có PO nào được đẩy cho ngày này." : "No posted PO for this date."}</TableCell>
+                  <TableCell colSpan={4} className="text-center text-muted-foreground py-6">{isVi ? "Chưa có PO nào khớp bộ lọc thời gian." : "No posted PO matches the selected time filter."}</TableCell>
                 </TableRow>
               )}
             </TableBody>
