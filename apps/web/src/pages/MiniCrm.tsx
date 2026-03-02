@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw, Pencil, Save, X, Trash2 } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -77,6 +77,12 @@ export default function MiniCrm() {
   const [customerGroup, setCustomerGroup] = useState("banhmi_point");
   const [defaultRevenueChannel, setDefaultRevenueChannel] = useState("");
   const [emailsInput, setEmailsInput] = useState("");
+  const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
+  const [editCustomerName, setEditCustomerName] = useState("");
+  const [editCustomerCode, setEditCustomerCode] = useState("");
+  const [editCustomerGroup, setEditCustomerGroup] = useState("banhmi_point");
+  const [editDefaultRevenueChannel, setEditDefaultRevenueChannel] = useState("");
+  const [editEmailsInput, setEditEmailsInput] = useState("");
   const [selectedPoId, setSelectedPoId] = useState<string | null>(null);
   const [poSummaryDraft, setPoSummaryDraft] = useState<any>({});
   const [postRevenueStatus, setPostRevenueStatus] = useState<string>("");
@@ -119,6 +125,24 @@ export default function MiniCrm() {
     },
   });
 
+  const startEditCustomer = (c: any) => {
+    setEditingCustomerId(c.id);
+    setEditCustomerName(c.customer_name || "");
+    setEditCustomerCode(c.customer_code || "");
+    setEditCustomerGroup(c.customer_group || "banhmi_point");
+    setEditDefaultRevenueChannel(c.default_revenue_channel || "");
+    setEditEmailsInput((c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", "));
+  };
+
+  const cancelEditCustomer = () => {
+    setEditingCustomerId(null);
+    setEditCustomerName("");
+    setEditCustomerCode("");
+    setEditCustomerGroup("banhmi_point");
+    setEditDefaultRevenueChannel("");
+    setEditEmailsInput("");
+  };
+
   const addCustomerMutation = useMutation({
     mutationFn: async () => {
       const trimmedName = customerName.trim();
@@ -159,6 +183,74 @@ export default function MiniCrm() {
     },
     onError: (e: any) => {
       toast({ title: "Lỗi", description: e?.message || "Không thể thêm khách hàng", variant: "destructive" });
+    },
+  });
+
+  const updateCustomerMutation = useMutation({
+    mutationFn: async () => {
+      if (!editingCustomerId) throw new Error("Chưa chọn khách hàng để sửa");
+      const trimmedName = editCustomerName.trim();
+      if (!trimmedName) throw new Error("Vui lòng nhập tên khách hàng");
+
+      const { error: updateError } = await (supabase as any)
+        .from("mini_crm_customers")
+        .update({
+          customer_name: trimmedName,
+          customer_code: editCustomerCode.trim() || null,
+          customer_group: editCustomerGroup,
+          default_revenue_channel: editDefaultRevenueChannel.trim() || null,
+        })
+        .eq("id", editingCustomerId);
+      if (updateError) throw updateError;
+
+      const emails = editEmailsInput
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+
+      const { error: deleteEmailsError } = await (supabase as any)
+        .from("mini_crm_customer_emails")
+        .delete()
+        .eq("customer_id", editingCustomerId);
+      if (deleteEmailsError) throw deleteEmailsError;
+
+      if (emails.length) {
+        const { error: insertEmailsError } = await (supabase as any)
+          .from("mini_crm_customer_emails")
+          .insert(emails.map((email, idx) => ({ customer_id: editingCustomerId, email, is_primary: idx === 0 })));
+        if (insertEmailsError) throw insertEmailsError;
+      }
+    },
+    onSuccess: async () => {
+      cancelEditCustomer();
+      await queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] });
+      toast({ title: "Đã cập nhật khách hàng", description: "Thông tin CRM đã được lưu." });
+    },
+    onError: (e: any) => {
+      toast({ title: "Lỗi", description: e?.message || "Không thể cập nhật khách hàng", variant: "destructive" });
+    },
+  });
+
+  const deleteCustomerMutation = useMutation({
+    mutationFn: async (customerId: string) => {
+      const { error: deleteEmailError } = await (supabase as any)
+        .from("mini_crm_customer_emails")
+        .delete()
+        .eq("customer_id", customerId);
+      if (deleteEmailError) throw deleteEmailError;
+
+      const { error: deleteCustomerError } = await (supabase as any)
+        .from("mini_crm_customers")
+        .delete()
+        .eq("id", customerId);
+      if (deleteCustomerError) throw deleteCustomerError;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] });
+      toast({ title: "Đã xoá khách hàng" });
+    },
+    onError: (e: any) => {
+      toast({ title: "Lỗi", description: e?.message || "Không thể xoá khách hàng", variant: "destructive" });
     },
   });
 
@@ -456,17 +548,75 @@ export default function MiniCrm() {
                 <TableHead>Nhóm</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Trạng thái</TableHead>
+                <TableHead className="text-right">Thao tác</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {customers.map((c: any) => (
-                <TableRow key={c.id}>
-                  <TableCell>{c.customer_name}</TableCell>
-                  <TableCell>{c.customer_group}</TableCell>
-                  <TableCell>{(c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"}</TableCell>
-                  <TableCell>{c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Inactive</Badge>}</TableCell>
-                </TableRow>
-              ))}
+              {customers.map((c: any) => {
+                const isEditing = editingCustomerId === c.id;
+                return (
+                  <TableRow key={c.id}>
+                    <TableCell>
+                      {isEditing ? (
+                        <Input value={editCustomerName} onChange={(e) => setEditCustomerName(e.target.value)} />
+                      ) : (
+                        c.customer_name
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {isEditing ? (
+                        <select className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={editCustomerGroup} onChange={(e) => setEditCustomerGroup(e.target.value)}>
+                          {GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
+                      ) : (
+                        c.customer_group
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {isEditing ? (
+                        <div className="space-y-2">
+                          <Input value={editEmailsInput} onChange={(e) => setEditEmailsInput(e.target.value)} placeholder="buyer@agency.com, order@agency.com" />
+                          <Input value={editCustomerCode} onChange={(e) => setEditCustomerCode(e.target.value)} placeholder="Mã khách hàng" />
+                          <Input value={editDefaultRevenueChannel} onChange={(e) => setEditDefaultRevenueChannel(e.target.value)} placeholder="Revenue channel mặc định" />
+                        </div>
+                      ) : (
+                        (c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"
+                      )}
+                    </TableCell>
+                    <TableCell>{c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Inactive</Badge>}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        {isEditing ? (
+                          <>
+                            <Button size="sm" onClick={() => updateCustomerMutation.mutate()} disabled={updateCustomerMutation.isPending}>
+                              {updateCustomerMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}Lưu
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={cancelEditCustomer}>
+                              <X className="h-4 w-4 mr-1" />Huỷ
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button size="sm" variant="outline" onClick={() => startEditCustomer(c)}>
+                              <Pencil className="h-4 w-4 mr-1" />Sửa
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => {
+                                if (confirm(`Xoá khách hàng ${c.customer_name}?`)) deleteCustomerMutation.mutate(c.id);
+                              }}
+                              disabled={deleteCustomerMutation.isPending}
+                            >
+                              <Trash2 className="h-4 w-4 mr-1" />Xoá
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </CardContent>
