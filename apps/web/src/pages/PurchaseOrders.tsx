@@ -45,6 +45,7 @@ import {
 import { AddPurchaseOrderDialog } from "@/components/dialogs/AddPurchaseOrderDialog";
 import { PurchaseOrderDetailsDialog } from "@/components/dialogs/PurchaseOrderDetailsDialog";
 import { usePurchaseOrders, useDeletePurchaseOrder } from "@/hooks/usePurchaseOrders";
+import { useSuppliers } from "@/hooks/useSuppliers";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
 
@@ -61,7 +62,12 @@ export default function PurchaseOrders() {
   const locale = language === "vi" ? vi : enUS;
   
   const { data: orders, isLoading, error } = usePurchaseOrders();
+  const { data: suppliers } = useSuppliers();
   const deletePO = useDeletePurchaseOrder();
+
+  const supplierMap = useMemo(() => {
+    return new Map((suppliers || []).map((s) => [s.id, s.name]));
+  }, [suppliers]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("vi-VN", {
@@ -196,7 +202,7 @@ export default function PurchaseOrders() {
                 {filteredOrders.map((order) => (
                   <TableRow key={order.id}>
                     <TableCell className="font-medium">{order.po_number}</TableCell>
-                    <TableCell>{order.suppliers?.name || isVi ? "N/A" : "N/A"}</TableCell>
+                    <TableCell>{order.suppliers?.name || (order.supplier_id ? supplierMap.get(order.supplier_id) : undefined) || (isVi ? "N/A" : "N/A")}</TableCell>
                     <TableCell>{format(new Date(order.order_date), "dd/MM/yyyy", { locale })}</TableCell>
                     <TableCell>{getStatusBadge(order.status)}</TableCell>
                     <TableCell className="text-right font-medium">{formatCurrency(order.total_amount || 0)}</TableCell>
