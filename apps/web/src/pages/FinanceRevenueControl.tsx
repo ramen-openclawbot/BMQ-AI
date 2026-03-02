@@ -21,21 +21,13 @@ const PRODUCT_GROUP_LABEL_MAP: Record<string, string> = {
   banhngot: "Bánh ngọt",
 };
 
-const breadChannels = [
-  { key: "banhmi_point", labelVi: "Doanh thu điểm bán", labelEn: "Storefront revenue" },
-  { key: "banhmi_agency", labelVi: "Doanh thu đại lý", labelEn: "Agency revenue" },
-  { key: "online_grab", labelVi: "Online - GrabFood", labelEn: "Online - GrabFood" },
-  { key: "online_shopee", labelVi: "Online - ShopeeFood", labelEn: "Online - ShopeeFood" },
-  { key: "online_be", labelVi: "Online - Be", labelEn: "Online - Be" },
-  { key: "online_facebook", labelVi: "Online - Facebook", labelEn: "Online - Facebook" },
-] as const;
-
-const cakeChannels = [
-  { key: "cake_kingfoodmart", labelVi: "Kingfoodmart", labelEn: "Kingfoodmart" },
-  { key: "cake_cafe", labelVi: "Quán cafe", labelEn: "Cafe" },
-] as const;
-
-type RevenueState = Record<string, number>;
+const inferProductGroup = (row: any): "banhmi" | "banhngot" => {
+  const pg = String(row?.mini_crm_customers?.product_group || "").trim();
+  if (pg === "banhngot") return "banhngot";
+  const channel = normalizeChannel(row?.revenue_channel);
+  if (channel.startsWith("cake_") || channel === "wholesale_kfm") return "banhngot";
+  return "banhmi";
+};
 
 const normalizeChannel = (channel?: string | null) => {
   const key = String(channel || "").trim();
@@ -77,7 +69,6 @@ export default function FinanceRevenueControl() {
   const { language } = useLanguage();
   const isVi = language === "vi";
   const [selectedDate, setSelectedDate] = useState<string>(todayLocal());
-  const [manualAdjust, setManualAdjust] = useState<RevenueState>({});
 
   const { data: postedPoRows = [] } = useQuery({
     queryKey: ["finance-posted-po"],
@@ -107,38 +98,20 @@ export default function FinanceRevenueControl() {
     });
   }, [postedRows, selectedDate]);
 
-  const autoData = useMemo(() => {
-    const out: RevenueState = {};
-    for (const row of postedRowsByDate) {
-      const channel = normalizeChannel(row.revenue_channel);
-      if (!channel) continue;
-      const amount = calcAmountFromRow(row);
-      out[channel] = (out[channel] || 0) + amount;
-    }
-    return out;
-  }, [postedRowsByDate]);
-
-  const mergedData = useMemo(() => {
-    const out: RevenueState = { ...autoData };
-    for (const [k, v] of Object.entries(manualAdjust)) {
-      out[k] = Number(out[k] || 0) + Number(v || 0);
-    }
-    return out;
-  }, [autoData, manualAdjust]);
-
-  const setAmount = (key: string, value: string) => {
-    setManualAdjust((prev) => ({ ...prev, [key]: Number(value || 0) }));
-  };
-
   const totals = useMemo(() => {
-    const breadTotal = breadChannels.reduce((sum, c) => sum + Number(mergedData[c.key] || 0), 0);
-    const cakeTotal = cakeChannels.reduce((sum, c) => sum + Number(mergedData[c.key] || 0), 0);
+    let breadTotal = 0;
+    let cakeTotal = 0;
+    for (const row of postedRowsByDate) {
+      const amount = calcAmountFromRow(row);
+      if (inferProductGroup(row) === "banhngot") cakeTotal += amount;
+      else breadTotal += amount;
+    }
     return {
       breadTotal,
       cakeTotal,
       grandTotal: breadTotal + cakeTotal,
     };
-  }, [mergedData]);
+  }, [postedRowsByDate]);
 
   return (
     <div className="space-y-6">
