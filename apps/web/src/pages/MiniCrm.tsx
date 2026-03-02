@@ -94,6 +94,7 @@ export default function MiniCrm() {
   const [pendingTemplateFileName, setPendingTemplateFileName] = useState<string>("");
   const [pendingTemplatePreview, setPendingTemplatePreview] = useState<any | null>(null);
   const [templateConfirmOpen, setTemplateConfirmOpen] = useState<boolean>(false);
+  const [templateReviewDraft, setTemplateReviewDraft] = useState<any | null>(null);
   const [selectedPoId, setSelectedPoId] = useState<string | null>(null);
   const [poSummaryDraft, setPoSummaryDraft] = useState<any>({});
   const [postRevenueStatus, setPostRevenueStatus] = useState<string>("");
@@ -562,10 +563,11 @@ export default function MiniCrm() {
 
     const confirmationView = {
       orderDate: String(sampleRows?.[0]?.date || ""),
-      items: quantityColumns.map((q: any) => ({ product: q.columnName, qty: q.sampleQty || 0 })),
+      items: quantityColumns.map((q: any) => ({ product: q.columnName, qty: q.sampleQty || 0, unitPrice: null, lineTotal: null })),
       subtotal: null,
       vat: null,
       total: null,
+      hasNoMoneyInPo: true,
     };
 
     setPendingTemplateFileName(file.name);
@@ -766,6 +768,11 @@ export default function MiniCrm() {
 
   const selectedPo = useMemo(() => poInbox.find((r: any) => r.id === selectedPoId) || null, [poInbox, selectedPoId]);
   const selectedPreview = useMemo(() => previewItems.find((r: any) => r.messageId === selectedPreviewId) || null, [previewItems, selectedPreviewId]);
+
+  useEffect(() => {
+    if (!templateConfirmOpen || !pendingTemplatePreview?.confirmationView) return;
+    setTemplateReviewDraft(JSON.parse(JSON.stringify(pendingTemplatePreview.confirmationView)));
+  }, [templateConfirmOpen, pendingTemplatePreview]);
 
   useEffect(() => {
     if (!selectedPo) return;
@@ -1568,27 +1575,78 @@ export default function MiniCrm() {
             <div><b>File:</b> {pendingTemplateFileName || "-"}</div>
             <div><b>Sheet:</b> {pendingTemplatePreview?.parserConfig?.sheetName || "-"}</div>
             <div><b>Header row:</b> {pendingTemplatePreview?.parserConfig?.headerRow || "-"}</div>
-            <div className="rounded border p-3 space-y-2">
-              <div><b>Ngày đặt hàng:</b> {pendingTemplatePreview?.confirmationView?.orderDate || "(chưa rõ)"}</div>
-              <div><b>Danh sách sản phẩm đặt hàng:</b></div>
-              <div className="max-h-40 overflow-auto rounded bg-muted/40 p-2">
-                {(pendingTemplatePreview?.confirmationView?.items || []).length === 0 && <div className="text-xs text-muted-foreground">Chưa đọc được sản phẩm</div>}
-                {(pendingTemplatePreview?.confirmationView?.items || []).map((it: any, idx: number) => (
-                  <div key={idx} className="text-xs">- {it.product}: {Number(it.qty || 0).toLocaleString("vi-VN")}</div>
-                ))}
-              </div>
-              <div><b>Tạm tính:</b> {pendingTemplatePreview?.confirmationView?.subtotal ?? "(user nhập tay nếu thiếu)"}</div>
-              <div><b>VAT:</b> {pendingTemplatePreview?.confirmationView?.vat ?? "(không có / user nhập tay)"}</div>
-              <div><b>Thành tiền:</b> {pendingTemplatePreview?.confirmationView?.total ?? "(không có / user nhập tay)"}</div>
-            </div>
+
+            <Tabs defaultValue="parsed" className="w-full">
+              <TabsList>
+                <TabsTrigger value="parsed">Dữ liệu parse</TabsTrigger>
+                <TabsTrigger value="totals">Tổng tiền</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="parsed" className="space-y-2">
+                <div>
+                  <Label>Ngày đặt hàng</Label>
+                  <Input
+                    value={templateReviewDraft?.orderDate || ""}
+                    onChange={(e) => setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), orderDate: e.target.value }))}
+                    placeholder="YYYY-MM-DD hoặc theo mẫu PO"
+                  />
+                </div>
+                <div className="rounded border max-h-64 overflow-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Sản phẩm</TableHead>
+                        <TableHead>Số lượng</TableHead>
+                        <TableHead>Đơn giá</TableHead>
+                        <TableHead>Thành tiền</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(templateReviewDraft?.items || []).map((it: any, idx: number) => (
+                        <TableRow key={idx}>
+                          <TableCell><Input value={it.product || ""} onChange={(e) => setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, product: e.target.value } : x) }))} /></TableCell>
+                          <TableCell><Input value={it.qty ?? ""} onChange={(e) => setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, qty: e.target.value } : x) }))} /></TableCell>
+                          <TableCell><Input value={it.unitPrice ?? ""} onChange={(e) => setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, unitPrice: e.target.value } : x) }))} placeholder="tuỳ chọn" /></TableCell>
+                          <TableCell><Input value={it.lineTotal ?? ""} onChange={(e) => setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, lineTotal: e.target.value } : x) }))} placeholder="tuỳ chọn" /></TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="totals" className="space-y-2">
+                <div className="grid md:grid-cols-3 gap-2">
+                  <div><Label>Tạm tính</Label><Input value={templateReviewDraft?.subtotal ?? ""} onChange={(e) => setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), subtotal: e.target.value }))} /></div>
+                  <div><Label>VAT</Label><Input value={templateReviewDraft?.vat ?? ""} onChange={(e) => setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), vat: e.target.value }))} /></div>
+                  <div><Label>Thành tiền</Label><Input value={templateReviewDraft?.total ?? ""} onChange={(e) => setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), total: e.target.value }))} /></div>
+                </div>
+                <label className="inline-flex items-center gap-2 text-xs">
+                  <input type="checkbox" checked={Boolean(templateReviewDraft?.hasNoMoneyInPo)} onChange={(e) => setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), hasNoMoneyInPo: e.target.checked }))} />
+                  PO này chỉ có số lượng, chưa có thông tin tiền
+                </label>
+              </TabsContent>
+            </Tabs>
           </div>
 
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setTemplateConfirmOpen(false)}>Huỷ</Button>
             <Button
               onClick={() => {
+                const hasOrderDate = Boolean(String(templateReviewDraft?.orderDate || "").trim());
+                const validItems = (templateReviewDraft?.items || []).filter((it: any) => String(it?.product || "").trim() && Number(String(it?.qty || 0).replace(/[^0-9.-]/g, "")) > 0);
+                if (!hasOrderDate || validItems.length === 0) {
+                  toast({ title: "Thiếu dữ liệu bắt buộc", description: "Cần xác nhận ngày đặt hàng và ít nhất 1 sản phẩm có số lượng > 0", variant: "destructive" });
+                  return;
+                }
+
+                const mergedPreview = {
+                  ...(pendingTemplatePreview || {}),
+                  confirmationView: { ...(templateReviewDraft || {}) },
+                  sampleRows: validItems,
+                };
                 setTemplateFileName(pendingTemplateFileName);
-                setTemplatePreview(pendingTemplatePreview);
+                setTemplatePreview(mergedPreview);
                 setTemplateConfirmOpen(false);
                 toast({ title: "Đã xác nhận mẫu PO", description: "Anh có thể bấm Lưu mẫu PO để lưu format." });
               }}
