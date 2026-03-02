@@ -84,6 +84,7 @@ export default function MiniCrm() {
   const [editCustomerGroup, setEditCustomerGroup] = useState("banhmi_point");
   const [editDefaultRevenueChannel, setEditDefaultRevenueChannel] = useState("");
   const [editEmailsInput, setEditEmailsInput] = useState("");
+  const [editOriginalEmailsInput, setEditOriginalEmailsInput] = useState("");
   const [editFeedback, setEditFeedback] = useState<string>("");
   const [selectedPoId, setSelectedPoId] = useState<string | null>(null);
   const [poSummaryDraft, setPoSummaryDraft] = useState<any>({});
@@ -134,7 +135,9 @@ export default function MiniCrm() {
     setEditCustomerCode(c.customer_code || "");
     setEditCustomerGroup(c.customer_group || "banhmi_point");
     setEditDefaultRevenueChannel(c.default_revenue_channel || "");
-    setEditEmailsInput((c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", "));
+    const emails = (c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ");
+    setEditEmailsInput(emails);
+    setEditOriginalEmailsInput(emails);
   };
 
   const cancelEditCustomer = () => {
@@ -145,6 +148,7 @@ export default function MiniCrm() {
     setEditCustomerGroup("banhmi_point");
     setEditDefaultRevenueChannel("");
     setEditEmailsInput("");
+    setEditOriginalEmailsInput("");
   };
 
   const addCustomerMutation = useMutation({
@@ -215,46 +219,53 @@ export default function MiniCrm() {
         throw new Error("Không cập nhật được khách hàng (có thể do quyền RLS hoặc bản ghi không tồn tại)");
       }
 
-      const emails = Array.from(
-        new Set(
-          editEmailsInput
+      const normalizeEmails = (raw: string) =>
+        Array.from(new Set(
+          String(raw || "")
             .split(/[;,\n]+/)
             .map((s) => s.trim().toLowerCase())
             .filter(Boolean)
-        )
-      );
+        ));
 
-      const { error: deleteEmailsError } = await (supabase as any)
-        .from("mini_crm_customer_emails")
-        .delete()
-        .eq("customer_id", editingCustomerId);
+      const emails = normalizeEmails(editEmailsInput);
+      const oldEmails = normalizeEmails(editOriginalEmailsInput);
+      const emailChanged = JSON.stringify(emails) !== JSON.stringify(oldEmails);
 
-      if (deleteEmailsError) {
-        throw new Error(`Lỗi cập nhật danh sách email (bước xoá email cũ): ${deleteEmailsError.message}`);
-      }
-
-      if (emails.length) {
-        const { error: insertEmailsError } = await (supabase as any)
+      if (emailChanged) {
+        const { error: deleteEmailsError } = await (supabase as any)
           .from("mini_crm_customer_emails")
-          .insert(emails.map((email, idx) => ({ customer_id: editingCustomerId, email, is_primary: idx === 0 })));
-        if (insertEmailsError) {
-          throw new Error(`Lỗi cập nhật danh sách email (bước thêm email mới): ${insertEmailsError.message}`);
+          .delete()
+          .eq("customer_id", editingCustomerId);
+
+        if (deleteEmailsError) {
+          throw new Error(`Lỗi cập nhật danh sách email (bước xoá email cũ): ${deleteEmailsError.message}`);
+        }
+
+        if (emails.length) {
+          const { error: insertEmailsError } = await (supabase as any)
+            .from("mini_crm_customer_emails")
+            .insert(emails.map((email, idx) => ({ customer_id: editingCustomerId, email, is_primary: idx === 0 })));
+          if (insertEmailsError) {
+            throw new Error(`Lỗi cập nhật danh sách email (bước thêm email mới): ${insertEmailsError.message}`);
+          }
         }
       }
 
-      return { saved: true, emailCount: emails.length };
+      return { saved: true, emailCount: emails.length, emailChanged };
     },
     onSuccess: async (result: any) => {
       cancelEditCustomer();
-      const msg = `Đã lưu khách hàng thành công (${result?.emailCount || 0} email).`;
+      const msg = `Đã lưu thành công${result?.emailChanged ? ` (${result?.emailCount || 0} email)` : ""}.`;
       setEditFeedback(msg);
       await queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] });
       toast({ title: "Lưu thành công", description: msg });
+      alert(msg);
     },
     onError: (e: any) => {
       const msg = e?.message || "Không thể cập nhật khách hàng";
       setEditFeedback(`Lưu thất bại: ${msg}`);
       toast({ title: "Lỗi lưu CRM", description: msg, variant: "destructive" });
+      alert(`Lưu thất bại: ${msg}`);
     },
   });
 
@@ -616,7 +627,7 @@ export default function MiniCrm() {
                       <div className="flex justify-end gap-2">
                         {isEditing ? (
                           <>
-                            <Button type="button" size="sm" onClick={async () => { setEditFeedback(""); await updateCustomerMutation.mutateAsync(); }} disabled={updateCustomerMutation.isPending}>
+                            <Button type="button" size="sm" onClick={async () => { setEditFeedback("Đang lưu..."); await updateCustomerMutation.mutateAsync(); }} disabled={updateCustomerMutation.isPending}>
                               {updateCustomerMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}Lưu
                             </Button>
                             <Button type="button" size="sm" variant="outline" onClick={cancelEditCustomer}>
