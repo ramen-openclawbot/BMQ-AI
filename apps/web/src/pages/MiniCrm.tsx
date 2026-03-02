@@ -247,8 +247,21 @@ export default function MiniCrm() {
     setPendingTemplateFileName("");
     setPendingTemplatePreview(null);
     setTemplateConfirmOpen(false);
+    setTemplateReviewDraft(null);
     setEditContractFile(null);
     setEditPriceRows([{ skuId: "", price: "" }]);
+  };
+
+  const getNextTemplateVersion = async (customerId: string) => {
+    const { data, error } = await (supabase as any)
+      .from("mini_crm_po_templates")
+      .select("version_no")
+      .eq("customer_id", customerId)
+      .order("version_no", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return Number(data?.version_no || 0) + 1;
   };
 
   const addCustomerMutation = useMutation({
@@ -338,14 +351,18 @@ export default function MiniCrm() {
       }
 
       if (templatePreview?.parserConfig) {
+        const versionNo = await getNextTemplateVersion(customerId);
         const { error: tplError } = await (supabase as any)
           .from("mini_crm_po_templates")
           .insert({
             customer_id: customerId,
-            template_name: `Template ${new Date().toLocaleString("vi-VN")}`,
+            template_name: `Template v${versionNo} - ${new Date().toLocaleString("vi-VN")}`,
             file_name: templateFileName || "uploaded-template.xlsx",
-            parser_config: templatePreview.parserConfig,
+            parser_config: { ...(templatePreview.parserConfig || {}), version_no: versionNo },
             sample_preview: templatePreview.sampleRows || [],
+            confirmation_snapshot: templatePreview?.confirmationView || {},
+            parse_confidence: 1,
+            version_no: versionNo,
             is_active: true,
           });
         if (tplError) throw tplError;
@@ -473,9 +490,10 @@ export default function MiniCrm() {
           .eq("is_active", true);
         if (deactivateTplError) throw deactivateTplError;
 
+        const versionNo = await getNextTemplateVersion(editingCustomerId);
         const { error: tplInsertError } = await (supabase as any)
           .from("mini_crm_po_templates")
-          .insert({ customer_id: editingCustomerId, template_name: `Template ${new Date().toLocaleString("vi-VN")}`, file_name: templateFileName || "uploaded-template.xlsx", parser_config: templatePreview.parserConfig, sample_preview: templatePreview.sampleRows || [], is_active: true });
+          .insert({ customer_id: editingCustomerId, template_name: `Template v${versionNo} - ${new Date().toLocaleString("vi-VN")}`, file_name: templateFileName || "uploaded-template.xlsx", parser_config: { ...(templatePreview.parserConfig || {}), version_no: versionNo }, sample_preview: templatePreview.sampleRows || [], confirmation_snapshot: templatePreview?.confirmationView || {}, parse_confidence: 1, version_no: versionNo, is_active: true });
         if (tplInsertError) throw tplInsertError;
       }
 
@@ -587,14 +605,18 @@ export default function MiniCrm() {
         .eq("is_active", true);
       if (disableError) throw disableError;
 
+      const versionNo = await getNextTemplateVersion(customerId);
       const { error: insertError } = await (supabase as any)
         .from("mini_crm_po_templates")
         .insert({
           customer_id: customerId,
-          template_name: `Template ${new Date().toLocaleString("vi-VN")}`,
+          template_name: `Template v${versionNo} - ${new Date().toLocaleString("vi-VN")}`,
           file_name: templateFileName || "uploaded-template.xlsx",
-          parser_config: templatePreview.parserConfig,
+          parser_config: { ...(templatePreview.parserConfig || {}), version_no: versionNo },
           sample_preview: templatePreview.sampleRows || [],
+          confirmation_snapshot: templatePreview?.confirmationView || {},
+          parse_confidence: 1,
+          version_no: versionNo,
           is_active: true,
         });
       if (insertError) throw insertError;
@@ -1470,7 +1492,7 @@ export default function MiniCrm() {
                     })}
                   </ul>
                 </div>
-                <div><b>Mẫu PO active:</b> {(poTemplates.find((t: any) => t.customer_id === viewCustomer.id)?.file_name) || "Chưa có"}</div>
+                <div><b>Mẫu PO active:</b> {(() => { const t = poTemplates.find((x: any) => x.customer_id === viewCustomer.id); return t ? `${t.file_name || t.template_name} (v${t.version_no || 1})` : "Chưa có"; })()}</div>
               </div>
             </>
           )}
