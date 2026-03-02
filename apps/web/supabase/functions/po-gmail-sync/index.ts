@@ -34,6 +34,19 @@ const decodeBase64Url = (input: string) => {
   }
 };
 
+const normalizeEmail = (value: string) => {
+  const raw = String(value || "").trim().toLowerCase();
+  const inBracket = raw.match(/<([^>]+)>/)?.[1] || raw;
+  return inBracket.trim();
+};
+
+const explodeEmails = (value: string): string[] => {
+  return String(value || "")
+    .split(/[;,\n]+/)
+    .map((part) => normalizeEmail(part))
+    .filter(Boolean);
+};
+
 async function getGoogleAccessToken(supabaseAdmin: any): Promise<string> {
   const { data: gmailTokenData } = await supabaseAdmin
     .from("app_settings")
@@ -130,12 +143,14 @@ serve(async (req) => {
 
     const emailMap = new Map<string, { customerId: string; defaultRevenueChannel: string | null }>();
     for (const row of crmEmails || []) {
-      const key = String((row as any).email || "").toLowerCase().trim();
-      if (!key) continue;
-      emailMap.set(key, {
-        customerId: (row as any).customer_id,
-        defaultRevenueChannel: (row as any).mini_crm_customers?.default_revenue_channel || null,
-      });
+      const rawEmail = String((row as any).email || "");
+      const expanded = explodeEmails(rawEmail);
+      for (const key of expanded) {
+        emailMap.set(key, {
+          customerId: (row as any).customer_id,
+          defaultRevenueChannel: (row as any).mini_crm_customers?.default_revenue_channel || null,
+        });
+      }
     }
 
     let synced = 0;

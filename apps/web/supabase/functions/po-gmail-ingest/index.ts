@@ -19,6 +19,19 @@ type IncomingEmail = {
   rawPayload?: Record<string, unknown>;
 };
 
+const normalizeEmail = (value: string) => {
+  const raw = String(value || "").trim().toLowerCase();
+  const inBracket = raw.match(/<([^>]+)>/)?.[1] || raw;
+  return inBracket.trim();
+};
+
+const explodeEmails = (value: string): string[] => {
+  return String(value || "")
+    .split(/[;,\n]+/)
+    .map((part) => normalizeEmail(part))
+    .filter(Boolean);
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -58,17 +71,18 @@ serve(async (req) => {
 
     const emailMap = new Map<string, { customerId: string; defaultRevenueChannel: string | null }>();
     for (const row of crmEmails || []) {
-      const key = String((row as any).email || "").toLowerCase().trim();
-      if (!key) continue;
-      emailMap.set(key, {
-        customerId: (row as any).customer_id,
-        defaultRevenueChannel: (row as any).mini_crm_customers?.default_revenue_channel || null,
-      });
+      const expanded = explodeEmails(String((row as any).email || ""));
+      for (const key of expanded) {
+        emailMap.set(key, {
+          customerId: (row as any).customer_id,
+          defaultRevenueChannel: (row as any).mini_crm_customers?.default_revenue_channel || null,
+        });
+      }
     }
 
     let ingested = 0;
     for (const item of emails) {
-      const fromEmail = String(item.fromEmail || "").toLowerCase().trim();
+      const fromEmail = normalizeEmail(String(item.fromEmail || ""));
       if (!fromEmail) continue;
 
       const match = emailMap.get(fromEmail);
