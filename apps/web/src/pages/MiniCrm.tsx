@@ -1193,125 +1193,25 @@ export default function MiniCrm() {
             </TableHeader>
             <TableBody>
               {customers.map((c: any) => {
-                const isEditing = editingCustomerId === c.id;
-                const activeTemplate = poTemplates.find((t: any) => t.customer_id === c.id);
                 return (
                   <TableRow key={c.id}>
-                    <TableCell>
-                      {isEditing ? (
-                        <Input value={editCustomerName} onChange={(e) => setEditCustomerName(e.target.value)} />
-                      ) : (
-                        c.customer_name
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {isEditing ? (
-                        <select className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={editCustomerGroup} onChange={(e) => setEditCustomerGroup(e.target.value)}>
-                          {GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </select>
-                      ) : (
-                        GROUP_LABEL_MAP[c.customer_group] || c.customer_group
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {isEditing ? (
-                        <div className="space-y-2">
-                          <Input value={editEmailsInput} onChange={(e) => setEditEmailsInput(e.target.value)} placeholder="buyer@agency.com, order@agency.com" />
-                          <select
-                            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                            value={editIsActive ? "active" : "paused"}
-                            onChange={(e) => setEditIsActive(e.target.value === "active")}
-                          >
-                            <option value="active">Active</option>
-                            <option value="paused">Tạm ngưng</option>
-                          </select>
-
-                          <div className="rounded-md border p-2 text-xs space-y-3">
-                            <div>
-                              <b>Hợp đồng active:</b> {(customerContracts.find((x: any) => x.customer_id === c.id)?.file_name) || "Chưa có"}
-                              <div className="mt-1 flex gap-2">
-                                <Input type="file" accept="application/pdf,.pdf" onChange={(e) => setEditContractFile(e.target.files?.[0] || null)} />
-                                <Button type="button" size="sm" variant="outline" onClick={async () => {
-                                  await (supabase as any).from("mini_crm_customer_contracts").update({ is_active: false }).eq("customer_id", c.id).eq("is_active", true);
-                                  await queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-contracts"] });
-                                  toast({ title: "Đã xoá hợp đồng active" });
-                                }}>Xoá HĐ</Button>
-                              </div>
-                            </div>
-
-                            <div>
-                              <b>Giá bán SKU:</b>
-                              <div className="space-y-1 mt-1">
-                                {editPriceRows.map((row, idx) => (
-                                  <div key={idx} className="grid grid-cols-12 gap-1">
-                                    <select className="col-span-7 h-8 rounded-md border border-input bg-background px-2 text-xs" value={row.skuId} onChange={(e) => setEditPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, skuId: e.target.value } : r))}>
-                                      <option value="">-- SKU --</option>
-                                      {finishedSkus.map((s: any) => <option key={s.id} value={s.id}>{s.sku_code} - {s.product_name}</option>)}
-                                    </select>
-                                    <Input className="col-span-4 h-8 text-xs" value={row.price} onChange={(e) => setEditPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, price: e.target.value } : r))} placeholder="VND" />
-                                    <Button type="button" variant="outline" className="col-span-1 h-8 px-0" onClick={() => setEditPriceRows((prev) => prev.filter((_, i) => i !== idx))} disabled={editPriceRows.length === 1}>-</Button>
-                                  </div>
-                                ))}
-                                <Button type="button" size="sm" variant="outline" onClick={() => setEditPriceRows((prev) => [...prev, { skuId: "", price: "" }])}>+ SKU</Button>
-                              </div>
-                            </div>
-
-                            <div>
-                              <b>Mẫu PO active:</b> {activeTemplate?.file_name || activeTemplate?.template_name || "Chưa có"}
-                              <div className="mt-1 flex gap-2">
-                                <Input
-                                  type="file"
-                                  accept=".xlsx"
-                                  onChange={async (e) => {
-                                    const f = e.target.files?.[0];
-                                    if (!f) return;
-                                    try {
-                                      await handleAnalyzeTemplateFile(f);
-                                    } catch (err: any) {
-                                      toast({ title: "Đọc file mẫu thất bại", description: err?.message || "Không thể đọc file", variant: "destructive" });
-                                    }
-                                  }}
-                                />
-                                <Button type="button" size="sm" variant="outline" onClick={async () => {
-                                  await (supabase as any).from("mini_crm_po_templates").update({ is_active: false }).eq("customer_id", c.id).eq("is_active", true);
-                                  await queryClient.invalidateQueries({ queryKey: ["mini-crm-po-templates"] });
-                                  toast({ title: "Đã xoá mẫu PO active" });
-                                }}>Xoá mẫu</Button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        (c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"
-                      )}
-                    </TableCell>
+                    <TableCell>{c.customer_name}</TableCell>
+                    <TableCell>{GROUP_LABEL_MAP[c.customer_group] || c.customer_group}</TableCell>
+                    <TableCell>{(c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"}</TableCell>
                     <TableCell>{c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        {isEditing ? (
-                          <>
-                            <Button type="button" size="sm" onClick={async () => { setEditFeedback("Đang lưu..."); await updateCustomerMutation.mutateAsync(); }} disabled={updateCustomerMutation.isPending}>
-                              {updateCustomerMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}Lưu
-                            </Button>
-                            <Button type="button" size="sm" variant="outline" onClick={cancelEditCustomer}>
-                              <X className="h-4 w-4 mr-1" />Huỷ
-                            </Button>
-                          </>
-                        ) : (
-                          <>
-                            <Button size="sm" variant="secondary" onClick={() => setViewCustomer(c)}>Xem</Button>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => {
-                                if (confirm(`Xoá khách hàng ${c.customer_name}?`)) deleteCustomerMutation.mutate({ customerId: c.id, customerName: c.customer_name });
-                              }}
-                              disabled={deleteCustomerMutation.isPending}
-                            >
-                              <Trash2 className="h-4 w-4 mr-1" />Xoá
-                            </Button>
-                          </>
-                        )}
+                        <Button size="sm" variant="secondary" onClick={() => setViewCustomer(c)}>Xem</Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => {
+                            if (confirm(`Xoá khách hàng ${c.customer_name}?`)) deleteCustomerMutation.mutate({ customerId: c.id, customerName: c.customer_name });
+                          }}
+                          disabled={deleteCustomerMutation.isPending}
+                        >
+                          <Trash2 className="h-4 w-4 mr-1" />Xoá
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -1567,6 +1467,91 @@ export default function MiniCrm() {
               </div>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(editingCustomerId)} onOpenChange={(open) => !open && cancelEditCustomer()}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Sửa khách hàng</DialogTitle>
+          </DialogHeader>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Tên khách hàng</Label>
+              <Input value={editCustomerName} onChange={(e) => setEditCustomerName(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Nhóm khách hàng</Label>
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editCustomerGroup} onChange={(e) => setEditCustomerGroup(e.target.value)}>
+                {GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Email nhận diện</Label>
+              <Input value={editEmailsInput} onChange={(e) => setEditEmailsInput(e.target.value)} />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Trạng thái</Label>
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editIsActive ? "active" : "paused"} onChange={(e) => setEditIsActive(e.target.value === "active")}>
+                <option value="active">Active</option>
+                <option value="paused">Tạm ngưng</option>
+              </select>
+            </div>
+
+            <div className="space-y-2 md:col-span-2 rounded-md border p-3">
+              <Label>Hợp đồng (PDF)</Label>
+              <div className="text-xs">Active: {(customerContracts.find((x: any) => x.customer_id === editingCustomerId)?.file_name) || "Chưa có"}</div>
+              <div className="flex gap-2">
+                <Input type="file" accept="application/pdf,.pdf" onChange={(e) => setEditContractFile(e.target.files?.[0] || null)} />
+                <Button type="button" variant="outline" onClick={async () => {
+                  await (supabase as any).from("mini_crm_customer_contracts").update({ is_active: false }).eq("customer_id", editingCustomerId).eq("is_active", true);
+                  await queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-contracts"] });
+                  toast({ title: "Đã xoá hợp đồng active" });
+                }}>Xoá HĐ</Button>
+              </div>
+            </div>
+
+            <div className="space-y-2 md:col-span-2 rounded-md border p-3">
+              <Label>Giá bán SKU</Label>
+              {editPriceRows.map((row, idx) => (
+                <div key={idx} className="grid grid-cols-12 gap-2 mb-2">
+                  <select className="col-span-7 h-10 rounded-md border border-input bg-background px-3 text-sm" value={row.skuId} onChange={(e) => setEditPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, skuId: e.target.value } : r))}>
+                    <option value="">-- Chọn SKU --</option>
+                    {finishedSkus.map((s: any) => <option key={s.id} value={s.id}>{s.sku_code} - {s.product_name}</option>)}
+                  </select>
+                  <Input className="col-span-4" value={row.price} onChange={(e) => setEditPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, price: e.target.value } : r))} placeholder="VND/cái" />
+                  <Button type="button" variant="outline" className="col-span-1" onClick={() => setEditPriceRows((prev) => prev.filter((_, i) => i !== idx))} disabled={editPriceRows.length === 1}>-</Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" onClick={() => setEditPriceRows((prev) => [...prev, { skuId: "", price: "" }])}>+ Thêm SKU</Button>
+            </div>
+
+            <div className="space-y-2 md:col-span-2 rounded-md border p-3">
+              <Label>Mẫu PO (.xlsx)</Label>
+              <div className="text-xs">Active: {(poTemplates.find((t: any) => t.customer_id === editingCustomerId)?.file_name) || "Chưa có"}</div>
+              <div className="flex gap-2">
+                <Input type="file" accept=".xlsx" onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  try { await handleAnalyzeTemplateFile(f); } catch (err: any) { toast({ title: "Đọc file mẫu thất bại", description: err?.message || "Không thể đọc file", variant: "destructive" }); }
+                }} />
+                <Button type="button" variant="outline" onClick={async () => {
+                  await (supabase as any).from("mini_crm_po_templates").update({ is_active: false }).eq("customer_id", editingCustomerId).eq("is_active", true);
+                  await queryClient.invalidateQueries({ queryKey: ["mini-crm-po-templates"] });
+                  toast({ title: "Đã xoá mẫu PO active" });
+                }}>Xoá mẫu</Button>
+              </div>
+              {templateFileName && <div className="text-xs text-muted-foreground">Đã xác nhận mẫu mới: {templateFileName}</div>}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={cancelEditCustomer}>Huỷ</Button>
+            <Button onClick={async () => { setEditFeedback("Đang lưu..."); await updateCustomerMutation.mutateAsync(); }} disabled={updateCustomerMutation.isPending}>
+              {updateCustomerMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}Lưu thay đổi
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 
