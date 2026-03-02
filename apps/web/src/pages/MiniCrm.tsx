@@ -26,6 +26,15 @@ const GROUP_LABEL_MAP: Record<string, string> = GROUP_OPTIONS.reduce((acc, item)
   return acc;
 }, {} as Record<string, string>);
 
+const PRODUCT_GROUP_OPTIONS = [
+  { value: "banhmi", label: "Bánh mì" },
+  { value: "banhngot", label: "Bánh ngọt" },
+];
+const PRODUCT_GROUP_LABEL_MAP: Record<string, string> = PRODUCT_GROUP_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.label;
+  return acc;
+}, {} as Record<string, string>);
+
 
 const extractPoNumberFromSubject = (subject?: string) => {
   const s = String(subject || "");
@@ -81,10 +90,12 @@ export default function MiniCrm() {
 
   const [customerName, setCustomerName] = useState("");
   const [customerGroup, setCustomerGroup] = useState("banhmi_point");
+  const [productGroup, setProductGroup] = useState("banhmi");
   const [emailsInput, setEmailsInput] = useState("");
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
   const [editCustomerName, setEditCustomerName] = useState("");
   const [editCustomerGroup, setEditCustomerGroup] = useState("banhmi_point");
+  const [editProductGroup, setEditProductGroup] = useState("banhmi");
   const [editIsActive, setEditIsActive] = useState(true);
   const [editEmailsInput, setEditEmailsInput] = useState("");
   const [editOriginalEmailsInput, setEditOriginalEmailsInput] = useState("");
@@ -221,6 +232,7 @@ export default function MiniCrm() {
     setEditingCustomerId(c.id);
     setEditCustomerName(c.customer_name || "");
     setEditCustomerGroup(c.customer_group || "banhmi_point");
+    setEditProductGroup(c.product_group || "banhmi");
     setEditIsActive(Boolean(c.is_active));
     const emails = (c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ");
     setEditEmailsInput(emails);
@@ -240,6 +252,7 @@ export default function MiniCrm() {
     setEditingCustomerId(null);
     setEditCustomerName("");
     setEditCustomerGroup("banhmi_point");
+    setEditProductGroup("banhmi");
     setEditIsActive(true);
     setEditEmailsInput("");
     setEditOriginalEmailsInput("");
@@ -288,6 +301,7 @@ export default function MiniCrm() {
         .insert({
           customer_name: trimmedName,
           customer_group: customerGroup,
+          product_group: productGroup,
         })
         .select("id")
         .single();
@@ -310,6 +324,7 @@ export default function MiniCrm() {
     },
     onSuccess: async () => {
       setCustomerName("");
+      setProductGroup("banhmi");
       setEmailsInput("");
       await queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] });
       toast({ title: "Thêm khách hàng thành công", description: "Mini-CRM đã cập nhật." });
@@ -327,7 +342,7 @@ export default function MiniCrm() {
 
       const { data: created, error: createError } = await (supabase as any)
         .from("mini_crm_customers")
-        .insert({ customer_name: trimmedName, customer_group: customerGroup })
+        .insert({ customer_name: trimmedName, customer_group: customerGroup, product_group: productGroup })
         .select("id")
         .single();
       if (createError) throw createError;
@@ -386,6 +401,7 @@ export default function MiniCrm() {
       setSetupModalOpen(false);
       setCustomerName("");
       setCustomerGroup("banhmi_point");
+      setProductGroup("banhmi");
       setEmailsInput("");
       setSetupContractFile(null);
       setSetupPriceRows([{ skuId: "", price: "" }]);
@@ -415,6 +431,7 @@ export default function MiniCrm() {
         .update({
           customer_name: trimmedName,
           customer_group: editCustomerGroup,
+          product_group: editProductGroup,
           is_active: editIsActive,
         })
         .eq("id", editingCustomerId)
@@ -1210,6 +1227,12 @@ export default function MiniCrm() {
                 {GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
+            <div className="space-y-2">
+              <Label>Nhóm sản phẩm</Label>
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={productGroup} onChange={(e) => setProductGroup(e.target.value)}>
+                {PRODUCT_GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
             <div className="space-y-2 md:col-span-2">
               <Label>Email nhận diện (phân tách dấu phẩy)</Label>
               <Input value={emailsInput} onChange={(e) => setEmailsInput(e.target.value)} placeholder="buyer@agency.com, order@agency.com" />
@@ -1290,6 +1313,7 @@ export default function MiniCrm() {
               <TableRow>
                 <TableHead>Tên</TableHead>
                 <TableHead>Nhóm</TableHead>
+                <TableHead>Nhóm sản phẩm</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Trạng thái</TableHead>
                 <TableHead className="text-right">Thao tác</TableHead>
@@ -1301,6 +1325,7 @@ export default function MiniCrm() {
                   <TableRow key={c.id}>
                     <TableCell>{c.customer_name}</TableCell>
                     <TableCell>{GROUP_LABEL_MAP[c.customer_group] || c.customer_group}</TableCell>
+                    <TableCell>{PRODUCT_GROUP_LABEL_MAP[c.product_group] || c.product_group || "-"}</TableCell>
                     <TableCell>{(c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"}</TableCell>
                     <TableCell>{c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}</TableCell>
                     <TableCell className="text-right">
@@ -1554,6 +1579,7 @@ export default function MiniCrm() {
               </div>
               <div className="space-y-3 text-sm">
                 <div><b>Nhóm:</b> {GROUP_LABEL_MAP[viewCustomer.customer_group] || viewCustomer.customer_group}</div>
+                <div><b>Nhóm sản phẩm:</b> {PRODUCT_GROUP_LABEL_MAP[viewCustomer.product_group] || viewCustomer.product_group || "-"}</div>
                 <div><b>Trạng thái:</b> {viewCustomer.is_active ? "Active" : "Tạm ngưng"}</div>
                 <div><b>Email:</b> {(viewCustomer.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"}</div>
                 <div><b>Hợp đồng:</b> {(customerContracts.find((x: any) => x.customer_id === viewCustomer.id)?.file_name) || "Chưa có"}</div>
@@ -1589,6 +1615,12 @@ export default function MiniCrm() {
               <Label>Nhóm khách hàng</Label>
               <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editCustomerGroup} onChange={(e) => setEditCustomerGroup(e.target.value)}>
                 {GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label>Nhóm sản phẩm</Label>
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editProductGroup} onChange={(e) => setEditProductGroup(e.target.value)}>
+                {PRODUCT_GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div className="space-y-2 md:col-span-2">

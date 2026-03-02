@@ -10,6 +10,17 @@ import { useLanguage } from "@/contexts/LanguageContext";
 
 const vnd = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value || 0);
 
+const GROUP_LABEL_MAP: Record<string, string> = {
+  banhmi_point: "Bán lẻ",
+  banhmi_agency: "Đại lý",
+  online: "Online",
+  b2b: "B2B",
+};
+const PRODUCT_GROUP_LABEL_MAP: Record<string, string> = {
+  banhmi: "Bánh mì",
+  banhngot: "Bánh ngọt",
+};
+
 const breadChannels = [
   { key: "banhmi_point", labelVi: "Doanh thu điểm bán", labelEn: "Storefront revenue" },
   { key: "banhmi_agency", labelVi: "Doanh thu đại lý", labelEn: "Agency revenue" },
@@ -73,7 +84,7 @@ export default function FinanceRevenueControl() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("customer_po_inbox")
-        .select("id,email_subject,revenue_channel,total_amount,subtotal_amount,vat_amount,delivery_date,received_at,raw_payload")
+        .select("id,email_subject,revenue_channel,total_amount,subtotal_amount,vat_amount,delivery_date,received_at,raw_payload, mini_crm_customers(customer_name,customer_group,product_group)")
         .order("received_at", { ascending: false })
         .limit(500);
       if (error) throw error;
@@ -149,8 +160,8 @@ export default function FinanceRevenueControl() {
 
       <Card>
         <CardHeader>
-          <CardTitle>{isVi ? "PO đã đẩy từ Mini-CRM" : "Posted POs from Mini-CRM"}</CardTitle>
-          <CardDescription>{isVi ? "Tự động tổng hợp theo ngày đặt PO (ưu tiên po_order_date/received_at)." : "Auto aggregate by PO order date (priority: po_order_date/received_at)."}</CardDescription>
+          <CardTitle>{isVi ? "Danh sách PO của khách hàng" : "Customer PO list"}</CardTitle>
+          <CardDescription>{isVi ? "Dữ liệu đồng bộ theo thông tin đã khai báo trong CRM." : "Synced from CRM-declared customer information."}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-sm text-muted-foreground mb-1">{isVi ? "Số PO trong ngày" : "PO count today"}: {postedRowsByDate.length}</div>
@@ -158,22 +169,24 @@ export default function FinanceRevenueControl() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>PO</TableHead>
-                <TableHead>{isVi ? "Kênh" : "Channel"}</TableHead>
+                <TableHead>{isVi ? "Tên khách hàng" : "Customer"}</TableHead>
+                <TableHead>{isVi ? "Nhóm" : "Group"}</TableHead>
+                <TableHead>{isVi ? "Nhóm sản phẩm" : "Product group"}</TableHead>
                 <TableHead className="text-right">{isVi ? "Giá trị" : "Amount"}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {postedRowsByDate.map((row: any) => (
                 <TableRow key={row.id}>
-                  <TableCell>{extractPoNumberFromSubject(row.email_subject) || row.email_subject || "-"}</TableCell>
-                  <TableCell>{normalizeChannel(row.revenue_channel) || "-"}</TableCell>
+                  <TableCell>{row?.mini_crm_customers?.customer_name || "-"}</TableCell>
+                  <TableCell>{GROUP_LABEL_MAP[row?.mini_crm_customers?.customer_group] || row?.mini_crm_customers?.customer_group || normalizeChannel(row.revenue_channel) || "-"}</TableCell>
+                  <TableCell>{PRODUCT_GROUP_LABEL_MAP[row?.mini_crm_customers?.product_group] || row?.mini_crm_customers?.product_group || "-"}</TableCell>
                   <TableCell className="text-right">{vnd(calcAmountFromRow(row))}</TableCell>
                 </TableRow>
               ))}
               {postedRowsByDate.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={3} className="text-center text-muted-foreground py-6">{isVi ? "Chưa có PO nào được đẩy cho ngày này." : "No posted PO for this date."}</TableCell>
+                  <TableCell colSpan={4} className="text-center text-muted-foreground py-6">{isVi ? "Chưa có PO nào được đẩy cho ngày này." : "No posted PO for this date."}</TableCell>
                 </TableRow>
               )}
             </TableBody>
