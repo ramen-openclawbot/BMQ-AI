@@ -306,7 +306,7 @@ export default function MiniCrm() {
     const dateQuery = syncDate
       ? `after:${toGmailDate(syncDate)} before:${toGmailDate(nextDay(syncDate))}`
       : "newer_than:30d";
-    return `in:anywhere ((to:po@bmq.vn OR deliveredto:po@bmq.vn OR cc:po@bmq.vn) OR (to:po@ramen.vn OR deliveredto:po@ramen.vn OR cc:po@ramen.vn)) ${dateQuery}`.trim();
+    return `in:anywhere (to:po@bmq.vn OR deliveredto:po@bmq.vn OR cc:po@bmq.vn) ${dateQuery}`.trim();
   };
 
   const callPoGmailSync = async (payload: any, stepLabel: string) => {
@@ -628,7 +628,11 @@ export default function MiniCrm() {
             <div className="text-xs rounded-md border bg-muted/30 p-3 space-y-1">
               <div><b>Trạng thái:</b> {syncStatus === "syncing" ? "Đang sync..." : syncStatus === "preview_success" ? "Đã lấy preview" : syncStatus === "import_success" ? "Đã nhập thành công" : syncStatus === "error" ? "Lỗi" : "Sẵn sàng"}</div>
               <div>Mailbox: {syncDebug?.mailbox || "-"}</div>
-              <div>Matched: {syncDebug?.resultSizeEstimate || 0} • Fetched: {syncDebug?.fetched || 0} • Synced: {syncDebug?.synced || 0}</div>
+              <div>Matched (Gmail): {syncDebug?.resultSizeEstimate || 0} • Fetched: {syncDebug?.fetched || 0} • Synced: {syncDebug?.synced || 0}</div>
+              <div>Loại do ngoài CRM: {syncDebug?.debug?.skippedNotInCrm || 0}</div>
+              {!!(syncDebug?.debug?.skippedNotInCrmSamples?.length) && (
+                <div className="text-muted-foreground">Mẫu email bị loại: {syncDebug.debug.skippedNotInCrmSamples.join(", ")}</div>
+              )}
               {syncError && <div className="text-destructive">Lỗi: {syncError}</div>}
             </div>
 

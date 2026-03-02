@@ -37,7 +37,11 @@ const decodeBase64Url = (input: string) => {
 const normalizeEmail = (value: string) => {
   const raw = String(value || "").trim().toLowerCase();
   const inBracket = raw.match(/<([^>]+)>/)?.[1] || raw;
-  return inBracket.trim();
+  const candidate = inBracket.trim();
+  const direct = candidate.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i)?.[0];
+  if (direct) return direct.toLowerCase();
+  const fallback = raw.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i)?.[0];
+  return (fallback || candidate).trim().toLowerCase();
 };
 
 const explodeEmails = (value: string): string[] => {
@@ -137,7 +141,7 @@ serve(async (req) => {
     const mode = String(body?.mode || "preview").toLowerCase(); // preview | import
     const includeOnlyCrm = body?.includeOnlyCrm !== false;
     const maxResults = Math.min(Math.max(Number(body?.maxResults || 20), 1), 100);
-    const query = String(body?.query || "in:anywhere ((to:po@bmq.vn OR deliveredto:po@bmq.vn OR cc:po@bmq.vn) OR (to:po@ramen.vn OR deliveredto:po@ramen.vn OR cc:po@ramen.vn)) newer_than:30d");
+    const query = String(body?.query || "in:anywhere (to:po@bmq.vn OR deliveredto:po@bmq.vn OR cc:po@bmq.vn) newer_than:30d");
     const importMessageIds = new Set<string>(Array.isArray(body?.messageIds) ? body.messageIds.map((x: any) => String(x)) : []);
 
     const accessToken = await getGoogleAccessToken(supabaseAdmin);
@@ -169,6 +173,8 @@ serve(async (req) => {
     let unmatchedCount = 0;
     let skippedInvalidFrom = 0;
     let upsertErrorCount = 0;
+    let skippedNotInCrm = 0;
+    const skippedNotInCrmSamples: string[] = [];
     const upsertErrors: Array<{ messageId: string; error: string }> = [];
     const previews: any[] = [];
 
@@ -204,6 +210,8 @@ serve(async (req) => {
       else unmatchedCount += 1;
 
       if (includeOnlyCrm && !match) {
+        skippedNotInCrm += 1;
+        if (skippedNotInCrmSamples.length < 5) skippedNotInCrmSamples.push(fromEmail);
         continue;
       }
 
@@ -276,6 +284,8 @@ serve(async (req) => {
         matchedCount,
         unmatchedCount,
         skippedInvalidFrom,
+        skippedNotInCrm,
+        skippedNotInCrmSamples,
         upsertErrorCount,
         upsertErrors,
         inboxCount: Number(inboxCount || 0),
