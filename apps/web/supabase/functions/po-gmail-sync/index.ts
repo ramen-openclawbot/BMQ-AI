@@ -148,6 +148,7 @@ serve(async (req) => {
 
     const accessToken = await getGoogleAccessToken(supabaseAdmin);
 
+    const profile = await gmailApi(accessToken, "profile");
     const list = await gmailApi(accessToken, `messages?q=${encodeURIComponent(query)}&maxResults=${maxResults}`);
     const messages: GmailMessage[] = Array.isArray(list?.messages) ? list.messages : [];
 
@@ -224,7 +225,14 @@ serve(async (req) => {
       synced += 1;
     }
 
-    return new Response(JSON.stringify({ success: true, synced, query }), {
+    return new Response(JSON.stringify({
+      success: true,
+      synced,
+      query,
+      mailbox: profile?.emailAddress || null,
+      resultSizeEstimate: Number(list?.resultSizeEstimate || 0),
+      fetched: messages.length,
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {

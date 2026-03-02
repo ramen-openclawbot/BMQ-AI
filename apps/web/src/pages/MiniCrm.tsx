@@ -316,7 +316,10 @@ export default function MiniCrm() {
     },
     onSuccess: async (result: any) => {
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
-      toast({ title: "Đã sync Gmail", description: `Đã đồng bộ ${result?.synced || 0} email PO.` });
+      toast({
+        title: "Đã sync Gmail",
+        description: `Mailbox: ${result?.mailbox || "(không rõ)"} • matched query: ${result?.resultSizeEstimate || 0} • synced: ${result?.synced || 0}`,
+      });
     },
     onError: (e: any) => {
       toast({ title: "Lỗi Gmail sync", description: e?.message || "Không thể đồng bộ Gmail", variant: "destructive" });
