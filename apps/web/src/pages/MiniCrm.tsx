@@ -1124,7 +1124,7 @@ export default function MiniCrm() {
 
       {isSalesPoPage && (
         <Dialog open={syncModalOpen} onOpenChange={setSyncModalOpen}>
-          <DialogContent className="max-w-4xl">
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Sync PO từ Gmail</DialogTitle>
               <DialogDescription>Đồng bộ để xem trước, chỉ nhập vào hệ thống khi bấm "Nhập PO vào hệ thống".</DialogDescription>
