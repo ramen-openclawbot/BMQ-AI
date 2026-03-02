@@ -196,7 +196,7 @@ export default function MiniCrm() {
       const trimmedName = editCustomerName.trim();
       if (!trimmedName) throw new Error("Vui lòng nhập tên khách hàng");
 
-      const { error: updateError } = await (supabase as any)
+      const { data: updatedCustomer, error: updateError } = await (supabase as any)
         .from("mini_crm_customers")
         .update({
           customer_name: trimmedName,
@@ -204,40 +204,57 @@ export default function MiniCrm() {
           customer_group: editCustomerGroup,
           default_revenue_channel: editDefaultRevenueChannel.trim() || null,
         })
-        .eq("id", editingCustomerId);
-      if (updateError) throw updateError;
+        .eq("id", editingCustomerId)
+        .select("id")
+        .maybeSingle();
 
-      const emails = Array.from(new Set(
-        editEmailsInput
-          .split(/[;,\n]+/)
-          .map((s) => s.trim().toLowerCase())
-          .filter(Boolean)
-      ));
+      if (updateError) {
+        throw new Error(`Lỗi cập nhật thông tin khách hàng: ${updateError.message}`);
+      }
+      if (!updatedCustomer?.id) {
+        throw new Error("Không cập nhật được khách hàng (có thể do quyền RLS hoặc bản ghi không tồn tại)");
+      }
+
+      const emails = Array.from(
+        new Set(
+          editEmailsInput
+            .split(/[;,\n]+/)
+            .map((s) => s.trim().toLowerCase())
+            .filter(Boolean)
+        )
+      );
 
       const { error: deleteEmailsError } = await (supabase as any)
         .from("mini_crm_customer_emails")
         .delete()
         .eq("customer_id", editingCustomerId);
 
-      // Không chặn toàn bộ luồng nếu policy email table bị hạn chế,
-      // vẫn ưu tiên lưu được thông tin khách hàng.
-      if (!deleteEmailsError && emails.length) {
+      if (deleteEmailsError) {
+        throw new Error(`Lỗi cập nhật danh sách email (bước xoá email cũ): ${deleteEmailsError.message}`);
+      }
+
+      if (emails.length) {
         const { error: insertEmailsError } = await (supabase as any)
           .from("mini_crm_customer_emails")
           .insert(emails.map((email, idx) => ({ customer_id: editingCustomerId, email, is_primary: idx === 0 })));
-        if (insertEmailsError) throw insertEmailsError;
+        if (insertEmailsError) {
+          throw new Error(`Lỗi cập nhật danh sách email (bước thêm email mới): ${insertEmailsError.message}`);
+        }
       }
+
+      return { saved: true, emailCount: emails.length };
     },
-    onSuccess: async () => {
+    onSuccess: async (result: any) => {
       cancelEditCustomer();
-      setEditFeedback("Đã lưu cập nhật khách hàng.");
+      const msg = `Đã lưu khách hàng thành công (${result?.emailCount || 0} email).`;
+      setEditFeedback(msg);
       await queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] });
-      toast({ title: "Đã cập nhật khách hàng", description: "Thông tin CRM đã được lưu." });
+      toast({ title: "Lưu thành công", description: msg });
     },
     onError: (e: any) => {
       const msg = e?.message || "Không thể cập nhật khách hàng";
       setEditFeedback(`Lưu thất bại: ${msg}`);
-      toast({ title: "Lỗi", description: msg, variant: "destructive" });
+      toast({ title: "Lỗi lưu CRM", description: msg, variant: "destructive" });
     },
   });
 
