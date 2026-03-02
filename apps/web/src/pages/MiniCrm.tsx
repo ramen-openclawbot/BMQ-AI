@@ -306,7 +306,12 @@ export default function MiniCrm() {
   const callPoGmailSync = async (payload: any, stepLabel: string) => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.access_token) {
-      throw new Error(`[${stepLabel}] Phiên đăng nhập hết hạn (không có access token). Vui lòng đăng nhập lại.`);
+      throw new Error(`[${stepLabel}] Phiên đăng nhập hết hạn (không có access token). Vui lòng đăng xuất và đăng nhập lại.`);
+    }
+
+    const { error: userError } = await supabase.auth.getUser();
+    if (userError) {
+      throw new Error(`[${stepLabel}] Phiên đăng nhập không hợp lệ (${userError.message}). Vui lòng đăng xuất và đăng nhập lại.`);
     }
 
     const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-gmail-sync`, {
@@ -328,6 +333,9 @@ export default function MiniCrm() {
 
     if (!response.ok) {
       const msg = result?.error || result?.message || result?.raw || rawText || "Unknown error";
+      if (response.status === 401 && /invalid jwt/i.test(String(msg))) {
+        throw new Error(`[${stepLabel}] HTTP 401 - Phiên đăng nhập đã hết hạn/không hợp lệ (Invalid JWT). Vui lòng đăng xuất và đăng nhập lại.`);
+      }
       throw new Error(`[${stepLabel}] HTTP ${response.status} - ${msg}`);
     }
 
