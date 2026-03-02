@@ -85,6 +85,8 @@ export default function MiniCrm() {
   const [selectedPoId, setSelectedPoId] = useState<string | null>(null);
   const [poSummaryDraft, setPoSummaryDraft] = useState<any>({});
   const [postRevenueStatus, setPostRevenueStatus] = useState<string>("");
+  const [poDateFrom, setPoDateFrom] = useState<string>("");
+  const [poDateTo, setPoDateTo] = useState<string>("");
 
   const { data: gmailConnectedEmail } = useQuery({
     queryKey: ["gmail-connected-email"],
@@ -284,13 +286,28 @@ export default function MiniCrm() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error("Phiên đăng nhập hết hạn");
 
+      const toGmailDate = (v?: string) => String(v || "").replace(/-/g, "/");
+      const nextDay = (v?: string) => {
+        if (!v) return "";
+        const d = new Date(`${v}T00:00:00`);
+        d.setDate(d.getDate() + 1);
+        return d.toISOString().slice(0, 10);
+      };
+
+      const dateQuery = [
+        poDateFrom ? `after:${toGmailDate(poDateFrom)}` : "",
+        poDateTo ? `before:${toGmailDate(nextDay(poDateTo))}` : "",
+      ].filter(Boolean).join(" ");
+
+      const query = `in:anywhere to:po@bmq.vn ${dateQuery || "newer_than:30d"}`.trim();
+
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-gmail-sync`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ maxResults: 30, query: "to:po@bmq.vn newer_than:14d" }),
+        body: JSON.stringify({ maxResults: 100, query }),
       });
 
       const result = await response.json();
@@ -323,8 +340,20 @@ export default function MiniCrm() {
     },
   });
 
+  const filteredPoInbox = useMemo(() => {
+    const fromMs = poDateFrom ? new Date(`${poDateFrom}T00:00:00`).getTime() : null;
+    const toMs = poDateTo ? new Date(`${poDateTo}T23:59:59`).getTime() : null;
+    return poInbox.filter((row: any) => {
+      const t = new Date(row?.received_at || 0).getTime();
+      if (!Number.isFinite(t)) return false;
+      if (fromMs && t < fromMs) return false;
+      if (toMs && t > toMs) return false;
+      return true;
+    });
+  }, [poInbox, poDateFrom, poDateTo]);
+
   const statusCounts = useMemo(() => {
-    return poInbox.reduce(
+    return filteredPoInbox.reduce(
       (acc: Record<string, number>, row: any) => {
         const key = row.match_status || "unknown";
         acc[key] = (acc[key] || 0) + 1;
@@ -332,7 +361,7 @@ export default function MiniCrm() {
       },
       {}
     );
-  }, [poInbox]);
+  }, [filteredPoInbox]);
 
   const selectedPo = useMemo(() => poInbox.find((r: any) => r.id === selectedPoId) || null, [poInbox, selectedPoId]);
 
@@ -518,7 +547,7 @@ export default function MiniCrm() {
 
       {isSalesPoPage && (
         <div className="grid gap-4 md:grid-cols-4">
-          <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Tổng PO inbox</div><div className="text-xl font-semibold">{poInbox.length}</div></CardContent></Card>
+          <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Tổng PO inbox (đang lọc)</div><div className="text-xl font-semibold">{filteredPoInbox.length}</div></CardContent></Card>
           <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Pending approval</div><div className="text-xl font-semibold">{statusCounts.pending_approval || 0}</div></CardContent></Card>
           <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Approved</div><div className="text-xl font-semibold">{statusCounts.approved || 0}</div></CardContent></Card>
           <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Unmatched</div><div className="text-xl font-semibold">{statusCounts.unmatched || 0}</div></CardContent></Card>
@@ -668,6 +697,28 @@ export default function MiniCrm() {
           <CardDescription>PO đọc từ email po@bmq.vn sẽ nằm ở đây trước khi duyệt tay.</CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="mb-4 grid gap-3 md:grid-cols-4">
+            <div className="space-y-1">
+              <Label>Từ ngày</Label>
+              <Input type="date" value={poDateFrom} onChange={(e) => setPoDateFrom(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Đến ngày</Label>
+              <Input type="date" value={poDateTo} onChange={(e) => setPoDateTo(e.target.value)} />
+            </div>
+            <div className="flex items-end">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setPoDateFrom("");
+                  setPoDateTo("");
+                }}
+              >
+                Bỏ lọc ngày
+              </Button>
+            </div>
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
@@ -680,7 +731,7 @@ export default function MiniCrm() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {poInbox.map((row: any) => (
+              {filteredPoInbox.map((row: any) => (
                 <TableRow key={row.id}>
                   <TableCell>{new Date(row.received_at).toLocaleString("vi-VN")}</TableCell>
                   <TableCell>{row.from_email}</TableCell>
