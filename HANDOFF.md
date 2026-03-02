@@ -1,10 +1,29 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.11**
+- apps/web: **0.0.12**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
-- Latest commit at handoff time: `85ee9b9`
+- Latest commit at handoff time: `534f5a8`
+
+## Latest update (2026-03-02 evening)
+### Mini-CRM cleanup: remove duplicated fields + save flow hardening
+- Đã xử lý triệt để luồng edit khách hàng CRM:
+  - thông báo lưu thành công/lỗi rõ ràng,
+  - tránh silent-fail,
+  - cải thiện feedback inline theo theme app.
+- Đã chuẩn hóa nhóm khách hàng còn 4 nhóm: `Online`, `Bán lẻ`, `Đại lý`, `B2B`.
+- Đã bỏ hoàn toàn các field trùng lặp khỏi UI:
+  - `default_revenue_channel` (đã xoá khỏi UI + DB),
+  - `customer_code` (đã xoá khỏi Mini-CRM UI).
+- Đã cập nhật các Supabase Edge Functions liên quan PO để không phụ thuộc `default_revenue_channel` nữa; kênh doanh thu được map theo `customer_group`.
+- Đã chạy migration production để drop cột `default_revenue_channel`.
+
+### Commit đáng chú ý (2026-03-02)
+- `1c576b3` fix(db): allow b2b in mini_crm_customers customer_group check
+- `20f1f22` refactor(crm): remove default revenue channel field and polish save feedback UI
+- `ec2e5d7` refactor(crm): remove default revenue channel field from UI and DB
+- `534f5a8` refactor(crm): remove customer code input from mini CRM UI
 
 ## Latest update (2026-03-01 night)
 ### Data Migration + Settings UX
@@ -83,7 +102,7 @@
   - `/goods-receipts`: chỉ nhận SKU nguyên vật liệu.
   - `/sku-costs/*`: chỉ xử lý SKU thành phẩm cho COGS.
   - Add Invoice scan hoạt động ổn trên mobile.
-  - `/settings` hiển thị version từ semver package (`0.0.10`).
+  - `/settings` hiển thị version từ semver package (`0.0.12`).
 
 ## Latest hotfix handoff (2026-03-01)
 ### Context
