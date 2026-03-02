@@ -168,6 +168,18 @@ serve(async (req) => {
       }
     }
 
+    const activeCustomerIds = Array.from(new Set(Array.from(emailMap.values()).map((v) => v.customerId)));
+    const { data: activeTemplates } = await supabaseAdmin
+      .from("mini_crm_po_templates")
+      .select("id, customer_id, template_name, file_name, parser_config, sample_preview, is_active, updated_at")
+      .eq("is_active", true)
+      .in("customer_id", activeCustomerIds.length ? activeCustomerIds : ["00000000-0000-0000-0000-000000000000"]);
+
+    const templateMap = new Map<string, any>();
+    for (const t of activeTemplates || []) {
+      templateMap.set(String((t as any).customer_id), t);
+    }
+
     let synced = 0;
     let matchedCount = 0;
     let unmatchedCount = 0;
@@ -215,6 +227,8 @@ serve(async (req) => {
         continue;
       }
 
+      const template = match?.customerId ? templateMap.get(match.customerId) : null;
+
       const payload = {
         gmail_message_id: m.id,
         gmail_thread_id: m.threadId,
@@ -236,6 +250,8 @@ serve(async (req) => {
           snippet,
           subject,
           from,
+          template_id: template?.id || null,
+          template_name: template?.template_name || null,
         },
       };
 
@@ -250,6 +266,16 @@ serve(async (req) => {
         attachmentNames,
         matchedCustomerId: match?.customerId || null,
         matchStatus: payload.match_status,
+        template: template
+          ? {
+              id: template.id,
+              name: template.template_name,
+              fileName: template.file_name,
+              parserConfig: template.parser_config,
+              samplePreview: template.sample_preview,
+              updatedAt: template.updated_at,
+            }
+          : null,
       });
 
       const shouldImport = mode === "import" && (importMessageIds.size === 0 || importMessageIds.has(m.id));

@@ -111,6 +111,7 @@ export default function MiniCrm() {
   const [previewItems, setPreviewItems] = useState<any[]>([]);
   const [selectedPreviewId, setSelectedPreviewId] = useState<string | null>(null);
   const [selectedPreviewIds, setSelectedPreviewIds] = useState<string[]>([]);
+  const [confirmTemplateRead, setConfirmTemplateRead] = useState<boolean>(false);
 
   const { data: gmailConnectedEmail } = useQuery({
     queryKey: ["gmail-connected-email"],
@@ -471,6 +472,7 @@ export default function MiniCrm() {
       setPreviewItems(items);
       setSelectedPreviewId(items[0]?.messageId || null);
       setSelectedPreviewIds([]);
+      setConfirmTemplateRead(false);
       setSyncStatus("preview_success");
     },
     onError: (e: any) => {
@@ -487,6 +489,15 @@ export default function MiniCrm() {
       if (scope === "selected" && messageIds.length === 0) {
         throw new Error("Vui lòng chọn ít nhất 1 PO để nhập.");
       }
+
+      const targetItems = scope === "selected"
+        ? previewItems.filter((x: any) => messageIds.includes(x.messageId))
+        : previewItems;
+      const hasTemplateMatched = targetItems.some((x: any) => Boolean(x?.template?.id));
+      if (hasTemplateMatched && !confirmTemplateRead) {
+        throw new Error("Vui lòng xác nhận đã kiểm tra PO theo mẫu trước khi nhập.");
+      }
+
       return await callPoGmailSync({ mode: "import", maxResults: 100, query, messageIds, includeOnlyCrm: true }, "import");
     },
     onSuccess: async (result: any) => {
@@ -793,6 +804,11 @@ export default function MiniCrm() {
                     <div><b>Subject:</b> {selectedPreview.subject}</div>
                     <div><b>Snippet:</b> {selectedPreview.snippet || "(trống)"}</div>
                     <div><b>Attachments:</b> {(selectedPreview.attachmentNames || []).join(", ") || "Không có"}</div>
+                    <div className="pt-2 border-t mt-2 space-y-1">
+                      <div><b>Mẫu PO:</b> {selectedPreview?.template?.name || "Chưa có mẫu riêng"}</div>
+                      {selectedPreview?.template?.fileName && <div><b>File mẫu:</b> {selectedPreview.template.fileName}</div>}
+                      {selectedPreview?.template?.updatedAt && <div><b>Cập nhật:</b> {new Date(selectedPreview.template.updatedAt).toLocaleString("vi-VN")}</div>}
+                    </div>
                   </>
                 ) : (
                   <div className="text-muted-foreground">Chọn một PO để xem chi tiết.</div>
@@ -823,7 +839,11 @@ export default function MiniCrm() {
                 </Button>
               </div>
 
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-2 items-center flex-wrap">
+                <label className="inline-flex items-center gap-2 text-xs text-muted-foreground mr-2">
+                  <input type="checkbox" checked={confirmTemplateRead} onChange={(e) => setConfirmTemplateRead(e.target.checked)} />
+                  Đã kiểm tra PO theo mẫu và xác nhận đúng
+                </label>
                 <Button variant="outline" onClick={() => setSyncModalOpen(false)}>Huỷ</Button>
                 <Button
                   variant="secondary"
