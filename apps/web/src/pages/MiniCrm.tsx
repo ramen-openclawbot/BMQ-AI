@@ -81,6 +81,17 @@ const calcTotalFromRawPayload = (rawPayload: any) => {
   return items.reduce((sum: number, it: any) => sum + Number(it?.line_total || 0), 0);
 };
 
+const getReadableError = (e: any) => {
+  if (!e) return "Không rõ nguyên nhân";
+  const parts = [e?.message, e?.details, e?.hint].filter(Boolean);
+  if (parts.length) return parts.join(" | ");
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return "Không rõ nguyên nhân";
+  }
+};
+
 
 export default function MiniCrm() {
   const queryClient = useQueryClient();
@@ -1091,8 +1102,13 @@ export default function MiniCrm() {
       });
     },
     onError: (e: any) => {
-      setPostRevenueStatus(`❌ Đẩy thất bại: ${e?.message || "Không thể cập nhật"}`);
-      toast({ title: "Lỗi đẩy doanh thu", description: e?.message || "Không thể cập nhật", variant: "destructive" });
+      const errMsg = getReadableError(e);
+      setPostRevenueStatus(`❌ Đẩy thất bại: ${errMsg}`);
+      toast({
+        title: "❌ Đẩy sang kiểm soát doanh thu thất bại",
+        description: errMsg,
+        variant: "destructive",
+      });
     },
   });
 
