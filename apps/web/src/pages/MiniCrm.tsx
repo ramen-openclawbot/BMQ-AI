@@ -156,6 +156,7 @@ export default function MiniCrm() {
   const [templateReviewTouched, setTemplateReviewTouched] = useState<boolean>(false);
   const [selectedPoId, setSelectedPoId] = useState<string | null>(null);
   const [poSummaryDraft, setPoSummaryDraft] = useState<any>({});
+  const [savePoStatus, setSavePoStatus] = useState<string>("");
   const [postRevenueStatus, setPostRevenueStatus] = useState<string>("");
   const [poDateFrom, setPoDateFrom] = useState<string>("");
   const [poDateTo, setPoDateTo] = useState<string>("");
@@ -1051,10 +1052,15 @@ export default function MiniCrm() {
   });
 
   const savePoSummaryMutation = useMutation({
+    onMutate: () => {
+      setSavePoStatus("Đang lưu tóm tắt PO...");
+    },
     mutationFn: async () => {
       if (!selectedPoId) throw new Error("Chưa chọn PO");
       const safeTotal = calcSafeTotal(poSummaryDraft.subtotal_amount, poSummaryDraft.vat_amount, poSummaryDraft.total_amount);
+      const poNumber = poSummaryDraft.po_number || extractPoNumberFromSubject(selectedPo?.email_subject) || null;
       const payload = {
+        po_number: poNumber,
         delivery_date: poSummaryDraft.delivery_date || null,
         subtotal_amount: Number(poSummaryDraft.subtotal_amount || 0) || null,
         vat_amount: Number(poSummaryDraft.vat_amount || 0) || null,
@@ -1062,18 +1068,28 @@ export default function MiniCrm() {
         production_items: poSummaryDraft.production_items || [],
         raw_payload: {
           ...(selectedPo?.raw_payload || {}),
-          po_number: poSummaryDraft.po_number || extractPoNumberFromSubject(selectedPo?.email_subject) || null,
+          po_number: poNumber,
         },
       };
-      const { error } = await (supabase as any).from("customer_po_inbox").update(payload).eq("id", selectedPoId);
+      const { data, error } = await (supabase as any)
+        .from("customer_po_inbox")
+        .update(payload)
+        .eq("id", selectedPoId)
+        .select("id,po_number")
+        .single();
       if (error) throw error;
+      return data;
     },
-    onSuccess: async () => {
+    onSuccess: async (saved: any) => {
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
-      toast({ title: "Đã lưu tóm tắt PO" });
+      const poCode = saved?.po_number || poSummaryDraft?.po_number || selectedPoId;
+      setSavePoStatus(`✅ Lưu thành công: ${poCode}`);
+      toast({ title: "✅ Đã lưu tóm tắt PO", description: String(poCode || "") });
     },
     onError: (e: any) => {
-      toast({ title: "Lỗi lưu PO", description: e?.message || "Không lưu được", variant: "destructive" });
+      const errMsg = getReadableError(e);
+      setSavePoStatus(`❌ Lưu thất bại: ${errMsg}`);
+      toast({ title: "Lỗi lưu PO", description: errMsg, variant: "destructive" });
     },
   });
 
@@ -1617,7 +1633,7 @@ export default function MiniCrm() {
                       <div className="flex items-center justify-between">
                         <Label>Danh sách sản phẩm cho quản lí sản xuất</Label>
                         <div className="text-xs text-muted-foreground">
-                          Tổng dòng: {Array.isArray(poSummaryDraft.production_items) ? poSummaryDraft.production_items.length : 0}
+                          Tổng dòng: {Array.isArray(poSummaryDraft.production_items) ? poSummaryDraft.production_items.length : 0} • Tổng SL: {Array.isArray(poSummaryDraft.production_items) ? (poSummaryDraft.production_items as any[]).reduce((sum: number, item: any) => sum + Number(item?.qty || item?.quantity || 0), 0).toLocaleString("vi-VN") : "0"}
                         </div>
                       </div>
 
@@ -1669,6 +1685,11 @@ export default function MiniCrm() {
                       {postRevenueMutation.isPending ? "Đang đẩy..." : "Đẩy sang kiểm soát doanh thu"}
                     </Button>
                   </div>
+                  {savePoStatus && (
+                    <div className="text-sm rounded-md border px-3 py-2 bg-muted/40">
+                      {savePoStatus}
+                    </div>
+                  )}
                   {postRevenueStatus && (
                     <div className="text-sm rounded-md border px-3 py-2 bg-muted/40">
                       {postRevenueStatus}
