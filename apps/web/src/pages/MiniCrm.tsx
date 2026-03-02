@@ -299,7 +299,7 @@ export default function MiniCrm() {
         poDateTo ? `before:${toGmailDate(nextDay(poDateTo))}` : "",
       ].filter(Boolean).join(" ");
 
-      const query = `in:anywhere to:po@bmq.vn ${dateQuery || "newer_than:30d"}`.trim();
+      const query = `in:anywhere (to:po@bmq.vn OR deliveredto:po@bmq.vn OR cc:po@bmq.vn) ${dateQuery || "newer_than:30d"}`.trim();
 
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-gmail-sync`, {
         method: "POST",

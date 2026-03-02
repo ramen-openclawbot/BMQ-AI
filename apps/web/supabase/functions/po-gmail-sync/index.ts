@@ -144,7 +144,7 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const maxResults = Math.min(Math.max(Number(body?.maxResults || 20), 1), 100);
-    const query = String(body?.query || "to:po@bmq.vn newer_than:14d");
+    const query = String(body?.query || "in:anywhere (to:po@bmq.vn OR deliveredto:po@bmq.vn OR cc:po@bmq.vn) newer_than:30d");
 
     const accessToken = await getGoogleAccessToken(supabaseAdmin);
 
