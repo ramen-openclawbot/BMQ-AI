@@ -78,13 +78,15 @@ serve(async (req) => {
 
     const { data: crmEmails, error: crmError } = await supabase
       .from("mini_crm_customer_emails")
-      .select("email, customer_id, mini_crm_customers(customer_group)")
+      .select("email, customer_id, mini_crm_customers(customer_group,is_active)")
       .order("created_at", { ascending: true });
 
     if (crmError) throw crmError;
 
     const emailMap = new Map<string, { customerId: string; revenueChannel: string | null }>();
     for (const row of crmEmails || []) {
+      const isActive = Boolean((row as any).mini_crm_customers?.is_active);
+      if (!isActive) continue;
       const expanded = explodeEmails(String((row as any).email || ""));
       for (const key of expanded) {
         emailMap.set(key, {

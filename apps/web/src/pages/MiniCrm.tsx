@@ -78,6 +78,7 @@ export default function MiniCrm() {
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
   const [editCustomerName, setEditCustomerName] = useState("");
   const [editCustomerGroup, setEditCustomerGroup] = useState("banhmi_point");
+  const [editIsActive, setEditIsActive] = useState(true);
   const [editEmailsInput, setEditEmailsInput] = useState("");
   const [editOriginalEmailsInput, setEditOriginalEmailsInput] = useState("");
   const [editFeedback, setEditFeedback] = useState<string>("");
@@ -128,6 +129,7 @@ export default function MiniCrm() {
     setEditingCustomerId(c.id);
     setEditCustomerName(c.customer_name || "");
     setEditCustomerGroup(c.customer_group || "banhmi_point");
+    setEditIsActive(Boolean(c.is_active));
     const emails = (c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ");
     setEditEmailsInput(emails);
     setEditOriginalEmailsInput(emails);
@@ -138,6 +140,7 @@ export default function MiniCrm() {
     setEditingCustomerId(null);
     setEditCustomerName("");
     setEditCustomerGroup("banhmi_point");
+    setEditIsActive(true);
     setEditEmailsInput("");
     setEditOriginalEmailsInput("");
   };
@@ -192,6 +195,7 @@ export default function MiniCrm() {
         .update({
           customer_name: trimmedName,
           customer_group: editCustomerGroup,
+          is_active: editIsActive,
         })
         .eq("id", editingCustomerId)
         .select("id")
@@ -602,12 +606,20 @@ export default function MiniCrm() {
                       {isEditing ? (
                         <div className="space-y-2">
                           <Input value={editEmailsInput} onChange={(e) => setEditEmailsInput(e.target.value)} placeholder="buyer@agency.com, order@agency.com" />
+                          <select
+                            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                            value={editIsActive ? "active" : "paused"}
+                            onChange={(e) => setEditIsActive(e.target.value === "active")}
+                          >
+                            <option value="active">Active</option>
+                            <option value="paused">Tạm ngưng</option>
+                          </select>
                         </div>
                       ) : (
                         (c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"
                       )}
                     </TableCell>
-                    <TableCell>{c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Inactive</Badge>}</TableCell>
+                    <TableCell>{c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
                         {isEditing ? (

@@ -153,12 +153,14 @@ serve(async (req) => {
 
     const { data: crmEmails } = await supabaseAdmin
       .from("mini_crm_customer_emails")
-      .select("email, customer_id, mini_crm_customers(customer_group)");
+      .select("email, customer_id, mini_crm_customers(customer_group,is_active)");
 
     const emailMap = new Map<string, { customerId: string; revenueChannel: string | null }>();
     for (const row of crmEmails || []) {
       const rawEmail = String((row as any).email || "");
       const expanded = explodeEmails(rawEmail);
+      const isActive = Boolean((row as any).mini_crm_customers?.is_active);
+      if (!isActive) continue;
       for (const key of expanded) {
         emailMap.set(key, {
           customerId: (row as any).customer_id,
