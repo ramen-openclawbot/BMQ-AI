@@ -137,7 +137,8 @@ const parseByTemplateConfig = (rowsFlat: any[][], template: any) => {
   if (dateColIdx < 0) dateColIdx = 1; // B column fallback
 
   const items: any[] = [];
-  for (let r = Math.max(3, headerRow + 1); r < rowsFlat.length; r += 1) {
+  // rowsFlat là mảng 0-based: headerRow=2 => first data row index phải là 2 (Excel row 3)
+  for (let r = Math.max(2, headerRow); r < rowsFlat.length; r += 1) {
     const row = rowsFlat[r] || [];
     const first = String(row?.[0] || "").toUpperCase();
     if (first.includes("TỔNG CỘNG") || first.includes("TONG CONG")) continue;
