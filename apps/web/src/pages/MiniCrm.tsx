@@ -91,6 +91,9 @@ export default function MiniCrm() {
   const [editFeedback, setEditFeedback] = useState<string>("");
   const [templateFileName, setTemplateFileName] = useState<string>("");
   const [templatePreview, setTemplatePreview] = useState<any | null>(null);
+  const [pendingTemplateFileName, setPendingTemplateFileName] = useState<string>("");
+  const [pendingTemplatePreview, setPendingTemplatePreview] = useState<any | null>(null);
+  const [templateConfirmOpen, setTemplateConfirmOpen] = useState<boolean>(false);
   const [selectedPoId, setSelectedPoId] = useState<string | null>(null);
   const [poSummaryDraft, setPoSummaryDraft] = useState<any>({});
   const [postRevenueStatus, setPostRevenueStatus] = useState<string>("");
@@ -175,6 +178,9 @@ export default function MiniCrm() {
     setEditOriginalEmailsInput(emails);
     setTemplateFileName("");
     setTemplatePreview(null);
+    setPendingTemplateFileName("");
+    setPendingTemplatePreview(null);
+    setTemplateConfirmOpen(false);
   };
 
   const cancelEditCustomer = () => {
@@ -185,6 +191,11 @@ export default function MiniCrm() {
     setEditIsActive(true);
     setEditEmailsInput("");
     setEditOriginalEmailsInput("");
+    setTemplateFileName("");
+    setTemplatePreview(null);
+    setPendingTemplateFileName("");
+    setPendingTemplatePreview(null);
+    setTemplateConfirmOpen(false);
   };
 
   const addCustomerMutation = useMutation({
@@ -362,8 +373,9 @@ export default function MiniCrm() {
       }
     }
 
-    setTemplateFileName(file.name);
-    setTemplatePreview({ parserConfig, sampleRows });
+    setPendingTemplateFileName(file.name);
+    setPendingTemplatePreview({ parserConfig, sampleRows });
+    setTemplateConfirmOpen(true);
   };
 
   const saveTemplateMutation = useMutation({
@@ -1249,6 +1261,43 @@ export default function MiniCrm() {
       )}
       </>
       )}
+
+      <Dialog open={templateConfirmOpen} onOpenChange={setTemplateConfirmOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Xác nhận mẫu PO trước khi lưu</DialogTitle>
+            <DialogDescription>
+              Hệ thống đã đọc file mẫu. Anh kiểm tra nội dung parse trước khi xác nhận lưu format.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 text-sm">
+            <div><b>File:</b> {pendingTemplateFileName || "-"}</div>
+            <div><b>Sheet:</b> {pendingTemplatePreview?.parserConfig?.sheetName || "-"}</div>
+            <div><b>Header row:</b> {pendingTemplatePreview?.parserConfig?.headerRow || "-"}</div>
+            <div>
+              <b>Nội dung đọc được (sample):</b>
+              <pre className="mt-2 max-h-64 overflow-auto rounded bg-muted/40 p-2 text-xs">
+                {JSON.stringify(pendingTemplatePreview?.sampleRows || [], null, 2)}
+              </pre>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setTemplateConfirmOpen(false)}>Huỷ</Button>
+            <Button
+              onClick={() => {
+                setTemplateFileName(pendingTemplateFileName);
+                setTemplatePreview(pendingTemplatePreview);
+                setTemplateConfirmOpen(false);
+                toast({ title: "Đã xác nhận mẫu PO", description: "Anh có thể bấm Lưu mẫu PO để lưu format." });
+              }}
+            >
+              Xác nhận nội dung parse
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
