@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -88,6 +89,11 @@ export default function MiniCrm() {
   const [poDateFrom, setPoDateFrom] = useState<string>("");
   const [poDateTo, setPoDateTo] = useState<string>("");
   const [syncDebug, setSyncDebug] = useState<any | null>(null);
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string>("idle");
+  const [syncError, setSyncError] = useState<string>("");
+  const [previewItems, setPreviewItems] = useState<any[]>([]);
+  const [selectedPreviewId, setSelectedPreviewId] = useState<string | null>(null);
 
   const { data: gmailConnectedEmail } = useQuery({
     queryKey: ["gmail-connected-email"],
@@ -282,66 +288,85 @@ export default function MiniCrm() {
     },
   });
 
+  const buildGmailQuery = () => {
+    const toGmailDate = (v?: string) => String(v || "").replace(/-/g, "/");
+    const nextDay = (v?: string) => {
+      if (!v) return "";
+      const d = new Date(`${v}T00:00:00`);
+      d.setDate(d.getDate() + 1);
+      return d.toISOString().slice(0, 10);
+    };
+    const dateQuery = [
+      poDateFrom ? `after:${toGmailDate(poDateFrom)}` : "",
+      poDateTo ? `before:${toGmailDate(nextDay(poDateTo))}` : "",
+    ].filter(Boolean).join(" ");
+    return `in:anywhere (to:po@bmq.vn OR deliveredto:po@bmq.vn OR cc:po@bmq.vn) ${dateQuery || "newer_than:30d"}`.trim();
+  };
+
   const syncGmailMutation = useMutation({
     mutationFn: async () => {
       setSyncDebug(null);
+      setSyncError("");
+      setSyncStatus("syncing");
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error("Phiên đăng nhập hết hạn");
 
-      const toGmailDate = (v?: string) => String(v || "").replace(/-/g, "/");
-      const nextDay = (v?: string) => {
-        if (!v) return "";
-        const d = new Date(`${v}T00:00:00`);
-        d.setDate(d.getDate() + 1);
-        return d.toISOString().slice(0, 10);
-      };
-
-      const dateQuery = [
-        poDateFrom ? `after:${toGmailDate(poDateFrom)}` : "",
-        poDateTo ? `before:${toGmailDate(nextDay(poDateTo))}` : "",
-      ].filter(Boolean).join(" ");
-
-      const query = `in:anywhere (to:po@bmq.vn OR deliveredto:po@bmq.vn OR cc:po@bmq.vn) ${dateQuery || "newer_than:30d"}`.trim();
-
+      const query = buildGmailQuery();
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-gmail-sync`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ maxResults: 100, query }),
+        body: JSON.stringify({ mode: "preview", maxResults: 100, query }),
       });
 
       const result = await response.json();
       if (!response.ok) throw new Error(result?.error || "Gmail sync thất bại");
       return { ...result, query };
     },
-    onSuccess: async (result: any) => {
+    onSuccess: (result: any) => {
       setSyncDebug(result);
-      await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
-      await queryClient.refetchQueries({ queryKey: ["customer-po-inbox"], type: "active" });
-
-      const inboxCount = Number(result?.debug?.inboxCount ?? 0);
-      const matchedQuery = Number(result?.resultSizeEstimate || 0);
-      const synced = Number(result?.synced || 0);
-      const upsertErr = Number(result?.debug?.upsertErrorCount || 0);
-
-      if (matchedQuery > 0 && synced === 0) {
-        toast({
-          title: "Sync có dữ liệu Gmail nhưng chưa ghi được PO",
-          description: `Mailbox: ${result?.mailbox || "(không rõ)"} • matched: ${matchedQuery} • synced: ${synced} • upsert lỗi: ${upsertErr}`,
-          variant: "destructive",
-        });
-        return;
-      }
-
-      toast({
-        title: "Đã sync Gmail",
-        description: `Mailbox: ${result?.mailbox || "(không rõ)"} • matched: ${matchedQuery} • fetched: ${result?.fetched || 0} • synced: ${synced} • PO inbox DB: ${inboxCount}`,
-      });
+      const items = Array.isArray(result?.previews) ? result.previews : [];
+      setPreviewItems(items);
+      setSelectedPreviewId(items[0]?.messageId || null);
+      setSyncStatus("preview_success");
     },
     onError: (e: any) => {
-      toast({ title: "Lỗi Gmail sync", description: e?.message || "Không thể đồng bộ Gmail", variant: "destructive" });
+      setSyncStatus("error");
+      setSyncError(e?.message || "Không thể đồng bộ Gmail");
+    },
+  });
+
+  const importPoMutation = useMutation({
+    mutationFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Phiên đăng nhập hết hạn");
+      const query = buildGmailQuery();
+      const messageIds = previewItems.map((x: any) => x.messageId).filter(Boolean);
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-gmail-sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ mode: "import", maxResults: 100, query, messageIds }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result?.error || "Import PO thất bại");
+      return result;
+    },
+    onSuccess: async (result: any) => {
+      setSyncDebug(result);
+      setSyncStatus("import_success");
+      await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
+      await queryClient.refetchQueries({ queryKey: ["customer-po-inbox"], type: "active" });
+      toast({ title: "Đã nhập PO vào hệ thống", description: `Đã nhập ${result?.synced || 0} PO.` });
+      setSyncModalOpen(false);
+    },
+    onError: (e: any) => {
+      setSyncStatus("error");
+      setSyncError(e?.message || "Import PO thất bại");
     },
   });
 
@@ -386,6 +411,7 @@ export default function MiniCrm() {
   }, [filteredPoInbox]);
 
   const selectedPo = useMemo(() => poInbox.find((r: any) => r.id === selectedPoId) || null, [poInbox, selectedPoId]);
+  const selectedPreview = useMemo(() => previewItems.find((r: any) => r.messageId === selectedPreviewId) || null, [previewItems, selectedPreviewId]);
 
   useEffect(() => {
     if (!selectedPo) return;
@@ -559,7 +585,7 @@ export default function MiniCrm() {
         {isSalesPoPage && (
           <div className="flex flex-col gap-2 items-end">
             {gmailConnectedEmail ? <Badge>{gmailConnectedEmail}</Badge> : <Badge variant="secondary">Chưa kết nối Gmail PO</Badge>}
-            <Button onClick={() => syncGmailMutation.mutate()} disabled={syncGmailMutation.isPending || !gmailConnectedEmail}>
+            <Button onClick={() => { setSyncModalOpen(true); syncGmailMutation.mutate(); }} disabled={syncGmailMutation.isPending || !gmailConnectedEmail}>
               {syncGmailMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
               Sync Gmail PO
             </Button>
@@ -567,21 +593,61 @@ export default function MiniCrm() {
         )}
       </div>
 
-      {isSalesPoPage && syncDebug && (
-        <div className="rounded-md border bg-muted/30 p-3 text-xs space-y-1">
-          <div><b>SYNC DEBUG</b></div>
-          <div>Mailbox: {syncDebug?.mailbox || "(không rõ)"}</div>
-          <div>Query: {syncDebug?.query || "-"}</div>
-          <div>Gmail matched: {syncDebug?.resultSizeEstimate || 0} • fetched: {syncDebug?.fetched || 0} • synced: {syncDebug?.synced || 0}</div>
-          <div>Matched customer: {syncDebug?.debug?.matchedCount || 0} • Unmatched: {syncDebug?.debug?.unmatchedCount || 0}</div>
-          <div>Skipped invalid from: {syncDebug?.debug?.skippedInvalidFrom || 0} • Upsert error: {syncDebug?.debug?.upsertErrorCount || 0}</div>
-          <div>PO inbox DB count: {syncDebug?.debug?.inboxCount || 0}</div>
-          {Array.isArray(syncDebug?.debug?.upsertErrors) && syncDebug.debug.upsertErrors.length > 0 && (
-            <div className="text-destructive">
-              Upsert errors: {syncDebug.debug.upsertErrors.map((e: any) => `${e.messageId}: ${e.error}`).join(" | ")}
+      {isSalesPoPage && (
+        <Dialog open={syncModalOpen} onOpenChange={setSyncModalOpen}>
+          <DialogContent className="max-w-4xl">
+            <DialogHeader>
+              <DialogTitle>Sync PO từ Gmail</DialogTitle>
+              <DialogDescription>Đồng bộ để xem trước, chỉ nhập vào hệ thống khi bấm "Nhập PO vào hệ thống".</DialogDescription>
+            </DialogHeader>
+
+            <div className="text-xs rounded-md border bg-muted/30 p-3 space-y-1">
+              <div><b>Trạng thái:</b> {syncStatus === "syncing" ? "Đang sync..." : syncStatus === "preview_success" ? "Đã lấy preview" : syncStatus === "import_success" ? "Đã nhập thành công" : syncStatus === "error" ? "Lỗi" : "Sẵn sàng"}</div>
+              <div>Mailbox: {syncDebug?.mailbox || "-"}</div>
+              <div>Matched: {syncDebug?.resultSizeEstimate || 0} • Fetched: {syncDebug?.fetched || 0} • Synced: {syncDebug?.synced || 0}</div>
+              {syncError && <div className="text-destructive">Lỗi: {syncError}</div>}
             </div>
-          )}
-        </div>
+
+            <div className="grid md:grid-cols-2 gap-3">
+              <div className="border rounded-md max-h-80 overflow-auto">
+                {(previewItems || []).map((item: any) => (
+                  <button
+                    key={item.messageId}
+                    type="button"
+                    onClick={() => setSelectedPreviewId(item.messageId)}
+                    className={`w-full text-left p-3 border-b hover:bg-muted/40 ${selectedPreviewId === item.messageId ? "bg-muted" : ""}`}
+                  >
+                    <div className="text-xs text-muted-foreground">{new Date(item.receivedAt).toLocaleString("vi-VN")}</div>
+                    <div className="font-medium text-sm line-clamp-1">{item.subject}</div>
+                    <div className="text-xs line-clamp-1">{item.fromEmail}</div>
+                  </button>
+                ))}
+                {previewItems.length === 0 && <div className="p-3 text-sm text-muted-foreground">Không lấy được nội dung PO.</div>}
+              </div>
+
+              <div className="border rounded-md p-3 text-sm space-y-2">
+                {selectedPreview ? (
+                  <>
+                    <div><b>From:</b> {selectedPreview.fromEmail}</div>
+                    <div><b>Subject:</b> {selectedPreview.subject}</div>
+                    <div><b>Snippet:</b> {selectedPreview.snippet || "(trống)"}</div>
+                    <div><b>Attachments:</b> {(selectedPreview.attachmentNames || []).join(", ") || "Không có"}</div>
+                  </>
+                ) : (
+                  <div className="text-muted-foreground">Chọn một PO để xem chi tiết.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setSyncModalOpen(false)}>Huỷ</Button>
+              <Button onClick={() => importPoMutation.mutate()} disabled={importPoMutation.isPending || previewItems.length === 0 || syncStatus === "syncing"}>
+                {importPoMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                Nhập PO vào hệ thống
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {isSalesPoPage && (

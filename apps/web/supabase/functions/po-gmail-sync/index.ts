@@ -143,8 +143,10 @@ serve(async (req) => {
     }
 
     const body = await req.json().catch(() => ({}));
+    const mode = String(body?.mode || "preview").toLowerCase(); // preview | import
     const maxResults = Math.min(Math.max(Number(body?.maxResults || 20), 1), 100);
     const query = String(body?.query || "in:anywhere (to:po@bmq.vn OR deliveredto:po@bmq.vn OR cc:po@bmq.vn) newer_than:30d");
+    const importMessageIds = new Set<string>(Array.isArray(body?.messageIds) ? body.messageIds.map((x: any) => String(x)) : []);
 
     const accessToken = await getGoogleAccessToken(supabaseAdmin);
 
@@ -176,6 +178,7 @@ serve(async (req) => {
     let skippedInvalidFrom = 0;
     let upsertErrorCount = 0;
     const upsertErrors: Array<{ messageId: string; error: string }> = [];
+    const previews: any[] = [];
 
     for (const m of messages) {
       const detail = await gmailApi(accessToken, `messages/${m.id}?format=full`);
@@ -232,6 +235,22 @@ serve(async (req) => {
         },
       };
 
+      previews.push({
+        messageId: m.id,
+        threadId: m.threadId,
+        fromEmail,
+        fromName,
+        subject: subject || "(no subject)",
+        receivedAt: payload.received_at,
+        snippet,
+        attachmentNames,
+        matchedCustomerId: match?.customerId || null,
+        matchStatus: payload.match_status,
+      });
+
+      const shouldImport = mode === "import" && (importMessageIds.size === 0 || importMessageIds.has(m.id));
+      if (!shouldImport) continue;
+
       const { error } = await supabaseAdmin.from("customer_po_inbox").upsert(payload, { onConflict: "gmail_message_id" });
       if (error) {
         upsertErrorCount += 1;
@@ -249,11 +268,13 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({
       success: true,
+      mode,
       synced,
       query,
       mailbox: profile?.emailAddress || null,
       resultSizeEstimate: Number(list?.resultSizeEstimate || 0),
       fetched: messages.length,
+      previews,
       debug: {
         matchedCount,
         unmatchedCount,
