@@ -114,3 +114,30 @@ Tính tổng theo `mini_crm_customers.product_group` của từng PO đã post t
 - **Notes**: Reworked totals reducer to aggregate by `product_group` directly.
 
 ---
+## [LRN-20260303-002] correction
+
+**Logged**: 2026-03-03T00:34:00+07:00
+**Priority**: high
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+Template analyzer fail 0% khi PO mẫu ở dạng row-item (mỗi dòng là 1 sản phẩm), không phải ma trận theo ngày/cột.
+
+### Details
+Logic phân tích mẫu đang hard-code `headerRow=2`, `date ở cột B`, `quantityColumns theo cột sản phẩm`. File Export-PO-Data.xlsx có header ở row 1 và dữ liệu sản phẩm theo từng dòng (product/qty/date là cột cố định), khiến preview rỗng.
+
+### Suggested Action
+Bổ sung auto-detect header row + row-item mode trong analyzer UI và parser function để parse theo cột product/qty/date khi nhận diện mẫu row-based.
+
+### Metadata
+- Source: user_feedback
+- Related Files: apps/web/src/pages/MiniCrm.tsx, apps/web/supabase/functions/po-parse-inbox-order/index.ts
+- Tags: po-template, xlsx, parser, row-mode
+
+### Resolution
+- **Resolved**: 2026-03-03T00:36:00+07:00
+- **Commit/PR**: pending commit
+- **Notes**: Added `rowItemMode` + `rowItemColumns` and fallback support in edge parse.
+
+---

@@ -582,7 +582,6 @@ export default function MiniCrm() {
 
     const row1 = worksheet.getRow(1).values as any[];
     const row2 = worksheet.getRow(2).values as any[];
-    const row3 = worksheet.getRow(3).values as any[];
 
     const normalizeHeader = (s: any) => String(s || "").replace(/\s+/g, " ").trim();
     const normalizeToken = (s: string) => normalizeHeader(s).toLowerCase().replace(/[^a-z0-9à-ỹ]/g, "");
@@ -598,33 +597,6 @@ export default function MiniCrm() {
       const n = Number(String(raw).replace(/[^0-9.-]/g, ""));
       return Number.isFinite(n) ? n : 0;
     };
-
-    const headerColumns = row2
-      .map((v, idx) => ({ idx, name: normalizeHeader(v) }))
-      .filter((c) => c.idx > 0 && c.name);
-
-    const quantityColumns = headerColumns
-      .filter((c) => !isLikelyMetaHeader(c.name))
-      .map((c) => {
-        let maxQty = 0;
-        for (let r = 3; r <= worksheet.rowCount; r++) {
-          const q = toNumericQty(worksheet.getCell(r, c.idx).value);
-          if (q > maxQty) maxQty = q;
-        }
-        return { columnIndex: c.idx, columnName: c.name, sampleQty: maxQty };
-      })
-      .filter((c) => c.sampleQty > 0);
-
-    const parserConfig = {
-      sheetName: worksheet.name,
-      headerRow: 2,
-      productCodeRow: 1,
-      dateColumnName: "Ngày/Date",
-      quantityColumns,
-      headerColumns: headerColumns.slice(0, 60),
-    };
-
-    const sampleRows = [] as any[];
     const parseDateCell = (raw: any) => {
       if (!raw) return null;
       if (raw instanceof Date) return raw;
@@ -633,34 +605,113 @@ export default function MiniCrm() {
       return Number.isNaN(dt.getTime()) ? null : dt;
     };
 
-    for (let r = 3; r <= worksheet.rowCount; r++) {
-      const firstCellText = String(worksheet.getCell(r, 1).value || "").toUpperCase();
-      if (firstCellText.includes("TỔNG CỘNG")) continue;
-      const dateObj = parseDateCell(worksheet.getCell(r, 2).value);
-      if (!dateObj) continue;
+    const findHeaderRow = () => {
+      for (let r = 1; r <= Math.min(6, worksheet.rowCount); r++) {
+        const vals = worksheet.getRow(r).values as any[];
+        const cols = vals.map((v, idx) => ({ idx, name: normalizeHeader(v) })).filter((c) => c.idx > 0 && c.name);
+        const hasProduct = cols.some((c) => /(tên\s*sản\s*phẩm|ten\s*san\s*pham|product|item)/i.test(c.name));
+        const hasQty = cols.some((c) => /(số\s*lượng|so\s*luong|qty|quantity)/i.test(c.name));
+        if (hasProduct && hasQty) return { row: r, cols };
+      }
+      return null;
+    };
 
-      const rowQtyTotal = quantityColumns.reduce((sum: number, q: any) => sum + toNumericQty(worksheet.getCell(r, q.columnIndex).value), 0);
-      if (rowQtyTotal <= 0) continue;
+    const detectedHeader = findHeaderRow();
+    const headerRowNo = detectedHeader?.row || 2;
+    const headerColumns = (detectedHeader?.cols || row2.map((v, idx) => ({ idx, name: normalizeHeader(v) })))
+      .filter((c: any) => c.idx > 0 && c.name);
 
-      sampleRows.push({
-        row: r,
-        date: dateObj.toISOString().slice(0, 10),
-        rowQtyTotal,
-      });
+    const findHeaderIndex = (patterns: RegExp[]) => {
+      const m = headerColumns.find((c: any) => patterns.some((p) => p.test(c.name)));
+      return m?.idx || 0;
+    };
+
+    const productCol = findHeaderIndex([/(tên\s*sản\s*phẩm|ten\s*san\s*pham|product|item)/i]);
+    const qtyCol = findHeaderIndex([/(số\s*lượng|so\s*luong|qty|quantity)/i]);
+    const dateCol = findHeaderIndex([/(ngày\s*giao|ngày|date)/i]);
+    const skuCol = findHeaderIndex([/(barcode|mã|ma|sku|code)/i]);
+    const unitCol = findHeaderIndex([/(đơn\s*vị|don\s*vi|unit)/i]);
+    const unitPriceCol = findHeaderIndex([/(đơn\s*giá|don\s*gia|unit\s*price|price)/i]);
+
+    const sampleRows = [] as any[];
+    const lineItems = [] as any[];
+
+    const isRowItemMode = Boolean(productCol && qtyCol);
+
+    if (isRowItemMode) {
+      const dataStartRow = headerRowNo + 1;
+      for (let r = dataStartRow; r <= worksheet.rowCount; r++) {
+        const firstCellText = String(worksheet.getCell(r, 1).value || "").toUpperCase();
+        if (firstCellText.includes("TỔNG CỘNG")) continue;
+        const product = String(worksheet.getCell(r, productCol).value || "").trim();
+        const qty = toNumericQty(worksheet.getCell(r, qtyCol).value);
+        if (!product || qty <= 0) continue;
+        const dateObj = parseDateCell(dateCol ? worksheet.getCell(r, dateCol).value : null);
+        const date = dateObj ? dateObj.toISOString().slice(0, 10) : "";
+        sampleRows.push({ row: r, date, rowQtyTotal: qty });
+        lineItems.push({
+          date,
+          product,
+          sourceColumnName: String(headerColumns.find((c: any) => c.idx === productCol)?.name || "Tên sản phẩm"),
+          qty,
+          sku: skuCol ? String(worksheet.getCell(r, skuCol).value || "").trim() : "",
+          unit: unitCol ? String(worksheet.getCell(r, unitCol).value || "").trim() : "",
+          unitPrice: unitPriceCol ? toNumericQty(worksheet.getCell(r, unitPriceCol).value) : null,
+          lineTotal: null,
+        });
+      }
     }
 
-    const lineItems = [] as any[];
-    for (const s of sampleRows) {
-      for (const q of quantityColumns) {
-        const qty = toNumericQty(worksheet.getCell(s.row, q.columnIndex).value);
-        if (qty > 0) {
-          lineItems.push({ date: s.date, product: q.columnName, sourceColumnName: q.columnName, qty, unitPrice: null, lineTotal: null });
+    const quantityColumns = isRowItemMode ? [] : headerColumns
+      .filter((c: any) => !isLikelyMetaHeader(c.name))
+      .map((c: any) => {
+        let maxQty = 0;
+        for (let r = 3; r <= worksheet.rowCount; r++) {
+          const q = toNumericQty(worksheet.getCell(r, c.idx).value);
+          if (q > maxQty) maxQty = q;
+        }
+        return { columnIndex: c.idx, columnName: c.name, sampleQty: maxQty };
+      })
+      .filter((c: any) => c.sampleQty > 0);
+
+    if (!isRowItemMode) {
+      for (let r = 3; r <= worksheet.rowCount; r++) {
+        const firstCellText = String(worksheet.getCell(r, 1).value || "").toUpperCase();
+        if (firstCellText.includes("TỔNG CỘNG")) continue;
+        const dateObj = parseDateCell(worksheet.getCell(r, 2).value);
+        if (!dateObj) continue;
+        const rowQtyTotal = quantityColumns.reduce((sum: number, q: any) => sum + toNumericQty(worksheet.getCell(r, q.columnIndex).value), 0);
+        if (rowQtyTotal <= 0) continue;
+        const date = dateObj.toISOString().slice(0, 10);
+        sampleRows.push({ row: r, date, rowQtyTotal });
+        for (const q of quantityColumns) {
+          const qty = toNumericQty(worksheet.getCell(r, q.columnIndex).value);
+          if (qty > 0) lineItems.push({ date, product: q.columnName, sourceColumnName: q.columnName, qty, unitPrice: null, lineTotal: null });
         }
       }
     }
 
+    const parserConfig = {
+      sheetName: worksheet.name,
+      headerRow: headerRowNo,
+      productCodeRow: 1,
+      dateColumnName: "Ngày/Date",
+      rowItemMode: isRowItemMode,
+      rowItemColumns: isRowItemMode ? {
+        productNameColumnIndex: productCol,
+        qtyColumnIndex: qtyCol,
+        dateColumnIndex: dateCol,
+        skuColumnIndex: skuCol,
+        unitColumnIndex: unitCol,
+        unitPriceColumnIndex: unitPriceCol,
+      } : null,
+      quantityColumns,
+      headerColumns: headerColumns.slice(0, 60),
+    };
+
+    const datedRows = sampleRows.filter((s: any) => String(s?.date || "").trim());
     const confirmationView = {
-      orderDate: sampleRows.length ? `${sampleRows[0].date} → ${sampleRows[sampleRows.length - 1].date}` : "",
+      orderDate: datedRows.length ? `${datedRows[0].date} → ${datedRows[datedRows.length - 1].date}` : "",
       items: lineItems,
       subtotal: null,
       vat: null,

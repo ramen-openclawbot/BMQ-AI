@@ -124,20 +124,56 @@ const parseByTemplateConfig = (rowsFlat: any[][], template: any) => {
   const snapshotItems = Array.isArray(template?.confirmation_snapshot?.items) ? template.confirmation_snapshot.items : [];
   const allowedSourceNames = new Set(snapshotItems.map((x: any) => String(x?.sourceColumnName || x?.product || "").trim()).filter(Boolean));
   const nameOverrides = cfg?.productNameOverrides || {};
+  const headerRow = Number(cfg?.headerRow || 2);
+
+  // Row-item mode: mỗi dòng là 1 sản phẩm (ví dụ Export-PO-Data.xlsx)
+  if (cfg?.rowItemMode && cfg?.rowItemColumns) {
+    const c = cfg.rowItemColumns || {};
+    const productCol = Number(c?.productNameColumnIndex || 0) - 1;
+    const qtyCol = Number(c?.qtyColumnIndex || 0) - 1;
+    const dateCol = Number(c?.dateColumnIndex || 0) - 1;
+    const skuCol = Number(c?.skuColumnIndex || 0) - 1;
+    const unitCol = Number(c?.unitColumnIndex || 0) - 1;
+    const unitPriceCol = Number(c?.unitPriceColumnIndex || 0) - 1;
+    if (productCol >= 0 && qtyCol >= 0) {
+      const items: any[] = [];
+      const startIdx = Math.max(1, headerRow);
+      for (let r = startIdx; r < rowsFlat.length; r += 1) {
+        const row = rowsFlat[r] || [];
+        const first = String(row?.[0] || "").toUpperCase();
+        if (first.includes("TỔNG CỘNG") || first.includes("TONG CONG")) continue;
+        const productRaw = String(row?.[productCol] || "").trim();
+        const qty = toNum(row?.[qtyCol]);
+        if (!productRaw || qty <= 0) continue;
+        const date = dateCol >= 0 ? (normalizeDate(row?.[dateCol]) || "") : "";
+        const sourceName = "row_item";
+        items.push({
+          date,
+          product_name: String(nameOverrides?.[productRaw] || productRaw).trim(),
+          source_column_name: sourceName,
+          sku: skuCol >= 0 ? String(row?.[skuCol] || "").trim() : "",
+          qty,
+          unit: unitCol >= 0 ? String(row?.[unitCol] || "").trim() : "",
+          unit_price: unitPriceCol >= 0 ? toNum(row?.[unitPriceCol]) : 0,
+          line_total: 0,
+        });
+      }
+      return items;
+    }
+  }
+
   const rawQuantityColumns = Array.isArray(cfg?.quantityColumns) ? cfg.quantityColumns : [];
   const quantityColumns = allowedSourceNames.size
     ? rawQuantityColumns.filter((q: any) => allowedSourceNames.has(String(q?.columnName || "").trim()))
     : rawQuantityColumns;
   if (!quantityColumns.length) return [] as any[];
 
-  const headerRow = Number(cfg?.headerRow || 2);
   const dateColumnName = String(cfg?.dateColumnName || "Ngày/Date").toLowerCase();
   const header = rowsFlat?.[headerRow - 1] || [];
   let dateColIdx = header.findIndex((c: any) => String(c || "").toLowerCase().replace(/\s+/g, " ").includes(dateColumnName));
   if (dateColIdx < 0) dateColIdx = 1; // B column fallback
 
   const items: any[] = [];
-  // rowsFlat là mảng 0-based: headerRow=2 => first data row index phải là 2 (Excel row 3)
   for (let r = Math.max(2, headerRow); r < rowsFlat.length; r += 1) {
     const row = rowsFlat[r] || [];
     const first = String(row?.[0] || "").toUpperCase();
