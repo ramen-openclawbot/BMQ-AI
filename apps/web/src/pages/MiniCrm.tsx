@@ -303,26 +303,45 @@ export default function MiniCrm() {
     return `in:anywhere (to:po@bmq.vn OR deliveredto:po@bmq.vn OR cc:po@bmq.vn) ${dateQuery || "newer_than:30d"}`.trim();
   };
 
+  const callPoGmailSync = async (payload: any, stepLabel: string) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      throw new Error(`[${stepLabel}] Phiên đăng nhập hết hạn (không có access token). Vui lòng đăng nhập lại.`);
+    }
+
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-gmail-sync`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const rawText = await response.text();
+    let result: any = {};
+    try {
+      result = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      result = { raw: rawText };
+    }
+
+    if (!response.ok) {
+      const msg = result?.error || result?.message || result?.raw || rawText || "Unknown error";
+      throw new Error(`[${stepLabel}] HTTP ${response.status} - ${msg}`);
+    }
+
+    return result;
+  };
+
   const syncGmailMutation = useMutation({
     mutationFn: async () => {
       setSyncDebug(null);
       setSyncError("");
       setSyncStatus("syncing");
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Phiên đăng nhập hết hạn");
 
       const query = buildGmailQuery();
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-gmail-sync`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ mode: "preview", maxResults: 100, query }),
-      });
-
-      const result = await response.json();
-      if (!response.ok) throw new Error(result?.error || "Gmail sync thất bại");
+      const result = await callPoGmailSync({ mode: "preview", maxResults: 100, query }, "preview");
       return { ...result, query };
     },
     onSuccess: (result: any) => {
@@ -340,21 +359,9 @@ export default function MiniCrm() {
 
   const importPoMutation = useMutation({
     mutationFn: async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Phiên đăng nhập hết hạn");
       const query = buildGmailQuery();
       const messageIds = previewItems.map((x: any) => x.messageId).filter(Boolean);
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-gmail-sync`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ mode: "import", maxResults: 100, query, messageIds }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result?.error || "Import PO thất bại");
-      return result;
+      return await callPoGmailSync({ mode: "import", maxResults: 100, query, messageIds }, "import");
     },
     onSuccess: async (result: any) => {
       setSyncDebug(result);
