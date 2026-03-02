@@ -100,32 +100,54 @@ const parseEmailBodyToProductionItems = (subject?: string, body?: string) => {
     .filter(Boolean)
     .flatMap((line) => line.split(/\s{2,}|(?=\d+\.)/g).map((x) => x.trim()).filter(Boolean));
 
+  const normalize = (s: string) => s.replace(/^[-•]+\s*/, "").replace(/^\d+[.)]?\s*/, "").trim();
+  const cleanNote = (s: string) => String(s || "").trim().replace(/^[-,;.]\s*/, "");
+
   const items: any[] = [];
   for (const raw of chunks) {
-    const line = raw.replace(/^[-•]+\s*/, "").trim();
-    const m = line.match(/^\d+[.)]?\s*(.+?)\s*:\s*([0-9]+)(.*)$/i);
-    if (!m) continue;
-    const location = String(m[1] || "").trim();
-    const qty = Number(m[2] || 0);
-    const note = String(m[3] || "").trim().replace(/^[-,;.]\s*/, "");
-    if (!location) continue;
-    items.push({
-      sku: "",
-      product_name: location,
-      unit: "cái",
-      qty: Number.isFinite(qty) ? qty : 0,
-      unit_price: 0,
-      line_total: 0,
-      parse_source: "email_body",
-      note,
-    });
+    const line = normalize(raw);
+    if (!line) continue;
+
+    // Pattern 1: "Tên điểm: 300 ghi chú"
+    let m = line.match(/^(.+?)\s*:\s*([0-9]+)(.*)$/i);
+    if (m) {
+      const location = String(m[1] || "").trim();
+      const qty = Number(m[2] || 0);
+      const note = cleanNote(String(m[3] || ""));
+      if (location) {
+        items.push({ sku: "", product_name: location, unit: "cái", qty: Number.isFinite(qty) ? qty : 0, unit_price: 0, line_total: 0, parse_source: "email_body", note });
+        continue;
+      }
+    }
+
+    // Pattern 2: "Tên điểm 200: đổi 6" (số đứng trước dấu ":")
+    m = line.match(/^(.+?)\s+([0-9]+)\s*:\s*(.*)$/i);
+    if (m) {
+      const location = String(m[1] || "").trim();
+      const qty = Number(m[2] || 0);
+      const note = cleanNote(String(m[3] || ""));
+      if (location) {
+        items.push({ sku: "", product_name: location, unit: "cái", qty: Number.isFinite(qty) ? qty : 0, unit_price: 0, line_total: 0, parse_source: "email_body", note });
+        continue;
+      }
+    }
+
+    // Pattern 3: "Tên điểm: (0 đặt bánh)"
+    m = line.match(/^(.+?)\s*:\s*\(([^)]*?)\)$/i);
+    if (m) {
+      const location = String(m[1] || "").trim();
+      const inside = String(m[2] || "");
+      const qty = Number((inside.match(/\d+/)?.[0] || "0"));
+      const note = cleanNote(inside);
+      if (location) {
+        items.push({ sku: "", product_name: location, unit: "cái", qty: Number.isFinite(qty) ? qty : 0, unit_price: 0, line_total: 0, parse_source: "email_body", note });
+        continue;
+      }
+    }
   }
 
   const deliveryDate = extractDeliveryDateFromSubject(subject) || null;
-  return {
-    items,
-    deliveryDate,
-  };
+  return { items, deliveryDate };
 };
 
 
