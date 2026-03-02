@@ -71,7 +71,7 @@ serve(async (req) => {
 
     const { data: customer } = await supabase
       .from("mini_crm_customers")
-      .select("id,default_revenue_channel")
+      .select("id")
       .ilike("customer_name", "%kingfood%")
       .limit(1)
       .maybeSingle();
@@ -93,7 +93,7 @@ serve(async (req) => {
       match_status: "approved",
       review_note: `Set as real PO for today (${today}) by admin request`,
       reviewed_at: new Date().toISOString(),
-      revenue_channel: customer?.default_revenue_channel || "cake_kingfoodmart",
+      revenue_channel: "agency",
       raw_payload: {
         gmail_id: msg.id,
         thread_id: msg.threadId,

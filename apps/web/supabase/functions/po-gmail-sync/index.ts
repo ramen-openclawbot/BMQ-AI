@@ -47,6 +47,20 @@ const explodeEmails = (value: string): string[] => {
     .filter(Boolean);
 };
 
+const revenueChannelFromCustomerGroup = (group: string | null | undefined) => {
+  switch (String(group || "").toLowerCase()) {
+    case "online":
+      return "online";
+    case "banhmi_agency":
+      return "agency";
+    case "b2b":
+      return "b2b";
+    case "banhmi_point":
+    default:
+      return "retail";
+  }
+};
+
 async function getGoogleAccessToken(supabaseAdmin: any): Promise<string> {
   const { data: gmailTokenData } = await supabaseAdmin
     .from("app_settings")
@@ -139,16 +153,16 @@ serve(async (req) => {
 
     const { data: crmEmails } = await supabaseAdmin
       .from("mini_crm_customer_emails")
-      .select("email, customer_id, mini_crm_customers(default_revenue_channel)");
+      .select("email, customer_id, mini_crm_customers(customer_group)");
 
-    const emailMap = new Map<string, { customerId: string; defaultRevenueChannel: string | null }>();
+    const emailMap = new Map<string, { customerId: string; revenueChannel: string | null }>();
     for (const row of crmEmails || []) {
       const rawEmail = String((row as any).email || "");
       const expanded = explodeEmails(rawEmail);
       for (const key of expanded) {
         emailMap.set(key, {
           customerId: (row as any).customer_id,
-          defaultRevenueChannel: (row as any).mini_crm_customers?.default_revenue_channel || null,
+          revenueChannel: revenueChannelFromCustomerGroup((row as any).mini_crm_customers?.customer_group || null),
         });
       }
     }
@@ -191,7 +205,7 @@ serve(async (req) => {
         received_at: dateHeader ? new Date(dateHeader).toISOString() : new Date().toISOString(),
         matched_customer_id: match?.customerId || null,
         match_status: match ? "pending_approval" : "unmatched",
-        revenue_channel: match?.defaultRevenueChannel || null,
+        revenue_channel: match?.revenueChannel || null,
         po_number: extractPoNumber(subject || ""),
         delivery_date: extractDeliveryDate(subject || ""),
         raw_payload: {
