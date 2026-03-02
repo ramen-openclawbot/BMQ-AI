@@ -193,14 +193,7 @@ export function Sidebar() {
             {!collapsed && t.settings}
           </NavLink>
 
-          {!collapsed && (
-            <a
-              href="/settings#data-migration"
-              className="ml-11 mt-1 block text-xs text-sidebar-foreground/65 hover:text-sidebar-foreground hover:underline"
-            >
-              Data Migration
-            </a>
-          )}
+
         </div>
       </div>
       

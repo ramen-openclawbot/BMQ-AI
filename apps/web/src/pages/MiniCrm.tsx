@@ -20,6 +20,11 @@ const GROUP_OPTIONS = [
   { value: "b2b", label: "B2B" },
 ];
 
+const GROUP_LABEL_MAP: Record<string, string> = GROUP_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.label;
+  return acc;
+}, {} as Record<string, string>);
+
 
 const extractPoNumberFromSubject = (subject?: string) => {
   const s = String(subject || "");
@@ -177,10 +182,12 @@ export default function MiniCrm() {
 
       if (createError) throw createError;
 
-      const emails = emailsInput
-        .split(",")
-        .map((s) => s.trim().toLowerCase())
-        .filter(Boolean);
+      const emails = Array.from(new Set(
+        emailsInput
+          .split(/[;,\n]+/)
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean)
+      ));
 
       if (emails.length) {
         const { error: emailError } = await (supabase as any)
@@ -193,10 +200,11 @@ export default function MiniCrm() {
       setCustomerName("");
       setEmailsInput("");
       await queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] });
-      toast({ title: "Đã thêm khách hàng", description: "Mini-CRM đã cập nhật." });
+      toast({ title: "Thêm khách hàng thành công", description: "Mini-CRM đã cập nhật." });
     },
     onError: (e: any) => {
-      toast({ title: "Lỗi", description: e?.message || "Không thể thêm khách hàng", variant: "destructive" });
+      const msg = e?.message || "Không thể thêm khách hàng";
+      toast({ title: "Thêm khách hàng thất bại", description: msg, variant: "destructive" });
     },
   });
 
@@ -273,7 +281,7 @@ export default function MiniCrm() {
   });
 
   const deleteCustomerMutation = useMutation({
-    mutationFn: async (customerId: string) => {
+    mutationFn: async ({ customerId }: { customerId: string; customerName?: string }) => {
       const { error: deleteEmailError } = await (supabase as any)
         .from("mini_crm_customer_emails")
         .delete()
@@ -286,12 +294,12 @@ export default function MiniCrm() {
         .eq("id", customerId);
       if (deleteCustomerError) throw deleteCustomerError;
     },
-    onSuccess: async () => {
+    onSuccess: async (_data, vars) => {
       await queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] });
-      toast({ title: "Đã xoá khách hàng" });
+      toast({ title: "Xoá khách hàng thành công", description: vars?.customerName ? `Đã xoá ${vars.customerName}.` : undefined });
     },
     onError: (e: any) => {
-      toast({ title: "Lỗi", description: e?.message || "Không thể xoá khách hàng", variant: "destructive" });
+      toast({ title: "Xoá khách hàng thất bại", description: e?.message || "Không thể xoá khách hàng", variant: "destructive" });
     },
   });
 
@@ -767,7 +775,7 @@ export default function MiniCrm() {
                           {GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                         </select>
                       ) : (
-                        c.customer_group
+                        GROUP_LABEL_MAP[c.customer_group] || c.customer_group
                       )}
                     </TableCell>
                     <TableCell>
@@ -808,7 +816,7 @@ export default function MiniCrm() {
                               size="sm"
                               variant="destructive"
                               onClick={() => {
-                                if (confirm(`Xoá khách hàng ${c.customer_name}?`)) deleteCustomerMutation.mutate(c.id);
+                                if (confirm(`Xoá khách hàng ${c.customer_name}?`)) deleteCustomerMutation.mutate({ customerId: c.id, customerName: c.customer_name });
                               }}
                               disabled={deleteCustomerMutation.isPending}
                             >
