@@ -118,6 +118,8 @@ export default function MiniCrm() {
   const [viewCustomer, setViewCustomer] = useState<any | null>(null);
   const [setupContractFile, setSetupContractFile] = useState<File | null>(null);
   const [setupPriceRows, setSetupPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
+  const [editContractFile, setEditContractFile] = useState<File | null>(null);
+  const [editPriceRows, setEditPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
 
   const { data: gmailConnectedEmail } = useQuery({
     queryKey: ["gmail-connected-email"],
@@ -226,6 +228,9 @@ export default function MiniCrm() {
     setPendingTemplateFileName("");
     setPendingTemplatePreview(null);
     setTemplateConfirmOpen(false);
+    setEditContractFile(null);
+    const currentPrices = customerPriceList.filter((x: any) => x.customer_id === c.id);
+    setEditPriceRows(currentPrices.length ? currentPrices.map((p: any) => ({ skuId: p.sku_id, price: String(Number(p.price_vnd_per_unit || 0)) })) : [{ skuId: "", price: "" }]);
   };
 
   const cancelEditCustomer = () => {
@@ -241,6 +246,8 @@ export default function MiniCrm() {
     setPendingTemplateFileName("");
     setPendingTemplatePreview(null);
     setTemplateConfirmOpen(false);
+    setEditContractFile(null);
+    setEditPriceRows([{ skuId: "", price: "" }]);
   };
 
   const addCustomerMutation = useMutation({
@@ -421,13 +428,68 @@ export default function MiniCrm() {
         }
       }
 
+      if (editContractFile) {
+        const { error: deactivateContractError } = await (supabase as any)
+          .from("mini_crm_customer_contracts")
+          .update({ is_active: false })
+          .eq("customer_id", editingCustomerId)
+          .eq("is_active", true);
+        if (deactivateContractError) throw deactivateContractError;
+
+        const filePath = `${editingCustomerId}/${Date.now()}-${editContractFile.name}`;
+        const { error: uploadError } = await (supabase as any).storage.from("customer-contracts").upload(filePath, editContractFile, { upsert: false, contentType: editContractFile.type || "application/pdf" });
+        if (uploadError) throw uploadError;
+        const { data: pub } = (supabase as any).storage.from("customer-contracts").getPublicUrl(filePath);
+        const { error: contractInsertError } = await (supabase as any)
+          .from("mini_crm_customer_contracts")
+          .insert({ customer_id: editingCustomerId, file_name: editContractFile.name, file_url: pub?.publicUrl || filePath, file_size: editContractFile.size, mime_type: editContractFile.type || "application/pdf", is_active: true });
+        if (contractInsertError) throw contractInsertError;
+      }
+
+      const validRows = editPriceRows
+        .map((r) => ({ sku_id: r.skuId, price_vnd_per_unit: Number(String(r.price || "").replace(/[^0-9]/g, "")) }))
+        .filter((r) => r.sku_id && Number.isFinite(r.price_vnd_per_unit) && r.price_vnd_per_unit > 0);
+
+      const { error: deactivatePriceError } = await (supabase as any)
+        .from("mini_crm_customer_price_list")
+        .update({ is_active: false })
+        .eq("customer_id", editingCustomerId)
+        .eq("is_active", true);
+      if (deactivatePriceError) throw deactivatePriceError;
+
+      if (validRows.length) {
+        const { error: priceInsertError } = await (supabase as any)
+          .from("mini_crm_customer_price_list")
+          .insert(validRows.map((r) => ({ customer_id: editingCustomerId, sku_id: r.sku_id, price_vnd_per_unit: r.price_vnd_per_unit, currency: "VND", is_active: true })));
+        if (priceInsertError) throw priceInsertError;
+      }
+
+      if (templatePreview?.parserConfig) {
+        const { error: deactivateTplError } = await (supabase as any)
+          .from("mini_crm_po_templates")
+          .update({ is_active: false })
+          .eq("customer_id", editingCustomerId)
+          .eq("is_active", true);
+        if (deactivateTplError) throw deactivateTplError;
+
+        const { error: tplInsertError } = await (supabase as any)
+          .from("mini_crm_po_templates")
+          .insert({ customer_id: editingCustomerId, template_name: `Template ${new Date().toLocaleString("vi-VN")}`, file_name: templateFileName || "uploaded-template.xlsx", parser_config: templatePreview.parserConfig, sample_preview: templatePreview.sampleRows || [], is_active: true });
+        if (tplInsertError) throw tplInsertError;
+      }
+
       return { saved: true, emailCount: emails.length, emailChanged };
     },
     onSuccess: async (result: any) => {
       cancelEditCustomer();
       const msg = `Đã lưu thành công${result?.emailChanged ? ` (${result?.emailCount || 0} email)` : ""}.`;
       setEditFeedback(msg);
-      await queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] }),
+        queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-contracts"] }),
+        queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-price-list"] }),
+        queryClient.invalidateQueries({ queryKey: ["mini-crm-po-templates"] }),
+      ]);
       toast({ title: "Lưu thành công", description: msg });
     },
     onError: (e: any) => {
@@ -498,8 +560,16 @@ export default function MiniCrm() {
       }
     }
 
+    const confirmationView = {
+      orderDate: String(sampleRows?.[0]?.date || ""),
+      items: quantityColumns.map((q: any) => ({ product: q.columnName, qty: q.sampleQty || 0 })),
+      subtotal: null,
+      vat: null,
+      total: null,
+    };
+
     setPendingTemplateFileName(file.name);
-    setPendingTemplatePreview({ parserConfig, sampleRows });
+    setPendingTemplatePreview({ parserConfig, sampleRows, confirmationView });
     setTemplateConfirmOpen(true);
   };
 
@@ -1156,37 +1226,59 @@ export default function MiniCrm() {
                             <option value="paused">Tạm ngưng</option>
                           </select>
 
-                          <div className="rounded-md border p-2 text-xs space-y-2">
-                            <div><b>Mẫu PO active:</b> {activeTemplate?.file_name || activeTemplate?.template_name || "Chưa có"}</div>
-                            <Input
-                              type="file"
-                              accept=".xlsx"
-                              onChange={async (e) => {
-                                const f = e.target.files?.[0];
-                                if (!f) return;
-                                try {
-                                  await handleAnalyzeTemplateFile(f);
-                                } catch (err: any) {
-                                  toast({ title: "Đọc file mẫu thất bại", description: err?.message || "Không thể đọc file", variant: "destructive" });
-                                }
-                              }}
-                            />
-                            {templatePreview && (
-                              <div className="rounded bg-muted/40 p-2">
-                                <div>File: {templateFileName || "-"}</div>
-                                <div>Sheet: {templatePreview?.parserConfig?.sheetName || "-"}</div>
+                          <div className="rounded-md border p-2 text-xs space-y-3">
+                            <div>
+                              <b>Hợp đồng active:</b> {(customerContracts.find((x: any) => x.customer_id === c.id)?.file_name) || "Chưa có"}
+                              <div className="mt-1 flex gap-2">
+                                <Input type="file" accept="application/pdf,.pdf" onChange={(e) => setEditContractFile(e.target.files?.[0] || null)} />
+                                <Button type="button" size="sm" variant="outline" onClick={async () => {
+                                  await (supabase as any).from("mini_crm_customer_contracts").update({ is_active: false }).eq("customer_id", c.id).eq("is_active", true);
+                                  await queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-contracts"] });
+                                  toast({ title: "Đã xoá hợp đồng active" });
+                                }}>Xoá HĐ</Button>
                               </div>
-                            )}
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => saveTemplateMutation.mutate(c.id)}
-                              disabled={saveTemplateMutation.isPending || !templatePreview}
-                            >
-                              {saveTemplateMutation.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
-                              Lưu mẫu PO
-                            </Button>
+                            </div>
+
+                            <div>
+                              <b>Giá bán SKU:</b>
+                              <div className="space-y-1 mt-1">
+                                {editPriceRows.map((row, idx) => (
+                                  <div key={idx} className="grid grid-cols-12 gap-1">
+                                    <select className="col-span-7 h-8 rounded-md border border-input bg-background px-2 text-xs" value={row.skuId} onChange={(e) => setEditPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, skuId: e.target.value } : r))}>
+                                      <option value="">-- SKU --</option>
+                                      {finishedSkus.map((s: any) => <option key={s.id} value={s.id}>{s.sku_code} - {s.product_name}</option>)}
+                                    </select>
+                                    <Input className="col-span-4 h-8 text-xs" value={row.price} onChange={(e) => setEditPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, price: e.target.value } : r))} placeholder="VND" />
+                                    <Button type="button" variant="outline" className="col-span-1 h-8 px-0" onClick={() => setEditPriceRows((prev) => prev.filter((_, i) => i !== idx))} disabled={editPriceRows.length === 1}>-</Button>
+                                  </div>
+                                ))}
+                                <Button type="button" size="sm" variant="outline" onClick={() => setEditPriceRows((prev) => [...prev, { skuId: "", price: "" }])}>+ SKU</Button>
+                              </div>
+                            </div>
+
+                            <div>
+                              <b>Mẫu PO active:</b> {activeTemplate?.file_name || activeTemplate?.template_name || "Chưa có"}
+                              <div className="mt-1 flex gap-2">
+                                <Input
+                                  type="file"
+                                  accept=".xlsx"
+                                  onChange={async (e) => {
+                                    const f = e.target.files?.[0];
+                                    if (!f) return;
+                                    try {
+                                      await handleAnalyzeTemplateFile(f);
+                                    } catch (err: any) {
+                                      toast({ title: "Đọc file mẫu thất bại", description: err?.message || "Không thể đọc file", variant: "destructive" });
+                                    }
+                                  }}
+                                />
+                                <Button type="button" size="sm" variant="outline" onClick={async () => {
+                                  await (supabase as any).from("mini_crm_po_templates").update({ is_active: false }).eq("customer_id", c.id).eq("is_active", true);
+                                  await queryClient.invalidateQueries({ queryKey: ["mini-crm-po-templates"] });
+                                  toast({ title: "Đã xoá mẫu PO active" });
+                                }}>Xoá mẫu</Button>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       ) : (
@@ -1208,9 +1300,6 @@ export default function MiniCrm() {
                         ) : (
                           <>
                             <Button size="sm" variant="secondary" onClick={() => setViewCustomer(c)}>Xem</Button>
-                            <Button size="sm" variant="outline" onClick={() => startEditCustomer(c)}>
-                              <Pencil className="h-4 w-4 mr-1" />Sửa
-                            </Button>
                             <Button
                               size="sm"
                               variant="destructive"
@@ -1448,6 +1537,17 @@ export default function MiniCrm() {
               <DialogHeader>
                 <DialogTitle>Xem khách hàng: {viewCustomer.customer_name}</DialogTitle>
               </DialogHeader>
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    startEditCustomer(viewCustomer);
+                    setViewCustomer(null);
+                  }}
+                >
+                  <Pencil className="h-4 w-4 mr-1" />Sửa khách hàng
+                </Button>
+              </div>
               <div className="space-y-3 text-sm">
                 <div><b>Nhóm:</b> {GROUP_LABEL_MAP[viewCustomer.customer_group] || viewCustomer.customer_group}</div>
                 <div><b>Trạng thái:</b> {viewCustomer.is_active ? "Active" : "Tạm ngưng"}</div>
@@ -1483,11 +1583,18 @@ export default function MiniCrm() {
             <div><b>File:</b> {pendingTemplateFileName || "-"}</div>
             <div><b>Sheet:</b> {pendingTemplatePreview?.parserConfig?.sheetName || "-"}</div>
             <div><b>Header row:</b> {pendingTemplatePreview?.parserConfig?.headerRow || "-"}</div>
-            <div>
-              <b>Nội dung đọc được (sample):</b>
-              <pre className="mt-2 max-h-64 overflow-auto rounded bg-muted/40 p-2 text-xs">
-                {JSON.stringify(pendingTemplatePreview?.sampleRows || [], null, 2)}
-              </pre>
+            <div className="rounded border p-3 space-y-2">
+              <div><b>Ngày đặt hàng:</b> {pendingTemplatePreview?.confirmationView?.orderDate || "(chưa rõ)"}</div>
+              <div><b>Danh sách sản phẩm đặt hàng:</b></div>
+              <div className="max-h-40 overflow-auto rounded bg-muted/40 p-2">
+                {(pendingTemplatePreview?.confirmationView?.items || []).length === 0 && <div className="text-xs text-muted-foreground">Chưa đọc được sản phẩm</div>}
+                {(pendingTemplatePreview?.confirmationView?.items || []).map((it: any, idx: number) => (
+                  <div key={idx} className="text-xs">- {it.product}: {Number(it.qty || 0).toLocaleString("vi-VN")}</div>
+                ))}
+              </div>
+              <div><b>Tạm tính:</b> {pendingTemplatePreview?.confirmationView?.subtotal ?? "(user nhập tay nếu thiếu)"}</div>
+              <div><b>VAT:</b> {pendingTemplatePreview?.confirmationView?.vat ?? "(không có / user nhập tay)"}</div>
+              <div><b>Thành tiền:</b> {pendingTemplatePreview?.confirmationView?.total ?? "(không có / user nhập tay)"}</div>
             </div>
           </div>
 
