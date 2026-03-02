@@ -568,7 +568,11 @@ export default function MiniCrm() {
     const row3 = worksheet.getRow(3).values as any[];
 
     const normalizeHeader = (s: any) => String(s || "").replace(/\s+/g, " ").trim();
-    const isLikelyMetaHeader = (name: string) => /^(stt|ngày\/?date|a\/c|amenity|type|flt|dep|arr)$/i.test(name) || /tổng\s*cộng/i.test(name);
+    const normalizeToken = (s: string) => normalizeHeader(s).toLowerCase().replace(/[^a-z0-9à-ỹ]/g, "");
+    const isLikelyMetaHeader = (name: string) => {
+      const t = normalizeToken(name);
+      return ["stt", "no", "ngaydate", "ac", "amenity", "type", "fltno", "dep", "arr"].includes(t) || t.includes("tongcong") || t.includes("hotmealdat");
+    };
     const toNumericQty = (raw: any) => {
       if (raw == null) return 0;
       if (raw instanceof Date) return 0;
@@ -584,9 +588,15 @@ export default function MiniCrm() {
 
     const quantityColumns = headerColumns
       .filter((c) => !isLikelyMetaHeader(c.name))
-      .map((c) => ({ ...c, sampleQty: toNumericQty(row3[c.idx]) }))
-      .filter((c) => c.sampleQty > 0)
-      .map((c) => ({ columnIndex: c.idx, columnName: c.name, sampleQty: c.sampleQty }));
+      .map((c) => {
+        let maxQty = 0;
+        for (let r = 3; r <= worksheet.rowCount; r++) {
+          const q = toNumericQty(worksheet.getCell(r, c.idx).value);
+          if (q > maxQty) maxQty = q;
+        }
+        return { columnIndex: c.idx, columnName: c.name, sampleQty: maxQty };
+      })
+      .filter((c) => c.sampleQty > 0);
 
     const parserConfig = {
       sheetName: worksheet.name,
@@ -622,18 +632,19 @@ export default function MiniCrm() {
       });
     }
 
-    const items = quantityColumns
-      .map((q: any) => ({
-        product: q.columnName,
-        qty: sampleRows.reduce((sum: number, s: any) => sum + toNumericQty(worksheet.getCell(s.row, q.columnIndex).value), 0),
-        unitPrice: null,
-        lineTotal: null,
-      }))
-      .filter((it: any) => Number(it.qty || 0) > 0);
+    const lineItems = [] as any[];
+    for (const s of sampleRows) {
+      for (const q of quantityColumns) {
+        const qty = toNumericQty(worksheet.getCell(s.row, q.columnIndex).value);
+        if (qty > 0) {
+          lineItems.push({ date: s.date, product: q.columnName, qty, unitPrice: null, lineTotal: null });
+        }
+      }
+    }
 
     const confirmationView = {
       orderDate: sampleRows.length ? `${sampleRows[0].date} → ${sampleRows[sampleRows.length - 1].date}` : "",
-      items,
+      items: lineItems,
       subtotal: null,
       vat: null,
       total: null,
@@ -1685,6 +1696,7 @@ export default function MiniCrm() {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead>Ngày</TableHead>
                         <TableHead>Sản phẩm</TableHead>
                         <TableHead>Số lượng</TableHead>
                         <TableHead>Đơn giá</TableHead>
@@ -1694,6 +1706,7 @@ export default function MiniCrm() {
                     <TableBody>
                       {(templateReviewDraft?.items || []).map((it: any, idx: number) => (
                         <TableRow key={idx}>
+                          <TableCell><Input value={it.date || ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, date: e.target.value } : x) })); }} placeholder="YYYY-MM-DD" /></TableCell>
                           <TableCell><Input value={it.product || ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, product: e.target.value } : x) })); }} /></TableCell>
                           <TableCell><Input value={it.qty ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, qty: e.target.value } : x) })); }} /></TableCell>
                           <TableCell><Input value={it.unitPrice ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, unitPrice: e.target.value } : x) })); }} placeholder="tuỳ chọn" /></TableCell>
@@ -1724,9 +1737,9 @@ export default function MiniCrm() {
             <Button
               onClick={async () => {
                 const hasOrderDate = Boolean(String(templateReviewDraft?.orderDate || "").trim());
-                const validItems = (templateReviewDraft?.items || []).filter((it: any) => String(it?.product || "").trim() && Number(String(it?.qty || 0).replace(/[^0-9.-]/g, "")) > 0);
+                const validItems = (templateReviewDraft?.items || []).filter((it: any) => String(it?.date || "").trim() && String(it?.product || "").trim() && Number(String(it?.qty || 0).replace(/[^0-9.-]/g, "")) > 0);
                 if (!hasOrderDate || validItems.length === 0) {
-                  toast({ title: "Thiếu dữ liệu bắt buộc", description: "Cần xác nhận ngày đặt hàng và ít nhất 1 sản phẩm có số lượng > 0", variant: "destructive" });
+                  toast({ title: "Thiếu dữ liệu bắt buộc", description: "Cần xác nhận dải ngày và ít nhất 1 dòng hợp lệ (ngày + sản phẩm + số lượng > 0)", variant: "destructive" });
                   return;
                 }
 
