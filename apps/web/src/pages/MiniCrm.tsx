@@ -1701,6 +1701,7 @@ export default function MiniCrm() {
                         <TableHead>Số lượng</TableHead>
                         <TableHead>Đơn giá</TableHead>
                         <TableHead>Thành tiền</TableHead>
+                        <TableHead className="w-[70px]">Xoá</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1711,6 +1712,19 @@ export default function MiniCrm() {
                           <TableCell><Input value={it.qty ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, qty: e.target.value } : x) })); }} /></TableCell>
                           <TableCell><Input value={it.unitPrice ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, unitPrice: e.target.value } : x) })); }} placeholder="tuỳ chọn" /></TableCell>
                           <TableCell><Input value={it.lineTotal ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, lineTotal: e.target.value } : x) })); }} placeholder="tuỳ chọn" /></TableCell>
+                          <TableCell>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                setTemplateReviewTouched(true);
+                                setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).filter((_x: any, i: number) => i !== idx) }));
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
