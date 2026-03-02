@@ -547,20 +547,33 @@ export default function MiniCrm() {
     const arrayBuffer = await file.arrayBuffer();
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(arrayBuffer);
-    const worksheet = workbook.worksheets[0];
+    const worksheet = workbook.getWorksheet("NEW") || workbook.worksheets[0];
     if (!worksheet) throw new Error("Không đọc được sheet trong file mẫu");
 
     const row1 = worksheet.getRow(1).values as any[];
     const row2 = worksheet.getRow(2).values as any[];
     const row3 = worksheet.getRow(3).values as any[];
 
+    const normalizeHeader = (s: any) => String(s || "").replace(/\s+/g, " ").trim();
+    const isLikelyMetaHeader = (name: string) => /^(stt|ngày\/?date|a\/c|amenity|type|flt|dep|arr)$/i.test(name) || /tổng\s*cộng/i.test(name);
+    const toNumericQty = (raw: any) => {
+      if (raw == null) return 0;
+      if (raw instanceof Date) return 0;
+      if (typeof raw === "object" && raw?.result != null) return toNumericQty(raw.result);
+      if (typeof raw === "object" && raw?.formula) return toNumericQty(raw.result);
+      const n = Number(String(raw).replace(/[^0-9.-]/g, ""));
+      return Number.isFinite(n) ? n : 0;
+    };
+
     const headerColumns = row2
-      .map((v, idx) => ({ idx, name: String(v || "").trim() }))
+      .map((v, idx) => ({ idx, name: normalizeHeader(v) }))
       .filter((c) => c.idx > 0 && c.name);
 
     const quantityColumns = headerColumns
-      .filter((c) => Number(row3[c.idx] || 0) > 0)
-      .map((c) => ({ columnIndex: c.idx, columnName: c.name, sampleQty: Number(row3[c.idx] || 0) }));
+      .filter((c) => !isLikelyMetaHeader(c.name))
+      .map((c) => ({ ...c, sampleQty: toNumericQty(row3[c.idx]) }))
+      .filter((c) => c.sampleQty > 0)
+      .map((c) => ({ columnIndex: c.idx, columnName: c.name, sampleQty: c.sampleQty }));
 
     const parserConfig = {
       sheetName: worksheet.name,
