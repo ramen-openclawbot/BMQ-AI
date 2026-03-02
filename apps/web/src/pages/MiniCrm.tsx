@@ -1011,7 +1011,6 @@ export default function MiniCrm() {
 
   useEffect(() => {
     if (!selectedPo) return;
-    setPostRevenueStatus("");
     const items = Array.isArray(selectedPo.production_items)
       ? selectedPo.production_items
       : Array.isArray(selectedPo?.raw_payload?.parsed_items_preview)
@@ -1029,6 +1028,11 @@ export default function MiniCrm() {
       production_items: items,
     });
   }, [selectedPo]);
+
+  useEffect(() => {
+    setSavePoStatus("");
+    setPostRevenueStatus("");
+  }, [selectedPoId]);
 
   const parseAttachmentMutation = useMutation({
     mutationFn: async (inboxId: string) => {
