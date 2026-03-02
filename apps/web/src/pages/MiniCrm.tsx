@@ -585,17 +585,42 @@ export default function MiniCrm() {
     };
 
     const sampleRows = [] as any[];
-    for (let r = 3; r <= Math.min(worksheet.rowCount, 8); r++) {
-      const dateValue = worksheet.getCell(r, 2).value as any;
-      const breadQty = Number(worksheet.getCell(r, 19).value || 0);
-      if (dateValue || breadQty) {
-        sampleRows.push({ row: r, date: String(dateValue || ""), breadQty });
-      }
+    const parseDateCell = (raw: any) => {
+      if (!raw) return null;
+      if (raw instanceof Date) return raw;
+      if (typeof raw === "object" && raw?.result instanceof Date) return raw.result;
+      const dt = new Date(raw);
+      return Number.isNaN(dt.getTime()) ? null : dt;
+    };
+
+    for (let r = 3; r <= worksheet.rowCount; r++) {
+      const firstCellText = String(worksheet.getCell(r, 1).value || "").toUpperCase();
+      if (firstCellText.includes("TỔNG CỘNG")) continue;
+      const dateObj = parseDateCell(worksheet.getCell(r, 2).value);
+      if (!dateObj) continue;
+
+      const rowQtyTotal = quantityColumns.reduce((sum: number, q: any) => sum + toNumericQty(worksheet.getCell(r, q.columnIndex).value), 0);
+      if (rowQtyTotal <= 0) continue;
+
+      sampleRows.push({
+        row: r,
+        date: dateObj.toISOString().slice(0, 10),
+        rowQtyTotal,
+      });
     }
 
+    const items = quantityColumns
+      .map((q: any) => ({
+        product: q.columnName,
+        qty: sampleRows.reduce((sum: number, s: any) => sum + toNumericQty(worksheet.getCell(s.row, q.columnIndex).value), 0),
+        unitPrice: null,
+        lineTotal: null,
+      }))
+      .filter((it: any) => Number(it.qty || 0) > 0);
+
     const confirmationView = {
-      orderDate: String(sampleRows?.[0]?.date || ""),
-      items: quantityColumns.map((q: any) => ({ product: q.columnName, qty: q.sampleQty || 0, unitPrice: null, lineTotal: null })),
+      orderDate: sampleRows.length ? `${sampleRows[0].date} → ${sampleRows[sampleRows.length - 1].date}` : "",
+      items,
       subtotal: null,
       vat: null,
       total: null,
