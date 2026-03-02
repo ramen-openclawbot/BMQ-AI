@@ -246,3 +246,32 @@ PO Gmail sync preview trả HTTP 401 Invalid JWT dù người dùng đã đăng 
 - Related Files: apps/web/src/pages/MiniCrm.tsx, apps/web/supabase/functions/po-gmail-sync/index.ts
 
 ---
+
+## [ERR-20260302-001] supabase db push
+
+**Logged**: 2026-03-02T21:05:00+07:00
+**Priority**: medium
+**Status**: pending
+**Area**: backend
+
+### Summary
+Migration failed because trigger function `public.handle_updated_at()` is not present in this database.
+
+### Error
+```
+ERROR: function public.handle_updated_at() does not exist (SQLSTATE 42883)
+At statement: create trigger ... execute function public.handle_updated_at()
+```
+
+### Context
+- Command: `supabase db push`
+- Migration: `20260302210200_create_mini_crm_po_templates.sql`
+
+### Suggested Fix
+Use an inline trigger function local to this table migration (or skip trigger) instead of depending on global `handle_updated_at()`.
+
+### Metadata
+- Reproducible: yes
+- Related Files: apps/web/supabase/migrations/20260302210200_create_mini_crm_po_templates.sql
+
+---

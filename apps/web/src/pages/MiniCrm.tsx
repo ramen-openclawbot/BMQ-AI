@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import ExcelJS from "exceljs";
 
 const GROUP_OPTIONS = [
   { value: "banhmi_point", label: "Bán lẻ" },
@@ -88,6 +89,9 @@ export default function MiniCrm() {
   const [editEmailsInput, setEditEmailsInput] = useState("");
   const [editOriginalEmailsInput, setEditOriginalEmailsInput] = useState("");
   const [editFeedback, setEditFeedback] = useState<string>("");
+  const [templateCustomerId, setTemplateCustomerId] = useState<string>("");
+  const [templateFileName, setTemplateFileName] = useState<string>("");
+  const [templatePreview, setTemplatePreview] = useState<any | null>(null);
   const [selectedPoId, setSelectedPoId] = useState<string | null>(null);
   const [poSummaryDraft, setPoSummaryDraft] = useState<any>({});
   const [postRevenueStatus, setPostRevenueStatus] = useState<string>("");
@@ -131,6 +135,20 @@ export default function MiniCrm() {
       if (error) throw error;
       return data || [];
     },
+  });
+
+  const { data: poTemplates = [] } = useQuery({
+    queryKey: ["mini-crm-po-templates"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("mini_crm_po_templates")
+        .select("*")
+        .eq("is_active", true)
+        .order("updated_at", { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !isSalesPoPage,
   });
 
   const { data: poInbox = [] } = useQuery({
@@ -301,6 +319,81 @@ export default function MiniCrm() {
     },
     onError: (e: any) => {
       toast({ title: "Xoá khách hàng thất bại", description: e?.message || "Không thể xoá khách hàng", variant: "destructive" });
+    },
+  });
+
+  const handleAnalyzeTemplateFile = async (file?: File | null) => {
+    if (!file) return;
+    const arrayBuffer = await file.arrayBuffer();
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(arrayBuffer);
+    const worksheet = workbook.worksheets[0];
+    if (!worksheet) throw new Error("Không đọc được sheet trong file mẫu");
+
+    const row1 = worksheet.getRow(1).values as any[];
+    const row2 = worksheet.getRow(2).values as any[];
+    const row3 = worksheet.getRow(3).values as any[];
+
+    const headerColumns = row2
+      .map((v, idx) => ({ idx, name: String(v || "").trim() }))
+      .filter((c) => c.idx > 0 && c.name);
+
+    const quantityColumns = headerColumns
+      .filter((c) => Number(row3[c.idx] || 0) > 0)
+      .map((c) => ({ columnIndex: c.idx, columnName: c.name, sampleQty: Number(row3[c.idx] || 0) }));
+
+    const parserConfig = {
+      sheetName: worksheet.name,
+      headerRow: 2,
+      productCodeRow: 1,
+      dateColumnName: "Ngày/Date",
+      quantityColumns,
+      headerColumns: headerColumns.slice(0, 60),
+    };
+
+    const sampleRows = [] as any[];
+    for (let r = 3; r <= Math.min(worksheet.rowCount, 8); r++) {
+      const dateValue = worksheet.getCell(r, 2).value as any;
+      const breadQty = Number(worksheet.getCell(r, 19).value || 0);
+      if (dateValue || breadQty) {
+        sampleRows.push({ row: r, date: String(dateValue || ""), breadQty });
+      }
+    }
+
+    setTemplateFileName(file.name);
+    setTemplatePreview({ parserConfig, sampleRows });
+  };
+
+  const saveTemplateMutation = useMutation({
+    mutationFn: async () => {
+      if (!templateCustomerId) throw new Error("Vui lòng chọn khách hàng");
+      if (!templatePreview?.parserConfig) throw new Error("Vui lòng upload và phân tích file mẫu trước");
+
+      const { error: disableError } = await (supabase as any)
+        .from("mini_crm_po_templates")
+        .update({ is_active: false })
+        .eq("customer_id", templateCustomerId)
+        .eq("is_active", true);
+      if (disableError) throw disableError;
+
+      const { error: insertError } = await (supabase as any)
+        .from("mini_crm_po_templates")
+        .insert({
+          customer_id: templateCustomerId,
+          template_name: `Template ${new Date().toLocaleString("vi-VN")}`,
+          file_name: templateFileName || "uploaded-template.xlsx",
+          parser_config: templatePreview.parserConfig,
+          sample_preview: templatePreview.sampleRows || [],
+          is_active: true,
+        });
+      if (insertError) throw insertError;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["mini-crm-po-templates"] });
+      toast({ title: "Lưu mẫu PO thành công", description: "Đã lưu format để scan cho lần sau." });
+    },
+    onError: (e: any) => {
+      toast({ title: "Lưu mẫu PO thất bại", description: e?.message || "Không thể lưu mẫu PO", variant: "destructive" });
     },
   });
 
@@ -889,6 +982,71 @@ export default function MiniCrm() {
               })}
             </TableBody>
           </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Cấu hình mẫu PO theo khách hàng</CardTitle>
+          <CardDescription>Upload file mẫu PO, xem preview parse và lưu format để hệ thống scan nhanh ở các lần sau.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Khách hàng</Label>
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={templateCustomerId} onChange={(e) => setTemplateCustomerId(e.target.value)}>
+                <option value="">-- Chọn khách hàng --</option>
+                {customers.map((c: any) => <option key={c.id} value={c.id}>{c.customer_name}</option>)}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label>Upload mẫu PO (.xlsx)</Label>
+              <Input
+                type="file"
+                accept=".xlsx"
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  try {
+                    await handleAnalyzeTemplateFile(f);
+                  } catch (err: any) {
+                    toast({ title: "Đọc file mẫu thất bại", description: err?.message || "Không thể đọc file", variant: "destructive" });
+                  }
+                }}
+              />
+            </div>
+          </div>
+
+          {templatePreview && (
+            <div className="rounded-md border p-3 space-y-2 text-sm">
+              <div><b>File:</b> {templateFileName || "-"}</div>
+              <div><b>Sheet:</b> {templatePreview?.parserConfig?.sheetName || "-"}</div>
+              <div><b>Header row:</b> {templatePreview?.parserConfig?.headerRow || "-"}</div>
+              <div><b>Cột số lượng nhận diện:</b> {Array.isArray(templatePreview?.parserConfig?.quantityColumns) ? templatePreview.parserConfig.quantityColumns.length : 0}</div>
+              <div>
+                <b>Preview mẫu:</b>
+                <pre className="mt-2 max-h-40 overflow-auto rounded bg-muted/40 p-2 text-xs">{JSON.stringify(templatePreview?.sampleRows || [], null, 2)}</pre>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <Button onClick={() => saveTemplateMutation.mutate()} disabled={saveTemplateMutation.isPending || !templatePreview || !templateCustomerId}>
+              {saveTemplateMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Lưu format mẫu PO
+            </Button>
+          </div>
+
+          <div className="rounded-md border p-3 text-sm">
+            <b>Mẫu đang active:</b>
+            <ul className="mt-2 list-disc pl-5 space-y-1">
+              {poTemplates.length === 0 && <li className="text-muted-foreground">Chưa có mẫu nào.</li>}
+              {poTemplates.map((tpl: any) => {
+                const c = customers.find((x: any) => x.id === tpl.customer_id);
+                return <li key={tpl.id}>{c?.customer_name || tpl.customer_id} — {tpl.file_name || tpl.template_name}</li>;
+              })}
+            </ul>
+          </div>
         </CardContent>
       </Card>
       </>
