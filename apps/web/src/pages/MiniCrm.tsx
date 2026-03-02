@@ -19,12 +19,6 @@ const GROUP_OPTIONS = [
   { value: "b2b", label: "B2B" },
 ];
 
-const REVENUE_CHANNEL_OPTIONS = [
-  { value: "online", label: "Online" },
-  { value: "retail", label: "Bán lẻ" },
-  { value: "agency", label: "Đại lý" },
-  { value: "b2b", label: "B2B" },
-];
 
 const extractPoNumberFromSubject = (subject?: string) => {
   const s = String(subject || "");
@@ -81,13 +75,11 @@ export default function MiniCrm() {
   const [customerName, setCustomerName] = useState("");
   const [customerCode, setCustomerCode] = useState("");
   const [customerGroup, setCustomerGroup] = useState("banhmi_point");
-  const [defaultRevenueChannel, setDefaultRevenueChannel] = useState("");
   const [emailsInput, setEmailsInput] = useState("");
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
   const [editCustomerName, setEditCustomerName] = useState("");
   const [editCustomerCode, setEditCustomerCode] = useState("");
   const [editCustomerGroup, setEditCustomerGroup] = useState("banhmi_point");
-  const [editDefaultRevenueChannel, setEditDefaultRevenueChannel] = useState("");
   const [editEmailsInput, setEditEmailsInput] = useState("");
   const [editOriginalEmailsInput, setEditOriginalEmailsInput] = useState("");
   const [editFeedback, setEditFeedback] = useState<string>("");
@@ -139,7 +131,6 @@ export default function MiniCrm() {
     setEditCustomerName(c.customer_name || "");
     setEditCustomerCode(c.customer_code || "");
     setEditCustomerGroup(c.customer_group || "banhmi_point");
-    setEditDefaultRevenueChannel(c.default_revenue_channel || "");
     const emails = (c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ");
     setEditEmailsInput(emails);
     setEditOriginalEmailsInput(emails);
@@ -151,7 +142,6 @@ export default function MiniCrm() {
     setEditCustomerName("");
     setEditCustomerCode("");
     setEditCustomerGroup("banhmi_point");
-    setEditDefaultRevenueChannel("");
     setEditEmailsInput("");
     setEditOriginalEmailsInput("");
   };
@@ -167,7 +157,6 @@ export default function MiniCrm() {
           customer_name: trimmedName,
           customer_code: customerCode.trim() || null,
           customer_group: customerGroup,
-          default_revenue_channel: defaultRevenueChannel.trim() || null,
         })
         .select("id")
         .single();
@@ -189,7 +178,6 @@ export default function MiniCrm() {
     onSuccess: async () => {
       setCustomerName("");
       setCustomerCode("");
-      setDefaultRevenueChannel("");
       setEmailsInput("");
       await queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] });
       toast({ title: "Đã thêm khách hàng", description: "Mini-CRM đã cập nhật." });
@@ -211,7 +199,6 @@ export default function MiniCrm() {
           customer_name: trimmedName,
           customer_code: editCustomerCode.trim() || null,
           customer_group: editCustomerGroup,
-          default_revenue_channel: editDefaultRevenueChannel.trim() || null,
         })
         .eq("id", editingCustomerId)
         .select("id")
@@ -264,13 +251,11 @@ export default function MiniCrm() {
       setEditFeedback(msg);
       await queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] });
       toast({ title: "Lưu thành công", description: msg });
-      alert(msg);
     },
     onError: (e: any) => {
       const msg = e?.message || "Không thể cập nhật khách hàng";
       setEditFeedback(`Lưu thất bại: ${msg}`);
       toast({ title: "Lỗi lưu CRM", description: msg, variant: "destructive" });
-      alert(`Lưu thất bại: ${msg}`);
     },
   });
 
@@ -559,26 +544,15 @@ export default function MiniCrm() {
             <Label>Mã khách hàng</Label>
             <Input value={customerCode} onChange={(e) => setCustomerCode(e.target.value)} placeholder="VD: DL-HB" />
           </div>
+          <div className="space-y-2 md:col-span-2">
+            <Label>Email nhận diện (phân tách dấu phẩy)</Label>
+            <Input value={emailsInput} onChange={(e) => setEmailsInput(e.target.value)} placeholder="buyer@agency.com, order@agency.com" />
+          </div>
           <div className="space-y-2">
             <Label>Nhóm khách hàng</Label>
             <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={customerGroup} onChange={(e) => setCustomerGroup(e.target.value)}>
               {GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
-          </div>
-          <div className="space-y-2">
-            <Label>Kênh doanh thu mặc định</Label>
-            <select
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={defaultRevenueChannel}
-              onChange={(e) => setDefaultRevenueChannel(e.target.value)}
-            >
-              <option value="">-- Chọn kênh --</option>
-              {REVENUE_CHANNEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </div>
-          <div className="space-y-2 md:col-span-2">
-            <Label>Email nhận diện (phân tách dấu phẩy)</Label>
-            <Input value={emailsInput} onChange={(e) => setEmailsInput(e.target.value)} placeholder="buyer@agency.com, order@agency.com" />
           </div>
           <div className="md:col-span-2">
             <Button onClick={() => addCustomerMutation.mutate()} disabled={addCustomerMutation.isPending}>Thêm khách hàng</Button>
@@ -591,7 +565,19 @@ export default function MiniCrm() {
           <CardTitle>Danh sách khách hàng</CardTitle>
         </CardHeader>
         <CardContent>
-          {editFeedback && <div className="mb-3 text-sm text-muted-foreground">{editFeedback}</div>}
+          {editFeedback && (
+            <div
+              className={`mb-3 rounded-md border px-3 py-2 text-sm ${
+                editFeedback.startsWith("Lưu thất bại")
+                  ? "border-destructive/30 bg-destructive/10 text-destructive"
+                  : editFeedback.startsWith("Đã lưu")
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                    : "border-border bg-muted/40 text-muted-foreground"
+              }`}
+            >
+              {editFeedback}
+            </div>
+          )}
           <Table>
             <TableHeader>
               <TableRow>
@@ -628,14 +614,6 @@ export default function MiniCrm() {
                         <div className="space-y-2">
                           <Input value={editEmailsInput} onChange={(e) => setEditEmailsInput(e.target.value)} placeholder="buyer@agency.com, order@agency.com" />
                           <Input value={editCustomerCode} onChange={(e) => setEditCustomerCode(e.target.value)} placeholder="Mã khách hàng" />
-                          <select
-                            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                            value={editDefaultRevenueChannel}
-                            onChange={(e) => setEditDefaultRevenueChannel(e.target.value)}
-                          >
-                            <option value="">-- Chọn kênh --</option>
-                            {REVENUE_CHANNEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                          </select>
                         </div>
                       ) : (
                         (c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"
