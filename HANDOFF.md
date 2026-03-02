@@ -4,7 +4,7 @@
 - apps/web: **0.0.14**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
-- Latest commit at handoff time: `13f5ea9`
+- Latest commit at handoff time: `189c77a`
 
 ## Latest update (2026-03-03 early morning)
 ### PO Quick View + Revenue Control filter hardening
