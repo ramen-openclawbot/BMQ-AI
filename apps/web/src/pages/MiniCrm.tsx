@@ -265,6 +265,19 @@ export default function MiniCrm() {
     return Number(data?.version_no || 0) + 1;
   };
 
+  const summarizeTemplateDiff = (beforeSnap: any, afterSnap: any) => {
+    const beforeItems = Array.isArray(beforeSnap?.items) ? beforeSnap.items : [];
+    const afterItems = Array.isArray(afterSnap?.items) ? afterSnap.items : [];
+    const changedItemCount = afterItems.reduce((acc: number, it: any, idx: number) => {
+      const b = beforeItems[idx] || {};
+      const changed = String(b.product || "") !== String(it.product || "") || String(b.qty ?? "") !== String(it.qty ?? "") || String(b.unitPrice ?? "") !== String(it.unitPrice ?? "") || String(b.lineTotal ?? "") !== String(it.lineTotal ?? "");
+      return acc + (changed ? 1 : 0);
+    }, 0);
+    const changedDate = String(beforeSnap?.orderDate || "") !== String(afterSnap?.orderDate || "");
+    const changedTotals = String(beforeSnap?.subtotal ?? "") !== String(afterSnap?.subtotal ?? "") || String(beforeSnap?.vat ?? "") !== String(afterSnap?.vat ?? "") || String(beforeSnap?.total ?? "") !== String(afterSnap?.total ?? "");
+    return `date:${changedDate ? "changed" : "same"}; items_changed:${changedItemCount}; totals:${changedTotals ? "changed" : "same"}`;
+  };
+
   const addCustomerMutation = useMutation({
     mutationFn: async () => {
       const trimmedName = customerName.trim();
@@ -1709,7 +1722,7 @@ export default function MiniCrm() {
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setTemplateConfirmOpen(false)}>Huỷ</Button>
             <Button
-              onClick={() => {
+              onClick={async () => {
                 const hasOrderDate = Boolean(String(templateReviewDraft?.orderDate || "").trim());
                 const validItems = (templateReviewDraft?.items || []).filter((it: any) => String(it?.product || "").trim() && Number(String(it?.qty || 0).replace(/[^0-9.-]/g, "")) > 0);
                 if (!hasOrderDate || validItems.length === 0) {
@@ -1729,10 +1742,30 @@ export default function MiniCrm() {
                   sampleRows: validItems,
                   confidenceScore: confidence < 0.9 && templateReviewTouched ? 0.95 : confidence,
                 };
+
+                const beforeSnap = pendingTemplatePreview?.confirmationView || {};
+                const afterSnap = templateReviewDraft || {};
+                const hasChanged = JSON.stringify(beforeSnap) !== JSON.stringify(afterSnap);
+                if (hasChanged) {
+                  const diffSummary = summarizeTemplateDiff(beforeSnap, afterSnap);
+                  try {
+                    await (supabase as any).from("mini_crm_po_template_learning_logs").insert({
+                      customer_id: editingCustomerId || null,
+                      source_file_name: pendingTemplateFileName || null,
+                      source_confidence: Number(pendingTemplatePreview?.confidenceScore || 0),
+                      before_snapshot: beforeSnap,
+                      after_snapshot: afterSnap,
+                      diff_summary: diffSummary,
+                    });
+                  } catch (e) {
+                    console.warn("Cannot write learning log", e);
+                  }
+                }
+
                 setTemplateFileName(pendingTemplateFileName);
                 setTemplatePreview(mergedPreview);
                 setTemplateConfirmOpen(false);
-                toast({ title: "Đã xác nhận mẫu PO", description: "Anh có thể bấm Lưu mẫu PO để lưu format." });
+                toast({ title: "Đã xác nhận mẫu PO", description: hasChanged ? "Đã lưu correction để cải thiện parse lần sau." : "Anh có thể bấm Lưu mẫu PO để lưu format." });
               }}
             >
               Xác nhận nội dung parse
