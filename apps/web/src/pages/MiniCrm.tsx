@@ -1018,10 +1018,7 @@ export default function MiniCrm() {
         ? selectedPo.raw_payload.parsed_items_preview
         : [];
     const subtotal = Number(selectedPo.subtotal_amount || selectedPo?.raw_payload?.parse_meta?.subtotal || calcSubtotalFromItems(items) || 0);
-    const vat = normalizeVatDisplay(
-      subtotal,
-      selectedPo.vat_amount || selectedPo?.raw_payload?.parse_meta?.vat_amount || 0
-    );
+    const vat = Number(selectedPo.vat_amount ?? selectedPo?.raw_payload?.parse_meta?.vat_amount ?? 0);
     const total = Number((subtotal > 0 ? subtotal + vat : 0) || selectedPo.total_amount || selectedPo?.raw_payload?.parse_meta?.total_amount || 0);
     setPoSummaryDraft({
       po_number: selectedPo.po_number || extractPoNumberFromSubject(selectedPo.email_subject) || "",
@@ -1054,7 +1051,7 @@ export default function MiniCrm() {
       if (Array.isArray(result?.parsed?.items)) {
         const parsedItems = result.parsed.items;
         const subtotal = Number(result?.parsed?.subtotal || calcSubtotalFromItems(parsedItems) || 0);
-        const vat = normalizeVatDisplay(subtotal, result?.parsed?.vat || 0);
+        const vat = Number(result?.parsed?.vat ?? 0);
         const total = subtotal + vat;
         setPoSummaryDraft((s: any) => ({
           ...s,
