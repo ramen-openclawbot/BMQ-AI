@@ -306,7 +306,7 @@ export default function MiniCrm() {
     const dateQuery = syncDate
       ? `after:${toGmailDate(syncDate)} before:${toGmailDate(nextDay(syncDate))}`
       : "newer_than:30d";
-    return `in:anywhere (to:po@bmq.vn OR deliveredto:po@bmq.vn OR cc:po@bmq.vn) ${dateQuery}`.trim();
+    return `in:anywhere ((to:po@bmq.vn OR deliveredto:po@bmq.vn OR cc:po@bmq.vn) OR (to:po@ramen.vn OR deliveredto:po@ramen.vn OR cc:po@ramen.vn)) ${dateQuery}`.trim();
   };
 
   const callPoGmailSync = async (payload: any, stepLabel: string) => {
