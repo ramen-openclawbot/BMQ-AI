@@ -106,6 +106,7 @@ export default function MiniCrm() {
   const [syncError, setSyncError] = useState<string>("");
   const [previewItems, setPreviewItems] = useState<any[]>([]);
   const [selectedPreviewId, setSelectedPreviewId] = useState<string | null>(null);
+  const [selectedPreviewIds, setSelectedPreviewIds] = useState<string[]>([]);
 
   const { data: gmailConnectedEmail } = useQuery({
     queryKey: ["gmail-connected-email"],
@@ -376,6 +377,7 @@ export default function MiniCrm() {
       const items = Array.isArray(result?.previews) ? result.previews : [];
       setPreviewItems(items);
       setSelectedPreviewId(items[0]?.messageId || null);
+      setSelectedPreviewIds([]);
       setSyncStatus("preview_success");
     },
     onError: (e: any) => {
@@ -385,9 +387,13 @@ export default function MiniCrm() {
   });
 
   const importPoMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (scope: "all" | "selected" = "all") => {
       const query = buildGmailQuery();
-      const messageIds = previewItems.map((x: any) => x.messageId).filter(Boolean);
+      const allIds = previewItems.map((x: any) => x.messageId).filter(Boolean);
+      const messageIds = scope === "selected" ? selectedPreviewIds : allIds;
+      if (scope === "selected" && messageIds.length === 0) {
+        throw new Error("Vui lòng chọn ít nhất 1 PO để nhập.");
+      }
       return await callPoGmailSync({ mode: "import", maxResults: 100, query, messageIds, includeOnlyCrm: true }, "import");
     },
     onSuccess: async (result: any) => {
@@ -652,18 +658,38 @@ export default function MiniCrm() {
 
             <div className="grid md:grid-cols-2 gap-3">
               <div className="border rounded-md max-h-80 overflow-auto">
-                {(previewItems || []).map((item: any) => (
-                  <button
-                    key={item.messageId}
-                    type="button"
-                    onClick={() => setSelectedPreviewId(item.messageId)}
-                    className={`w-full text-left p-3 border-b hover:bg-muted/40 ${selectedPreviewId === item.messageId ? "bg-muted" : ""}`}
-                  >
-                    <div className="text-xs text-muted-foreground">{new Date(item.receivedAt).toLocaleString("vi-VN")}</div>
-                    <div className="font-medium text-sm line-clamp-1">{item.subject}</div>
-                    <div className="text-xs line-clamp-1">{item.fromEmail}</div>
-                  </button>
-                ))}
+                {(previewItems || []).map((item: any) => {
+                  const isChecked = selectedPreviewIds.includes(item.messageId);
+                  return (
+                    <button
+                      key={item.messageId}
+                      type="button"
+                      onClick={() => setSelectedPreviewId(item.messageId)}
+                      className={`w-full text-left p-3 border-b hover:bg-muted/40 ${selectedPreviewId === item.messageId ? "bg-muted" : ""}`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setSelectedPreviewIds((prev) => checked
+                              ? Array.from(new Set([...prev, item.messageId]))
+                              : prev.filter((id) => id !== item.messageId)
+                            );
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-0.5"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs text-muted-foreground">{new Date(item.receivedAt).toLocaleString("vi-VN")}</div>
+                          <div className="font-medium text-sm line-clamp-1">{item.subject}</div>
+                          <div className="text-xs line-clamp-1">{item.fromEmail}</div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
                 {previewItems.length === 0 && <div className="p-3 text-sm text-muted-foreground">Không lấy được nội dung PO.</div>}
               </div>
 
@@ -681,12 +707,44 @@ export default function MiniCrm() {
               </div>
             </div>
 
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setSyncModalOpen(false)}>Huỷ</Button>
-              <Button onClick={() => importPoMutation.mutate()} disabled={importPoMutation.isPending || previewItems.length === 0 || syncStatus === "syncing"}>
-                {importPoMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                Nhập PO vào hệ thống
-              </Button>
+            <div className="flex justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                Đã chọn: <b>{selectedPreviewIds.length}</b> / {previewItems.length}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setSelectedPreviewIds(previewItems.map((x: any) => x.messageId).filter(Boolean))}
+                  disabled={previewItems.length === 0}
+                >
+                  Chọn tất cả
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setSelectedPreviewIds([])}
+                  disabled={selectedPreviewIds.length === 0}
+                >
+                  Bỏ chọn
+                </Button>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setSyncModalOpen(false)}>Huỷ</Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => importPoMutation.mutate("selected")}
+                  disabled={importPoMutation.isPending || selectedPreviewIds.length === 0 || syncStatus === "syncing"}
+                >
+                  {importPoMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                  Nhập PO đã chọn
+                </Button>
+                <Button onClick={() => importPoMutation.mutate("all")} disabled={importPoMutation.isPending || previewItems.length === 0 || syncStatus === "syncing"}>
+                  {importPoMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                  Nhập tất cả PO
+                </Button>
+              </div>
             </div>
           </DialogContent>
         </Dialog>
