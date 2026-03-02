@@ -156,3 +156,93 @@ column customer_po_inbox.po_number does not exist
 - **Notes**: Bỏ phụ thuộc `po_number`/`posted_to_revenue` trong query cập nhật chính; thêm migration compatibility + grants.
 
 ---
+## [ERR-20260301-002] frontend-deploy-vercel-cli-missing
+
+**Logged**: 2026-03-01T23:30:00+07:00
+**Priority**: medium
+**Status**: pending
+**Area**: infra
+
+### Summary
+Không thể deploy frontend bằng lệnh `vercel --prod --yes` vì môi trường chưa cài Vercel CLI.
+
+### Error
+```
+zsh:1: command not found: vercel
+```
+
+### Context
+- Command attempted: `vercel --prod --yes`
+- Workdir: `apps/web`
+- User request: deploy frontend ngay
+
+### Suggested Fix
+- Dùng kênh deploy sẵn có của dự án (Lovable Publish hoặc CI/CD hiện hữu), hoặc cài `vercel` CLI trước khi dùng.
+- Xác nhận quy trình deploy chuẩn cho repo để tránh đoán sai toolchain.
+
+### Metadata
+- Reproducible: yes
+- Related Files: apps/web/vercel.json, apps/web/README.md
+- See Also: N/A
+
+---
+## [ERR-20260301-003] frontend-deploy-vercel-token-invalid
+
+**Logged**: 2026-03-01T23:33:00+07:00
+**Priority**: high
+**Status**: pending
+**Area**: infra
+
+### Summary
+Deploy frontend bằng Vercel CLI bị chặn do token hiện tại không hợp lệ.
+
+### Error
+```
+Error: The specified token is not valid. Use `vercel login` to generate a new token.
+```
+
+### Context
+- Command attempted: `vercel --prod --yes`
+- Prerequisite đã xử lý: đã cài `vercel` CLI thành công
+- Blocker: credential/token deploy hết hạn hoặc sai
+
+### Suggested Fix
+- Chạy `vercel login` để cấp token mới, hoặc export `VERCEL_TOKEN` hợp lệ trước khi deploy.
+- Sau khi login/token hợp lệ, chạy lại `vercel --prod --yes` tại `apps/web`.
+
+### Metadata
+- Reproducible: yes
+- Related Files: apps/web/vercel.json
+- See Also: ERR-20260301-002
+
+---
+## [ERR-20260302-001] po-gmail-sync-jwt-mismatch
+
+**Logged**: 2026-03-02T12:52:00Z
+**Priority**: high
+**Status**: pending
+**Area**: frontend
+
+### Summary
+PO Gmail sync preview trả HTTP 401 Invalid JWT dù người dùng đã đăng nhập lại.
+
+### Error
+```
+[preview] HTTP 401 - Invalid JWT
+```
+
+### Context
+- Frontend gọi Edge Function po-gmail-sync bằng Bearer session.access_token.
+- Debug endpoint po-gmail-debug-check đọc Gmail bình thường.
+- Khả năng cao token frontend không cùng project/issuer với function env tại runtime.
+
+### Suggested Fix
+- Tránh chặn cứng bằng supabaseAdmin.auth.getUser(token) trong po-gmail-sync.
+- Hoặc đồng nhất project giữa Supabase client env và function URL.
+- Thêm endpoint auth-check để xác định rõ mismatch project.
+
+### Metadata
+- Reproducible: yes
+- Related Files: apps/web/src/pages/MiniCrm.tsx, apps/web/supabase/functions/po-gmail-sync/index.ts
+
+---
