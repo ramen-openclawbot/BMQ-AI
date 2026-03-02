@@ -119,6 +119,46 @@ const sanitizeTotal = (subtotal: number, vat: number, total: number) => {
   return t;
 };
 
+const parseByTemplateConfig = (rowsFlat: any[][], template: any) => {
+  const cfg = template?.parser_config || {};
+  const quantityColumns = Array.isArray(cfg?.quantityColumns) ? cfg.quantityColumns : [];
+  if (!quantityColumns.length) return [] as any[];
+
+  const headerRow = Number(cfg?.headerRow || 2);
+  const dateColumnName = String(cfg?.dateColumnName || "Ngày/Date").toLowerCase();
+  const header = rowsFlat?.[headerRow - 1] || [];
+  let dateColIdx = header.findIndex((c: any) => String(c || "").toLowerCase().replace(/\s+/g, " ").includes(dateColumnName));
+  if (dateColIdx < 0) dateColIdx = 1; // B column fallback
+
+  const items: any[] = [];
+  for (let r = Math.max(3, headerRow + 1); r < rowsFlat.length; r += 1) {
+    const row = rowsFlat[r] || [];
+    const first = String(row?.[0] || "").toUpperCase();
+    if (first.includes("TỔNG CỘNG") || first.includes("TONG CONG")) continue;
+
+    const rawDate = row?.[dateColIdx];
+    const date = normalizeDate(rawDate);
+    if (!date) continue;
+
+    for (const q of quantityColumns) {
+      const colIndex = Number(q?.columnIndex || 0) - 1;
+      if (colIndex < 0) continue;
+      const qty = toNum(row?.[colIndex]);
+      if (qty <= 0) continue;
+      items.push({
+        date,
+        product_name: String(q?.columnName || `Cột ${colIndex + 1}`).trim(),
+        sku: "",
+        qty,
+        unit: "",
+        unit_price: 0,
+        line_total: 0,
+      });
+    }
+  }
+  return items;
+};
+
 function mapRowsToItems(rows: Record<string, any>[]) {
   const keyOf = (row: Record<string, any>, candidates: string[]) => {
     const keys = Object.keys(row || {});
@@ -231,10 +271,32 @@ serve(async (req) => {
 
     const { data: inbox, error: inboxErr } = await supabase
       .from("customer_po_inbox")
-      .select("id,gmail_message_id,raw_payload,received_at")
+      .select("id,gmail_message_id,matched_customer_id,raw_payload,received_at")
       .eq("id", inboxId)
       .single();
     if (inboxErr || !inbox?.gmail_message_id) throw new Error("Không tìm thấy gmail_message_id");
+
+    const templateId = inbox?.raw_payload?.template_id || null;
+    let activeTemplate: any = null;
+    if (templateId) {
+      const { data } = await supabase
+        .from("mini_crm_po_templates")
+        .select("id,customer_id,template_name,parser_config,confirmation_snapshot,version_no,is_active")
+        .eq("id", templateId)
+        .maybeSingle();
+      activeTemplate = data || null;
+    }
+    if (!activeTemplate && inbox?.matched_customer_id) {
+      const { data } = await supabase
+        .from("mini_crm_po_templates")
+        .select("id,customer_id,template_name,parser_config,confirmation_snapshot,version_no,is_active")
+        .eq("customer_id", inbox.matched_customer_id)
+        .eq("is_active", true)
+        .order("version_no", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      activeTemplate = data || null;
+    }
 
     const accessToken = await getGoogleAccessToken(supabase);
     const detail = await gmailApi(accessToken, `messages/${inbox.gmail_message_id}?format=full`);
@@ -275,9 +337,10 @@ serve(async (req) => {
 
         const rowsFlat = XLSX.utils.sheet_to_json<any[]>(workbook.Sheets[sheetName], { header: 1, raw: false, defval: "" });
         const byFlat = mapKingfoodFlatRows(rowsFlat);
+        const byTemplate = activeTemplate ? parseByTemplateConfig(rowsFlat, activeTemplate) : [];
         const totalsFlat = extractKingfoodTotals(rowsFlat);
 
-        const parsed = byFlat.length > byHeader.length ? byFlat : byHeader;
+        const parsed = byTemplate.length > 0 ? byTemplate : (byFlat.length > byHeader.length ? byFlat : byHeader);
         if (parsed.length > items.length) {
           items = parsed;
           chosenSheet = sheetName;
@@ -302,7 +365,7 @@ serve(async (req) => {
     const parseMeta = {
       parsed_at: new Date().toISOString(),
       parsed_by: user.id,
-      parser: "po-parse-inbox-order:v4",
+      parser: "po-parse-inbox-order:v5",
       source_sheet: chosenSheet,
       source_xlsx: xlsxFile?.filename || null,
       source_pdf: pdfFile?.filename || null,
@@ -312,6 +375,10 @@ serve(async (req) => {
       vat_amount: vatAmount,
       total_amount: totalAmount,
       subtotal_source: extractedSubtotal > 0 ? "sheet_subtotal_col_33" : "sum(qty*unit_price)",
+      template_id: activeTemplate?.id || null,
+      template_version_no: activeTemplate?.version_no || null,
+      template_name: activeTemplate?.template_name || null,
+      parse_mode: activeTemplate ? "crm_template" : "fallback_auto",
     };
 
     const rawPayload = {
