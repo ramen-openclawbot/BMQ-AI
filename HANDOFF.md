@@ -1,10 +1,36 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.12**
+- apps/web: **0.0.14**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
-- Latest commit at handoff time: `534f5a8`
+- Latest commit at handoff time: `13f5ea9`
+
+## Latest update (2026-03-03 early morning)
+### PO Quick View + Revenue Control filter hardening
+- PO Quick View:
+  - thêm parse từ nội dung email (cho case không có attachment),
+  - mở rộng parser bắt thêm pattern `name qty: note` và `name: (0 ...)`,
+  - fix lưu `po_number` vào top-level DB (không chỉ trong `raw_payload`),
+  - thêm status inline cho nút lưu tóm tắt PO (đang lưu/thành công/thất bại + lỗi chi tiết),
+  - thêm tổng SL trong tab QL sản xuất,
+  - fix VAT để tôn trọng giá trị user nhập (không auto normalize tăng lên).
+- Đẩy sang kiểm soát doanh thu:
+  - giữ status thành công/thất bại hiển thị ổn định sau khi refetch,
+  - chỉ reset status khi đổi sang PO khác.
+- Kiểm soát doanh thu (`/finance-revenue-control`):
+  - bổ sung lọc theo **khoảng ngày** (from/to),
+  - bổ sung lọc theo **tháng**,
+  - danh sách PO + widget tổng doanh thu đồng bộ theo bộ lọc đã chọn.
+
+### Commit đáng chú ý (2026-03-03)
+- `54fb932` ux(po-quickview): show clearer success/failure feedback for revenue post with detailed error message
+- `c59bd3d` feat(po-quickview): add parse-from-email-body action for non-attachment PO emails
+- `1c82479` fix(po-quickview): persist top-level po_number on save, add inline save status, and show total qty in production tab
+- `2598389` fix(email-body-parse): support 'name qty: note' and '(0 ...)' patterns in PO quickview
+- `0d9289f` fix(po-quickview): stop auto-inflating VAT to 8% and respect user-entered VAT values
+- `35435a5` fix(po-quickview): keep revenue post status visible after save/invalidate and reset only when switching PO
+- `ff68b11` feat(revenue-control): support date-range and month filters with synced PO list/widgets
 
 ## Latest update (2026-03-02 evening)
 ### Mini-CRM cleanup: remove duplicated fields + save flow hardening
