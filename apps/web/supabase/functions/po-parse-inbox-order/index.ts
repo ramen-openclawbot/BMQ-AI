@@ -121,7 +121,13 @@ const sanitizeTotal = (subtotal: number, vat: number, total: number) => {
 
 const parseByTemplateConfig = (rowsFlat: any[][], template: any) => {
   const cfg = template?.parser_config || {};
-  const quantityColumns = Array.isArray(cfg?.quantityColumns) ? cfg.quantityColumns : [];
+  const snapshotItems = Array.isArray(template?.confirmation_snapshot?.items) ? template.confirmation_snapshot.items : [];
+  const allowedSourceNames = new Set(snapshotItems.map((x: any) => String(x?.sourceColumnName || x?.product || "").trim()).filter(Boolean));
+  const nameOverrides = cfg?.productNameOverrides || {};
+  const rawQuantityColumns = Array.isArray(cfg?.quantityColumns) ? cfg.quantityColumns : [];
+  const quantityColumns = allowedSourceNames.size
+    ? rawQuantityColumns.filter((q: any) => allowedSourceNames.has(String(q?.columnName || "").trim()))
+    : rawQuantityColumns;
   if (!quantityColumns.length) return [] as any[];
 
   const headerRow = Number(cfg?.headerRow || 2);
@@ -145,9 +151,11 @@ const parseByTemplateConfig = (rowsFlat: any[][], template: any) => {
       if (colIndex < 0) continue;
       const qty = toNum(row?.[colIndex]);
       if (qty <= 0) continue;
+      const sourceName = String(q?.columnName || `Cột ${colIndex + 1}`).trim();
       items.push({
         date,
-        product_name: String(q?.columnName || `Cột ${colIndex + 1}`).trim(),
+        product_name: String(nameOverrides?.[sourceName] || sourceName).trim(),
+        source_column_name: sourceName,
         sku: "",
         qty,
         unit: "",
@@ -278,15 +286,7 @@ serve(async (req) => {
 
     const templateId = inbox?.raw_payload?.template_id || null;
     let activeTemplate: any = null;
-    if (templateId) {
-      const { data } = await supabase
-        .from("mini_crm_po_templates")
-        .select("id,customer_id,template_name,parser_config,confirmation_snapshot,version_no,is_active")
-        .eq("id", templateId)
-        .maybeSingle();
-      activeTemplate = data || null;
-    }
-    if (!activeTemplate && inbox?.matched_customer_id) {
+    if (inbox?.matched_customer_id) {
       const { data } = await supabase
         .from("mini_crm_po_templates")
         .select("id,customer_id,template_name,parser_config,confirmation_snapshot,version_no,is_active")
@@ -294,6 +294,14 @@ serve(async (req) => {
         .eq("is_active", true)
         .order("version_no", { ascending: false })
         .limit(1)
+        .maybeSingle();
+      activeTemplate = data || null;
+    }
+    if (!activeTemplate && templateId) {
+      const { data } = await supabase
+        .from("mini_crm_po_templates")
+        .select("id,customer_id,template_name,parser_config,confirmation_snapshot,version_no,is_active")
+        .eq("id", templateId)
         .maybeSingle();
       activeTemplate = data || null;
     }

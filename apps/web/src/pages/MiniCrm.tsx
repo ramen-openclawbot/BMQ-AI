@@ -637,7 +637,7 @@ export default function MiniCrm() {
       for (const q of quantityColumns) {
         const qty = toNumericQty(worksheet.getCell(s.row, q.columnIndex).value);
         if (qty > 0) {
-          lineItems.push({ date: s.date, product: q.columnName, qty, unitPrice: null, lineTotal: null });
+          lineItems.push({ date: s.date, product: q.columnName, sourceColumnName: q.columnName, qty, unitPrice: null, lineTotal: null });
         }
       }
     }
@@ -1763,8 +1763,24 @@ export default function MiniCrm() {
                   return;
                 }
 
+                const selectedSourceColumns = Array.from(new Set(validItems.map((it: any) => String(it?.sourceColumnName || "").trim()).filter(Boolean)));
+                const baseParserConfig = pendingTemplatePreview?.parserConfig || {};
+                const baseQuantityCols = Array.isArray(baseParserConfig?.quantityColumns) ? baseParserConfig.quantityColumns : [];
+                const filteredQuantityCols = selectedSourceColumns.length
+                  ? baseQuantityCols.filter((q: any) => selectedSourceColumns.includes(String(q?.columnName || "").trim()))
+                  : baseQuantityCols;
+
                 const mergedPreview = {
                   ...(pendingTemplatePreview || {}),
+                  parserConfig: {
+                    ...baseParserConfig,
+                    quantityColumns: filteredQuantityCols,
+                    productNameOverrides: Object.fromEntries(
+                      validItems
+                        .filter((it: any) => String(it?.sourceColumnName || "").trim())
+                        .map((it: any) => [String(it.sourceColumnName), String(it.product || it.sourceColumnName)])
+                    ),
+                  },
                   confirmationView: { ...(templateReviewDraft || {}) },
                   sampleRows: validItems,
                   confidenceScore: confidence < 0.9 && templateReviewTouched ? 0.95 : confidence,
