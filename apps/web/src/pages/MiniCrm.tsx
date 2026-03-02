@@ -88,6 +88,13 @@ export default function MiniCrm() {
   const [postRevenueStatus, setPostRevenueStatus] = useState<string>("");
   const [poDateFrom, setPoDateFrom] = useState<string>("");
   const [poDateTo, setPoDateTo] = useState<string>("");
+  const [syncDate, setSyncDate] = useState<string>(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = `${now.getMonth() + 1}`.padStart(2, "0");
+    const d = `${now.getDate()}`.padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  });
   const [syncDebug, setSyncDebug] = useState<any | null>(null);
   const [syncModalOpen, setSyncModalOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string>("idle");
@@ -296,11 +303,10 @@ export default function MiniCrm() {
       d.setDate(d.getDate() + 1);
       return d.toISOString().slice(0, 10);
     };
-    const dateQuery = [
-      poDateFrom ? `after:${toGmailDate(poDateFrom)}` : "",
-      poDateTo ? `before:${toGmailDate(nextDay(poDateTo))}` : "",
-    ].filter(Boolean).join(" ");
-    return `in:anywhere (to:po@bmq.vn OR deliveredto:po@bmq.vn OR cc:po@bmq.vn) ${dateQuery || "newer_than:30d"}`.trim();
+    const dateQuery = syncDate
+      ? `after:${toGmailDate(syncDate)} before:${toGmailDate(nextDay(syncDate))}`
+      : "newer_than:30d";
+    return `in:anywhere (to:po@bmq.vn OR deliveredto:po@bmq.vn OR cc:po@bmq.vn) ${dateQuery}`.trim();
   };
 
   const callPoGmailSync = async (payload: any, stepLabel: string) => {
@@ -349,7 +355,7 @@ export default function MiniCrm() {
       setSyncStatus("syncing");
 
       const query = buildGmailQuery();
-      const result = await callPoGmailSync({ mode: "preview", maxResults: 100, query }, "preview");
+      const result = await callPoGmailSync({ mode: "preview", maxResults: 100, query, includeOnlyCrm: true }, "preview");
       return { ...result, query };
     },
     onSuccess: (result: any) => {
@@ -369,7 +375,7 @@ export default function MiniCrm() {
     mutationFn: async () => {
       const query = buildGmailQuery();
       const messageIds = previewItems.map((x: any) => x.messageId).filter(Boolean);
-      return await callPoGmailSync({ mode: "import", maxResults: 100, query, messageIds }, "import");
+      return await callPoGmailSync({ mode: "import", maxResults: 100, query, messageIds, includeOnlyCrm: true }, "import");
     },
     onSuccess: async (result: any) => {
       setSyncDebug(result);
@@ -600,10 +606,13 @@ export default function MiniCrm() {
         {isSalesPoPage && (
           <div className="flex flex-col gap-2 items-end">
             {gmailConnectedEmail ? <Badge>{gmailConnectedEmail}</Badge> : <Badge variant="secondary">Chưa kết nối Gmail PO</Badge>}
-            <Button onClick={() => { setSyncModalOpen(true); syncGmailMutation.mutate(); }} disabled={syncGmailMutation.isPending || !gmailConnectedEmail}>
-              {syncGmailMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-              Sync Gmail PO
-            </Button>
+            <div className="flex items-center gap-2">
+              <Input type="date" value={syncDate} onChange={(e) => setSyncDate(e.target.value)} className="w-[150px] h-9" />
+              <Button onClick={() => { setSyncModalOpen(true); syncGmailMutation.mutate(); }} disabled={syncGmailMutation.isPending || !gmailConnectedEmail}>
+                {syncGmailMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                Sync PO
+              </Button>
+            </div>
           </div>
         )}
       </div>

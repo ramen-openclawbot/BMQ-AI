@@ -135,6 +135,7 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const mode = String(body?.mode || "preview").toLowerCase(); // preview | import
+    const includeOnlyCrm = body?.includeOnlyCrm !== false;
     const maxResults = Math.min(Math.max(Number(body?.maxResults || 20), 1), 100);
     const query = String(body?.query || "in:anywhere (to:po@bmq.vn OR deliveredto:po@bmq.vn OR cc:po@bmq.vn) newer_than:30d");
     const importMessageIds = new Set<string>(Array.isArray(body?.messageIds) ? body.messageIds.map((x: any) => String(x)) : []);
@@ -202,6 +203,10 @@ serve(async (req) => {
       if (match) matchedCount += 1;
       else unmatchedCount += 1;
 
+      if (includeOnlyCrm && !match) {
+        continue;
+      }
+
       const payload = {
         gmail_message_id: m.id,
         gmail_thread_id: m.threadId,
@@ -260,6 +265,7 @@ serve(async (req) => {
     return new Response(JSON.stringify({
       success: true,
       mode,
+      includeOnlyCrm,
       synced,
       query,
       mailbox: profile?.emailAddress || null,
