@@ -92,6 +92,42 @@ const getReadableError = (e: any) => {
   }
 };
 
+const parseEmailBodyToProductionItems = (subject?: string, body?: string) => {
+  const text = String(body || "").replace(/\r/g, "\n");
+  const chunks = text
+    .split(/\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .flatMap((line) => line.split(/\s{2,}|(?=\d+\.)/g).map((x) => x.trim()).filter(Boolean));
+
+  const items: any[] = [];
+  for (const raw of chunks) {
+    const line = raw.replace(/^[-•]+\s*/, "").trim();
+    const m = line.match(/^\d+[.)]?\s*(.+?)\s*:\s*([0-9]+)(.*)$/i);
+    if (!m) continue;
+    const location = String(m[1] || "").trim();
+    const qty = Number(m[2] || 0);
+    const note = String(m[3] || "").trim().replace(/^[-,;.]\s*/, "");
+    if (!location) continue;
+    items.push({
+      sku: "",
+      product_name: location,
+      unit: "cái",
+      qty: Number.isFinite(qty) ? qty : 0,
+      unit_price: 0,
+      line_total: 0,
+      parse_source: "email_body",
+      note,
+    });
+  }
+
+  const deliveryDate = extractDeliveryDateFromSubject(subject) || null;
+  return {
+    items,
+    deliveryDate,
+  };
+};
+
 
 export default function MiniCrm() {
   const queryClient = useQueryClient();
@@ -1041,6 +1077,24 @@ export default function MiniCrm() {
     },
   });
 
+  const applyParseFromEmailBody = () => {
+    const parsed = parseEmailBodyToProductionItems(selectedPo?.email_subject, selectedPo?.body_preview || selectedPo?.raw_payload?.snippet || "");
+    const nextItems = Array.isArray(parsed.items) ? parsed.items : [];
+    setPoSummaryDraft((s: any) => ({
+      ...s,
+      delivery_date: s?.delivery_date || parsed.deliveryDate || "",
+      production_items: nextItems,
+      subtotal_amount: 0,
+      vat_amount: 0,
+      total_amount: 0,
+    }));
+    if (!nextItems.length) {
+      toast({ title: "Không parse được từ nội dung email", description: "Email có thể bị cắt ngắn. Vui lòng mở mail gốc hoặc bổ sung thủ công.", variant: "destructive" });
+      return;
+    }
+    toast({ title: "Đã parse từ nội dung email", description: `${nextItems.length} dòng sản phẩm` });
+  };
+
   const postRevenueMutation = useMutation({
     onMutate: () => {
       setPostRevenueStatus("Đang đẩy dữ liệu sang Kiểm soát doanh thu...");
@@ -1606,6 +1660,9 @@ export default function MiniCrm() {
                   <div className="flex flex-wrap gap-2">
                     <Button variant="secondary" onClick={() => parseAttachmentMutation.mutate(selectedPo.id)} disabled={parseAttachmentMutation.isPending}>
                       {parseAttachmentMutation.isPending ? "Đang parse..." : "Parse từ file đính kèm"}
+                    </Button>
+                    <Button variant="outline" onClick={applyParseFromEmailBody}>
+                      Parse từ nội dung email
                     </Button>
                     <Button onClick={() => savePoSummaryMutation.mutate()} disabled={savePoSummaryMutation.isPending}>Lưu tóm tắt PO</Button>
                     <Button variant="outline" onClick={() => postRevenueMutation.mutate(selectedPo.id)} disabled={postRevenueMutation.isPending}>
