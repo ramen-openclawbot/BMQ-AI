@@ -46,6 +46,13 @@ export default function GoodsReceipts() {
     };
   }, [receipts]);
 
+  const formatReceiptDate = (rawDate: string | null) => {
+    if (!rawDate) return "-";
+    const d = new Date(rawDate);
+    if (Number.isNaN(d.getTime())) return "-";
+    return format(d, "dd/MM/yyyy", { locale });
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "draft":
@@ -171,9 +178,7 @@ export default function GoodsReceipts() {
                   <TableRow key={receipt.id}>
                     <TableCell className="font-mono font-medium">{receipt.receipt_number}</TableCell>
                     <TableCell>{receipt.suppliers?.name || "-"}</TableCell>
-                    <TableCell>
-                      {format(new Date(receipt.receipt_date), "dd/MM/yyyy", { locale })}
-                    </TableCell>
+                    <TableCell>{formatReceiptDate(receipt.receipt_date)}</TableCell>
                     <TableCell>{receipt.total_quantity?.toLocaleString("vi-VN") || 0}</TableCell>
                     <TableCell>{getStatusBadge(receipt.status)}</TableCell>
                     <TableCell>
