@@ -73,12 +73,10 @@ export default function MiniCrm() {
   const isSalesPoPage = location.pathname === "/sales-po-inbox";
 
   const [customerName, setCustomerName] = useState("");
-  const [customerCode, setCustomerCode] = useState("");
   const [customerGroup, setCustomerGroup] = useState("banhmi_point");
   const [emailsInput, setEmailsInput] = useState("");
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
   const [editCustomerName, setEditCustomerName] = useState("");
-  const [editCustomerCode, setEditCustomerCode] = useState("");
   const [editCustomerGroup, setEditCustomerGroup] = useState("banhmi_point");
   const [editEmailsInput, setEditEmailsInput] = useState("");
   const [editOriginalEmailsInput, setEditOriginalEmailsInput] = useState("");
@@ -129,7 +127,6 @@ export default function MiniCrm() {
     setEditFeedback("");
     setEditingCustomerId(c.id);
     setEditCustomerName(c.customer_name || "");
-    setEditCustomerCode(c.customer_code || "");
     setEditCustomerGroup(c.customer_group || "banhmi_point");
     const emails = (c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ");
     setEditEmailsInput(emails);
@@ -140,7 +137,6 @@ export default function MiniCrm() {
     setEditFeedback("");
     setEditingCustomerId(null);
     setEditCustomerName("");
-    setEditCustomerCode("");
     setEditCustomerGroup("banhmi_point");
     setEditEmailsInput("");
     setEditOriginalEmailsInput("");
@@ -155,7 +151,6 @@ export default function MiniCrm() {
         .from("mini_crm_customers")
         .insert({
           customer_name: trimmedName,
-          customer_code: customerCode.trim() || null,
           customer_group: customerGroup,
         })
         .select("id")
@@ -177,7 +172,6 @@ export default function MiniCrm() {
     },
     onSuccess: async () => {
       setCustomerName("");
-      setCustomerCode("");
       setEmailsInput("");
       await queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] });
       toast({ title: "Đã thêm khách hàng", description: "Mini-CRM đã cập nhật." });
@@ -197,7 +191,6 @@ export default function MiniCrm() {
         .from("mini_crm_customers")
         .update({
           customer_name: trimmedName,
-          customer_code: editCustomerCode.trim() || null,
           customer_group: editCustomerGroup,
         })
         .eq("id", editingCustomerId)
@@ -540,10 +533,6 @@ export default function MiniCrm() {
             <Label>Tên khách hàng</Label>
             <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Ví dụ: Đại lý Hòa Bình" />
           </div>
-          <div className="space-y-2">
-            <Label>Mã khách hàng</Label>
-            <Input value={customerCode} onChange={(e) => setCustomerCode(e.target.value)} placeholder="VD: DL-HB" />
-          </div>
           <div className="space-y-2 md:col-span-2">
             <Label>Email nhận diện (phân tách dấu phẩy)</Label>
             <Input value={emailsInput} onChange={(e) => setEmailsInput(e.target.value)} placeholder="buyer@agency.com, order@agency.com" />
@@ -613,7 +602,6 @@ export default function MiniCrm() {
                       {isEditing ? (
                         <div className="space-y-2">
                           <Input value={editEmailsInput} onChange={(e) => setEditEmailsInput(e.target.value)} placeholder="buyer@agency.com, order@agency.com" />
-                          <Input value={editCustomerCode} onChange={(e) => setEditCustomerCode(e.target.value)} placeholder="Mã khách hàng" />
                         </div>
                       ) : (
                         (c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"
