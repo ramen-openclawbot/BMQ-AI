@@ -296,17 +296,22 @@ export default function MiniCrm() {
   });
 
   const buildGmailQuery = () => {
-    const toGmailDate = (v?: string) => String(v || "").replace(/-/g, "/");
-    const nextDay = (v?: string) => {
-      if (!v) return "";
-      const d = new Date(`${v}T00:00:00`);
-      d.setDate(d.getDate() + 1);
-      return d.toISOString().slice(0, 10);
+    const getDayRangeEpochSeconds = (dateStr?: string) => {
+      if (!dateStr) return null;
+      const from = new Date(`${dateStr}T00:00:00`);
+      const to = new Date(`${dateStr}T23:59:59`);
+      return {
+        from: Math.floor(from.getTime() / 1000),
+        to: Math.floor(to.getTime() / 1000),
+      };
     };
-    const dateQuery = syncDate
-      ? `after:${toGmailDate(syncDate)} before:${toGmailDate(nextDay(syncDate))}`
+
+    const dayRange = getDayRangeEpochSeconds(syncDate);
+    const dateQuery = dayRange
+      ? `after:${dayRange.from} before:${dayRange.to}`
       : "newer_than:30d";
-    return `in:anywhere (to:po@bmq.vn OR deliveredto:po@bmq.vn OR cc:po@bmq.vn) ${dateQuery}`.trim();
+
+    return `in:anywhere deliveredto:po@bmq.vn ${dateQuery}`.trim();
   };
 
   const callPoGmailSync = async (payload: any, stepLabel: string) => {
@@ -628,6 +633,7 @@ export default function MiniCrm() {
             <div className="text-xs rounded-md border bg-muted/30 p-3 space-y-1">
               <div><b>Trạng thái:</b> {syncStatus === "syncing" ? "Đang sync..." : syncStatus === "preview_success" ? "Đã lấy preview" : syncStatus === "import_success" ? "Đã nhập thành công" : syncStatus === "error" ? "Lỗi" : "Sẵn sàng"}</div>
               <div>Mailbox: {syncDebug?.mailbox || "-"}</div>
+              <div>Query: <span className="font-mono">{syncDebug?.query || "-"}</span></div>
               <div>Matched (Gmail): {syncDebug?.resultSizeEstimate || 0} • Fetched: {syncDebug?.fetched || 0} • Synced: {syncDebug?.synced || 0}</div>
               <div>Loại do ngoài CRM: {syncDebug?.debug?.skippedNotInCrm || 0}</div>
               {!!(syncDebug?.debug?.skippedNotInCrmSamples?.length) && (

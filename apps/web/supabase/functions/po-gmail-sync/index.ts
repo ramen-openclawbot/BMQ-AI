@@ -141,7 +141,7 @@ serve(async (req) => {
     const mode = String(body?.mode || "preview").toLowerCase(); // preview | import
     const includeOnlyCrm = body?.includeOnlyCrm !== false;
     const maxResults = Math.min(Math.max(Number(body?.maxResults || 20), 1), 100);
-    const query = String(body?.query || "in:anywhere (to:po@bmq.vn OR deliveredto:po@bmq.vn OR cc:po@bmq.vn) newer_than:30d");
+    const query = String(body?.query || "in:anywhere deliveredto:po@bmq.vn newer_than:30d");
     const importMessageIds = new Set<string>(Array.isArray(body?.messageIds) ? body.messageIds.map((x: any) => String(x)) : []);
 
     const accessToken = await getGoogleAccessToken(supabaseAdmin);
