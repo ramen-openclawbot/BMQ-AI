@@ -204,10 +204,12 @@ export default function MiniCrm() {
         .eq("id", editingCustomerId);
       if (updateError) throw updateError;
 
-      const emails = editEmailsInput
-        .split(",")
-        .map((s) => s.trim().toLowerCase())
-        .filter(Boolean);
+      const emails = Array.from(new Set(
+        editEmailsInput
+          .split(/[;,\n]+/)
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean)
+      ));
 
       const { error: deleteEmailsError } = await (supabase as any)
         .from("mini_crm_customer_emails")
@@ -589,10 +591,10 @@ export default function MiniCrm() {
                       <div className="flex justify-end gap-2">
                         {isEditing ? (
                           <>
-                            <Button size="sm" onClick={() => updateCustomerMutation.mutate()} disabled={updateCustomerMutation.isPending}>
+                            <Button type="button" size="sm" onClick={() => updateCustomerMutation.mutate()} disabled={updateCustomerMutation.isPending}>
                               {updateCustomerMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}Lưu
                             </Button>
-                            <Button size="sm" variant="outline" onClick={cancelEditCustomer}>
+                            <Button type="button" size="sm" variant="outline" onClick={cancelEditCustomer}>
                               <X className="h-4 w-4 mr-1" />Huỷ
                             </Button>
                           </>
