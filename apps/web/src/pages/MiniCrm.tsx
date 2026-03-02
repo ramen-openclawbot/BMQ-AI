@@ -13,11 +13,16 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
 const GROUP_OPTIONS = [
-  { value: "banhmi_point", label: "Bánh mì - Điểm bán" },
-  { value: "banhmi_agency", label: "Bánh mì - Đại lý" },
-  { value: "online", label: "Bánh mì - Online" },
-  { value: "cake_kingfoodmart", label: "Bánh ngọt - Kingfoodmart" },
-  { value: "cake_cafe", label: "Bánh ngọt - Quán cafe" },
+  { value: "banhmi_point", label: "Bán lẻ" },
+  { value: "banhmi_agency", label: "Đại lý" },
+  { value: "online", label: "Online" },
+  { value: "b2b", label: "B2B" },
+];
+
+const REVENUE_CHANNEL_OPTIONS = [
+  { value: "online", label: "Online" },
+  { value: "retail", label: "Bán lẻ" },
+  { value: "agency", label: "Đại lý" },
   { value: "b2b", label: "B2B" },
 ];
 
@@ -561,8 +566,15 @@ export default function MiniCrm() {
             </select>
           </div>
           <div className="space-y-2">
-            <Label>Revenue channel mặc định</Label>
-            <Input value={defaultRevenueChannel} onChange={(e) => setDefaultRevenueChannel(e.target.value)} placeholder="VD: online_grab" />
+            <Label>Kênh doanh thu mặc định</Label>
+            <select
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={defaultRevenueChannel}
+              onChange={(e) => setDefaultRevenueChannel(e.target.value)}
+            >
+              <option value="">-- Chọn kênh --</option>
+              {REVENUE_CHANNEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
           </div>
           <div className="space-y-2 md:col-span-2">
             <Label>Email nhận diện (phân tách dấu phẩy)</Label>
@@ -616,7 +628,14 @@ export default function MiniCrm() {
                         <div className="space-y-2">
                           <Input value={editEmailsInput} onChange={(e) => setEditEmailsInput(e.target.value)} placeholder="buyer@agency.com, order@agency.com" />
                           <Input value={editCustomerCode} onChange={(e) => setEditCustomerCode(e.target.value)} placeholder="Mã khách hàng" />
-                          <Input value={editDefaultRevenueChannel} onChange={(e) => setEditDefaultRevenueChannel(e.target.value)} placeholder="Revenue channel mặc định" />
+                          <select
+                            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                            value={editDefaultRevenueChannel}
+                            onChange={(e) => setEditDefaultRevenueChannel(e.target.value)}
+                          >
+                            <option value="">-- Chọn kênh --</option>
+                            {REVENUE_CHANNEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                          </select>
                         </div>
                       ) : (
                         (c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"
