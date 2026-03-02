@@ -18,6 +18,7 @@ const GROUP_OPTIONS = [
   { value: "online", label: "Bánh mì - Online" },
   { value: "cake_kingfoodmart", label: "Bánh ngọt - Kingfoodmart" },
   { value: "cake_cafe", label: "Bánh ngọt - Quán cafe" },
+  { value: "b2b", label: "B2B" },
 ];
 
 const extractPoNumberFromSubject = (subject?: string) => {
