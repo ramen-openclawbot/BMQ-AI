@@ -114,6 +114,10 @@ export default function MiniCrm() {
   const [selectedPreviewId, setSelectedPreviewId] = useState<string | null>(null);
   const [selectedPreviewIds, setSelectedPreviewIds] = useState<string[]>([]);
   const [confirmTemplateRead, setConfirmTemplateRead] = useState<boolean>(false);
+  const [setupModalOpen, setSetupModalOpen] = useState(false);
+  const [viewCustomer, setViewCustomer] = useState<any | null>(null);
+  const [setupContractFile, setSetupContractFile] = useState<File | null>(null);
+  const [setupPriceRows, setSetupPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
 
   const { data: gmailConnectedEmail } = useQuery({
     queryKey: ["gmail-connected-email"],
@@ -138,6 +142,47 @@ export default function MiniCrm() {
       if (error) throw error;
       return data || [];
     },
+  });
+
+  const { data: finishedSkus = [] } = useQuery({
+    queryKey: ["finished-skus"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("product_skus")
+        .select("id, sku_code, product_name, sku_type, category")
+        .order("updated_at", { ascending: false });
+      if (error) throw error;
+      return (data || []).filter((s: any) => String(s.sku_type || "").toLowerCase() === "finished_good" || String(s.category || "").toLowerCase().includes("thành phẩm"));
+    },
+    enabled: !isSalesPoPage,
+  });
+
+  const { data: customerContracts = [] } = useQuery({
+    queryKey: ["mini-crm-customer-contracts"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("mini_crm_customer_contracts")
+        .select("*")
+        .eq("is_active", true)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !isSalesPoPage,
+  });
+
+  const { data: customerPriceList = [] } = useQuery({
+    queryKey: ["mini-crm-customer-price-list"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("mini_crm_customer_price_list")
+        .select("*")
+        .eq("is_active", true)
+        .order("updated_at", { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !isSalesPoPage,
   });
 
   const { data: poTemplates = [] } = useQuery({
@@ -237,6 +282,86 @@ export default function MiniCrm() {
     onError: (e: any) => {
       const msg = e?.message || "Không thể thêm khách hàng";
       toast({ title: "Thêm khách hàng thất bại", description: msg, variant: "destructive" });
+    },
+  });
+
+  const setupCustomerMutation = useMutation({
+    mutationFn: async () => {
+      const trimmedName = customerName.trim();
+      if (!trimmedName) throw new Error("Vui lòng nhập tên khách hàng");
+
+      const { data: created, error: createError } = await (supabase as any)
+        .from("mini_crm_customers")
+        .insert({ customer_name: trimmedName, customer_group: customerGroup })
+        .select("id")
+        .single();
+      if (createError) throw createError;
+
+      const customerId = created.id;
+      const emails = Array.from(new Set(
+        emailsInput.split(/[;,\n]+/).map((s) => s.trim().toLowerCase()).filter(Boolean)
+      ));
+      if (emails.length) {
+        const { error: emailError } = await (supabase as any)
+          .from("mini_crm_customer_emails")
+          .insert(emails.map((email, idx) => ({ customer_id: customerId, email, is_primary: idx === 0 })));
+        if (emailError) throw emailError;
+      }
+
+      if (setupContractFile) {
+        const filePath = `${customerId}/${Date.now()}-${setupContractFile.name}`;
+        const { error: uploadError } = await (supabase as any).storage.from("customer-contracts").upload(filePath, setupContractFile, { upsert: false, contentType: setupContractFile.type || "application/pdf" });
+        if (uploadError) throw uploadError;
+        const { data: pub } = (supabase as any).storage.from("customer-contracts").getPublicUrl(filePath);
+        const { error: contractError } = await (supabase as any)
+          .from("mini_crm_customer_contracts")
+          .insert({ customer_id: customerId, file_name: setupContractFile.name, file_url: pub?.publicUrl || filePath, file_size: setupContractFile.size, mime_type: setupContractFile.type || "application/pdf", is_active: true });
+        if (contractError) throw contractError;
+      }
+
+      const validRows = setupPriceRows
+        .map((r) => ({ sku_id: r.skuId, price_vnd_per_unit: Number(String(r.price || "").replace(/[^0-9]/g, "")) }))
+        .filter((r) => r.sku_id && Number.isFinite(r.price_vnd_per_unit) && r.price_vnd_per_unit > 0);
+      if (validRows.length) {
+        const { error: priceError } = await (supabase as any)
+          .from("mini_crm_customer_price_list")
+          .insert(validRows.map((r) => ({ customer_id: customerId, sku_id: r.sku_id, price_vnd_per_unit: r.price_vnd_per_unit, currency: "VND", is_active: true })));
+        if (priceError) throw priceError;
+      }
+
+      if (templatePreview?.parserConfig) {
+        const { error: tplError } = await (supabase as any)
+          .from("mini_crm_po_templates")
+          .insert({
+            customer_id: customerId,
+            template_name: `Template ${new Date().toLocaleString("vi-VN")}`,
+            file_name: templateFileName || "uploaded-template.xlsx",
+            parser_config: templatePreview.parserConfig,
+            sample_preview: templatePreview.sampleRows || [],
+            is_active: true,
+          });
+        if (tplError) throw tplError;
+      }
+    },
+    onSuccess: async () => {
+      setSetupModalOpen(false);
+      setCustomerName("");
+      setCustomerGroup("banhmi_point");
+      setEmailsInput("");
+      setSetupContractFile(null);
+      setSetupPriceRows([{ skuId: "", price: "" }]);
+      setTemplateFileName("");
+      setTemplatePreview(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] }),
+        queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-contracts"] }),
+        queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-price-list"] }),
+        queryClient.invalidateQueries({ queryKey: ["mini-crm-po-templates"] }),
+      ]);
+      toast({ title: "Thiết lập khách hàng thành công" });
+    },
+    onError: (e: any) => {
+      toast({ title: "Thiết lập khách hàng thất bại", description: e?.message || "Không thể lưu thiết lập", variant: "destructive" });
     },
   });
 
@@ -889,31 +1014,84 @@ export default function MiniCrm() {
 
       {!isSalesPoPage && (
       <> 
-      <Card>
-        <CardHeader>
-          <CardTitle>Thiết lập khách hàng mini-CRM</CardTitle>
-          <CardDescription>Map email khách hàng để hệ thống tự nhận diện khi PO gửi vào po@bmq.vn.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label>Tên khách hàng</Label>
-            <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Ví dụ: Đại lý Hòa Bình" />
+      <div className="flex justify-end">
+        <Button onClick={() => setSetupModalOpen(true)}>Thiết lập khách hàng</Button>
+      </div>
+
+      <Dialog open={setupModalOpen} onOpenChange={setSetupModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Thiết lập khách hàng</DialogTitle>
+            <DialogDescription>Tạo mới khách hàng, upload hợp đồng, thiết lập giá bán SKU và mẫu PO.</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Tên khách hàng</Label>
+              <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Ví dụ: Đại lý Hòa Bình" />
+            </div>
+            <div className="space-y-2">
+              <Label>Nhóm khách hàng</Label>
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={customerGroup} onChange={(e) => setCustomerGroup(e.target.value)}>
+                {GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Email nhận diện (phân tách dấu phẩy)</Label>
+              <Input value={emailsInput} onChange={(e) => setEmailsInput(e.target.value)} placeholder="buyer@agency.com, order@agency.com" />
+            </div>
+
+            <div className="space-y-2 md:col-span-2 rounded-md border p-3">
+              <Label>Upload hợp đồng (PDF)</Label>
+              <Input type="file" accept="application/pdf,.pdf" onChange={(e) => setSetupContractFile(e.target.files?.[0] || null)} />
+              {setupContractFile && <div className="text-xs text-muted-foreground">{setupContractFile.name}</div>}
+            </div>
+
+            <div className="space-y-2 md:col-span-2 rounded-md border p-3">
+              <Label>Giá bán theo SKU thành phẩm</Label>
+              <div className="space-y-2">
+                {setupPriceRows.map((row, idx) => (
+                  <div key={idx} className="grid grid-cols-12 gap-2">
+                    <select className="col-span-7 h-10 rounded-md border border-input bg-background px-3 text-sm" value={row.skuId} onChange={(e) => setSetupPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, skuId: e.target.value } : r))}>
+                      <option value="">-- Chọn SKU thành phẩm --</option>
+                      {finishedSkus.map((s: any) => <option key={s.id} value={s.id}>{s.sku_code} - {s.product_name}</option>)}
+                    </select>
+                    <Input className="col-span-4" value={row.price} onChange={(e) => setSetupPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, price: e.target.value } : r))} placeholder="VND/cái" />
+                    <Button type="button" variant="outline" className="col-span-1" onClick={() => setSetupPriceRows((prev) => prev.filter((_, i) => i !== idx))} disabled={setupPriceRows.length === 1}>-</Button>
+                  </div>
+                ))}
+              </div>
+              <Button type="button" variant="outline" onClick={() => setSetupPriceRows((prev) => [...prev, { skuId: "", price: "" }])}>+ Thêm sản phẩm</Button>
+            </div>
+
+            <div className="space-y-2 md:col-span-2 rounded-md border p-3">
+              <Label>Upload form mẫu PO (.xlsx)</Label>
+              <Input
+                type="file"
+                accept=".xlsx"
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  try {
+                    await handleAnalyzeTemplateFile(f);
+                  } catch (err: any) {
+                    toast({ title: "Đọc file mẫu thất bại", description: err?.message || "Không thể đọc file", variant: "destructive" });
+                  }
+                }}
+              />
+              {templateFileName && <div className="text-xs text-muted-foreground">Đã xác nhận: {templateFileName}</div>}
+            </div>
           </div>
-          <div className="space-y-2 md:col-span-2">
-            <Label>Email nhận diện (phân tách dấu phẩy)</Label>
-            <Input value={emailsInput} onChange={(e) => setEmailsInput(e.target.value)} placeholder="buyer@agency.com, order@agency.com" />
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setSetupModalOpen(false)}>Huỷ</Button>
+            <Button onClick={() => setupCustomerMutation.mutate()} disabled={setupCustomerMutation.isPending}>
+              {setupCustomerMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Lưu thiết lập khách hàng
+            </Button>
           </div>
-          <div className="space-y-2">
-            <Label>Nhóm khách hàng</Label>
-            <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={customerGroup} onChange={(e) => setCustomerGroup(e.target.value)}>
-              {GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </div>
-          <div className="md:col-span-2">
-            <Button onClick={() => addCustomerMutation.mutate()} disabled={addCustomerMutation.isPending}>Thêm khách hàng</Button>
-          </div>
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader>
@@ -1029,6 +1207,7 @@ export default function MiniCrm() {
                           </>
                         ) : (
                           <>
+                            <Button size="sm" variant="secondary" onClick={() => setViewCustomer(c)}>Xem</Button>
                             <Button size="sm" variant="outline" onClick={() => startEditCustomer(c)}>
                               <Pencil className="h-4 w-4 mr-1" />Sửa
                             </Button>
@@ -1261,6 +1440,35 @@ export default function MiniCrm() {
       )}
       </>
       )}
+
+      <Dialog open={Boolean(viewCustomer)} onOpenChange={(open) => !open && setViewCustomer(null)}>
+        <DialogContent className="max-w-3xl">
+          {viewCustomer && (
+            <>
+              <DialogHeader>
+                <DialogTitle>Xem khách hàng: {viewCustomer.customer_name}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 text-sm">
+                <div><b>Nhóm:</b> {GROUP_LABEL_MAP[viewCustomer.customer_group] || viewCustomer.customer_group}</div>
+                <div><b>Trạng thái:</b> {viewCustomer.is_active ? "Active" : "Tạm ngưng"}</div>
+                <div><b>Email:</b> {(viewCustomer.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"}</div>
+                <div><b>Hợp đồng:</b> {(customerContracts.find((x: any) => x.customer_id === viewCustomer.id)?.file_name) || "Chưa có"}</div>
+                <div>
+                  <b>Bảng giá:</b>
+                  <ul className="list-disc pl-5">
+                    {customerPriceList.filter((x: any) => x.customer_id === viewCustomer.id).length === 0 && <li>Chưa có</li>}
+                    {customerPriceList.filter((x: any) => x.customer_id === viewCustomer.id).map((p: any) => {
+                      const sku = finishedSkus.find((s: any) => s.id === p.sku_id);
+                      return <li key={p.id}>{sku?.product_name || p.sku_id}: {Number(p.price_vnd_per_unit || 0).toLocaleString("vi-VN")} đ/cái</li>;
+                    })}
+                  </ul>
+                </div>
+                <div><b>Mẫu PO active:</b> {(poTemplates.find((t: any) => t.customer_id === viewCustomer.id)?.file_name) || "Chưa có"}</div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={templateConfirmOpen} onOpenChange={setTemplateConfirmOpen}>
         <DialogContent className="max-w-3xl">
