@@ -87,6 +87,7 @@ export default function MiniCrm() {
   const [postRevenueStatus, setPostRevenueStatus] = useState<string>("");
   const [poDateFrom, setPoDateFrom] = useState<string>("");
   const [poDateTo, setPoDateTo] = useState<string>("");
+  const [syncDebug, setSyncDebug] = useState<any | null>(null);
 
   const { data: gmailConnectedEmail } = useQuery({
     queryKey: ["gmail-connected-email"],
@@ -283,6 +284,7 @@ export default function MiniCrm() {
 
   const syncGmailMutation = useMutation({
     mutationFn: async () => {
+      setSyncDebug(null);
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error("Phiên đăng nhập hết hạn");
 
@@ -312,13 +314,30 @@ export default function MiniCrm() {
 
       const result = await response.json();
       if (!response.ok) throw new Error(result?.error || "Gmail sync thất bại");
-      return result;
+      return { ...result, query };
     },
     onSuccess: async (result: any) => {
+      setSyncDebug(result);
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
+      await queryClient.refetchQueries({ queryKey: ["customer-po-inbox"], type: "active" });
+
+      const inboxCount = Number(result?.debug?.inboxCount ?? 0);
+      const matchedQuery = Number(result?.resultSizeEstimate || 0);
+      const synced = Number(result?.synced || 0);
+      const upsertErr = Number(result?.debug?.upsertErrorCount || 0);
+
+      if (matchedQuery > 0 && synced === 0) {
+        toast({
+          title: "Sync có dữ liệu Gmail nhưng chưa ghi được PO",
+          description: `Mailbox: ${result?.mailbox || "(không rõ)"} • matched: ${matchedQuery} • synced: ${synced} • upsert lỗi: ${upsertErr}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
       toast({
         title: "Đã sync Gmail",
-        description: `Mailbox: ${result?.mailbox || "(không rõ)"} • matched query: ${result?.resultSizeEstimate || 0} • synced: ${result?.synced || 0}`,
+        description: `Mailbox: ${result?.mailbox || "(không rõ)"} • matched: ${matchedQuery} • fetched: ${result?.fetched || 0} • synced: ${synced} • PO inbox DB: ${inboxCount}`,
       });
     },
     onError: (e: any) => {
@@ -547,6 +566,23 @@ export default function MiniCrm() {
           </div>
         )}
       </div>
+
+      {isSalesPoPage && syncDebug && (
+        <div className="rounded-md border bg-muted/30 p-3 text-xs space-y-1">
+          <div><b>SYNC DEBUG</b></div>
+          <div>Mailbox: {syncDebug?.mailbox || "(không rõ)"}</div>
+          <div>Query: {syncDebug?.query || "-"}</div>
+          <div>Gmail matched: {syncDebug?.resultSizeEstimate || 0} • fetched: {syncDebug?.fetched || 0} • synced: {syncDebug?.synced || 0}</div>
+          <div>Matched customer: {syncDebug?.debug?.matchedCount || 0} • Unmatched: {syncDebug?.debug?.unmatchedCount || 0}</div>
+          <div>Skipped invalid from: {syncDebug?.debug?.skippedInvalidFrom || 0} • Upsert error: {syncDebug?.debug?.upsertErrorCount || 0}</div>
+          <div>PO inbox DB count: {syncDebug?.debug?.inboxCount || 0}</div>
+          {Array.isArray(syncDebug?.debug?.upsertErrors) && syncDebug.debug.upsertErrors.length > 0 && (
+            <div className="text-destructive">
+              Upsert errors: {syncDebug.debug.upsertErrors.map((e: any) => `${e.messageId}: ${e.error}`).join(" | ")}
+            </div>
+          )}
+        </div>
+      )}
 
       {isSalesPoPage && (
         <div className="grid gap-4 md:grid-cols-4">

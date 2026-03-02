@@ -171,6 +171,12 @@ serve(async (req) => {
     }
 
     let synced = 0;
+    let matchedCount = 0;
+    let unmatchedCount = 0;
+    let skippedInvalidFrom = 0;
+    let upsertErrorCount = 0;
+    const upsertErrors: Array<{ messageId: string; error: string }> = [];
+
     for (const m of messages) {
       const detail = await gmailApi(accessToken, `messages/${m.id}?format=full`);
       const headers: Array<{ name: string; value: string }> = detail?.payload?.headers || [];
@@ -180,8 +186,11 @@ serve(async (req) => {
       const subject = getHeader("Subject");
       const dateHeader = getHeader("Date");
 
-      const emailMatch = from.match(/<([^>]+)>/);
-      const fromEmail = (emailMatch?.[1] || from).trim().toLowerCase();
+      const fromEmail = normalizeEmail(from);
+      if (!fromEmail || !fromEmail.includes("@")) {
+        skippedInvalidFrom += 1;
+        continue;
+      }
       const fromName = from.includes("<") ? from.split("<")[0].trim().replace(/^"|"$/g, "") : null;
 
       const snippet = detail?.snippet || "";
@@ -196,6 +205,9 @@ serve(async (req) => {
       walkParts(detail?.payload?.parts || []);
 
       const match = emailMap.get(fromEmail);
+      if (match) matchedCount += 1;
+      else unmatchedCount += 1;
+
       const payload = {
         gmail_message_id: m.id,
         gmail_thread_id: m.threadId,
@@ -221,9 +233,19 @@ serve(async (req) => {
       };
 
       const { error } = await supabaseAdmin.from("customer_po_inbox").upsert(payload, { onConflict: "gmail_message_id" });
-      if (error) throw error;
+      if (error) {
+        upsertErrorCount += 1;
+        if (upsertErrors.length < 5) {
+          upsertErrors.push({ messageId: m.id, error: String(error.message || error) });
+        }
+        continue;
+      }
       synced += 1;
     }
+
+    const { count: inboxCount } = await supabaseAdmin
+      .from("customer_po_inbox")
+      .select("id", { count: "exact", head: true });
 
     return new Response(JSON.stringify({
       success: true,
@@ -232,6 +254,14 @@ serve(async (req) => {
       mailbox: profile?.emailAddress || null,
       resultSizeEstimate: Number(list?.resultSizeEstimate || 0),
       fetched: messages.length,
+      debug: {
+        matchedCount,
+        unmatchedCount,
+        skippedInvalidFrom,
+        upsertErrorCount,
+        upsertErrors,
+        inboxCount: Number(inboxCount || 0),
+      },
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
