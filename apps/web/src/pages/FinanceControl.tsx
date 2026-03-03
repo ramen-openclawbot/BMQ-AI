@@ -403,7 +403,7 @@ export default function FinanceControl() {
   const runReconcile = async () => {
     setReconciling(true);
     try {
-      const uncDetail = Number(uncDetailAmount || 0);
+      const uncDetail = Number((uncReconSummary?.folderTotal ?? uncDetailAmount) || 0);
       const uncDeclared = Number(uncTotalDeclared || 0);
       const topup = Number(cashFundTopupAmount || 0);
       const tolerance = 0;
@@ -543,21 +543,21 @@ export default function FinanceControl() {
 
           <Card>
             <CardHeader>
-              <CardTitle>{isVi ? "Chốt ngày" : "Daily Closing"}</CardTitle>
-              <CardDescription>{isVi ? "So sánh UNC chi tiết (tự động) với tổng khai báo CEO" : "Compare UNC detail (auto) vs CEO declared total"}</CardDescription>
+              <CardTitle>{isVi ? "Chốt ngày (theo đối soát folder UNC)" : "Daily Closing (from UNC folder reconciliation)"}</CardTitle>
+              <CardDescription>{isVi ? "Dùng kết quả từ nút ‘Đối soát UNC theo folder’ để chốt số UNC trong ngày với khai báo CEO." : "Use the result from 'UNC folder reconciliation' to close daily UNC against CEO declared total."}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>{isVi ? "UNC chi tiết (tự động từ slip)" : "UNC Detail (Auto from slips)"}</Label>
-                  <Input value={vnd(Number(uncDetailAmount || 0))} readOnly />
+                  <Label>{isVi ? "UNC từ folder đã đối soát" : "UNC from reconciled folder"}</Label>
+                  <Input value={vnd(Number((uncReconSummary?.folderTotal ?? uncDetailAmount) || 0))} readOnly />
                 </div>
                 <div className="space-y-2">
                   <Label>Status</Label>
                   <div className="h-10 px-3 rounded-md border flex items-center">
-                    {dailyReconciliation?.status === "match" && <Badge className="bg-green-600">MATCH</Badge>}
-                    {dailyReconciliation?.status === "mismatch" && <Badge variant="destructive">MISMATCH</Badge>}
-                    {!dailyReconciliation?.status && <span className="text-muted-foreground">{isVi ? "Chờ" : "Pending"}</span>}
+                    {(uncReconSummary?.status || dailyReconciliation?.status) === "match" && <Badge className="bg-green-600">MATCH</Badge>}
+                    {(uncReconSummary?.status || dailyReconciliation?.status) === "mismatch" && <Badge variant="destructive">MISMATCH</Badge>}
+                    {!(uncReconSummary?.status || dailyReconciliation?.status) && <span className="text-muted-foreground">{isVi ? "Chờ" : "Pending"}</span>}
                   </div>
                 </div>
               </div>
@@ -579,15 +579,21 @@ export default function FinanceControl() {
               </div>
 
               <div className="grid gap-4 md:grid-cols-3">
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "UNC chi tiết" : "UNC Detail"}</div><div className="text-xl font-semibold">{vnd(Number(uncDetailAmount || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "UNC theo folder" : "UNC by folder"}</div><div className="text-xl font-semibold">{vnd(Number((uncReconSummary?.folderTotal ?? uncDetailAmount) || 0))}</div></CardContent></Card>
                 <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "UNC khai báo" : "UNC Declared"}</div><div className="text-xl font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch" : "Variance"}</div><div className="text-xl font-semibold">{vnd(Number((uncDetailAmount || 0) - (uncTotalDeclared || 0)))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch" : "Variance"}</div><div className="text-xl font-semibold">{vnd(Number(((uncReconSummary?.folderTotal ?? uncDetailAmount) || 0) - (uncTotalDeclared || 0)))}</div></CardContent></Card>
               </div>
+
+              {!uncReconSummary && (
+                <div className="text-xs text-amber-600">
+                  {isVi ? "Chưa có dữ liệu đối soát folder trong phiên này. Hãy bấm ‘Đối soát UNC theo folder’ phía trên trước khi chốt." : "No folder reconciliation result in this session yet. Please run 'UNC folder reconciliation' first."}
+                </div>
+              )}
 
               <div className="flex gap-2">
                 <Button onClick={saveDeclaration} disabled={saving}>{saving ? (isVi ? "Đang lưu..." : "Saving...") : (isVi ? "Lưu khai báo" : "Save Declaration")}</Button>
-                <Button variant="outline" onClick={async () => { await refetchUncDetail(); await runReconcile(); }} disabled={reconciling}>
-                  {reconciling ? (isVi ? "Đang đối soát..." : "Reconciling...") : (isVi ? "Chạy đối soát" : "Run Reconcile")}
+                <Button variant="outline" onClick={async () => { await refetchUncDetail(); await runReconcile(); }} disabled={reconciling || !uncReconSummary}>
+                  {reconciling ? (isVi ? "Đang đối soát..." : "Reconciling...") : (isVi ? "Chốt theo kết quả folder" : "Close with folder result")}
                 </Button>
               </div>
             </CardContent>
