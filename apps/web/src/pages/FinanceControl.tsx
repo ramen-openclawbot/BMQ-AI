@@ -748,6 +748,37 @@ export default function FinanceControl() {
         </CardContent>
       </Card>
 
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground">{isVi ? "CEO khai báo UNC" : "CEO UNC declared"}</div>
+            <div className="text-xl font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground">{isVi ? "CEO khai báo QTM" : "CEO QTM declared"}</div>
+            <div className="text-xl font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground">{isVi ? "Tình trạng đối soát" : "Reconciliation status"}</div>
+            <div className="text-xl font-semibold">
+              {resolvedStatus === "match" && <Badge className="bg-green-600">MATCH</Badge>}
+              {resolvedStatus === "mismatch" && <Badge variant="destructive">MISMATCH</Badge>}
+              {!resolvedStatus && <Badge variant="secondary">{isVi ? "Chờ" : "Pending"}</Badge>}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground">{isVi ? "Tổng số tiền quỹ" : "Total cash fund"}</div>
+            <div className="text-xl font-semibold">{vnd(Number(qtmClosingBalance || 0))}</div>
+          </CardContent>
+        </Card>
+      </div>
+
       <Tabs defaultValue="daily" className="space-y-4">
         <TabsList>
           <TabsTrigger value="daily">{isVi ? "Đối soát ngày" : "Daily Reconciliation"}</TabsTrigger>
