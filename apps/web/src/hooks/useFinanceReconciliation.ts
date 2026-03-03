@@ -26,15 +26,32 @@ export function useUncDetailAmount(closingDate: Date) {
   return useQuery({
     queryKey: ["unc-detail-amount", date],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("payment_requests")
-        .select("id,total_amount")
-        .eq("payment_method", "bank_transfer")
-        .gte("created_at", `${date}T00:00:00`)
-        .lte("created_at", `${date}T23:59:59.999`);
+      const [byCreatedAtRes, byInvoiceDateRes] = await Promise.all([
+        supabase
+          .from("payment_requests")
+          .select("id,total_amount")
+          .eq("payment_method", "bank_transfer")
+          .gte("created_at", `${date}T00:00:00`)
+          .lte("created_at", `${date}T23:59:59.999`),
+        (supabase as any)
+          .from("payment_requests")
+          .select("id,total_amount,invoices!payment_requests_invoice_id_fkey(invoice_date)")
+          .eq("payment_method", "bank_transfer")
+          .eq("invoices.invoice_date", date),
+      ]);
 
-      if (error) throw error;
-      return (data || []).reduce((sum, row) => sum + Number(row.total_amount || 0), 0);
+      if (byCreatedAtRes.error) throw byCreatedAtRes.error;
+      if (byInvoiceDateRes.error) throw byInvoiceDateRes.error;
+
+      const merged = new Map<string, number>();
+      for (const row of (byCreatedAtRes.data || []) as any[]) {
+        merged.set(row.id, Number(row.total_amount || 0));
+      }
+      for (const row of (byInvoiceDateRes.data || []) as any[]) {
+        if (!merged.has(row.id)) merged.set(row.id, Number(row.total_amount || 0));
+      }
+
+      return Array.from(merged.values()).reduce((sum, amount) => sum + amount, 0);
     },
   });
 }

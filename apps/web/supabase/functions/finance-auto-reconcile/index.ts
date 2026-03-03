@@ -77,16 +77,32 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const closingDate = body?.closingDate || vnDate();
 
-    const { data: detailRows, error: detailError } = await supabase
-      .from("payment_requests")
-      .select("total_amount")
-      .eq("payment_method", "bank_transfer")
-      .gte("created_at", `${closingDate}T00:00:00`)
-      .lte("created_at", `${closingDate}T23:59:59.999`);
+    const [detailByCreatedAt, detailByInvoiceDate] = await Promise.all([
+      supabase
+        .from("payment_requests")
+        .select("id,total_amount")
+        .eq("payment_method", "bank_transfer")
+        .gte("created_at", `${closingDate}T00:00:00`)
+        .lte("created_at", `${closingDate}T23:59:59.999`),
+      supabase
+        .from("payment_requests")
+        .select("id,total_amount,invoices!payment_requests_invoice_id_fkey(invoice_date)")
+        .eq("payment_method", "bank_transfer")
+        .eq("invoices.invoice_date", closingDate),
+    ]);
 
-    if (detailError) throw detailError;
+    if (detailByCreatedAt.error) throw detailByCreatedAt.error;
+    if (detailByInvoiceDate.error) throw detailByInvoiceDate.error;
 
-    const uncDetail = (detailRows || []).reduce((s, r) => s + Number(r.total_amount || 0), 0);
+    const merged = new Map<string, number>();
+    for (const row of (detailByCreatedAt.data || []) as any[]) {
+      merged.set(row.id, Number(row.total_amount || 0));
+    }
+    for (const row of (detailByInvoiceDate.data || []) as any[]) {
+      if (!merged.has(row.id)) merged.set(row.id, Number(row.total_amount || 0));
+    }
+
+    const uncDetail = Array.from(merged.values()).reduce((s, amount) => s + Number(amount || 0), 0);
 
     const { data: declaration, error: declarationError } = await supabase
       .from("ceo_daily_closing_declarations")
