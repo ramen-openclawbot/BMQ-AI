@@ -55,6 +55,7 @@ export default function FinanceControl() {
   const [selectedUncFolder, setSelectedUncFolder] = useState<string>("");
   const [uncSkipProcessed, setUncSkipProcessed] = useState(true);
   const [uncScanImagesOnly, setUncScanImagesOnly] = useState(true);
+  const [uncIncludeQtmFolder, setUncIncludeQtmFolder] = useState(false);
   const [uncLowConfidenceThreshold, setUncLowConfidenceThreshold] = useState(0.75);
   const [reconcilingFolderScan, setReconcilingFolderScan] = useState(false);
   const [reconcileProgress, setReconcileProgress] = useState({ done: 0, total: 0, currentFile: "" });
@@ -65,6 +66,9 @@ export default function FinanceControl() {
     delta: number;
     status: "match" | "mismatch";
     lowConfidenceCount: number;
+    qtmExcludedCount: number;
+    totalScannedCount: number;
+    processedSkippedCount: number;
     items: Array<{ fileId: string; fileName: string; amount: number; confidence: number; status: "matched" | "mismatch" | "needs_review" }>;
   } | null>(null);
 
@@ -219,11 +223,24 @@ export default function FinanceControl() {
 
       const scanData = await scanResponse.json();
       let files = Array.isArray(scanData?.files) ? scanData.files : [];
+      const totalScannedCount = files.length;
+
+      const isQtmPath = (f: any) => {
+        const haystack = `${String(f?.name || "")} ${String(f?.path || "")} ${String(f?.folderPath || "")} ${String(f?.parentPath || "")}`.toLowerCase();
+        return /(^|\W)qtm($|\W)/i.test(haystack);
+      };
+
+      const qtmFiles = files.filter((f: any) => isQtmPath(f));
+      const qtmExcludedCount = uncIncludeQtmFolder ? 0 : qtmFiles.length;
+      if (!uncIncludeQtmFolder) {
+        files = files.filter((f: any) => !isQtmPath(f));
+      }
+
       if (uncScanImagesOnly) {
         files = files.filter((f: any) => String(f?.mimeType || "").startsWith("image/"));
       }
 
-      if (!files.length) throw new Error("Folder không có file ảnh để đối soát");
+      if (!files.length) throw new Error("Folder không có file ảnh hợp lệ để đối soát (đã loại QTM hoặc file không phải ảnh)");
 
       let processedSet = new Set<string>();
       if (uncSkipProcessed) {
@@ -237,6 +254,7 @@ export default function FinanceControl() {
         processedSet = new Set((processedRows || []).map((r: any) => r.file_id));
       }
 
+      const processedSkippedCount = processedSet.size;
       const targetFiles = files.filter((f: any) => !processedSet.has(f.id));
       if (!targetFiles.length) throw new Error("Không còn file mới để đối soát (đã xử lý hết)");
 
@@ -279,6 +297,9 @@ export default function FinanceControl() {
         delta,
         status,
         lowConfidenceCount,
+        qtmExcludedCount,
+        totalScannedCount,
+        processedSkippedCount,
         items: finalItems,
       });
 
@@ -728,6 +749,13 @@ export default function FinanceControl() {
                 <input type="checkbox" checked={uncScanImagesOnly} onChange={(e) => setUncScanImagesOnly(e.target.checked)} />
                 {isVi ? "Chỉ lấy file ảnh" : "Only include image files"}
               </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={uncIncludeQtmFolder} onChange={(e) => setUncIncludeQtmFolder(e.target.checked)} />
+                {isVi ? "Bao gồm thư mục QTM (chỉ dùng khi audit)" : "Include QTM folder (audit only)"}
+              </label>
+              {!uncIncludeQtmFolder && (
+                <div className="text-xs text-amber-600">{isVi ? "Mặc định đang loại trừ mọi file thuộc thư mục/tên có QTM khỏi đối soát UNC." : "By default, files under QTM folder/name are excluded from UNC reconciliation."}</div>
+              )}
               <div className="space-y-2">
                 <Label>{isVi ? "Ngưỡng confidence cần xác nhận" : "Low-confidence review threshold"}</Label>
                 <Input
@@ -757,6 +785,18 @@ export default function FinanceControl() {
                 <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">Status</div>{uncReconSummary.status === "match" ? <Badge className="bg-green-600">SUCCESS</Badge> : <Badge variant="destructive">MISMATCH</Badge>}</CardContent></Card>
               </div>
               <div className="text-xs text-amber-600">{isVi ? `File confidence thấp cần xác nhận: ${uncReconSummary.lowConfidenceCount}` : `Low confidence files: ${uncReconSummary.lowConfidenceCount}`}</div>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">{isVi ? "Ngoại lệ & loại trừ" : "Exceptions & exclusions"}</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-2 text-sm md:grid-cols-3">
+                  <div>{isVi ? "Tổng file scan" : "Total scanned"}: <span className="font-semibold">{uncReconSummary.totalScannedCount}</span></div>
+                  <div>{isVi ? "Đã loại trừ QTM" : "QTM excluded"}: <span className="font-semibold">{uncReconSummary.qtmExcludedCount}</span></div>
+                  <div>{isVi ? "Bỏ qua do đã xử lý" : "Skipped as processed"}: <span className="font-semibold">{uncReconSummary.processedSkippedCount}</span></div>
+                </CardContent>
+              </Card>
+
               <div className="max-h-64 overflow-auto rounded border">
                 <Table>
                   <TableHeader>
