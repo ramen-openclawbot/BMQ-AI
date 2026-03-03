@@ -264,7 +264,9 @@ export default function FinanceControl() {
 
       const finalItems = items.map((x) => {
         if (x.status === "needs_review") return x;
-        return { ...x, status: status === "match" ? "matched" : "mismatch" as const };
+        // Item-level mismatch cannot be inferred from total-level delta.
+        // Keep per-file status as matched when OCR is confident.
+        return { ...x, status: "matched" as const };
       });
 
       setReconcileProgress({ done: targetFiles.length, total: targetFiles.length, currentFile: "" });
