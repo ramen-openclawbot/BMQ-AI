@@ -682,9 +682,27 @@ export default function FinanceControl() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="grid gap-2 md:grid-cols-3">
-                    <button type="button" className={`rounded border px-3 py-2 text-sm text-left ${closeDecision === "reject" ? "border-red-500 bg-red-50" : ""}`} onClick={() => setCloseDecision("reject")}>{isVi ? "Không chốt" : "Reject close"}</button>
-                    <button type="button" className={`rounded border px-3 py-2 text-sm text-left ${closeDecision === "conditional" ? "border-amber-500 bg-amber-50" : ""}`} onClick={() => setCloseDecision("conditional")}>{isVi ? "Chốt có điều kiện" : "Conditional close"}</button>
-                    <button type="button" className={`rounded border px-3 py-2 text-sm text-left ${closeDecision === "approve" ? "border-green-500 bg-green-50" : ""}`} onClick={() => setCloseDecision("approve")}>{isVi ? "Phê duyệt chốt ngày" : "Approve close"}</button>
+                    <button
+                      type="button"
+                      className={`rounded border px-3 py-2 text-sm text-left text-foreground ${closeDecision === "reject" ? "border-red-500 bg-red-500/15 text-red-700 dark:text-red-200" : ""}`}
+                      onClick={() => setCloseDecision("reject")}
+                    >
+                      {isVi ? "Không chốt" : "Reject close"}
+                    </button>
+                    <button
+                      type="button"
+                      className={`rounded border px-3 py-2 text-sm text-left text-foreground ${closeDecision === "conditional" ? "border-amber-500 bg-amber-500/20 text-amber-800 dark:text-amber-100" : ""}`}
+                      onClick={() => setCloseDecision("conditional")}
+                    >
+                      {isVi ? "Chốt có điều kiện" : "Conditional close"}
+                    </button>
+                    <button
+                      type="button"
+                      className={`rounded border px-3 py-2 text-sm text-left text-foreground ${closeDecision === "approve" ? "border-green-500 bg-green-500/15 text-green-700 dark:text-green-200" : ""}`}
+                      onClick={() => setCloseDecision("approve")}
+                    >
+                      {isVi ? "Phê duyệt chốt ngày" : "Approve close"}
+                    </button>
                   </div>
 
                   <div className="space-y-2">
@@ -714,7 +732,7 @@ export default function FinanceControl() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">{isVi ? "Nhật ký kiểm toán (phase 3)" : "Audit log (phase 3)"}</CardTitle>
+                  <CardTitle className="text-base">{isVi ? "Nhật ký kiểm toán" : "Audit log"}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
                   {!reconciliationAuditLogs.length && <div className="text-muted-foreground">{isVi ? "Chưa có bản ghi" : "No records yet"}</div>}
