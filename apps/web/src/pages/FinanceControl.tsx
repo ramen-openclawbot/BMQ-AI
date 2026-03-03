@@ -279,6 +279,18 @@ export default function FinanceControl() {
         lowConfidenceCount,
         items: finalItems,
       });
+
+      // Auto-fill CEO UNC declared total from reconciled folder result,
+      // so user only needs to confirm and close daily reconciliation.
+      setUncTotalDeclared(folderTotal);
+
+      toast({
+        title: isVi ? "Đã tự điền UNC khai báo" : "UNC declared total auto-filled",
+        description: isVi
+          ? `Đã cập nhật UNC khai báo = ${vnd(folderTotal)} từ folder ${selectedUncFolder}`
+          : `CEO UNC declared total updated to ${vnd(folderTotal)} from folder ${selectedUncFolder}`,
+      });
+
       setUncStep(3);
     } catch (e: any) {
       toast({ title: "Lỗi đối soát UNC", description: e?.message || "Không thể đối soát folder UNC", variant: "destructive" });
