@@ -922,12 +922,18 @@ export default function FinanceControl() {
                         className={`flex w-full items-center justify-between border-b px-3 py-2 text-left text-sm last:border-b-0 ${isSelected ? "bg-muted" : ""}`}
                         onClick={async () => {
                           setSelectedUncFolder(nextPath);
-                          if (folder.hasChildren) {
-                            await openUncPath(nextPath);
+                          try {
+                            const folderUrl = await getUncRootFolderUrl();
+                            const children = await listChildren(folderUrl, nextPath);
+                            if (Array.isArray(children) && children.length > 0) {
+                              await openUncPath(nextPath);
+                            }
+                          } catch {
+                            // keep selected path if cannot drill down
                           }
                         }}
                       >
-                        <span className="flex items-center gap-2">{folder.hasChildren ? "📁" : "📄"} {folder.name}</span>
+                        <span className="flex items-center gap-2">📁 {folder.name}</span>
                         <span className="text-muted-foreground">
                           {folder.hasChildren
                             ? `${folder.childFolderCount || 0} ${isVi ? "thư mục" : "folders"}`
