@@ -280,16 +280,17 @@ export default function FinanceControl() {
         items: finalItems,
       });
 
-      // Auto-fill CEO UNC declared total from reconciled folder result,
-      // so user only needs to confirm and close daily reconciliation.
-      setUncTotalDeclared(folderTotal);
-
-      toast({
-        title: isVi ? "Đã tự điền UNC khai báo" : "UNC declared total auto-filled",
-        description: isVi
-          ? `Đã cập nhật UNC khai báo = ${vnd(folderTotal)} từ folder ${selectedUncFolder}`
-          : `CEO UNC declared total updated to ${vnd(folderTotal)} from folder ${selectedUncFolder}`,
-      });
+      // Auto-fill only when current CEO declared total is empty/zero.
+      // If CEO already declared a value, keep it for proper mismatch comparison.
+      if (ceoTotal === 0) {
+        setUncTotalDeclared(folderTotal);
+        toast({
+          title: isVi ? "Đã tự điền UNC khai báo" : "UNC declared total auto-filled",
+          description: isVi
+            ? `Đã cập nhật UNC khai báo = ${vnd(folderTotal)} từ folder ${selectedUncFolder}`
+            : `CEO UNC declared total updated to ${vnd(folderTotal)} from folder ${selectedUncFolder}`,
+        });
+      }
 
       setUncStep(3);
     } catch (e: any) {
@@ -416,7 +417,7 @@ export default function FinanceControl() {
     setReconciling(true);
     try {
       const uncDetail = Number((uncReconSummary?.folderTotal ?? uncDetailAmount) || 0);
-      const uncDeclared = Number(uncTotalDeclared || 0);
+      const uncDeclared = Number((uncReconSummary?.ceoTotal ?? uncTotalDeclared) || 0);
       const topup = Number(cashFundTopupAmount || 0);
       const tolerance = 0;
       const variance = uncDetail - uncDeclared;
@@ -577,7 +578,7 @@ export default function FinanceControl() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{isVi ? "Tổng UNC CEO khai báo" : "CEO UNC Total Declared"}</Label>
-                  <Input value={vnd(Number(uncTotalDeclared || 0))} readOnly />
+                  <Input value={vnd(Number((uncReconSummary?.ceoTotal ?? uncTotalDeclared) || 0))} readOnly />
                 </div>
                 <div className="space-y-2">
                   <Label>{isVi ? "Số tiền bù quỹ tiền mặt" : "Cash Fund Top-up Amount"}</Label>
@@ -592,8 +593,8 @@ export default function FinanceControl() {
 
               <div className="grid gap-4 md:grid-cols-3">
                 <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "UNC theo folder" : "UNC by folder"}</div><div className="text-xl font-semibold">{vnd(Number((uncReconSummary?.folderTotal ?? uncDetailAmount) || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "UNC khai báo" : "UNC Declared"}</div><div className="text-xl font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch" : "Variance"}</div><div className="text-xl font-semibold">{vnd(Number(((uncReconSummary?.folderTotal ?? uncDetailAmount) || 0) - (uncTotalDeclared || 0)))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "UNC khai báo" : "UNC Declared"}</div><div className="text-xl font-semibold">{vnd(Number((uncReconSummary?.ceoTotal ?? uncTotalDeclared) || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch" : "Variance"}</div><div className="text-xl font-semibold">{vnd(Number(((uncReconSummary?.folderTotal ?? uncDetailAmount) || 0) - ((uncReconSummary?.ceoTotal ?? uncTotalDeclared) || 0)))}</div></CardContent></Card>
               </div>
 
               {!uncReconSummary && (
