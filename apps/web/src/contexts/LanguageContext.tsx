@@ -329,7 +329,7 @@ const translations: Record<Language, Translations> = {
     lowStock: "Sắp hết hàng",
     reports: "Báo cáo",
     investorDashboard: "Investor Dashboard",
-    financeCostManagement: "Quản lý chi phí (Mua hàng)",
+    financeCostManagement: "Quản lý chi phí",
     financeRevenueManagement: "Quản lý doanh thu",
     crm: "CRM",
     poPurchasing: "PO (Mua hàng)",
