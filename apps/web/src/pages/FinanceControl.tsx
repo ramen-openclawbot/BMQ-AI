@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { format, startOfMonth, endOfMonth } from "date-fns";
+import { format, startOfMonth, endOfMonth, subDays } from "date-fns";
 import { vi } from "date-fns/locale";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -55,6 +55,10 @@ export default function FinanceControl() {
   const [uncLowConfidenceThreshold, setUncLowConfidenceThreshold] = useState(0.75);
   const [reconcilingFolderScan, setReconcilingFolderScan] = useState(false);
   const [reconcileProgress, setReconcileProgress] = useState({ done: 0, total: 0, currentFile: "" });
+  const [qtmOpeningBalance, setQtmOpeningBalance] = useState<number>(0);
+  const [qtmSpentFromFolder, setQtmSpentFromFolder] = useState<number>(0);
+  const [qtmReconciling, setQtmReconciling] = useState(false);
+  const [qtmLowConfidenceCount, setQtmLowConfidenceCount] = useState(0);
   const [uncReconSummary, setUncReconSummary] = useState<{
     folderDate: string;
     folderTotal: number;
@@ -100,6 +104,9 @@ export default function FinanceControl() {
     setReconciliationAuditLogs(Array.isArray(dailyDeclaration?.extraction_meta?.reconciliation_audit_logs)
       ? dailyDeclaration.extraction_meta.reconciliation_audit_logs
       : []);
+    setQtmOpeningBalance(Number(dailyDeclaration?.extraction_meta?.qtm_opening_balance || 0));
+    setQtmSpentFromFolder(Number(dailyDeclaration?.extraction_meta?.qtm_spent_from_folder || 0));
+    setQtmLowConfidenceCount(Number(dailyDeclaration?.extraction_meta?.qtm_low_confidence_count || 0));
 
     const qtmSaved = Array.isArray(dailyDeclaration?.extraction_meta?.qtm_images)
       ? dailyDeclaration.extraction_meta.qtm_images
@@ -124,6 +131,8 @@ export default function FinanceControl() {
   const resolvedUncDeclared = Number((uncReconSummary?.ceoTotal ?? dailyReconciliation?.unc_declared_amount ?? uncTotalDeclared) || 0);
   const resolvedVariance = resolvedUncDetail - resolvedUncDeclared;
   const resolvedStatus = (uncReconSummary?.status || dailyReconciliation?.status) as ("match" | "mismatch" | undefined);
+  const qtmClosingBalance = Number(qtmOpeningBalance || 0) + Number(cashFundTopupAmount || 0) - Number(qtmSpentFromFolder || 0);
+  const qtmNegative = qtmClosingBalance < 0;
 
   useEffect(() => {
     // Prevent stale slip previews when switching date while query is refetching
@@ -134,6 +143,21 @@ export default function FinanceControl() {
     setPendingQtmExtractedList([]);
     setPendingUncExtractedList([]);
   }, [dateKey]);
+
+  useEffect(() => {
+    const loadPrevQtmBalance = async () => {
+      if (qtmOpeningBalance > 0) return;
+      const prevDate = format(subDays(selectedDate, 1), "yyyy-MM-dd");
+      const { data } = await (supabase as any)
+        .from("ceo_daily_closing_declarations")
+        .select("extraction_meta")
+        .eq("closing_date", prevDate)
+        .maybeSingle();
+      const prevClosing = Number(data?.extraction_meta?.qtm_closing_balance || 0);
+      if (prevClosing > 0) setQtmOpeningBalance(prevClosing);
+    };
+    loadPrevQtmBalance();
+  }, [selectedDate, qtmOpeningBalance]);
 
   const expectedFolderFromDate = format(selectedDate, "ddMMyyyy");
   const autoDayFolderPath = format(selectedDate, "yyyy/MM/dd");
@@ -311,6 +335,61 @@ export default function FinanceControl() {
     }
   };
 
+  const runQtmReconciliation = async () => {
+    setQtmReconciling(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const folderUrl = await getUncRootFolderUrl();
+      const qtmPath = `${autoDayFolderPath}/QTM`;
+
+      const scanResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ folderUrl, subfolderDate: qtmPath }),
+      });
+
+      if (!scanResponse.ok) {
+        const err = await scanResponse.json().catch(() => ({}));
+        throw new Error(err?.error || "Không thể scan thư mục QTM");
+      }
+
+      const scanData = await scanResponse.json();
+      const files = (Array.isArray(scanData?.files) ? scanData.files : [])
+        .filter((f: any) => String(f?.mimeType || "").startsWith("image/"));
+
+      if (!files.length) {
+        setQtmSpentFromFolder(0);
+        setQtmLowConfidenceCount(0);
+        toast({ title: isVi ? "Không có chứng từ QTM" : "No QTM receipts", description: qtmPath });
+        return;
+      }
+
+      let total = 0;
+      let lowConfidence = 0;
+      for (const f of files) {
+        const extracted = await extractSlipAmountFromBase64(f.base64, f.mimeType || "image/jpeg", "qtm");
+        const amount = Number(extracted?.amount || 0);
+        const confidence = Number(extracted?.confidence || 0);
+        total += amount;
+        if (confidence < uncLowConfidenceThreshold) lowConfidence += 1;
+      }
+
+      setQtmSpentFromFolder(total);
+      setQtmLowConfidenceCount(lowConfidence);
+      toast({
+        title: isVi ? "Đã quét chi QTM" : "QTM scanned",
+        description: `${isVi ? "Tổng chi" : "Spent"}: ${vnd(total)} • ${isVi ? "thiếu chứng từ/độ tin cậy thấp" : "low confidence"}: ${lowConfidence}`,
+      });
+    } catch (e: any) {
+      toast({ title: isVi ? "Lỗi quét QTM" : "QTM scan error", description: e?.message || "Failed scanning QTM", variant: "destructive" });
+    } finally {
+      setQtmReconciling(false);
+    }
+  };
+
   const extractSlipAmount = async (file: File, slipType: "qtm" | "unc") => {
     const imageBase64 = await fileToBase64(file);
     const { data: { session } } = await supabase.auth.getSession();
@@ -390,6 +469,10 @@ export default function FinanceControl() {
           close_reason: closeReason || null,
           reconciliation_audit_logs: mergedLogs,
           ceo_declaration_locked: ceoDeclarationLocked,
+          qtm_opening_balance: Number(qtmOpeningBalance || 0),
+          qtm_spent_from_folder: Number(qtmSpentFromFolder || 0),
+          qtm_closing_balance: Number(qtmClosingBalance || 0),
+          qtm_low_confidence_count: Number(qtmLowConfidenceCount || 0),
         },
       }, { onConflict: "closing_date" });
 
@@ -434,6 +517,10 @@ export default function FinanceControl() {
           close_decision: closeDecision,
           close_reason: closeReason || null,
           reconciliation_audit_logs: reconciliationAuditLogs,
+          qtm_opening_balance: Number(qtmOpeningBalance || 0),
+          qtm_spent_from_folder: Number(qtmSpentFromFolder || 0),
+          qtm_closing_balance: Number(qtmClosingBalance || 0),
+          qtm_low_confidence_count: Number(qtmLowConfidenceCount || 0),
         },
         notes: notes || null,
       };
@@ -633,6 +720,42 @@ export default function FinanceControl() {
                 <Button variant="outline" onClick={() => setCeoDeclarationLocked((v) => !v)}>
                   {ceoDeclarationLocked ? (isVi ? "Mở khoá khai báo" : "Unlock declaration") : (isVi ? "Khoá khai báo ngày" : "Lock declaration")}
                 </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>{isVi ? "Kiểm soát quỹ tiền mặt (QTM)" : "Cash fund control (QTM)"}</CardTitle>
+              <CardDescription>{isVi ? "QTM cuối ngày = (CEO gửi quỹ + tồn đầu ngày) - tổng chi từ thư mục QTM" : "End-of-day QTM = (CEO top-up + opening balance) - spent from QTM folder"}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>{isVi ? "Tồn quỹ đầu ngày" : "Opening balance"}</Label>
+                  <Input type="number" value={qtmOpeningBalance} onChange={(e) => setQtmOpeningBalance(Number(e.target.value || 0))} />
+                </div>
+                <div className="space-y-2">
+                  <Label>{isVi ? "Chi tiền mặt từ folder QTM" : "Spent from QTM folder"}</Label>
+                  <Input value={vnd(qtmSpentFromFolder)} readOnly />
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-4">
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tồn đầu ngày" : "Opening"}</div><div className="text-lg font-semibold">{vnd(qtmOpeningBalance)}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "CEO gửi quỹ" : "CEO top-up"}</div><div className="text-lg font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tổng chi QTM" : "QTM spent"}</div><div className="text-lg font-semibold">{vnd(qtmSpentFromFolder)}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Số dư QTM" : "QTM balance"}</div><div className="text-lg font-semibold">{vnd(qtmClosingBalance)}</div></CardContent></Card>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                {qtmNegative ? <Badge variant="destructive">{isVi ? "Cảnh báo âm quỹ" : "Negative balance"}</Badge> : <Badge className="bg-green-600">{isVi ? "Quỹ dương" : "Positive balance"}</Badge>}
+                {qtmLowConfidenceCount > 0 && <Badge variant="secondary">{isVi ? `Thiếu chứng từ/độ tin cậy thấp: ${qtmLowConfidenceCount}` : `Low-confidence receipts: ${qtmLowConfidenceCount}`}</Badge>}
+                <Badge variant="outline">{isVi ? `Path quét: ${autoDayFolderPath}/QTM` : `Scan path: ${autoDayFolderPath}/QTM`}</Badge>
+              </div>
+
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={runQtmReconciliation} disabled={qtmReconciling}>{qtmReconciling ? (isVi ? "Đang quét QTM..." : "Scanning QTM...") : (isVi ? "Quét chi QTM" : "Scan QTM spent")}</Button>
               </div>
             </CardContent>
           </Card>
