@@ -89,11 +89,21 @@ export default function FinanceControl() {
   const [pendingQtmExtractedList, setPendingQtmExtractedList] = useState<any[]>([]);
   const [pendingUncExtractedList, setPendingUncExtractedList] = useState<any[]>([]);
 
+  const [closeDecision, setCloseDecision] = useState<"reject" | "conditional" | "approve">("reject");
+  const [closeReason, setCloseReason] = useState("");
+  const [closeActing, setCloseActing] = useState(false);
+  const [reconciliationAuditLogs, setReconciliationAuditLogs] = useState<Array<{ at: string; actor: string; action: string; detail?: string }>>([]);
+
   useEffect(() => {
     setUncTotalDeclared(Number(dailyDeclaration?.unc_extracted_amount || dailyDeclaration?.unc_total_declared || 0));
     setCashFundTopupAmount(Number(dailyDeclaration?.qtm_extracted_amount || dailyDeclaration?.cash_fund_topup_amount || 0));
     setNotes(String(dailyDeclaration?.notes || ""));
     setCeoDeclarationLocked(Boolean(dailyDeclaration?.extraction_meta?.ceo_declaration_locked));
+    setCloseDecision((dailyDeclaration?.extraction_meta?.close_decision as any) || "reject");
+    setCloseReason(String(dailyDeclaration?.extraction_meta?.close_reason || ""));
+    setReconciliationAuditLogs(Array.isArray(dailyDeclaration?.extraction_meta?.reconciliation_audit_logs)
+      ? dailyDeclaration.extraction_meta.reconciliation_audit_logs
+      : []);
 
     const qtmSaved = Array.isArray(dailyDeclaration?.extraction_meta?.qtm_images)
       ? dailyDeclaration.extraction_meta.qtm_images
@@ -381,6 +391,34 @@ export default function FinanceControl() {
     }
   };
 
+  const saveReconciliationWorkflowMeta = async (decisionOverride?: "reject" | "conditional" | "approve") => {
+    const decision = decisionOverride || closeDecision;
+    const nextLog = {
+      at: new Date().toISOString(),
+      actor: "CEO",
+      action: decision === "reject" ? "reject_close" : decision === "conditional" ? "conditional_close" : "approve_close",
+      detail: closeReason || null,
+    };
+
+    const mergedLogs = [...reconciliationAuditLogs, nextLog];
+
+    const { error } = await (supabase as any)
+      .from("ceo_daily_closing_declarations")
+      .upsert({
+        closing_date: dateKey,
+        extraction_meta: {
+          ...(dailyDeclaration?.extraction_meta || {}),
+          close_decision: decision,
+          close_reason: closeReason || null,
+          reconciliation_audit_logs: mergedLogs,
+          ceo_declaration_locked: ceoDeclarationLocked,
+        },
+      }, { onConflict: "closing_date" });
+
+    if (error) throw error;
+    setReconciliationAuditLogs(mergedLogs);
+  };
+
   const saveDeclaration = async () => {
     setSaving(true);
     try {
@@ -415,6 +453,9 @@ export default function FinanceControl() {
             ...pendingUncExtractedList,
           ],
           ceo_declaration_locked: ceoDeclarationLocked,
+          close_decision: closeDecision,
+          close_reason: closeReason || null,
+          reconciliation_audit_logs: reconciliationAuditLogs,
         },
         notes: notes || null,
       };
@@ -465,15 +506,40 @@ export default function FinanceControl() {
 
       toast({
         title: status === "match" ? "Reconciled: MATCH" : "Reconciled: MISMATCH",
-        description: `${isVi ? "Chênh lệch" : "Variance"}: ${vnd(variance)}`, 
+        description: `${isVi ? "Chênh lệch" : "Variance"}: ${vnd(variance)}`,
         variant: status === "match" ? "default" : "destructive",
       });
 
       await Promise.all([refetchDailyReconciliation(), refetchMonthly()]);
+      return { status, variance };
     } catch (e: any) {
       toast({ title: "Error", description: e?.message || "Reconciliation failed", variant: "destructive" });
+      return null;
     } finally {
       setReconciling(false);
+    }
+  };
+
+  const handleCloseAction = async (decision: "reject" | "conditional" | "approve") => {
+    setCloseActing(true);
+    try {
+      setCloseDecision(decision);
+      await refetchUncDetail();
+      await runReconcile();
+      await saveReconciliationWorkflowMeta(decision);
+      toast({
+        title: isVi ? "Đã cập nhật trạng thái chốt ngày" : "Daily close decision updated",
+        description: decision === "reject"
+          ? (isVi ? "Đã chuyển trạng thái: Không chốt" : "Status set to Reject close")
+          : decision === "conditional"
+            ? (isVi ? "Đã chuyển trạng thái: Chốt có điều kiện" : "Status set to Conditional close")
+            : (isVi ? "Đã chuyển trạng thái: Phê duyệt chốt ngày" : "Status set to Approve close"),
+      });
+      await refetchDeclaration();
+    } catch (e: any) {
+      toast({ title: isVi ? "Lỗi" : "Error", description: e?.message || (isVi ? "Không thể cập nhật chốt ngày" : "Failed updating close decision"), variant: "destructive" });
+    } finally {
+      setCloseActing(false);
     }
   };
 
@@ -637,17 +703,57 @@ export default function FinanceControl() {
                 <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch" : "Variance"}</div><div className="text-xl font-semibold">{vnd(Number(((uncReconSummary?.folderTotal ?? uncDetailAmount) || 0) - ((uncReconSummary?.ceoTotal ?? uncTotalDeclared) || 0)))}</div></CardContent></Card>
               </div>
 
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">{isVi ? "Kết luận chốt ngày" : "Daily closing decision"}</CardTitle>
+                  <CardDescription>{isVi ? "Chọn một trong 3 trạng thái: Không chốt / Chốt có điều kiện / Phê duyệt chốt ngày." : "Pick one of 3 statuses: Reject / Conditional / Approve close."}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid gap-2 md:grid-cols-3">
+                    <button type="button" className={`rounded border px-3 py-2 text-sm text-left ${closeDecision === "reject" ? "border-red-500 bg-red-50" : ""}`} onClick={() => setCloseDecision("reject")}>{isVi ? "Không chốt" : "Reject close"}</button>
+                    <button type="button" className={`rounded border px-3 py-2 text-sm text-left ${closeDecision === "conditional" ? "border-amber-500 bg-amber-50" : ""}`} onClick={() => setCloseDecision("conditional")}>{isVi ? "Chốt có điều kiện" : "Conditional close"}</button>
+                    <button type="button" className={`rounded border px-3 py-2 text-sm text-left ${closeDecision === "approve" ? "border-green-500 bg-green-50" : ""}`} onClick={() => setCloseDecision("approve")}>{isVi ? "Phê duyệt chốt ngày" : "Approve close"}</button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>{isVi ? "Giải trình / lý do" : "Explanation / reason"}</Label>
+                    <Input value={closeReason} onChange={(e) => setCloseReason(e.target.value)} placeholder={isVi ? "Nhập lý do cho quyết định chốt ngày" : "Enter reason for close decision"} />
+                  </div>
+                </CardContent>
+              </Card>
+
               {!uncReconSummary && (
                 <div className="text-xs text-amber-600">
                   {isVi ? "Chưa có dữ liệu đối soát folder trong phiên này. Hãy bấm ‘Đối soát UNC theo folder’ phía trên trước khi chốt." : "No folder reconciliation result in this session yet. Please run 'UNC folder reconciliation' first."}
                 </div>
               )}
 
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={async () => { await refetchUncDetail(); await runReconcile(); }} disabled={reconciling || !uncReconSummary}>
-                  {reconciling ? (isVi ? "Đang đối soát..." : "Reconciling...") : (isVi ? "Chốt theo kết quả folder" : "Close with folder result")}
+              <div className="flex flex-wrap gap-2">
+                <Button variant="destructive" onClick={() => handleCloseAction("reject")} disabled={closeActing || reconciling || !uncReconSummary}>
+                  {closeActing ? (isVi ? "Đang xử lý..." : "Processing...") : (isVi ? "Không chốt" : "Reject close")}
+                </Button>
+                <Button variant="outline" onClick={() => handleCloseAction("conditional")} disabled={closeActing || reconciling || !uncReconSummary}>
+                  {isVi ? "Chốt có điều kiện" : "Conditional close"}
+                </Button>
+                <Button onClick={() => handleCloseAction("approve")} disabled={closeActing || reconciling || !uncReconSummary}>
+                  {isVi ? "Phê duyệt chốt ngày" : "Approve close"}
                 </Button>
               </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">{isVi ? "Nhật ký kiểm toán (phase 3)" : "Audit log (phase 3)"}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm">
+                  {!reconciliationAuditLogs.length && <div className="text-muted-foreground">{isVi ? "Chưa có bản ghi" : "No records yet"}</div>}
+                  {reconciliationAuditLogs.slice().reverse().slice(0, 8).map((log, idx) => (
+                    <div key={`${log.at}-${idx}`} className="rounded border px-3 py-2">
+                      <div className="font-medium">{new Date(log.at).toLocaleString("vi-VN")} • {log.actor}</div>
+                      <div className="text-muted-foreground">{log.action}{log.detail ? ` — ${log.detail}` : ""}</div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
             </CardContent>
           </Card>
         </TabsContent>
