@@ -53,12 +53,6 @@ export default function FinanceControl() {
   const [uncFolderQuery, setUncFolderQuery] = useState("");
   const [availableUncFolders, setAvailableUncFolders] = useState<Array<{ date: string; fileCount: number; folderId: string }>>([]);
   const [selectedUncFolder, setSelectedUncFolder] = useState<string>("");
-  const [uncYears, setUncYears] = useState<string[]>([]);
-  const [uncMonths, setUncMonths] = useState<string[]>([]);
-  const [uncDays, setUncDays] = useState<string[]>([]);
-  const [selectedUncYear, setSelectedUncYear] = useState<string>("");
-  const [selectedUncMonth, setSelectedUncMonth] = useState<string>("");
-  const [selectedUncDay, setSelectedUncDay] = useState<string>("");
   const [uncSkipProcessed, setUncSkipProcessed] = useState(true);
   const [uncScanImagesOnly, setUncScanImagesOnly] = useState(true);
   const [uncIncludeQtmFolder, setUncIncludeQtmFolder] = useState(false);
@@ -204,32 +198,48 @@ export default function FinanceControl() {
     setLoadingUncFolders(true);
     try {
       const folderUrl = await getUncRootFolderUrl();
-      const years = (await listChildren(folderUrl, "")).map((x: any) => String(x.name));
-      setUncYears(years);
 
-      const y = String(selectedDate.getFullYear());
-      const defaultYear = years.includes(y) ? y : (years[years.length - 1] || "");
-      setSelectedUncYear(defaultYear);
+      const walk = async (parentPath: string, depth: number): Promise<Array<{ date: string; fileCount: number; folderId: string }>> => {
+        if (depth > 5) return [];
+        const children = await listChildren(folderUrl, parentPath);
+        const results: Array<{ date: string; fileCount: number; folderId: string }> = [];
 
-      const months = defaultYear ? (await listChildren(folderUrl, defaultYear)).map((x: any) => String(x.name)) : [];
-      setUncMonths(months);
+        for (const child of children) {
+          const name = String(child?.name || "");
+          const path = parentPath ? `${parentPath}/${name}` : name;
+          const imageCount = Number(child?.imageCount || 0);
 
-      const m = String(selectedDate.getMonth() + 1).padStart(2, "0");
-      const defaultMonth = months.includes(m) ? m : (months[months.length - 1] || "");
-      setSelectedUncMonth(defaultMonth);
+          if (/\/unc$/i.test(path)) {
+            results.push({ date: path.replace(/\/UNC$/i, ""), fileCount: imageCount, folderId: String(child?.folderId || path) });
+            continue;
+          }
 
-      const dayParent = defaultYear && defaultMonth ? `${defaultYear}/${defaultMonth}` : "";
-      const days = dayParent ? (await listChildren(folderUrl, dayParent)).map((x: any) => String(x.name)) : [];
-      setUncDays(days);
+          // Keep traversing to allow nested YYYY/MM/DD/*
+          const deeper = await walk(path, depth + 1);
+          results.push(...deeper);
+        }
 
-      const d = String(selectedDate.getDate()).padStart(2, "0");
-      const defaultDay = days.includes(d) ? d : (days[days.length - 1] || "");
-      setSelectedUncDay(defaultDay);
+        return results;
+      };
 
-      const selectedPath = defaultYear && defaultMonth && defaultDay ? `${defaultYear}/${defaultMonth}/${defaultDay}` : "";
-      setSelectedUncFolder(selectedPath);
+      const discovered = await walk("", 0);
 
-      setAvailableUncFolders([]);
+      // fallback: if UNC child not found, allow picking plain folders like old flow
+      const finalList = discovered.length
+        ? discovered
+        : (await listChildren(folderUrl, "")).map((x: any) => ({ date: String(x.name), fileCount: Number(x.imageCount || 0), folderId: String(x.folderId || x.name) }));
+
+      const uniqueMap = new Map<string, { date: string; fileCount: number; folderId: string }>();
+      for (const f of finalList) {
+        uniqueMap.set(f.date, f);
+      }
+      const unique = Array.from(uniqueMap.values()).sort((a, b) => b.date.localeCompare(a.date));
+
+      setAvailableUncFolders(unique);
+      const preferred = unique.find((d) => d.date.includes(format(selectedDate, "yyyy/MM/dd")))?.date
+        || unique.find((d) => d.date.includes(expectedFolderFromDate))?.date
+        || "";
+      setSelectedUncFolder(preferred);
     } catch (e: any) {
       toast({ title: "Lỗi tải folder UNC", description: e?.message || "Không thể tải danh sách folder", variant: "destructive" });
     } finally {
@@ -250,7 +260,7 @@ export default function FinanceControl() {
       const { data: { session } } = await supabase.auth.getSession();
       const folderUrl = await getUncRootFolderUrl();
 
-      const scanPath = `${selectedUncFolder}/UNC`;
+      const scanPath = /\/unc$/i.test(selectedUncFolder) ? selectedUncFolder : `${selectedUncFolder}/UNC`;
       const scanResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
         method: "POST",
         headers: {
@@ -852,76 +862,32 @@ export default function FinanceControl() {
 
           {uncStep === 1 && (
             <div className="space-y-3">
-              <Label>{isVi ? "Duyệt cây thư mục UNC" : "Browse UNC folder tree"}</Label>
-              {loadingUncFolders ? (
-                <div className="p-3 text-sm text-muted-foreground">{isVi ? "Đang tải danh sách thư mục..." : "Loading folders..."}</div>
-              ) : (
-                <div className="grid gap-3 md:grid-cols-3">
-                  <div className="space-y-1">
-                    <Label>{isVi ? "Năm (YYYY)" : "Year"}</Label>
-                    <select
-                      className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-                      value={selectedUncYear}
-                      onChange={async (e) => {
-                        const y = e.target.value;
-                        setSelectedUncYear(y);
-                        const folderUrl = await getUncRootFolderUrl();
-                        const months = y ? (await listChildren(folderUrl, y)).map((x: any) => String(x.name)) : [];
-                        setUncMonths(months);
-                        const nextMonth = months[0] || "";
-                        setSelectedUncMonth(nextMonth);
-                        const days = (y && nextMonth) ? (await listChildren(folderUrl, `${y}/${nextMonth}`)).map((x: any) => String(x.name)) : [];
-                        setUncDays(days);
-                        const nextDay = days[0] || "";
-                        setSelectedUncDay(nextDay);
-                        setSelectedUncFolder(y && nextMonth && nextDay ? `${y}/${nextMonth}/${nextDay}` : "");
-                      }}
+              <Label>{isVi ? "Chọn folder UNC" : "Select UNC folder"}</Label>
+              <Input
+                placeholder={isVi ? "Tìm folder..." : "Search folder..."}
+                value={uncFolderQuery}
+                onChange={(e) => setUncFolderQuery(e.target.value)}
+              />
+              <div className="max-h-72 overflow-auto rounded border">
+                {loadingUncFolders ? (
+                  <div className="p-3 text-sm text-muted-foreground">{isVi ? "Đang tải danh sách folder..." : "Loading folders..."}</div>
+                ) : availableUncFolders
+                  .filter((f) => !uncFolderQuery.trim() || f.date.toLowerCase().includes(uncFolderQuery.toLowerCase()))
+                  .map((folder) => (
+                    <button
+                      key={folder.folderId}
+                      className={`flex w-full items-center justify-between border-b px-3 py-2 text-left text-sm last:border-b-0 ${selectedUncFolder === folder.date ? "bg-muted" : ""}`}
+                      onClick={() => setSelectedUncFolder(folder.date)}
                     >
-                      <option value="">--</option>
-                      {uncYears.map((y) => <option key={y} value={y}>{y}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{isVi ? "Tháng (MM)" : "Month"}</Label>
-                    <select
-                      className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-                      value={selectedUncMonth}
-                      onChange={async (e) => {
-                        const m = e.target.value;
-                        setSelectedUncMonth(m);
-                        const folderUrl = await getUncRootFolderUrl();
-                        const days = (selectedUncYear && m) ? (await listChildren(folderUrl, `${selectedUncYear}/${m}`)).map((x: any) => String(x.name)) : [];
-                        setUncDays(days);
-                        const nextDay = days[0] || "";
-                        setSelectedUncDay(nextDay);
-                        setSelectedUncFolder(selectedUncYear && m && nextDay ? `${selectedUncYear}/${m}/${nextDay}` : "");
-                      }}
-                    >
-                      <option value="">--</option>
-                      {uncMonths.map((m) => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{isVi ? "Ngày (DD)" : "Day"}</Label>
-                    <select
-                      className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-                      value={selectedUncDay}
-                      onChange={(e) => {
-                        const d = e.target.value;
-                        setSelectedUncDay(d);
-                        setSelectedUncFolder(selectedUncYear && selectedUncMonth && d ? `${selectedUncYear}/${selectedUncMonth}/${d}` : "");
-                      }}
-                    >
-                      <option value="">--</option>
-                      {uncDays.map((d) => <option key={d} value={d}>{d}</option>)}
-                    </select>
-                  </div>
-                </div>
-              )}
+                      <span>{folder.date}</span>
+                      <span className="text-muted-foreground">{folder.fileCount} files</span>
+                    </button>
+                  ))}
+              </div>
               <div className="text-xs text-muted-foreground">
                 {isVi
-                  ? `Đường dẫn đang chọn: ${selectedUncFolder ? `${selectedUncFolder}/UNC` : "(chưa chọn)"}`
-                  : `Selected path: ${selectedUncFolder ? `${selectedUncFolder}/UNC` : "(none)"}`}
+                  ? `Có thể chọn cả thư mục con. Hệ thống sẽ tự scan trong: ${selectedUncFolder ? `${selectedUncFolder}/UNC` : "(chưa chọn)"}`
+                  : `You can select nested folders. Scanner path: ${selectedUncFolder ? `${selectedUncFolder}/UNC` : "(none)"}`}
               </div>
             </div>
           )}
