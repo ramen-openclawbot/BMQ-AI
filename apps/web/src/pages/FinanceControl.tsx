@@ -249,6 +249,23 @@ export default function FinanceControl() {
         <p className="text-muted-foreground">{isVi ? "Đối soát hằng ngày và hằng tháng cho UNC và quỹ tiền mặt." : "Daily & monthly reconciliation for UNC and cash fund top-up."}</p>
       </div>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>{isVi ? "Bộ lọc thời gian" : "Time filters"}</CardTitle>
+          <CardDescription>{isVi ? "Chọn ngày để làm việc theo ngày và chọn tháng để xem chốt tháng." : "Pick date for daily workflow and month for monthly closing."}</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label>{isVi ? "Ngày" : "Date"}</Label>
+            <Input type="date" value={dateKey} onChange={(e) => setSelectedDate(new Date(e.target.value))} />
+          </div>
+          <div className="space-y-2">
+            <Label>{isVi ? "Tháng" : "Month"}</Label>
+            <Input type="month" value={format(selectedMonth, "yyyy-MM")} onChange={(e) => setSelectedMonth(new Date(`${e.target.value}-01`))} />
+          </div>
+        </CardContent>
+      </Card>
+
       <Tabs defaultValue="daily" className="space-y-4">
         <TabsList>
           <TabsTrigger value="daily">{isVi ? "Đối soát ngày" : "Daily Reconciliation"}</TabsTrigger>
@@ -312,11 +329,7 @@ export default function FinanceControl() {
               <CardDescription>{isVi ? "So sánh UNC chi tiết (tự động) với tổng khai báo CEO" : "Compare UNC detail (auto) vs CEO declared total"}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label>{isVi ? "Ngày chốt" : "Closing Date"}</Label>
-                  <Input type="date" value={dateKey} onChange={(e) => setSelectedDate(new Date(e.target.value))} />
-                </div>
+              <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{isVi ? "UNC chi tiết (tự động từ slip)" : "UNC Detail (Auto from slips)"}</Label>
                   <Input value={vnd(Number(uncDetailAmount || 0))} readOnly />
@@ -371,10 +384,6 @@ export default function FinanceControl() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-end gap-3">
-                <div className="space-y-2">
-                  <Label>{isVi ? "Tháng" : "Month"}</Label>
-                  <Input type="month" value={format(selectedMonth, "yyyy-MM")} onChange={(e) => setSelectedMonth(new Date(`${e.target.value}-01`))} />
-                </div>
                 <Button variant="outline" onClick={() => refetchMonthly()}>{isVi ? "Làm mới" : "Refresh"}</Button>
               </div>
 
