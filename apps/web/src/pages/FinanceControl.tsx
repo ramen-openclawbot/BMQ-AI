@@ -148,18 +148,24 @@ export default function FinanceControl() {
 
   useEffect(() => {
     const loadPrevQtmBalance = async () => {
-      if (qtmOpeningBalance > 0) return;
+      // Nếu ngày đang chọn đã có số tồn đầu ngày được lưu thì ưu tiên dữ liệu đã lưu.
+      const hasCurrentDayOpening = dailyDeclaration?.extraction_meta?.qtm_opening_balance != null;
+      if (hasCurrentDayOpening) return;
+
       const prevDate = format(subDays(selectedDate, 1), "yyyy-MM-dd");
       const { data } = await (supabase as any)
         .from("ceo_daily_closing_declarations")
         .select("extraction_meta")
         .eq("closing_date", prevDate)
         .maybeSingle();
+
+      // Luôn lấy tồn cuối ngày hôm trước làm tồn đầu ngày hiện tại (kể cả = 0).
       const prevClosing = Number(data?.extraction_meta?.qtm_closing_balance || 0);
-      if (prevClosing > 0) setQtmOpeningBalance(prevClosing);
+      setQtmOpeningBalance(prevClosing);
     };
+
     loadPrevQtmBalance();
-  }, [selectedDate, qtmOpeningBalance]);
+  }, [selectedDate, dailyDeclaration]);
 
   const expectedFolderFromDate = format(selectedDate, "ddMMyyyy");
   const autoDayFolderPath = format(selectedDate, "yyyy/MM/dd");
