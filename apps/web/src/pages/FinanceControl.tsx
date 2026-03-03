@@ -199,6 +199,21 @@ export default function FinanceControl() {
     try {
       const folderUrl = await getUncRootFolderUrl();
 
+      const loadLegacyList = async () => {
+        const { data: { session } } = await supabase.auth.getSession();
+        const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          },
+          body: JSON.stringify({ folderUrl, mode: "list_all_dates" }),
+        });
+        if (!response.ok) throw new Error("Không thể tải danh sách folder kiểu cũ");
+        const data = await response.json();
+        return Array.isArray(data?.dates) ? data.dates : [];
+      };
+
       const walk = async (parentPath: string, depth: number): Promise<Array<{ date: string; fileCount: number; folderId: string }>> => {
         if (depth > 5) return [];
         const children = await listChildren(folderUrl, parentPath);
@@ -214,7 +229,6 @@ export default function FinanceControl() {
             continue;
           }
 
-          // Keep traversing to allow nested YYYY/MM/DD/*
           const deeper = await walk(path, depth + 1);
           results.push(...deeper);
         }
@@ -222,17 +236,22 @@ export default function FinanceControl() {
         return results;
       };
 
-      const discovered = await walk("", 0);
+      let finalList: Array<{ date: string; fileCount: number; folderId: string }> = [];
+      try {
+        const discovered = await walk("", 0);
+        finalList = discovered.length
+          ? discovered
+          : (await listChildren(folderUrl, "")).map((x: any) => ({ date: String(x.name), fileCount: Number(x.imageCount || 0), folderId: String(x.folderId || x.name) }));
+      } catch {
+        finalList = await loadLegacyList();
+      }
 
-      // fallback: if UNC child not found, allow picking plain folders like old flow
-      const finalList = discovered.length
-        ? discovered
-        : (await listChildren(folderUrl, "")).map((x: any) => ({ date: String(x.name), fileCount: Number(x.imageCount || 0), folderId: String(x.folderId || x.name) }));
+      if (!finalList.length) {
+        finalList = await loadLegacyList();
+      }
 
       const uniqueMap = new Map<string, { date: string; fileCount: number; folderId: string }>();
-      for (const f of finalList) {
-        uniqueMap.set(f.date, f);
-      }
+      for (const f of finalList) uniqueMap.set(f.date, f);
       const unique = Array.from(uniqueMap.values()).sort((a, b) => b.date.localeCompare(a.date));
 
       setAvailableUncFolders(unique);

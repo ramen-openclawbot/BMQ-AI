@@ -141,3 +141,25 @@ Bổ sung auto-detect header row + row-item mode trong analyzer UI và parser fu
 - **Notes**: Added `rowItemMode` + `rowItemColumns` and fallback support in edge parse.
 
 ---
+## [LRN-20260303-001] correction
+
+**Logged**: 2026-03-03T19:20:00+07:00
+**Priority**: high
+**Status**: pending
+**Area**: frontend
+
+### Summary
+User wanted old folder-list UI retained while enabling nested child folder selection; replacing with strict tree-pickers caused usability mismatch and no visible options.
+
+### Details
+Assistant changed UX from old searchable flat list to Year/Month/Day selectors. User explicitly requested keeping old UX and just including child folders. This caused confusion and apparent inability to scan folders.
+
+### Suggested Action
+Keep list-style UI, recursively discover nested UNC folders, and provide robust fallback when list_children mode isn't available.
+
+### Metadata
+- Source: conversation
+- Related Files: apps/web/src/pages/FinanceControl.tsx
+- Tags: ux-regression, folder-browser, correction
+
+---
