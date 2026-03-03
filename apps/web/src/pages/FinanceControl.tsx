@@ -849,22 +849,25 @@ export default function FinanceControl() {
                   <div className="grid gap-2 md:grid-cols-3">
                     <button
                       type="button"
-                      className={`rounded border px-3 py-2 text-sm text-left text-foreground ${closeDecision === "reject" ? "border-red-500 bg-red-500/15 text-red-700 dark:text-red-200" : ""}`}
-                      onClick={() => setCloseDecision("reject")}
+                      disabled={closeActing || reconciling || (!uncReconSummary && !dailyReconciliation)}
+                      className={`rounded border px-3 py-2 text-sm text-left text-foreground disabled:opacity-50 disabled:cursor-not-allowed ${closeDecision === "reject" ? "border-red-500 bg-red-500/15 text-red-700 dark:text-red-200" : ""}`}
+                      onClick={() => handleCloseAction("reject")}
                     >
                       {isVi ? "Không chốt" : "Reject close"}
                     </button>
                     <button
                       type="button"
-                      className={`rounded border px-3 py-2 text-sm text-left text-foreground ${closeDecision === "conditional" ? "border-amber-500 bg-amber-500/20 text-amber-800 dark:text-amber-100" : ""}`}
-                      onClick={() => setCloseDecision("conditional")}
+                      disabled={closeActing || reconciling || (!uncReconSummary && !dailyReconciliation)}
+                      className={`rounded border px-3 py-2 text-sm text-left text-foreground disabled:opacity-50 disabled:cursor-not-allowed ${closeDecision === "conditional" ? "border-amber-500 bg-amber-500/20 text-amber-800 dark:text-amber-100" : ""}`}
+                      onClick={() => handleCloseAction("conditional")}
                     >
                       {isVi ? "Chốt có điều kiện" : "Conditional close"}
                     </button>
                     <button
                       type="button"
-                      className={`rounded border px-3 py-2 text-sm text-left text-foreground ${closeDecision === "approve" ? "border-green-500 bg-green-500/15 text-green-700 dark:text-green-200" : ""}`}
-                      onClick={() => setCloseDecision("approve")}
+                      disabled={closeActing || reconciling || (!uncReconSummary && !dailyReconciliation)}
+                      className={`rounded border px-3 py-2 text-sm text-left text-foreground disabled:opacity-50 disabled:cursor-not-allowed ${closeDecision === "approve" ? "border-green-500 bg-green-500/15 text-green-700 dark:text-green-200" : ""}`}
+                      onClick={() => handleCloseAction("approve")}
                     >
                       {isVi ? "Phê duyệt chốt ngày" : "Approve close"}
                     </button>
@@ -883,17 +886,6 @@ export default function FinanceControl() {
                 </div>
               )}
 
-              <div className="flex flex-wrap gap-2">
-                <Button variant="destructive" onClick={() => handleCloseAction("reject")} disabled={closeActing || reconciling || (!uncReconSummary && !dailyReconciliation)}>
-                  {closeActing ? (isVi ? "Đang xử lý..." : "Processing...") : (isVi ? "Không chốt" : "Reject close")}
-                </Button>
-                <Button variant="outline" onClick={() => handleCloseAction("conditional")} disabled={closeActing || reconciling || (!uncReconSummary && !dailyReconciliation)}>
-                  {isVi ? "Chốt có điều kiện" : "Conditional close"}
-                </Button>
-                <Button onClick={() => handleCloseAction("approve")} disabled={closeActing || reconciling || (!uncReconSummary && !dailyReconciliation)}>
-                  {isVi ? "Phê duyệt chốt ngày" : "Approve close"}
-                </Button>
-              </div>
 
               <Card>
                 <CardHeader>
