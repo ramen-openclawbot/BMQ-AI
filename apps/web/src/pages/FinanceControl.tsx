@@ -28,6 +28,12 @@ import { useLanguage } from "@/contexts/LanguageContext";
 
 const vnd = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value || 0);
 
+const toDateInputValue = (d: Date) => format(d, "yyyy-MM-dd");
+const parseDateInputValue = (value: string) => {
+  const [y, m, day] = value.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, day || 1);
+};
+
 async function fileToBase64(file: File): Promise<string> {
   return await new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -147,11 +153,9 @@ export default function FinanceControl() {
   }, [dateKey]);
 
   useEffect(() => {
-    const loadPrevQtmBalance = async () => {
-      // Nếu ngày đang chọn đã có số tồn đầu ngày được lưu thì ưu tiên dữ liệu đã lưu.
-      const hasCurrentDayOpening = dailyDeclaration?.extraction_meta?.qtm_opening_balance != null;
-      if (hasCurrentDayOpening) return;
+    let active = true;
 
+    const loadPrevQtmBalance = async () => {
       const prevDate = format(subDays(selectedDate, 1), "yyyy-MM-dd");
       const { data } = await (supabase as any)
         .from("ceo_daily_closing_declarations")
@@ -159,12 +163,27 @@ export default function FinanceControl() {
         .eq("closing_date", prevDate)
         .maybeSingle();
 
-      // Luôn lấy tồn cuối ngày hôm trước làm tồn đầu ngày hiện tại (kể cả = 0).
-      const prevClosing = Number(data?.extraction_meta?.qtm_closing_balance || 0);
-      setQtmOpeningBalance(prevClosing);
+      if (!active) return;
+
+      const prevClosingRaw = data?.extraction_meta?.qtm_closing_balance;
+      const hasPrevClosing = prevClosingRaw !== null && prevClosingRaw !== undefined;
+
+      // Rule nghiệp vụ: nếu có dữ liệu ngày hôm trước thì tồn đầu ngày hiện tại = tồn cuối ngày hôm trước.
+      if (hasPrevClosing) {
+        setQtmOpeningBalance(Number(prevClosingRaw || 0));
+        return;
+      }
+
+      // Fallback khi chưa có ngày hôm trước trong DB.
+      const currentStoredOpening = dailyDeclaration?.extraction_meta?.qtm_opening_balance;
+      setQtmOpeningBalance(Number(currentStoredOpening || 0));
     };
 
     loadPrevQtmBalance();
+
+    return () => {
+      active = false;
+    };
   }, [selectedDate, dailyDeclaration]);
 
   const expectedFolderFromDate = format(selectedDate, "ddMMyyyy");
@@ -654,13 +673,37 @@ export default function FinanceControl() {
 
       <Card>
         <CardHeader>
-          <CardTitle>{isVi ? "Bộ lọc thời gian" : "Time filters"}</CardTitle>
-          <CardDescription>{isVi ? "Chọn ngày để làm việc theo ngày và chọn tháng để xem chốt tháng." : "Pick date for daily workflow and month for monthly closing."}</CardDescription>
+          <CardTitle>{isVi ? "Chọn ngày/tháng" : "Choose date/month"}</CardTitle>
+          <CardDescription>{isVi ? "Chọn ngày để làm việc theo ngày (có thể dùng mũi tên để qua lại) và chọn tháng để xem chốt tháng." : "Choose date for daily workflow (use arrows to move between days) and month for monthly closing."}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label>{isVi ? "Ngày" : "Date"}</Label>
-            <Input type="date" value={dateKey} onChange={(e) => setSelectedDate(new Date(e.target.value))} />
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => setSelectedDate((d) => subDays(d, 1))}
+                aria-label={isVi ? "Ngày trước" : "Previous day"}
+              >
+                ←
+              </Button>
+              <Input
+                type="date"
+                value={toDateInputValue(selectedDate)}
+                onChange={(e) => setSelectedDate(parseDateInputValue(e.target.value))}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => setSelectedDate((d) => subDays(d, -1))}
+                aria-label={isVi ? "Ngày sau" : "Next day"}
+              >
+                →
+              </Button>
+            </div>
           </div>
           <div className="space-y-2">
             <Label>{isVi ? "Tháng" : "Month"}</Label>
