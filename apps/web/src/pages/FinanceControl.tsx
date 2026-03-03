@@ -49,11 +49,6 @@ export default function FinanceControl() {
 
   const [uncDialogOpen, setUncDialogOpen] = useState(false);
   const [uncStep, setUncStep] = useState<1 | 2 | 3>(1);
-  const [loadingUncFolders, setLoadingUncFolders] = useState(false);
-  const [uncFolderQuery, setUncFolderQuery] = useState("");
-  const [availableUncFolders, setAvailableUncFolders] = useState<Array<{ name: string; folderId: string; imageCount: number; hasChildren?: boolean; childFolderCount?: number }>>([]);
-  const [selectedUncFolder, setSelectedUncFolder] = useState<string>("");
-  const [uncBrowsePath, setUncBrowsePath] = useState<string>("");
   const [uncSkipProcessed, setUncSkipProcessed] = useState(true);
   const [uncScanImagesOnly, setUncScanImagesOnly] = useState(true);
   const [uncIncludeQtmFolder, setUncIncludeQtmFolder] = useState(false);
@@ -136,6 +131,8 @@ export default function FinanceControl() {
   }, [dateKey]);
 
   const expectedFolderFromDate = format(selectedDate, "ddMMyyyy");
+  const autoDayFolderPath = format(selectedDate, "yyyy/MM/dd");
+  const computedScanPath = uncIncludeQtmFolder ? autoDayFolderPath : `${autoDayFolderPath}/UNC`;
 
   const extractSlipAmountFromBase64 = async (imageBase64: string, mimeType: string, slipType: "qtm" | "unc") => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -175,90 +172,9 @@ export default function FinanceControl() {
     return String(data.value);
   };
 
-  const listChildren = async (folderUrl: string, parentPath: string) => {
-    const { data: { session } } = await supabase.auth.getSession();
-    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-      },
-      body: JSON.stringify({ folderUrl, mode: "list_children", parentPath }),
-    });
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err?.error || "Không thể tải danh sách thư mục");
-    }
-
-    const data = await response.json();
-    return Array.isArray(data?.folders) ? data.folders : [];
-  };
-
-  const loadUncFolders = async (path = "") => {
-    setLoadingUncFolders(true);
-    try {
-      const folderUrl = await getUncRootFolderUrl();
-
-      const loadLegacyList = async () => {
-        const { data: { session } } = await supabase.auth.getSession();
-        const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-          },
-          body: JSON.stringify({ folderUrl, mode: "list_all_dates" }),
-        });
-        if (!response.ok) throw new Error("Không thể tải danh sách folder kiểu cũ");
-        const data = await response.json();
-        const dates = Array.isArray(data?.dates) ? data.dates : [];
-        return dates.map((d: any) => ({
-          name: String(d?.date || ""),
-          folderId: String(d?.folderId || d?.date || ""),
-          imageCount: Number(d?.fileCount || 0),
-          hasChildren: false,
-          childFolderCount: 0,
-        }));
-      };
-
-      let normalized = (await listChildren(folderUrl, path)).map((x: any) => ({
-        name: String(x?.name || ""),
-        folderId: String(x?.folderId || x?.name || ""),
-        imageCount: Number(x?.imageCount || 0),
-        hasChildren: Boolean(x?.hasChildren),
-        childFolderCount: Number(x?.childFolderCount || 0),
-      })).sort((a: any, b: any) => a.name.localeCompare(b.name));
-
-      // Safety fallback: if root has no children from list_children, fallback to legacy list_all_dates
-      if (!path && !normalized.length) {
-        normalized = await loadLegacyList();
-      }
-
-      setAvailableUncFolders(normalized);
-      setUncBrowsePath(path);
-
-      if (!path) {
-        setSelectedUncFolder("");
-      }
-    } catch (e: any) {
-      toast({ title: "Lỗi tải folder UNC", description: e?.message || "Không thể tải danh sách folder", variant: "destructive" });
-      setAvailableUncFolders([]);
-    } finally {
-      setLoadingUncFolders(false);
-    }
-  };
-
-  const openUncPath = async (path: string) => {
-    await loadUncFolders(path);
-  };
 
   const runFolderReconciliation = async () => {
-    if (!selectedUncFolder) {
-      toast({ title: "Thiếu folder", description: "Vui lòng chọn folder UNC cần đối soát", variant: "destructive" });
-      return;
-    }
-
     setReconcilingFolderScan(true);
     setReconcileProgress({ done: 0, total: 0, currentFile: "" });
 
@@ -266,7 +182,6 @@ export default function FinanceControl() {
       const { data: { session } } = await supabase.auth.getSession();
       const folderUrl = await getUncRootFolderUrl();
 
-      const primaryScanPath = /\/unc$/i.test(selectedUncFolder) ? selectedUncFolder : `${selectedUncFolder}/UNC`;
       const scanOnce = async (subfolderDate: string) => {
         const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
           method: "POST",
@@ -283,12 +198,12 @@ export default function FinanceControl() {
         return await resp.json();
       };
 
-      let scanData = await scanOnce(primaryScanPath);
+      let scanData = await scanOnce(computedScanPath);
       let files = Array.isArray(scanData?.files) ? scanData.files : [];
 
-      // fallback for legacy structures where files are directly under selected folder (no UNC child)
-      if (!files.length && !/\/unc$/i.test(selectedUncFolder)) {
-        scanData = await scanOnce(selectedUncFolder);
+      // fallback legacy: day-folder flat files
+      if (!files.length && !uncIncludeQtmFolder) {
+        scanData = await scanOnce(autoDayFolderPath);
         files = Array.isArray(scanData?.files) ? scanData.files : [];
       }
       const totalScannedCount = files.length;
@@ -359,7 +274,7 @@ export default function FinanceControl() {
 
       setReconcileProgress({ done: targetFiles.length, total: targetFiles.length, currentFile: "" });
       setUncReconSummary({
-        folderDate: selectedUncFolder,
+        folderDate: computedScanPath,
         folderTotal,
         ceoTotal,
         delta,
@@ -378,8 +293,8 @@ export default function FinanceControl() {
         toast({
           title: isVi ? "Đã tự điền UNC khai báo" : "UNC declared total auto-filled",
           description: isVi
-            ? `Đã cập nhật UNC khai báo = ${vnd(folderTotal)} từ folder ${selectedUncFolder}`
-            : `CEO UNC declared total updated to ${vnd(folderTotal)} from folder ${selectedUncFolder}`,
+            ? `Đã cập nhật UNC khai báo = ${vnd(folderTotal)} từ folder ${computedScanPath}`
+            : `CEO UNC declared total updated to ${vnd(folderTotal)} from folder ${computedScanPath}`,
         });
       }
 
@@ -643,9 +558,6 @@ export default function FinanceControl() {
                   setUncDialogOpen(true);
                   setUncStep(1);
                   setUncReconSummary(null);
-                  setUncFolderQuery("");
-                  setSelectedUncFolder("");
-                  await loadUncFolders("");
                 }}>
                   {isVi ? "Đối soát UNC theo folder" : "Reconcile UNC folder"}
                 </Button>
@@ -878,85 +790,23 @@ export default function FinanceControl() {
 
           {uncStep === 1 && (
             <div className="space-y-3">
-              <Label>{isVi ? "Chọn folder UNC" : "Select UNC folder"}</Label>
-
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <Button size="sm" variant="outline" onClick={() => openUncPath("")}>ROOT</Button>
-                {uncBrowsePath.split("/").filter(Boolean).map((seg, idx, arr) => {
-                  const path = arr.slice(0, idx + 1).join("/");
-                  return (
-                    <Button key={path} size="sm" variant="outline" onClick={() => openUncPath(path)}>{seg}</Button>
-                  );
-                })}
-                {!!uncBrowsePath && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      const parts = uncBrowsePath.split("/").filter(Boolean);
-                      parts.pop();
-                      openUncPath(parts.join("/"));
-                    }}
-                  >
-                    {isVi ? "Lên 1 cấp" : "Up"}
-                  </Button>
-                )}
-              </div>
-
-              <Input
-                placeholder={isVi ? "Tìm folder con..." : "Search child folder..."}
-                value={uncFolderQuery}
-                onChange={(e) => setUncFolderQuery(e.target.value)}
-              />
-              <div className="max-h-72 overflow-auto rounded border">
-                {loadingUncFolders ? (
-                  <div className="p-3 text-sm text-muted-foreground">{isVi ? "Đang tải danh sách folder..." : "Loading folders..."}</div>
-                ) : availableUncFolders
-                  .filter((f) => !uncFolderQuery.trim() || f.name.toLowerCase().includes(uncFolderQuery.toLowerCase()))
-                  .map((folder) => {
-                    const nextPath = uncBrowsePath ? `${uncBrowsePath}/${folder.name}` : folder.name;
-                    const isSelected = selectedUncFolder === nextPath;
-                    return (
-                      <button
-                        key={folder.folderId}
-                        className={`flex w-full items-center justify-between border-b px-3 py-2 text-left text-sm last:border-b-0 ${isSelected ? "bg-muted" : ""}`}
-                        onClick={async () => {
-                          setSelectedUncFolder(nextPath);
-                          try {
-                            const folderUrl = await getUncRootFolderUrl();
-                            const children = await listChildren(folderUrl, nextPath);
-                            if (Array.isArray(children) && children.length > 0) {
-                              await openUncPath(nextPath);
-                            }
-                          } catch {
-                            // keep selected path if cannot drill down
-                          }
-                        }}
-                      >
-                        <span className="flex items-center gap-2">📁 {folder.name}</span>
-                        <span className="text-muted-foreground">
-                          {folder.hasChildren
-                            ? `${folder.childFolderCount || 0} ${isVi ? "thư mục" : "folders"}`
-                            : `${folder.imageCount || 0} ${isVi ? "ảnh" : "images"}`}
-                        </span>
-                      </button>
-                    );
-                  })}
-                {!loadingUncFolders && !availableUncFolders.length && (
-                  <div className="p-3 text-sm text-muted-foreground">{isVi ? "Không có thư mục con" : "No child folders"}</div>
-                )}
+              <Label>{isVi ? "Đường dẫn quét tự động theo ngày" : "Auto scan path by selected date"}</Label>
+              <div className="rounded border p-3 text-sm space-y-1">
+                <div>{isVi ? "Ngày đang chọn" : "Selected date"}: <Badge variant="secondary">{format(selectedDate, "dd/MM/yyyy")}</Badge></div>
+                <div>{isVi ? "Chế độ mặc định" : "Default mode"}: <code>{autoDayFolderPath}/UNC</code></div>
+                <div>{isVi ? "Khi bật quét QTM audit" : "When QTM audit is ON"}: <code>{autoDayFolderPath}</code></div>
               </div>
               <div className="text-xs text-muted-foreground">
                 {isVi
-                  ? `Đường dẫn chọn: ${selectedUncFolder || "(chưa chọn)"}. Hệ thống sẽ ưu tiên quét ${selectedUncFolder ? `${selectedUncFolder}/UNC` : ".../UNC"}`
-                  : `Selected path: ${selectedUncFolder || "(none)"}. Scanner prefers ${selectedUncFolder ? `${selectedUncFolder}/UNC` : ".../UNC"}`}
+                  ? "Không cần chọn thủ công thư mục. Hệ thống sẽ tự đi theo YYYY/MM/DD từ ngày phía trên."
+                  : "No manual folder selection required. System follows YYYY/MM/DD from the selected date above."}
               </div>
             </div>
           )}
 
           {uncStep === 2 && (
             <div className="space-y-4">
-              <div className="text-sm">{isVi ? "Folder đã chọn:" : "Selected folder:"} <Badge variant="secondary">{selectedUncFolder || "-"}</Badge></div>
+              <div className="text-sm">{isVi ? "Folder sẽ quét:" : "Folder to scan:"} <Badge variant="secondary">{computedScanPath}</Badge></div>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={uncSkipProcessed} onChange={(e) => setUncSkipProcessed(e.target.checked)} />
                 {isVi ? "Bỏ qua file đã xử lý trước đó" : "Skip previously processed files"}
@@ -1045,7 +895,7 @@ export default function FinanceControl() {
               <Button variant="outline" onClick={() => setUncStep((s) => (s === 2 ? 1 : s))}>{isVi ? "Quay lại" : "Back"}</Button>
             )}
             {uncStep === 1 && (
-              <Button onClick={() => setUncStep(2)} disabled={!selectedUncFolder}>{isVi ? "Tiếp tục" : "Continue"}</Button>
+              <Button onClick={() => setUncStep(2)}>{isVi ? "Tiếp tục" : "Continue"}</Button>
             )}
             {uncStep === 2 && (
               <Button onClick={runFolderReconciliation} disabled={reconcilingFolderScan}>{reconcilingFolderScan ? (isVi ? "Đang đối soát..." : "Reconciling...") : (isVi ? "Quét & Đối soát" : "Scan & Reconcile")}</Button>
