@@ -193,11 +193,18 @@ serve(async (req) => {
         }
       }
       
-      // Sort by date (newest first) - convert DDMMYY to YYMMDD for comparison
+      // Sort by date (newest first) - support both DDMMYY and DDMMYYYY
       dates.sort((a, b) => {
         const toComparable = (d: string) => {
-          if (d.length !== 6) return d;
-          return d.slice(4) + d.slice(2, 4) + d.slice(0, 2);
+          if (/^\d{8}$/.test(d)) {
+            // ddmmyyyy => yyyymmdd
+            return d.slice(4, 8) + d.slice(2, 4) + d.slice(0, 2);
+          }
+          if (/^\d{6}$/.test(d)) {
+            // ddmmyy => yymmdd
+            return d.slice(4, 6) + d.slice(2, 4) + d.slice(0, 2);
+          }
+          return d;
         };
         return toComparable(b.date).localeCompare(toComparable(a.date));
       });

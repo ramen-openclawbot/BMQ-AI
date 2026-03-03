@@ -7,6 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -38,6 +46,27 @@ export default function FinanceControl() {
   const [saving, setSaving] = useState(false);
   const [reconciling, setReconciling] = useState(false);
   const [extracting, setExtracting] = useState(false);
+
+  const [uncDialogOpen, setUncDialogOpen] = useState(false);
+  const [uncStep, setUncStep] = useState<1 | 2 | 3>(1);
+  const [loadingUncFolders, setLoadingUncFolders] = useState(false);
+  const [uncFolderQuery, setUncFolderQuery] = useState("");
+  const [availableUncFolders, setAvailableUncFolders] = useState<Array<{ date: string; fileCount: number; folderId: string }>>([]);
+  const [selectedUncFolder, setSelectedUncFolder] = useState<string>("");
+  const [uncSkipProcessed, setUncSkipProcessed] = useState(true);
+  const [uncScanImagesOnly, setUncScanImagesOnly] = useState(true);
+  const [uncLowConfidenceThreshold, setUncLowConfidenceThreshold] = useState(0.75);
+  const [reconcilingFolderScan, setReconcilingFolderScan] = useState(false);
+  const [reconcileProgress, setReconcileProgress] = useState({ done: 0, total: 0, currentFile: "" });
+  const [uncReconSummary, setUncReconSummary] = useState<{
+    folderDate: string;
+    folderTotal: number;
+    ceoTotal: number;
+    delta: number;
+    status: "match" | "mismatch";
+    lowConfidenceCount: number;
+    items: Array<{ fileId: string; fileName: string; amount: number; confidence: number; status: "matched" | "mismatch" | "needs_review" }>;
+  } | null>(null);
 
   const { data: dailyDeclaration, refetch: refetchDeclaration } = useDailyDeclaration(selectedDate);
   const { data: uncDetailAmount, refetch: refetchUncDetail } = useUncDetailAmount(selectedDate);
@@ -88,6 +117,173 @@ export default function FinanceControl() {
     setPendingQtmExtractedList([]);
     setPendingUncExtractedList([]);
   }, [dateKey]);
+
+  const expectedFolderFromDate = format(selectedDate, "ddMMyyyy");
+
+  const extractSlipAmountFromBase64 = async (imageBase64: string, mimeType: string, slipType: "qtm" | "unc") => {
+    const { data: { session } } = await supabase.auth.getSession();
+
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/finance-extract-slip-amount`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      },
+      body: JSON.stringify({ imageBase64, mimeType, slipType }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err?.error || "Failed extracting amount from slip image");
+    }
+
+    const result = await response.json();
+    return result.data as { amount: number; confidence?: number; transfer_date?: string; reference?: string };
+  };
+
+  const getUncRootFolderUrl = async () => {
+    const envFolderUrl = import.meta.env.VITE_GOOGLE_DRIVE_RECEIPTS_FOLDER as string | undefined;
+    if (envFolderUrl) return envFolderUrl;
+
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "google_drive_receipts_folder")
+      .single();
+
+    if (error || !data?.value) {
+      throw new Error("Chưa cấu hình thư mục UNC gốc trong app_settings");
+    }
+
+    return String(data.value);
+  };
+
+  const loadUncFolders = async () => {
+    setLoadingUncFolders(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const folderUrl = await getUncRootFolderUrl();
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ folderUrl, mode: "list_all_dates" }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err?.error || "Không thể tải danh sách folder UNC");
+      }
+
+      const data = await response.json();
+      setAvailableUncFolders(Array.isArray(data?.dates) ? data.dates : []);
+      setSelectedUncFolder((Array.isArray(data?.dates) ? data.dates.find((d: any) => d.date === expectedFolderFromDate)?.date : "") || "");
+    } catch (e: any) {
+      toast({ title: "Lỗi tải folder UNC", description: e?.message || "Không thể tải danh sách folder", variant: "destructive" });
+    } finally {
+      setLoadingUncFolders(false);
+    }
+  };
+
+  const runFolderReconciliation = async () => {
+    if (!selectedUncFolder) {
+      toast({ title: "Thiếu folder", description: "Vui lòng chọn folder UNC cần đối soát", variant: "destructive" });
+      return;
+    }
+
+    setReconcilingFolderScan(true);
+    setReconcileProgress({ done: 0, total: 0, currentFile: "" });
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const folderUrl = await getUncRootFolderUrl();
+
+      const scanResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ folderUrl, subfolderDate: selectedUncFolder }),
+      });
+
+      if (!scanResponse.ok) {
+        const err = await scanResponse.json().catch(() => ({}));
+        throw new Error(err?.error || "Không thể scan folder UNC");
+      }
+
+      const scanData = await scanResponse.json();
+      let files = Array.isArray(scanData?.files) ? scanData.files : [];
+      if (uncScanImagesOnly) {
+        files = files.filter((f: any) => String(f?.mimeType || "").startsWith("image/"));
+      }
+
+      if (!files.length) throw new Error("Folder không có file ảnh để đối soát");
+
+      let processedSet = new Set<string>();
+      if (uncSkipProcessed) {
+        const fileIds = files.map((f: any) => f.id);
+        const { data: processedRows } = await supabase
+          .from("drive_file_index")
+          .select("file_id")
+          .eq("folder_type", "bank_slip")
+          .eq("processed", true)
+          .in("file_id", fileIds);
+        processedSet = new Set((processedRows || []).map((r: any) => r.file_id));
+      }
+
+      const targetFiles = files.filter((f: any) => !processedSet.has(f.id));
+      if (!targetFiles.length) throw new Error("Không còn file mới để đối soát (đã xử lý hết)");
+
+      setReconcileProgress({ done: 0, total: targetFiles.length, currentFile: "" });
+
+      const items: Array<{ fileId: string; fileName: string; amount: number; confidence: number; status: "matched" | "mismatch" | "needs_review" }> = [];
+      for (let i = 0; i < targetFiles.length; i += 1) {
+        const file = targetFiles[i];
+        setReconcileProgress({ done: i, total: targetFiles.length, currentFile: file.name || "" });
+        const extracted = await extractSlipAmountFromBase64(file.base64, file.mimeType || "image/jpeg", "unc");
+        const amount = Number(extracted?.amount || 0);
+        const confidence = Number(extracted?.confidence || 0);
+        items.push({
+          fileId: file.id,
+          fileName: file.name,
+          amount,
+          confidence,
+          status: confidence < uncLowConfidenceThreshold ? "needs_review" : "matched",
+        });
+      }
+
+      const folderTotal = items.reduce((sum, x) => sum + x.amount, 0);
+      const ceoTotal = Number(uncTotalDeclared || 0);
+      const delta = folderTotal - ceoTotal;
+      const status: "match" | "mismatch" = delta === 0 ? "match" : "mismatch";
+      const lowConfidenceCount = items.filter((x) => x.status === "needs_review").length;
+
+      const finalItems = items.map((x) => {
+        if (x.status === "needs_review") return x;
+        return { ...x, status: status === "match" ? "matched" : "mismatch" as const };
+      });
+
+      setReconcileProgress({ done: targetFiles.length, total: targetFiles.length, currentFile: "" });
+      setUncReconSummary({
+        folderDate: selectedUncFolder,
+        folderTotal,
+        ceoTotal,
+        delta,
+        status,
+        lowConfidenceCount,
+        items: finalItems,
+      });
+      setUncStep(3);
+    } catch (e: any) {
+      toast({ title: "Lỗi đối soát UNC", description: e?.message || "Không thể đối soát folder UNC", variant: "destructive" });
+    } finally {
+      setReconcilingFolderScan(false);
+    }
+  };
 
   const extractSlipAmount = async (file: File, slipType: "qtm" | "unc") => {
     const imageBase64 = await fileToBase64(file);
@@ -275,6 +471,26 @@ export default function FinanceControl() {
         <TabsContent value="daily" className="space-y-4">
           <Card>
             <CardHeader>
+              <CardTitle>{isVi ? "Đối soát UNC theo folder" : "UNC Reconciliation by folder"}</CardTitle>
+              <CardDescription>{isVi ? "Chọn folder UNC theo ngày (ddmmyyyy), scan toàn bộ ảnh bank slip và đối soát với tổng UNC CEO đã khai báo." : "Pick UNC date folder (ddmmyyyy), scan all bank slip images, and reconcile with CEO UNC declared total."}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button onClick={async () => {
+                  setUncDialogOpen(true);
+                  setUncStep(1);
+                  setUncReconSummary(null);
+                  await loadUncFolders();
+                }}>
+                  {isVi ? "Đối soát UNC theo folder" : "Reconcile UNC folder"}
+                </Button>
+                <Badge variant="secondary">{isVi ? `Ngày đang chọn: ${expectedFolderFromDate}` : `Expected folder: ${expectedFolderFromDate}`}</Badge>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>{isVi ? "Tải slip CEO (tự động trích xuất)" : "CEO Slip Upload (Auto Extract)"}</CardTitle>
               <CardDescription>{isVi ? "Cho phép tải nhiều ảnh slip trong ngày cho từng loại (QTM/UNC). Hệ thống tự quét số tiền từng ảnh, cộng dồn và lưu vào DB." : "Allow multiple slip images per day for each type (QTM / UNC). System auto scans each image, accumulates amount, and stores all images in DB."}</CardDescription>
             </CardHeader>
@@ -424,6 +640,127 @@ export default function FinanceControl() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={uncDialogOpen} onOpenChange={setUncDialogOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>{isVi ? `Đối soát UNC theo folder (Bước ${uncStep}/3)` : `UNC folder reconciliation (Step ${uncStep}/3)`}</DialogTitle>
+            <DialogDescription>
+              {isVi ? "Chọn folder UNC, cấu hình scan, rồi chạy đối soát với tổng khai báo CEO." : "Select UNC folder, configure scan options, then reconcile with CEO declared total."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {uncStep === 1 && (
+            <div className="space-y-3">
+              <Label>{isVi ? "Chọn folder UNC" : "Select UNC folder"}</Label>
+              <Input
+                placeholder={isVi ? "Tìm folder..." : "Search folder..."}
+                value={uncFolderQuery}
+                onChange={(e) => setUncFolderQuery(e.target.value)}
+              />
+              <div className="max-h-72 overflow-auto rounded border">
+                {loadingUncFolders ? (
+                  <div className="p-3 text-sm text-muted-foreground">{isVi ? "Đang tải danh sách folder..." : "Loading folders..."}</div>
+                ) : availableUncFolders
+                  .filter((f) => !uncFolderQuery.trim() || f.date.toLowerCase().includes(uncFolderQuery.toLowerCase()))
+                  .map((folder) => (
+                    <button
+                      key={folder.folderId}
+                      className={`flex w-full items-center justify-between border-b px-3 py-2 text-left text-sm last:border-b-0 ${selectedUncFolder === folder.date ? "bg-muted" : ""}`}
+                      onClick={() => setSelectedUncFolder(folder.date)}
+                    >
+                      <span>{folder.date}</span>
+                      <span className="text-muted-foreground">{folder.fileCount} files</span>
+                    </button>
+                  ))}
+              </div>
+              <div className="text-xs text-muted-foreground">{isVi ? "Format khuyến nghị: ddmmyyyy (ví dụ 02032026)." : "Recommended format: ddmmyyyy (e.g. 02032026)."}</div>
+            </div>
+          )}
+
+          {uncStep === 2 && (
+            <div className="space-y-4">
+              <div className="text-sm">{isVi ? "Folder đã chọn:" : "Selected folder:"} <Badge variant="secondary">{selectedUncFolder || "-"}</Badge></div>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={uncSkipProcessed} onChange={(e) => setUncSkipProcessed(e.target.checked)} />
+                {isVi ? "Bỏ qua file đã xử lý trước đó" : "Skip previously processed files"}
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={uncScanImagesOnly} onChange={(e) => setUncScanImagesOnly(e.target.checked)} />
+                {isVi ? "Chỉ lấy file ảnh" : "Only include image files"}
+              </label>
+              <div className="space-y-2">
+                <Label>{isVi ? "Ngưỡng confidence cần xác nhận" : "Low-confidence review threshold"}</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={uncLowConfidenceThreshold}
+                  onChange={(e) => setUncLowConfidenceThreshold(Math.max(0, Math.min(1, Number(e.target.value || 0))))}
+                />
+              </div>
+              {reconcilingFolderScan && (
+                <div className="rounded border p-3 text-sm">
+                  <div>{isVi ? "Tiến độ" : "Progress"}: {reconcileProgress.done}/{reconcileProgress.total}</div>
+                  <div className="text-muted-foreground">{reconcileProgress.currentFile}</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {uncStep === 3 && uncReconSummary && (
+            <div className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-4">
+                <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">Folder UNC</div><div className="font-semibold">{vnd(uncReconSummary.folderTotal)}</div></CardContent></Card>
+                <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">CEO UNC</div><div className="font-semibold">{vnd(uncReconSummary.ceoTotal)}</div></CardContent></Card>
+                <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch" : "Delta"}</div><div className="font-semibold">{vnd(uncReconSummary.delta)}</div></CardContent></Card>
+                <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">Status</div>{uncReconSummary.status === "match" ? <Badge className="bg-green-600">SUCCESS</Badge> : <Badge variant="destructive">MISMATCH</Badge>}</CardContent></Card>
+              </div>
+              <div className="text-xs text-amber-600">{isVi ? `File confidence thấp cần xác nhận: ${uncReconSummary.lowConfidenceCount}` : `Low confidence files: ${uncReconSummary.lowConfidenceCount}`}</div>
+              <div className="max-h-64 overflow-auto rounded border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>File</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead className="text-right">Confidence</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {uncReconSummary.items.map((item) => (
+                      <TableRow key={item.fileId}>
+                        <TableCell>{item.fileName}</TableCell>
+                        <TableCell className="text-right">{vnd(item.amount)}</TableCell>
+                        <TableCell className="text-right">{item.confidence.toFixed(2)}</TableCell>
+                        <TableCell>
+                          {item.status === "needs_review" ? <Badge variant="secondary">{isVi ? "Cần xác nhận" : "Needs review"}</Badge> : item.status === "matched" ? <Badge className="bg-green-600">Matched</Badge> : <Badge variant="destructive">Mismatch</Badge>}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            {uncStep > 1 && uncStep < 3 && (
+              <Button variant="outline" onClick={() => setUncStep((s) => (s === 2 ? 1 : s))}>{isVi ? "Quay lại" : "Back"}</Button>
+            )}
+            {uncStep === 1 && (
+              <Button onClick={() => setUncStep(2)} disabled={!selectedUncFolder}>{isVi ? "Tiếp tục" : "Continue"}</Button>
+            )}
+            {uncStep === 2 && (
+              <Button onClick={runFolderReconciliation} disabled={reconcilingFolderScan}>{reconcilingFolderScan ? (isVi ? "Đang đối soát..." : "Reconciling...") : (isVi ? "Quét & Đối soát" : "Scan & Reconcile")}</Button>
+            )}
+            {uncStep === 3 && (
+              <Button onClick={() => setUncDialogOpen(false)}>{isVi ? "Đóng" : "Close"}</Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
