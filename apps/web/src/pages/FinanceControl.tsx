@@ -200,14 +200,40 @@ export default function FinanceControl() {
     try {
       const folderUrl = await getUncRootFolderUrl();
 
-      const children = await listChildren(folderUrl, path);
-      const normalized = (children || []).map((x: any) => ({
+      const loadLegacyList = async () => {
+        const { data: { session } } = await supabase.auth.getSession();
+        const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          },
+          body: JSON.stringify({ folderUrl, mode: "list_all_dates" }),
+        });
+        if (!response.ok) throw new Error("Không thể tải danh sách folder kiểu cũ");
+        const data = await response.json();
+        const dates = Array.isArray(data?.dates) ? data.dates : [];
+        return dates.map((d: any) => ({
+          name: String(d?.date || ""),
+          folderId: String(d?.folderId || d?.date || ""),
+          imageCount: Number(d?.fileCount || 0),
+          hasChildren: false,
+          childFolderCount: 0,
+        }));
+      };
+
+      let normalized = (await listChildren(folderUrl, path)).map((x: any) => ({
         name: String(x?.name || ""),
         folderId: String(x?.folderId || x?.name || ""),
         imageCount: Number(x?.imageCount || 0),
         hasChildren: Boolean(x?.hasChildren),
         childFolderCount: Number(x?.childFolderCount || 0),
       })).sort((a: any, b: any) => a.name.localeCompare(b.name));
+
+      // Safety fallback: if root has no children from list_children, fallback to legacy list_all_dates
+      if (!path && !normalized.length) {
+        normalized = await loadLegacyList();
+      }
 
       setAvailableUncFolders(normalized);
       setUncBrowsePath(path);
@@ -240,23 +266,31 @@ export default function FinanceControl() {
       const { data: { session } } = await supabase.auth.getSession();
       const folderUrl = await getUncRootFolderUrl();
 
-      const scanPath = /\/unc$/i.test(selectedUncFolder) ? selectedUncFolder : `${selectedUncFolder}/UNC`;
-      const scanResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-        },
-        body: JSON.stringify({ folderUrl, subfolderDate: scanPath }),
-      });
+      const primaryScanPath = /\/unc$/i.test(selectedUncFolder) ? selectedUncFolder : `${selectedUncFolder}/UNC`;
+      const scanOnce = async (subfolderDate: string) => {
+        const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          },
+          body: JSON.stringify({ folderUrl, subfolderDate }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err?.error || "Không thể scan folder UNC");
+        }
+        return await resp.json();
+      };
 
-      if (!scanResponse.ok) {
-        const err = await scanResponse.json().catch(() => ({}));
-        throw new Error(err?.error || "Không thể scan folder UNC");
-      }
-
-      const scanData = await scanResponse.json();
+      let scanData = await scanOnce(primaryScanPath);
       let files = Array.isArray(scanData?.files) ? scanData.files : [];
+
+      // fallback for legacy structures where files are directly under selected folder (no UNC child)
+      if (!files.length && !/\/unc$/i.test(selectedUncFolder)) {
+        scanData = await scanOnce(selectedUncFolder);
+        files = Array.isArray(scanData?.files) ? scanData.files : [];
+      }
       const totalScannedCount = files.length;
 
       const isQtmPath = (f: any) => {
