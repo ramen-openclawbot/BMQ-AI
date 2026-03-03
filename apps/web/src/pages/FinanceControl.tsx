@@ -504,7 +504,7 @@ export default function FinanceControl() {
     setReconciliationAuditLogs(mergedLogs);
   };
 
-  const saveDeclaration = async () => {
+  const saveDeclaration = async (silent = false): Promise<boolean> => {
     setSaving(true);
     try {
       const existingQtmImages = Array.isArray(dailyDeclaration?.extraction_meta?.qtm_images)
@@ -554,14 +554,20 @@ export default function FinanceControl() {
         .upsert(payload, { onConflict: "closing_date" });
 
       if (error) throw error;
-      toast({ title: "Saved", description: "CEO daily declaration has been updated." });
+      if (!silent) {
+        toast({ title: "Saved", description: "CEO daily declaration has been updated." });
+      }
       setPendingQtmImagesBase64([]);
       setPendingUncImagesBase64([]);
       setPendingQtmExtractedList([]);
       setPendingUncExtractedList([]);
       await refetchDeclaration();
+      return true;
     } catch (e: any) {
-      toast({ title: "Error", description: e?.message || "Failed to save declaration", variant: "destructive" });
+      if (!silent) {
+        toast({ title: "Error", description: e?.message || "Failed to save declaration", variant: "destructive" });
+      }
+      return false;
     } finally {
       setSaving(false);
     }
@@ -613,6 +619,13 @@ export default function FinanceControl() {
     setCloseActing(true);
     try {
       setCloseDecision(decision);
+
+      // Khi chốt ngày: luôn persist đầy đủ declaration trước, để tránh thiếu dữ liệu top-level.
+      const declarationSaved = await saveDeclaration(true);
+      if (!declarationSaved) {
+        throw new Error(isVi ? "Không thể lưu khai báo CEO trước khi chốt" : "Failed to save CEO declaration before close");
+      }
+
       await refetchUncDetail();
       await runReconcile();
       await saveReconciliationWorkflowMeta(decision);
