@@ -48,43 +48,45 @@ export default function FinanceControl() {
   const [cashFundTopupAmount, setCashFundTopupAmount] = useState<number>(0);
   const [notes, setNotes] = useState("");
 
-  const [qtmSlipFile, setQtmSlipFile] = useState<File | null>(null);
-  const [uncSlipFile, setUncSlipFile] = useState<File | null>(null);
-  const [qtmSlipPreview, setQtmSlipPreview] = useState<string>("");
-  const [uncSlipPreview, setUncSlipPreview] = useState<string>("");
-  const [pendingQtmImageBase64, setPendingQtmImageBase64] = useState<string | null>(null);
-  const [pendingUncImageBase64, setPendingUncImageBase64] = useState<string | null>(null);
-  const [pendingQtmExtracted, setPendingQtmExtracted] = useState<any>(null);
-  const [pendingUncExtracted, setPendingUncExtracted] = useState<any>(null);
+  const [qtmSlipPreviews, setQtmSlipPreviews] = useState<string[]>([]);
+  const [uncSlipPreviews, setUncSlipPreviews] = useState<string[]>([]);
+  const [pendingQtmImagesBase64, setPendingQtmImagesBase64] = useState<string[]>([]);
+  const [pendingUncImagesBase64, setPendingUncImagesBase64] = useState<string[]>([]);
+  const [pendingQtmExtractedList, setPendingQtmExtractedList] = useState<any[]>([]);
+  const [pendingUncExtractedList, setPendingUncExtractedList] = useState<any[]>([]);
 
   useEffect(() => {
     setUncTotalDeclared(Number(dailyDeclaration?.unc_extracted_amount || dailyDeclaration?.unc_total_declared || 0));
     setCashFundTopupAmount(Number(dailyDeclaration?.qtm_extracted_amount || dailyDeclaration?.cash_fund_topup_amount || 0));
     setNotes(String(dailyDeclaration?.notes || ""));
-    setQtmSlipPreview(dailyDeclaration?.qtm_slip_image_base64 ? `data:image/jpeg;base64,${dailyDeclaration.qtm_slip_image_base64}` : "");
-    setUncSlipPreview(dailyDeclaration?.unc_slip_image_base64 ? `data:image/jpeg;base64,${dailyDeclaration.unc_slip_image_base64}` : "");
+
+    const qtmSaved = Array.isArray(dailyDeclaration?.extraction_meta?.qtm_images)
+      ? dailyDeclaration.extraction_meta.qtm_images
+      : (dailyDeclaration?.qtm_slip_image_base64 ? [dailyDeclaration.qtm_slip_image_base64] : []);
+    const uncSaved = Array.isArray(dailyDeclaration?.extraction_meta?.unc_images)
+      ? dailyDeclaration.extraction_meta.unc_images
+      : (dailyDeclaration?.unc_slip_image_base64 ? [dailyDeclaration.unc_slip_image_base64] : []);
+
+    setQtmSlipPreviews(qtmSaved.map((b64: string) => `data:image/jpeg;base64,${b64}`));
+    setUncSlipPreviews(uncSaved.map((b64: string) => `data:image/jpeg;base64,${b64}`));
 
     // clear unsaved local state when data source changes (e.g. switch date)
-    setPendingQtmImageBase64(null);
-    setPendingUncImageBase64(null);
-    setPendingQtmExtracted(null);
-    setPendingUncExtracted(null);
-    setQtmSlipFile(null);
-    setUncSlipFile(null);
+    setPendingQtmImagesBase64([]);
+    setPendingUncImagesBase64([]);
+    setPendingQtmExtractedList([]);
+    setPendingUncExtractedList([]);
   }, [dailyDeclaration]);
 
   const dateKey = format(selectedDate, "yyyy-MM-dd");
 
   useEffect(() => {
     // Prevent stale slip previews when switching date while query is refetching
-    setQtmSlipPreview("");
-    setUncSlipPreview("");
-    setPendingQtmImageBase64(null);
-    setPendingUncImageBase64(null);
-    setPendingQtmExtracted(null);
-    setPendingUncExtracted(null);
-    setQtmSlipFile(null);
-    setUncSlipFile(null);
+    setQtmSlipPreviews([]);
+    setUncSlipPreviews([]);
+    setPendingQtmImagesBase64([]);
+    setPendingUncImagesBase64([]);
+    setPendingQtmExtractedList([]);
+    setPendingUncExtractedList([]);
   }, [dateKey]);
 
   const extractSlipAmount = async (file: File, slipType: "qtm" | "unc") => {
@@ -109,28 +111,34 @@ export default function FinanceControl() {
     return { imageBase64, extracted: result.data as { amount: number; confidence?: number; transfer_date?: string; reference?: string } };
   };
 
-  const processSlipUpload = async (slipType: "qtm" | "unc", file: File) => {
+  const processSlipUpload = async (slipType: "qtm" | "unc", files: File[]) => {
+    if (!files.length) return;
     setExtracting(true);
     try {
-      const result = await extractSlipAmount(file, slipType);
+      const batchResults: Array<{ imageBase64: string; extracted: any; file: File }> = [];
+      for (const file of files) {
+        const result = await extractSlipAmount(file, slipType);
+        batchResults.push({ ...result, file });
+      }
+
+      const batchSum = batchResults.reduce((sum, r) => sum + Number(r.extracted?.amount || 0), 0);
+      const previews = batchResults.map((r) => `data:${r.file.type || "image/jpeg"};base64,${r.imageBase64}`);
 
       if (slipType === "qtm") {
-        setCashFundTopupAmount(Number(result.extracted.amount || 0));
-        setQtmSlipPreview(`data:${file.type || "image/jpeg"};base64,${result.imageBase64}`);
-        setPendingQtmImageBase64(result.imageBase64);
-        setPendingQtmExtracted(result.extracted);
+        setCashFundTopupAmount((prev) => Number(prev || 0) + batchSum);
+        setQtmSlipPreviews((prev) => [...prev, ...previews]);
+        setPendingQtmImagesBase64((prev) => [...prev, ...batchResults.map((r) => r.imageBase64)]);
+        setPendingQtmExtractedList((prev) => [...prev, ...batchResults.map((r) => r.extracted)]);
       } else {
-        setUncTotalDeclared(Number(result.extracted.amount || 0));
-        setUncSlipPreview(`data:${file.type || "image/jpeg"};base64,${result.imageBase64}`);
-        setPendingUncImageBase64(result.imageBase64);
-        setPendingUncExtracted(result.extracted);
+        setUncTotalDeclared((prev) => Number(prev || 0) + batchSum);
+        setUncSlipPreviews((prev) => [...prev, ...previews]);
+        setPendingUncImagesBase64((prev) => [...prev, ...batchResults.map((r) => r.imageBase64)]);
+        setPendingUncExtractedList((prev) => [...prev, ...batchResults.map((r) => r.extracted)]);
       }
 
       toast({
         title: "Đã scan slip (chưa lưu)",
-        description: slipType === "qtm"
-          ? `QTM: ${vnd(Number(result.extracted.amount || 0))}`
-          : `UNC: ${vnd(Number(result.extracted.amount || 0))}`,
+        description: `${slipType === "qtm" ? "QTM" : "UNC"}: +${vnd(batchSum)} (${batchResults.length} ảnh)`,
       });
     } catch (e: any) {
       toast({ title: "Lỗi OCR slip", description: e?.message || "Không thể trích xuất số tiền", variant: "destructive" });
@@ -142,18 +150,36 @@ export default function FinanceControl() {
   const saveDeclaration = async () => {
     setSaving(true);
     try {
+      const existingQtmImages = Array.isArray(dailyDeclaration?.extraction_meta?.qtm_images)
+        ? dailyDeclaration.extraction_meta.qtm_images
+        : (dailyDeclaration?.qtm_slip_image_base64 ? [dailyDeclaration.qtm_slip_image_base64] : []);
+      const existingUncImages = Array.isArray(dailyDeclaration?.extraction_meta?.unc_images)
+        ? dailyDeclaration.extraction_meta.unc_images
+        : (dailyDeclaration?.unc_slip_image_base64 ? [dailyDeclaration.unc_slip_image_base64] : []);
+      const finalQtmImages = [...existingQtmImages, ...pendingQtmImagesBase64];
+      const finalUncImages = [...existingUncImages, ...pendingUncImagesBase64];
+
       const payload = {
         closing_date: dateKey,
         unc_total_declared: Number(uncTotalDeclared || 0),
         cash_fund_topup_amount: Number(cashFundTopupAmount || 0),
-        qtm_extracted_amount: Number(pendingQtmExtracted?.amount ?? dailyDeclaration?.qtm_extracted_amount ?? cashFundTopupAmount ?? 0),
-        unc_extracted_amount: Number(pendingUncExtracted?.amount ?? dailyDeclaration?.unc_extracted_amount ?? uncTotalDeclared ?? 0),
-        qtm_slip_image_base64: pendingQtmImageBase64 ?? dailyDeclaration?.qtm_slip_image_base64 ?? null,
-        unc_slip_image_base64: pendingUncImageBase64 ?? dailyDeclaration?.unc_slip_image_base64 ?? null,
+        qtm_extracted_amount: Number(cashFundTopupAmount || 0),
+        unc_extracted_amount: Number(uncTotalDeclared || 0),
+        // giữ cột cũ để backward-compatible (preview nhanh ảnh đầu)
+        qtm_slip_image_base64: finalQtmImages[0] || null,
+        unc_slip_image_base64: finalUncImages[0] || null,
         extraction_meta: {
           ...(dailyDeclaration?.extraction_meta || {}),
-          ...(pendingQtmExtracted ? { qtm: pendingQtmExtracted } : {}),
-          ...(pendingUncExtracted ? { unc: pendingUncExtracted } : {}),
+          qtm_images: finalQtmImages,
+          unc_images: finalUncImages,
+          qtm_items: [
+            ...((dailyDeclaration?.extraction_meta?.qtm_items as any[]) || []),
+            ...pendingQtmExtractedList,
+          ],
+          unc_items: [
+            ...((dailyDeclaration?.extraction_meta?.unc_items as any[]) || []),
+            ...pendingUncExtractedList,
+          ],
         },
         notes: notes || null,
       };
@@ -164,10 +190,10 @@ export default function FinanceControl() {
 
       if (error) throw error;
       toast({ title: "Saved", description: "CEO daily declaration has been updated." });
-      setPendingQtmImageBase64(null);
-      setPendingUncImageBase64(null);
-      setPendingQtmExtracted(null);
-      setPendingUncExtracted(null);
+      setPendingQtmImagesBase64([]);
+      setPendingUncImagesBase64([]);
+      setPendingQtmExtractedList([]);
+      setPendingUncExtractedList([]);
       await refetchDeclaration();
     } catch (e: any) {
       toast({ title: "Error", description: e?.message || "Failed to save declaration", variant: "destructive" });
@@ -233,33 +259,49 @@ export default function FinanceControl() {
           <Card>
             <CardHeader>
               <CardTitle>{isVi ? "Tải slip CEO (tự động trích xuất)" : "CEO Slip Upload (Auto Extract)"}</CardTitle>
-              <CardDescription>{isVi ? "Tải 1 hoặc cả 2 slip (QTM/UNC). Hệ thống tự quét số tiền ngay sau upload và lưu ảnh vào DB." : "Upload 1 or both slips (QTM / UNC). System auto scans amount right after upload and stores image in DB."}</CardDescription>
+              <CardDescription>{isVi ? "Cho phép tải nhiều ảnh slip trong ngày cho từng loại (QTM/UNC). Hệ thống tự quét số tiền từng ảnh, cộng dồn và lưu vào DB." : "Allow multiple slip images per day for each type (QTM / UNC). System auto scans each image, accumulates amount, and stores all images in DB."}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>QTM Slip</Label>
-                  <Input type="file" accept="image/*" onChange={async (e) => {
-                    const f = e.target.files?.[0] || null;
-                    setQtmSlipFile(f);
-                    if (f) await processSlipUpload("qtm", f);
+                  <Input type="file" accept="image/*" multiple onChange={async (e) => {
+                    const files = Array.from(e.target.files || []);
+                    if (files.length) await processSlipUpload("qtm", files);
+                    e.currentTarget.value = "";
                   }} />
-                  {qtmSlipPreview && <img src={qtmSlipPreview} alt="QTM slip" className="max-h-40 rounded border" />}
+                  {!!qtmSlipPreviews.length && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {qtmSlipPreviews.map((src, idx) => (
+                        <img key={`qtm-${idx}`} src={src} alt={`QTM slip ${idx + 1}`} className="max-h-40 rounded border object-contain" />
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>UNC Slip</Label>
-                  <Input type="file" accept="image/*" onChange={async (e) => {
-                    const f = e.target.files?.[0] || null;
-                    setUncSlipFile(f);
-                    if (f) await processSlipUpload("unc", f);
+                  <Input type="file" accept="image/*" multiple onChange={async (e) => {
+                    const files = Array.from(e.target.files || []);
+                    if (files.length) await processSlipUpload("unc", files);
+                    e.currentTarget.value = "";
                   }} />
-                  {uncSlipPreview && <img src={uncSlipPreview} alt="UNC slip" className="max-h-40 rounded border" />}
+                  {!!uncSlipPreviews.length && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {uncSlipPreviews.map((src, idx) => (
+                        <img key={`unc-${idx}`} src={src} alt={`UNC slip ${idx + 1}`} className="max-h-40 rounded border object-contain" />
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
               {extracting && <div className="text-sm text-muted-foreground">{isVi ? "Đang scan slip và cập nhật số tiền..." : "Scanning slips and updating amount..."}</div>}
-              {(pendingQtmImageBase64 || pendingUncImageBase64) && (
-                <div className="text-sm text-amber-600">{isVi ? "Có dữ liệu slip mới chưa lưu. Vui lòng bấm Lưu khai báo để lưu vào DB." : "There are unsaved slip data. Please click Save Declaration to persist to DB."}</div>
+              {(pendingQtmImagesBase64.length > 0 || pendingUncImagesBase64.length > 0) && (
+                <div className="text-sm text-amber-600">
+                  {isVi
+                    ? `Có dữ liệu slip mới chưa lưu (QTM +${pendingQtmImagesBase64.length}, UNC +${pendingUncImagesBase64.length}). Vui lòng bấm Lưu khai báo để lưu vào DB.`
+                    : `There are unsaved slip data (QTM +${pendingQtmImagesBase64.length}, UNC +${pendingUncImagesBase64.length}). Please click Save Declaration to persist to DB.`}
+                </div>
               )}
             </CardContent>
           </Card>
