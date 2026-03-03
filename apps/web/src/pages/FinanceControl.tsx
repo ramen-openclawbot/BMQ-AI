@@ -25,6 +25,7 @@ import {
 } from "@/hooks/useFinanceReconciliation";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { Lock, Unlock } from "lucide-react";
 
 const vnd = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value || 0);
 
@@ -96,6 +97,7 @@ export default function FinanceControl() {
   const [pendingUncExtractedList, setPendingUncExtractedList] = useState<any[]>([]);
 
   const [closeDecision, setCloseDecision] = useState<"reject" | "conditional" | "approve">("reject");
+  const [closeApprovalLocked, setCloseApprovalLocked] = useState(false);
   const [closeReason, setCloseReason] = useState("");
   const [closeActing, setCloseActing] = useState(false);
   const [reconciliationAuditLogs, setReconciliationAuditLogs] = useState<Array<{ at: string; actor: string; action: string; detail?: string }>>([]);
@@ -106,6 +108,7 @@ export default function FinanceControl() {
     setNotes(String(dailyDeclaration?.notes || ""));
     setCeoDeclarationLocked(Boolean(dailyDeclaration?.extraction_meta?.ceo_declaration_locked));
     setCloseDecision((dailyDeclaration?.extraction_meta?.close_decision as any) || "reject");
+    setCloseApprovalLocked(Boolean(dailyDeclaration?.extraction_meta?.close_approval_locked));
     setCloseReason(String(dailyDeclaration?.extraction_meta?.close_reason || ""));
     setReconciliationAuditLogs(Array.isArray(dailyDeclaration?.extraction_meta?.reconciliation_audit_logs)
       ? dailyDeclaration.extraction_meta.reconciliation_audit_logs
@@ -491,12 +494,16 @@ export default function FinanceControl() {
     }
   };
 
-  const saveReconciliationWorkflowMeta = async (decisionOverride?: "reject" | "conditional" | "approve") => {
+  const saveReconciliationWorkflowMeta = async (
+    decisionOverride?: "reject" | "conditional" | "approve",
+    lockOverride?: boolean,
+    actionOverride?: string,
+  ) => {
     const decision = decisionOverride || closeDecision;
     const nextLog = {
       at: new Date().toISOString(),
       actor: "CEO",
-      action: decision === "reject" ? "reject_close" : decision === "conditional" ? "conditional_close" : "approve_close",
+      action: actionOverride || (decision === "reject" ? "reject_close" : decision === "conditional" ? "conditional_close" : "approve_close"),
       detail: closeReason || null,
     };
 
@@ -509,6 +516,7 @@ export default function FinanceControl() {
         extraction_meta: {
           ...(dailyDeclaration?.extraction_meta || {}),
           close_decision: decision,
+          close_approval_locked: lockOverride ?? (decision === "approve" ? true : closeApprovalLocked),
           close_reason: closeReason || null,
           reconciliation_audit_logs: mergedLogs,
           ceo_declaration_locked: ceoDeclarationLocked,
@@ -521,6 +529,7 @@ export default function FinanceControl() {
 
     if (error) throw error;
     setReconciliationAuditLogs(mergedLogs);
+    setCloseApprovalLocked(lockOverride ?? (decision === "approve" ? true : closeApprovalLocked));
   };
 
   const saveDeclaration = async (silent = false): Promise<boolean> => {
@@ -558,6 +567,7 @@ export default function FinanceControl() {
           ],
           ceo_declaration_locked: ceoDeclarationLocked,
           close_decision: closeDecision,
+          close_approval_locked: closeApprovalLocked,
           close_reason: closeReason || null,
           reconciliation_audit_logs: reconciliationAuditLogs,
           qtm_opening_balance: Number(qtmOpeningBalance || 0),
@@ -635,6 +645,14 @@ export default function FinanceControl() {
   };
 
   const handleCloseAction = async (decision: "reject" | "conditional" | "approve") => {
+    if (closeApprovalLocked && decision !== "approve") {
+      toast({
+        title: isVi ? "Đang khoá phê duyệt" : "Approval is locked",
+        description: isVi ? "Vui lòng mở khoá trước khi đổi trạng thái chốt ngày." : "Please unlock before changing close status.",
+      });
+      return;
+    }
+
     setCloseActing(true);
     try {
       setCloseDecision(decision);
@@ -647,7 +665,7 @@ export default function FinanceControl() {
 
       await refetchUncDetail();
       await runReconcile();
-      await saveReconciliationWorkflowMeta(decision);
+      await saveReconciliationWorkflowMeta(decision, decision === "approve" ? true : closeApprovalLocked);
       toast({
         title: isVi ? "Đã cập nhật trạng thái chốt ngày" : "Daily close decision updated",
         description: decision === "reject"
@@ -659,6 +677,24 @@ export default function FinanceControl() {
       await refetchDeclaration();
     } catch (e: any) {
       toast({ title: isVi ? "Lỗi" : "Error", description: e?.message || (isVi ? "Không thể cập nhật chốt ngày" : "Failed updating close decision"), variant: "destructive" });
+    } finally {
+      setCloseActing(false);
+    }
+  };
+
+  const handleUnlockApproval = async () => {
+    setCloseActing(true);
+    try {
+      const declarationSaved = await saveDeclaration(true);
+      if (!declarationSaved) throw new Error(isVi ? "Không thể lưu dữ liệu trước khi mở khoá" : "Failed to save before unlock");
+      await saveReconciliationWorkflowMeta("approve", false, "unlock_approval");
+      toast({
+        title: isVi ? "Đã mở khoá phê duyệt" : "Approval unlocked",
+        description: isVi ? "Anh có thể chỉnh và phê duyệt lại." : "You can edit and approve again.",
+      });
+      await refetchDeclaration();
+    } catch (e: any) {
+      toast({ title: isVi ? "Lỗi" : "Error", description: e?.message || (isVi ? "Không thể mở khoá" : "Failed to unlock"), variant: "destructive" });
     } finally {
       setCloseActing(false);
     }
@@ -892,7 +928,7 @@ export default function FinanceControl() {
                   <div className="grid gap-2 md:grid-cols-3">
                     <button
                       type="button"
-                      disabled={closeActing || reconciling || (!uncReconSummary && !dailyReconciliation)}
+                      disabled={closeActing || reconciling || (!uncReconSummary && !dailyReconciliation) || closeApprovalLocked}
                       className={`rounded border px-3 py-2 text-sm text-left text-foreground disabled:opacity-50 disabled:cursor-not-allowed ${closeDecision === "reject" ? "border-red-500 bg-red-500/15 text-red-700 dark:text-red-200" : ""}`}
                       onClick={() => handleCloseAction("reject")}
                     >
@@ -900,7 +936,7 @@ export default function FinanceControl() {
                     </button>
                     <button
                       type="button"
-                      disabled={closeActing || reconciling || (!uncReconSummary && !dailyReconciliation)}
+                      disabled={closeActing || reconciling || (!uncReconSummary && !dailyReconciliation) || closeApprovalLocked}
                       className={`rounded border px-3 py-2 text-sm text-left text-foreground disabled:opacity-50 disabled:cursor-not-allowed ${closeDecision === "conditional" ? "border-amber-500 bg-amber-500/20 text-amber-800 dark:text-amber-100" : ""}`}
                       onClick={() => handleCloseAction("conditional")}
                     >
@@ -912,9 +948,23 @@ export default function FinanceControl() {
                       className={`rounded border px-3 py-2 text-sm text-left text-foreground disabled:opacity-50 disabled:cursor-not-allowed ${closeDecision === "approve" ? "border-green-500 bg-green-500/15 text-green-700 dark:text-green-200" : ""}`}
                       onClick={() => handleCloseAction("approve")}
                     >
-                      {isVi ? "Phê duyệt chốt ngày" : "Approve close"}
+                      <span className="inline-flex items-center gap-2">
+                        {closeDecision === "approve" && closeApprovalLocked && <Lock className="h-4 w-4" />}
+                        {closeDecision === "approve" && closeApprovalLocked
+                          ? (isVi ? "Đã phê duyệt" : "Approved")
+                          : (isVi ? "Phê duyệt chốt ngày" : "Approve close")}
+                      </span>
                     </button>
                   </div>
+
+                  {closeDecision === "approve" && closeApprovalLocked && (
+                    <div className="flex justify-end">
+                      <Button type="button" variant="outline" size="sm" onClick={handleUnlockApproval} disabled={closeActing}>
+                        <Unlock className="h-4 w-4 mr-2" />
+                        {isVi ? "Mở khoá phê duyệt" : "Unlock approval"}
+                      </Button>
+                    </div>
+                  )}
 
                   <div className="space-y-2">
                     <Label>{isVi ? "Giải trình / lý do" : "Explanation / reason"}</Label>
