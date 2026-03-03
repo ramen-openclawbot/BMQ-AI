@@ -53,6 +53,12 @@ export default function FinanceControl() {
   const [uncFolderQuery, setUncFolderQuery] = useState("");
   const [availableUncFolders, setAvailableUncFolders] = useState<Array<{ date: string; fileCount: number; folderId: string }>>([]);
   const [selectedUncFolder, setSelectedUncFolder] = useState<string>("");
+  const [uncYears, setUncYears] = useState<string[]>([]);
+  const [uncMonths, setUncMonths] = useState<string[]>([]);
+  const [uncDays, setUncDays] = useState<string[]>([]);
+  const [selectedUncYear, setSelectedUncYear] = useState<string>("");
+  const [selectedUncMonth, setSelectedUncMonth] = useState<string>("");
+  const [selectedUncDay, setSelectedUncDay] = useState<string>("");
   const [uncSkipProcessed, setUncSkipProcessed] = useState(true);
   const [uncScanImagesOnly, setUncScanImagesOnly] = useState(true);
   const [uncIncludeQtmFolder, setUncIncludeQtmFolder] = useState(false);
@@ -174,29 +180,56 @@ export default function FinanceControl() {
     return String(data.value);
   };
 
+  const listChildren = async (folderUrl: string, parentPath: string) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      },
+      body: JSON.stringify({ folderUrl, mode: "list_children", parentPath }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err?.error || "Không thể tải danh sách thư mục");
+    }
+
+    const data = await response.json();
+    return Array.isArray(data?.folders) ? data.folders : [];
+  };
+
   const loadUncFolders = async () => {
     setLoadingUncFolders(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
       const folderUrl = await getUncRootFolderUrl();
+      const years = (await listChildren(folderUrl, "")).map((x: any) => String(x.name));
+      setUncYears(years);
 
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-        },
-        body: JSON.stringify({ folderUrl, mode: "list_all_dates" }),
-      });
+      const y = String(selectedDate.getFullYear());
+      const defaultYear = years.includes(y) ? y : (years[years.length - 1] || "");
+      setSelectedUncYear(defaultYear);
 
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err?.error || "Không thể tải danh sách folder UNC");
-      }
+      const months = defaultYear ? (await listChildren(folderUrl, defaultYear)).map((x: any) => String(x.name)) : [];
+      setUncMonths(months);
 
-      const data = await response.json();
-      setAvailableUncFolders(Array.isArray(data?.dates) ? data.dates : []);
-      setSelectedUncFolder((Array.isArray(data?.dates) ? data.dates.find((d: any) => d.date === expectedFolderFromDate)?.date : "") || "");
+      const m = String(selectedDate.getMonth() + 1).padStart(2, "0");
+      const defaultMonth = months.includes(m) ? m : (months[months.length - 1] || "");
+      setSelectedUncMonth(defaultMonth);
+
+      const dayParent = defaultYear && defaultMonth ? `${defaultYear}/${defaultMonth}` : "";
+      const days = dayParent ? (await listChildren(folderUrl, dayParent)).map((x: any) => String(x.name)) : [];
+      setUncDays(days);
+
+      const d = String(selectedDate.getDate()).padStart(2, "0");
+      const defaultDay = days.includes(d) ? d : (days[days.length - 1] || "");
+      setSelectedUncDay(defaultDay);
+
+      const selectedPath = defaultYear && defaultMonth && defaultDay ? `${defaultYear}/${defaultMonth}/${defaultDay}` : "";
+      setSelectedUncFolder(selectedPath);
+
+      setAvailableUncFolders([]);
     } catch (e: any) {
       toast({ title: "Lỗi tải folder UNC", description: e?.message || "Không thể tải danh sách folder", variant: "destructive" });
     } finally {
@@ -217,13 +250,14 @@ export default function FinanceControl() {
       const { data: { session } } = await supabase.auth.getSession();
       const folderUrl = await getUncRootFolderUrl();
 
+      const scanPath = `${selectedUncFolder}/UNC`;
       const scanResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
-        body: JSON.stringify({ folderUrl, subfolderDate: selectedUncFolder }),
+        body: JSON.stringify({ folderUrl, subfolderDate: scanPath }),
       });
 
       if (!scanResponse.ok) {
@@ -818,29 +852,77 @@ export default function FinanceControl() {
 
           {uncStep === 1 && (
             <div className="space-y-3">
-              <Label>{isVi ? "Chọn folder UNC" : "Select UNC folder"}</Label>
-              <Input
-                placeholder={isVi ? "Tìm folder..." : "Search folder..."}
-                value={uncFolderQuery}
-                onChange={(e) => setUncFolderQuery(e.target.value)}
-              />
-              <div className="max-h-72 overflow-auto rounded border">
-                {loadingUncFolders ? (
-                  <div className="p-3 text-sm text-muted-foreground">{isVi ? "Đang tải danh sách folder..." : "Loading folders..."}</div>
-                ) : availableUncFolders
-                  .filter((f) => !uncFolderQuery.trim() || f.date.toLowerCase().includes(uncFolderQuery.toLowerCase()))
-                  .map((folder) => (
-                    <button
-                      key={folder.folderId}
-                      className={`flex w-full items-center justify-between border-b px-3 py-2 text-left text-sm last:border-b-0 ${selectedUncFolder === folder.date ? "bg-muted" : ""}`}
-                      onClick={() => setSelectedUncFolder(folder.date)}
+              <Label>{isVi ? "Duyệt cây thư mục UNC" : "Browse UNC folder tree"}</Label>
+              {loadingUncFolders ? (
+                <div className="p-3 text-sm text-muted-foreground">{isVi ? "Đang tải danh sách thư mục..." : "Loading folders..."}</div>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="space-y-1">
+                    <Label>{isVi ? "Năm (YYYY)" : "Year"}</Label>
+                    <select
+                      className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                      value={selectedUncYear}
+                      onChange={async (e) => {
+                        const y = e.target.value;
+                        setSelectedUncYear(y);
+                        const folderUrl = await getUncRootFolderUrl();
+                        const months = y ? (await listChildren(folderUrl, y)).map((x: any) => String(x.name)) : [];
+                        setUncMonths(months);
+                        const nextMonth = months[0] || "";
+                        setSelectedUncMonth(nextMonth);
+                        const days = (y && nextMonth) ? (await listChildren(folderUrl, `${y}/${nextMonth}`)).map((x: any) => String(x.name)) : [];
+                        setUncDays(days);
+                        const nextDay = days[0] || "";
+                        setSelectedUncDay(nextDay);
+                        setSelectedUncFolder(y && nextMonth && nextDay ? `${y}/${nextMonth}/${nextDay}` : "");
+                      }}
                     >
-                      <span>{folder.date}</span>
-                      <span className="text-muted-foreground">{folder.fileCount} files</span>
-                    </button>
-                  ))}
+                      <option value="">--</option>
+                      {uncYears.map((y) => <option key={y} value={y}>{y}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>{isVi ? "Tháng (MM)" : "Month"}</Label>
+                    <select
+                      className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                      value={selectedUncMonth}
+                      onChange={async (e) => {
+                        const m = e.target.value;
+                        setSelectedUncMonth(m);
+                        const folderUrl = await getUncRootFolderUrl();
+                        const days = (selectedUncYear && m) ? (await listChildren(folderUrl, `${selectedUncYear}/${m}`)).map((x: any) => String(x.name)) : [];
+                        setUncDays(days);
+                        const nextDay = days[0] || "";
+                        setSelectedUncDay(nextDay);
+                        setSelectedUncFolder(selectedUncYear && m && nextDay ? `${selectedUncYear}/${m}/${nextDay}` : "");
+                      }}
+                    >
+                      <option value="">--</option>
+                      {uncMonths.map((m) => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>{isVi ? "Ngày (DD)" : "Day"}</Label>
+                    <select
+                      className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                      value={selectedUncDay}
+                      onChange={(e) => {
+                        const d = e.target.value;
+                        setSelectedUncDay(d);
+                        setSelectedUncFolder(selectedUncYear && selectedUncMonth && d ? `${selectedUncYear}/${selectedUncMonth}/${d}` : "");
+                      }}
+                    >
+                      <option value="">--</option>
+                      {uncDays.map((d) => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </div>
+                </div>
+              )}
+              <div className="text-xs text-muted-foreground">
+                {isVi
+                  ? `Đường dẫn đang chọn: ${selectedUncFolder ? `${selectedUncFolder}/UNC` : "(chưa chọn)"}`
+                  : `Selected path: ${selectedUncFolder ? `${selectedUncFolder}/UNC` : "(none)"}`}
               </div>
-              <div className="text-xs text-muted-foreground">{isVi ? "Format khuyến nghị: ddmmyyyy (ví dụ 02032026)." : "Recommended format: ddmmyyyy (e.g. 02032026)."}</div>
             </div>
           )}
 

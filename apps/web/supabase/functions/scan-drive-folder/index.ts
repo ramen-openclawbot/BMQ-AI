@@ -63,6 +63,46 @@ async function getAccessToken(supabaseClient: any): Promise<string | null> {
   return tokens.access_token;
 }
 
+async function listChildFolders(parentFolderId: string, accessToken: string): Promise<DriveFile[]> {
+  const q = encodeURIComponent(
+    `'${parentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
+  );
+  const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,mimeType)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) throw new Error(`Failed listing child folders: ${await res.text()}`);
+  const data: DriveListResponse = await res.json();
+  return data.files || [];
+}
+
+async function resolveFolderPath(rootFolderId: string, path: string, accessToken: string): Promise<string | null> {
+  const segments = String(path || "").split("/").map((s) => s.trim()).filter(Boolean);
+  if (!segments.length) return rootFolderId;
+
+  let currentFolderId = rootFolderId;
+  for (const segment of segments) {
+    const q = encodeURIComponent(
+      `'${currentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and name = '${segment.replace(/'/g, "\\'")}' and trashed = false`
+    );
+    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) throw new Error(`Failed resolving path segment '${segment}': ${await res.text()}`);
+    const data: DriveListResponse = await res.json();
+    if (!data.files?.length) return null;
+    currentFolderId = data.files[0].id;
+  }
+
+  return currentFolderId;
+}
+
+async function countImagesInFolder(folderId: string, accessToken: string): Promise<number> {
+  const q = encodeURIComponent(`'${folderId}' in parents and (mimeType contains 'image/') and trashed = false`);
+  const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return 0;
+  const data: DriveListResponse = await res.json();
+  return data.files?.length || 0;
+}
+
 serve(async (req) => {
   const startTime = Date.now();
   console.log("[scan-drive-folder] Request started");
@@ -105,7 +145,7 @@ serve(async (req) => {
     console.log("[scan-drive-folder] User authenticated:", user.id);
 
     // Parse request body
-    const { folderUrl, subfolderDate, mode } = await req.json();
+    const { folderUrl, subfolderDate, mode, parentPath } = await req.json();
 
     if (!folderUrl) {
       return new Response(JSON.stringify({ error: 'Missing folderUrl' }), {
@@ -132,6 +172,32 @@ serve(async (req) => {
       console.log("[scan-drive-folder] Google Drive not connected");
       return new Response(JSON.stringify({ error: 'Google Drive not connected. Please connect in Settings.' }), {
         status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // MODE: list_children - Browse hierarchy under a parent path (e.g. YYYY/MM)
+    if (mode === 'list_children') {
+      const resolvedParentId = await resolveFolderPath(rootFolderId, String(parentPath || ''), accessToken);
+
+      if (!resolvedParentId) {
+        return new Response(JSON.stringify({ success: true, mode: 'list_children', folders: [], parentPath: parentPath || '' }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const children = await listChildFolders(resolvedParentId, accessToken);
+      const folders = await Promise.all(children.map(async (f) => ({
+        name: f.name,
+        folderId: f.id,
+        imageCount: await countImagesInFolder(f.id, accessToken),
+      })));
+
+      folders.sort((a, b) => a.name.localeCompare(b.name));
+
+      return new Response(JSON.stringify({ success: true, mode: 'list_children', parentPath: parentPath || '', folders }), {
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -225,44 +291,22 @@ serve(async (req) => {
     let targetFolderId = rootFolderId;
 
     if (subfolderDate) {
-      console.log(`[scan-drive-folder] Scanning subfolder: ${subfolderDate}`);
-      // List subfolders to find the one matching the date
-      const subfolderQuery = encodeURIComponent(`'${rootFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and name = '${subfolderDate}' and trashed = false`);
-      const subfolderUrl = `https://www.googleapis.com/drive/v3/files?q=${subfolderQuery}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
-      
-      const subfolderResponse = await fetch(subfolderUrl, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
+      console.log(`[scan-drive-folder] Scanning subfolder path: ${subfolderDate}`);
+      const resolvedFolderId = await resolveFolderPath(rootFolderId, String(subfolderDate), accessToken);
 
-      if (!subfolderResponse.ok) {
-        const errorText = await subfolderResponse.text();
-        console.error('[scan-drive-folder] Google Drive API error (subfolders):', errorText);
-        return new Response(JSON.stringify({ 
-          error: 'Failed to access Google Drive folder',
-          details: 'Token may have expired. Please reconnect Google Drive in Settings.'
-        }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      const subfolderData: DriveListResponse = await subfolderResponse.json();
-      
-      if (subfolderData.files.length === 0) {
-        console.log(`[scan-drive-folder] No subfolder found for date ${subfolderDate}`);
-        return new Response(JSON.stringify({ 
-          success: true, 
+      if (!resolvedFolderId) {
+        console.log(`[scan-drive-folder] No subfolder found for path ${subfolderDate}`);
+        return new Response(JSON.stringify({
+          success: true,
           files: [],
-          message: `No subfolder found for date ${subfolderDate}`
+          message: `No subfolder found for path ${subfolderDate}`
         }), {
           status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
-      targetFolderId = subfolderData.files[0].id;
+      targetFolderId = resolvedFolderId;
     }
 
     // List image files in the target folder
