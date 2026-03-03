@@ -103,6 +103,17 @@ async function countImagesInFolder(folderId: string, accessToken: string): Promi
   return data.files?.length || 0;
 }
 
+async function countChildFolders(folderId: string, accessToken: string): Promise<number> {
+  const q = encodeURIComponent(
+    `'${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
+  );
+  const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return 0;
+  const data: DriveListResponse = await res.json();
+  return data.files?.length || 0;
+}
+
 serve(async (req) => {
   const startTime = Date.now();
   console.log("[scan-drive-folder] Request started");
@@ -178,25 +189,35 @@ serve(async (req) => {
 
     // MODE: list_children - Browse hierarchy under a parent path (e.g. YYYY/MM)
     if (mode === 'list_children') {
-      const resolvedParentId = await resolveFolderPath(rootFolderId, String(parentPath || ''), accessToken);
+      const normalizedParentPath = String(parentPath || '').replace(/^\/+|\/+$/g, '');
+      const resolvedParentId = await resolveFolderPath(rootFolderId, normalizedParentPath, accessToken);
 
       if (!resolvedParentId) {
-        return new Response(JSON.stringify({ success: true, mode: 'list_children', folders: [], parentPath: parentPath || '' }), {
+        return new Response(JSON.stringify({ success: true, mode: 'list_children', folders: [], parentPath: normalizedParentPath }), {
           status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
       const children = await listChildFolders(resolvedParentId, accessToken);
-      const folders = await Promise.all(children.map(async (f) => ({
-        name: f.name,
-        folderId: f.id,
-        imageCount: await countImagesInFolder(f.id, accessToken),
-      })));
+      const folders = await Promise.all(children.map(async (f) => {
+        const [imageCount, childFolderCount] = await Promise.all([
+          countImagesInFolder(f.id, accessToken),
+          countChildFolders(f.id, accessToken),
+        ]);
+
+        return {
+          name: f.name,
+          folderId: f.id,
+          imageCount,
+          hasChildren: childFolderCount > 0,
+          childFolderCount,
+        };
+      }));
 
       folders.sort((a, b) => a.name.localeCompare(b.name));
 
-      return new Response(JSON.stringify({ success: true, mode: 'list_children', parentPath: parentPath || '', folders }), {
+      return new Response(JSON.stringify({ success: true, mode: 'list_children', parentPath: normalizedParentPath, folders }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
