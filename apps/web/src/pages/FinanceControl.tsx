@@ -76,6 +76,7 @@ export default function FinanceControl() {
   const [uncTotalDeclared, setUncTotalDeclared] = useState<number>(0);
   const [cashFundTopupAmount, setCashFundTopupAmount] = useState<number>(0);
   const [notes, setNotes] = useState("");
+  const [ceoDeclarationLocked, setCeoDeclarationLocked] = useState(false);
 
   const [qtmSlipPreviews, setQtmSlipPreviews] = useState<string[]>([]);
   const [uncSlipPreviews, setUncSlipPreviews] = useState<string[]>([]);
@@ -88,6 +89,7 @@ export default function FinanceControl() {
     setUncTotalDeclared(Number(dailyDeclaration?.unc_extracted_amount || dailyDeclaration?.unc_total_declared || 0));
     setCashFundTopupAmount(Number(dailyDeclaration?.qtm_extracted_amount || dailyDeclaration?.cash_fund_topup_amount || 0));
     setNotes(String(dailyDeclaration?.notes || ""));
+    setCeoDeclarationLocked(Boolean(dailyDeclaration?.extraction_meta?.ceo_declaration_locked));
 
     const qtmSaved = Array.isArray(dailyDeclaration?.extraction_meta?.qtm_images)
       ? dailyDeclaration.extraction_meta.qtm_images
@@ -391,6 +393,7 @@ export default function FinanceControl() {
             ...((dailyDeclaration?.extraction_meta?.unc_items as any[]) || []),
             ...pendingUncExtractedList,
           ],
+          ceo_declaration_locked: ceoDeclarationLocked,
         },
         notes: notes || null,
       };
@@ -506,14 +509,14 @@ export default function FinanceControl() {
 
           <Card>
             <CardHeader>
-              <CardTitle>{isVi ? "Tải slip CEO (tự động trích xuất)" : "CEO Slip Upload (Auto Extract)"}</CardTitle>
-              <CardDescription>{isVi ? "Cho phép tải nhiều ảnh slip trong ngày cho từng loại (QTM/UNC). Hệ thống tự quét số tiền từng ảnh, cộng dồn và lưu vào DB." : "Allow multiple slip images per day for each type (QTM / UNC). System auto scans each image, accumulates amount, and stores all images in DB."}</CardDescription>
+              <CardTitle>{isVi ? "Phase 1 • Khai báo CEO (upload slip)" : "Phase 1 • CEO Declaration (upload slips)"}</CardTitle>
+              <CardDescription>{isVi ? "CEO upload slip theo 2 nguồn quỹ: NGÂN HÀNG và QTM. Hệ thống OCR tự cộng tổng khai báo theo ngày." : "CEO uploads slips by fund source: BANK and QTM. OCR auto-accumulates declared totals by day."}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>QTM Slip</Label>
-                  <Input type="file" accept="image/*" multiple onChange={async (e) => {
+                  <Label>{isVi ? "Slip QTM" : "QTM slips"}</Label>
+                  <Input type="file" accept="image/*" multiple disabled={ceoDeclarationLocked} onChange={async (e) => {
                     const files = Array.from(e.target.files || []);
                     if (files.length) await processSlipUpload("qtm", files);
                     e.currentTarget.value = "";
@@ -527,8 +530,8 @@ export default function FinanceControl() {
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label>UNC Slip</Label>
-                  <Input type="file" accept="image/*" multiple onChange={async (e) => {
+                  <Label>{isVi ? "Slip NGÂN HÀNG" : "BANK slips"}</Label>
+                  <Input type="file" accept="image/*" multiple disabled={ceoDeclarationLocked} onChange={async (e) => {
                     const files = Array.from(e.target.files || []);
                     if (files.length) await processSlipUpload("unc", files);
                     e.currentTarget.value = "";
@@ -547,10 +550,26 @@ export default function FinanceControl() {
               {(pendingQtmImagesBase64.length > 0 || pendingUncImagesBase64.length > 0) && (
                 <div className="text-sm text-amber-600">
                   {isVi
-                    ? `Có dữ liệu slip mới chưa lưu (QTM +${pendingQtmImagesBase64.length}, UNC +${pendingUncImagesBase64.length}). Vui lòng bấm Lưu khai báo để lưu vào DB.`
-                    : `There are unsaved slip data (QTM +${pendingQtmImagesBase64.length}, UNC +${pendingUncImagesBase64.length}). Please click Save Declaration to persist to DB.`}
+                    ? `Có dữ liệu slip mới chưa lưu (QTM +${pendingQtmImagesBase64.length}, BANK +${pendingUncImagesBase64.length}). Vui lòng bấm Lưu khai báo để lưu vào DB.`
+                    : `There are unsaved slip data (QTM +${pendingQtmImagesBase64.length}, BANK +${pendingUncImagesBase64.length}). Please click Save Declaration to persist to DB.`}
                 </div>
               )}
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "CEO khai báo NGÂN HÀNG" : "CEO BANK declared"}</div><div className="text-xl font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "CEO khai báo QTM" : "CEO QTM declared"}</div><div className="text-xl font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div></CardContent></Card>
+              </div>
+
+              {ceoDeclarationLocked && (
+                <div className="text-sm text-green-700">{isVi ? "Khai báo CEO đã khoá cho ngày này. Mở khoá để chỉnh sửa thêm." : "CEO declaration is locked for this day. Unlock to edit."}</div>
+              )}
+
+              <div className="flex gap-2">
+                <Button onClick={saveDeclaration} disabled={saving || ceoDeclarationLocked}>{saving ? (isVi ? "Đang lưu..." : "Saving...") : (isVi ? "Lưu khai báo CEO" : "Save CEO Declaration")}</Button>
+                <Button variant="outline" onClick={() => setCeoDeclarationLocked((v) => !v)}>
+                  {ceoDeclarationLocked ? (isVi ? "Mở khoá khai báo" : "Unlock declaration") : (isVi ? "Khoá khai báo ngày" : "Lock declaration")}
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
@@ -604,7 +623,6 @@ export default function FinanceControl() {
               )}
 
               <div className="flex gap-2">
-                <Button onClick={saveDeclaration} disabled={saving}>{saving ? (isVi ? "Đang lưu..." : "Saving...") : (isVi ? "Lưu khai báo" : "Save Declaration")}</Button>
                 <Button variant="outline" onClick={async () => { await refetchUncDetail(); await runReconcile(); }} disabled={reconciling || !uncReconSummary}>
                   {reconciling ? (isVi ? "Đang đối soát..." : "Reconciling...") : (isVi ? "Chốt theo kết quả folder" : "Close with folder result")}
                 </Button>
