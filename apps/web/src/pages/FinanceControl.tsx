@@ -127,10 +127,12 @@ export default function FinanceControl() {
 
   const dateKey = format(selectedDate, "yyyy-MM-dd");
 
-  const resolvedUncDetail = Number((uncReconSummary?.folderTotal ?? dailyReconciliation?.unc_detail_amount ?? uncDetailAmount) || 0);
+  const persistedFolderTotal = Number(dailyDeclaration?.extraction_meta?.unc_folder_total || 0);
+  const persistedFolderStatus = dailyDeclaration?.extraction_meta?.unc_folder_status as ("match" | "mismatch" | undefined);
+  const resolvedUncDetail = Number((uncReconSummary?.folderTotal ?? persistedFolderTotal ?? dailyReconciliation?.unc_detail_amount ?? uncDetailAmount) || 0);
   const resolvedUncDeclared = Number((uncReconSummary?.ceoTotal ?? dailyReconciliation?.unc_declared_amount ?? uncTotalDeclared) || 0);
   const resolvedVariance = resolvedUncDetail - resolvedUncDeclared;
-  const resolvedStatus = (uncReconSummary?.status || dailyReconciliation?.status) as ("match" | "mismatch" | undefined);
+  const resolvedStatus = (uncReconSummary?.status || persistedFolderStatus || dailyReconciliation?.status) as ("match" | "mismatch" | undefined);
   const qtmClosingBalance = Number(qtmOpeningBalance || 0) + Number(cashFundTopupAmount || 0) - Number(qtmSpentFromFolder || 0);
   const qtmNegative = qtmClosingBalance < 0;
 
@@ -314,6 +316,22 @@ export default function FinanceControl() {
         processedSkippedCount,
         items: finalItems,
       });
+
+      await (supabase as any)
+        .from("ceo_daily_closing_declarations")
+        .upsert({
+          closing_date: dateKey,
+          extraction_meta: {
+            ...(dailyDeclaration?.extraction_meta || {}),
+            unc_folder_path: computedScanPath,
+            unc_folder_total: Number(folderTotal || 0),
+            unc_folder_delta: Number(delta || 0),
+            unc_folder_status: status,
+            unc_folder_low_confidence_count: Number(lowConfidenceCount || 0),
+            unc_folder_reconciled_at: new Date().toISOString(),
+          },
+        }, { onConflict: "closing_date" });
+      await refetchDeclaration();
 
       // Auto-fill only when current CEO declared total is empty/zero.
       // If CEO already declared a value, keep it for proper mismatch comparison.
@@ -546,7 +564,7 @@ export default function FinanceControl() {
   const runReconcile = async () => {
     setReconciling(true);
     try {
-      const uncDetail = Number((uncReconSummary?.folderTotal ?? dailyReconciliation?.unc_detail_amount ?? uncDetailAmount) || 0);
+      const uncDetail = Number((uncReconSummary?.folderTotal ?? persistedFolderTotal ?? dailyReconciliation?.unc_detail_amount ?? uncDetailAmount) || 0);
       const uncDeclared = Number((uncReconSummary?.ceoTotal ?? dailyReconciliation?.unc_declared_amount ?? uncTotalDeclared) || 0);
       const topup = Number(cashFundTopupAmount || 0);
       const tolerance = 0;

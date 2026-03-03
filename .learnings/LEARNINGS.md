@@ -163,3 +163,25 @@ Keep list-style UI, recursively discover nested UNC folders, and provide robust 
 - Tags: ux-regression, folder-browser, correction
 
 ---
+## [LRN-20260303-001] correction
+
+**Logged**: 2026-03-03T20:50:00+07:00
+**Priority**: high
+**Status**: pending
+**Area**: frontend
+
+### Summary
+UI "UNC từ folder đã đối soát" có thể hiển thị sai khi bản ghi daily_reconciliations bị ghi đè bởi auto reconcile từ payment_requests.
+
+### Details
+User phản hồi số UNC folder hiển thị 771,225,575 dù đã đối soát/chốt đúng trước đó. Nguyên nhân: màn FinanceControl fallback vào daily_reconciliations.unc_detail_amount; giá trị này có thể đến từ flow tự động (finance-auto-reconcile) thay vì kết quả quét folder UNC.
+
+### Suggested Action
+Persist kết quả quét folder UNC vào ceo_daily_closing_declarations.extraction_meta và ưu tiên nguồn này khi render UI chốt ngày.
+
+### Metadata
+- Source: conversation
+- Related Files: apps/web/src/pages/FinanceControl.tsx
+- Tags: finance, reconciliation, source-of-truth, correction
+
+---
