@@ -120,6 +120,11 @@ export default function FinanceControl() {
 
   const dateKey = format(selectedDate, "yyyy-MM-dd");
 
+  const resolvedUncDetail = Number((uncReconSummary?.folderTotal ?? dailyReconciliation?.unc_detail_amount ?? uncDetailAmount) || 0);
+  const resolvedUncDeclared = Number((uncReconSummary?.ceoTotal ?? dailyReconciliation?.unc_declared_amount ?? uncTotalDeclared) || 0);
+  const resolvedVariance = resolvedUncDetail - resolvedUncDeclared;
+  const resolvedStatus = (uncReconSummary?.status || dailyReconciliation?.status) as ("match" | "mismatch" | undefined);
+
   useEffect(() => {
     // Prevent stale slip previews when switching date while query is refetching
     setQtmSlipPreviews([]);
@@ -454,8 +459,8 @@ export default function FinanceControl() {
   const runReconcile = async () => {
     setReconciling(true);
     try {
-      const uncDetail = Number((uncReconSummary?.folderTotal ?? uncDetailAmount) || 0);
-      const uncDeclared = Number((uncReconSummary?.ceoTotal ?? uncTotalDeclared) || 0);
+      const uncDetail = Number((uncReconSummary?.folderTotal ?? dailyReconciliation?.unc_detail_amount ?? uncDetailAmount) || 0);
+      const uncDeclared = Number((uncReconSummary?.ceoTotal ?? dailyReconciliation?.unc_declared_amount ?? uncTotalDeclared) || 0);
       const topup = Number(cashFundTopupAmount || 0);
       const tolerance = 0;
       const variance = uncDetail - uncDeclared;
@@ -641,14 +646,14 @@ export default function FinanceControl() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{isVi ? "UNC từ folder đã đối soát" : "UNC from reconciled folder"}</Label>
-                  <Input value={vnd(Number((uncReconSummary?.folderTotal ?? uncDetailAmount) || 0))} readOnly />
+                  <Input value={vnd(resolvedUncDetail)} readOnly />
                 </div>
                 <div className="space-y-2">
                   <Label>Status</Label>
                   <div className="h-10 px-3 rounded-md border flex items-center">
-                    {(uncReconSummary?.status || dailyReconciliation?.status) === "match" && <Badge className="bg-green-600">MATCH</Badge>}
-                    {(uncReconSummary?.status || dailyReconciliation?.status) === "mismatch" && <Badge variant="destructive">MISMATCH</Badge>}
-                    {!(uncReconSummary?.status || dailyReconciliation?.status) && <span className="text-muted-foreground">{isVi ? "Chờ" : "Pending"}</span>}
+                    {resolvedStatus === "match" && <Badge className="bg-green-600">MATCH</Badge>}
+                    {resolvedStatus === "mismatch" && <Badge variant="destructive">MISMATCH</Badge>}
+                    {!resolvedStatus && <span className="text-muted-foreground">{isVi ? "Chờ" : "Pending"}</span>}
                   </div>
                 </div>
               </div>
@@ -656,7 +661,7 @@ export default function FinanceControl() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{isVi ? "Tổng UNC CEO khai báo" : "CEO UNC Total Declared"}</Label>
-                  <Input value={vnd(Number((uncReconSummary?.ceoTotal ?? uncTotalDeclared) || 0))} readOnly />
+                  <Input value={vnd(resolvedUncDeclared)} readOnly />
                 </div>
                 <div className="space-y-2">
                   <Label>{isVi ? "Số tiền bù quỹ tiền mặt" : "Cash Fund Top-up Amount"}</Label>
@@ -670,9 +675,9 @@ export default function FinanceControl() {
               </div>
 
               <div className="grid gap-4 md:grid-cols-3">
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "UNC theo folder" : "UNC by folder"}</div><div className="text-xl font-semibold">{vnd(Number((uncReconSummary?.folderTotal ?? uncDetailAmount) || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "UNC khai báo" : "UNC Declared"}</div><div className="text-xl font-semibold">{vnd(Number((uncReconSummary?.ceoTotal ?? uncTotalDeclared) || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch" : "Variance"}</div><div className="text-xl font-semibold">{vnd(Number(((uncReconSummary?.folderTotal ?? uncDetailAmount) || 0) - ((uncReconSummary?.ceoTotal ?? uncTotalDeclared) || 0)))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "UNC theo folder" : "UNC by folder"}</div><div className="text-xl font-semibold">{vnd(resolvedUncDetail)}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "UNC khai báo" : "UNC Declared"}</div><div className="text-xl font-semibold">{vnd(resolvedUncDeclared)}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch" : "Variance"}</div><div className="text-xl font-semibold">{vnd(resolvedVariance)}</div></CardContent></Card>
               </div>
 
               <Card>
@@ -712,20 +717,20 @@ export default function FinanceControl() {
                 </CardContent>
               </Card>
 
-              {!uncReconSummary && (
+              {!uncReconSummary && !dailyReconciliation && (
                 <div className="text-xs text-amber-600">
-                  {isVi ? "Chưa có dữ liệu đối soát folder trong phiên này. Hãy bấm ‘Đối soát UNC theo folder’ phía trên trước khi chốt." : "No folder reconciliation result in this session yet. Please run 'UNC folder reconciliation' first."}
+                  {isVi ? "Chưa có dữ liệu đối soát cho ngày này. Hãy bấm ‘Đối soát UNC theo folder’ trước khi chốt." : "No reconciliation data for this date yet. Please run 'UNC folder reconciliation' first."}
                 </div>
               )}
 
               <div className="flex flex-wrap gap-2">
-                <Button variant="destructive" onClick={() => handleCloseAction("reject")} disabled={closeActing || reconciling || !uncReconSummary}>
+                <Button variant="destructive" onClick={() => handleCloseAction("reject")} disabled={closeActing || reconciling || (!uncReconSummary && !dailyReconciliation)}>
                   {closeActing ? (isVi ? "Đang xử lý..." : "Processing...") : (isVi ? "Không chốt" : "Reject close")}
                 </Button>
-                <Button variant="outline" onClick={() => handleCloseAction("conditional")} disabled={closeActing || reconciling || !uncReconSummary}>
+                <Button variant="outline" onClick={() => handleCloseAction("conditional")} disabled={closeActing || reconciling || (!uncReconSummary && !dailyReconciliation)}>
                   {isVi ? "Chốt có điều kiện" : "Conditional close"}
                 </Button>
-                <Button onClick={() => handleCloseAction("approve")} disabled={closeActing || reconciling || !uncReconSummary}>
+                <Button onClick={() => handleCloseAction("approve")} disabled={closeActing || reconciling || (!uncReconSummary && !dailyReconciliation)}>
                   {isVi ? "Phê duyệt chốt ngày" : "Approve close"}
                 </Button>
               </div>
