@@ -790,18 +790,29 @@ export default function MiniCrm() {
 
   const agentCreateCustomerMutation = useMutation({
     mutationFn: async (draft: any) => {
-      setAgentActionTimeline([
+      const executionPlan = [
+        "Tạo bản ghi customer",
+        "Tạo email nhận diện",
+        "Tạo KB profile active",
+        "Tạo KB version",
+        "Rollback customer nếu lỗi",
+      ];
+      const runtimeTimeline: Array<{ step: string; status: "pending" | "done" | "error"; detail?: string }> = [
         { step: "Tạo customer", status: "pending" },
         { step: "Tạo emails", status: "pending" },
         { step: "Tạo KB profile", status: "pending" },
         { step: "Tạo KB version", status: "pending" },
-      ]);
+      ];
+      setAgentActionTimeline(runtimeTimeline);
 
       const markStep = (step: string, status: "pending" | "done" | "error", detail?: string) => {
-        setAgentActionTimeline((prev) => prev.map((x) => (x.step === step ? { ...x, status, detail } : x)));
+        const idx = runtimeTimeline.findIndex((x) => x.step === step);
+        if (idx >= 0) runtimeTimeline[idx] = { ...runtimeTimeline[idx], status, detail };
+        setAgentActionTimeline([...runtimeTimeline]);
       };
 
       let createdCustomerId: string | null = null;
+      let rolledBack = false;
 
       try {
         const { data: created, error: createError } = await (supabase as any)
@@ -861,13 +872,42 @@ export default function MiniCrm() {
         if (kbVerError) throw kbVerError;
         markStep("Tạo KB version", "done", `v${versionNo}`);
 
+        await (supabase as any).from("mini_crm_agent_ui_audit_logs").insert({
+          action_name: "create_customer",
+          actor: "agent-ui",
+          input_payload: { raw_command: agentCommand },
+          normalized_payload: draft,
+          execution_plan: executionPlan,
+          action_timeline: runtimeTimeline,
+          result_status: "success",
+          result_message: `Created customer ${created.customer_name}`,
+          customer_name: draft.customer_name,
+          created_customer_id: created.id,
+          rolled_back: false,
+        });
+
         return created;
       } catch (e: any) {
         if (createdCustomerId) {
           await (supabase as any).from("mini_crm_customers").delete().eq("id", createdCustomerId);
+          rolledBack = true;
         }
         const errMsg = e?.message || "Unknown error";
         setAgentActionTimeline((prev) => prev.map((x) => (x.status === "pending" ? { ...x, status: "error", detail: `rollback: ${errMsg}` } : x)));
+
+        await (supabase as any).from("mini_crm_agent_ui_audit_logs").insert({
+          action_name: "create_customer",
+          actor: "agent-ui",
+          input_payload: { raw_command: agentCommand },
+          normalized_payload: draft,
+          execution_plan: executionPlan,
+          action_timeline: runtimeTimeline,
+          result_status: "failed",
+          result_message: errMsg,
+          customer_name: draft?.customer_name || null,
+          created_customer_id: createdCustomerId,
+          rolled_back: rolledBack,
+        });
         throw e;
       }
     },
