@@ -1488,6 +1488,79 @@ export default function MiniCrm() {
     },
   });
 
+  const autoPostSafeMutation = useMutation({
+    mutationFn: async () => {
+      const safeRows = (poInbox || []).filter((row: any) => {
+        const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === row.customer_id);
+        const mode = String(kb?.po_mode || "daily_new_po");
+        const rp = row?.raw_payload?.revenue_post || {};
+        const total = Number(row?.total_amount || calcTotalFromRawPayload(row?.raw_payload || {}) || 0);
+        return (
+          mode === "daily_new_po" &&
+          !rp?.posted &&
+          !rp?.requires_review &&
+          !["rejected", "unmatched"].includes(String(row?.match_status || "")) &&
+          total > 0 &&
+          Boolean(row?.po_number || extractPoNumberFromSubject(row?.email_subject))
+        );
+      });
+
+      let posted = 0;
+      for (const row of safeRows) {
+        const nowIso = new Date().toISOString();
+        const total = Number(row?.total_amount || calcTotalFromRawPayload(row?.raw_payload || {}) || 0);
+        const nextRawPayload = {
+          ...(row?.raw_payload || {}),
+          revenue_post: {
+            ...(row?.raw_payload?.revenue_post || {}),
+            posted: true,
+            posted_at: nowIso,
+            posted_by: "mini-crm-auto-safe",
+            mode: "daily_new_po",
+            amount: total,
+            total,
+            full_snapshot_total: total,
+            base_amount: 0,
+            delta_amount: total,
+            requires_review: false,
+            review_reason: null,
+          },
+        };
+
+        const { error } = await (supabase as any)
+          .from("customer_po_inbox")
+          .update({ raw_payload: nextRawPayload, match_status: "approved" })
+          .eq("id", row.id);
+        if (error) throw error;
+
+        await (supabase as any).from("po_revenue_post_audit").insert({
+          po_inbox_id: row.id,
+          customer_id: row.customer_id,
+          action: "auto_post_safe",
+          amount: total,
+          full_snapshot_total: total,
+          base_amount: 0,
+          delta_amount: total,
+          decision: "posted",
+          note: "Auto-post safe rule (daily_new_po)",
+          actor: "mini-crm-auto-safe",
+          raw_payload: nextRawPayload?.revenue_post || {},
+        });
+
+        posted += 1;
+      }
+      return { posted, totalCandidates: safeRows.length };
+    },
+    onSuccess: async (res: any) => {
+      await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
+      await queryClient.invalidateQueries({ queryKey: ["po-revenue-post-audit"] });
+      toast({ title: "Auto-post safe hoàn tất", description: `Đã post ${res?.posted || 0}/${res?.totalCandidates || 0} PO an toàn.` });
+    },
+    onError: (e: any) => {
+      toast({ title: "Auto-post safe lỗi", description: e?.message || "Không thể chạy auto-post", variant: "destructive" });
+    },
+  });
+
   const exportDeltaReconciliationCsv = () => {
     const rows = filteredPoInbox
       .filter((row: any) => {
@@ -1687,12 +1760,19 @@ export default function MiniCrm() {
       )}
 
       {isSalesPoPage && (
-        <div className="grid gap-4 md:grid-cols-5">
-          <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Tổng PO inbox (đang lọc)</div><div className="text-xl font-semibold">{filteredPoInbox.length}</div></CardContent></Card>
-          <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Pending approval</div><div className="text-xl font-semibold">{statusCounts.pending_approval || 0}</div></CardContent></Card>
-          <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Needs delta review</div><div className="text-xl font-semibold">{pendingDeltaReviewCount}</div></CardContent></Card>
-          <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Approved</div><div className="text-xl font-semibold">{statusCounts.approved || 0}</div></CardContent></Card>
-          <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Unmatched</div><div className="text-xl font-semibold">{statusCounts.unmatched || 0}</div></CardContent></Card>
+        <div className="space-y-3">
+          <div className="grid gap-4 md:grid-cols-5">
+            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Tổng PO inbox (đang lọc)</div><div className="text-xl font-semibold">{filteredPoInbox.length}</div></CardContent></Card>
+            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Pending approval</div><div className="text-xl font-semibold">{statusCounts.pending_approval || 0}</div></CardContent></Card>
+            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Needs delta review</div><div className="text-xl font-semibold">{pendingDeltaReviewCount}</div></CardContent></Card>
+            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Approved</div><div className="text-xl font-semibold">{statusCounts.approved || 0}</div></CardContent></Card>
+            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Unmatched</div><div className="text-xl font-semibold">{statusCounts.unmatched || 0}</div></CardContent></Card>
+          </div>
+          <div className="flex justify-end">
+            <Button variant="secondary" onClick={() => autoPostSafeMutation.mutate()} disabled={autoPostSafeMutation.isPending}>
+              {autoPostSafeMutation.isPending ? "Đang auto-post..." : "Auto-post an toàn (daily)"}
+            </Button>
+          </div>
         </div>
       )}
 
