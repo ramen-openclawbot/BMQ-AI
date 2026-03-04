@@ -241,6 +241,11 @@ export default function MiniCrm() {
     },
   });
 
+  const vietjetCustomerId = useMemo(() => {
+    const hit = customers.find((c: any) => String(c?.customer_name || "").toLowerCase().includes("vietjet"));
+    return hit?.id || null;
+  }, [customers]);
+
   const { data: finishedSkus = [] } = useQuery({
     queryKey: ["finished-skus"],
     queryFn: async () => {
@@ -1760,7 +1765,7 @@ export default function MiniCrm() {
           <CardDescription>PO đọc từ email po@bmq.vn sẽ nằm ở đây trước khi duyệt tay.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="mb-4 grid gap-3 md:grid-cols-7">
+          <div className="mb-4 grid gap-3 md:grid-cols-8">
             <div className="space-y-1">
               <Label>Từ ngày</Label>
               <Input type="date" value={poDateFrom} onChange={(e) => setPoDateFrom(e.target.value)} />
@@ -1814,6 +1819,23 @@ export default function MiniCrm() {
             <div className="flex items-end">
               <Button type="button" variant="secondary" onClick={exportDeltaReconciliationCsv}>
                 Xuất CSV đối soát delta
+              </Button>
+            </div>
+            <div className="flex items-end">
+              <Button
+                type="button"
+                variant="default"
+                onClick={() => {
+                  if (!vietjetCustomerId) {
+                    toast({ title: "Chưa tìm thấy khách Vietjet", description: "Vui lòng kiểm tra tên customer trong CRM." });
+                    return;
+                  }
+                  setPoCustomerFilter(vietjetCustomerId);
+                  setPoModeFilter("cumulative_snapshot");
+                  setPoNeedsDeltaReviewOnly(true);
+                }}
+              >
+                Preset Vietjet view
               </Button>
             </div>
           </div>
