@@ -339,7 +339,20 @@ export default function MiniCrm() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !isSalesPoPage,
+  });
+
+  const { data: revenueAuditRows = [] } = useQuery({
+    queryKey: ["po-revenue-post-audit"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("po_revenue_post_audit")
+        .select("*, mini_crm_customers(customer_name)")
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: isSalesPoPage,
   });
 
   const startEditCustomer = (c: any) => {
@@ -1073,6 +1086,7 @@ export default function MiniCrm() {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
+      await queryClient.invalidateQueries({ queryKey: ["po-revenue-post-audit"] });
       toast({ title: "Đã cập nhật duyệt", description: "Trạng thái PO inbox đã đổi." });
     },
     onError: (e: any) => {
@@ -1133,6 +1147,7 @@ export default function MiniCrm() {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
+      await queryClient.invalidateQueries({ queryKey: ["po-revenue-post-audit"] });
       toast({ title: "Đã duyệt điều chỉnh", description: "Đã xử lý PO cumulative cần review." });
     },
     onError: (e: any) => {
@@ -1173,6 +1188,15 @@ export default function MiniCrm() {
   const pendingDeltaReviewCount = useMemo(() => {
     return filteredPoInbox.filter((row: any) => Boolean(row?.raw_payload?.revenue_post?.requires_review)).length;
   }, [filteredPoInbox]);
+
+  const exceptionQueue = useMemo(() => {
+    return poInbox.filter((row: any) => {
+      const rp = row?.raw_payload?.revenue_post || {};
+      return Boolean(rp?.requires_review) || ["rejected", "unmatched"].includes(String(row?.match_status || ""));
+    });
+  }, [poInbox]);
+
+  const recentRevenueAudit = useMemo(() => revenueAuditRows.slice(0, 20), [revenueAuditRows]);
 
   const selectedPo = useMemo(() => poInbox.find((r: any) => r.id === selectedPoId) || null, [poInbox, selectedPoId]);
   const selectedPoKnowledgeProfile = useMemo(() => {
@@ -1446,6 +1470,7 @@ export default function MiniCrm() {
       setPostRevenueStatus(`✅ Đã đẩy thành công PO ${poCode} lúc ${new Date(row?.posted_to_revenue_at || Date.now()).toLocaleString("vi-VN")}`);
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
       await queryClient.invalidateQueries({ queryKey: ["finance-posted-po"] });
+      await queryClient.invalidateQueries({ queryKey: ["po-revenue-post-audit"] });
       const postedDisplay = Number(row?.raw_payload?.revenue_post?.total || row?.raw_payload?.revenue_post?.amount || row?.total_amount || 0);
       toast({
         title: "✅ Đã đẩy sang kiểm soát doanh thu",
@@ -2003,6 +2028,79 @@ export default function MiniCrm() {
           </Table>
         </CardContent>
       </Card>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Exception Queue</CardTitle>
+            <CardDescription>Các PO cần xử lý thủ công trước khi chốt doanh thu.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-xs text-muted-foreground mb-2">Tổng exception: <b>{exceptionQueue.length}</b></div>
+            <div className="max-h-72 overflow-auto border rounded-md">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Received</TableHead>
+                    <TableHead>Khách hàng</TableHead>
+                    <TableHead>PO</TableHead>
+                    <TableHead>Lý do</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {exceptionQueue.slice(0, 30).map((row: any) => (
+                    <TableRow key={`ex-${row.id}`}>
+                      <TableCell>{row?.received_at ? new Date(row.received_at).toLocaleString("vi-VN") : "-"}</TableCell>
+                      <TableCell>{row?.mini_crm_customers?.customer_name || "-"}</TableCell>
+                      <TableCell>{row?.po_number || extractPoNumberFromSubject(row?.email_subject) || row?.id}</TableCell>
+                      <TableCell>{row?.raw_payload?.revenue_post?.review_reason || row?.match_status || "-"}</TableCell>
+                    </TableRow>
+                  ))}
+                  {exceptionQueue.length === 0 && (
+                    <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">Không có exception</TableCell></TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Revenue Audit (latest)</CardTitle>
+            <CardDescription>Nhật ký post/review doanh thu mới nhất.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="max-h-72 overflow-auto border rounded-md">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Thời gian</TableHead>
+                    <TableHead>Khách hàng</TableHead>
+                    <TableHead>Action</TableHead>
+                    <TableHead>Decision</TableHead>
+                    <TableHead>Amount</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {recentRevenueAudit.map((r: any) => (
+                    <TableRow key={r.id}>
+                      <TableCell>{r?.created_at ? new Date(r.created_at).toLocaleString("vi-VN") : "-"}</TableCell>
+                      <TableCell>{r?.mini_crm_customers?.customer_name || "-"}</TableCell>
+                      <TableCell>{String(r?.action || "-")}</TableCell>
+                      <TableCell>{String(r?.decision || "-")}</TableCell>
+                      <TableCell>{Number(r?.amount || 0).toLocaleString("vi-VN")} ₫</TableCell>
+                    </TableRow>
+                  ))}
+                  {recentRevenueAudit.length === 0 && (
+                    <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">Chưa có audit log</TableCell></TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       {isSalesPoPage && (
         <Dialog
