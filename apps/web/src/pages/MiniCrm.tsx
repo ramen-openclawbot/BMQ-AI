@@ -187,6 +187,7 @@ export default function MiniCrm() {
   const [postRevenueStatus, setPostRevenueStatus] = useState<string>("");
   const [poDateFrom, setPoDateFrom] = useState<string>("");
   const [poDateTo, setPoDateTo] = useState<string>("");
+  const [poNeedsDeltaReviewOnly, setPoNeedsDeltaReviewOnly] = useState<boolean>(false);
   const [syncDate, setSyncDate] = useState<string>(() => {
     const now = new Date();
     const y = now.getFullYear();
@@ -1090,9 +1091,10 @@ export default function MiniCrm() {
       if (!Number.isFinite(t)) return false;
       if (fromMs && t < fromMs) return false;
       if (toMs && t > toMs) return false;
+      if (poNeedsDeltaReviewOnly && !row?.raw_payload?.revenue_post?.requires_review) return false;
       return true;
     });
-  }, [poInbox, poDateFrom, poDateTo]);
+  }, [poInbox, poDateFrom, poDateTo, poNeedsDeltaReviewOnly]);
 
   const statusCounts = useMemo(() => {
     return filteredPoInbox.reduce(
@@ -1711,12 +1713,23 @@ export default function MiniCrm() {
               <Input type="date" value={poDateTo} onChange={(e) => setPoDateTo(e.target.value)} />
             </div>
             <div className="flex items-end">
+              <label className="flex items-center gap-2 text-sm rounded-md border px-3 h-10 w-full">
+                <input
+                  type="checkbox"
+                  checked={poNeedsDeltaReviewOnly}
+                  onChange={(e) => setPoNeedsDeltaReviewOnly(e.target.checked)}
+                />
+                Chỉ hiện Needs delta review
+              </label>
+            </div>
+            <div className="flex items-end">
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => {
                   setPoDateFrom("");
                   setPoDateTo("");
+                  setPoNeedsDeltaReviewOnly(false);
                 }}
               >
                 Bỏ lọc ngày
@@ -1817,6 +1830,17 @@ export default function MiniCrm() {
                     </div>
                     {selectedPoKnowledgeProfile?.operational_notes && (
                       <div><b>Ops note:</b> {String(selectedPoKnowledgeProfile.operational_notes)}</div>
+                    )}
+                    {selectedPo?.raw_payload?.revenue_post && (
+                      <div className="rounded-md border p-2 bg-muted/30 mt-2">
+                        <div className="font-medium text-foreground mb-1">Audit revenue post</div>
+                        <div>Decision: {String(selectedPo.raw_payload.revenue_post.review_decision || (selectedPo.raw_payload.revenue_post.posted ? "posted" : "pending"))}</div>
+                        <div>Delta: {Number(selectedPo.raw_payload.revenue_post.delta_amount || 0).toLocaleString("vi-VN")} ₫</div>
+                        <div>Base: {Number(selectedPo.raw_payload.revenue_post.base_amount || 0).toLocaleString("vi-VN")} ₫</div>
+                        <div>Posted: {Number(selectedPo.raw_payload.revenue_post.total || selectedPo.raw_payload.revenue_post.amount || 0).toLocaleString("vi-VN")} ₫</div>
+                        <div>Reviewed at: {selectedPo.raw_payload.revenue_post.reviewed_at ? new Date(selectedPo.raw_payload.revenue_post.reviewed_at).toLocaleString("vi-VN") : "-"}</div>
+                        <div>Posted at: {selectedPo.raw_payload.revenue_post.posted_at ? new Date(selectedPo.raw_payload.revenue_post.posted_at).toLocaleString("vi-VN") : "-"}</div>
+                      </div>
                     )}
                   </div>
 
