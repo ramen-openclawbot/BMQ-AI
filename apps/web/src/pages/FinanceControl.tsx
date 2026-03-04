@@ -807,7 +807,7 @@ export default function FinanceControl() {
 
           <Card>
             <CardHeader>
-              <CardTitle>{isVi ? "Phase 1 • Khai báo CEO (upload slip)" : "Phase 1 • CEO Declaration (upload slips)"}</CardTitle>
+              <CardTitle>{isVi ? "Khai báo CEO (upload slip)" : "CEO Declaration (upload slips)"}</CardTitle>
               <CardDescription>{isVi ? "CEO upload slip theo 2 nguồn quỹ: NGÂN HÀNG và QTM. Hệ thống OCR tự cộng tổng khai báo theo ngày." : "CEO uploads slips by fund source: BANK and QTM. OCR auto-accumulates declared totals by day."}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
