@@ -188,6 +188,8 @@ export default function MiniCrm() {
   const [poDateFrom, setPoDateFrom] = useState<string>("");
   const [poDateTo, setPoDateTo] = useState<string>("");
   const [poNeedsDeltaReviewOnly, setPoNeedsDeltaReviewOnly] = useState<boolean>(false);
+  const [poCustomerFilter, setPoCustomerFilter] = useState<string>("all");
+  const [poModeFilter, setPoModeFilter] = useState<string>("all");
   const [syncDate, setSyncDate] = useState<string>(() => {
     const now = new Date();
     const y = now.getFullYear();
@@ -1092,9 +1094,15 @@ export default function MiniCrm() {
       if (fromMs && t < fromMs) return false;
       if (toMs && t > toMs) return false;
       if (poNeedsDeltaReviewOnly && !row?.raw_payload?.revenue_post?.requires_review) return false;
+      if (poCustomerFilter !== "all" && String(row?.customer_id || "") !== poCustomerFilter) return false;
+      if (poModeFilter !== "all") {
+        const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === row?.customer_id);
+        const mode = String(kb?.po_mode || "daily_new_po");
+        if (mode !== poModeFilter) return false;
+      }
       return true;
     });
-  }, [poInbox, poDateFrom, poDateTo, poNeedsDeltaReviewOnly]);
+  }, [poInbox, poDateFrom, poDateTo, poNeedsDeltaReviewOnly, poCustomerFilter, poModeFilter, customerKnowledgeProfiles]);
 
   const statusCounts = useMemo(() => {
     return filteredPoInbox.reduce(
@@ -1752,7 +1760,7 @@ export default function MiniCrm() {
           <CardDescription>PO đọc từ email po@bmq.vn sẽ nằm ở đây trước khi duyệt tay.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="mb-4 grid gap-3 md:grid-cols-5">
+          <div className="mb-4 grid gap-3 md:grid-cols-7">
             <div className="space-y-1">
               <Label>Từ ngày</Label>
               <Input type="date" value={poDateFrom} onChange={(e) => setPoDateFrom(e.target.value)} />
@@ -1760,6 +1768,23 @@ export default function MiniCrm() {
             <div className="space-y-1">
               <Label>Đến ngày</Label>
               <Input type="date" value={poDateTo} onChange={(e) => setPoDateTo(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Khách hàng</Label>
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={poCustomerFilter} onChange={(e) => setPoCustomerFilter(e.target.value)}>
+                <option value="all">Tất cả khách hàng</option>
+                {customers.map((c: any) => (
+                  <option key={c.id} value={c.id}>{c.customer_name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label>PO mode</Label>
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={poModeFilter} onChange={(e) => setPoModeFilter(e.target.value)}>
+                <option value="all">Tất cả mode</option>
+                <option value="daily_new_po">PO mới theo ngày</option>
+                <option value="cumulative_snapshot">PO cộng dồn (delta)</option>
+              </select>
             </div>
             <div className="flex items-end">
               <label className="flex items-center gap-2 text-sm rounded-md border px-3 h-10 w-full">
@@ -1779,9 +1804,11 @@ export default function MiniCrm() {
                   setPoDateFrom("");
                   setPoDateTo("");
                   setPoNeedsDeltaReviewOnly(false);
+                  setPoCustomerFilter("all");
+                  setPoModeFilter("all");
                 }}
               >
-                Bỏ lọc ngày
+                Reset bộ lọc
               </Button>
             </div>
             <div className="flex items-end">
