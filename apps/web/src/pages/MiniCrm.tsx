@@ -231,6 +231,9 @@ export default function MiniCrm() {
   const [editKbCalcNotes, setEditKbCalcNotes] = useState("");
   const [editKbOperationalNotes, setEditKbOperationalNotes] = useState("");
   const [kbChangeNote, setKbChangeNote] = useState("");
+  const [agentCommand, setAgentCommand] = useState("");
+  const [agentDraft, setAgentDraft] = useState<any | null>(null);
+  const [agentStatus, setAgentStatus] = useState("");
 
   const { data: gmailConnectedEmail } = useQuery({
     queryKey: ["gmail-connected-email"],
@@ -459,6 +462,63 @@ export default function MiniCrm() {
     return Number(data?.version_no || 0) + 1;
   };
 
+  const parseAgentCreateCustomerCommand = (raw: string) => {
+    const text = String(raw || "").trim();
+    if (!text) throw new Error("Vui lòng nhập yêu cầu cho Agent UI");
+
+    const findValue = (keys: string[]) => {
+      for (const k of keys) {
+        const re = new RegExp(`(?:^|[;,\n])\\s*${k}\\s*[:=]\\s*([^;\\n]+)`, "i");
+        const m = text.match(re);
+        if (m?.[1]) return String(m[1]).trim();
+      }
+      return "";
+    };
+
+    const customerName = findValue(["ten", "tên", "name", "customer_name", "khach", "khách hàng"]);
+    const customerGroupRaw = findValue(["group", "nhom", "nhóm", "customer_group"]);
+    const productGroupRaw = findValue(["product_group", "nhom_sp", "nhóm sản phẩm"]);
+    const emailsRaw = findValue(["email", "emails", "mail"]);
+    const poModeRaw = findValue(["po_mode", "mode", "kb_mode"]);
+    const calcNotes = findValue(["calc", "calculation", "calculation_notes"]);
+    const opsNotes = findValue(["ops", "operational", "operational_notes"]);
+
+    if (!customerName) throw new Error("Thiếu tên khách hàng. Ví dụ: ten=Vietjet");
+
+    const groupMap: Record<string, string> = {
+      banle: "banhmi_point",
+      "bán lẻ": "banhmi_point",
+      dai_ly: "banhmi_agency",
+      "đại lý": "banhmi_agency",
+      online: "online",
+      b2b: "b2b",
+      banhmi_point: "banhmi_point",
+      banhmi_agency: "banhmi_agency",
+    };
+    const productMap: Record<string, string> = {
+      banhmi: "banhmi",
+      "bánh mì": "banhmi",
+      banhngot: "banhngot",
+      "bánh ngọt": "banhngot",
+    };
+
+    const g = groupMap[String(customerGroupRaw || "").trim().toLowerCase()] || "b2b";
+    const pg = productMap[String(productGroupRaw || "").trim().toLowerCase()] || "banhmi";
+    const pm = String(poModeRaw || "").toLowerCase().includes("cum") ? "cumulative_snapshot" : "daily_new_po";
+    const emails = Array.from(new Set(String(emailsRaw || "").split(/[;,\s]+/).map((s) => s.trim().toLowerCase()).filter((s) => /@/.test(s))));
+
+    return {
+      customer_name: customerName,
+      customer_group: g,
+      product_group: pg,
+      emails,
+      kb_profile_name: `${customerName} Knowledge`,
+      kb_po_mode: pm,
+      kb_calc_notes: calcNotes || null,
+      kb_ops_notes: opsNotes || null,
+    };
+  };
+
   const summarizeTemplateDiff = (beforeSnap: any, afterSnap: any) => {
     const beforeItems = Array.isArray(beforeSnap?.items) ? beforeSnap.items : [];
     const afterItems = Array.isArray(afterSnap?.items) ? afterSnap.items : [];
@@ -634,6 +694,79 @@ export default function MiniCrm() {
     },
     onError: (e: any) => {
       toast({ title: "Thiết lập khách hàng thất bại", description: e?.message || "Không thể lưu thiết lập", variant: "destructive" });
+    },
+  });
+
+  const agentCreateCustomerMutation = useMutation({
+    mutationFn: async (draft: any) => {
+      const { data: created, error: createError } = await (supabase as any)
+        .from("mini_crm_customers")
+        .insert({
+          customer_name: draft.customer_name,
+          customer_group: draft.customer_group,
+          product_group: draft.product_group,
+          is_active: true,
+        })
+        .select("id, customer_name")
+        .single();
+      if (createError || !created?.id) throw createError || new Error("Không tạo được khách hàng");
+
+      if (Array.isArray(draft.emails) && draft.emails.length) {
+        const { error: emailError } = await (supabase as any)
+          .from("mini_crm_customer_emails")
+          .insert(draft.emails.map((email: string, idx: number) => ({ customer_id: created.id, email, is_primary: idx === 0 })));
+        if (emailError) throw emailError;
+      }
+
+      const { data: kbInserted, error: kbError } = await (supabase as any)
+        .from("mini_crm_knowledge_profiles")
+        .insert({
+          customer_id: created.id,
+          profile_name: draft.kb_profile_name,
+          po_mode: draft.kb_po_mode,
+          profile_status: "active",
+          calculation_notes: draft.kb_calc_notes,
+          operational_notes: draft.kb_ops_notes,
+        })
+        .select("id,profile_name,po_mode,profile_status,calculation_notes,operational_notes")
+        .single();
+      if (kbError) throw kbError;
+
+      const versionNo = await getNextKnowledgeProfileVersion(created.id);
+      const { error: kbVerError } = await (supabase as any)
+        .from("mini_crm_knowledge_profile_versions")
+        .insert({
+          customer_id: created.id,
+          knowledge_profile_id: kbInserted?.id || null,
+          version_no: versionNo,
+          profile_name: kbInserted?.profile_name || draft.kb_profile_name,
+          po_mode: kbInserted?.po_mode || draft.kb_po_mode,
+          profile_status: kbInserted?.profile_status || "active",
+          calculation_notes: kbInserted?.calculation_notes || draft.kb_calc_notes || null,
+          operational_notes: kbInserted?.operational_notes || draft.kb_ops_notes || null,
+          changed_by: "agent-ui",
+          change_note: "Created from Agent UI",
+          is_active: true,
+          effective_from: new Date().toISOString(),
+        });
+      if (kbVerError) throw kbVerError;
+
+      return created;
+    },
+    onSuccess: async (created: any) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] }),
+        queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profiles"] }),
+        queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profile-versions"] }),
+      ]);
+      setAgentStatus(`✅ Agent đã tạo khách hàng: ${created?.customer_name || ""}`);
+      setAgentDraft(null);
+      setAgentCommand("");
+      toast({ title: "Agent UI tạo khách hàng thành công", description: created?.customer_name || "" });
+    },
+    onError: (e: any) => {
+      setAgentStatus(`❌ Agent tạo khách hàng thất bại: ${e?.message || "Không rõ lỗi"}`);
+      toast({ title: "Agent UI lỗi", description: e?.message || "Không thể tạo khách hàng", variant: "destructive" });
     },
   });
 
@@ -1950,6 +2083,45 @@ export default function MiniCrm() {
 
       {!isSalesPoPage && (
       <> 
+      <Card>
+        <CardHeader>
+          <CardTitle>Agent UI (POC) — Tạo khách hàng bằng chat</CardTitle>
+          <CardDescription>Nhập lệnh tự nhiên, Agent sẽ parse và tạo khách hàng CRM không cần mở form thủ công.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Input
+            value={agentCommand}
+            onChange={(e) => setAgentCommand(e.target.value)}
+            placeholder="Ví dụ: ten=Vietjet Test; group=b2b; product_group=banhmi; email=ops@vietjet.vn; po_mode=cumulative; calc=delta by snapshot; ops=send daily"
+          />
+          <div className="flex gap-2 flex-wrap">
+            <Button type="button" variant="outline" onClick={() => {
+              try {
+                const draft = parseAgentCreateCustomerCommand(agentCommand);
+                setAgentDraft(draft);
+                setAgentStatus("✅ Agent đã parse yêu cầu. Kiểm tra preview và bấm xác nhận tạo.");
+              } catch (e: any) {
+                setAgentDraft(null);
+                setAgentStatus(`❌ Parse lỗi: ${e?.message || "Không đọc được yêu cầu"}`);
+              }
+            }}>Phân tích lệnh</Button>
+            <Button type="button" onClick={() => agentDraft && agentCreateCustomerMutation.mutate(agentDraft)} disabled={!agentDraft || agentCreateCustomerMutation.isPending}>
+              {agentCreateCustomerMutation.isPending ? "Đang tạo..." : "Xác nhận tạo khách hàng"}
+            </Button>
+          </div>
+          {agentDraft && (
+            <div className="text-xs rounded-md border p-2 bg-muted/30 space-y-1">
+              <div><b>Tên:</b> {agentDraft.customer_name}</div>
+              <div><b>Nhóm:</b> {GROUP_LABEL_MAP[agentDraft.customer_group] || agentDraft.customer_group}</div>
+              <div><b>Nhóm SP:</b> {PRODUCT_GROUP_LABEL_MAP[agentDraft.product_group] || agentDraft.product_group}</div>
+              <div><b>Email:</b> {(agentDraft.emails || []).join(", ") || "-"}</div>
+              <div><b>KB mode:</b> {KB_PO_MODE_LABEL[agentDraft.kb_po_mode] || agentDraft.kb_po_mode}</div>
+            </div>
+          )}
+          {agentStatus && <div className="text-sm">{agentStatus}</div>}
+        </CardContent>
+      </Card>
+
       <div className="flex justify-end">
         <Button onClick={() => setSetupModalOpen(true)}>Thiết lập khách hàng</Button>
       </div>
