@@ -30,6 +30,7 @@ import {
   FolderOpen,
   FileImage,
   ArrowRight,
+  ArrowLeft,
   Search,
   Plus
 } from "lucide-react";
@@ -61,6 +62,14 @@ interface DateInfo {
   date: string;
   fileCount: number;
   folderId?: string;
+}
+
+interface BrowseFolderInfo {
+  name: string;
+  folderId?: string;
+  imageCount: number;
+  hasChildren: boolean;
+  childFolderCount: number;
 }
 
 interface PendingMatch {
@@ -104,6 +113,7 @@ type ImportPhase =
   | 'checking_config' 
   | 'auto_scanning'
   | 'checking_today'
+  | 'browse_folders'
   | 'no_new_files_prompt'
   | 'loading_dates'
   | 'select_dates'
@@ -207,11 +217,11 @@ const findBestMatchingSupplier = (
 };
 
 // Upload PO image to storage and return path only (not signed URL)
-async function uploadPOImage(base64: string, mimeType: string, fileName: string): Promise<string | null> {
+async function uploadPOImage(base64: string, mimeType: string, fileName: string): Promise<string> {
   try {
     const imageBlob = await fetch(`data:${mimeType};base64,${base64}`).then(r => r.blob());
     const imageFile = new File([imageBlob], fileName, { type: mimeType });
-    
+
     const timestamp = Date.now();
     const randomStr = Math.random().toString(36).substring(7);
     const ext = mimeType.split('/')[1] || 'jpg';
@@ -219,14 +229,14 @@ async function uploadPOImage(base64: string, mimeType: string, fileName: string)
 
     const { error: uploadError } = await supabase.storage
       .from('purchase-orders')
-      .upload(path, imageFile);
+      .upload(path, imageFile, { upsert: false, contentType: mimeType || 'image/jpeg' });
 
     if (uploadError) throw uploadError;
-    
+
     return path; // Return path only, not signed URL
   } catch (err) {
     console.error('Failed to upload PO image:', err);
-    return null;
+    throw new Error('Không thể upload ảnh PO lên storage');
   }
 }
 
@@ -248,6 +258,10 @@ export function DriveImportProgressDialog({
   const [selectionMode, setSelectionMode] = useState<'all' | 'select'>('all');
   const [folderUrl, setFolderUrl] = useState<string>('');
   const [authToken, setAuthToken] = useState<string>('');
+  const [browsePath, setBrowsePath] = useState<string>('');
+  const [browseHistory, setBrowseHistory] = useState<string[]>([]);
+  const [browseFolders, setBrowseFolders] = useState<BrowseFolderInfo[]>([]);
+  const [selectedScanPath, setSelectedScanPath] = useState<string>('');
   
   // Pending supplier confirmation state
   const [pendingMatches, setPendingMatches] = useState<PendingMatch[]>([]);
@@ -316,6 +330,10 @@ export function DriveImportProgressDialog({
     setSelectionMode('all');
     setFolderUrl('');
     setAuthToken('');
+    setBrowsePath('');
+    setBrowseHistory([]);
+    setBrowseFolders([]);
+    setSelectedScanPath('');
     setCurrentDate('');
     setPendingMatches([]);
     setCurrentPendingIndex(0);
@@ -367,6 +385,14 @@ export function DriveImportProgressDialog({
     }
   }, [pendingPOQueue]);
 
+  useEffect(() => {
+    if (phase !== 'browse_folders' || importType !== 'po' || !folderUrl || !authToken) return;
+    loadBrowseFolders(browsePath).catch((e: any) => {
+      setError(e?.message || 'Không thể duyệt thư mục');
+      setPhase('complete');
+    });
+  }, [phase, importType, folderUrl, authToken, browsePath]);
+
   // Load all suppliers for dropdown
   const loadSuppliers = async () => {
     try {
@@ -379,6 +405,93 @@ export function DriveImportProgressDialog({
       console.error('Failed to load suppliers:', err);
       setAllSuppliers([]);
     }
+  };
+
+  const loadBrowseFolders = async (parentPath: string) => {
+    const listResponse = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          folderUrl,
+          mode: 'list_children',
+          parentPath,
+        }),
+      }
+    );
+
+    if (!listResponse.ok) {
+      const e = await listResponse.json().catch(() => ({}));
+      throw new Error(e?.error || 'Không thể duyệt thư mục');
+    }
+
+    const data = await listResponse.json();
+    setBrowseFolders(Array.isArray(data?.folders) ? data.folders : []);
+  };
+
+  const scanPOPath = async (pathToScan: string) => {
+    setPhase('checking_today');
+    setCurrentDate(pathToScan || '/');
+
+    const scanResponse = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          folderUrl,
+          subfolderDate: pathToScan,
+        }),
+      }
+    );
+
+    if (!scanResponse.ok) {
+      const e = await scanResponse.json().catch(() => ({}));
+      throw new Error(e?.error || 'Không thể quét thư mục đã chọn');
+    }
+
+    const scanData = await scanResponse.json();
+    const allFiles = scanData.files || [];
+    if (!allFiles.length) {
+      setError(`Không có file ảnh trong thư mục: ${pathToScan || '/'} `);
+      setPhase('browse_folders');
+      return;
+    }
+
+    const fileIds = allFiles.map((f: any) => f.id);
+    const { data: processedFiles } = await supabase
+      .from('drive_file_index')
+      .select('file_id')
+      .eq('folder_type', 'po')
+      .eq('processed', true)
+      .in('file_id', fileIds);
+
+    const processedSet = new Set(processedFiles?.map(f => f.file_id) || []);
+    const newFiles = allFiles.filter((f: any) => !processedSet.has(f.id));
+
+    if (!newFiles.length) {
+      setError(`Tất cả file trong thư mục ${pathToScan || '/'} đã được import trước đó.`);
+      setPhase('browse_folders');
+      return;
+    }
+
+    setError(null);
+    setAvailableDates([{ date: pathToScan || 'selected-folder', fileCount: newFiles.length }]);
+    setFiles(newFiles.map((f: any) => ({
+      id: f.id,
+      name: f.name,
+      status: 'pending' as const,
+      base64: f.base64,
+      mimeType: f.mimeType,
+    })));
+    setPhase('select_po_files');
   };
 
   const startImport = useCallback(async () => {
@@ -442,9 +555,12 @@ export function DriveImportProgressDialog({
       setAuthToken(token);
       clearTimeout(timeoutId); // Clear watchdog once we have token
 
-      // For PO: Scan only today's folder first (similar to bank_slip flow)
+      // For PO: open folder browser so user can choose exact scan path
       if (importType === 'po') {
-        await startPOImportFlow(url, token);
+        setBrowsePath('');
+        setBrowseHistory([]);
+        setSelectedScanPath('');
+        setPhase('browse_folders');
         return;
       }
 
@@ -2530,8 +2646,10 @@ export function DriveImportProgressDialog({
         return 'Đang quét tất cả folder PO...';
       case 'checking_today':
         return importType === 'po' 
-          ? `Đang kiểm tra folder PO ngày ${formatFolderDate(currentDate)}...`
+          ? `Đang quét thư mục PO: /${currentDate || ''}...`
           : `Đang kiểm tra folder ngày ${currentDate}...`;
+      case 'browse_folders':
+        return 'Duyệt thư mục PO để chọn nơi cần quét';
       case 'no_new_files_prompt':
         return importType === 'po' ? 'Không có PO mới hôm nay' : 'Không có file mới hôm nay';
       case 'loading_dates':
@@ -2539,7 +2657,7 @@ export function DriveImportProgressDialog({
       case 'select_dates':
         return 'Chọn ngày để cập nhật';
       case 'select_po_files':
-        return `Phát hiện PO mới ngày ${formatFolderDate(currentDate)}`;
+        return importType === 'po' ? `Phát hiện PO mới trong thư mục /${currentDate || ''}` : `Phát hiện file mới ngày ${formatFolderDate(currentDate)}`;
       case 'scanning_folder':
         return `Đang quét folder ngày ${currentDate}...`;
       case 'processing_files':
@@ -2588,6 +2706,59 @@ export function DriveImportProgressDialog({
 
   // Render different content based on phase
   const renderContent = () => {
+    if (phase === 'browse_folders' && importType === 'po') {
+      return (
+        <div className="space-y-4">
+          <div className="text-sm text-muted-foreground">
+            Duyệt thư mục trong folder gốc PO. Chọn thư mục cần quét rồi bấm <b>Scan thư mục</b>.
+          </div>
+          <div className="rounded border p-2 text-xs">
+            <div><b>Đường dẫn hiện tại:</b> /{browsePath || ''}</div>
+            {selectedScanPath && <div className="text-primary"><b>Đã chọn:</b> /{selectedScanPath}</div>}
+          </div>
+          <ScrollArea className="h-[260px] border rounded-lg p-2">
+            <div className="space-y-1">
+              {browseFolders.map((f) => {
+                const fullPath = browsePath ? `${browsePath}/${f.name}` : f.name;
+                const isSelected = selectedScanPath === fullPath;
+                return (
+                  <button
+                    type="button"
+                    key={`${f.folderId || f.name}-${fullPath}`}
+                    className={cn("w-full text-left rounded border px-2 py-2", isSelected ? "border-primary bg-primary/5" : "border-transparent hover:bg-muted")}
+                    onClick={() => setSelectedScanPath(fullPath)}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="truncate">📁 {f.name}</div>
+                      <div className="text-[11px] text-muted-foreground">{f.imageCount} ảnh · {f.childFolderCount} thư mục con</div>
+                    </div>
+                    {f.hasChildren && (
+                      <div className="mt-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setBrowseHistory((prev) => [...prev, browsePath]);
+                            setBrowsePath(fullPath);
+                            setSelectedScanPath(fullPath);
+                          }}
+                        >
+                          Mở thư mục con
+                        </Button>
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+              {browseFolders.length === 0 && <div className="text-sm text-muted-foreground p-2">Không có thư mục con.</div>}
+            </div>
+          </ScrollArea>
+        </div>
+      );
+    }
+
     // Phase: No new files prompt
     if (phase === 'no_new_files_prompt') {
       return (
@@ -2621,7 +2792,7 @@ export function DriveImportProgressDialog({
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-primary" />
               <p className="font-medium">
-                Phát hiện {newFilesCount} PO mới ngày {formatFolderDate(currentDate)}
+                Phát hiện {newFilesCount} PO mới trong thư mục /{currentDate || ''}
               </p>
             </div>
           </div>
@@ -3242,15 +3413,38 @@ export function DriveImportProgressDialog({
 
   // Render footer buttons based on phase
   const renderFooter = () => {
+    if (phase === 'browse_folders' && importType === 'po') {
+      return (
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={() => onClose()}>Hủy</Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              const prev = browseHistory[browseHistory.length - 1] ?? '';
+              setBrowseHistory((h) => h.slice(0, -1));
+              setBrowsePath(prev);
+              setSelectedScanPath(prev);
+            }}
+            disabled={browseHistory.length === 0}
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />Back
+          </Button>
+          <Button onClick={() => scanPOPath(selectedScanPath || browsePath)} disabled={!selectedScanPath && !browsePath}>
+            Scan thư mục
+          </Button>
+        </DialogFooter>
+      );
+    }
+
     if (phase === 'no_new_files_prompt') {
       return (
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onClose()}>
             Hủy
           </Button>
-          <Button onClick={importType === 'po' ? loadAllDatesPO : loadAllDates}>
+          <Button onClick={importType === 'po' ? () => setPhase('browse_folders') : loadAllDates}>
             <Search className="h-4 w-4 mr-2" />
-            Kiểm tra các ngày khác
+            {importType === 'po' ? 'Duyệt thư mục khác' : 'Kiểm tra các ngày khác'}
           </Button>
         </DialogFooter>
       );
@@ -3270,7 +3464,7 @@ export function DriveImportProgressDialog({
             onClick={startProcessingSelectedPO}
             disabled={selectedCount === 0}
           >
-            Quét {selectedCount} file
+            Quét + tạo PO + upload {selectedCount} file
           </Button>
         </DialogFooter>
       );
