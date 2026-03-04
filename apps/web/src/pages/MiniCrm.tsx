@@ -234,6 +234,7 @@ export default function MiniCrm() {
   const [agentCommand, setAgentCommand] = useState("");
   const [agentDraft, setAgentDraft] = useState<any | null>(null);
   const [agentStatus, setAgentStatus] = useState("");
+  const [agentMissingFields, setAgentMissingFields] = useState<string[]>([]);
 
   const { data: gmailConnectedEmail } = useQuery({
     queryKey: ["gmail-connected-email"],
@@ -475,15 +476,21 @@ export default function MiniCrm() {
       return "";
     };
 
-    const customerName = findValue(["ten", "tên", "name", "customer_name", "khach", "khách hàng"]);
-    const customerGroupRaw = findValue(["group", "nhom", "nhóm", "customer_group"]);
-    const productGroupRaw = findValue(["product_group", "nhom_sp", "nhóm sản phẩm"]);
+    const inferredName = (() => {
+      const m1 = text.match(/t[aạ]o\s+kh[aá]ch\s+h[aà]ng\s+([^,;\n]+)/i);
+      if (m1?.[1]) return m1[1].trim();
+      const m2 = text.match(/customer\s+([^,;\n]+)/i);
+      if (m2?.[1]) return m2[1].trim();
+      return "";
+    })();
+
+    const customerName = findValue(["ten", "tên", "name", "customer_name", "khach", "khách hàng"]) || inferredName;
+    const customerGroupRaw = findValue(["group", "nhom", "nhóm", "customer_group"]) || (/\bb2b\b/i.test(text) ? "b2b" : "");
+    const productGroupRaw = findValue(["product_group", "nhom_sp", "nhóm sản phẩm"]) || (/b[aá]nh\s*m[iì]/i.test(text) ? "banhmi" : "");
     const emailsRaw = findValue(["email", "emails", "mail"]);
-    const poModeRaw = findValue(["po_mode", "mode", "kb_mode"]);
+    const poModeRaw = findValue(["po_mode", "mode", "kb_mode"]) || (/c[oộ]ng\s*d[oồ]n|cumulative/i.test(text) ? "cumulative" : "daily");
     const calcNotes = findValue(["calc", "calculation", "calculation_notes"]);
     const opsNotes = findValue(["ops", "operational", "operational_notes"]);
-
-    if (!customerName) throw new Error("Thiếu tên khách hàng. Ví dụ: ten=Vietjet");
 
     const groupMap: Record<string, string> = {
       banle: "banhmi_point",
@@ -505,17 +512,25 @@ export default function MiniCrm() {
     const g = groupMap[String(customerGroupRaw || "").trim().toLowerCase()] || "b2b";
     const pg = productMap[String(productGroupRaw || "").trim().toLowerCase()] || "banhmi";
     const pm = String(poModeRaw || "").toLowerCase().includes("cum") ? "cumulative_snapshot" : "daily_new_po";
-    const emails = Array.from(new Set(String(emailsRaw || "").split(/[;,\s]+/).map((s) => s.trim().toLowerCase()).filter((s) => /@/.test(s))));
+
+    const directEmails = String(emailsRaw || "").split(/[;,\s]+/).map((s) => s.trim().toLowerCase()).filter((s) => /@/.test(s));
+    const textEmails = Array.from(new Set((text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || []).map((x) => x.toLowerCase())));
+    const emails = Array.from(new Set([...directEmails, ...textEmails]));
+
+    const missing: string[] = [];
+    if (!customerName) missing.push("tên khách hàng");
+    if (!emails.length) missing.push("ít nhất 1 email nhận diện");
 
     return {
       customer_name: customerName,
       customer_group: g,
       product_group: pg,
       emails,
-      kb_profile_name: `${customerName} Knowledge`,
+      kb_profile_name: `${customerName || "Customer"} Knowledge`,
       kb_po_mode: pm,
       kb_calc_notes: calcNotes || null,
       kb_ops_notes: opsNotes || null,
+      missing,
     };
   };
 
@@ -761,6 +776,7 @@ export default function MiniCrm() {
       ]);
       setAgentStatus(`✅ Agent đã tạo khách hàng: ${created?.customer_name || ""}`);
       setAgentDraft(null);
+      setAgentMissingFields([]);
       setAgentCommand("");
       toast({ title: "Agent UI tạo khách hàng thành công", description: created?.customer_name || "" });
     },
@@ -2099,13 +2115,24 @@ export default function MiniCrm() {
               try {
                 const draft = parseAgentCreateCustomerCommand(agentCommand);
                 setAgentDraft(draft);
-                setAgentStatus("✅ Agent đã parse yêu cầu. Kiểm tra preview và bấm xác nhận tạo.");
+                const missing = Array.isArray(draft?.missing) ? draft.missing : [];
+                setAgentMissingFields(missing);
+                setAgentStatus(
+                  missing.length
+                    ? `⚠️ Agent cần bổ sung: ${missing.join(", ")}.`
+                    : "✅ Agent đã parse yêu cầu. Kiểm tra preview và bấm xác nhận tạo."
+                );
               } catch (e: any) {
                 setAgentDraft(null);
+                setAgentMissingFields([]);
                 setAgentStatus(`❌ Parse lỗi: ${e?.message || "Không đọc được yêu cầu"}`);
               }
             }}>Phân tích lệnh</Button>
-            <Button type="button" onClick={() => agentDraft && agentCreateCustomerMutation.mutate(agentDraft)} disabled={!agentDraft || agentCreateCustomerMutation.isPending}>
+            <Button
+              type="button"
+              onClick={() => agentDraft && agentCreateCustomerMutation.mutate(agentDraft)}
+              disabled={!agentDraft || agentCreateCustomerMutation.isPending || agentMissingFields.length > 0}
+            >
               {agentCreateCustomerMutation.isPending ? "Đang tạo..." : "Xác nhận tạo khách hàng"}
             </Button>
           </div>
@@ -2116,6 +2143,9 @@ export default function MiniCrm() {
               <div><b>Nhóm SP:</b> {PRODUCT_GROUP_LABEL_MAP[agentDraft.product_group] || agentDraft.product_group}</div>
               <div><b>Email:</b> {(agentDraft.emails || []).join(", ") || "-"}</div>
               <div><b>KB mode:</b> {KB_PO_MODE_LABEL[agentDraft.kb_po_mode] || agentDraft.kb_po_mode}</div>
+              {agentMissingFields.length > 0 && (
+                <div className="text-amber-600"><b>Thiếu:</b> {agentMissingFields.join(", ")}</div>
+              )}
             </div>
           )}
           {agentStatus && <div className="text-sm">{agentStatus}</div>}
