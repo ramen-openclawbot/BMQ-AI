@@ -355,6 +355,20 @@ export default function MiniCrm() {
     enabled: isSalesPoPage,
   });
 
+  const { data: knowledgeProfileVersions = [] } = useQuery({
+    queryKey: ["mini-crm-knowledge-profile-versions"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("mini_crm_knowledge_profile_versions")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(300);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !isSalesPoPage,
+  });
+
   const startEditCustomer = (c: any) => {
     setEditFeedback("");
     setEditingCustomerId(c.id);
@@ -407,6 +421,18 @@ export default function MiniCrm() {
   const getNextTemplateVersion = async (customerId: string) => {
     const { data, error } = await (supabase as any)
       .from("mini_crm_po_templates")
+      .select("version_no")
+      .eq("customer_id", customerId)
+      .order("version_no", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return Number(data?.version_no || 0) + 1;
+  };
+
+  const getNextKnowledgeProfileVersion = async (customerId: string) => {
+    const { data, error } = await (supabase as any)
+      .from("mini_crm_knowledge_profile_versions")
       .select("version_no")
       .eq("customer_id", customerId)
       .order("version_no", { ascending: false })
@@ -535,17 +561,39 @@ export default function MiniCrm() {
         if (tplError) throw tplError;
       }
 
-      const { error: kbError } = await (supabase as any)
+      const kbSeedPayload = {
+        customer_id: customerId,
+        profile_name: `${trimmedName} Knowledge`,
+        po_mode: "daily_new_po",
+        profile_status: "active",
+        calculation_notes: null,
+        operational_notes: null,
+      };
+      const { data: kbInserted, error: kbError } = await (supabase as any)
         .from("mini_crm_knowledge_profiles")
+        .insert(kbSeedPayload)
+        .select("id,customer_id,profile_name,po_mode,profile_status,calculation_notes,operational_notes")
+        .single();
+      if (kbError) throw kbError;
+
+      const kbVersionNo = await getNextKnowledgeProfileVersion(customerId);
+      const { error: kbVersionError } = await (supabase as any)
+        .from("mini_crm_knowledge_profile_versions")
         .insert({
           customer_id: customerId,
-          profile_name: `${trimmedName} Knowledge`,
-          po_mode: "daily_new_po",
-          profile_status: "active",
-          calculation_notes: null,
-          operational_notes: null,
+          knowledge_profile_id: kbInserted?.id || null,
+          version_no: kbVersionNo,
+          profile_name: kbInserted?.profile_name || kbSeedPayload.profile_name,
+          po_mode: kbInserted?.po_mode || kbSeedPayload.po_mode,
+          profile_status: kbInserted?.profile_status || kbSeedPayload.profile_status,
+          calculation_notes: kbInserted?.calculation_notes || null,
+          operational_notes: kbInserted?.operational_notes || null,
+          changed_by: "mini-crm-ui",
+          change_note: "Initial knowledge profile",
+          is_active: true,
+          effective_from: new Date().toISOString(),
         });
-      if (kbError) throw kbError;
+      if (kbVersionError) throw kbVersionError;
     },
     onSuccess: async () => {
       setSetupModalOpen(false);
@@ -563,6 +611,7 @@ export default function MiniCrm() {
         queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-price-list"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-po-templates"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profiles"] }),
+        queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profile-versions"] }),
       ]);
       toast({ title: "Thiết lập khách hàng thành công" });
     },
@@ -687,10 +736,31 @@ export default function MiniCrm() {
         operational_notes: editKbOperationalNotes.trim() || null,
         profile_status: "active",
       };
-      const { error: kbError } = await (supabase as any)
+      const { data: kbSaved, error: kbError } = await (supabase as any)
         .from("mini_crm_knowledge_profiles")
-        .upsert(kbPayload, { onConflict: "customer_id" });
+        .upsert(kbPayload, { onConflict: "customer_id" })
+        .select("id,customer_id,profile_name,po_mode,profile_status,calculation_notes,operational_notes")
+        .single();
       if (kbError) throw new Error(`Lỗi lưu Knowledge Base profile: ${kbError.message}`);
+
+      const kbVersionNo = await getNextKnowledgeProfileVersion(editingCustomerId);
+      const { error: kbVersionError } = await (supabase as any)
+        .from("mini_crm_knowledge_profile_versions")
+        .insert({
+          customer_id: editingCustomerId,
+          knowledge_profile_id: kbSaved?.id || null,
+          version_no: kbVersionNo,
+          profile_name: kbSaved?.profile_name || kbPayload.profile_name,
+          po_mode: kbSaved?.po_mode || kbPayload.po_mode,
+          profile_status: kbSaved?.profile_status || kbPayload.profile_status,
+          calculation_notes: kbSaved?.calculation_notes || kbPayload.calculation_notes || null,
+          operational_notes: kbSaved?.operational_notes || kbPayload.operational_notes || null,
+          changed_by: "mini-crm-ui",
+          change_note: "Profile updated from CRM",
+          is_active: true,
+          effective_from: new Date().toISOString(),
+        });
+      if (kbVersionError) throw new Error(`Lỗi lưu KB version: ${kbVersionError.message}`);
 
       return { saved: true, emailCount: emails.length, emailChanged };
     },
@@ -704,6 +774,7 @@ export default function MiniCrm() {
         queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-price-list"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-po-templates"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profiles"] }),
+        queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profile-versions"] }),
       ]);
       toast({ title: "Lưu thành công", description: msg });
     },
@@ -1904,13 +1975,19 @@ export default function MiniCrm() {
                     <TableCell>
                       {(() => {
                         const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === c.id);
+                        const latestVer = knowledgeProfileVersions.find((v: any) => v.customer_id === c.id);
                         if (!kb) return <span className="text-xs text-muted-foreground">Chưa cấu hình</span>;
                         return (
                           <div className="space-y-1">
                             <div className="text-xs font-medium">{kb.profile_name || "Default"}</div>
-                            <Badge variant="outline" className="text-[10px]">
-                              {String(kb.po_mode || "") === "cumulative_snapshot" ? "Cộng dồn (delta)" : "PO ngày"}
-                            </Badge>
+                            <div className="flex gap-1 flex-wrap">
+                              <Badge variant="outline" className="text-[10px]">
+                                {String(kb.po_mode || "") === "cumulative_snapshot" ? "Cộng dồn (delta)" : "PO ngày"}
+                              </Badge>
+                              {latestVer?.version_no && (
+                                <Badge variant="secondary" className="text-[10px]">KB v{latestVer.version_no}</Badge>
+                              )}
+                            </div>
                           </div>
                         );
                       })()}
