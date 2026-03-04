@@ -831,6 +831,7 @@ export function PaymentRequestDetailsDialog({
           }
         }}
         importType="bank_slip"
+        forceFolderPicker
       />
     </>
   );

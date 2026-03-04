@@ -47,6 +47,7 @@ interface DriveImportProgressDialogProps {
   open: boolean;
   onClose: (success?: boolean) => void;
   importType: 'po' | 'bank_slip';
+  forceFolderPicker?: boolean;
 }
 
 interface FileStatus {
@@ -244,7 +245,8 @@ async function uploadPOImage(base64: string, mimeType: string, fileName: string)
 export function DriveImportProgressDialog({ 
   open, 
   onClose, 
-  importType 
+  importType,
+  forceFolderPicker = false,
 }: DriveImportProgressDialogProps) {
   const [phase, setPhase] = useState<ImportPhase>('idle');
   const [files, setFiles] = useState<FileStatus[]>([]);
@@ -387,12 +389,12 @@ export function DriveImportProgressDialog({
   }, [pendingPOQueue]);
 
   useEffect(() => {
-    if (phase !== 'browse_folders' || importType !== 'po' || !folderUrl || !authToken) return;
+    if (phase !== 'browse_folders' || !folderUrl || !authToken) return;
     loadBrowseFolders(browsePath).catch((e: any) => {
       setError(e?.message || 'Không thể duyệt thư mục');
       setPhase('complete');
     });
-  }, [phase, importType, folderUrl, authToken, browsePath]);
+  }, [phase, folderUrl, authToken, browsePath]);
 
   // Load all suppliers for dropdown
   const loadSuppliers = async () => {
@@ -495,6 +497,62 @@ export function DriveImportProgressDialog({
     setPhase('select_po_files');
   };
 
+  const scanBankSlipPath = async (pathToScan: string) => {
+    setPhase('checking_today');
+    setCurrentDate(pathToScan || '/');
+
+    const scanResponse = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          folderUrl,
+          subfolderDate: pathToScan,
+        }),
+      }
+    );
+
+    if (!scanResponse.ok) {
+      const e = await scanResponse.json().catch(() => ({}));
+      throw new Error(e?.error || 'Không thể quét thư mục đã chọn');
+    }
+
+    const scanData = await scanResponse.json();
+    const allFiles = scanData.files || [];
+    if (!allFiles.length) {
+      setError(`Không có file ảnh UNC trong thư mục: ${pathToScan || '/'} `);
+      setPhase('browse_folders');
+      return;
+    }
+
+    const fileIds = allFiles.map((f: any) => f.id);
+    const { data: processedFiles } = await supabase
+      .from('drive_file_index')
+      .select('file_id')
+      .eq('folder_type', 'bank_slip')
+      .eq('processed', true)
+      .in('file_id', fileIds);
+
+    const processedSet = new Set(processedFiles?.map(f => f.file_id) || []);
+    const newFiles = allFiles.filter((f: any) => !processedSet.has(f.id));
+
+    if (!newFiles.length) {
+      setError(`Tất cả file trong thư mục ${pathToScan || '/'} đã được import trước đó.`);
+      setPhase('browse_folders');
+      return;
+    }
+
+    setError(null);
+    setAvailableDates([{ date: pathToScan || 'selected-folder', fileCount: newFiles.length }]);
+    setSelectedDates([pathToScan || 'selected-folder']);
+    setSelectionMode('all');
+    setPhase('select_dates');
+  };
+
   const startImport = useCallback(async () => {
     setPhase('checking_config');
     setError(null);
@@ -556,8 +614,8 @@ export function DriveImportProgressDialog({
       setAuthToken(token);
       clearTimeout(timeoutId); // Clear watchdog once we have token
 
-      // For PO: open folder browser so user can choose exact scan path
-      if (importType === 'po') {
+      // For PO (or bank slip when explicitly requested): open folder browser first
+      if (importType === 'po' || (importType === 'bank_slip' && forceFolderPicker)) {
         setBrowsePath('');
         setBrowseHistory([]);
         setSelectedScanPath('');
@@ -565,7 +623,7 @@ export function DriveImportProgressDialog({
         return;
       }
 
-      // For bank_slip: Auto-scan all folders immediately (new simplified flow)
+      // For bank_slip default flow: auto-scan all folders immediately
       if (importType === 'bank_slip') {
         await loadAllDatesAutomatically(url, token);
         return;
@@ -577,7 +635,7 @@ export function DriveImportProgressDialog({
       setError(err.message || 'Đã xảy ra lỗi');
       setPhase('complete');
     }
-  }, [importType, allSuppliers.length]);
+  }, [importType, forceFolderPicker, allSuppliers.length]);
 
   // NEW: PO Import Flow - Scan only today's folder first (like bank_slip flow)
   const startPOImportFlow = async (url: string, token: string) => {
@@ -2730,7 +2788,7 @@ export function DriveImportProgressDialog({
           ? `Đang quét thư mục PO: /${currentDate || ''}...`
           : `Đang kiểm tra folder ngày ${currentDate}...`;
       case 'browse_folders':
-        return 'Duyệt thư mục PO để chọn nơi cần quét';
+        return importType === 'po' ? 'Duyệt thư mục PO để chọn nơi cần quét' : 'Duyệt thư mục UNC để chọn nơi cần quét';
       case 'no_new_files_prompt':
         return importType === 'po' ? 'Không có PO mới hôm nay' : 'Không có file mới hôm nay';
       case 'loading_dates':
@@ -2787,11 +2845,14 @@ export function DriveImportProgressDialog({
 
   // Render different content based on phase
   const renderContent = () => {
-    if (phase === 'browse_folders' && importType === 'po') {
+    if (phase === 'browse_folders') {
       return (
         <div className="space-y-4">
           <div className="text-sm text-muted-foreground">
-            Duyệt thư mục trong folder gốc PO. Chọn thư mục cần quét rồi bấm <b>Scan thư mục</b>.
+            {importType === 'po'
+              ? <>Duyệt thư mục trong folder gốc PO. Chọn thư mục cần quét rồi bấm <b>Scan thư mục</b>.</>
+              : <>Duyệt thư mục trong folder gốc UNC. Chọn thư mục cần quét rồi bấm <b>Scan thư mục</b>.</>
+            }
           </div>
           <div className="rounded border p-2 text-xs">
             <div><b>Đường dẫn hiện tại:</b> /{browsePath || ''}</div>
@@ -3494,7 +3555,7 @@ export function DriveImportProgressDialog({
 
   // Render footer buttons based on phase
   const renderFooter = () => {
-    if (phase === 'browse_folders' && importType === 'po') {
+    if (phase === 'browse_folders') {
       return (
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onClose()}>Hủy</Button>
@@ -3510,7 +3571,10 @@ export function DriveImportProgressDialog({
           >
             <ArrowLeft className="h-4 w-4 mr-2" />Back
           </Button>
-          <Button onClick={() => scanPOPath(selectedScanPath || browsePath)} disabled={!selectedScanPath && !browsePath}>
+          <Button
+            onClick={() => importType === 'po' ? scanPOPath(selectedScanPath || browsePath) : scanBankSlipPath(selectedScanPath || browsePath)}
+            disabled={!selectedScanPath && !browsePath}
+          >
             Scan thư mục
           </Button>
         </DialogFooter>
@@ -3523,7 +3587,7 @@ export function DriveImportProgressDialog({
           <Button variant="outline" onClick={() => onClose()}>
             Hủy
           </Button>
-          <Button onClick={importType === 'po' ? () => setPhase('browse_folders') : loadAllDates}>
+          <Button onClick={importType === 'po' || forceFolderPicker ? () => setPhase('browse_folders') : loadAllDates}>
             <Search className="h-4 w-4 mr-2" />
             {importType === 'po' ? 'Duyệt thư mục khác' : 'Kiểm tra các ngày khác'}
           </Button>
