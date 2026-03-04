@@ -203,6 +203,10 @@ export default function MiniCrm() {
   const [setupPriceRows, setSetupPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
   const [editContractFile, setEditContractFile] = useState<File | null>(null);
   const [editPriceRows, setEditPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
+  const [editKbProfileName, setEditKbProfileName] = useState("Default Customer Knowledge");
+  const [editKbPoMode, setEditKbPoMode] = useState("daily_new_po");
+  const [editKbCalcNotes, setEditKbCalcNotes] = useState("");
+  const [editKbOperationalNotes, setEditKbOperationalNotes] = useState("");
 
   const { data: gmailConnectedEmail } = useQuery({
     queryKey: ["gmail-connected-email"],
@@ -297,6 +301,19 @@ export default function MiniCrm() {
     },
   });
 
+  const { data: customerKnowledgeProfiles = [] } = useQuery({
+    queryKey: ["mini-crm-knowledge-profiles"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("mini_crm_knowledge_profiles")
+        .select("*")
+        .order("updated_at", { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !isSalesPoPage,
+  });
+
   const startEditCustomer = (c: any) => {
     setEditFeedback("");
     setEditingCustomerId(c.id);
@@ -315,6 +332,12 @@ export default function MiniCrm() {
     setEditContractFile(null);
     const currentPrices = customerPriceList.filter((x: any) => x.customer_id === c.id);
     setEditPriceRows(currentPrices.length ? currentPrices.map((p: any) => ({ skuId: p.sku_id, price: String(Number(p.price_vnd_per_unit || 0)) })) : [{ skuId: "", price: "" }]);
+
+    const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === c.id);
+    setEditKbProfileName(String(kb?.profile_name || `${c.customer_name || "Customer"} Knowledge`));
+    setEditKbPoMode(String(kb?.po_mode || "daily_new_po"));
+    setEditKbCalcNotes(String(kb?.calculation_notes || ""));
+    setEditKbOperationalNotes(String(kb?.operational_notes || ""));
   };
 
   const cancelEditCustomer = () => {
@@ -334,6 +357,10 @@ export default function MiniCrm() {
     setTemplateReviewDraft(null);
     setEditContractFile(null);
     setEditPriceRows([{ skuId: "", price: "" }]);
+    setEditKbProfileName("Default Customer Knowledge");
+    setEditKbPoMode("daily_new_po");
+    setEditKbCalcNotes("");
+    setEditKbOperationalNotes("");
   };
 
   const getNextTemplateVersion = async (customerId: string) => {
@@ -466,6 +493,18 @@ export default function MiniCrm() {
           });
         if (tplError) throw tplError;
       }
+
+      const { error: kbError } = await (supabase as any)
+        .from("mini_crm_knowledge_profiles")
+        .insert({
+          customer_id: customerId,
+          profile_name: `${trimmedName} Knowledge`,
+          po_mode: "daily_new_po",
+          profile_status: "active",
+          calculation_notes: null,
+          operational_notes: null,
+        });
+      if (kbError) throw kbError;
     },
     onSuccess: async () => {
       setSetupModalOpen(false);
@@ -482,6 +521,7 @@ export default function MiniCrm() {
         queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-contracts"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-price-list"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-po-templates"] }),
+        queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profiles"] }),
       ]);
       toast({ title: "Thiết lập khách hàng thành công" });
     },
@@ -598,6 +638,19 @@ export default function MiniCrm() {
         if (tplInsertError) throw tplInsertError;
       }
 
+      const kbPayload = {
+        customer_id: editingCustomerId,
+        profile_name: editKbProfileName.trim() || `${trimmedName} Knowledge`,
+        po_mode: editKbPoMode,
+        calculation_notes: editKbCalcNotes.trim() || null,
+        operational_notes: editKbOperationalNotes.trim() || null,
+        profile_status: "active",
+      };
+      const { error: kbError } = await (supabase as any)
+        .from("mini_crm_knowledge_profiles")
+        .upsert(kbPayload, { onConflict: "customer_id" });
+      if (kbError) throw new Error(`Lỗi lưu Knowledge Base profile: ${kbError.message}`);
+
       return { saved: true, emailCount: emails.length, emailChanged };
     },
     onSuccess: async (result: any) => {
@@ -609,6 +662,7 @@ export default function MiniCrm() {
         queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-contracts"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-price-list"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-po-templates"] }),
+        queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profiles"] }),
       ]);
       toast({ title: "Lưu thành công", description: msg });
     },
@@ -1475,6 +1529,7 @@ export default function MiniCrm() {
                 <TableHead>Nhóm</TableHead>
                 <TableHead>Nhóm sản phẩm</TableHead>
                 <TableHead>Email</TableHead>
+                <TableHead>Knowledge</TableHead>
                 <TableHead>Trạng thái</TableHead>
                 <TableHead className="text-right">Thao tác</TableHead>
               </TableRow>
@@ -1487,6 +1542,20 @@ export default function MiniCrm() {
                     <TableCell>{GROUP_LABEL_MAP[c.customer_group] || c.customer_group}</TableCell>
                     <TableCell>{PRODUCT_GROUP_LABEL_MAP[c.product_group] || c.product_group || "-"}</TableCell>
                     <TableCell>{(c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"}</TableCell>
+                    <TableCell>
+                      {(() => {
+                        const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === c.id);
+                        if (!kb) return <span className="text-xs text-muted-foreground">Chưa cấu hình</span>;
+                        return (
+                          <div className="space-y-1">
+                            <div className="text-xs font-medium">{kb.profile_name || "Default"}</div>
+                            <Badge variant="outline" className="text-[10px]">
+                              {String(kb.po_mode || "") === "cumulative_snapshot" ? "Cộng dồn (delta)" : "PO ngày"}
+                            </Badge>
+                          </div>
+                        );
+                      })()}
+                    </TableCell>
                     <TableCell>{c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
@@ -1762,6 +1831,17 @@ export default function MiniCrm() {
                   </ul>
                 </div>
                 <div><b>Mẫu PO active:</b> {(() => { const t = poTemplates.find((x: any) => x.customer_id === viewCustomer.id); return t ? `${t.file_name || t.template_name} (v${t.version_no || 1})` : "Chưa có"; })()}</div>
+                <div>
+                  <b>Knowledge Base:</b> {(() => {
+                    const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === viewCustomer.id);
+                    if (!kb) return "Chưa cấu hình";
+                    const modeMap: Record<string, string> = {
+                      daily_new_po: "PO mới theo ngày",
+                      cumulative_snapshot: "PO cộng dồn (delta)",
+                    };
+                    return `${kb.profile_name || "Default"} • ${modeMap[String(kb.po_mode || "")] || kb.po_mode || "-"}`;
+                  })()}
+                </div>
               </div>
             </>
           )}
@@ -1847,6 +1927,31 @@ export default function MiniCrm() {
                 }}>Xoá mẫu</Button>
               </div>
               {templateFileName && <div className="text-xs text-muted-foreground">Đã xác nhận mẫu mới: {templateFileName}</div>}
+            </div>
+
+            <div className="space-y-2 md:col-span-2 rounded-md border p-3">
+              <Label>Knowledge Base Profile (Phase 1)</Label>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Tên profile</Label>
+                  <Input value={editKbProfileName} onChange={(e) => setEditKbProfileName(e.target.value)} placeholder="Ví dụ: Vietjet_PO_Standard" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">PO mode</Label>
+                  <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editKbPoMode} onChange={(e) => setEditKbPoMode(e.target.value)}>
+                    <option value="daily_new_po">PO mới theo ngày</option>
+                    <option value="cumulative_snapshot">PO cộng dồn (delta)</option>
+                  </select>
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label className="text-xs text-muted-foreground">Calculation notes</Label>
+                  <Input value={editKbCalcNotes} onChange={(e) => setEditKbCalcNotes(e.target.value)} placeholder="Ví dụ: net_qty = gross - reject; round half up 2 digits" />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label className="text-xs text-muted-foreground">Operational notes</Label>
+                  <Input value={editKbOperationalNotes} onChange={(e) => setEditKbOperationalNotes(e.target.value)} placeholder="Ví dụ: Vietjet gửi file snapshot cộng dồn hàng ngày" />
+                </div>
+              </div>
             </div>
           </div>
 
