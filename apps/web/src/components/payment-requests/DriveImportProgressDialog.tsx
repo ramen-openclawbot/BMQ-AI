@@ -2334,11 +2334,33 @@ export function DriveImportProgressDialog({
 
       if (invoiceError) throw invoiceError;
 
-      // 6. Update PR with invoice_id
+      // 6. Copy PR items to invoice items
+      const copiedItemCount = await copyPRItemsToInvoice(prData.id, invoiceData.id);
+      if (copiedItemCount === 0) {
+        toast.warning('PR không có sản phẩm để chép sang hoá đơn');
+      }
+
+      // 7. Update PR with invoice_id
       await supabase
         .from('payment_requests')
         .update({ invoice_created: true, invoice_id: invoiceData.id })
         .eq('id', prData.id);
+
+      // 8. Recompute invoice totals from copied items
+      const { data: insertedItems } = await supabase
+        .from('invoice_items')
+        .select('quantity, unit_price')
+        .eq('invoice_id', invoiceData.id);
+
+      const subtotal = (insertedItems || []).reduce((sum, item: any) => sum + (Number(item.quantity) || 0) * (Number(item.unit_price) || 0), 0);
+      await supabase
+        .from('invoices')
+        .update({
+          subtotal,
+          vat_amount: 0,
+          total_amount: subtotal,
+        })
+        .eq('id', invoiceData.id);
 
       // 7. Update drive_file_index to mark as processed (idempotent)
       await upsertDriveFileIndex({
@@ -2395,6 +2417,42 @@ export function DriveImportProgressDialog({
     } else {
       setPhase('complete');
     }
+  };
+
+  const copyPRItemsToInvoice = async (paymentRequestId: string, invoiceId: string) => {
+    const { data: prItems, error: prItemsError } = await supabase
+      .from('payment_request_items')
+      .select('product_code, product_name, unit, quantity, unit_price, inventory_item_id, notes')
+      .eq('payment_request_id', paymentRequestId);
+
+    if (prItemsError) {
+      throw prItemsError;
+    }
+
+    if (!prItems || prItems.length === 0) {
+      return 0;
+    }
+
+    const invoiceItems = prItems.map((item) => ({
+      invoice_id: invoiceId,
+      product_code: item.product_code,
+      product_name: item.product_name,
+      unit: item.unit || 'kg',
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      inventory_item_id: item.inventory_item_id,
+      notes: item.notes,
+    }));
+
+    const { error: insertError } = await supabase
+      .from('invoice_items')
+      .insert(invoiceItems);
+
+    if (insertError) {
+      throw insertError;
+    }
+
+    return invoiceItems.length;
   };
 
   const toggleDate = (date: string, checked: boolean | 'indeterminate') => {
@@ -2458,6 +2516,28 @@ export function DriveImportProgressDialog({
 
       if (invoiceData) {
         invoiceId = invoiceData.id;
+
+        const copiedItemCount = await copyPRItemsToInvoice(matchedPR.id, invoiceData.id);
+        if (copiedItemCount === 0) {
+          toast.warning(`PR ${matchedPR.request_number} không có sản phẩm để chép sang hoá đơn`);
+        }
+
+        const { data: insertedItems } = await supabase
+          .from('invoice_items')
+          .select('quantity, unit_price')
+          .eq('invoice_id', invoiceData.id);
+
+        const subtotal = (insertedItems || []).reduce((sum, item: any) => sum + (Number(item.quantity) || 0) * (Number(item.unit_price) || 0), 0);
+        const vatAmount = matchedPR.vat_amount || 0;
+
+        await supabase
+          .from('invoices')
+          .update({
+            subtotal,
+            vat_amount: vatAmount,
+            total_amount: subtotal + vatAmount,
+          })
+          .eq('id', invoiceData.id);
         
         await supabase
           .from('payment_requests')
