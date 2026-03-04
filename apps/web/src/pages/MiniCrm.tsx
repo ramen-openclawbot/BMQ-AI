@@ -235,6 +235,8 @@ export default function MiniCrm() {
   const [agentDraft, setAgentDraft] = useState<any | null>(null);
   const [agentStatus, setAgentStatus] = useState("");
   const [agentMissingFields, setAgentMissingFields] = useState<string[]>([]);
+  const [agentPendingSlot, setAgentPendingSlot] = useState<string | null>(null);
+  const [agentChatLog, setAgentChatLog] = useState<Array<{ role: "user" | "agent"; text: string }>>([]);
 
   const { data: gmailConnectedEmail } = useQuery({
     queryKey: ["gmail-connected-email"],
@@ -534,6 +536,76 @@ export default function MiniCrm() {
     };
   };
 
+  const computeAgentMissing = (draft: any) => {
+    const missing: string[] = [];
+    if (!String(draft?.customer_name || "").trim()) missing.push("tên khách hàng");
+    if (!Array.isArray(draft?.emails) || draft.emails.length === 0) missing.push("ít nhất 1 email nhận diện");
+    return missing;
+  };
+
+  const mergeAgentSlotAnswer = (draft: any, slot: string, answer: string) => {
+    const v = String(answer || "").trim();
+    if (!v) return draft;
+    if (slot === "tên khách hàng") {
+      return { ...draft, customer_name: v, kb_profile_name: `${v} Knowledge` };
+    }
+    if (slot === "ít nhất 1 email nhận diện") {
+      const emails = Array.from(new Set(v.split(/[;,\s]+/).map((s) => s.trim().toLowerCase()).filter((s) => /@/.test(s))));
+      return { ...draft, emails };
+    }
+    return draft;
+  };
+
+  const handleAgentCommandTurn = () => {
+    const text = String(agentCommand || "").trim();
+    if (!text) return;
+
+    setAgentChatLog((prev) => [...prev, { role: "user", text }]);
+
+    try {
+      if (agentPendingSlot && agentDraft) {
+        const nextDraft = mergeAgentSlotAnswer(agentDraft, agentPendingSlot, text);
+        const missing = computeAgentMissing(nextDraft);
+        setAgentDraft(nextDraft);
+        setAgentMissingFields(missing);
+        setAgentCommand("");
+        if (missing.length) {
+          setAgentPendingSlot(missing[0]);
+          const ask = `Em cần bổ sung ${missing[0]}.`;
+          setAgentStatus(`⚠️ ${ask}`);
+          setAgentChatLog((prev) => [...prev, { role: "agent", text: ask }]);
+        } else {
+          setAgentPendingSlot(null);
+          const ok = "Đã đủ thông tin. Anh xác nhận tạo khách hàng.";
+          setAgentStatus(`✅ ${ok}`);
+          setAgentChatLog((prev) => [...prev, { role: "agent", text: ok }]);
+        }
+        return;
+      }
+
+      const draft = parseAgentCreateCustomerCommand(text);
+      const missing = computeAgentMissing(draft);
+      setAgentDraft(draft);
+      setAgentMissingFields(missing);
+      setAgentCommand("");
+      if (missing.length) {
+        setAgentPendingSlot(missing[0]);
+        const ask = `Em cần bổ sung ${missing[0]}.`;
+        setAgentStatus(`⚠️ ${ask}`);
+        setAgentChatLog((prev) => [...prev, { role: "agent", text: ask }]);
+      } else {
+        setAgentPendingSlot(null);
+        const ok = "Đã parse xong. Anh bấm xác nhận để tạo khách hàng.";
+        setAgentStatus(`✅ ${ok}`);
+        setAgentChatLog((prev) => [...prev, { role: "agent", text: ok }]);
+      }
+    } catch (e: any) {
+      const msg = e?.message || "Không đọc được yêu cầu";
+      setAgentStatus(`❌ Parse lỗi: ${msg}`);
+      setAgentChatLog((prev) => [...prev, { role: "agent", text: `Parse lỗi: ${msg}` }]);
+    }
+  };
+
   const summarizeTemplateDiff = (beforeSnap: any, afterSnap: any) => {
     const beforeItems = Array.isArray(beforeSnap?.items) ? beforeSnap.items : [];
     const afterItems = Array.isArray(afterSnap?.items) ? afterSnap.items : [];
@@ -775,8 +847,10 @@ export default function MiniCrm() {
         queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profile-versions"] }),
       ]);
       setAgentStatus(`✅ Agent đã tạo khách hàng: ${created?.customer_name || ""}`);
+      setAgentChatLog((prev) => [...prev, { role: "agent", text: `Đã tạo khách hàng ${created?.customer_name || ""} thành công.` }]);
       setAgentDraft(null);
       setAgentMissingFields([]);
+      setAgentPendingSlot(null);
       setAgentCommand("");
       toast({ title: "Agent UI tạo khách hàng thành công", description: created?.customer_name || "" });
     },
@@ -2108,26 +2182,10 @@ export default function MiniCrm() {
           <Input
             value={agentCommand}
             onChange={(e) => setAgentCommand(e.target.value)}
-            placeholder="Ví dụ: ten=Vietjet Test; group=b2b; product_group=banhmi; email=ops@vietjet.vn; po_mode=cumulative; calc=delta by snapshot; ops=send daily"
+            placeholder="Ví dụ: Tạo khách hàng Vietjet Test, email ops@vietjet.vn, mode cumulative"
           />
           <div className="flex gap-2 flex-wrap">
-            <Button type="button" variant="outline" onClick={() => {
-              try {
-                const draft = parseAgentCreateCustomerCommand(agentCommand);
-                setAgentDraft(draft);
-                const missing = Array.isArray(draft?.missing) ? draft.missing : [];
-                setAgentMissingFields(missing);
-                setAgentStatus(
-                  missing.length
-                    ? `⚠️ Agent cần bổ sung: ${missing.join(", ")}.`
-                    : "✅ Agent đã parse yêu cầu. Kiểm tra preview và bấm xác nhận tạo."
-                );
-              } catch (e: any) {
-                setAgentDraft(null);
-                setAgentMissingFields([]);
-                setAgentStatus(`❌ Parse lỗi: ${e?.message || "Không đọc được yêu cầu"}`);
-              }
-            }}>Phân tích lệnh</Button>
+            <Button type="button" variant="outline" onClick={handleAgentCommandTurn}>Gửi cho Agent</Button>
             <Button
               type="button"
               onClick={() => agentDraft && agentCreateCustomerMutation.mutate(agentDraft)}
@@ -2135,7 +2193,21 @@ export default function MiniCrm() {
             >
               {agentCreateCustomerMutation.isPending ? "Đang tạo..." : "Xác nhận tạo khách hàng"}
             </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => { setAgentChatLog([]); setAgentPendingSlot(null); setAgentMissingFields([]); setAgentDraft(null); setAgentStatus(""); }}
+            >
+              Xoá hội thoại
+            </Button>
           </div>
+          {agentChatLog.length > 0 && (
+            <div className="text-xs rounded-md border p-2 max-h-36 overflow-auto space-y-1">
+              {agentChatLog.slice(-8).map((m, idx) => (
+                <div key={`${m.role}-${idx}`}><b>{m.role === "user" ? "Anh" : "Agent"}:</b> {m.text}</div>
+              ))}
+            </div>
+          )}
           {agentDraft && (
             <div className="text-xs rounded-md border p-2 bg-muted/30 space-y-1">
               <div><b>Tên:</b> {agentDraft.customer_name}</div>
