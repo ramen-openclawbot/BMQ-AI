@@ -6,7 +6,7 @@ import { useTriggerSync } from "./useDriveSync";
  * Should be mounted in AppLayout (authenticated area) to trigger on login.
  */
 export function useAutoSync() {
-  const { mutate: triggerSync } = useTriggerSync();
+  const { mutate: triggerSync } = useTriggerSync({ silent: true });
   const hasSyncedRef = useRef(false);
 
   useEffect(() => {

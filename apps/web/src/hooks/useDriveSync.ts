@@ -94,8 +94,8 @@ export function useDriveFilesByDate(folderType: 'po' | 'bank_slip', folderDate: 
 // Track folders currently being synced to prevent concurrent syncs
 const syncingFoldersRef = { current: new Set<string>() };
 
-// Trigger manual sync
-export function useTriggerSync() {
+// Trigger sync (manual by default; can run silent)
+export function useTriggerSync(options?: { silent?: boolean }) {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -137,13 +137,17 @@ export function useTriggerSync() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["drive-sync-configs"] });
       queryClient.invalidateQueries({ queryKey: ["drive-file-index"] });
-      
-      toast.success(`Đã đồng bộ ${data.filesSynced} files từ ${data.foldersScanned} thư mục`);
+
+      if (!options?.silent) {
+        toast.success(`Đã đồng bộ ${data.filesSynced} files từ ${data.foldersScanned} thư mục`);
+      }
     },
     onError: (error: Error) => {
-      toast.error("Đồng bộ thất bại", {
-        description: error.message,
-      });
+      if (!options?.silent) {
+        toast.error("Đồng bộ thất bại", {
+          description: error.message,
+        });
+      }
     },
   });
 }
