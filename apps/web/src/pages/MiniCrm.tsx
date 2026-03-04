@@ -230,6 +230,7 @@ export default function MiniCrm() {
   const [editKbPoMode, setEditKbPoMode] = useState("daily_new_po");
   const [editKbCalcNotes, setEditKbCalcNotes] = useState("");
   const [editKbOperationalNotes, setEditKbOperationalNotes] = useState("");
+  const [kbChangeNote, setKbChangeNote] = useState("");
 
   const { data: gmailConnectedEmail } = useQuery({
     queryKey: ["gmail-connected-email"],
@@ -369,6 +370,20 @@ export default function MiniCrm() {
     enabled: !isSalesPoPage,
   });
 
+  const { data: knowledgeChangeRequests = [] } = useQuery({
+    queryKey: ["mini-crm-knowledge-change-requests"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("mini_crm_knowledge_change_requests")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(300);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !isSalesPoPage,
+  });
+
   const startEditCustomer = (c: any) => {
     setEditFeedback("");
     setEditingCustomerId(c.id);
@@ -393,6 +408,7 @@ export default function MiniCrm() {
     setEditKbPoMode(String(kb?.po_mode || "daily_new_po"));
     setEditKbCalcNotes(String(kb?.calculation_notes || ""));
     setEditKbOperationalNotes(String(kb?.operational_notes || ""));
+    setKbChangeNote("");
   };
 
   const cancelEditCustomer = () => {
@@ -416,6 +432,7 @@ export default function MiniCrm() {
     setEditKbPoMode("daily_new_po");
     setEditKbCalcNotes("");
     setEditKbOperationalNotes("");
+    setKbChangeNote("");
   };
 
   const getNextTemplateVersion = async (customerId: string) => {
@@ -782,6 +799,90 @@ export default function MiniCrm() {
       const msg = e?.message || "Không thể cập nhật khách hàng";
       setEditFeedback(`Lưu thất bại: ${msg}`);
       toast({ title: "Lỗi lưu CRM", description: msg, variant: "destructive" });
+    },
+  });
+
+  const submitKbChangeRequestMutation = useMutation({
+    mutationFn: async () => {
+      if (!editingCustomerId) throw new Error("Chưa chọn khách hàng");
+      const payload = {
+        customer_id: editingCustomerId,
+        profile_name: editKbProfileName.trim() || `${editCustomerName.trim() || "Customer"} Knowledge`,
+        po_mode: editKbPoMode,
+        profile_status: "pending_approval",
+        calculation_notes: editKbCalcNotes.trim() || null,
+        operational_notes: editKbOperationalNotes.trim() || null,
+        change_note: kbChangeNote.trim() || "KB update request",
+        request_status: "pending",
+        requested_by: "mini-crm-ui",
+      };
+      const { error } = await (supabase as any).from("mini_crm_knowledge_change_requests").insert(payload);
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-change-requests"] });
+      toast({ title: "Đã gửi yêu cầu duyệt KB", description: "Yêu cầu đã vào hàng chờ phê duyệt." });
+      setKbChangeNote("");
+    },
+    onError: (e: any) => {
+      toast({ title: "Gửi yêu cầu KB thất bại", description: e?.message || "Không thể gửi yêu cầu", variant: "destructive" });
+    },
+  });
+
+  const approveKbLatestRequestMutation = useMutation({
+    mutationFn: async () => {
+      if (!editingCustomerId) throw new Error("Chưa chọn khách hàng");
+      const pending = knowledgeChangeRequests.find((r: any) => r.customer_id === editingCustomerId && r.request_status === "pending");
+      if (!pending) throw new Error("Không có yêu cầu KB pending để duyệt");
+
+      const kbPayload = {
+        customer_id: editingCustomerId,
+        profile_name: pending.profile_name,
+        po_mode: pending.po_mode,
+        calculation_notes: pending.calculation_notes,
+        operational_notes: pending.operational_notes,
+        profile_status: "active",
+      };
+      const { data: kbSaved, error: kbError } = await (supabase as any)
+        .from("mini_crm_knowledge_profiles")
+        .upsert(kbPayload, { onConflict: "customer_id" })
+        .select("id,customer_id,profile_name,po_mode,profile_status,calculation_notes,operational_notes")
+        .single();
+      if (kbError) throw kbError;
+
+      const versionNo = await getNextKnowledgeProfileVersion(editingCustomerId);
+      const { error: verErr } = await (supabase as any).from("mini_crm_knowledge_profile_versions").insert({
+        customer_id: editingCustomerId,
+        knowledge_profile_id: kbSaved?.id || null,
+        version_no: versionNo,
+        profile_name: kbSaved?.profile_name || kbPayload.profile_name,
+        po_mode: kbSaved?.po_mode || kbPayload.po_mode,
+        profile_status: "active",
+        calculation_notes: kbSaved?.calculation_notes || null,
+        operational_notes: kbSaved?.operational_notes || null,
+        changed_by: "mini-crm-approver",
+        change_note: pending.change_note || "Approved KB request",
+        is_active: true,
+        effective_from: new Date().toISOString(),
+      });
+      if (verErr) throw verErr;
+
+      const { error: reqErr } = await (supabase as any)
+        .from("mini_crm_knowledge_change_requests")
+        .update({ request_status: "approved", approved_by: "mini-crm-approver", approved_at: new Date().toISOString(), applied_version_no: versionNo })
+        .eq("id", pending.id);
+      if (reqErr) throw reqErr;
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profiles"] }),
+        queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profile-versions"] }),
+        queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-change-requests"] }),
+      ]);
+      toast({ title: "Đã duyệt & áp dụng KB", description: "Rule KB đã active theo version mới." });
+    },
+    onError: (e: any) => {
+      toast({ title: "Duyệt KB thất bại", description: e?.message || "Không thể duyệt KB", variant: "destructive" });
     },
   });
 
@@ -2546,7 +2647,7 @@ export default function MiniCrm() {
             </div>
 
             <div className="space-y-2 md:col-span-2 rounded-md border p-3">
-              <Label>Knowledge Base Profile (Phase 1)</Label>
+              <Label>Knowledge Base Profile (Phase 2: approval workflow)</Label>
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label className="text-xs text-muted-foreground">Tên profile</Label>
@@ -2566,6 +2667,23 @@ export default function MiniCrm() {
                 <div className="space-y-2 md:col-span-2">
                   <Label className="text-xs text-muted-foreground">Operational notes</Label>
                   <Input value={editKbOperationalNotes} onChange={(e) => setEditKbOperationalNotes(e.target.value)} placeholder="Ví dụ: Vietjet gửi file snapshot cộng dồn hàng ngày" />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label className="text-xs text-muted-foreground">Change note (bắt buộc khi gửi duyệt)</Label>
+                  <Input value={kbChangeNote} onChange={(e) => setKbChangeNote(e.target.value)} placeholder="Mô tả thay đổi rule/profile" />
+                </div>
+                <div className="md:col-span-2 flex items-center justify-between gap-2 flex-wrap rounded-md bg-muted/30 p-2">
+                  <div className="text-xs text-muted-foreground">
+                    Pending requests: {knowledgeChangeRequests.filter((r: any) => r.customer_id === editingCustomerId && r.request_status === "pending").length}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" onClick={() => submitKbChangeRequestMutation.mutate()} disabled={submitKbChangeRequestMutation.isPending || !kbChangeNote.trim()}>
+                      Gửi duyệt KB
+                    </Button>
+                    <Button type="button" variant="secondary" onClick={() => approveKbLatestRequestMutation.mutate()} disabled={approveKbLatestRequestMutation.isPending}>
+                      Duyệt & áp dụng KB
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
