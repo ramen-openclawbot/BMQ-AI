@@ -37,7 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Upload, Loader2, Image } from "lucide-react";
+import { Plus, Trash2, Loader2, Image, CreditCard } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const invoiceItemSchema = z.object({
@@ -76,6 +76,8 @@ export function EditInvoiceDialog({
   const [uploading, setUploading] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [newImageFile, setNewImageFile] = useState<File | null>(null);
+  const [paymentSlipUrl, setPaymentSlipUrl] = useState<string | null>(null);
+  const [newPaymentSlipFile, setNewPaymentSlipFile] = useState<File | null>(null);
   
   const { data: invoice, isLoading: invoiceLoading } = useInvoice(invoiceId);
   const { data: invoiceItems, isLoading: itemsLoading } = useInvoiceItems(invoiceId);
@@ -125,6 +127,8 @@ export function EditInvoiceDialog({
       });
       setImageUrl(invoice.image_url);
       setNewImageFile(null);
+      setPaymentSlipUrl(invoice.payment_slip_url || null);
+      setNewPaymentSlipFile(null);
     }
   }, [invoice, invoiceItems, form]);
 
@@ -146,6 +150,15 @@ export function EditInvoiceDialog({
     setNewImageFile(file);
   };
 
+  const handlePaymentSlipUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const previewUrl = URL.createObjectURL(file);
+    setPaymentSlipUrl(previewUrl);
+    setNewPaymentSlipFile(file);
+  };
+
   const handleRemoveItem = (index: number) => {
     const item = watchItems[index];
     if (item.id && !item.isNew) {
@@ -163,7 +176,7 @@ export function EditInvoiceDialog({
     try {
       setUploading(true);
 
-      // Upload new image if exists (store storage path, not signed URL)
+      // Upload new invoice image if exists (store storage path, not signed URL)
       let uploadedImageUrl: string | null = imageUrl;
       if (newImageFile) {
         const fileExt = newImageFile.name.split(".").pop();
@@ -180,6 +193,23 @@ export function EditInvoiceDialog({
         uploadedImageUrl = fileName;
       }
 
+      // Upload new payment slip if exists (store storage path, not signed URL)
+      let uploadedPaymentSlipUrl: string | null = paymentSlipUrl;
+      if (newPaymentSlipFile) {
+        const fileExt = newPaymentSlipFile.name.split(".").pop();
+        const fileName = `payment-slips/slip-${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from("invoices")
+          .upload(fileName, newPaymentSlipFile);
+
+        if (uploadError) {
+          throw new Error(`Failed to upload payment slip: ${uploadError.message}`);
+        }
+
+        uploadedPaymentSlipUrl = fileName;
+      }
+
       // Update invoice
       await updateInvoice.mutateAsync({
         id: invoiceId,
@@ -190,6 +220,7 @@ export function EditInvoiceDialog({
         vat_amount: vatAmount,
         total_amount: totalAmount,
         image_url: uploadedImageUrl,
+        payment_slip_url: uploadedPaymentSlipUrl,
         notes: data.notes || null,
       });
 
@@ -265,43 +296,82 @@ export function EditInvoiceDialog({
         ) : (
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              {/* Image Section */}
-              <div className="border-2 border-dashed border-border rounded-lg p-6">
-                <div className="flex flex-col items-center gap-4">
-                  {imageUrl ? (
-                    <div className="relative">
-                      <img
-                        src={imageUrl}
-                        alt="Invoice preview"
-                        className="max-h-48 rounded-lg object-contain"
-                      />
-                      <Button
-                        type="button"
-                        variant="destructive"
-                        size="sm"
-                        className="absolute -top-2 -right-2"
-                        onClick={() => {
-                          setImageUrl(null);
-                          setNewImageFile(null);
-                        }}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="text-center">
-                      <Image className="mx-auto h-12 w-12 text-muted-foreground" />
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        No image attached
-                      </p>
-                    </div>
-                  )}
-                  <Input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageUpload}
-                    className="max-w-xs"
-                  />
+              {/* Attachments */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="border-2 border-dashed border-border rounded-lg p-6">
+                  <div className="flex flex-col items-center gap-4">
+                    <p className="text-sm font-medium">PO / Invoice image</p>
+                    {imageUrl ? (
+                      <div className="relative">
+                        <img
+                          src={imageUrl}
+                          alt="Invoice preview"
+                          className="max-h-48 rounded-lg object-contain"
+                        />
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          className="absolute -top-2 -right-2"
+                          onClick={() => {
+                            setImageUrl(null);
+                            setNewImageFile(null);
+                          }}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="text-center">
+                        <Image className="mx-auto h-12 w-12 text-muted-foreground" />
+                        <p className="mt-2 text-sm text-muted-foreground">No image attached</p>
+                      </div>
+                    )}
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="max-w-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="border-2 border-dashed border-border rounded-lg p-6">
+                  <div className="flex flex-col items-center gap-4">
+                    <p className="text-sm font-medium">Bank slip (UNC)</p>
+                    {paymentSlipUrl ? (
+                      <div className="relative">
+                        <img
+                          src={paymentSlipUrl}
+                          alt="Payment slip preview"
+                          className="max-h-48 rounded-lg object-contain"
+                        />
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          className="absolute -top-2 -right-2"
+                          onClick={() => {
+                            setPaymentSlipUrl(null);
+                            setNewPaymentSlipFile(null);
+                          }}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="text-center">
+                        <CreditCard className="mx-auto h-12 w-12 text-muted-foreground" />
+                        <p className="mt-2 text-sm text-muted-foreground">No payment slip attached</p>
+                      </div>
+                    )}
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePaymentSlipUpload}
+                      className="max-w-xs"
+                    />
+                  </div>
                 </div>
               </div>
 
