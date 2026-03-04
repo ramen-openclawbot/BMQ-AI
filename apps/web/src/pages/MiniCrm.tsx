@@ -1206,40 +1206,90 @@ export default function MiniCrm() {
       const nowIso = new Date().toISOString();
       const { data: row, error: rowErr } = await (supabase as any)
         .from("customer_po_inbox")
-        .select("id,email_subject,total_amount,revenue_channel,raw_payload")
+        .select("id,customer_id,po_number,delivery_date,email_subject,total_amount,subtotal_amount,vat_amount,revenue_channel,production_items,raw_payload")
         .eq("id", id)
         .single();
       if (rowErr || !row) throw rowErr || new Error("Không tìm thấy PO để đẩy doanh thu");
 
+      const { data: kbProfile } = await (supabase as any)
+        .from("mini_crm_knowledge_profiles")
+        .select("po_mode,profile_name")
+        .eq("customer_id", row.customer_id)
+        .maybeSingle();
+      const poMode = String(kbProfile?.po_mode || "daily_new_po");
+
       const postedSubtotal = Number(poSummaryDraft?.subtotal_amount || row?.subtotal_amount || 0);
       const postedVat = Number(poSummaryDraft?.vat_amount || row?.vat_amount || 0);
-      const postedTotal = Number(
+      const fullTotal = Number(
         calcSafeTotal(postedSubtotal, postedVat, poSummaryDraft?.total_amount) ||
         row?.total_amount ||
         calcTotalFromRawPayload(row?.raw_payload || {}) ||
         0
       );
 
+      let finalAmount = fullTotal;
+      let baseAmount = 0;
+      let deltaAmount = fullTotal;
+      let requiresReview = false;
+      let reviewReason: string | null = null;
+
+      if (poMode === "cumulative_snapshot") {
+        const { data: previousRows, error: prevErr } = await (supabase as any)
+          .from("customer_po_inbox")
+          .select("id,po_number,delivery_date,raw_payload")
+          .eq("customer_id", row.customer_id)
+          .neq("id", row.id)
+          .eq("match_status", "approved")
+          .order("received_at", { ascending: false })
+          .limit(100);
+        if (prevErr) throw prevErr;
+
+        const postedRows = (previousRows || []).filter((x: any) => Boolean(x?.raw_payload?.revenue_post?.posted));
+        const baseline = postedRows.find((x: any) => row.po_number && String(x.po_number || "") === String(row.po_number || ""))
+          || postedRows.find((x: any) => row.delivery_date && String(x.delivery_date || "") === String(row.delivery_date || ""))
+          || postedRows[0]
+          || null;
+
+        baseAmount = Number(baseline?.raw_payload?.revenue_post?.total || baseline?.raw_payload?.revenue_post?.amount || 0);
+        deltaAmount = Number(fullTotal - baseAmount);
+        finalAmount = deltaAmount > 0 ? deltaAmount : 0;
+
+        if (deltaAmount <= 0) {
+          requiresReview = true;
+          reviewReason = `Cumulative snapshot không tăng thêm (delta=${deltaAmount.toLocaleString("vi-VN")}).`;
+        }
+      }
+
       const nextRawPayload = {
         ...(row.raw_payload || {}),
         revenue_post: {
-          posted: true,
-          posted_at: nowIso,
+          posted: !requiresReview,
+          posted_at: !requiresReview ? nowIso : null,
           posted_by: "mini-crm-ui",
-          amount: postedTotal,
+          mode: poMode,
+          profile_name: kbProfile?.profile_name || null,
+          amount: finalAmount,
           subtotal: postedSubtotal,
           vat: postedVat,
-          total: postedTotal,
+          total: finalAmount,
+          full_snapshot_total: fullTotal,
+          base_amount: baseAmount,
+          delta_amount: deltaAmount,
+          requires_review: requiresReview,
+          review_reason: reviewReason,
         },
       };
 
       const { data, error } = await (supabase as any)
         .from("customer_po_inbox")
-        .update({ raw_payload: nextRawPayload, match_status: "approved" })
+        .update({ raw_payload: nextRawPayload, match_status: requiresReview ? "draft" : "approved" })
         .eq("id", id)
         .select("id,email_subject,total_amount,revenue_channel,raw_payload")
         .single();
       if (error) throw error;
+      if (requiresReview) {
+        throw new Error(reviewReason || "PO cumulative cần duyệt điều chỉnh trước khi ghi nhận doanh thu");
+      }
       if (!data?.raw_payload?.revenue_post?.posted) throw new Error("Đẩy doanh thu chưa được ghi nhận trong raw_payload.revenue_post");
       return {
         ...data,
