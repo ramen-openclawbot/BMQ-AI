@@ -30,6 +30,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { resolveImageUrl } from "@/lib/storage-url";
+import { toast } from "sonner";
 
 const Invoices = () => {
   const { user } = useAuth();
@@ -62,7 +63,14 @@ const Invoices = () => {
 
   const openAttachmentPreview = async (rawUrl: string | null | undefined, title: string, preferredBucket = "invoices") => {
     const resolved = await resolveImageUrl(rawUrl || null, { preferredBucket });
-    setViewingImageUrl(resolved || rawUrl || null);
+
+    if (!resolved) {
+      toast.error(isVi ? "Không tìm thấy file đính kèm trong kho lưu trữ" : "Attachment file was not found in storage");
+      setViewingImageUrl(null);
+      return;
+    }
+
+    setViewingImageUrl(resolved);
     setViewingImageTitle(title);
   };
 
