@@ -237,6 +237,7 @@ export default function MiniCrm() {
   const [agentMissingFields, setAgentMissingFields] = useState<string[]>([]);
   const [agentPendingSlot, setAgentPendingSlot] = useState<string | null>(null);
   const [agentChatLog, setAgentChatLog] = useState<Array<{ role: "user" | "agent"; text: string }>>([]);
+  const [agentActionTimeline, setAgentActionTimeline] = useState<Array<{ step: string; status: "pending" | "done" | "error"; detail?: string }>>([]);
 
   const { data: gmailConnectedEmail } = useQuery({
     queryKey: ["gmail-connected-email"],
@@ -786,59 +787,86 @@ export default function MiniCrm() {
 
   const agentCreateCustomerMutation = useMutation({
     mutationFn: async (draft: any) => {
-      const { data: created, error: createError } = await (supabase as any)
-        .from("mini_crm_customers")
-        .insert({
-          customer_name: draft.customer_name,
-          customer_group: draft.customer_group,
-          product_group: draft.product_group,
-          is_active: true,
-        })
-        .select("id, customer_name")
-        .single();
-      if (createError || !created?.id) throw createError || new Error("Không tạo được khách hàng");
+      setAgentActionTimeline([
+        { step: "Tạo customer", status: "pending" },
+        { step: "Tạo emails", status: "pending" },
+        { step: "Tạo KB profile", status: "pending" },
+        { step: "Tạo KB version", status: "pending" },
+      ]);
 
-      if (Array.isArray(draft.emails) && draft.emails.length) {
-        const { error: emailError } = await (supabase as any)
-          .from("mini_crm_customer_emails")
-          .insert(draft.emails.map((email: string, idx: number) => ({ customer_id: created.id, email, is_primary: idx === 0 })));
-        if (emailError) throw emailError;
+      const markStep = (step: string, status: "pending" | "done" | "error", detail?: string) => {
+        setAgentActionTimeline((prev) => prev.map((x) => (x.step === step ? { ...x, status, detail } : x)));
+      };
+
+      let createdCustomerId: string | null = null;
+
+      try {
+        const { data: created, error: createError } = await (supabase as any)
+          .from("mini_crm_customers")
+          .insert({
+            customer_name: draft.customer_name,
+            customer_group: draft.customer_group,
+            product_group: draft.product_group,
+            is_active: true,
+          })
+          .select("id, customer_name")
+          .single();
+        if (createError || !created?.id) throw createError || new Error("Không tạo được khách hàng");
+        createdCustomerId = created.id;
+        markStep("Tạo customer", "done", created.customer_name);
+
+        if (Array.isArray(draft.emails) && draft.emails.length) {
+          const { error: emailError } = await (supabase as any)
+            .from("mini_crm_customer_emails")
+            .insert(draft.emails.map((email: string, idx: number) => ({ customer_id: created.id, email, is_primary: idx === 0 })));
+          if (emailError) throw emailError;
+        }
+        markStep("Tạo emails", "done", `${Array.isArray(draft.emails) ? draft.emails.length : 0} email`);
+
+        const { data: kbInserted, error: kbError } = await (supabase as any)
+          .from("mini_crm_knowledge_profiles")
+          .insert({
+            customer_id: created.id,
+            profile_name: draft.kb_profile_name,
+            po_mode: draft.kb_po_mode,
+            profile_status: "active",
+            calculation_notes: draft.kb_calc_notes,
+            operational_notes: draft.kb_ops_notes,
+          })
+          .select("id,profile_name,po_mode,profile_status,calculation_notes,operational_notes")
+          .single();
+        if (kbError) throw kbError;
+        markStep("Tạo KB profile", "done", kbInserted?.profile_name || "ok");
+
+        const versionNo = await getNextKnowledgeProfileVersion(created.id);
+        const { error: kbVerError } = await (supabase as any)
+          .from("mini_crm_knowledge_profile_versions")
+          .insert({
+            customer_id: created.id,
+            knowledge_profile_id: kbInserted?.id || null,
+            version_no: versionNo,
+            profile_name: kbInserted?.profile_name || draft.kb_profile_name,
+            po_mode: kbInserted?.po_mode || draft.kb_po_mode,
+            profile_status: kbInserted?.profile_status || "active",
+            calculation_notes: kbInserted?.calculation_notes || draft.kb_calc_notes || null,
+            operational_notes: kbInserted?.operational_notes || draft.kb_ops_notes || null,
+            changed_by: "agent-ui",
+            change_note: "Created from Agent UI",
+            is_active: true,
+            effective_from: new Date().toISOString(),
+          });
+        if (kbVerError) throw kbVerError;
+        markStep("Tạo KB version", "done", `v${versionNo}`);
+
+        return created;
+      } catch (e: any) {
+        if (createdCustomerId) {
+          await (supabase as any).from("mini_crm_customers").delete().eq("id", createdCustomerId);
+        }
+        const errMsg = e?.message || "Unknown error";
+        setAgentActionTimeline((prev) => prev.map((x) => (x.status === "pending" ? { ...x, status: "error", detail: `rollback: ${errMsg}` } : x)));
+        throw e;
       }
-
-      const { data: kbInserted, error: kbError } = await (supabase as any)
-        .from("mini_crm_knowledge_profiles")
-        .insert({
-          customer_id: created.id,
-          profile_name: draft.kb_profile_name,
-          po_mode: draft.kb_po_mode,
-          profile_status: "active",
-          calculation_notes: draft.kb_calc_notes,
-          operational_notes: draft.kb_ops_notes,
-        })
-        .select("id,profile_name,po_mode,profile_status,calculation_notes,operational_notes")
-        .single();
-      if (kbError) throw kbError;
-
-      const versionNo = await getNextKnowledgeProfileVersion(created.id);
-      const { error: kbVerError } = await (supabase as any)
-        .from("mini_crm_knowledge_profile_versions")
-        .insert({
-          customer_id: created.id,
-          knowledge_profile_id: kbInserted?.id || null,
-          version_no: versionNo,
-          profile_name: kbInserted?.profile_name || draft.kb_profile_name,
-          po_mode: kbInserted?.po_mode || draft.kb_po_mode,
-          profile_status: kbInserted?.profile_status || "active",
-          calculation_notes: kbInserted?.calculation_notes || draft.kb_calc_notes || null,
-          operational_notes: kbInserted?.operational_notes || draft.kb_ops_notes || null,
-          changed_by: "agent-ui",
-          change_note: "Created from Agent UI",
-          is_active: true,
-          effective_from: new Date().toISOString(),
-        });
-      if (kbVerError) throw kbVerError;
-
-      return created;
     },
     onSuccess: async (created: any) => {
       await Promise.all([
@@ -856,6 +884,7 @@ export default function MiniCrm() {
     },
     onError: (e: any) => {
       setAgentStatus(`❌ Agent tạo khách hàng thất bại: ${e?.message || "Không rõ lỗi"}`);
+      setAgentChatLog((prev) => [...prev, { role: "agent", text: `Tạo khách hàng thất bại, đã rollback dữ liệu tạm. Lỗi: ${e?.message || "Không rõ"}` }]);
       toast({ title: "Agent UI lỗi", description: e?.message || "Không thể tạo khách hàng", variant: "destructive" });
     },
   });
@@ -2196,7 +2225,7 @@ export default function MiniCrm() {
             <Button
               type="button"
               variant="ghost"
-              onClick={() => { setAgentChatLog([]); setAgentPendingSlot(null); setAgentMissingFields([]); setAgentDraft(null); setAgentStatus(""); }}
+              onClick={() => { setAgentChatLog([]); setAgentPendingSlot(null); setAgentMissingFields([]); setAgentDraft(null); setAgentStatus(""); setAgentActionTimeline([]); }}
             >
               Xoá hội thoại
             </Button>
@@ -2218,6 +2247,16 @@ export default function MiniCrm() {
               {agentMissingFields.length > 0 && (
                 <div className="text-amber-600"><b>Thiếu:</b> {agentMissingFields.join(", ")}</div>
               )}
+            </div>
+          )}
+          {agentActionTimeline.length > 0 && (
+            <div className="text-xs rounded-md border p-2 space-y-1">
+              <div className="font-medium">Agent action timeline</div>
+              {agentActionTimeline.map((t, idx) => (
+                <div key={`${t.step}-${idx}`}>
+                  {t.status === "done" ? "✅" : t.status === "error" ? "❌" : "⏳"} {t.step}{t.detail ? ` — ${t.detail}` : ""}
+                </div>
+              ))}
             </div>
           )}
           {agentStatus && <div className="text-sm">{agentStatus}</div>}
