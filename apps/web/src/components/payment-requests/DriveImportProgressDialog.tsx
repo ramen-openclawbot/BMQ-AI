@@ -548,9 +548,16 @@ export function DriveImportProgressDialog({
 
     setError(null);
     setAvailableDates([{ date: pathToScan || 'selected-folder', fileCount: newFiles.length }]);
-    setSelectedDates([pathToScan || 'selected-folder']);
-    setSelectionMode('all');
-    setPhase('select_dates');
+    setFiles(newFiles.map((f: any) => ({
+      id: f.id,
+      name: f.name,
+      status: 'pending' as const,
+      base64: f.base64,
+      mimeType: f.mimeType,
+    })));
+    setPOSelectionMode('all');
+    setSelectedPOFiles([]);
+    setPhase('select_po_files');
   };
 
   const startImport = useCallback(async () => {
@@ -902,6 +909,56 @@ export function DriveImportProgressDialog({
       
       return currentQueue;
     });
+  };
+
+  const startProcessingSelectedBankSlipFiles = async () => {
+    const selectedFiles = poSelectionMode === 'all'
+      ? files.filter(f => f.status === 'pending')
+      : files.filter(f => selectedPOFiles.includes(f.id));
+    const filesToProcess = selectedFiles.slice(0, MAX_BATCH_SCAN_FILES);
+
+    if (selectedFiles.length > MAX_BATCH_SCAN_FILES) {
+      toast.warning(`Chỉ xử lý tối đa ${MAX_BATCH_SCAN_FILES} file mỗi lần. Vui lòng chạy tiếp cho các file còn lại.`);
+    }
+
+    if (filesToProcess.length === 0) {
+      toast.error('Vui lòng chọn ít nhất 1 file');
+      return;
+    }
+
+    setStats({ created: 0, matched: 0, failed: 0, skipped: 0 });
+    setPendingMatches([]);
+    setCurrentPendingIndex(0);
+    setUnmatchedSlips([]);
+    setCurrentUnmatchedIndex(0);
+    setTotalFilesToProcess(filesToProcess.length);
+    setProcessedCount(0);
+    setPhase('processing_files');
+
+    const originalFiles = filesToProcess.map((f) => ({
+      id: f.id,
+      name: f.name,
+      base64: f.base64,
+      mimeType: f.mimeType,
+    }));
+
+    const { pendingMatches, unmatchedSlips } = await processFilesParallel(filesToProcess, originalFiles, currentDate, authToken);
+
+    if (pendingMatches.length > 0) {
+      setPendingMatches(pendingMatches);
+      setCurrentPendingIndex(0);
+      setUnmatchedSlips(unmatchedSlips);
+      setPhase('confirm_supplier_name');
+    } else if (unmatchedSlips.length > 0) {
+      setUnmatchedSlips(unmatchedSlips);
+      setCurrentUnmatchedIndex(0);
+      setSelectedSupplierId(unmatchedSlips[0]?.suggestedSupplier?.id || null);
+      setUpdateBankName(true);
+      setActionMode('create_pr');
+      setPhase('create_pr_from_unc');
+    } else {
+      setPhase('complete');
+    }
   };
 
   // Start processing PO files from selected dates (for select_dates phase)
@@ -2927,6 +2984,7 @@ export function DriveImportProgressDialog({
     // Phase: Select PO files (new)
     if (phase === 'select_po_files') {
       const newFilesCount = files.filter(f => f.status === 'pending').length;
+      const itemLabel = importType === 'po' ? 'PO' : 'UNC';
       
       return (
         <div className="space-y-4">
@@ -2934,12 +2992,12 @@ export function DriveImportProgressDialog({
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-primary" />
               <p className="font-medium">
-                Phát hiện {newFilesCount} PO mới trong thư mục /{currentDate || ''}
+                Phát hiện {newFilesCount} {itemLabel} mới trong thư mục /{currentDate || ''}
               </p>
             </div>
           </div>
 
-          <p className="text-sm font-medium">Bạn muốn quét những file nào?</p>
+          <p className="text-sm font-medium">Bạn muốn xử lý những file nào?</p>
           
           <RadioGroup 
             value={poSelectionMode} 
@@ -2948,7 +3006,7 @@ export function DriveImportProgressDialog({
           >
             <div className="flex items-center space-x-2">
               <RadioGroupItem value="all" id="po-all" />
-              <Label htmlFor="po-all" className="cursor-pointer">Quét tất cả ({newFilesCount} file)</Label>
+              <Label htmlFor="po-all" className="cursor-pointer">Xử lý tất cả ({newFilesCount} file)</Label>
             </div>
             <div className="flex items-center space-x-2">
               <RadioGroupItem value="select" id="po-select" />
@@ -3606,10 +3664,10 @@ export function DriveImportProgressDialog({
             Hủy
           </Button>
           <Button 
-            onClick={startProcessingSelectedPO}
+            onClick={importType === 'po' ? startProcessingSelectedPO : startProcessingSelectedBankSlipFiles}
             disabled={selectedCount === 0}
           >
-            Quét + tạo PO + upload {selectedCount} file
+            {importType === 'po' ? `Quét + tạo PO + upload ${selectedCount} file` : `Quét + cập nhật UNC ${selectedCount} file`}
           </Button>
         </DialogFooter>
       );
