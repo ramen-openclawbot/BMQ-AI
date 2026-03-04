@@ -238,6 +238,7 @@ export default function MiniCrm() {
   const [agentPendingSlot, setAgentPendingSlot] = useState<string | null>(null);
   const [agentChatLog, setAgentChatLog] = useState<Array<{ role: "user" | "agent"; text: string }>>([]);
   const [agentActionTimeline, setAgentActionTimeline] = useState<Array<{ step: string; status: "pending" | "done" | "error"; detail?: string }>>([]);
+  const [agentExecutionArmed, setAgentExecutionArmed] = useState(false);
 
   const { data: gmailConnectedEmail } = useQuery({
     queryKey: ["gmail-connected-email"],
@@ -569,6 +570,7 @@ export default function MiniCrm() {
         const missing = computeAgentMissing(nextDraft);
         setAgentDraft(nextDraft);
         setAgentMissingFields(missing);
+        setAgentExecutionArmed(false);
         setAgentCommand("");
         if (missing.length) {
           setAgentPendingSlot(missing[0]);
@@ -588,6 +590,7 @@ export default function MiniCrm() {
       const missing = computeAgentMissing(draft);
       setAgentDraft(draft);
       setAgentMissingFields(missing);
+      setAgentExecutionArmed(false);
       setAgentCommand("");
       if (missing.length) {
         setAgentPendingSlot(missing[0]);
@@ -879,6 +882,7 @@ export default function MiniCrm() {
       setAgentDraft(null);
       setAgentMissingFields([]);
       setAgentPendingSlot(null);
+      setAgentExecutionArmed(false);
       setAgentCommand("");
       toast({ title: "Agent UI tạo khách hàng thành công", description: created?.customer_name || "" });
     },
@@ -2217,15 +2221,26 @@ export default function MiniCrm() {
             <Button type="button" variant="outline" onClick={handleAgentCommandTurn}>Gửi cho Agent</Button>
             <Button
               type="button"
-              onClick={() => agentDraft && agentCreateCustomerMutation.mutate(agentDraft)}
-              disabled={!agentDraft || agentCreateCustomerMutation.isPending || agentMissingFields.length > 0}
+              variant="secondary"
+              onClick={() => {
+                setAgentExecutionArmed(true);
+                setAgentStatus("🛡️ Đã bật chế độ Confirm. Bấm 'Thực thi tạo khách hàng' để chạy.");
+              }}
+              disabled={!agentDraft || agentMissingFields.length > 0}
             >
-              {agentCreateCustomerMutation.isPending ? "Đang tạo..." : "Xác nhận tạo khách hàng"}
+              Confirm kế hoạch
+            </Button>
+            <Button
+              type="button"
+              onClick={() => agentDraft && agentCreateCustomerMutation.mutate(agentDraft)}
+              disabled={!agentDraft || agentCreateCustomerMutation.isPending || agentMissingFields.length > 0 || !agentExecutionArmed}
+            >
+              {agentCreateCustomerMutation.isPending ? "Đang tạo..." : "Thực thi tạo khách hàng"}
             </Button>
             <Button
               type="button"
               variant="ghost"
-              onClick={() => { setAgentChatLog([]); setAgentPendingSlot(null); setAgentMissingFields([]); setAgentDraft(null); setAgentStatus(""); setAgentActionTimeline([]); }}
+              onClick={() => { setAgentChatLog([]); setAgentPendingSlot(null); setAgentMissingFields([]); setAgentDraft(null); setAgentStatus(""); setAgentActionTimeline([]); setAgentExecutionArmed(false); }}
             >
               Xoá hội thoại
             </Button>
@@ -2247,6 +2262,16 @@ export default function MiniCrm() {
               {agentMissingFields.length > 0 && (
                 <div className="text-amber-600"><b>Thiếu:</b> {agentMissingFields.join(", ")}</div>
               )}
+            </div>
+          )}
+          {agentDraft && (
+            <div className="text-xs rounded-md border p-2 space-y-1">
+              <div className="font-medium">Execution plan {agentExecutionArmed ? "(đã confirm)" : "(chờ confirm)"}</div>
+              <div>1) Tạo bản ghi customer</div>
+              <div>2) Tạo email nhận diện</div>
+              <div>3) Tạo KB profile active</div>
+              <div>4) Tạo KB version v1</div>
+              <div>5) Nếu lỗi: rollback customer vừa tạo</div>
             </div>
           )}
           {agentActionTimeline.length > 0 && (
