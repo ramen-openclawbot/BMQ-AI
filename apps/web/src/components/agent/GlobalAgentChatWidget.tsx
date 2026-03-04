@@ -5,7 +5,7 @@ import { Loader2, MessageCircle, Sparkles, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
 type AgentMessage = { role: "user" | "agent"; text: string };
@@ -240,7 +240,6 @@ export function GlobalAgentChatWidget() {
                 <div className="h-8 w-8 rounded-full bg-primary/10 text-primary grid place-items-center"><Sparkles className="h-4 w-4" /></div>
                 <div>
                   <SheetTitle className="text-base">AI Agent</SheetTitle>
-                  <SheetDescription className="text-xs">Ngữ cảnh hiện tại: <span className="font-medium text-foreground">{routeContext.label}</span></SheetDescription>
                 </div>
               </div>
               <Button type="button" size="icon" variant="ghost" onClick={() => setOpen(false)}><X className="h-4 w-4" /></Button>
@@ -248,7 +247,7 @@ export function GlobalAgentChatWidget() {
           </SheetHeader>
 
           <div className="flex-1 overflow-auto p-4 space-y-3 text-sm">
-            {messages.length === 0 && <div className="rounded-lg border bg-muted/30 p-3">Xin chào anh Tâm, em đã nhận diện module hiện tại là <b>{routeContext.label}</b>.</div>}
+            {messages.length === 0 && <div className="rounded-lg border bg-muted/30 p-3">Kính chào Quý khách. Hệ thống đã nhận diện ngữ cảnh hiện tại là <b>{routeContext.label}</b>. Vui lòng nhập yêu cầu để AI Agent hỗ trợ.</div>}
 
             {messages.map((m, idx) => (
               <div key={`${m.role}-${idx}`} className={cn("rounded-lg border p-3 whitespace-pre-wrap", m.role === "user" ? "bg-primary/5" : "bg-background")}>
