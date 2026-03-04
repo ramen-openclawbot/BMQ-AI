@@ -86,6 +86,21 @@ const calcTotalFromRawPayload = (rawPayload: any) => {
   return items.reduce((sum: number, it: any) => sum + Number(it?.line_total || 0), 0);
 };
 
+const normalizeIsoDay = (s?: string | null) => {
+  if (!s) return "";
+  const v = String(s).trim();
+  if (!v) return "";
+  return v.length >= 10 ? v.slice(0, 10) : v;
+};
+
+const buildItemsSignature = (items: any[]) => {
+  if (!Array.isArray(items) || items.length === 0) return "";
+  return items
+    .map((it: any) => `${String(it?.sku || "").trim()}|${String(it?.product_name || "").trim().toLowerCase()}|${Number(it?.qty || it?.quantity || 0)}`)
+    .sort()
+    .join(";");
+};
+
 const getReadableError = (e: any) => {
   if (!e) return "Không rõ nguyên nhân";
   const parts = [e?.message, e?.details, e?.hint].filter(Boolean);
@@ -1029,11 +1044,32 @@ export default function MiniCrm() {
 
   const reviewMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: "approved" | "rejected" }) => {
+      const { data: row, error: rowErr } = await (supabase as any)
+        .from("customer_po_inbox")
+        .select("id,customer_id,raw_payload")
+        .eq("id", id)
+        .single();
+      if (rowErr || !row) throw rowErr || new Error("Không tìm thấy PO");
+
       const { error } = await (supabase as any)
         .from("customer_po_inbox")
         .update({ match_status: status, reviewed_at: new Date().toISOString(), review_note: status === "approved" ? "Manual approved" : "Manual rejected" })
         .eq("id", id);
       if (error) throw error;
+
+      await (supabase as any).from("po_revenue_post_audit").insert({
+        po_inbox_id: id,
+        customer_id: row.customer_id,
+        action: "manual_match_review",
+        amount: Number(row?.raw_payload?.revenue_post?.total || row?.raw_payload?.revenue_post?.amount || 0),
+        full_snapshot_total: Number(row?.raw_payload?.revenue_post?.full_snapshot_total || 0),
+        base_amount: Number(row?.raw_payload?.revenue_post?.base_amount || 0),
+        delta_amount: Number(row?.raw_payload?.revenue_post?.delta_amount || 0),
+        decision: status,
+        note: status === "approved" ? "Manual approved" : "Manual rejected",
+        actor: "mini-crm-ui",
+        raw_payload: row?.raw_payload?.revenue_post || {},
+      });
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
@@ -1048,7 +1084,7 @@ export default function MiniCrm() {
     mutationFn: async ({ id, action }: { id: string; action: "approve_zero" | "reject" }) => {
       const { data: row, error: rowErr } = await (supabase as any)
         .from("customer_po_inbox")
-        .select("id,raw_payload")
+        .select("id,customer_id,raw_payload")
         .eq("id", id)
         .single();
       if (rowErr || !row) throw rowErr || new Error("Không tìm thấy PO");
@@ -1080,6 +1116,20 @@ export default function MiniCrm() {
         })
         .eq("id", id);
       if (error) throw error;
+
+      await (supabase as any).from("po_revenue_post_audit").insert({
+        po_inbox_id: id,
+        customer_id: row.customer_id,
+        action: "review",
+        amount: Number(nextRevenuePost?.total || nextRevenuePost?.amount || 0),
+        full_snapshot_total: Number(nextRevenuePost?.full_snapshot_total || 0),
+        base_amount: Number(nextRevenuePost?.base_amount || 0),
+        delta_amount: Number(nextRevenuePost?.delta_amount || 0),
+        decision: action === "approve_zero" ? "approved_zero" : "rejected",
+        note: String(nextRevenuePost?.review_reason || ""),
+        actor: "mini-crm-ui",
+        raw_payload: nextRevenuePost,
+      });
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
@@ -1275,6 +1325,9 @@ export default function MiniCrm() {
         .eq("id", id)
         .single();
       if (rowErr || !row) throw rowErr || new Error("Không tìm thấy PO để đẩy doanh thu");
+      if (row?.raw_payload?.revenue_post?.posted) {
+        throw new Error("PO này đã được đẩy doanh thu trước đó. Hệ thống đã chặn double-post.");
+      }
 
       const { data: kbProfile } = await (supabase as any)
         .from("mini_crm_knowledge_profiles")
@@ -1301,19 +1354,31 @@ export default function MiniCrm() {
       if (poMode === "cumulative_snapshot") {
         const { data: previousRows, error: prevErr } = await (supabase as any)
           .from("customer_po_inbox")
-          .select("id,po_number,delivery_date,raw_payload")
+          .select("id,po_number,delivery_date,received_at,production_items,raw_payload")
           .eq("customer_id", row.customer_id)
           .neq("id", row.id)
           .eq("match_status", "approved")
           .order("received_at", { ascending: false })
-          .limit(100);
+          .limit(200);
         if (prevErr) throw prevErr;
 
         const postedRows = (previousRows || []).filter((x: any) => Boolean(x?.raw_payload?.revenue_post?.posted));
-        const baseline = postedRows.find((x: any) => row.po_number && String(x.po_number || "") === String(row.po_number || ""))
-          || postedRows.find((x: any) => row.delivery_date && String(x.delivery_date || "") === String(row.delivery_date || ""))
-          || postedRows[0]
-          || null;
+        const rowPoNumber = String(row.po_number || "").trim();
+        const rowDay = normalizeIsoDay(row.delivery_date);
+        const rowSignature = buildItemsSignature(Array.isArray(row.production_items) ? row.production_items : []);
+
+        const strictByPo = postedRows.find((x: any) => rowPoNumber && String(x.po_number || "").trim() === rowPoNumber) || null;
+        const strictByDayAndSig = postedRows.find((x: any) => {
+          const xDay = normalizeIsoDay(x.delivery_date);
+          const xSig = buildItemsSignature(Array.isArray(x.production_items) ? x.production_items : []);
+          return Boolean(rowDay && xDay && rowDay === xDay && rowSignature && xSig && rowSignature === xSig);
+        }) || null;
+        const fallbackByDay = postedRows.find((x: any) => {
+          const xDay = normalizeIsoDay(x.delivery_date);
+          return Boolean(rowDay && xDay && rowDay === xDay);
+        }) || null;
+
+        const baseline = strictByPo || strictByDayAndSig || fallbackByDay || postedRows[0] || null;
 
         baseAmount = Number(baseline?.raw_payload?.revenue_post?.total || baseline?.raw_payload?.revenue_post?.amount || 0);
         deltaAmount = Number(fullTotal - baseAmount);
@@ -1349,9 +1414,24 @@ export default function MiniCrm() {
         .from("customer_po_inbox")
         .update({ raw_payload: nextRawPayload, match_status: requiresReview ? "draft" : "approved" })
         .eq("id", id)
-        .select("id,email_subject,total_amount,revenue_channel,raw_payload")
+        .select("id,customer_id,email_subject,total_amount,revenue_channel,raw_payload")
         .single();
       if (error) throw error;
+
+      await (supabase as any).from("po_revenue_post_audit").insert({
+        po_inbox_id: id,
+        customer_id: row.customer_id,
+        action: requiresReview ? "flag_review" : "post",
+        amount: Number(finalAmount || 0),
+        full_snapshot_total: Number(fullTotal || 0),
+        base_amount: Number(baseAmount || 0),
+        delta_amount: Number(deltaAmount || 0),
+        decision: requiresReview ? "needs_review" : "posted",
+        note: reviewReason,
+        actor: "mini-crm-ui",
+        raw_payload: nextRawPayload?.revenue_post || {},
+      });
+
       if (requiresReview) {
         throw new Error(reviewReason || "PO cumulative cần duyệt điều chỉnh trước khi ghi nhận doanh thu");
       }
