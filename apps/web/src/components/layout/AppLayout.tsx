@@ -6,6 +6,7 @@ import { Header } from "./Header";
 import { useAutoSync } from "@/hooks/useAutoSync";
 import { useVisibilityRecovery } from "@/hooks/useVisibilityRecovery";
 import { SessionRecoveryOverlay } from "@/components/SessionRecoveryOverlay";
+import { GlobalAgentChatWidget } from "@/components/agent/GlobalAgentChatWidget";
 
 export function AppLayout() {
   const queryClient = useQueryClient();
@@ -40,6 +41,7 @@ export function AppLayout() {
             <Outlet />
           </main>
         </div>
+        <GlobalAgentChatWidget />
       </div>
     </>
   );
