@@ -35,6 +35,11 @@ const PRODUCT_GROUP_LABEL_MAP: Record<string, string> = PRODUCT_GROUP_OPTIONS.re
   return acc;
 }, {} as Record<string, string>);
 
+const KB_PO_MODE_LABEL: Record<string, string> = {
+  daily_new_po: "PO mới theo ngày",
+  cumulative_snapshot: "PO cộng dồn (delta)",
+};
+
 
 const extractPoNumberFromSubject = (subject?: string) => {
   const s = String(subject || "");
@@ -1055,6 +1060,10 @@ export default function MiniCrm() {
   }, [filteredPoInbox]);
 
   const selectedPo = useMemo(() => poInbox.find((r: any) => r.id === selectedPoId) || null, [poInbox, selectedPoId]);
+  const selectedPoKnowledgeProfile = useMemo(() => {
+    if (!selectedPo?.customer_id) return null;
+    return customerKnowledgeProfiles.find((x: any) => x.customer_id === selectedPo.customer_id) || null;
+  }, [customerKnowledgeProfiles, selectedPo]);
   const selectedPreview = useMemo(() => previewItems.find((r: any) => r.messageId === selectedPreviewId) || null, [previewItems, selectedPreviewId]);
 
   useEffect(() => {
@@ -1620,6 +1629,7 @@ export default function MiniCrm() {
                 <TableHead>From</TableHead>
                 <TableHead>Subject</TableHead>
                 <TableHead>Matched Customer</TableHead>
+                <TableHead>PO mode</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Action</TableHead>
               </TableRow>
@@ -1631,6 +1641,13 @@ export default function MiniCrm() {
                   <TableCell>{row.from_email}</TableCell>
                   <TableCell>{row.email_subject || "(no subject)"}</TableCell>
                   <TableCell>{row.mini_crm_customers?.customer_name || "Chưa match"}</TableCell>
+                  <TableCell>
+                    {(() => {
+                      const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === row.customer_id);
+                      if (!kb) return <span className="text-xs text-muted-foreground">Mặc định</span>;
+                      return <Badge variant="outline">{KB_PO_MODE_LABEL[String(kb.po_mode || "")] || String(kb.po_mode || "-")}</Badge>;
+                    })()}
+                  </TableCell>
                   <TableCell><Badge variant={row.match_status === "approved" ? "default" : "secondary"}>{row.match_status}</Badge></TableCell>
                   <TableCell className="space-x-2">
                     <Button
@@ -1681,6 +1698,12 @@ export default function MiniCrm() {
                     <div><b>Subject:</b> {selectedPo.email_subject}</div>
                     <div><b>Nội dung nhanh:</b> {selectedPo.body_preview || "(trống)"}</div>
                     <div><b>Attachments:</b> {(selectedPo.attachment_names || []).join(", ") || "Không có"}</div>
+                    <div>
+                      <b>Knowledge mode:</b> {selectedPoKnowledgeProfile ? (KB_PO_MODE_LABEL[String(selectedPoKnowledgeProfile.po_mode || "")] || String(selectedPoKnowledgeProfile.po_mode || "-")) : "Mặc định (PO mới theo ngày)"}
+                    </div>
+                    {selectedPoKnowledgeProfile?.operational_notes && (
+                      <div><b>Ops note:</b> {String(selectedPoKnowledgeProfile.operational_notes)}</div>
+                    )}
                   </div>
 
                   <Tabs defaultValue="accounting" className="w-full">
