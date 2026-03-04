@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { resolveImageUrl } from "@/lib/storage-url";
 import type { Database } from "@/integrations/supabase/types";
 import { processPaymentRequestSKUs } from "@/lib/sku-generator";
 
@@ -392,9 +393,6 @@ export async function uploadPaymentRequestImage(file: File): Promise<string> {
 }
 
 export async function getPaymentRequestImageUrl(path: string): Promise<string> {
-  const { data } = await supabase.storage
-    .from("invoices")
-    .createSignedUrl(path, 3600);
-
-  return data?.signedUrl || "";
+  const resolved = await resolveImageUrl(path, { preferredBucket: "invoices" });
+  return resolved || "";
 }

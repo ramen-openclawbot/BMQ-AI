@@ -1,28 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables, TablesInsert } from "@/integrations/supabase/types";
+import { resolveImageUrl } from "@/lib/storage-url";
 
 // Helper function to get signed URL for PO images
 export async function getPurchaseOrderImageUrl(path: string): Promise<string | null> {
-  if (!path) return null;
-  
-  if (path.startsWith("http")) {
-    const match = path.match(/\/purchase-orders\/(.+?)(?:\?|$)/);
-    if (match) {
-      const extractedPath = decodeURIComponent(match[1]);
-      const { data } = await supabase.storage
-        .from("purchase-orders")
-        .createSignedUrl(extractedPath, 3600);
-      return data?.signedUrl || null;
-    }
-    return null;
-  }
-  
-  const { data } = await supabase.storage
-    .from("purchase-orders")
-    .createSignedUrl(path, 3600);
-  
-  return data?.signedUrl || null;
+  return resolveImageUrl(path, { preferredBucket: "purchase-orders" });
 }
 
 export type PurchaseOrder = Tables<"purchase_orders"> & {

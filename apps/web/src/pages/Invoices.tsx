@@ -29,6 +29,7 @@ import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { resolveImageUrl } from "@/lib/storage-url";
 
 const Invoices = () => {
   const { user } = useAuth();
@@ -58,6 +59,12 @@ const Invoices = () => {
       setSearchParams(searchParams, { replace: true });
     }
   }, [searchParams, invoices, setSearchParams]);
+
+  const openAttachmentPreview = async (rawUrl: string | null | undefined, title: string, preferredBucket = "invoices") => {
+    const resolved = await resolveImageUrl(rawUrl || null, { preferredBucket });
+    setViewingImageUrl(resolved || rawUrl || null);
+    setViewingImageTitle(title);
+  };
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(amount);
@@ -129,12 +136,12 @@ const Invoices = () => {
                     <TableCell>
                       <div className="flex items-center gap-1">
                         {invoice.image_url && (
-                          <Button variant="ghost" size="sm" onClick={() => { setViewingImageUrl(invoice.image_url); setViewingImageTitle(isVi ? "Hóa đơn" : "Invoice"); }} title={isVi ? "Xem hóa đơn" : "View invoice"}>
+                          <Button variant="ghost" size="sm" onClick={() => openAttachmentPreview(invoice.image_url, isVi ? "Hóa đơn" : "Invoice", "invoices")} title={isVi ? "Xem hóa đơn" : "View invoice"}>
                             <Image className="h-4 w-4" />
                           </Button>
                         )}
                         {(invoice as any).payment_slip_url && (
-                          <Button variant="ghost" size="sm" onClick={() => { setViewingImageUrl((invoice as any).payment_slip_url); setViewingImageTitle(isVi ? "UNC / Chứng từ TT" : "UNC / Payment slip"); }} title={isVi ? "Xem UNC" : "View UNC"} className="text-primary">
+                          <Button variant="ghost" size="sm" onClick={() => openAttachmentPreview((invoice as any).payment_slip_url, isVi ? "UNC / Chứng từ TT" : "UNC / Payment slip", "invoices")} title={isVi ? "Xem UNC" : "View UNC"} className="text-primary">
                             <CreditCard className="h-4 w-4" />
                           </Button>
                         )}

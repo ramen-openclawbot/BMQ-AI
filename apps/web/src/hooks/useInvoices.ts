@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { db } from "@/lib/supabase-helpers";
 import { supabase } from "@/integrations/supabase/client";
+import { resolveImageUrl } from "@/lib/storage-url";
 
 export interface Invoice {
   id: string;
@@ -268,9 +269,6 @@ export async function uploadInvoiceImage(file: File): Promise<string> {
 }
 
 export async function getInvoiceImageUrl(path: string): Promise<string> {
-  const { data } = await supabase.storage
-    .from("invoices")
-    .createSignedUrl(path, 3600);
-  
-  return data?.signedUrl || "";
+  const resolved = await resolveImageUrl(path, { preferredBucket: "invoices" });
+  return resolved || "";
 }

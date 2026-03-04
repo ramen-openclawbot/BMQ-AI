@@ -21,20 +21,8 @@ import { useInvoice, useInvoiceItems } from "@/hooks/useInvoices";
 import { format } from "date-fns";
 import { FileText, CreditCard, ExternalLink } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import { ImagePreviewDialog } from "./ImagePreviewDialog";
-
-// Helper to resolve storage path to signed URL
-async function resolveStorageUrl(path: string | null): Promise<string | null> {
-  if (!path) return null;
-  // If already a full URL, return as-is
-  if (path.startsWith("http")) return path;
-  
-  const { data } = await supabase.storage
-    .from("invoices")
-    .createSignedUrl(path, 3600);
-  return data?.signedUrl || null;
-}
+import { resolveImageUrl } from "@/lib/storage-url";
 
 interface InvoiceDetailsDialogProps {
   invoiceId: string | null;
@@ -56,13 +44,13 @@ export function InvoiceDetailsDialog({
   // Resolve signed URLs for images
   const { data: resolvedImageUrl } = useQuery({
     queryKey: ["invoice-image-url", invoice?.image_url],
-    queryFn: () => resolveStorageUrl(invoice?.image_url || null),
+    queryFn: () => resolveImageUrl(invoice?.image_url || null, { preferredBucket: "invoices" }),
     enabled: !!invoice?.image_url,
   });
 
   const { data: resolvedPaymentSlipUrl } = useQuery({
     queryKey: ["invoice-payment-slip-url", invoice?.payment_slip_url],
-    queryFn: () => resolveStorageUrl(invoice?.payment_slip_url || null),
+    queryFn: () => resolveImageUrl(invoice?.payment_slip_url || null, { preferredBucket: "invoices" }),
     enabled: !!invoice?.payment_slip_url,
   });
 
