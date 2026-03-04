@@ -1036,6 +1036,52 @@ export default function MiniCrm() {
     },
   });
 
+  const reviewDeltaMutation = useMutation({
+    mutationFn: async ({ id, action }: { id: string; action: "approve_zero" | "reject" }) => {
+      const { data: row, error: rowErr } = await (supabase as any)
+        .from("customer_po_inbox")
+        .select("id,raw_payload")
+        .eq("id", id)
+        .single();
+      if (rowErr || !row) throw rowErr || new Error("Không tìm thấy PO");
+
+      const revenuePost = { ...(row.raw_payload?.revenue_post || {}) };
+      const nextRevenuePost = {
+        ...revenuePost,
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: "mini-crm-ui",
+        requires_review: false,
+      };
+
+      if (action === "approve_zero") {
+        nextRevenuePost.posted = true;
+        nextRevenuePost.posted_at = new Date().toISOString();
+        nextRevenuePost.review_decision = "approved_zero";
+        nextRevenuePost.amount = 0;
+        nextRevenuePost.total = 0;
+      } else {
+        nextRevenuePost.posted = false;
+        nextRevenuePost.review_decision = "rejected";
+      }
+
+      const { error } = await (supabase as any)
+        .from("customer_po_inbox")
+        .update({
+          match_status: action === "approve_zero" ? "approved" : "rejected",
+          raw_payload: { ...(row.raw_payload || {}), revenue_post: nextRevenuePost },
+        })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
+      toast({ title: "Đã duyệt điều chỉnh", description: "Đã xử lý PO cumulative cần review." });
+    },
+    onError: (e: any) => {
+      toast({ title: "Lỗi duyệt điều chỉnh", description: e?.message || "Không thể xử lý", variant: "destructive" });
+    },
+  });
+
   const filteredPoInbox = useMemo(() => {
     const fromMs = poDateFrom ? new Date(`${poDateFrom}T00:00:00`).getTime() : null;
     const toMs = poDateTo ? new Date(`${poDateTo}T23:59:59`).getTime() : null;
@@ -1057,6 +1103,10 @@ export default function MiniCrm() {
       },
       {}
     );
+  }, [filteredPoInbox]);
+
+  const pendingDeltaReviewCount = useMemo(() => {
+    return filteredPoInbox.filter((row: any) => Boolean(row?.raw_payload?.revenue_post?.requires_review)).length;
   }, [filteredPoInbox]);
 
   const selectedPo = useMemo(() => poInbox.find((r: any) => r.id === selectedPoId) || null, [poInbox, selectedPoId]);
@@ -1468,9 +1518,10 @@ export default function MiniCrm() {
       )}
 
       {isSalesPoPage && (
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-5">
           <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Tổng PO inbox (đang lọc)</div><div className="text-xl font-semibold">{filteredPoInbox.length}</div></CardContent></Card>
           <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Pending approval</div><div className="text-xl font-semibold">{statusCounts.pending_approval || 0}</div></CardContent></Card>
+          <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Needs delta review</div><div className="text-xl font-semibold">{pendingDeltaReviewCount}</div></CardContent></Card>
           <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Approved</div><div className="text-xl font-semibold">{statusCounts.approved || 0}</div></CardContent></Card>
           <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Unmatched</div><div className="text-xl font-semibold">{statusCounts.unmatched || 0}</div></CardContent></Card>
         </div>
@@ -1698,7 +1749,14 @@ export default function MiniCrm() {
                       return <Badge variant="outline">{KB_PO_MODE_LABEL[String(kb.po_mode || "")] || String(kb.po_mode || "-")}</Badge>;
                     })()}
                   </TableCell>
-                  <TableCell><Badge variant={row.match_status === "approved" ? "default" : "secondary"}>{row.match_status}</Badge></TableCell>
+                  <TableCell>
+                    <div className="flex flex-col gap-1">
+                      <Badge variant={row.match_status === "approved" ? "default" : "secondary"}>{row.match_status}</Badge>
+                      {row?.raw_payload?.revenue_post?.requires_review && (
+                        <Badge variant="destructive" className="w-fit">Needs delta review</Badge>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell className="space-x-2">
                     <Button
                       size="sm"
@@ -1719,6 +1777,12 @@ export default function MiniCrm() {
                     </Button>
                     <Button size="sm" onClick={() => reviewMutation.mutate({ id: row.id, status: "approved" })} disabled={reviewMutation.isPending || row.match_status === "approved"}>Approve</Button>
                     <Button size="sm" variant="outline" onClick={() => reviewMutation.mutate({ id: row.id, status: "rejected" })} disabled={reviewMutation.isPending || row.match_status === "rejected"}>Reject</Button>
+                    {row?.raw_payload?.revenue_post?.requires_review && (
+                      <>
+                        <Button size="sm" variant="secondary" onClick={() => reviewDeltaMutation.mutate({ id: row.id, action: "approve_zero" })} disabled={reviewDeltaMutation.isPending}>Duyệt delta=0</Button>
+                        <Button size="sm" variant="destructive" onClick={() => reviewDeltaMutation.mutate({ id: row.id, action: "reject" })} disabled={reviewDeltaMutation.isPending}>Reject delta</Button>
+                      </>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
