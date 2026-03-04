@@ -41,6 +41,7 @@ import { uploadPaymentRequestImage } from "@/hooks/usePaymentRequests";
 import { generatePONumber } from "@/hooks/usePurchaseOrders";
 import { generateShortCode } from "@/components/dialogs/AddSupplierDialog";
 import { AddPaymentRequestDialog, PRPrefillData } from "@/components/dialogs/AddPaymentRequestDialog";
+import { cn } from "@/lib/utils";
 
 interface DriveImportProgressDialogProps {
   open: boolean;
