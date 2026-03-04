@@ -1370,6 +1370,55 @@ export default function MiniCrm() {
     },
   });
 
+  const exportDeltaReconciliationCsv = () => {
+    const rows = filteredPoInbox
+      .filter((row: any) => {
+        const revenuePost = row?.raw_payload?.revenue_post;
+        return Boolean(revenuePost && (revenuePost.delta_amount != null || revenuePost.base_amount != null || revenuePost.full_snapshot_total != null));
+      })
+      .map((row: any) => {
+        const revenuePost = row?.raw_payload?.revenue_post || {};
+        const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === row.customer_id);
+        return {
+          received_at: row?.received_at || "",
+          customer_name: row?.mini_crm_customers?.customer_name || "",
+          po_number: row?.po_number || "",
+          subject: row?.email_subject || "",
+          po_mode: String(kb?.po_mode || "daily_new_po"),
+          match_status: row?.match_status || "",
+          full_snapshot_total: Number(revenuePost?.full_snapshot_total || 0),
+          base_amount: Number(revenuePost?.base_amount || 0),
+          delta_amount: Number(revenuePost?.delta_amount || 0),
+          posted_amount: Number(revenuePost?.total || revenuePost?.amount || 0),
+          requires_review: revenuePost?.requires_review ? "yes" : "no",
+          review_decision: String(revenuePost?.review_decision || ""),
+          reviewed_at: revenuePost?.reviewed_at || "",
+          posted_at: revenuePost?.posted_at || "",
+        };
+      });
+
+    if (!rows.length) {
+      toast({ title: "Không có dữ liệu delta", description: "Chưa có bản ghi cumulative để xuất báo cáo." });
+      return;
+    }
+
+    const headers = Object.keys(rows[0]);
+    const esc = (v: any) => {
+      const s = String(v ?? "");
+      if (s.includes('"') || s.includes(',') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
+      return s;
+    };
+    const csv = [headers.join(","), ...rows.map((r) => headers.map((h) => esc((r as any)[h])).join(","))].join("\n");
+    const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `po-delta-reconciliation-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: "Đã xuất CSV đối soát delta", description: `${rows.length} dòng` });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-3">
@@ -1703,7 +1752,7 @@ export default function MiniCrm() {
           <CardDescription>PO đọc từ email po@bmq.vn sẽ nằm ở đây trước khi duyệt tay.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="mb-4 grid gap-3 md:grid-cols-4">
+          <div className="mb-4 grid gap-3 md:grid-cols-5">
             <div className="space-y-1">
               <Label>Từ ngày</Label>
               <Input type="date" value={poDateFrom} onChange={(e) => setPoDateFrom(e.target.value)} />
@@ -1733,6 +1782,11 @@ export default function MiniCrm() {
                 }}
               >
                 Bỏ lọc ngày
+              </Button>
+            </div>
+            <div className="flex items-end">
+              <Button type="button" variant="secondary" onClick={exportDeltaReconciliationCsv}>
+                Xuất CSV đối soát delta
               </Button>
             </div>
           </div>
