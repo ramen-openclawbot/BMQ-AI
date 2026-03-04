@@ -1765,7 +1765,7 @@ export default function MiniCrm() {
           <CardDescription>PO đọc từ email po@bmq.vn sẽ nằm ở đây trước khi duyệt tay.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="mb-4 grid gap-3 md:grid-cols-8">
+          <div className="mb-4 grid gap-3 md:grid-cols-9">
             <div className="space-y-1">
               <Label>Từ ngày</Label>
               <Input type="date" value={poDateFrom} onChange={(e) => setPoDateFrom(e.target.value)} />
@@ -1835,7 +1835,24 @@ export default function MiniCrm() {
                   setPoNeedsDeltaReviewOnly(true);
                 }}
               >
-                Preset Vietjet view
+                Preset Vietjet review
+              </Button>
+            </div>
+            <div className="flex items-end">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  if (!vietjetCustomerId) {
+                    toast({ title: "Chưa tìm thấy khách Vietjet", description: "Vui lòng kiểm tra tên customer trong CRM." });
+                    return;
+                  }
+                  setPoCustomerFilter(vietjetCustomerId);
+                  setPoModeFilter("cumulative_snapshot");
+                  setPoNeedsDeltaReviewOnly(false);
+                }}
+              >
+                Preset Vietjet all cumulative
               </Button>
             </div>
           </div>
