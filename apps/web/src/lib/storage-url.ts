@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 
 const DEFAULT_BUCKET_CANDIDATES = ["invoices", "purchase-orders", "payment-slips", "payment-requests"];
+const LEGACY_PATH_PREFIXES = ["payment-requests/", "payment-slips/", "purchase-orders/", "invoices/"];
 
 type ResolveOptions = {
   preferredBucket?: string;
@@ -74,6 +75,14 @@ export async function resolveImageUrl(rawPathOrUrl: string | null | undefined, o
     if (cleaned.startsWith(prefix)) {
       const signedTrimmed = await sign(bucket, cleaned.slice(prefix.length), expiresIn);
       if (signedTrimmed) return signedTrimmed;
+    }
+
+    // handle legacy bare filename values by trying known folder prefixes
+    if (!cleaned.includes("/")) {
+      for (const legacyPrefix of LEGACY_PATH_PREFIXES) {
+        const signedLegacy = await sign(bucket, `${legacyPrefix}${cleaned}`, expiresIn);
+        if (signedLegacy) return signedLegacy;
+      }
     }
   }
 

@@ -163,12 +163,12 @@ export function EditInvoiceDialog({
     try {
       setUploading(true);
 
-      // Upload new image if exists
+      // Upload new image if exists (store storage path, not signed URL)
       let uploadedImageUrl: string | null = imageUrl;
       if (newImageFile) {
         const fileExt = newImageFile.name.split(".").pop();
         const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-        
+
         const { error: uploadError } = await supabase.storage
           .from("invoices")
           .upload(fileName, newImageFile);
@@ -177,11 +177,7 @@ export function EditInvoiceDialog({
           throw new Error(`Failed to upload image: ${uploadError.message}`);
         }
 
-        const { data: signedData } = await supabase.storage
-          .from("invoices")
-          .createSignedUrl(fileName, 60 * 60 * 24 * 365);
-        
-        uploadedImageUrl = signedData?.signedUrl || null;
+        uploadedImageUrl = fileName;
       }
 
       // Update invoice

@@ -117,12 +117,12 @@ export function CreateInvoiceFromRequestDialog({
         return;
       }
 
-      // Upload payment slip if exists
+      // Upload payment slip if exists (store storage path, not signed URL)
       let uploadedPaymentSlipUrl: string | null = null;
       if (paymentSlipFile) {
         const fileExt = paymentSlipFile.name.split(".").pop();
-        const fileName = `slip-${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-        
+        const fileName = `payment-slips/slip-${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+
         const { error: uploadError } = await supabase.storage
           .from("invoices")
           .upload(fileName, paymentSlipFile);
@@ -131,11 +131,7 @@ export function CreateInvoiceFromRequestDialog({
           throw new Error(`Không thể upload chứng từ: ${uploadError.message}`);
         }
 
-        const { data: signedData } = await supabase.storage
-          .from("invoices")
-          .createSignedUrl(fileName, 60 * 60 * 24 * 365);
-        
-        uploadedPaymentSlipUrl = signedData?.signedUrl || null;
+        uploadedPaymentSlipUrl = fileName;
       }
 
       // Call edge function to create invoice + items atomically (retry once on network failure)

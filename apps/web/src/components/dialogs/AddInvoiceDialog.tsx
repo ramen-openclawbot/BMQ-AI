@@ -304,12 +304,12 @@ export function AddInvoiceDialog() {
     try {
       setUploading(true);
 
-      // Upload invoice image if exists
+      // Upload invoice image if exists (store storage path, not signed URL)
       let uploadedImageUrl: string | null = null;
       if (imageFile) {
         const fileExt = imageFile.name.split(".").pop();
         const fileName = `invoice-${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-        
+
         const { error: uploadError } = await supabase.storage
           .from("invoices")
           .upload(fileName, imageFile);
@@ -318,20 +318,15 @@ export function AddInvoiceDialog() {
           throw new Error(`Failed to upload image: ${uploadError.message}`);
         }
 
-        // Get signed URL for the uploaded image (4 hours expiry)
-        const { data: signedData } = await supabase.storage
-          .from("invoices")
-          .createSignedUrl(fileName, 60 * 60 * 4); // 4 hours
-        
-        uploadedImageUrl = signedData?.signedUrl || null;
+        uploadedImageUrl = fileName;
       }
 
-      // Upload payment slip image if exists
+      // Upload payment slip image if exists (store storage path, not signed URL)
       let uploadedPaymentSlipUrl: string | null = null;
       if (paymentSlipFile) {
         const fileExt = paymentSlipFile.name.split(".").pop();
-        const fileName = `slip-${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-        
+        const fileName = `payment-slips/slip-${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+
         const { error: uploadError } = await supabase.storage
           .from("invoices")
           .upload(fileName, paymentSlipFile);
@@ -340,12 +335,7 @@ export function AddInvoiceDialog() {
           throw new Error(`Failed to upload payment slip: ${uploadError.message}`);
         }
 
-        // Get signed URL for the uploaded payment slip (4 hours expiry)
-        const { data: signedData } = await supabase.storage
-          .from("invoices")
-          .createSignedUrl(fileName, 60 * 60 * 4); // 4 hours
-        
-        uploadedPaymentSlipUrl = signedData?.signedUrl || null;
+        uploadedPaymentSlipUrl = fileName;
       }
 
       // Create invoice with optional payment_request_id and payment_slip_url

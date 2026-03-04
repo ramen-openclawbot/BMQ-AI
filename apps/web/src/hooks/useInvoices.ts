@@ -254,18 +254,15 @@ export function useDeleteInvoiceItem() {
 export async function uploadInvoiceImage(file: File): Promise<string> {
   const fileExt = file.name.split(".").pop();
   const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-  const filePath = `${fileName}`;
 
   const { error: uploadError } = await supabase.storage
     .from("invoices")
-    .upload(filePath, file);
+    .upload(fileName, file);
 
   if (uploadError) throw uploadError;
 
-  const { data } = await supabase.storage
-    .from("invoices")
-    .createSignedUrl(filePath, 60 * 60 * 4);
-  return data?.signedUrl || "";
+  // Store storage object path; UI will resolve to signed URL when rendering.
+  return fileName;
 }
 
 export async function getInvoiceImageUrl(path: string): Promise<string> {
