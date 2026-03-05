@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/select";
 import { Plus, Trash2, Loader2, Image, CreditCard } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { resolveImageUrl } from "@/lib/storage-url";
 
 const invoiceItemSchema = z.object({
   id: z.string().optional(),
@@ -75,8 +76,10 @@ export function EditInvoiceDialog({
 }: EditInvoiceDialogProps) {
   const [uploading, setUploading] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [newImageFile, setNewImageFile] = useState<File | null>(null);
   const [paymentSlipUrl, setPaymentSlipUrl] = useState<string | null>(null);
+  const [paymentSlipPreviewUrl, setPaymentSlipPreviewUrl] = useState<string | null>(null);
   const [newPaymentSlipFile, setNewPaymentSlipFile] = useState<File | null>(null);
   
   const { data: invoice, isLoading: invoiceLoading } = useInvoice(invoiceId);
@@ -107,29 +110,46 @@ export function EditInvoiceDialog({
 
   // Load invoice data into form when it changes
   useEffect(() => {
-    if (invoice && invoiceItems) {
-      form.reset({
-        invoice_number: invoice.invoice_number,
-        invoice_date: invoice.invoice_date,
-        supplier_id: invoice.supplier_id || "",
-        vat_amount: invoice.vat_amount || 0,
-        notes: invoice.notes || "",
-        items: invoiceItems.map((item) => ({
-          id: item.id,
-          product_code: item.product_code || "",
-          product_name: item.product_name,
-          unit: item.unit || "kg",
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          isNew: false,
-          isDeleted: false,
-        })),
-      });
-      setImageUrl(invoice.image_url);
-      setNewImageFile(null);
-      setPaymentSlipUrl(invoice.payment_slip_url || null);
-      setNewPaymentSlipFile(null);
-    }
+    if (!invoice || !invoiceItems) return;
+
+    form.reset({
+      invoice_number: invoice.invoice_number,
+      invoice_date: invoice.invoice_date,
+      supplier_id: invoice.supplier_id || "",
+      vat_amount: invoice.vat_amount || 0,
+      notes: invoice.notes || "",
+      items: invoiceItems.map((item) => ({
+        id: item.id,
+        product_code: item.product_code || "",
+        product_name: item.product_name,
+        unit: item.unit || "kg",
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        isNew: false,
+        isDeleted: false,
+      })),
+    });
+
+    setImageUrl(invoice.image_url || null);
+    setPaymentSlipUrl(invoice.payment_slip_url || null);
+    setNewImageFile(null);
+    setNewPaymentSlipFile(null);
+
+    let active = true;
+    (async () => {
+      const [resolvedInvoiceImage, resolvedPaymentSlip] = await Promise.all([
+        resolveImageUrl(invoice.image_url || null, { preferredBucket: "invoices" }),
+        resolveImageUrl(invoice.payment_slip_url || null, { preferredBucket: "invoices" }),
+      ]);
+
+      if (!active) return;
+      setImagePreviewUrl(resolvedInvoiceImage);
+      setPaymentSlipPreviewUrl(resolvedPaymentSlip);
+    })();
+
+    return () => {
+      active = false;
+    };
   }, [invoice, invoiceItems, form]);
 
   const watchItems = form.watch("items");
@@ -146,7 +166,7 @@ export function EditInvoiceDialog({
     if (!file) return;
 
     const previewUrl = URL.createObjectURL(file);
-    setImageUrl(previewUrl);
+    setImagePreviewUrl(previewUrl);
     setNewImageFile(file);
   };
 
@@ -155,7 +175,7 @@ export function EditInvoiceDialog({
     if (!file) return;
 
     const previewUrl = URL.createObjectURL(file);
-    setPaymentSlipUrl(previewUrl);
+    setPaymentSlipPreviewUrl(previewUrl);
     setNewPaymentSlipFile(file);
   };
 
@@ -301,10 +321,10 @@ export function EditInvoiceDialog({
                 <div className="border-2 border-dashed border-border rounded-lg p-6">
                   <div className="flex flex-col items-center gap-4">
                     <p className="text-sm font-medium">PO / Invoice image</p>
-                    {imageUrl ? (
+                    {imagePreviewUrl ? (
                       <div className="relative">
                         <img
-                          src={imageUrl}
+                          src={imagePreviewUrl}
                           alt="Invoice preview"
                           className="max-h-48 rounded-lg object-contain"
                         />
@@ -315,6 +335,7 @@ export function EditInvoiceDialog({
                           className="absolute -top-2 -right-2"
                           onClick={() => {
                             setImageUrl(null);
+                            setImagePreviewUrl(null);
                             setNewImageFile(null);
                           }}
                         >
@@ -339,10 +360,10 @@ export function EditInvoiceDialog({
                 <div className="border-2 border-dashed border-border rounded-lg p-6">
                   <div className="flex flex-col items-center gap-4">
                     <p className="text-sm font-medium">Bank slip (UNC)</p>
-                    {paymentSlipUrl ? (
+                    {paymentSlipPreviewUrl ? (
                       <div className="relative">
                         <img
-                          src={paymentSlipUrl}
+                          src={paymentSlipPreviewUrl}
                           alt="Payment slip preview"
                           className="max-h-48 rounded-lg object-contain"
                         />
@@ -353,6 +374,7 @@ export function EditInvoiceDialog({
                           className="absolute -top-2 -right-2"
                           onClick={() => {
                             setPaymentSlipUrl(null);
+                            setPaymentSlipPreviewUrl(null);
                             setNewPaymentSlipFile(null);
                           }}
                         >
