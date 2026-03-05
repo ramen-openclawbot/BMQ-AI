@@ -18,6 +18,12 @@ const vnDate = (d = new Date()) => {
   return `${get("year")}-${get("month")}-${get("day")}`;
 };
 
+const getVnDayUtcRange = (date: string) => {
+  const startUtc = new Date(`${date}T00:00:00+07:00`).toISOString();
+  const endUtc = new Date(`${date}T23:59:59.999+07:00`).toISOString();
+  return { startUtc, endUtc };
+};
+
 const sendEmail = async (subject: string, html: string) => {
   const emailEnabled = (Deno.env.get("FINANCE_EMAIL_ENABLED") || "true").toLowerCase() !== "false";
   if (!emailEnabled) {
@@ -76,14 +82,25 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const closingDate = body?.closingDate || vnDate();
+    const { startUtc, endUtc } = getVnDayUtcRange(closingDate);
+
+    const { data: declaration, error: declarationError } = await supabase
+      .from("ceo_daily_closing_declarations")
+      .select("unc_total_declared,unc_extracted_amount,cash_fund_topup_amount,notes,extraction_meta")
+      .eq("closing_date", closingDate)
+      .maybeSingle();
+
+    if (declarationError) throw declarationError;
+
+    const folderTotal = Number((declaration as any)?.extraction_meta?.unc_folder_total || 0);
 
     const [detailByCreatedAt, detailByInvoiceDate] = await Promise.all([
       supabase
         .from("payment_requests")
         .select("id,total_amount")
         .eq("payment_method", "bank_transfer")
-        .gte("created_at", `${closingDate}T00:00:00`)
-        .lte("created_at", `${closingDate}T23:59:59.999`),
+        .gte("created_at", startUtc)
+        .lte("created_at", endUtc),
       supabase
         .from("payment_requests")
         .select("id,total_amount,invoices!payment_requests_invoice_id_fkey(invoice_date)")
@@ -102,21 +119,19 @@ serve(async (req) => {
       if (!merged.has(row.id)) merged.set(row.id, Number(row.total_amount || 0));
     }
 
-    const uncDetail = Array.from(merged.values()).reduce((s, amount) => s + Number(amount || 0), 0);
+    const uncDetailFromPr = Array.from(merged.values()).reduce((s, amount) => s + Number(amount || 0), 0);
 
-    const { data: declaration, error: declarationError } = await supabase
-      .from("ceo_daily_closing_declarations")
-      .select("unc_total_declared,cash_fund_topup_amount,notes")
-      .eq("closing_date", closingDate)
-      .maybeSingle();
+    // Source of truth: UNC folder reconciliation if available.
+    const uncDetail = folderTotal > 0 ? folderTotal : uncDetailFromPr;
 
-    if (declarationError) throw declarationError;
-
-    const uncDeclared = Number(declaration?.unc_total_declared || 0);
+    const uncDeclared = Number(declaration?.unc_extracted_amount || declaration?.unc_total_declared || 0);
     const topup = Number(declaration?.cash_fund_topup_amount || 0);
     const variance = uncDetail - uncDeclared;
     const tolerance = 0;
     const status = declaration ? (Math.abs(variance) <= tolerance ? "match" : "mismatch") : "pending";
+
+    const notesParts = [declaration?.notes].filter(Boolean);
+    if (folderTotal > 0) notesParts.push("[auto-reconcile source=unc_folder_total]");
 
     const { error: upsertError } = await supabase.from("daily_reconciliations").upsert(
       {
@@ -128,7 +143,7 @@ serve(async (req) => {
         status,
         tolerance_amount: tolerance,
         matched_at: new Date().toISOString(),
-        notes: declaration?.notes || null,
+        notes: notesParts.length ? notesParts.join(" ") : null,
       },
       { onConflict: "closing_date" }
     );
@@ -143,6 +158,8 @@ serve(async (req) => {
       <p><b>Status:</b> ${status.toUpperCase()}</p>
       <ul>
         <li>UNC Detail (auto): <b>${vnd(uncDetail)}</b></li>
+        <li>UNC Detail source: <b>${folderTotal > 0 ? "folder_reconciliation" : "payment_requests"}</b></li>
+        <li>UNC Detail (payment_requests raw): <b>${vnd(uncDetailFromPr)}</b></li>
         <li>UNC Declared (CEO): <b>${vnd(uncDeclared)}</b></li>
         <li>Cash Fund Top-up: <b>${vnd(topup)}</b></li>
         <li>Variance: <b>${vnd(variance)}</b></li>
@@ -157,6 +174,8 @@ serve(async (req) => {
       closingDate,
       status,
       uncDetail,
+      uncDetailFromPr,
+      uncDetailSource: folderTotal > 0 ? "folder_reconciliation" : "payment_requests",
       uncDeclared,
       variance,
       emailResult,
