@@ -113,7 +113,6 @@ export default function FinanceControl() {
     setReconciliationAuditLogs(Array.isArray(dailyDeclaration?.extraction_meta?.reconciliation_audit_logs)
       ? dailyDeclaration.extraction_meta.reconciliation_audit_logs
       : []);
-    setQtmOpeningBalance(Number(dailyDeclaration?.extraction_meta?.qtm_opening_balance || 0));
     setQtmSpentFromFolder(Number(dailyDeclaration?.extraction_meta?.qtm_spent_from_folder || 0));
     setQtmLowConfidenceCount(Number(dailyDeclaration?.extraction_meta?.qtm_low_confidence_count || 0));
 
@@ -158,27 +157,42 @@ export default function FinanceControl() {
   useEffect(() => {
     let active = true;
 
+    const toNumberOrNull = (v: any) => {
+      if (v === null || v === undefined || v === "") return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+
     const loadPrevQtmBalance = async () => {
       const prevDate = format(subDays(selectedDate, 1), "yyyy-MM-dd");
       const { data } = await (supabase as any)
         .from("ceo_daily_closing_declarations")
-        .select("extraction_meta")
+        .select("cash_fund_topup_amount,qtm_extracted_amount,extraction_meta")
         .eq("closing_date", prevDate)
         .maybeSingle();
 
       if (!active) return;
 
-      const prevClosingRaw = data?.extraction_meta?.qtm_closing_balance;
-      const hasPrevClosing = prevClosingRaw !== null && prevClosingRaw !== undefined;
+      const prevClosingRaw = toNumberOrNull(data?.extraction_meta?.qtm_closing_balance);
 
-      // Rule nghiệp vụ: nếu có dữ liệu ngày hôm trước thì tồn đầu ngày hiện tại = tồn cuối ngày hôm trước.
-      if (hasPrevClosing) {
-        setQtmOpeningBalance(Number(prevClosingRaw || 0));
+      // Rule nghiệp vụ: nếu có tồn cuối ngày hôm trước thì tồn đầu ngày hiện tại = tồn cuối ngày hôm trước.
+      if (prevClosingRaw !== null) {
+        setQtmOpeningBalance(prevClosingRaw);
         return;
       }
 
-      // Fallback khi chưa có ngày hôm trước trong DB.
-      const currentStoredOpening = dailyDeclaration?.extraction_meta?.qtm_opening_balance;
+      // Fallback 1: tự tính tồn cuối ngày hôm trước nếu thiếu field qtm_closing_balance.
+      const prevOpening = toNumberOrNull(data?.extraction_meta?.qtm_opening_balance);
+      const prevSpent = toNumberOrNull(data?.extraction_meta?.qtm_spent_from_folder);
+      const prevTopup = toNumberOrNull(data?.qtm_extracted_amount) ?? toNumberOrNull(data?.cash_fund_topup_amount);
+      if (prevOpening !== null || prevSpent !== null || prevTopup !== null) {
+        const computedPrevClosing = Number(prevOpening || 0) + Number(prevTopup || 0) - Number(prevSpent || 0);
+        setQtmOpeningBalance(computedPrevClosing);
+        return;
+      }
+
+      // Fallback 2: dùng giá trị opening đã lưu của ngày hiện tại (nếu có).
+      const currentStoredOpening = toNumberOrNull(dailyDeclaration?.extraction_meta?.qtm_opening_balance);
       setQtmOpeningBalance(Number(currentStoredOpening || 0));
     };
 
