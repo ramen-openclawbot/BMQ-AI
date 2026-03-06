@@ -1,12 +1,51 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.16**
+- apps/web: **0.0.17**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
 - Latest commit at handoff time: `git log -1 --oneline`
 
-## Latest update (2026-03-06 — v0.0.16)
+## Latest update (2026-03-07 — v0.0.17)
+### User Role Management — RBAC UI cho Owner
+- **SQL migration**: `supabase/migrations/20260307000000_user_management_tables.sql`
+  - Bảng `user_module_permissions`: per-user per-module access (can_view/can_edit), RLS owner-only + user đọc quyền chính mình.
+  - Bảng `user_invitations`: email invite + role, RLS owner-only.
+  - Auto-seed default permissions cho existing users dựa trên role.
+- **AuthContext mở rộng**: fetch `user_roles` + `user_module_permissions` khi auth init.
+  - Expose: `roles`, `isOwner`, `canAccessModule(key)`, `canEditModule(key)`, `refreshRoles()`.
+  - Owner bypass: luôn return true cho mọi module.
+- **Hooks mới** (`src/hooks/useUserManagement.ts`):
+  - `useUsersList()`, `useAllPermissions()`, `useAssignRole()`, `useUpdatePermission()`, `useInvitations()`, `useInviteUser()`, `useCancelInvitation()`.
+- **Trang mới** `/user-management` (`src/pages/UserManagement.tsx`) — 3 tabs:
+  - Tab 1 "Người dùng": bảng user + dropdown đổi role + guardrail (không đổi role mình, không xoá owner cuối).
+  - Tab 2 "Mời thành viên": form invite email + role + danh sách pending + cancel.
+  - Tab 3 "Phân quyền": matrix checkbox 16 modules × non-owner users (can_view/can_edit).
+- **Sidebar cập nhật**: mục "Quản lý người dùng" (icon Shield) đầu Execution section, chỉ Owner thấy.
+  - Tất cả nav items đều lọc theo `canAccessModule(moduleKey)`.
+- **OwnerRoute** (`src/components/OwnerRoute.tsx`): redirect nếu !isOwner.
+- **AppRoutes**: route `/user-management` bọc OwnerRoute.
+- **LanguageContext**: thêm key `userManagement` (EN: "User Management", VI: "Quản lý người dùng").
+- **16 module keys** phân quyền: dashboard, reports, niraan_dashboard, finance_cost, finance_revenue, crm, sales_po_inbox, purchase_orders, inventory, goods_receipts, sku_costs, suppliers, invoices, payment_requests, low_stock, settings.
+
+### Files tạo mới
+- `supabase/migrations/20260307000000_user_management_tables.sql`
+- `apps/web/src/pages/UserManagement.tsx`
+- `apps/web/src/hooks/useUserManagement.ts`
+- `apps/web/src/components/OwnerRoute.tsx`
+
+### Files sửa
+- `apps/web/src/contexts/AuthContext.tsx` — thêm roles, permissions, isOwner, canAccessModule, canEditModule
+- `apps/web/src/contexts/LanguageContext.tsx` — thêm key userManagement
+- `apps/web/src/components/layout/Sidebar.tsx` — thêm mục mới + permission filtering
+- `apps/web/src/components/AppRoutes.tsx` — thêm route /user-management + OwnerRoute
+- `apps/web/package.json` — version 0.0.17
+
+### Pending
+- Chạy migration SQL trên Supabase Dashboard trước khi deploy.
+- Security fixes (27 verify_jwt=false functions, Open Redirect, RLS, CORS) — deferred.
+
+## Previous update (2026-03-06 — v0.0.16)
 ### Performance optimization: Finance Control page load speed
 - **staleTime + gcTime** cho tất cả React Query hooks trong finance:
   - Daily queries: staleTime 30s, Monthly: 5 phút, gcTime: 10 phút.

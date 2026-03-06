@@ -5,11 +5,22 @@ import { supabase } from "@/integrations/supabase/client";
 // Safety timeout: if auth bootstrap takes longer than this, allow fallback UI
 const AUTH_BOOTSTRAP_TIMEOUT_MS = 20000;
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+type AppRole = "owner" | "staff" | "viewer" | "warehouse";
+
 interface Profile {
   id: string;
   user_id: string;
   full_name: string | null;
   email: string | null;
+}
+
+interface ModulePermission {
+  module_key: string;
+  can_view: boolean;
+  can_edit: boolean;
 }
 
 interface AuthContextType {
@@ -18,8 +29,13 @@ interface AuthContextType {
   profile: Profile | null;
   loading: boolean;
   timedOut: boolean;
+  roles: AppRole[];
+  isOwner: boolean;
+  canAccessModule: (moduleKey: string) => boolean;
+  canEditModule: (moduleKey: string) => boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  refreshRoles: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -30,10 +46,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [timedOut, setTimedOut] = useState(false);
-  
+  const [roles, setRoles] = useState<AppRole[]>([]);
+  const [permissions, setPermissions] = useState<ModulePermission[]>([]);
+
   // Track if initial load is complete to prevent listener from affecting loading state
   const initialLoadCompleteRef = useRef(false);
   const fetchingProfileForRef = useRef<string | null>(null);
+
+  // -------------------------------------------------------------------------
+  // Fetch roles + permissions for a user
+  // -------------------------------------------------------------------------
+  const fetchRolesAndPermissions = useCallback(async (userId: string) => {
+    try {
+      const [rolesRes, permsRes] = await Promise.all([
+        (supabase as any)
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", userId),
+        (supabase as any)
+          .from("user_module_permissions")
+          .select("module_key,can_view,can_edit")
+          .eq("user_id", userId),
+      ]);
+
+      if (rolesRes.error) {
+        console.error("[AuthContext] Error fetching roles:", rolesRes.error);
+      } else {
+        setRoles((rolesRes.data || []).map((r: any) => r.role as AppRole));
+      }
+
+      if (permsRes.error) {
+        console.error("[AuthContext] Error fetching permissions:", permsRes.error);
+      } else {
+        setPermissions(
+          (permsRes.data || []).map((p: any) => ({
+            module_key: p.module_key,
+            can_view: !!p.can_view,
+            can_edit: !!p.can_edit,
+          }))
+        );
+      }
+    } catch (err) {
+      console.error("[AuthContext] Error fetching roles/permissions:", err);
+    }
+  }, []);
 
   const fetchProfile = useCallback(async (userId: string) => {
     // Debounce: skip if already fetching for this user
@@ -41,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     fetchingProfileForRef.current = userId;
-    
+
     try {
       const { data, error } = await supabase
         .from("profiles")
@@ -56,19 +112,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // No profile row yet is acceptable for newly created users.
         setProfile(data ?? null);
       }
+
+      // Also fetch roles and permissions
+      await fetchRolesAndPermissions(userId);
     } catch (err) {
       console.error("Error fetching profile:", err);
       setProfile(null);
     } finally {
       fetchingProfileForRef.current = null;
     }
-  }, []);
+  }, [fetchRolesAndPermissions]);
 
   const refreshProfile = useCallback(async () => {
     if (user?.id) {
       await fetchProfile(user.id);
     }
   }, [user?.id, fetchProfile]);
+
+  const refreshRoles = useCallback(async () => {
+    if (user?.id) {
+      await fetchRolesAndPermissions(user.id);
+    }
+  }, [user?.id, fetchRolesAndPermissions]);
+
+  // -------------------------------------------------------------------------
+  // Derived: isOwner, canAccessModule, canEditModule
+  // -------------------------------------------------------------------------
+  const isOwner = roles.includes("owner");
+
+  const canAccessModule = useCallback(
+    (moduleKey: string) => {
+      if (isOwner) return true;
+      // No permission rows = no access (secure by default)
+      const perm = permissions.find((p) => p.module_key === moduleKey);
+      return perm?.can_view ?? false;
+    },
+    [isOwner, permissions]
+  );
+
+  const canEditModule = useCallback(
+    (moduleKey: string) => {
+      if (isOwner) return true;
+      const perm = permissions.find((p) => p.module_key === moduleKey);
+      return perm?.can_edit ?? false;
+    },
+    [isOwner, permissions]
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -102,18 +191,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, newSession) => {
         if (!mounted) return;
-        
+
         // Update session and user state
         setSession(newSession);
         setUser(newSession?.user ?? null);
-        
+
         if (newSession?.user) {
           // Fire-and-forget profile fetch for ongoing changes
           fetchProfile(newSession.user.id);
         } else {
           setProfile(null);
+          setRoles([]);
+          setPermissions([]);
         }
-        
+
         // Only clear timeout and update loading if initial load hasn't completed yet
         // This prevents ongoing auth events from affecting loading state after initial load
         if (!initialLoadCompleteRef.current) {
@@ -129,12 +220,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const initializeAuth = async () => {
       try {
         const { data: { session: initialSession } } = await supabase.auth.getSession();
-        
+
         if (!mounted) return;
-        
+
         setSession(initialSession);
         setUser(initialSession?.user ?? null);
-        
+
         if (initialSession?.user) {
           // AWAIT profile fetch during initial load to ensure data is ready
           await fetchProfile(initialSession.user.id);
@@ -167,22 +258,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       console.warn("SignOut error:", err);
     }
-    
+
     setSession(null);
     setUser(null);
     setProfile(null);
+    setRoles([]);
+    setPermissions([]);
     window.location.href = "/auth";
   };
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      session, 
-      profile, 
-      loading, 
+    <AuthContext.Provider value={{
+      user,
+      session,
+      profile,
+      loading,
       timedOut,
-      signOut, 
-      refreshProfile
+      roles,
+      isOwner,
+      canAccessModule,
+      canEditModule,
+      signOut,
+      refreshProfile,
+      refreshRoles,
     }}>
       {children}
     </AuthContext.Provider>

@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { 
-  LayoutDashboard, 
-  Package, 
-  Users, 
-  FileText, 
+import {
+  LayoutDashboard,
+  Package,
+  Users,
+  FileText,
   AlertTriangle,
   Settings,
   FileCheck,
@@ -22,9 +22,11 @@ import {
   FolderSearch,
   ChevronLeft,
   ChevronRight,
+  Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { usePaymentStats } from "@/hooks/usePaymentStats";
 import { useDraftPOCount } from "@/hooks/usePurchaseOrders";
 import { Badge } from "@/components/ui/badge";
@@ -38,30 +40,36 @@ interface NavItem {
   section: "operations" | "finance" | "execution";
   showBadge?: boolean;
   showPOBadge?: boolean;
+  /** Module key for permission filtering. If undefined, item is always visible. */
+  moduleKey?: string;
+  /** If true, only owners can see this item */
+  ownerOnly?: boolean;
 }
 
 const navItems: NavItem[] = [
-  { icon: Landmark, labelKey: "investorDashboard", path: "/niraan-dashboard", section: "execution" },
-  { icon: LayoutDashboard, labelKey: "dashboard", path: "/", section: "execution" },
-  { icon: BarChart3, labelKey: "reports", path: "/reports", section: "execution" },
+  { icon: Shield, labelKey: "userManagement", path: "/user-management", section: "execution", ownerOnly: true, moduleKey: "user_management" },
+  { icon: Landmark, labelKey: "investorDashboard", path: "/niraan-dashboard", section: "execution", moduleKey: "niraan_dashboard" },
+  { icon: LayoutDashboard, labelKey: "dashboard", path: "/", section: "execution", moduleKey: "dashboard" },
+  { icon: BarChart3, labelKey: "reports", path: "/reports", section: "execution", moduleKey: "reports" },
 
-  { icon: Scale, labelKey: "financeCostManagement", path: "/finance-control/cost", section: "finance" },
-  { icon: TrendingUp, labelKey: "financeRevenueManagement", path: "/finance-control/revenue", section: "finance" },
-  { icon: UserRoundCog, labelKey: "crm", path: "/mini-crm", section: "finance" },
-  { icon: Inbox, labelKey: "poSales", path: "/sales-po-inbox", section: "finance" },
-  { icon: ShoppingCart, labelKey: "poPurchasing", path: "/purchase-orders", section: "finance", showPOBadge: true },
+  { icon: Scale, labelKey: "financeCostManagement", path: "/finance-control/cost", section: "finance", moduleKey: "finance_cost" },
+  { icon: TrendingUp, labelKey: "financeRevenueManagement", path: "/finance-control/revenue", section: "finance", moduleKey: "finance_revenue" },
+  { icon: UserRoundCog, labelKey: "crm", path: "/mini-crm", section: "finance", moduleKey: "crm" },
+  { icon: Inbox, labelKey: "poSales", path: "/sales-po-inbox", section: "finance", moduleKey: "sales_po_inbox" },
+  { icon: ShoppingCart, labelKey: "poPurchasing", path: "/purchase-orders", section: "finance", showPOBadge: true, moduleKey: "purchase_orders" },
 
-  { icon: Package, labelKey: "inventory", path: "/inventory", section: "operations" },
-  { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts", section: "operations" },
-  { icon: Barcode, labelKey: "skuCosts", path: "/sku-costs", section: "operations" },
-  { icon: Users, labelKey: "suppliers", path: "/suppliers", section: "operations" },
-  { icon: FileText, labelKey: "invoices", path: "/invoices", section: "operations" },
-  { icon: FileCheck, labelKey: "paymentRequests", path: "/payment-requests", section: "operations", showBadge: true },
-  { icon: AlertTriangle, labelKey: "lowStock", path: "/low-stock", section: "operations" },
+  { icon: Package, labelKey: "inventory", path: "/inventory", section: "operations", moduleKey: "inventory" },
+  { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts", section: "operations", moduleKey: "goods_receipts" },
+  { icon: Barcode, labelKey: "skuCosts", path: "/sku-costs", section: "operations", moduleKey: "sku_costs" },
+  { icon: Users, labelKey: "suppliers", path: "/suppliers", section: "operations", moduleKey: "suppliers" },
+  { icon: FileText, labelKey: "invoices", path: "/invoices", section: "operations", moduleKey: "invoices" },
+  { icon: FileCheck, labelKey: "paymentRequests", path: "/payment-requests", section: "operations", showBadge: true, moduleKey: "payment_requests" },
+  { icon: AlertTriangle, labelKey: "lowStock", path: "/low-stock", section: "operations", moduleKey: "low_stock" },
 ];
 
 export function Sidebar() {
   const { t } = useLanguage();
+  const { isOwner, canAccessModule } = useAuth();
   const sectionLabels: Record<NavItem["section"], string> = {
     execution: t.sectionExecution,
     finance: t.sectionFinance,
@@ -70,7 +78,7 @@ export function Sidebar() {
   const queryClient = useQueryClient();
   const { data: paymentStats } = usePaymentStats();
   const { data: draftPOCount } = useDraftPOCount();
-  
+
   const [showDriveDialog, setShowDriveDialog] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -85,6 +93,13 @@ export function Sidebar() {
   const handleScanDrive = () => {
     setShowDriveDialog(true);
   };
+
+  // Filter nav items by permission
+  const visibleItems = navItems.filter((item) => {
+    if (item.ownerOnly && !isOwner) return false;
+    if (item.moduleKey && !item.ownerOnly) return canAccessModule(item.moduleKey);
+    return true;
+  });
 
   return (
     <aside className={cn(
@@ -116,8 +131,9 @@ export function Sidebar() {
 
         {/* Navigation - scrollable */}
         <nav className="flex-1 px-4 py-6 pb-24 space-y-1 overflow-y-auto">
-          {navItems.map((item, idx) => {
-            const showSectionHeader = idx === 0 || navItems[idx - 1].section !== item.section;
+          {visibleItems.map((item, idx) => {
+            const prevItem = idx > 0 ? visibleItems[idx - 1] : null;
+            const showSectionHeader = !prevItem || prevItem.section !== item.section;
             return (
               <div key={item.path}>
                 {!collapsed && showSectionHeader && (
@@ -155,7 +171,7 @@ export function Sidebar() {
                     </Badge>
                   )}
                 </NavLink>
-                
+
                 {/* Quick Action: Tạo PO từ GG Drive - under Purchase Orders */}
                 {item.path === "/purchase-orders" && !collapsed && (
                   <div className="ml-10 mt-1">
@@ -196,7 +212,7 @@ export function Sidebar() {
 
         </div>
       </div>
-      
+
       {/* Drive Import Dialog - PO only */}
       <DriveImportProgressDialog
         open={showDriveDialog}

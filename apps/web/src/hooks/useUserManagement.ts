@@ -1,0 +1,297 @@
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+type AppRole = "owner" | "staff" | "viewer" | "warehouse";
+
+export interface UserWithRole {
+  user_id: string;
+  full_name: string | null;
+  email: string | null;
+  role: AppRole | null;
+}
+
+export interface ModulePermissionRow {
+  user_id: string;
+  module_key: string;
+  can_view: boolean;
+  can_edit: boolean;
+}
+
+export interface Invitation {
+  id: string;
+  email: string;
+  role: AppRole;
+  status: string;
+  created_at: string;
+  expires_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Module definitions (source of truth for the permission matrix)
+// ---------------------------------------------------------------------------
+export const ALL_MODULES: { key: string; labelEn: string; labelVi: string }[] = [
+  { key: "dashboard", labelEn: "Dashboard", labelVi: "Tổng quan" },
+  { key: "reports", labelEn: "Reports", labelVi: "Báo cáo" },
+  { key: "niraan_dashboard", labelEn: "Investor Dashboard", labelVi: "Investor Dashboard" },
+  { key: "finance_cost", labelEn: "Cost Management", labelVi: "Quản lý chi phí" },
+  { key: "finance_revenue", labelEn: "Revenue Management", labelVi: "Quản lý doanh thu" },
+  { key: "crm", labelEn: "CRM", labelVi: "CRM" },
+  { key: "sales_po_inbox", labelEn: "Sales PO Inbox", labelVi: "PO (Bán hàng)" },
+  { key: "purchase_orders", labelEn: "Purchase Orders", labelVi: "Đơn đặt hàng" },
+  { key: "inventory", labelEn: "Inventory", labelVi: "Kho hàng" },
+  { key: "goods_receipts", labelEn: "Goods Receipts", labelVi: "Phiếu nhập kho" },
+  { key: "sku_costs", labelEn: "SKU Costs", labelVi: "Giá vốn" },
+  { key: "suppliers", labelEn: "Suppliers", labelVi: "Nhà cung cấp" },
+  { key: "invoices", labelEn: "Invoices", labelVi: "Hoá đơn" },
+  { key: "payment_requests", labelEn: "Payment Requests", labelVi: "Duyệt chi" },
+  { key: "low_stock", labelEn: "Low Stock", labelVi: "Sắp hết hàng" },
+  { key: "settings", labelEn: "Settings", labelVi: "Cài đặt" },
+];
+
+// ---------------------------------------------------------------------------
+// 1. useUsersList — profiles JOIN user_roles
+// ---------------------------------------------------------------------------
+export function useUsersList() {
+  return useQuery({
+    queryKey: ["user-management-users"],
+    queryFn: async () => {
+      // Fetch profiles
+      const { data: profiles, error: profilesError } = await supabase
+        .from("profiles")
+        .select("user_id,full_name,email")
+        .order("full_name", { ascending: true });
+
+      if (profilesError) throw profilesError;
+
+      // Fetch roles
+      const { data: rolesData, error: rolesError } = await (supabase as any)
+        .from("user_roles")
+        .select("user_id,role");
+
+      if (rolesError) throw rolesError;
+
+      const roleMap = new Map<string, AppRole>();
+      for (const r of (rolesData || []) as any[]) {
+        roleMap.set(r.user_id, r.role);
+      }
+
+      return ((profiles || []) as any[]).map((p) => ({
+        user_id: p.user_id,
+        full_name: p.full_name,
+        email: p.email,
+        role: roleMap.get(p.user_id) || null,
+      })) as UserWithRole[];
+    },
+    staleTime: 60_000,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 2. useAllPermissions — all user_module_permissions for the matrix
+// ---------------------------------------------------------------------------
+export function useAllPermissions() {
+  return useQuery({
+    queryKey: ["user-management-permissions"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("user_module_permissions")
+        .select("user_id,module_key,can_view,can_edit");
+
+      if (error) throw error;
+
+      return (data || []) as ModulePermissionRow[];
+    },
+    staleTime: 60_000,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 3. useAssignRole — mutation to upsert user_roles
+// ---------------------------------------------------------------------------
+export function useAssignRole() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ userId, role }: { userId: string; role: AppRole }) => {
+      // Check if role exists
+      const { data: existing } = await (supabase as any)
+        .from("user_roles")
+        .select("id")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (existing) {
+        const { error } = await (supabase as any)
+          .from("user_roles")
+          .update({ role })
+          .eq("user_id", userId);
+        if (error) throw error;
+      } else {
+        const { error } = await (supabase as any)
+          .from("user_roles")
+          .insert({ user_id: userId, role });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["user-management-users"] });
+      toast({ title: "Đã cập nhật role" });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Lỗi cập nhật role",
+        description: err?.message || "Vui lòng thử lại",
+        variant: "destructive",
+      });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 4. useUpdatePermission — mutation to upsert user_module_permissions
+// ---------------------------------------------------------------------------
+export function useUpdatePermission() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({
+      userId,
+      moduleKey,
+      canView,
+      canEdit,
+    }: {
+      userId: string;
+      moduleKey: string;
+      canView: boolean;
+      canEdit: boolean;
+    }) => {
+      const { error } = await (supabase as any)
+        .from("user_module_permissions")
+        .upsert(
+          {
+            user_id: userId,
+            module_key: moduleKey,
+            can_view: canView,
+            can_edit: canEdit,
+          },
+          { onConflict: "user_id,module_key" }
+        );
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["user-management-permissions"] });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Lỗi cập nhật quyền",
+        description: err?.message || "Vui lòng thử lại",
+        variant: "destructive",
+      });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 5. useInvitations — list pending invitations
+// ---------------------------------------------------------------------------
+export function useInvitations() {
+  return useQuery({
+    queryKey: ["user-management-invitations"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("user_invitations")
+        .select("id,email,role,status,created_at,expires_at")
+        .eq("status", "pending")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      return (data || []) as Invitation[];
+    },
+    staleTime: 60_000,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 6. useInviteUser — mutation to create invitation
+// ---------------------------------------------------------------------------
+export function useInviteUser() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ email, role }: { email: string; role: AppRole }) => {
+      // Use Supabase Auth admin invite (through edge function or direct)
+      // For now, just insert the invitation record
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const { error } = await (supabase as any)
+        .from("user_invitations")
+        .insert({
+          email,
+          role,
+          invited_by: user.id,
+        });
+
+      if (error) throw error;
+
+      // Also try to invite via Supabase Auth (this may require admin privileges)
+      // If it fails, the invitation record still exists for manual processing
+      try {
+        await (supabase as any).auth.admin.inviteUserByEmail(email);
+      } catch {
+        // Admin invite requires service_role key — expected to fail from client
+        // The invitation record serves as the source of truth
+        console.info("[useInviteUser] Auth invite skipped (requires service_role). Invitation record created.");
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["user-management-invitations"] });
+      toast({ title: "Đã gửi lời mời" });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Lỗi gửi lời mời",
+        description: err?.message || "Vui lòng thử lại",
+        variant: "destructive",
+      });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 7. useCancelInvitation — mutation to cancel an invitation
+// ---------------------------------------------------------------------------
+export function useCancelInvitation() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (invitationId: string) => {
+      const { error } = await (supabase as any)
+        .from("user_invitations")
+        .update({ status: "cancelled" })
+        .eq("id", invitationId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["user-management-invitations"] });
+      toast({ title: "Đã huỷ lời mời" });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Lỗi huỷ lời mời",
+        description: err?.message || "Vui lòng thử lại",
+        variant: "destructive",
+      });
+    },
+  });
+}

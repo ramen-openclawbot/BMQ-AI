@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { OwnerRoute } from "@/components/OwnerRoute";
 import { Loader2, AlertTriangle, RefreshCw, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { clearSessionAndReload } from "@/lib/session-utils";
@@ -29,6 +30,7 @@ import SkuCostsIngredients from "@/pages/SkuCostsIngredients";
 import SkuCostsEmployees from "@/pages/SkuCostsEmployees";
 import SkuCostsOverhead from "@/pages/SkuCostsOverhead";
 import TraceabilityPublic from "@/pages/TraceabilityPublic";
+import UserManagement from "@/pages/UserManagement";
 
 // Warehouse App - eager load to prevent Safari chunk loading issues
 import WarehouseHome from "@/warehouse/pages/WarehouseHome";
@@ -43,7 +45,7 @@ function AppLoadingFallback() {
 
 function AuthTimeoutFallback() {
   const location = useLocation();
-  
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="text-center space-y-4 max-w-sm">
@@ -59,9 +61,9 @@ function AuthTimeoutFallback() {
             <RefreshCw className="h-4 w-4 mr-2" />
             Làm mới phiên
           </Button>
-          <Button 
-            variant="outline" 
-            onClick={() => window.location.reload()} 
+          <Button
+            variant="outline"
+            onClick={() => window.location.reload()}
             className="w-full"
           >
             <RotateCcw className="h-4 w-4 mr-2" />
@@ -107,14 +109,14 @@ export function AppRoutes() {
     <Routes>
       <Route path="/auth" element={<Auth />} />
       <Route path="/trace/:token" element={<TraceabilityPublic />} />
-      
+
       {/* Warehouse App Route - uses main app auth */}
       <Route path="/kho" element={
         <ProtectedRoute>
           <WarehouseHome />
         </ProtectedRoute>
       } />
-      
+
       {/* Main App Routes */}
       <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
         <Route path="/" element={<Index />} />
@@ -141,6 +143,8 @@ export function AppRoutes() {
         <Route path="/mini-crm" element={<MiniCrm />} />
         <Route path="/sales-po-inbox" element={<MiniCrm />} />
         <Route path="/settings" element={<Settings />} />
+        {/* Owner-only routes */}
+        <Route path="/user-management" element={<OwnerRoute><UserManagement /></OwnerRoute>} />
       </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>

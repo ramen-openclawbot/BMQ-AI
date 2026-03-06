@@ -1,0 +1,465 @@
+import { useState } from "react";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  useUsersList,
+  useAllPermissions,
+  useAssignRole,
+  useUpdatePermission,
+  useInvitations,
+  useInviteUser,
+  useCancelInvitation,
+  ALL_MODULES,
+  type UserWithRole,
+  type ModulePermissionRow,
+} from "@/hooks/useUserManagement";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2, Users, Mail, Shield, X } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { formatDistanceToNow } from "date-fns";
+import { vi, enUS } from "date-fns/locale";
+
+// ---------------------------------------------------------------------------
+// Role badge color mapping
+// ---------------------------------------------------------------------------
+const ROLE_BADGE: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
+  owner: { label: "Owner", variant: "destructive" },
+  staff: { label: "Staff", variant: "default" },
+  warehouse: { label: "Warehouse", variant: "secondary" },
+  viewer: { label: "Viewer", variant: "outline" },
+};
+
+type AppRole = "owner" | "staff" | "viewer" | "warehouse";
+
+// ---------------------------------------------------------------------------
+// Main page component
+// ---------------------------------------------------------------------------
+export default function UserManagement() {
+  const { language } = useLanguage();
+  const isVi = language === "vi";
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">
+          {isVi ? "Quản lý người dùng" : "User Management"}
+        </h1>
+        <p className="text-muted-foreground">
+          {isVi
+            ? "Quản lý role, mời thành viên, phân quyền module."
+            : "Manage roles, invite members, assign module permissions."}
+        </p>
+      </div>
+
+      <Tabs defaultValue="users" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="users" className="gap-2">
+            <Users className="h-4 w-4" />
+            {isVi ? "Người dùng" : "Users"}
+          </TabsTrigger>
+          <TabsTrigger value="invite" className="gap-2">
+            <Mail className="h-4 w-4" />
+            {isVi ? "Mời thành viên" : "Invite"}
+          </TabsTrigger>
+          <TabsTrigger value="permissions" className="gap-2">
+            <Shield className="h-4 w-4" />
+            {isVi ? "Phân quyền" : "Permissions"}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="users">
+          <UsersTab isVi={isVi} />
+        </TabsContent>
+        <TabsContent value="invite">
+          <InviteTab isVi={isVi} />
+        </TabsContent>
+        <TabsContent value="permissions">
+          <PermissionsTab isVi={isVi} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// ===========================================================================
+// TAB 1: Users
+// ===========================================================================
+function UsersTab({ isVi }: { isVi: boolean }) {
+  const { data: users, isLoading } = useUsersList();
+  const { user: currentUser } = useAuth();
+  const assignRole = useAssignRole();
+  const { toast } = useToast();
+
+  const handleRoleChange = (targetUser: UserWithRole, newRole: AppRole) => {
+    // Guard: cannot demote yourself
+    if (targetUser.user_id === currentUser?.id) {
+      toast({
+        title: isVi ? "Không thể đổi role" : "Cannot change role",
+        description: isVi
+          ? "Bạn không thể thay đổi role của chính mình."
+          : "You cannot change your own role.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Guard: cannot demote the last owner
+    if (targetUser.role === "owner") {
+      const ownerCount = (users || []).filter((u) => u.role === "owner").length;
+      if (ownerCount <= 1) {
+        toast({
+          title: isVi ? "Không thể đổi role" : "Cannot change role",
+          description: isVi
+            ? "Phải có ít nhất một Owner trong hệ thống."
+            : "There must be at least one Owner.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    assignRole.mutate({ userId: targetUser.user_id, role: newRole });
+  };
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{isVi ? "Danh sách người dùng" : "User List"}</CardTitle>
+        <CardDescription>
+          {isVi
+            ? `${(users || []).length} người dùng trong hệ thống`
+            : `${(users || []).length} users in the system`}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{isVi ? "Tên" : "Name"}</TableHead>
+              <TableHead>Email</TableHead>
+              <TableHead>Role</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(users || []).map((u) => {
+              const isCurrentUser = u.user_id === currentUser?.id;
+              const badge = ROLE_BADGE[u.role || "viewer"];
+              return (
+                <TableRow key={u.user_id}>
+                  <TableCell className="font-medium">
+                    {u.full_name || "—"}
+                    {isCurrentUser && (
+                      <Badge variant="outline" className="ml-2 text-xs">
+                        {isVi ? "Bạn" : "You"}
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{u.email || "—"}</TableCell>
+                  <TableCell>
+                    {isCurrentUser ? (
+                      <Badge variant={badge?.variant || "outline"}>{badge?.label || u.role}</Badge>
+                    ) : (
+                      <Select
+                        value={u.role || "viewer"}
+                        onValueChange={(val) => handleRoleChange(u, val as AppRole)}
+                        disabled={assignRole.isPending}
+                      >
+                        <SelectTrigger className="w-[140px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="owner">Owner</SelectItem>
+                          <SelectItem value="staff">Staff</SelectItem>
+                          <SelectItem value="warehouse">Warehouse</SelectItem>
+                          <SelectItem value="viewer">Viewer</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ===========================================================================
+// TAB 2: Invite
+// ===========================================================================
+function InviteTab({ isVi }: { isVi: boolean }) {
+  const { language } = useLanguage();
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<AppRole>("staff");
+  const { data: invitations, isLoading } = useInvitations();
+  const inviteUser = useInviteUser();
+  const cancelInvitation = useCancelInvitation();
+
+  const handleInvite = () => {
+    if (!email.trim()) return;
+    inviteUser.mutate({ email: email.trim(), role }, {
+      onSuccess: () => {
+        setEmail("");
+        setRole("staff");
+      },
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Invite form */}
+      <Card>
+        <CardHeader>
+          <CardTitle>{isVi ? "Mời thành viên mới" : "Invite New Member"}</CardTitle>
+          <CardDescription>
+            {isVi
+              ? "Gửi lời mời qua email và gán role cho thành viên mới."
+              : "Send an email invitation and assign a role to the new member."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-end gap-3">
+            <div className="flex-1 space-y-1.5">
+              <label className="text-sm font-medium">Email</label>
+              <Input
+                type="email"
+                placeholder="email@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleInvite()}
+              />
+            </div>
+            <div className="w-[140px] space-y-1.5">
+              <label className="text-sm font-medium">Role</label>
+              <Select value={role} onValueChange={(v) => setRole(v as AppRole)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="staff">Staff</SelectItem>
+                  <SelectItem value="warehouse">Warehouse</SelectItem>
+                  <SelectItem value="viewer">Viewer</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button onClick={handleInvite} disabled={inviteUser.isPending || !email.trim()}>
+              {inviteUser.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : isVi ? (
+                "Gửi lời mời"
+              ) : (
+                "Send Invite"
+              )}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Pending invitations */}
+      <Card>
+        <CardHeader>
+          <CardTitle>{isVi ? "Lời mời đang chờ" : "Pending Invitations"}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : (invitations || []).length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4">
+              {isVi ? "Không có lời mời đang chờ." : "No pending invitations."}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {(invitations || []).map((inv) => (
+                <div
+                  key={inv.id}
+                  className="flex items-center justify-between rounded-lg border px-4 py-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="font-medium">{inv.email}</span>
+                    <Badge variant={ROLE_BADGE[inv.role]?.variant || "outline"}>
+                      {ROLE_BADGE[inv.role]?.label || inv.role}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {formatDistanceToNow(new Date(inv.created_at), {
+                        addSuffix: true,
+                        locale: language === "vi" ? vi : enUS,
+                      })}
+                    </span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => cancelInvitation.mutate(inv.id)}
+                    disabled={cancelInvitation.isPending}
+                  >
+                    <X className="h-4 w-4" />
+                    <span className="ml-1">{isVi ? "Huỷ" : "Cancel"}</span>
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ===========================================================================
+// TAB 3: Permissions matrix
+// ===========================================================================
+function PermissionsTab({ isVi }: { isVi: boolean }) {
+  const { data: users, isLoading: usersLoading } = useUsersList();
+  const { data: permissions, isLoading: permsLoading } = useAllPermissions();
+  const updatePermission = useUpdatePermission();
+
+  const isLoading = usersLoading || permsLoading;
+
+  // Build a lookup: userId+moduleKey → { can_view, can_edit }
+  const permMap = new Map<string, { can_view: boolean; can_edit: boolean }>();
+  for (const p of permissions || []) {
+    permMap.set(`${p.user_id}::${p.module_key}`, { can_view: p.can_view, can_edit: p.can_edit });
+  }
+
+  // Only show non-owner users (owners always have full access)
+  const nonOwnerUsers = (users || []).filter((u) => u.role !== "owner");
+
+  const handleToggle = (
+    userId: string,
+    moduleKey: string,
+    field: "can_view" | "can_edit",
+    currentValue: boolean
+  ) => {
+    const key = `${userId}::${moduleKey}`;
+    const existing = permMap.get(key) || { can_view: false, can_edit: false };
+
+    const updated = { ...existing };
+    updated[field] = !currentValue;
+
+    // If removing view, also remove edit
+    if (field === "can_view" && currentValue) {
+      updated.can_edit = false;
+    }
+    // If adding edit, also add view
+    if (field === "can_edit" && !currentValue) {
+      updated.can_view = true;
+    }
+
+    updatePermission.mutate({
+      userId,
+      moduleKey,
+      canView: updated.can_view,
+      canEdit: updated.can_edit,
+    });
+  };
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{isVi ? "Phân quyền module" : "Module Permissions"}</CardTitle>
+        <CardDescription>
+          {isVi
+            ? "Owner luôn có full quyền. Bảng dưới đây chỉ áp dụng cho Staff, Warehouse, Viewer."
+            : "Owners always have full access. The table below applies to Staff, Warehouse, and Viewer roles."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        {nonOwnerUsers.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4">
+            {isVi
+              ? "Không có user non-owner nào để phân quyền."
+              : "No non-owner users to manage permissions for."}
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="sticky left-0 bg-background z-10 min-w-[160px]">
+                  Module
+                </TableHead>
+                {nonOwnerUsers.map((u) => (
+                  <TableHead key={u.user_id} className="text-center min-w-[120px]">
+                    <div className="space-y-1">
+                      <div className="font-medium text-xs">{u.full_name || u.email || "—"}</div>
+                      <Badge variant={ROLE_BADGE[u.role || "viewer"]?.variant || "outline"} className="text-[10px]">
+                        {ROLE_BADGE[u.role || "viewer"]?.label || u.role}
+                      </Badge>
+                    </div>
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {ALL_MODULES.map((mod) => (
+                <TableRow key={mod.key}>
+                  <TableCell className="sticky left-0 bg-background z-10 font-medium text-sm">
+                    {isVi ? mod.labelVi : mod.labelEn}
+                  </TableCell>
+                  {nonOwnerUsers.map((u) => {
+                    const key = `${u.user_id}::${mod.key}`;
+                    const perm = permMap.get(key) || { can_view: false, can_edit: false };
+                    return (
+                      <TableCell key={u.user_id} className="text-center">
+                        <div className="flex items-center justify-center gap-3">
+                          <label className="flex items-center gap-1 text-xs cursor-pointer">
+                            <Checkbox
+                              checked={perm.can_view}
+                              onCheckedChange={() =>
+                                handleToggle(u.user_id, mod.key, "can_view", perm.can_view)
+                              }
+                            />
+                            <span className="text-muted-foreground">{isVi ? "Xem" : "View"}</span>
+                          </label>
+                          <label className="flex items-center gap-1 text-xs cursor-pointer">
+                            <Checkbox
+                              checked={perm.can_edit}
+                              onCheckedChange={() =>
+                                handleToggle(u.user_id, mod.key, "can_edit", perm.can_edit)
+                              }
+                            />
+                            <span className="text-muted-foreground">{isVi ? "Sửa" : "Edit"}</span>
+                          </label>
+                        </div>
+                      </TableCell>
+                    );
+                  })}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
