@@ -275,3 +275,64 @@ Use an inline trigger function local to this table migration (or skip trigger) i
 - Related Files: apps/web/supabase/migrations/20260302210200_create_mini_crm_po_templates.sql
 
 ---
+## [ERR-20260303-001] git_push_origin_main
+
+**Logged**: 2026-03-03T20:58:00+07:00
+**Priority**: medium
+**Status**: pending
+**Area**: infra
+
+### Summary
+Push lên GitHub bị lỗi HTTP 500 từ remote.
+
+### Error
+```
+remote: Internal Server Error
+fatal: unable to access 'https://github.com/ramen-openclawbot/BMQ-AI.git/': The requested URL returned error: 500
+```
+
+### Context
+- Operation: git push origin main
+- Repo: BMQ-AI
+
+### Suggested Fix
+Retry push sau 10-30s; nếu lặp lại, kiểm tra GitHub status.
+
+### Metadata
+- Reproducible: unknown
+- Related Files: n/a
+
+---
+## [ERR-20260306-API-CORS504] finance scan edge functions
+
+**Logged**: 2026-03-06T21:31:00+07:00
+**Priority**: high
+**Status**: pending
+**Area**: backend
+
+### Summary
+Daily reconciliation scan can appear "stuck" when Supabase Edge Function preflight fails with 504 and missing CORS headers.
+
+### Error
+```
+Preflight response is not successful. Status code: 504
+Origin https://ai.banhmique.vn is not allowed by Access-Control-Allow-Origin. Status code: 504
+Fetch API cannot load .../functions/v1/sync-drive-index due to access control checks.
+Fetch API cannot load .../functions/v1/finance-extract-slip-amount due to access control checks.
+```
+
+### Context
+- Operation: Daily reconciliation (UNC/QTM scan + OCR amount extraction)
+- Frontend invokes Supabase Edge Functions from browser
+- Functions affected in logs: `sync-drive-index`, `finance-extract-slip-amount`
+
+### Suggested Fix
+- Ensure edge functions always return CORS headers for OPTIONS and error paths (including upstream timeout/exception responses).
+- Add gateway-level monitoring/retry for 504 from edge runtime.
+- Frontend should surface actionable error when CORS/preflight blocks response body.
+
+### Metadata
+- Reproducible: yes
+- Related Files: apps/web/src/pages/FinanceControl.tsx, apps/web/supabase/functions/*
+
+---

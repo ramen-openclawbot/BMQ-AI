@@ -26,6 +26,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Lock, Unlock } from "lucide-react";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 
 const vnd = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value || 0);
 
@@ -231,22 +232,30 @@ export default function FinanceControl() {
   const extractSlipAmountFromBase64 = async (imageBase64: string, mimeType: string, slipType: "qtm" | "unc") => {
     const { data: { session } } = await supabase.auth.getSession();
 
-    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/finance-extract-slip-amount`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-      },
-      body: JSON.stringify({ imageBase64, mimeType, slipType }),
-    });
+    try {
+      const response = await fetchWithTimeout(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/finance-extract-slip-amount`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ imageBase64, mimeType, slipType }),
+      }, 45000);
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err?.error || "Failed extracting amount from slip image");
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err?.error || "Failed extracting amount from slip image");
+      }
+
+      const result = await response.json();
+      return result.data as { amount: number; confidence?: number; transfer_date?: string; reference?: string };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error || "");
+      if (msg.includes("AbortError") || msg.toLowerCase().includes("aborted") || msg.toLowerCase().includes("timeout")) {
+        throw new Error(`OCR slip ${slipType.toUpperCase()} quá thời gian chờ`);
+      }
+      throw error;
     }
-
-    const result = await response.json();
-    return result.data as { amount: number; confidence?: number; transfer_date?: string; reference?: string };
   };
 
   const getUncRootFolderUrl = async () => {
@@ -278,19 +287,27 @@ export default function FinanceControl() {
       const folderUrl = await getUncRootFolderUrl();
 
       const scanOnce = async (subfolderDate: string) => {
-        const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-          },
-          body: JSON.stringify({ folderUrl, subfolderDate }),
-        });
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => ({}));
-          throw new Error(err?.error || "Không thể scan folder UNC/QTM");
+        try {
+          const resp = await fetchWithTimeout(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+            },
+            body: JSON.stringify({ folderUrl, subfolderDate }),
+          }, 45000);
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err?.error || "Không thể scan folder UNC/QTM");
+          }
+          return await resp.json();
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error || "");
+          if (msg.includes("AbortError") || msg.toLowerCase().includes("aborted") || msg.toLowerCase().includes("timeout")) {
+            throw new Error(`Scan thư mục quá thời gian chờ: ${subfolderDate}`);
+          }
+          throw error;
         }
-        return await resp.json();
       };
 
       const uncPath = `${autoDayFolderPath}/UNC`;
@@ -464,14 +481,14 @@ export default function FinanceControl() {
       const folderUrl = await getUncRootFolderUrl();
       const qtmPath = `${autoDayFolderPath}/QTM`;
 
-      const scanResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
+      const scanResponse = await fetchWithTimeout(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
         body: JSON.stringify({ folderUrl, subfolderDate: qtmPath }),
-      });
+      }, 45000);
 
       if (!scanResponse.ok) {
         const err = await scanResponse.json().catch(() => ({}));
@@ -871,8 +888,10 @@ export default function FinanceControl() {
               <div className="flex flex-wrap items-center gap-2">
                 <Button onClick={async () => {
                   setUncDialogOpen(true);
-                  setUncStep(1);
+                  setUncStep(2);
                   setUncReconSummary(null);
+                  // Run immediately to avoid "opened but no scan" confusion.
+                  await runFolderReconciliation();
                 }}>
                   {isVi ? "Đối soát trong ngày" : "Run daily reconciliation"}
                 </Button>
