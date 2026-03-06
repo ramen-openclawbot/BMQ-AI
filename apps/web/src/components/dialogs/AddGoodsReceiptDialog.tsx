@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { useForm, useFieldArray } from "react-hook-form";
+import { useForm, useFieldArray, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -117,7 +117,7 @@ export function AddGoodsReceiptDialog() {
     name: "items",
   });
 
-  const watchedItems = form.watch("items");
+  const watchedItems = useWatch({ control: form.control, name: "items" });
   const parseQuantity = (v: unknown) => {
     if (typeof v === "number") return Number.isFinite(v) ? v : 0;
     const raw = String(v ?? "").trim();
@@ -984,6 +984,13 @@ export function AddGoodsReceiptDialog() {
                               inputMode="decimal"
                               {...form.register(`items.${index}.quantity`, {
                                 setValueAs: (v) => parseQuantity(v),
+                                onChange: (e) => {
+                                  const normalized = parseQuantity(e?.target?.value);
+                                  form.setValue(`items.${index}.quantity`, normalized, {
+                                    shouldDirty: true,
+                                    shouldValidate: true,
+                                  });
+                                },
                               })}
                               placeholder="0"
                             />

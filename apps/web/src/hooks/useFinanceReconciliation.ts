@@ -94,16 +94,46 @@ export function useMonthlyReconciliation(month: Date) {
   return useQuery({
     queryKey: ["monthly-reconciliation", format(month, "yyyy-MM")],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from("daily_reconciliations")
-        .select("*")
-        .gte("closing_date", start)
-        .lte("closing_date", end)
-        .order("closing_date", { ascending: true });
+      const [reconRes, declarationRes] = await Promise.all([
+        (supabase as any)
+          .from("daily_reconciliations")
+          .select("*")
+          .gte("closing_date", start)
+          .lte("closing_date", end)
+          .order("closing_date", { ascending: true }),
+        (supabase as any)
+          .from("ceo_daily_closing_declarations")
+          .select("closing_date,unc_total_declared,unc_extracted_amount,extraction_meta")
+          .gte("closing_date", start)
+          .lte("closing_date", end),
+      ]);
 
-      if (error) throw error;
+      if (reconRes.error) throw reconRes.error;
+      if (declarationRes.error) throw declarationRes.error;
 
-      const rows = data || [];
+      const declarationMap = new Map<string, any>();
+      for (const d of (declarationRes.data || []) as any[]) {
+        declarationMap.set(String(d.closing_date), d);
+      }
+
+      const rows = (reconRes.data || []).map((r: any) => {
+        const decl = declarationMap.get(String(r.closing_date));
+        const folderTotal = Number(decl?.extraction_meta?.unc_folder_total || 0);
+        const declared = Number(decl?.unc_extracted_amount || decl?.unc_total_declared || r?.unc_declared_amount || 0);
+
+        // Guardrail: when declaration has UNC folder reconciliation, prefer it over stale daily_reconciliations amount.
+        const resolvedUncDetail = folderTotal > 0 ? folderTotal : Number(r?.unc_detail_amount || 0);
+        const resolvedVariance = resolvedUncDetail - declared;
+
+        return {
+          ...r,
+          unc_detail_amount: resolvedUncDetail,
+          unc_declared_amount: declared,
+          variance_amount: resolvedVariance,
+          status: Math.abs(resolvedVariance) === 0 ? "match" : (r?.status || "mismatch"),
+        };
+      });
+
       const totalUncDetail = rows.reduce((s: number, r: any) => s + Number(r.unc_detail_amount || 0), 0);
       const totalUncDeclared = rows.reduce((s: number, r: any) => s + Number(r.unc_declared_amount || 0), 0);
       const netVariance = rows.reduce((s: number, r: any) => s + Number(r.variance_amount || 0), 0);
