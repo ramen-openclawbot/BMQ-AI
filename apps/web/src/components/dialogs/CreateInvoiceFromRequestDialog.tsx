@@ -134,7 +134,9 @@ export function CreateInvoiceFromRequestDialog({
         uploadedPaymentSlipUrl = fileName;
       }
 
-      // Call edge function to create invoice + items atomically (retry once on network failure)
+      // Call edge function to create invoice + items atomically.
+      // Fallback path: if fetch-based call fails due transient network/CORS gateway,
+      // retry through supabase.functions.invoke once.
       let result: {
         data?: { success: boolean; invoice_id: string; items_count: number };
         error?: string;
@@ -162,11 +164,30 @@ export function CreateInvoiceFromRequestDialog({
         if (!result.error || !isNetworkError || attempt === 2) break;
       }
 
+      const firstErr = String(result?.error || "").toLowerCase();
+      const shouldFallbackInvoke = Boolean(result?.error) && (firstErr.includes("failed to fetch") || firstErr.includes("network") || firstErr.includes("thời gian chờ") || firstErr.includes("timeout"));
+
+      if (shouldFallbackInvoke) {
+        const { data: fallbackData, error: fallbackError } = await supabase.functions.invoke("create-invoice-from-pr", {
+          body: payload,
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        });
+
+        if (fallbackError) {
+          const msg = String((fallbackError as any)?.message || fallbackError || "");
+          result = { error: msg };
+        } else {
+          result = { data: fallbackData as { success: boolean; invoice_id: string; items_count: number } };
+        }
+      }
+
       if (result.error) {
         if (result.isSessionExpired) {
           toast.error("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
-        } else if (String(result.error).toLowerCase().includes("failed to fetch")) {
-          toast.error("Kết nối mạng/Edge function không ổn định. Vui lòng thử lại.");
+        } else if (String(result.error).toLowerCase().includes("failed to fetch") || String(result.error).toLowerCase().includes("network")) {
+          toast.error("Lỗi kết nối mạng khi gọi dịch vụ tạo hóa đơn. Vui lòng thử lại.");
         } else {
           toast.error(result.error);
         }
