@@ -414,6 +414,31 @@ export default function FinanceControl() {
       setQtmSpentFromFolder(Number(qtmTotal || 0));
       setQtmLowConfidenceCount(Number(qtmLowConfidence || 0));
 
+      // Persist processed markers right after reconciliation so next runs can skip quickly
+      // even when Drive index sync is delayed/unavailable.
+      const processedAt = new Date().toISOString();
+      const processedRows = [...targetUncFiles, ...targetQtmFiles].map((f: any) => ({
+        file_id: String(f.id),
+        file_name: String(f.name || f.id),
+        folder_date: autoDayFolderPath,
+        folder_type: "bank_slip",
+        mime_type: f?.mimeType || null,
+        parent_folder_id: null,
+        processed: true,
+        processed_at: processedAt,
+        last_seen_at: processedAt,
+      }));
+
+      if (processedRows.length > 0) {
+        const { error: processedUpsertError } = await (supabase as any)
+          .from("drive_file_index")
+          .upsert(processedRows, { onConflict: "file_id", ignoreDuplicates: false });
+
+        if (processedUpsertError) {
+          console.error("[FinanceControl] Failed to persist processed markers:", processedUpsertError);
+        }
+      }
+
       setUncReconSummary({
         folderDate: uncPath,
         folderTotal,
