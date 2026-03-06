@@ -1,15 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return corsPreflightResponse(req);
   }
 
   const url = new URL(req.url);
@@ -23,13 +19,30 @@ serve(async (req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
+  // Whitelist of allowed redirect origins (prevent open redirect)
+  const ALLOWED_REDIRECT_ORIGINS = [
+    'https://bmqvn.lovable.app',
+    'https://bmq-ai.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:8080',
+  ];
+
+  const isAllowedRedirect = (url: string): boolean => {
+    try {
+      const parsed = new URL(url);
+      return ALLOWED_REDIRECT_ORIGINS.some((d) => new URL(d).origin === parsed.origin);
+    } catch {
+      return false;
+    }
+  };
+
   // Parse state to get redirect URL + oauth mode
   let redirectBase = 'https://bmqvn.lovable.app';
   let oauthMode: 'drive' | 'gmail' = 'drive';
   if (state) {
     try {
       const stateData = JSON.parse(atob(state));
-      if (stateData.redirect) {
+      if (stateData.redirect && isAllowedRedirect(stateData.redirect)) {
         redirectBase = stateData.redirect;
       }
       if (stateData.mode === 'gmail') {
@@ -56,7 +69,7 @@ serve(async (req) => {
     if (!clientId) {
       return new Response(JSON.stringify({ error: 'GOOGLE_CLIENT_ID not configured' }), {
         status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -66,7 +79,7 @@ serve(async (req) => {
     if (req.method === 'POST') {
       try {
         const body = await req.json();
-        if (body.redirect) {
+        if (body.redirect && isAllowedRedirect(body.redirect)) {
           appRedirect = body.redirect;
         }
         if (body.mode === 'gmail') {
@@ -94,7 +107,7 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({ authUrl: authUrl.toString() }), {
       status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
     });
   }
 

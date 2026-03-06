@@ -336,3 +336,34 @@ Fetch API cannot load .../functions/v1/finance-extract-slip-amount due to access
 - Related Files: apps/web/src/pages/FinanceControl.tsx, apps/web/supabase/functions/*
 
 ---
+
+## [ERR-20260307-001] sql-repair-on-conflict-user-roles
+
+**Logged**: 2026-03-07T00:49:00+07:00
+**Priority**: high
+**Status**: pending
+**Area**: backend
+
+### Summary
+RBAC repair SQL failed in production DB because script used `ON CONFLICT (user_id)` on `public.user_roles` without a matching unique constraint.
+
+### Error
+```
+ERROR: 42P10: there is no unique or exclusion constraint matching the ON CONFLICT specification
+```
+
+### Context
+- Attempted data repair for `thuy@bmq.vn` role/permission mismatch.
+- Existing schema appears to allow multiple `user_roles` rows per user (or lacks unique index on `user_id`).
+
+### Suggested Fix
+- Avoid `ON CONFLICT` for `public.user_roles` until unique constraint exists.
+- Use `UPDATE` + `INSERT ... WHERE NOT EXISTS` pattern.
+- Add a schema hardening migration later: unique index on `user_roles(user_id)` after deduplicating.
+
+### Metadata
+- Reproducible: yes
+- Related Files: output/fix_thuy_and_non_owner_permissions_full.sql, supabase/migrations/20260307000000_user_management_tables.sql
+- Tags: rbac, sql, data-repair
+
+---

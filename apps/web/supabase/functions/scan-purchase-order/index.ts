@@ -1,18 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 // NOTE: Use npm specifier to avoid esm.sh drift/caching issues in edge runtime
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
+import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 
 serve(async (req) => {
   const startTime = Date.now();
   console.log("[scan-purchase-order] Request started");
 
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return corsPreflightResponse(req);
   }
 
   try {
@@ -22,7 +18,7 @@ serve(async (req) => {
       console.log("[scan-purchase-order] Missing authorization header");
       return new Response(
         JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 401, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -41,7 +37,7 @@ serve(async (req) => {
       console.log("[scan-purchase-order] Invalid JWT:", authError?.message);
       return new Response(
         JSON.stringify({ code: 401, message: "Invalid JWT", details: authError?.message }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 401, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -52,7 +48,7 @@ serve(async (req) => {
     if (!imageBase64) {
       return new Response(
         JSON.stringify({ error: "No image provided" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -60,7 +56,7 @@ serve(async (req) => {
     if (imageBase64.length > 10 * 1024 * 1024) {
       return new Response(
         JSON.stringify({ error: "Image too large. Maximum size is 10MB." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -69,7 +65,7 @@ serve(async (req) => {
     if (mimeType && !allowedMimeTypes.includes(mimeType)) {
       return new Response(
         JSON.stringify({ error: "Invalid image type. Allowed: JPEG, PNG, WebP, GIF" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -225,14 +221,14 @@ ${supplierVatConfig?.vat_included_in_price ? '- NCC này có giá đã bao gồm
         console.log("[scan-purchase-order] Rate limit exceeded");
         return new Response(
           JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          { status: 429, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
         );
       }
       if (response.status === 402) {
         console.log("[scan-purchase-order] AI credits exhausted");
         return new Response(
           JSON.stringify({ error: "AI credits exhausted. Please add more credits." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          { status: 402, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
         );
       }
       const errorText = await response.text();
@@ -259,7 +255,7 @@ ${supplierVatConfig?.vat_included_in_price ? '- NCC này có giá đã bao gồm
             error: "Hình ảnh không phải là đơn đặt hàng (PO)", 
             details: textContent || "AI không thể nhận dạng đây là PO"
           }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
         );
       }
       
@@ -268,7 +264,7 @@ ${supplierVatConfig?.vat_included_in_price ? '- NCC này có giá đã bao gồm
           error: "Không thể trích xuất dữ liệu từ hình ảnh",
           details: textContent || "AI không trả về dữ liệu cấu trúc"
         }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -277,13 +273,13 @@ ${supplierVatConfig?.vat_included_in_price ? '- NCC này có giá đã bao gồm
     console.log(`[scan-purchase-order] Completed in ${Date.now() - startTime}ms, extracted ${extractedData.items?.length || 0} items`);
     return new Response(
       JSON.stringify({ success: true, data: extractedData }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
     );
   } catch (error) {
     console.error("[scan-purchase-order] Error:", error);
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
     );
   }
 });

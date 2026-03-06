@@ -1,10 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 
 interface TestResult {
   success: boolean;
@@ -62,7 +58,7 @@ async function getAccessToken(supabaseClient: any): Promise<string | null> {
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return corsPreflightResponse(req);
   }
 
   try {
@@ -71,7 +67,7 @@ serve(async (req) => {
     if (!folderUrl) {
       return new Response(
         JSON.stringify({ success: false, error: "Thiếu URL folder" }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
       );
     }
 
@@ -80,7 +76,7 @@ serve(async (req) => {
     if (!folderIdMatch) {
       return new Response(
         JSON.stringify({ success: false, error: "URL folder không hợp lệ. Vui lòng sử dụng link Google Drive folder" }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
       );
     }
 
@@ -97,7 +93,7 @@ serve(async (req) => {
     if (!accessToken) {
       return new Response(
         JSON.stringify({ success: false, error: "Chưa kết nối Google Drive. Vui lòng kết nối Google account trong Settings." }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
       );
     }
 
@@ -117,7 +113,7 @@ serve(async (req) => {
       if (folderResponse.status === 404) {
         return new Response(
           JSON.stringify({ success: false, error: "Không tìm thấy folder. Kiểm tra lại URL hoặc quyền truy cập" }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          { status: 200, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
         );
       }
 
@@ -129,26 +125,26 @@ serve(async (req) => {
               success: false, 
               error: "Google Drive API chưa được bật trong Google Cloud Console. Vui lòng bật tại: https://console.developers.google.com/apis/api/drive.googleapis.com và thử lại sau vài phút." 
             }),
-            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            { status: 200, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
           );
         }
         
         return new Response(
           JSON.stringify({ success: false, error: "Không có quyền truy cập folder này. Đảm bảo Google account đã được cấp quyền." }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          { status: 200, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
         );
       }
 
       if (folderResponse.status === 401) {
         return new Response(
           JSON.stringify({ success: false, error: "Token hết hạn. Vui lòng kết nối lại Google Drive." }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          { status: 200, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
         );
       }
 
       return new Response(
         JSON.stringify({ success: false, error: `Lỗi Google API: ${errorMessage || 'Unknown error'}` }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
       );
     }
 
@@ -158,7 +154,7 @@ serve(async (req) => {
     if (folderMeta.mimeType !== 'application/vnd.google-apps.folder') {
       return new Response(
         JSON.stringify({ success: false, error: "URL này không phải là folder. Vui lòng sử dụng link folder" }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
       );
     }
 
@@ -184,7 +180,7 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify(result),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 200, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
     );
 
   } catch (error: unknown) {
@@ -192,7 +188,7 @@ serve(async (req) => {
     const errorMessage = error instanceof Error ? error.message : "Lỗi không xác định";
     return new Response(
       JSON.stringify({ success: false, error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 500, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
     );
   }
 });

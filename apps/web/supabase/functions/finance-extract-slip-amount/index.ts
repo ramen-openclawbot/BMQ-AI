@@ -1,30 +1,28 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
+import { requireAuth } from "../_shared/auth.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Max-Age": "86400",
-};
-
-const jsonResponse = (body: unknown, status = 200) =>
+const jsonResponse = (body: unknown, status = 200, corsHeaders?: Record<string, string>) =>
   new Response(JSON.stringify(body), {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders, status: 200 });
+  if (req.method === "OPTIONS") return corsPreflightResponse(req);
 
   try {
+    // Require authentication (was previously open to anyone)
+    await requireAuth(req, getCorsHeaders(req));
+
     const { imageBase64, mimeType, slipType } = await req.json();
     if (!imageBase64) {
-      return jsonResponse({ error: "No image provided" }, 400);
+      return jsonResponse({ error: "No image provided" }, 400, getCorsHeaders(req));
     }
 
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
     if (!OPENAI_API_KEY) {
-      return jsonResponse({ error: "OPENAI_API_KEY missing" }, 503);
+      return jsonResponse({ error: "OPENAI_API_KEY missing" }, 503, getCorsHeaders(req));
     }
 
     const system = `You extract transfer amount from Vietnamese bank slips.\nReturn only JSON via tool with fields:\n- amount: number (VND, no separators)\n- transfer_date: string | null (YYYY-MM-DD if found)\n- reference: string | null\n- confidence: number (0..1)\n- notes: string | null\n\nRules:\n- Amount must be final transfer amount, not account number.\n- If uncertain, still return best guess and lower confidence.`;
@@ -78,7 +76,7 @@ serve(async (req) => {
 
     if (!ai.ok) {
       const errText = await ai.text().catch(() => "");
-      return jsonResponse({ error: "OpenAI request failed", detail: errText || `HTTP ${ai.status}` }, 502);
+      return jsonResponse({ error: "OpenAI request failed", detail: errText || `HTTP ${ai.status}` }, 502, getCorsHeaders(req));
     }
 
     const raw = await ai.json();
@@ -91,11 +89,11 @@ serve(async (req) => {
     }
 
     if (!data || typeof data.amount !== "number") {
-      return jsonResponse({ error: "Unable to extract amount", raw }, 422);
+      return jsonResponse({ error: "Unable to extract amount", raw }, 422, getCorsHeaders(req));
     }
 
-    return jsonResponse({ success: true, data }, 200);
+    return jsonResponse({ success: true, data }, 200, getCorsHeaders(req));
   } catch (e) {
-    return jsonResponse({ error: e instanceof Error ? e.message : "Unknown error" }, 500);
+    return jsonResponse({ error: e instanceof Error ? e.message : "Unknown error" }, 500, getCorsHeaders(req));
   }
 });

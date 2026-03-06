@@ -1,12 +1,29 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.17**
+- apps/web: **0.0.18**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
 - Latest commit at handoff time: `git log -1 --oneline`
 
-## Latest update (2026-03-07 — v0.0.17)
+## Latest update (2026-03-07 — v0.0.18)
+### Security Hardening — Comprehensive fix cho 16 lỗ hổng bảo mật
+- **Shared CORS module** (`supabase/functions/_shared/cors.ts`): Origin whitelist thay vì wildcard `*`. Áp dụng cho tất cả 26 edge functions.
+- **Shared auth helper** (`supabase/functions/_shared/auth.ts`): `requireAuth()` validate JWT, `requireCronSecret()` validate cron secret. Fail hard nếu thiếu config.
+- **Open Redirect fix**: `google-drive-auth` và `google-gmail-auth` — validate redirect URL chỉ cho phép domain whitelisted.
+- **Auth enforcement**:
+  - `finance-extract-slip-amount`: thêm `requireAuth()` (trước đó hoàn toàn public).
+  - `scan-invoice`: chuyển từ auth optional → bắt buộc via `requireAuth()`.
+  - `po-gmail-sync`: enforce JWT auth (trước đó chỉ log, không chặn).
+  - `finance-auto-reconcile`: `requireCronSecret()` — fail 500 nếu env var trống.
+  - `po-gmail-ingest`: tương tự, required cron secret.
+- **verify_jwt bật cho 14 functions** trong `config.toml`: scan-invoice, scan-purchase-order, scan-drive-folder, sync-drive-index, create-invoice-from-pr, match-delivery-note, create-warehouse-receipt, scan-bank-slip, scan-sku-cost-sheet, user-invite-member, user-delete-member, finance-extract-slip-amount, po-gmail-sync, get-ai-credit-balance.
+- **verify_jwt giữ false** cho: google-drive-auth, google-gmail-auth (OAuth callbacks), finance-auto-reconcile, po-gmail-ingest (cron jobs), + 8 functions cần audit thêm.
+- **Audit logging**: bảng `audit_logs` (migration `20260307100000_audit_logs.sql`), RLS owner-read-only. Logging trong `user-invite-member` và `user-delete-member`.
+- **Bug fix**: Xoá reference `authInfo` không tồn tại trong `po-gmail-sync` response.
+- **Deferred**: M2 (implicit→PKCE), M3 (rate limiting), L2 (audit 8 remaining functions).
+
+## Previous update (2026-03-07 — v0.0.17)
 ### User Role Management — RBAC UI cho Owner
 - **SQL migration**: `supabase/migrations/20260307000000_user_management_tables.sql`
   - Bảng `user_module_permissions`: per-user per-module access (can_view/can_edit), RLS owner-only + user đọc quyền chính mình.

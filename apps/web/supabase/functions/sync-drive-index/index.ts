@@ -1,15 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 // NOTE: Use npm specifier to avoid esm.sh drift/caching issues in edge runtime
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
+import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Max-Age': '86400',
-};
-
-const jsonResponse = (body: unknown, status = 200) =>
+const jsonResponse = (body: unknown, status = 200, corsHeaders?: Record<string, string>) =>
   new Response(JSON.stringify(body), {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -136,7 +130,7 @@ serve(async (req) => {
   console.log("[sync-drive-index] Request started");
 
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders, status: 200 });
+    return corsPreflightResponse(req);
   }
 
   try {
@@ -144,7 +138,7 @@ serve(async (req) => {
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       console.log("[sync-drive-index] Missing authorization header");
-      return jsonResponse({ error: 'Missing authorization header' }, 401);
+      return jsonResponse({ error: 'Missing authorization header' }, 401, getCorsHeaders(req));
     }
 
     const token = authHeader.replace('Bearer ', '');
@@ -160,7 +154,7 @@ serve(async (req) => {
     const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
     if (authError || !user) {
       console.log("[sync-drive-index] Invalid or expired token:", authError?.message);
-      return jsonResponse({ error: 'Invalid or expired token' }, 401);
+      return jsonResponse({ error: 'Invalid or expired token' }, 401, getCorsHeaders(req));
     }
 
     console.log("[sync-drive-index] User authenticated:", user.id);
@@ -169,7 +163,7 @@ serve(async (req) => {
     const { folderType, maxFolders } = await req.json();
     
     if (!folderType || !['po', 'bank_slip'].includes(folderType)) {
-      return jsonResponse({ error: 'Invalid folderType. Must be "po" or "bank_slip"' }, 400);
+      return jsonResponse({ error: 'Invalid folderType. Must be "po" or "bank_slip"' }, 400, getCorsHeaders(req));
     }
 
     const cappedFolders = Math.max(1, Math.min(Number(maxFolders || 60), 200));
@@ -186,13 +180,13 @@ serve(async (req) => {
       .single();
 
     if (!settingData?.value) {
-      return jsonResponse({ error: `Folder ${folderType} chưa được cấu hình` }, 400);
+      return jsonResponse({ error: `Folder ${folderType} chưa được cấu hình` }, 400, getCorsHeaders(req));
     }
 
     // Extract folder ID
     const folderIdMatch = settingData.value.match(/\/folders\/([a-zA-Z0-9_-]+)/);
     if (!folderIdMatch) {
-      return jsonResponse({ error: 'Invalid Google Drive folder URL' }, 400);
+      return jsonResponse({ error: 'Invalid Google Drive folder URL' }, 400, getCorsHeaders(req));
     }
 
     const rootFolderId = folderIdMatch[1];
@@ -200,7 +194,7 @@ serve(async (req) => {
     // Get access token
     const accessToken = await getAccessToken(supabaseAdmin);
     if (!accessToken) {
-      return jsonResponse({ error: 'Google Drive not connected. Please connect in Settings.' }, 400);
+      return jsonResponse({ error: 'Google Drive not connected. Please connect in Settings.' }, 400, getCorsHeaders(req));
     }
 
     // List all date subfolders
@@ -283,11 +277,11 @@ serve(async (req) => {
       filesSynced: totalFilesSynced,
       status: syncStatus,
       errors: errors.length > 0 ? errors : undefined,
-    }, 200);
+    }, 200, getCorsHeaders(req));
 
   } catch (error: unknown) {
     console.error('[sync-drive-index] Error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return jsonResponse({ error: message }, 500);
+    return jsonResponse({ error: message }, 500, getCorsHeaders(req));
   }
 });

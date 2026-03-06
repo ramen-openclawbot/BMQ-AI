@@ -1,13 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return corsPreflightResponse(req);
   }
 
   try {
@@ -19,7 +15,7 @@ Deno.serve(async (req) => {
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Missing Authorization header" }), {
         status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -35,7 +31,7 @@ Deno.serve(async (req) => {
     if (actorError || !actor) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -50,7 +46,7 @@ Deno.serve(async (req) => {
     if (roleErr || actorRole?.role !== "owner") {
       return new Response(JSON.stringify({ error: "Forbidden: owner role required" }), {
         status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -60,14 +56,14 @@ Deno.serve(async (req) => {
     if (!targetUserId) {
       return new Response(JSON.stringify({ error: "Missing userId" }), {
         status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
     if (targetUserId === actor.id) {
       return new Response(JSON.stringify({ error: "Cannot delete your own account" }), {
         status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -86,7 +82,7 @@ Deno.serve(async (req) => {
       if ((ownerCount || 0) <= 1) {
         return new Response(JSON.stringify({ error: "Cannot delete the last owner" }), {
           status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
         });
       }
     }
@@ -113,20 +109,28 @@ Deno.serve(async (req) => {
     if (deleteAuthError) {
       return new Response(JSON.stringify({ error: `Failed to delete auth user: ${deleteAuthError.message}` }), {
         status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
+    // Audit log
+    await admin.from("audit_logs").insert({
+      actor_id: actor.id,
+      action: "user_delete",
+      target_id: targetUserId,
+      metadata: { email: targetEmail || null },
+    }).then(() => {}).catch((e: any) => console.error("[user-delete-member] audit log failed:", e));
+
     return new Response(JSON.stringify({ success: true, user_id: targetUserId }), {
       status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
     });
   } catch (error) {
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
       {
         status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
       },
     );
   }

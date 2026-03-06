@@ -1,41 +1,74 @@
 project_id = "cxntbdvfsikwmitapony"
 
+# ──────────────────────────────────────────────────────────
+# Functions with JWT verification ENABLED (have auth checks in code)
+# ──────────────────────────────────────────────────────────
+
 [functions.scan-invoice]
-verify_jwt = false
+verify_jwt = true
 
 [functions.scan-purchase-order]
-verify_jwt = false
-
-[functions.test-drive-connection]
-verify_jwt = false
-
-[functions.google-drive-auth]
-verify_jwt = false
+verify_jwt = true
 
 [functions.scan-drive-folder]
-verify_jwt = false
+verify_jwt = true
 
 [functions.sync-drive-index]
-verify_jwt = false
+verify_jwt = true
 
 [functions.create-invoice-from-pr]
-verify_jwt = false
+verify_jwt = true
 
 [functions.match-delivery-note]
-verify_jwt = false
+verify_jwt = true
 
 [functions.create-warehouse-receipt]
-verify_jwt = false
-[functions.finance-auto-reconcile]
-verify_jwt = false
+verify_jwt = true
+
+[functions.scan-bank-slip]
+verify_jwt = true
+
+[functions.scan-sku-cost-sheet]
+verify_jwt = true
+
+[functions.user-invite-member]
+verify_jwt = true
+
+[functions.user-delete-member]
+verify_jwt = true
 
 [functions.finance-extract-slip-amount]
+verify_jwt = true
+
+[functions.po-gmail-sync]
+verify_jwt = true
+
+[functions.get-ai-credit-balance]
+verify_jwt = true
+
+# ──────────────────────────────────────────────────────────
+# Functions with JWT verification DISABLED
+# Reason: OAuth callbacks (no JWT available) or Cron jobs (use x-cron-secret)
+# ──────────────────────────────────────────────────────────
+
+[functions.google-drive-auth]
 verify_jwt = false
 
 [functions.google-gmail-auth]
 verify_jwt = false
 
-[functions.po-gmail-sync]
+[functions.finance-auto-reconcile]
+verify_jwt = false
+
+[functions.po-gmail-ingest]
+verify_jwt = false
+
+# ──────────────────────────────────────────────────────────
+# Functions needing further audit before enabling JWT
+# Keep verify_jwt = false until auth is added to the code
+# ──────────────────────────────────────────────────────────
+
+[functions.test-drive-connection]
 verify_jwt = false
 
 [functions.po-gmail-debug-check]
@@ -54,4 +87,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.po-debug-kingfood-xlsx]
+verify_jwt = false
+
+[functions.migration-storage-archive]
 verify_jwt = false

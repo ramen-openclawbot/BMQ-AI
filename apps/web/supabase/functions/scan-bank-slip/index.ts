@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 // NOTE: Use npm specifier to avoid esm.sh drift/caching issues in edge runtime
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
+import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -17,18 +18,13 @@ const parseAmountVN = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
-};
-
 serve(async (req) => {
   const startTime = Date.now();
   console.log("[scan-bank-slip] Request started");
 
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return corsPreflightResponse(req);
   }
 
   try {
@@ -38,7 +34,7 @@ serve(async (req) => {
       console.log("[scan-bank-slip] Missing authorization header");
       return new Response(JSON.stringify({ error: 'Missing authorization header' }), {
         status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -57,7 +53,7 @@ serve(async (req) => {
       console.log("[scan-bank-slip] Invalid or expired token:", authError?.message);
       return new Response(JSON.stringify({ error: 'Invalid or expired token' }), {
         status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -69,7 +65,7 @@ serve(async (req) => {
     if (!imageBase64 || !mimeType) {
       return new Response(JSON.stringify({ error: 'Missing imageBase64 or mimeType' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -78,7 +74,7 @@ serve(async (req) => {
     if (imageSizeBytes > 10 * 1024 * 1024) {
       return new Response(JSON.stringify({ error: 'Image too large (max 10MB)' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -87,7 +83,7 @@ serve(async (req) => {
     if (!allowedMimeTypes.includes(mimeType)) {
       return new Response(JSON.stringify({ error: 'Unsupported image format' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -96,7 +92,7 @@ serve(async (req) => {
       console.error("[scan-bank-slip] OPENAI_API_KEY not configured");
       return new Response(JSON.stringify({ error: 'AI API key not configured' }), {
         status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -190,13 +186,13 @@ Trả về JSON.`;
       if (status === 429 || status === 402) {
         return new Response(JSON.stringify({ error: 'AI service temporarily unavailable. Please try again later.' }), {
           status: 429,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
         });
       }
 
       return new Response(JSON.stringify({ error: 'Failed to process image with AI' }), {
         status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -208,7 +204,7 @@ Trả về JSON.`;
       console.error("[scan-bank-slip] Failed to extract data from image");
       return new Response(JSON.stringify({ error: 'Failed to extract data from image' }), {
         status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -221,7 +217,7 @@ Trả về JSON.`;
       data: extractedData 
     }), {
       status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
     });
 
   } catch (error: unknown) {
@@ -229,7 +225,7 @@ Trả về JSON.`;
     const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(JSON.stringify({ error: message }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
     });
   }
 });

@@ -118,7 +118,7 @@ export function DriveSyncSection() {
       </div>
       
       <p className="text-sm text-muted-foreground">
-        Hệ thống tự động đồng bộ khi đăng nhập. Bạn cũng có thể bấm "Sync ngay" để đồng bộ thủ công.
+        Bấm "Sync ngay" để đồng bộ thủ công danh sách file từ Google Drive.
       </p>
 
       <SyncFolderCard

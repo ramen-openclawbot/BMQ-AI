@@ -1,10 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
-};
+import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 
 type GmailMessage = {
   id: string;
@@ -122,20 +118,30 @@ async function gmailApi(accessToken: string, path: string) {
 }
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") return corsPreflightResponse(req);
 
   try {
-    const authHeader = req.headers.get("Authorization");
     const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
     const supabaseAdmin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
-    // verify_jwt=false in config.toml; do not hard-fail on JWT mismatch here.
-    // We still capture auth presence for debugging.
-    const authInfo = {
-      hasAuthorizationHeader: Boolean(authHeader),
-      hasBearer: Boolean(authHeader?.startsWith("Bearer ")),
-    };
+    // Enforce JWT authentication
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(JSON.stringify({ error: "Missing auth" }), {
+        status: 401,
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
+    const { data: { user: authUser }, error: authError } = await supabaseAdmin.auth.getUser(
+      authHeader.replace("Bearer ", "")
+    );
+    if (authError || !authUser) {
+      return new Response(JSON.stringify({ error: "Invalid token" }), {
+        status: 401,
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
 
     const body = await req.json().catch(() => ({}));
     const mode = String(body?.mode || "preview").toLowerCase(); // preview | import
@@ -315,16 +321,15 @@ serve(async (req) => {
         upsertErrorCount,
         upsertErrors,
         inboxCount: Number(inboxCount || 0),
-        authInfo,
       },
     }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
     });
   } catch (error) {
     console.error("[po-gmail-sync] Error", error);
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), {
       status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
     });
   }
 });

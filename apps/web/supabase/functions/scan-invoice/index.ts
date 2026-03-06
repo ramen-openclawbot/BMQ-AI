@@ -1,10 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
+import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
+import { requireAuth } from "../_shared/auth.ts";
 
 type SupplierLite = { id: string; name: string };
 
@@ -90,12 +87,13 @@ serve(async (req) => {
   console.log("[scan-invoice] Request started");
 
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return corsPreflightResponse(req);
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.replace("Bearer ", "") : "";
+    // Require authentication (was previously optional/anon-allowed)
+    await requireAuth(req, getCorsHeaders(req));
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
@@ -103,30 +101,19 @@ serve(async (req) => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    if (token) {
-      const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-      if (authError || !user) {
-        console.log("[scan-invoice] Invalid JWT, continue as anon:", authError?.message);
-      } else {
-        console.log("[scan-invoice] User authenticated:", user.id);
-      }
-    } else {
-      console.log("[scan-invoice] No auth header, continue as anon");
-    }
-
     const { imageBase64, mimeType, suppliers } = await req.json();
 
     if (!imageBase64) {
       return new Response(
         JSON.stringify({ error: "No image provided" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
     if (imageBase64.length > 10 * 1024 * 1024) {
       return new Response(
         JSON.stringify({ error: "Image too large. Maximum size is 10MB." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -134,7 +121,7 @@ serve(async (req) => {
     if (mimeType && !allowedMimeTypes.includes(mimeType)) {
       return new Response(
         JSON.stringify({ error: "Invalid image type. Allowed: JPEG, PNG, WebP, GIF" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -143,7 +130,7 @@ serve(async (req) => {
       console.error("[scan-invoice] OPENAI_API_KEY not configured");
       return new Response(
         JSON.stringify({ code: "CONFIG_MISSING_OPENAI_API_KEY", error: "Thiếu cấu hình AI key (OPENAI_API_KEY)" }),
-        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 503, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -285,13 +272,13 @@ ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slic
       if (response.status === 429) {
         return new Response(
           JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          { status: 429, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
         );
       }
       if (response.status === 402) {
         return new Response(
           JSON.stringify({ error: "AI credits exhausted. Please add more credits." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          { status: 402, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
         );
       }
       const errorText = await response.text();
@@ -412,13 +399,13 @@ ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slic
     console.log(`[scan-invoice] Completed in ${Date.now() - startTime}ms, extracted ${extractedData.items?.length || 0} items`);
     return new Response(
       JSON.stringify({ success: true, data: extractedData, supplier_match: supplierMatch, detected_supplier_name: scannedSupplierName || null, template_learning: supplierKey || null }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
     );
   } catch (error) {
     console.error("[scan-invoice] Error:", error);
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
     );
   }
 });

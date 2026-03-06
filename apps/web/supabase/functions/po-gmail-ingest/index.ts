@@ -1,10 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
-};
+import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 
 type IncomingEmail = {
   messageId?: string;
@@ -47,18 +43,24 @@ const revenueChannelFromCustomerGroup = (group: string | null | undefined) => {
 };
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") return corsPreflightResponse(req);
 
   try {
+    // Cron secret is REQUIRED — fail hard if missing
     const CRON_SECRET = Deno.env.get("PO_INGEST_CRON_SECRET");
-    if (CRON_SECRET) {
-      const token = req.headers.get("x-cron-secret");
-      if (token !== CRON_SECRET) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
+    if (!CRON_SECRET) {
+      console.error("[po-gmail-ingest] CRITICAL: PO_INGEST_CRON_SECRET not set");
+      return new Response(JSON.stringify({ error: "Server misconfigured" }), {
+        status: 500,
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
+    const cronToken = req.headers.get("x-cron-secret");
+    if (cronToken !== CRON_SECRET) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+      });
     }
 
     const supabase = createClient(
@@ -72,7 +74,7 @@ serve(async (req) => {
 
     if (!emails.length) {
       return new Response(JSON.stringify({ success: true, ingested: 0, note: "No emails provided" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -131,13 +133,13 @@ serve(async (req) => {
     }
 
     return new Response(JSON.stringify({ success: true, ingested }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
     });
   } catch (error) {
     console.error("[po-gmail-ingest] Error", error);
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), {
       status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
     });
   }
 });

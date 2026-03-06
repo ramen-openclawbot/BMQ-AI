@@ -1,11 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import JSZip from "npm:jszip@3.10.1";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 
 const MAX_FILES = 200;
 const MAX_TOTAL_BYTES = 200 * 1024 * 1024; // 200MB hard-limit to protect edge runtime
@@ -54,13 +50,13 @@ function sanitizeFileName(name: string) {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return corsPreflightResponse(req);
   }
 
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
       status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
     });
   }
 
@@ -69,7 +65,7 @@ serve(async (req) => {
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Missing authorization header" }), {
         status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -85,7 +81,7 @@ serve(async (req) => {
     if (authError || !user) {
       return new Response(JSON.stringify({ error: "Invalid or expired token" }), {
         status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -99,7 +95,7 @@ serve(async (req) => {
     if (!isOwner) {
       return new Response(JSON.stringify({ error: "Forbidden. Owner role required." }), {
         status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -127,7 +123,7 @@ serve(async (req) => {
     if (!files.length) {
       return new Response(JSON.stringify({ error: "No files found for selected filter." }), {
         status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -136,7 +132,7 @@ serve(async (req) => {
         error: `Too many files (${files.length}). Please filter smaller range (max ${MAX_FILES}).`,
       }), {
         status: 413,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -146,7 +142,7 @@ serve(async (req) => {
         error: `Archive too large (${Math.round(estimatedBytes / 1024 / 1024)}MB). Max is ${Math.round(MAX_TOTAL_BYTES / 1024 / 1024)}MB.`,
       }), {
         status: 413,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -154,7 +150,7 @@ serve(async (req) => {
     if (!accessToken) {
       return new Response(JSON.stringify({ error: "Google Drive not connected." }), {
         status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -208,7 +204,7 @@ serve(async (req) => {
     return new Response(zipBuffer, {
       status: 200,
       headers: {
-        ...corsHeaders,
+        ...getCorsHeaders(req),
         "Content-Type": "application/zip",
         "Content-Disposition": `attachment; filename="bmq-storage-archive-${stamp}.zip"`,
       },
@@ -217,7 +213,7 @@ serve(async (req) => {
     console.error("[migration-storage-archive] fatal", error);
     return new Response(JSON.stringify({ error: error?.message || "Internal error" }), {
       status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
     });
   }
 });

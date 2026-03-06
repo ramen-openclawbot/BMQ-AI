@@ -1,11 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 // NOTE: Use npm specifier to avoid esm.sh drift/caching issues in edge runtime
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
-};
+import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 
 interface DriveFile {
   id: string;
@@ -130,7 +126,7 @@ serve(async (req) => {
 
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return corsPreflightResponse(req);
   }
 
   try {
@@ -140,7 +136,7 @@ serve(async (req) => {
       console.log("[scan-drive-folder] Missing authorization header");
       return new Response(JSON.stringify({ error: 'Missing authorization header' }), {
         status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -159,7 +155,7 @@ serve(async (req) => {
       console.log("[scan-drive-folder] Invalid or expired token:", authError?.message);
       return new Response(JSON.stringify({ error: 'Invalid or expired token' }), {
         status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -171,7 +167,7 @@ serve(async (req) => {
     if (!folderUrl) {
       return new Response(JSON.stringify({ error: 'Missing folderUrl' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -180,7 +176,7 @@ serve(async (req) => {
     if (!folderIdMatch) {
       return new Response(JSON.stringify({ error: 'Invalid Google Drive folder URL' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -193,7 +189,7 @@ serve(async (req) => {
       console.log("[scan-drive-folder] Google Drive not connected");
       return new Response(JSON.stringify({ error: 'Google Drive not connected. Please connect in Settings.' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -205,7 +201,7 @@ serve(async (req) => {
       if (!resolvedParentId) {
         return new Response(JSON.stringify({ success: true, mode: 'list_children', folders: [], parentPath: normalizedParentPath }), {
           status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
         });
       }
 
@@ -229,7 +225,7 @@ serve(async (req) => {
 
       return new Response(JSON.stringify({ success: true, mode: 'list_children', parentPath: normalizedParentPath, folders }), {
         status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -255,7 +251,7 @@ serve(async (req) => {
           details: 'Token may have expired. Please reconnect Google Drive in Settings.'
         }), {
           status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
         });
       }
 
@@ -313,7 +309,7 @@ serve(async (req) => {
         dates,
       }), {
         status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -322,7 +318,7 @@ serve(async (req) => {
       if (!fileId) {
         return new Response(JSON.stringify({ error: 'Missing fileId' }), {
           status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
         });
       }
 
@@ -337,7 +333,7 @@ serve(async (req) => {
         const errorText = await downloadResponse.text().catch(() => '');
         return new Response(JSON.stringify({ error: 'Failed to download file', details: errorText }), {
           status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
         });
       }
 
@@ -361,7 +357,7 @@ serve(async (req) => {
         },
       }), {
         status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -381,7 +377,7 @@ serve(async (req) => {
           message: `No subfolder found for path ${subfolderDate}`
         }), {
           status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
         });
       }
 
@@ -403,7 +399,7 @@ serve(async (req) => {
       console.error('[scan-drive-folder] Google Drive API error (files):', errorText);
       return new Response(JSON.stringify({ error: 'Failed to list files in folder' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -448,7 +444,7 @@ serve(async (req) => {
         totalFilesFound: allImageFiles.length,
       }), {
         status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
@@ -519,7 +515,7 @@ serve(async (req) => {
       targetFilesCount: targetFiles.length,
     }), {
       status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
     });
 
   } catch (error: unknown) {
@@ -527,7 +523,7 @@ serve(async (req) => {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(JSON.stringify({ error: message }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
     });
   }
 });
