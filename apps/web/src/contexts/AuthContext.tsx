@@ -47,12 +47,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .from("profiles")
         .select("*")
         .eq("user_id", userId)
-        .single();
+        .maybeSingle();
+
       if (error) {
         console.error("Error fetching profile:", error);
         setProfile(null);
       } else {
-        setProfile(data);
+        // No profile row yet is acceptable for newly created users.
+        setProfile(data ?? null);
       }
     } catch (err) {
       console.error("Error fetching profile:", err);
