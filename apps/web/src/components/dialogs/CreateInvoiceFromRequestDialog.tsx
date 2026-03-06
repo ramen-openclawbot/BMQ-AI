@@ -168,35 +168,88 @@ export function CreateInvoiceFromRequestDialog({
       const shouldFallbackInvoke = Boolean(result?.error) && (firstErr.includes("failed to fetch") || firstErr.includes("network") || firstErr.includes("thời gian chờ") || firstErr.includes("timeout"));
 
       if (shouldFallbackInvoke) {
-        const { data: fallbackData, error: fallbackError } = await supabase.functions.invoke("create-invoice-from-pr", {
-          body: payload,
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
+        try {
+          const { data: fallbackData, error: fallbackError } = await supabase.functions.invoke("create-invoice-from-pr", {
+            body: payload,
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+            },
+          });
+
+          if (fallbackError) {
+            const msg = String((fallbackError as any)?.message || fallbackError || "");
+            result = { error: msg };
+          } else {
+            result = { data: fallbackData as { success: boolean; invoice_id: string; items_count: number } };
+          }
+        } catch (invokeErr) {
+          const invokeMsg = invokeErr instanceof Error ? invokeErr.message : String(invokeErr || "");
+          result = { error: invokeMsg || "Edge function invoke failed" };
+        }
+      }
+
+      if (result.error || !result.data?.success) {
+        // Deep fallback: create invoice directly from client-side flow to avoid edge-function specific failures.
+        // This is best-effort and keeps UX working for manual invoice creation.
+        const { data: createdInvoice, error: createInvoiceError } = await supabase
+          .from("invoices")
+          .insert({
+            invoice_number: invoiceNumber,
+            invoice_date: invoiceDate,
+            supplier_id: request.supplier_id,
+            subtotal,
+            vat_amount: vatAmount || 0,
+            total_amount: totalAmount,
+            notes: notes || `Tạo từ đề nghị chi ${request.request_number}`,
+            image_url: request.image_url || null,
+            payment_slip_url: uploadedPaymentSlipUrl || null,
+            payment_request_id: request.id,
+          })
+          .select("id")
+          .single();
+
+        if (createInvoiceError || !createdInvoice?.id) {
+          const edgeErr = String(result.error || "").trim();
+          const directErr = String((createInvoiceError as any)?.message || "").trim();
+          toast.error(
+            `Không thể tạo hóa đơn. ${directErr || edgeErr || "Vui lòng thử lại."}`
+          );
+          return;
+        }
+
+        const directInvoiceItems = (items || []).map((item) => ({
+          invoice_id: createdInvoice.id,
+          product_code: item.product_code,
+          product_name: item.product_name,
+          unit: item.unit || "kg",
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          inventory_item_id: item.inventory_item_id,
+          notes: item.notes,
+        }));
+
+        const { error: createItemsError } = await supabase
+          .from("invoice_items")
+          .insert(directInvoiceItems as any);
+
+        if (createItemsError) {
+          await supabase.from("invoices").delete().eq("id", createdInvoice.id);
+          toast.error(`Không thể tạo dòng hóa đơn: ${createItemsError.message}`);
+          return;
+        }
+
+        await supabase
+          .from("payment_requests")
+          .update({ invoice_id: createdInvoice.id, invoice_created: true })
+          .eq("id", request.id);
+
+        result = {
+          data: {
+            success: true,
+            invoice_id: createdInvoice.id,
+            items_count: directInvoiceItems.length,
           },
-        });
-
-        if (fallbackError) {
-          const msg = String((fallbackError as any)?.message || fallbackError || "");
-          result = { error: msg };
-        } else {
-          result = { data: fallbackData as { success: boolean; invoice_id: string; items_count: number } };
-        }
-      }
-
-      if (result.error) {
-        if (result.isSessionExpired) {
-          toast.error("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
-        } else if (String(result.error).toLowerCase().includes("failed to fetch") || String(result.error).toLowerCase().includes("network")) {
-          toast.error("Lỗi kết nối mạng khi gọi dịch vụ tạo hóa đơn. Vui lòng thử lại.");
-        } else {
-          toast.error(result.error);
-        }
-        return;
-      }
-
-      if (!result.data?.success) {
-        toast.error("Không thể tạo hóa đơn. Vui lòng thử lại.");
-        return;
+        };
       }
 
       console.log(`Invoice created: ${result.data.invoice_id} with ${result.data.items_count} items`);
