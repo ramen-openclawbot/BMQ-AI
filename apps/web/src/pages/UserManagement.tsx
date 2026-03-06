@@ -6,6 +6,7 @@ import {
   useAllPermissions,
   useAssignRole,
   useUpdatePermission,
+  useDeleteUser,
   useInvitations,
   useInviteUser,
   useCancelInvitation,
@@ -17,11 +18,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Users, Mail, Shield, X } from "lucide-react";
+import { Loader2, Users, Mail, Shield, X, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
@@ -95,10 +106,14 @@ function UsersTab({ isVi }: { isVi: boolean }) {
   const { data: users, isLoading } = useUsersList();
   const { user: currentUser } = useAuth();
   const assignRole = useAssignRole();
+  const deleteUser = useDeleteUser();
   const { toast } = useToast();
 
+  // Delete confirmation state
+  const [deleteTarget, setDeleteTarget] = useState<UserWithRole | null>(null);
+
   const handleRoleChange = (targetUser: UserWithRole, newRole: AppRole) => {
-    // Guard: cannot demote yourself
+    // Guard: cannot change your own role
     if (targetUser.user_id === currentUser?.id) {
       toast({
         title: isVi ? "Không thể đổi role" : "Cannot change role",
@@ -128,6 +143,44 @@ function UsersTab({ isVi }: { isVi: boolean }) {
     assignRole.mutate({ userId: targetUser.user_id, role: newRole });
   };
 
+  const handleDeleteClick = (targetUser: UserWithRole) => {
+    // Guard: cannot delete yourself
+    if (targetUser.user_id === currentUser?.id) {
+      toast({
+        title: isVi ? "Không thể xoá" : "Cannot delete",
+        description: isVi
+          ? "Bạn không thể xoá tài khoản của chính mình."
+          : "You cannot delete your own account.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Guard: cannot delete the last owner
+    if (targetUser.role === "owner") {
+      const ownerCount = (users || []).filter((u) => u.role === "owner").length;
+      if (ownerCount <= 1) {
+        toast({
+          title: isVi ? "Không thể xoá" : "Cannot delete",
+          description: isVi
+            ? "Phải có ít nhất một Owner trong hệ thống."
+            : "There must be at least one Owner.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    setDeleteTarget(targetUser);
+  };
+
+  const confirmDelete = () => {
+    if (!deleteTarget) return;
+    deleteUser.mutate(deleteTarget.user_id, {
+      onSettled: () => setDeleteTarget(null),
+    });
+  };
+
   if (isLoading) {
     return (
       <Card>
@@ -139,67 +192,115 @@ function UsersTab({ isVi }: { isVi: boolean }) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{isVi ? "Danh sách người dùng" : "User List"}</CardTitle>
-        <CardDescription>
-          {isVi
-            ? `${(users || []).length} người dùng trong hệ thống`
-            : `${(users || []).length} users in the system`}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{isVi ? "Tên" : "Name"}</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Role</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(users || []).map((u) => {
-              const isCurrentUser = u.user_id === currentUser?.id;
-              const badge = ROLE_BADGE[u.role || "viewer"];
-              return (
-                <TableRow key={u.user_id}>
-                  <TableCell className="font-medium">
-                    {u.full_name || "—"}
-                    {isCurrentUser && (
-                      <Badge variant="outline" className="ml-2 text-xs">
-                        {isVi ? "Bạn" : "You"}
-                      </Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{u.email || "—"}</TableCell>
-                  <TableCell>
-                    {isCurrentUser ? (
-                      <Badge variant={badge?.variant || "outline"}>{badge?.label || u.role}</Badge>
-                    ) : (
-                      <Select
-                        value={u.role || "viewer"}
-                        onValueChange={(val) => handleRoleChange(u, val as AppRole)}
-                        disabled={assignRole.isPending}
-                      >
-                        <SelectTrigger className="w-[140px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="owner">Owner</SelectItem>
-                          <SelectItem value="staff">Staff</SelectItem>
-                          <SelectItem value="warehouse">Warehouse</SelectItem>
-                          <SelectItem value="viewer">Viewer</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>{isVi ? "Danh sách người dùng" : "User List"}</CardTitle>
+          <CardDescription>
+            {isVi
+              ? `${(users || []).length} người dùng trong hệ thống`
+              : `${(users || []).length} users in the system`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{isVi ? "Tên" : "Name"}</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead className="w-[60px]" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(users || []).map((u) => {
+                const isCurrentUser = u.user_id === currentUser?.id;
+                const badge = ROLE_BADGE[u.role || "viewer"];
+                return (
+                  <TableRow key={u.user_id}>
+                    <TableCell className="font-medium">
+                      {u.full_name || "—"}
+                      {isCurrentUser && (
+                        <Badge variant="outline" className="ml-2 text-xs">
+                          {isVi ? "Bạn" : "You"}
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{u.email || "—"}</TableCell>
+                    <TableCell>
+                      {isCurrentUser ? (
+                        <Badge variant={badge?.variant || "outline"}>{badge?.label || u.role}</Badge>
+                      ) : (
+                        <Select
+                          value={u.role || "viewer"}
+                          onValueChange={(val) => handleRoleChange(u, val as AppRole)}
+                          disabled={assignRole.isPending}
+                        >
+                          <SelectTrigger className="w-[140px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="owner">Owner</SelectItem>
+                            <SelectItem value="staff">Staff</SelectItem>
+                            <SelectItem value="warehouse">Warehouse</SelectItem>
+                            <SelectItem value="viewer">Viewer</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {!isCurrentUser && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => handleDeleteClick(u)}
+                          disabled={deleteUser.isPending}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {isVi ? "Xoá người dùng?" : "Delete user?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {isVi
+                ? `Bạn sắp xoá "${deleteTarget?.full_name || deleteTarget?.email}". Hành động này sẽ xoá profile và quyền truy cập của họ. Không thể hoàn tác.`
+                : `You are about to delete "${deleteTarget?.full_name || deleteTarget?.email}". This will remove their profile and access. This cannot be undone.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{isVi ? "Huỷ" : "Cancel"}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteUser.isPending}
+            >
+              {deleteUser.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : isVi ? (
+                "Xoá"
+              ) : (
+                "Delete"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 

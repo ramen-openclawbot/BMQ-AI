@@ -267,7 +267,53 @@ export function useInviteUser() {
 }
 
 // ---------------------------------------------------------------------------
-// 7. useCancelInvitation — mutation to cancel an invitation
+// 7. useDeleteUser — remove user's role + profile (revoke access)
+// Note: cannot delete from auth.users without service_role key.
+// Deleting profile + role effectively blocks all access.
+// ---------------------------------------------------------------------------
+export function useDeleteUser() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async (userId: string) => {
+      // Delete role
+      const { error: roleError } = await (supabase as any)
+        .from("user_roles")
+        .delete()
+        .eq("user_id", userId);
+      if (roleError) throw roleError;
+
+      // Delete module permissions (cascade should handle but be explicit)
+      await (supabase as any)
+        .from("user_module_permissions")
+        .delete()
+        .eq("user_id", userId);
+
+      // Delete profile
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .delete()
+        .eq("user_id", userId);
+      if (profileError) throw profileError;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["user-management-users"] });
+      qc.invalidateQueries({ queryKey: ["user-management-permissions"] });
+      toast({ title: "Đã xoá người dùng" });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Lỗi xoá người dùng",
+        description: err?.message || "Vui lòng thử lại",
+        variant: "destructive",
+      });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 8. useCancelInvitation — mutation to cancel an invitation
 // ---------------------------------------------------------------------------
 export function useCancelInvitation() {
   const qc = useQueryClient();
