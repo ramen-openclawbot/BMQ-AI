@@ -323,23 +323,33 @@ export function useQtmOpeningBalance(closingDate: Date, currentDeclExtractionMet
       };
 
       // 1) Exact previous day
-      const { data: prevData } = await (supabase as any)
+      const { data: prevData, error: prevError } = await (supabase as any)
         .from("ceo_daily_closing_declarations")
         .select("closing_date,cash_fund_topup_amount,qtm_extracted_amount,extraction_meta")
         .eq("closing_date", prevDate)
         .maybeSingle();
 
+      if (prevError) {
+        console.error("[useQtmOpeningBalance] Error fetching previous day:", prevError);
+        throw prevError;
+      }
+
       const prevClosing = deriveClosingFromRow(prevData);
       if (prevClosing !== null) return prevClosing;
 
       // 2) Nearest previous day before selected date
-      const { data: nearestPrevData } = await (supabase as any)
+      const { data: nearestPrevData, error: nearestError } = await (supabase as any)
         .from("ceo_daily_closing_declarations")
         .select("closing_date,cash_fund_topup_amount,qtm_extracted_amount,extraction_meta")
         .lt("closing_date", date)
         .order("closing_date", { ascending: false })
         .limit(1)
         .maybeSingle();
+
+      if (nearestError) {
+        console.error("[useQtmOpeningBalance] Error fetching nearest previous:", nearestError);
+        throw nearestError;
+      }
 
       const nearestPrevClosing = deriveClosingFromRow(nearestPrevData);
       if (nearestPrevClosing !== null) return nearestPrevClosing;

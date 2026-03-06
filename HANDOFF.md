@@ -1,10 +1,37 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.15**
+- apps/web: **0.0.16**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
 - Latest commit at handoff time: `git log -1 --oneline`
+
+## Latest update (2026-03-06 — v0.0.16)
+### Performance optimization: Finance Control page load speed
+- **staleTime + gcTime** cho tất cả React Query hooks trong finance:
+  - Daily queries: staleTime 30s, Monthly: 5 phút, gcTime: 10 phút.
+  - Loại bỏ refetch không cần thiết khi focus tab hoặc re-render.
+- **Lazy load monthly query**: chỉ fetch khi user click tab "Chốt tháng" (thêm param `enabled`).
+- **Loại bỏ base64 images khỏi initial query**: `useDailyDeclaration` chỉ select lightweight columns, ảnh slip được load riêng qua `useDailyDeclarationImages()` (triggered on hover vào khu vực CEO upload).
+- **Tạo `useQtmOpeningBalance()` hook**: thay thế raw useEffect với 2 Supabase query → React Query hook với cache + dedup + error handling.
+- **Optimize `useUncDetailAmount`**: thử single `.or()` query thay vì 2 query song song; fallback tự động nếu PostgREST không hỗ trợ.
+- **Error handling**: destructure `error` từ tất cả useQuery hooks, hiển thị toast khi có lỗi tải dữ liệu.
+
+### QA fixes
+- `useQtmOpeningBalance`: thêm check `error` từ cả 2 Supabase query (trước đó silent fail trả 0).
+- `FinanceControl.tsx`: surface tất cả query errors ra toast cho user thấy.
+
+### Security audit (report only — chưa fix)
+- Phát hiện 27 Edge Functions có `verify_jwt = false`.
+- Phát hiện Open Redirect trong google-drive-auth.
+- Phát hiện RLS policies dùng `using (true)` cho 8+ bảng CRM.
+- Phát hiện CORS `*` trên tất cả edge functions.
+- Xem chi tiết trong session notes. Cần fix ở phiên tiếp theo.
+
+### Files changed
+- `apps/web/src/hooks/useFinanceReconciliation.ts` — rewrite: 5 hooks mới/cải tiến
+- `apps/web/src/pages/FinanceControl.tsx` — integrate hooks mới, lazy load, error handling
+- `apps/web/package.json` — bump 0.0.15 → 0.0.16
 
 ## Latest update (2026-03-06 night)
 ### Finance Control reconciliation hotfixes (UNC/QTM scan + OCR timeout mitigation)

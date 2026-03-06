@@ -84,12 +84,32 @@ export default function FinanceControl() {
     items: Array<{ fileId: string; fileName: string; amount: number; confidence: number; status: "matched" | "mismatch" | "needs_review" }>;
   } | null>(null);
 
-  const { data: dailyDeclaration, isLoading: declarationLoading, isFetching: declarationFetching, refetch: refetchDeclaration } = useDailyDeclaration(selectedDate);
-  const { data: uncDetailAmount, refetch: refetchUncDetail } = useUncDetailAmount(selectedDate);
-  const { data: dailyReconciliation, refetch: refetchDailyReconciliation } = useDailyReconciliation(selectedDate);
-  const { data: monthlySummary, refetch: refetchMonthly } = useMonthlyReconciliation(selectedMonth, activeTab === "monthly");
+  const { data: dailyDeclaration, isLoading: declarationLoading, isFetching: declarationFetching, error: declarationError, refetch: refetchDeclaration } = useDailyDeclaration(selectedDate);
+  const { data: uncDetailAmount, error: uncDetailError, refetch: refetchUncDetail } = useUncDetailAmount(selectedDate);
+  const { data: dailyReconciliation, error: dailyReconError, refetch: refetchDailyReconciliation } = useDailyReconciliation(selectedDate);
+  const { data: monthlySummary, error: monthlyError, refetch: refetchMonthly } = useMonthlyReconciliation(selectedMonth, activeTab === "monthly");
   const { data: declarationImages } = useDailyDeclarationImages(selectedDate, imagesRequested);
-  const { data: qtmOpeningBalanceFromHook } = useQtmOpeningBalance(selectedDate, dailyDeclaration?.extraction_meta);
+  const { data: qtmOpeningBalanceFromHook, error: qtmBalanceError } = useQtmOpeningBalance(selectedDate, dailyDeclaration?.extraction_meta);
+
+  // Surface query errors to user via toast (fire once per error)
+  useEffect(() => {
+    const errors = [
+      declarationError && `Khai báo CEO: ${(declarationError as Error).message}`,
+      uncDetailError && `UNC chi tiết: ${(uncDetailError as Error).message}`,
+      dailyReconError && `Đối soát ngày: ${(dailyReconError as Error).message}`,
+      monthlyError && `Chốt tháng: ${(monthlyError as Error).message}`,
+      qtmBalanceError && `Số dư QTM: ${(qtmBalanceError as Error).message}`,
+    ].filter(Boolean) as string[];
+
+    if (errors.length > 0) {
+      toast({
+        title: isVi ? "Lỗi tải dữ liệu" : "Data loading error",
+        description: errors.join(" • "),
+        variant: "destructive",
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [declarationError, uncDetailError, dailyReconError, monthlyError, qtmBalanceError]);
 
   const [uncTotalDeclared, setUncTotalDeclared] = useState<number>(0);
   const [cashFundTopupAmount, setCashFundTopupAmount] = useState<number>(0);
