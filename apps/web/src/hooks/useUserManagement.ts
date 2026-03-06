@@ -137,10 +137,27 @@ export function useAssignRole() {
           .insert({ user_id: userId, role });
         if (error) throw error;
       }
+
+      // Auto-apply default module permissions by role right after role change.
+      // This ensures roles like "warehouse" immediately get inventory defaults.
+      const viewSet = DEFAULT_VIEW[role] || [];
+      const editSet = DEFAULT_EDIT[role] || [];
+      const rows = ALL_MODULE_KEYS.map((key) => ({
+        user_id: userId,
+        module_key: key,
+        can_view: viewSet.includes(key),
+        can_edit: editSet.includes(key),
+      }));
+
+      const { error: permError } = await (supabase as any)
+        .from("user_module_permissions")
+        .upsert(rows, { onConflict: "user_id,module_key" });
+      if (permError) throw permError;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["user-management-users"] });
-      toast({ title: "Đã cập nhật role" });
+      qc.invalidateQueries({ queryKey: ["user-management-permissions"] });
+      toast({ title: "Đã cập nhật role và gán quyền mặc định" });
     },
     onError: (err: any) => {
       toast({
