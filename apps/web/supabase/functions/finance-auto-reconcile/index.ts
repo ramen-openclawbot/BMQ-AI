@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
+import { requireCronSecret } from "../_shared/auth.ts";
 
 const vnDate = (d = new Date()) => {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -59,22 +60,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflightResponse(req);
 
   try {
-    // Cron secret is REQUIRED (not optional) — fail hard if missing
-    const CRON_SECRET = Deno.env.get("FINANCE_CRON_SECRET");
-    if (!CRON_SECRET) {
-      console.error("[finance-auto-reconcile] CRITICAL: FINANCE_CRON_SECRET not set");
-      return new Response(JSON.stringify({ error: "Server misconfigured" }), {
-        status: 500,
-        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
-      });
-    }
-    const cronToken = req.headers.get("x-cron-secret");
-    if (cronToken !== CRON_SECRET) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
-      });
-    }
+    requireCronSecret(req, "FINANCE_CRON_SECRET", getCorsHeaders(req));
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") || "",
