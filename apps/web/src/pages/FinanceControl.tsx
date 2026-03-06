@@ -62,6 +62,7 @@ export default function FinanceControl() {
   const [uncLowConfidenceThreshold, setUncLowConfidenceThreshold] = useState(0.75);
   const [reconcilingFolderScan, setReconcilingFolderScan] = useState(false);
   const [reconcileProgress, setReconcileProgress] = useState({ done: 0, total: 0, currentFile: "" });
+  const [reconcileError, setReconcileError] = useState<string | null>(null);
   const [qtmOpeningBalance, setQtmOpeningBalance] = useState<number>(0);
   const [qtmSpentFromFolder, setQtmSpentFromFolder] = useState<number>(0);
   const [qtmReconciling, setQtmReconciling] = useState(false);
@@ -280,7 +281,8 @@ export default function FinanceControl() {
   const runFolderReconciliation = async () => {
     setReconcilingFolderScan(true);
     setQtmReconciling(true);
-    setReconcileProgress({ done: 0, total: 0, currentFile: "" });
+    setReconcileError(null);
+    setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Đang quét danh sách file UNC/QTM..." : "Scanning UNC/QTM file lists..." });
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -361,7 +363,11 @@ export default function FinanceControl() {
       const targetQtmFiles = qtmFiles.filter((f: any) => !processedSet.has(f.id));
 
       if (!targetUncFiles.length && !targetQtmFiles.length) {
-        throw new Error("Không còn file mới để đối soát trong UNC/QTM (đã xử lý hết)");
+        throw new Error(
+          isVi
+            ? `Không có file mới để đối soát (UNC: ${uncTotalScannedCount}, QTM: ${qtmTotalScannedCount}, đã xử lý: ${processedSkippedCount}).`
+            : `No new files to reconcile (UNC: ${uncTotalScannedCount}, QTM: ${qtmTotalScannedCount}, skipped processed: ${processedSkippedCount}).`
+        );
       }
 
       const totalTargets = targetUncFiles.length + targetQtmFiles.length;
@@ -467,7 +473,10 @@ export default function FinanceControl() {
 
       setUncStep(3);
     } catch (e: any) {
-      toast({ title: isVi ? "Lỗi đối soát trong ngày" : "Daily reconciliation error", description: e?.message || "Không thể đối soát UNC/QTM theo ngày", variant: "destructive" });
+      const msg = e?.message || (isVi ? "Không thể đối soát UNC/QTM theo ngày" : "Failed reconciling UNC/QTM by date");
+      setReconcileError(msg);
+      setReconcileProgress((prev) => ({ ...prev, currentFile: "" }));
+      toast({ title: isVi ? "Lỗi đối soát trong ngày" : "Daily reconciliation error", description: msg, variant: "destructive" });
     } finally {
       setReconcilingFolderScan(false);
       setQtmReconciling(false);
@@ -888,10 +897,10 @@ export default function FinanceControl() {
               <div className="flex flex-wrap items-center gap-2">
                 <Button onClick={async () => {
                   setUncDialogOpen(true);
-                  setUncStep(2);
+                  setUncStep(1);
                   setUncReconSummary(null);
-                  // Run immediately to avoid "opened but no scan" confusion.
-                  await runFolderReconciliation();
+                  setReconcileError(null);
+                  setReconcileProgress({ done: 0, total: 0, currentFile: "" });
                 }}>
                   {isVi ? "Đối soát trong ngày" : "Run daily reconciliation"}
                 </Button>
@@ -1225,6 +1234,11 @@ export default function FinanceControl() {
                 <div className="rounded border p-3 text-sm">
                   <div>{isVi ? "Tiến độ" : "Progress"}: {reconcileProgress.done}/{reconcileProgress.total}</div>
                   <div className="text-muted-foreground">{reconcileProgress.currentFile}</div>
+                </div>
+              )}
+              {reconcileError && (
+                <div className="rounded border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                  {reconcileError}
                 </div>
               )}
             </div>
