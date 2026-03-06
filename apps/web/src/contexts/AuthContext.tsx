@@ -53,12 +53,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const initialLoadCompleteRef = useRef(false);
   const fetchingProfileForRef = useRef<string | null>(null);
 
+  const isAllowedCompanyEmail = useCallback((email?: string | null) => {
+    return String(email || "").trim().toLowerCase().endsWith("@bmq.vn");
+  }, []);
+
   // -------------------------------------------------------------------------
   // Fetch roles + permissions for a user
   // -------------------------------------------------------------------------
-  const fetchRolesAndPermissions = useCallback(async (userId: string) => {
+  const fetchRolesAndPermissions = useCallback(async (userId: string, userEmail?: string | null) => {
     try {
-      const [rolesRes, permsRes] = await Promise.all([
+      let [rolesRes, permsRes] = await Promise.all([
         (supabase as any)
           .from("user_roles")
           .select("role")
@@ -68,6 +72,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .select("module_key,can_view,can_edit")
           .eq("user_id", userId),
       ]);
+
+      // Fallback auto-provision for @bmq.vn accounts (if migration/trigger not applied yet)
+      const normalizedEmail = String(userEmail || "").trim().toLowerCase();
+      const isBmqEmail = normalizedEmail.endsWith("@bmq.vn");
+      const hasAnyRole = (rolesRes.data || []).length > 0;
+
+      if (isBmqEmail && !hasAnyRole && !rolesRes.error) {
+        await (supabase as any).from("user_roles").insert({ user_id: userId, role: "viewer" });
+
+        const viewerRows = [
+          "dashboard", "reports", "niraan_dashboard", "finance_cost", "finance_revenue", "crm",
+          "sales_po_inbox", "purchase_orders", "inventory", "goods_receipts", "sku_costs",
+          "suppliers", "invoices", "payment_requests", "low_stock", "settings",
+        ].map((moduleKey) => ({
+          user_id: userId,
+          module_key: moduleKey,
+          can_view: ["dashboard", "inventory", "low_stock", "settings"].includes(moduleKey),
+          can_edit: false,
+        }));
+
+        await (supabase as any)
+          .from("user_module_permissions")
+          .upsert(viewerRows, { onConflict: "user_id,module_key" });
+
+        [rolesRes, permsRes] = await Promise.all([
+          (supabase as any).from("user_roles").select("role").eq("user_id", userId),
+          (supabase as any)
+            .from("user_module_permissions")
+            .select("module_key,can_view,can_edit")
+            .eq("user_id", userId),
+        ]);
+      }
 
       if (rolesRes.error) {
         console.error("[AuthContext] Error fetching roles:", rolesRes.error);
@@ -91,7 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const fetchProfile = useCallback(async (userId: string) => {
+  const fetchProfile = useCallback(async (userId: string, userEmail?: string | null) => {
     // Debounce: skip if already fetching for this user
     if (fetchingProfileForRef.current === userId) {
       return;
@@ -114,7 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // Also fetch roles and permissions
-      await fetchRolesAndPermissions(userId);
+      await fetchRolesAndPermissions(userId, userEmail ?? data?.email ?? null);
     } catch (err) {
       console.error("Error fetching profile:", err);
       setProfile(null);
@@ -125,15 +161,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshProfile = useCallback(async () => {
     if (user?.id) {
-      await fetchProfile(user.id);
+      await fetchProfile(user.id, user?.email ?? null);
     }
-  }, [user?.id, fetchProfile]);
+  }, [user?.id, user?.email, fetchProfile]);
 
   const refreshRoles = useCallback(async () => {
     if (user?.id) {
-      await fetchRolesAndPermissions(user.id);
+      await fetchRolesAndPermissions(user.id, user?.email ?? null);
     }
-  }, [user?.id, fetchRolesAndPermissions]);
+  }, [user?.id, user?.email, fetchRolesAndPermissions]);
 
   // -------------------------------------------------------------------------
   // Derived: isOwner, canAccessModule, canEditModule
@@ -169,9 +205,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const { data: { session: retrySession } } = await supabase.auth.getSession();
           if (retrySession?.user) {
+            const allowed = isAllowedCompanyEmail(retrySession.user.email);
+            if (!allowed) {
+              await supabase.auth.signOut();
+              setSession(null);
+              setUser(null);
+              setProfile(null);
+              setRoles([]);
+              setPermissions([]);
+              setTimedOut(false);
+              setLoading(false);
+              initialLoadCompleteRef.current = true;
+              if (window.location.pathname !== "/auth") {
+                window.location.href = "/auth?error=company_email_only";
+              }
+              return;
+            }
+
             setSession(retrySession);
             setUser(retrySession.user);
-            await fetchProfile(retrySession.user.id);
+            await fetchProfile(retrySession.user.id, retrySession.user.email ?? null);
             setTimedOut(false);
             setLoading(false);
             initialLoadCompleteRef.current = true;
@@ -197,8 +250,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(newSession?.user ?? null);
 
         if (newSession?.user) {
+          const allowed = isAllowedCompanyEmail(newSession.user.email);
+          if (!allowed) {
+            console.warn("[AuthContext] Block non-company email:", newSession.user.email);
+            await supabase.auth.signOut();
+            setProfile(null);
+            setRoles([]);
+            setPermissions([]);
+            setSession(null);
+            setUser(null);
+            if (window.location.pathname !== "/auth") {
+              window.location.href = "/auth?error=company_email_only";
+            }
+            return;
+          }
+
           // Fire-and-forget profile fetch for ongoing changes
-          fetchProfile(newSession.user.id);
+          fetchProfile(newSession.user.id, newSession.user.email ?? null);
         } else {
           setProfile(null);
           setRoles([]);
@@ -227,8 +295,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(initialSession?.user ?? null);
 
         if (initialSession?.user) {
+          const allowed = isAllowedCompanyEmail(initialSession.user.email);
+          if (!allowed) {
+            await supabase.auth.signOut();
+            setSession(null);
+            setUser(null);
+            setProfile(null);
+            setRoles([]);
+            setPermissions([]);
+            if (window.location.pathname !== "/auth") {
+              window.location.href = "/auth?error=company_email_only";
+            }
+            return;
+          }
+
           // AWAIT profile fetch during initial load to ensure data is ready
-          await fetchProfile(initialSession.user.id);
+          await fetchProfile(initialSession.user.id, initialSession.user.email ?? null);
         }
       } catch (err) {
         console.error("[AuthContext] Error during initial auth:", err);

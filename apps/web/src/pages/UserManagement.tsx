@@ -8,9 +8,6 @@ import {
   useUpdatePermission,
   useDeleteUser,
   useResetPermissionsToDefault,
-  useInvitations,
-  useInviteUser,
-  useCancelInvitation,
   ALL_MODULES,
   type UserWithRole,
   type ModulePermissionRow,
@@ -30,13 +27,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Users, Mail, Shield, X, Trash2, RefreshCw } from "lucide-react";
+import { Loader2, Users, Shield, Trash2, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { formatDistanceToNow } from "date-fns";
-import { vi, enUS } from "date-fns/locale";
 
 // ---------------------------------------------------------------------------
 // Role badge color mapping
@@ -76,10 +70,6 @@ export default function UserManagement() {
             <Users className="h-4 w-4" />
             {isVi ? "Người dùng" : "Users"}
           </TabsTrigger>
-          <TabsTrigger value="invite" className="gap-2">
-            <Mail className="h-4 w-4" />
-            {isVi ? "Mời thành viên" : "Invite"}
-          </TabsTrigger>
           <TabsTrigger value="permissions" className="gap-2">
             <Shield className="h-4 w-4" />
             {isVi ? "Phân quyền" : "Permissions"}
@@ -88,9 +78,6 @@ export default function UserManagement() {
 
         <TabsContent value="users">
           <UsersTab isVi={isVi} />
-        </TabsContent>
-        <TabsContent value="invite">
-          <InviteTab isVi={isVi} />
         </TabsContent>
         <TabsContent value="permissions">
           <PermissionsTab isVi={isVi} />
@@ -306,130 +293,7 @@ function UsersTab({ isVi }: { isVi: boolean }) {
 }
 
 // ===========================================================================
-// TAB 2: Invite
-// ===========================================================================
-function InviteTab({ isVi }: { isVi: boolean }) {
-  const { language } = useLanguage();
-  const [email, setEmail] = useState("");
-  const [role, setRole] = useState<AppRole>("staff");
-  const { data: invitations, isLoading } = useInvitations();
-  const inviteUser = useInviteUser();
-  const cancelInvitation = useCancelInvitation();
-
-  const handleInvite = () => {
-    if (!email.trim()) return;
-    inviteUser.mutate({ email: email.trim(), role }, {
-      onSuccess: () => {
-        setEmail("");
-        setRole("staff");
-      },
-    });
-  };
-
-  return (
-    <div className="space-y-6">
-      {/* Invite form */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{isVi ? "Mời thành viên mới" : "Invite New Member"}</CardTitle>
-          <CardDescription>
-            {isVi
-              ? "Gửi lời mời qua email và gán role cho thành viên mới."
-              : "Send an email invitation and assign a role to the new member."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-end gap-3">
-            <div className="flex-1 space-y-1.5">
-              <label className="text-sm font-medium">Email</label>
-              <Input
-                type="email"
-                placeholder="email@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleInvite()}
-              />
-            </div>
-            <div className="w-[140px] space-y-1.5">
-              <label className="text-sm font-medium">Role</label>
-              <Select value={role} onValueChange={(v) => setRole(v as AppRole)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="staff">Staff</SelectItem>
-                  <SelectItem value="warehouse">Warehouse</SelectItem>
-                  <SelectItem value="viewer">Viewer</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <Button onClick={handleInvite} disabled={inviteUser.isPending || !email.trim()}>
-              {inviteUser.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : isVi ? (
-                "Gửi lời mời"
-              ) : (
-                "Send Invite"
-              )}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Pending invitations */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{isVi ? "Lời mời đang chờ" : "Pending Invitations"}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : (invitations || []).length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4">
-              {isVi ? "Không có lời mời đang chờ." : "No pending invitations."}
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {(invitations || []).map((inv) => (
-                <div
-                  key={inv.id}
-                  className="flex items-center justify-between rounded-lg border px-4 py-3"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="font-medium">{inv.email}</span>
-                    <Badge variant={ROLE_BADGE[inv.role]?.variant || "outline"}>
-                      {ROLE_BADGE[inv.role]?.label || inv.role}
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">
-                      {formatDistanceToNow(new Date(inv.created_at), {
-                        addSuffix: true,
-                        locale: language === "vi" ? vi : enUS,
-                      })}
-                    </span>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => cancelInvitation.mutate(inv.id)}
-                    disabled={cancelInvitation.isPending}
-                  >
-                    <X className="h-4 w-4" />
-                    <span className="ml-1">{isVi ? "Huỷ" : "Cancel"}</span>
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-// ===========================================================================
-// TAB 3: Permissions matrix
+// TAB 2: Permissions matrix
 // ===========================================================================
 function PermissionsTab({ isVi }: { isVi: boolean }) {
   const { data: users, isLoading: usersLoading } = useUsersList();
