@@ -296,7 +296,13 @@ export default function FinanceControl() {
               "Content-Type": "application/json",
               ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
             },
-            body: JSON.stringify({ folderUrl, subfolderDate }),
+            body: JSON.stringify({
+              folderUrl,
+              subfolderDate,
+              folderType: "bank_slip",
+              skipProcessed: uncSkipProcessed,
+              includeBase64: true,
+            }),
           }, 45000);
           if (!resp.ok) {
             const err = await resp.json().catch(() => ({}));
@@ -322,6 +328,7 @@ export default function FinanceControl() {
 
       const uncRawFiles = Array.isArray(uncScanData?.files) ? uncScanData.files : [];
       const qtmRawFiles = Array.isArray(qtmScanData?.files) ? qtmScanData.files : [];
+      const preSkippedByServer = Number(uncScanData?.skippedProcessedCount || 0) + Number(qtmScanData?.skippedProcessedCount || 0);
 
       const normalizeImageFiles = (rows: any[]) =>
         (rows || []).filter((f: any) => !uncScanImagesOnly || String(f?.mimeType || "").startsWith("image/"));
@@ -341,26 +348,13 @@ export default function FinanceControl() {
         if (!qtmFiles.length) qtmFiles = dayFiles.filter((f: any) => isQtmPath(f));
       }
 
-      const uncTotalScannedCount = uncFiles.length;
-      const qtmTotalScannedCount = qtmFiles.length;
+      const uncTotalScannedCount = Number(uncScanData?.totalFilesFound ?? uncFiles.length);
+      const qtmTotalScannedCount = Number(qtmScanData?.totalFilesFound ?? qtmFiles.length);
 
-      let processedSet = new Set<string>();
-      if (uncSkipProcessed) {
-        const fileIds = [...uncFiles, ...qtmFiles].map((f: any) => f.id);
-        if (fileIds.length) {
-          const { data: processedRows } = await supabase
-            .from("drive_file_index")
-            .select("file_id")
-            .eq("folder_type", "bank_slip")
-            .eq("processed", true)
-            .in("file_id", fileIds);
-          processedSet = new Set((processedRows || []).map((r: any) => r.file_id));
-        }
-      }
-
-      const processedSkippedCount = processedSet.size;
-      const targetUncFiles = uncFiles.filter((f: any) => !processedSet.has(f.id));
-      const targetQtmFiles = qtmFiles.filter((f: any) => !processedSet.has(f.id));
+      // Server-side skipProcessed already filtered returned files, so no extra client filtering needed.
+      const processedSkippedCount = uncSkipProcessed ? preSkippedByServer : 0;
+      const targetUncFiles = uncFiles;
+      const targetQtmFiles = qtmFiles;
 
       if (!targetUncFiles.length && !targetQtmFiles.length) {
         throw new Error(

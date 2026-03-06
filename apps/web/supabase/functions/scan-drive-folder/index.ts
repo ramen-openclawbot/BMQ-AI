@@ -156,7 +156,7 @@ serve(async (req) => {
     console.log("[scan-drive-folder] User authenticated:", user.id);
 
     // Parse request body
-    const { folderUrl, subfolderDate, mode, parentPath } = await req.json();
+    const { folderUrl, subfolderDate, mode, parentPath, includeBase64 = true, skipProcessed = false, folderType = 'bank_slip' } = await req.json();
 
     if (!folderUrl) {
       return new Response(JSON.stringify({ error: 'Missing folderUrl' }), {
@@ -350,7 +350,49 @@ serve(async (req) => {
     }
 
     const filesData: DriveListResponse = await filesResponse.json();
-    console.log(`[scan-drive-folder] Found ${filesData.files.length} image files`);
+    const allImageFiles = Array.isArray(filesData.files) ? filesData.files : [];
+    console.log(`[scan-drive-folder] Found ${allImageFiles.length} image files`);
+
+    let targetFiles = allImageFiles;
+    let skippedProcessedCount = 0;
+
+    // Optional fast-path: skip files already processed in drive_file_index (huge speed-up for reconciliation reruns).
+    if (skipProcessed && targetFiles.length > 0) {
+      const fileIds = targetFiles.map((f) => f.id);
+      const processedSet = new Set<string>();
+      const CHUNK = 500;
+
+      for (let i = 0; i < fileIds.length; i += CHUNK) {
+        const idsChunk = fileIds.slice(i, i + CHUNK);
+        const { data: processedRows } = await supabaseAdmin
+          .from('drive_file_index')
+          .select('file_id')
+          .eq('folder_type', folderType === 'po' ? 'po' : 'bank_slip')
+          .eq('processed', true)
+          .in('file_id', idsChunk);
+
+        for (const row of processedRows || []) {
+          if (row?.file_id) processedSet.add(String(row.file_id));
+        }
+      }
+
+      targetFiles = targetFiles.filter((f) => !processedSet.has(f.id));
+      skippedProcessedCount = allImageFiles.length - targetFiles.length;
+      console.log(`[scan-drive-folder] Skip processed enabled: skipped ${skippedProcessedCount}, remaining ${targetFiles.length}`);
+    }
+
+    if (!includeBase64) {
+      return new Response(JSON.stringify({
+        success: true,
+        files: targetFiles,
+        folderDate: subfolderDate || null,
+        skippedProcessedCount,
+        totalFilesFound: allImageFiles.length,
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     // OPTIMIZED: Download files in PARALLEL (limited concurrency to avoid rate limits)
     const CONCURRENT_DOWNLOADS = 5;
@@ -371,8 +413,8 @@ serve(async (req) => {
     };
 
     // Process files in batches for parallel download
-    for (let i = 0; i < filesData.files.length; i += CONCURRENT_DOWNLOADS) {
-      const batch = filesData.files.slice(i, i + CONCURRENT_DOWNLOADS);
+    for (let i = 0; i < targetFiles.length; i += CONCURRENT_DOWNLOADS) {
+      const batch = targetFiles.slice(i, i + CONCURRENT_DOWNLOADS);
       
       const results = await Promise.all(
         batch.map(async (file) => {
@@ -409,11 +451,14 @@ serve(async (req) => {
       filesWithContent.push(...results.filter((r): r is NonNullable<typeof r> => r !== null));
     }
 
-    console.log(`[scan-drive-folder] Completed in ${Date.now() - startTime}ms, downloaded ${filesWithContent.length} files`);
+    console.log(`[scan-drive-folder] Completed in ${Date.now() - startTime}ms, downloaded ${filesWithContent.length}/${targetFiles.length} files`);
     return new Response(JSON.stringify({ 
       success: true, 
       files: filesWithContent,
       folderDate: subfolderDate || null,
+      skippedProcessedCount,
+      totalFilesFound: allImageFiles.length,
+      targetFilesCount: targetFiles.length,
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
