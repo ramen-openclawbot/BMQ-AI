@@ -244,34 +244,32 @@ export function useInviteUser() {
 
   return useMutation({
     mutationFn: async ({ email, role }: { email: string; role: AppRole }) => {
-      // Use Supabase Auth admin invite (through edge function or direct)
-      // For now, just insert the invitation record
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Not authenticated");
 
-      const { error } = await (supabase as any)
-        .from("user_invitations")
-        .insert({
-          email,
-          role,
-          invited_by: user.id,
-        });
+      const { data, error } = await supabase.functions.invoke("user-invite-member", {
+        body: { email: email.trim().toLowerCase(), role },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
 
       if (error) throw error;
-
-      // Also try to invite via Supabase Auth (this may require admin privileges)
-      // If it fails, the invitation record still exists for manual processing
-      try {
-        await (supabase as any).auth.admin.inviteUserByEmail(email);
-      } catch {
-        // Admin invite requires service_role key — expected to fail from client
-        // The invitation record serves as the source of truth
-        console.info("[useInviteUser] Auth invite skipped (requires service_role). Invitation record created.");
-      }
+      if ((data as any)?.error) throw new Error((data as any).error);
+      return data as { success: boolean; email_sent?: boolean; note?: string };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["user-management-invitations"] });
-      toast({ title: "Đã gửi lời mời" });
+      qc.invalidateQueries({ queryKey: ["user-management-users"] });
+
+      if (data?.email_sent) {
+        toast({ title: "Đã gửi email mời" });
+      } else {
+        toast({
+          title: "Đã tạo lời mời",
+          description: data?.note || "User đã tồn tại, vui lòng kiểm tra trạng thái tài khoản.",
+        });
+      }
     },
     onError: (err: any) => {
       toast({
@@ -353,29 +351,23 @@ export function useDeleteUser() {
 
   return useMutation({
     mutationFn: async (userId: string) => {
-      // Delete role
-      const { error: roleError } = await (supabase as any)
-        .from("user_roles")
-        .delete()
-        .eq("user_id", userId);
-      if (roleError) throw roleError;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Not authenticated");
 
-      // Delete module permissions (cascade should handle but be explicit)
-      await (supabase as any)
-        .from("user_module_permissions")
-        .delete()
-        .eq("user_id", userId);
+      const { data, error } = await supabase.functions.invoke("user-delete-member", {
+        body: { userId },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
 
-      // Delete profile
-      const { error: profileError } = await supabase
-        .from("profiles")
-        .delete()
-        .eq("user_id", userId);
-      if (profileError) throw profileError;
+      if (error) throw error;
+      if ((data as any)?.error) throw new Error((data as any).error);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["user-management-users"] });
       qc.invalidateQueries({ queryKey: ["user-management-permissions"] });
+      qc.invalidateQueries({ queryKey: ["user-management-invitations"] });
       toast({ title: "Đã xoá người dùng" });
     },
     onError: (err: any) => {
