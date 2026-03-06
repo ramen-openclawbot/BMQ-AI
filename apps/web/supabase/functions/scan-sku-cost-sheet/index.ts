@@ -1,10 +1,24 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
+import { requireAuth } from "../_shared/auth.ts";
+import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflightResponse(req);
 
   try {
+    // Require authentication (was previously open/public)
+    const { user } = await requireAuth(req, getCorsHeaders(req));
+
+    // Rate limit: 50 calls/day per user
+    const rateLimit = await checkAndRecordRateLimit(user.id, "scan-sku-cost-sheet", 50);
+    if (!rateLimit.allowed) {
+      return new Response(
+        JSON.stringify({ error: "Bạn đã vượt quá giới hạn scan hôm nay. Vui lòng thử lại vào ngày mai.", code: "RATE_LIMIT_EXCEEDED" }),
+        { status: 429, headers: { ...getCorsHeaders(req), "Content-Type": "application/json", ...getRateLimitHeaders(rateLimit) } }
+      );
+    }
+
     const { imageBase64, mimeType } = await req.json();
     if (!imageBase64) {
       return new Response(JSON.stringify({ error: "No image provided" }), { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } });

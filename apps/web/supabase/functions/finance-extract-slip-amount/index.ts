@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/auth.ts";
+import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
 
 const jsonResponse = (body: unknown, status = 200, corsHeaders?: Record<string, string>) =>
   new Response(JSON.stringify(body), {
@@ -13,7 +14,13 @@ serve(async (req) => {
 
   try {
     // Require authentication (was previously open to anyone)
-    await requireAuth(req, getCorsHeaders(req));
+    const { user } = await requireAuth(req, getCorsHeaders(req));
+
+    // Rate limit: 200 calls/day per user
+    const rateLimit = await checkAndRecordRateLimit(user.id, "finance-extract-slip-amount", 200);
+    if (!rateLimit.allowed) {
+      return jsonResponse({ error: "Bạn đã vượt quá giới hạn scan hôm nay. Vui lòng thử lại vào ngày mai.", code: "RATE_LIMIT_EXCEEDED" }, 429, { ...getCorsHeaders(req), ...getRateLimitHeaders(rateLimit) });
+    }
 
     const { imageBase64, mimeType, slipType } = await req.json();
     if (!imageBase64) {

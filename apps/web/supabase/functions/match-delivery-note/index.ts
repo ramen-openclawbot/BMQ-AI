@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
+import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
 
 interface ExtractedItem {
   product_name: string;
@@ -141,6 +142,15 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ error: "Invalid token" }),
         { status: 401, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+      );
+    }
+
+    // Rate limit: 150 calls/day per user
+    const rateLimit = await checkAndRecordRateLimit(user.id, "match-delivery-note", 150);
+    if (!rateLimit.allowed) {
+      return new Response(
+        JSON.stringify({ error: "Bạn đã vượt quá giới hạn scan hôm nay. Vui lòng thử lại vào ngày mai.", code: "RATE_LIMIT_EXCEEDED" }),
+        { status: 429, headers: { ...getCorsHeaders(req), "Content-Type": "application/json", ...getRateLimitHeaders(rateLimit) } }
       );
     }
 

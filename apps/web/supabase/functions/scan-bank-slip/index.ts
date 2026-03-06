@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 // NOTE: Use npm specifier to avoid esm.sh drift/caching issues in edge runtime
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
+import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -58,6 +59,15 @@ serve(async (req) => {
     }
 
     console.log("[scan-bank-slip] User authenticated:", user.id);
+
+    // Rate limit: 100 calls/day per user
+    const rateLimit = await checkAndRecordRateLimit(user.id, "scan-bank-slip", 100);
+    if (!rateLimit.allowed) {
+      return new Response(JSON.stringify({ error: "Bạn đã vượt quá giới hạn scan hôm nay. Vui lòng thử lại vào ngày mai.", code: "RATE_LIMIT_EXCEEDED" }), {
+        status: 429,
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json', ...getRateLimitHeaders(rateLimit) },
+      });
+    }
 
     // Parse request body
     const { imageBase64, mimeType } = await req.json();

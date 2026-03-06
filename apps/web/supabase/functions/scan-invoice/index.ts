@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/auth.ts";
+import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
 
 type SupplierLite = { id: string; name: string };
 
@@ -92,7 +93,16 @@ serve(async (req) => {
 
   try {
     // Require authentication (was previously optional/anon-allowed)
-    await requireAuth(req, getCorsHeaders(req));
+    const { user } = await requireAuth(req, getCorsHeaders(req));
+
+    // Rate limit: 100 calls/day per user
+    const rateLimit = await checkAndRecordRateLimit(user.id, "scan-invoice", 100);
+    if (!rateLimit.allowed) {
+      return new Response(
+        JSON.stringify({ error: "Bạn đã vượt quá giới hạn scan hôm nay. Vui lòng thử lại vào ngày mai.", code: "RATE_LIMIT_EXCEEDED" }),
+        { status: 429, headers: { ...getCorsHeaders(req), "Content-Type": "application/json", ...getRateLimitHeaders(rateLimit) } }
+      );
+    }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";

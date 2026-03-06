@@ -33,6 +33,7 @@ export interface EdgeFunctionResponse<T> {
   data: T | null;
   error: string | null;
   isSessionExpired?: boolean;
+  isRateLimited?: boolean;
 }
 
 /**
@@ -90,19 +91,29 @@ export async function callEdgeFunction<T>(
 
     // Detect session expiration
     if (response.status === 401) {
-      return { 
-        data: null, 
+      return {
+        data: null,
         error: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.',
         isSessionExpired: true
+      };
+    }
+
+    // Detect rate limiting (429)
+    if (response.status === 429) {
+      const data = await response.json().catch(() => ({}));
+      return {
+        data: null,
+        error: data.error || 'Bạn đã vượt quá giới hạn scan hôm nay. Vui lòng thử lại vào ngày mai.',
+        isRateLimited: true,
       };
     }
 
     const data = await response.json();
 
     if (!response.ok) {
-      return { 
-        data: null, 
-        error: data.error || data.message || `HTTP ${response.status}` 
+      return {
+        data: null,
+        error: data.error || data.message || `HTTP ${response.status}`
       };
     }
 

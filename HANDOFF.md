@@ -1,12 +1,26 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.18**
+- apps/web: **0.0.19**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
 - Latest commit at handoff time: `git log -1 --oneline`
 
-## Latest update (2026-03-07 — v0.0.18)
+## Latest update (2026-03-07 — v0.0.19)
+### Rate Limiting cho AI Scan Functions — chống spam API tốn tiền
+- **SQL migration** `20260307120000_ai_rate_limits.sql`: bảng `ai_function_rate_limits` — per-user per-function daily counter, RLS owner-read-only, cleanup function.
+- **Shared utility** `_shared/rate-limiter.ts`: `checkAndRecordRateLimit()` + `getRateLimitHeaders()`. Dùng PostgreSQL, graceful degradation nếu DB lỗi (allow request).
+- **6 functions được rate limit**:
+  - `scan-invoice`: 100/ngày
+  - `scan-bank-slip`: 100/ngày
+  - `scan-purchase-order`: 100/ngày
+  - `scan-sku-cost-sheet`: 50/ngày + **fix thêm requireAuth()** (trước đó public)
+  - `finance-extract-slip-amount`: 200/ngày
+  - `match-delivery-note`: 150/ngày
+- **Frontend**: `callEdgeFunction()` xử lý HTTP 429 → `isRateLimited: true` + message tiếng Việt.
+- **Response headers**: `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `Retry-After`.
+
+## Previous update (2026-03-07 — v0.0.18)
 ### Security Hardening — Comprehensive fix cho 16 lỗ hổng bảo mật
 - **Shared CORS module** (`supabase/functions/_shared/cors.ts`): Origin whitelist thay vì wildcard `*`. Áp dụng cho tất cả 26 edge functions.
 - **Shared auth helper** (`supabase/functions/_shared/auth.ts`): `requireAuth()` validate JWT, `requireCronSecret()` validate cron secret. Fail hard nếu thiếu config.
