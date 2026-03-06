@@ -1032,34 +1032,34 @@ export default function FinanceControl() {
                   <CardDescription>{isVi ? "Chọn một trong 3 trạng thái: Không chốt / Chốt có điều kiện / Phê duyệt chốt ngày." : "Pick one of 3 statuses: Reject / Conditional / Approve close."}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="grid gap-2 md:grid-cols-3">
+                  <div className="grid gap-3 md:grid-cols-3">
                     <button
                       type="button"
                       disabled={closeActing || reconciling || (!uncReconSummary && !dailyReconciliation) || closeApprovalLocked}
-                      className={`rounded border px-3 py-2 text-sm text-left text-foreground disabled:opacity-50 disabled:cursor-not-allowed ${closeDecision === "reject" ? "border-red-500 bg-red-500/15 text-red-700 dark:text-red-200" : ""}`}
+                      className={`rounded-xl border px-4 py-3 text-sm text-left font-medium transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_3px_0_rgba(0,0,0,0.12)] hover:-translate-y-0.5 hover:shadow-[0_6px_14px_rgba(0,0,0,0.18)] active:translate-y-0 active:shadow-[0_2px_0_rgba(0,0,0,0.12)] ${closeDecision === "reject" ? "border-red-500 bg-gradient-to-b from-red-500/25 to-red-600/20 text-red-800 dark:text-red-100" : "border-red-300/70 bg-red-500/10 text-red-700 dark:text-red-200"}`}
                       onClick={() => handleCloseAction("reject")}
                     >
-                      {isVi ? "Không chốt" : "Reject close"}
+                      {isVi ? "❌ Không chốt" : "❌ Reject close"}
                     </button>
                     <button
                       type="button"
                       disabled={closeActing || reconciling || (!uncReconSummary && !dailyReconciliation) || closeApprovalLocked}
-                      className={`rounded border px-3 py-2 text-sm text-left text-foreground disabled:opacity-50 disabled:cursor-not-allowed ${closeDecision === "conditional" ? "border-amber-500 bg-amber-500/20 text-amber-800 dark:text-amber-100" : ""}`}
+                      className={`rounded-xl border px-4 py-3 text-sm text-left font-medium transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_3px_0_rgba(0,0,0,0.12)] hover:-translate-y-0.5 hover:shadow-[0_6px_14px_rgba(0,0,0,0.18)] active:translate-y-0 active:shadow-[0_2px_0_rgba(0,0,0,0.12)] ${closeDecision === "conditional" ? "border-amber-500 bg-gradient-to-b from-amber-400/30 to-amber-500/25 text-amber-900 dark:text-amber-100" : "border-amber-300/70 bg-amber-500/10 text-amber-800 dark:text-amber-200"}`}
                       onClick={() => handleCloseAction("conditional")}
                     >
-                      {isVi ? "Chốt có điều kiện" : "Conditional close"}
+                      {isVi ? "⚠️ Chốt có điều kiện" : "⚠️ Conditional close"}
                     </button>
                     <button
                       type="button"
                       disabled={closeActing || reconciling || (!uncReconSummary && !dailyReconciliation)}
-                      className={`rounded border px-3 py-2 text-sm text-left text-foreground disabled:opacity-50 disabled:cursor-not-allowed ${closeDecision === "approve" ? "border-green-500 bg-green-500/15 text-green-700 dark:text-green-200" : ""}`}
+                      className={`rounded-xl border px-4 py-3 text-sm text-left font-medium transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_3px_0_rgba(0,0,0,0.12)] hover:-translate-y-0.5 hover:shadow-[0_6px_14px_rgba(0,0,0,0.18)] active:translate-y-0 active:shadow-[0_2px_0_rgba(0,0,0,0.12)] ${closeDecision === "approve" ? "border-green-500 bg-gradient-to-b from-green-500/25 to-green-600/20 text-green-800 dark:text-green-100" : "border-green-300/70 bg-green-500/10 text-green-700 dark:text-green-200"}`}
                       onClick={() => handleCloseAction("approve")}
                     >
                       <span className="inline-flex items-center gap-2">
                         {closeDecision === "approve" && closeApprovalLocked && <Lock className="h-4 w-4" />}
                         {closeDecision === "approve" && closeApprovalLocked
-                          ? (isVi ? "Đã phê duyệt" : "Approved")
-                          : (isVi ? "Phê duyệt chốt ngày" : "Approve close")}
+                          ? (isVi ? "✅ Đã phê duyệt" : "✅ Approved")
+                          : (isVi ? "✅ Phê duyệt chốt ngày" : "✅ Approve close")}
                       </span>
                     </button>
                   </div>
@@ -1082,7 +1082,7 @@ export default function FinanceControl() {
 
               {!uncReconSummary && !dailyReconciliation && (
                 <div className="text-xs text-amber-600">
-                  {isVi ? "Chưa có dữ liệu đối soát cho ngày này. Hãy bấm ‘Đối soát UNC theo folder’ trước khi chốt." : "No reconciliation data for this date yet. Please run 'UNC folder reconciliation' first."}
+                  {isVi ? "Chưa có dữ liệu đối soát cho ngày này. Hãy bấm ‘Đối soát trong ngày’ trước khi chốt." : "No reconciliation data for this date yet. Please run 'Daily reconciliation' first."}
                 </div>
               )}
 
