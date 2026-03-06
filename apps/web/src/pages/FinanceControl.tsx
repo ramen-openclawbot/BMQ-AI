@@ -230,17 +230,54 @@ export default function FinanceControl() {
   const expectedFolderFromDate = format(selectedDate, "ddMMyyyy");
   const autoDayFolderPath = format(selectedDate, "yyyy/MM/dd");
 
+  const optimizeSlipImageForOcr = async (imageBase64: string, mimeType: string) => {
+    try {
+      if (typeof window === "undefined") return { imageBase64, mimeType };
+      const src = `data:${mimeType || "image/jpeg"};base64,${imageBase64}`;
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error("Load image failed"));
+        el.src = src;
+      });
+
+      const maxW = 1600;
+      const scale = Math.min(1, maxW / Math.max(1, img.width));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return { imageBase64, mimeType };
+      ctx.drawImage(img, 0, 0, w, h);
+
+      const outMime = "image/jpeg";
+      const outDataUrl = canvas.toDataURL(outMime, 0.78);
+      const outBase64 = outDataUrl.split(",")[1] || imageBase64;
+
+      // Only use compressed version if it is materially smaller.
+      if (outBase64.length < imageBase64.length * 0.95) {
+        return { imageBase64: outBase64, mimeType: outMime };
+      }
+      return { imageBase64, mimeType };
+    } catch {
+      return { imageBase64, mimeType };
+    }
+  };
+
   const extractSlipAmountFromBase64 = async (imageBase64: string, mimeType: string, slipType: "qtm" | "unc") => {
     const { data: { session } } = await supabase.auth.getSession();
 
     try {
+      const optimized = await optimizeSlipImageForOcr(imageBase64, mimeType);
       const response = await fetchWithTimeout(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/finance-extract-slip-amount`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
-        body: JSON.stringify({ imageBase64, mimeType, slipType }),
+        body: JSON.stringify({ imageBase64: optimized.imageBase64, mimeType: optimized.mimeType, slipType }),
       }, 45000);
 
       if (!response.ok) {
