@@ -79,9 +79,28 @@ export function ScanResultEditor({
     onSupplierChange(value);
   };
 
+  const parseQuantity = (v: unknown) => {
+    if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+    const raw = String(v ?? "").trim();
+    if (!raw) return 0;
+
+    const m = raw.match(/-?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?|-?\d+(?:[.,]\d+)?/);
+    if (!m) return 0;
+    const token = m[0];
+
+    const normalized = token
+      .replace(/\.(?=\d{3}(\D|$))/g, "")
+      .replace(/,/g, ".")
+      .replace(/[^0-9.-]/g, "");
+
+    const n = Number(normalized);
+    return Number.isFinite(n) ? n : 0;
+  };
+
   const handleItemChange = (id: string, field: keyof EditableItem, value: string | number) => {
+    const normalizedValue = field === "quantity" ? parseQuantity(value) : value;
     const updated = items.map(item => 
-      item.id === id ? { ...item, [field]: value } : item
+      item.id === id ? { ...item, [field]: normalizedValue } : item
     );
     onItemsChange(updated);
   };
@@ -265,11 +284,10 @@ export function ScanResultEditor({
                     <div>
                       <Label className="text-xs">Số lượng</Label>
                       <Input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
                         value={item.quantity}
-                        onChange={(e) => handleItemChange(item.id, "quantity", parseFloat(e.target.value) || 0)}
-                        min={0}
-                        step={0.1}
+                        onChange={(e) => handleItemChange(item.id, "quantity", e.target.value)}
                         className="h-9"
                       />
                     </div>

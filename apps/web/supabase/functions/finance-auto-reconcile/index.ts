@@ -97,13 +97,13 @@ serve(async (req) => {
     const [detailByCreatedAt, detailByInvoiceDate] = await Promise.all([
       supabase
         .from("payment_requests")
-        .select("id,total_amount")
+        .select("id,total_amount,title,description,notes,image_url")
         .eq("payment_method", "bank_transfer")
         .gte("created_at", startUtc)
         .lte("created_at", endUtc),
       supabase
         .from("payment_requests")
-        .select("id,total_amount,invoices!payment_requests_invoice_id_fkey(invoice_date)")
+        .select("id,total_amount,title,description,notes,image_url,invoices!payment_requests_invoice_id_fkey(invoice_date)")
         .eq("payment_method", "bank_transfer")
         .eq("invoices.invoice_date", closingDate),
     ]);
@@ -111,11 +111,33 @@ serve(async (req) => {
     if (detailByCreatedAt.error) throw detailByCreatedAt.error;
     if (detailByInvoiceDate.error) throw detailByInvoiceDate.error;
 
+    const isLikelyQtm = (row: any) => {
+      const haystack = [row?.title, row?.description, row?.notes, row?.image_url]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return /(^|\W)qtm($|\W)|quỹ\s*tiền\s*mặt|quy\s*tien\s*mat|cash\s*fund/i.test(haystack);
+    };
+
     const merged = new Map<string, number>();
+    let prRowsCreated = 0;
+    let prRowsInvoice = 0;
+    let prExcludedQtm = 0;
+
     for (const row of (detailByCreatedAt.data || []) as any[]) {
+      prRowsCreated += 1;
+      if (isLikelyQtm(row)) {
+        prExcludedQtm += 1;
+        continue;
+      }
       merged.set(row.id, Number(row.total_amount || 0));
     }
     for (const row of (detailByInvoiceDate.data || []) as any[]) {
+      prRowsInvoice += 1;
+      if (isLikelyQtm(row)) {
+        prExcludedQtm += 1;
+        continue;
+      }
       if (!merged.has(row.id)) merged.set(row.id, Number(row.total_amount || 0));
     }
 
@@ -132,6 +154,7 @@ serve(async (req) => {
 
     const notesParts = [declaration?.notes].filter(Boolean);
     if (folderTotal > 0) notesParts.push("[auto-reconcile source=unc_folder_total]");
+    notesParts.push(`[auto-reconcile pr_created=${prRowsCreated} pr_invoice=${prRowsInvoice} pr_excluded_qtm=${prExcludedQtm} pr_merged=${merged.size}]`);
 
     const { error: upsertError } = await supabase.from("daily_reconciliations").upsert(
       {
@@ -160,6 +183,10 @@ serve(async (req) => {
         <li>UNC Detail (auto): <b>${vnd(uncDetail)}</b></li>
         <li>UNC Detail source: <b>${folderTotal > 0 ? "folder_reconciliation" : "payment_requests"}</b></li>
         <li>UNC Detail (payment_requests raw): <b>${vnd(uncDetailFromPr)}</b></li>
+        <li>PR rows created_at: <b>${prRowsCreated}</b></li>
+        <li>PR rows invoice_date: <b>${prRowsInvoice}</b></li>
+        <li>PR excluded as QTM-like: <b>${prExcludedQtm}</b></li>
+        <li>PR merged unique rows: <b>${merged.size}</b></li>
         <li>UNC Declared (CEO): <b>${vnd(uncDeclared)}</b></li>
         <li>Cash Fund Top-up: <b>${vnd(topup)}</b></li>
         <li>Variance: <b>${vnd(variance)}</b></li>
@@ -178,6 +205,12 @@ serve(async (req) => {
       uncDetailSource: folderTotal > 0 ? "folder_reconciliation" : "payment_requests",
       uncDeclared,
       variance,
+      parseMeta: {
+        prRowsCreated,
+        prRowsInvoice,
+        prExcludedQtm,
+        prMergedRows: merged.size,
+      },
       emailResult,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

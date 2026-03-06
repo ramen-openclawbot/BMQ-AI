@@ -58,7 +58,6 @@ export default function FinanceControl() {
   const [uncStep, setUncStep] = useState<1 | 2 | 3>(1);
   const [uncSkipProcessed, setUncSkipProcessed] = useState(true);
   const [uncScanImagesOnly, setUncScanImagesOnly] = useState(true);
-  const [uncIncludeQtmFolder, setUncIncludeQtmFolder] = useState(false);
   const [uncLowConfidenceThreshold, setUncLowConfidenceThreshold] = useState(0.75);
   const [reconcilingFolderScan, setReconcilingFolderScan] = useState(false);
   const [reconcileProgress, setReconcileProgress] = useState({ done: 0, total: 0, currentFile: "" });
@@ -228,7 +227,6 @@ export default function FinanceControl() {
 
   const expectedFolderFromDate = format(selectedDate, "ddMMyyyy");
   const autoDayFolderPath = format(selectedDate, "yyyy/MM/dd");
-  const computedScanPath = uncIncludeQtmFolder ? autoDayFolderPath : `${autoDayFolderPath}/UNC`;
 
   const extractSlipAmountFromBase64 = async (imageBase64: string, mimeType: string, slipType: "qtm" | "unc") => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -272,6 +270,7 @@ export default function FinanceControl() {
 
   const runFolderReconciliation = async () => {
     setReconcilingFolderScan(true);
+    setQtmReconciling(true);
     setReconcileProgress({ done: 0, total: 0, currentFile: "" });
 
     try {
@@ -289,95 +288,124 @@ export default function FinanceControl() {
         });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
-          throw new Error(err?.error || "Không thể scan folder UNC");
+          throw new Error(err?.error || "Không thể scan folder UNC/QTM");
         }
         return await resp.json();
       };
 
-      let scanData = await scanOnce(computedScanPath);
-      let files = Array.isArray(scanData?.files) ? scanData.files : [];
+      const uncPath = `${autoDayFolderPath}/UNC`;
+      const qtmPath = `${autoDayFolderPath}/QTM`;
 
-      // fallback legacy: day-folder flat files
-      if (!files.length && !uncIncludeQtmFolder) {
-        scanData = await scanOnce(autoDayFolderPath);
-        files = Array.isArray(scanData?.files) ? scanData.files : [];
+      const [uncScanData, qtmScanData] = await Promise.all([
+        scanOnce(uncPath),
+        scanOnce(qtmPath),
+      ]);
+
+      const uncRawFiles = Array.isArray(uncScanData?.files) ? uncScanData.files : [];
+      const qtmRawFiles = Array.isArray(qtmScanData?.files) ? qtmScanData.files : [];
+
+      const normalizeImageFiles = (rows: any[]) =>
+        (rows || []).filter((f: any) => !uncScanImagesOnly || String(f?.mimeType || "").startsWith("image/"));
+
+      let uncFiles = normalizeImageFiles(uncRawFiles);
+      let qtmFiles = normalizeImageFiles(qtmRawFiles);
+
+      // fallback legacy: some old days store UNC files directly under YYYY/MM/DD
+      if (!uncFiles.length) {
+        const dayScanData = await scanOnce(autoDayFolderPath);
+        const dayFiles = normalizeImageFiles(Array.isArray(dayScanData?.files) ? dayScanData.files : []);
+        const isQtmPath = (f: any) => {
+          const haystack = `${String(f?.name || "")} ${String(f?.path || "")} ${String(f?.folderPath || "")} ${String(f?.parentPath || "")}`.toLowerCase();
+          return /(^|\W)qtm($|\W)/i.test(haystack);
+        };
+        uncFiles = dayFiles.filter((f: any) => !isQtmPath(f));
+        if (!qtmFiles.length) qtmFiles = dayFiles.filter((f: any) => isQtmPath(f));
       }
-      const totalScannedCount = files.length;
 
-      const isQtmPath = (f: any) => {
-        const haystack = `${String(f?.name || "")} ${String(f?.path || "")} ${String(f?.folderPath || "")} ${String(f?.parentPath || "")}`.toLowerCase();
-        return /(^|\W)qtm($|\W)/i.test(haystack);
-      };
-
-      const qtmFiles = files.filter((f: any) => isQtmPath(f));
-      const qtmExcludedCount = uncIncludeQtmFolder ? 0 : qtmFiles.length;
-      if (!uncIncludeQtmFolder) {
-        files = files.filter((f: any) => !isQtmPath(f));
-      }
-
-      if (uncScanImagesOnly) {
-        files = files.filter((f: any) => String(f?.mimeType || "").startsWith("image/"));
-      }
-
-      if (!files.length) throw new Error("Folder không có file ảnh hợp lệ để đối soát (đã loại QTM hoặc file không phải ảnh)");
+      const uncTotalScannedCount = uncFiles.length;
+      const qtmTotalScannedCount = qtmFiles.length;
 
       let processedSet = new Set<string>();
       if (uncSkipProcessed) {
-        const fileIds = files.map((f: any) => f.id);
-        const { data: processedRows } = await supabase
-          .from("drive_file_index")
-          .select("file_id")
-          .eq("folder_type", "bank_slip")
-          .eq("processed", true)
-          .in("file_id", fileIds);
-        processedSet = new Set((processedRows || []).map((r: any) => r.file_id));
+        const fileIds = [...uncFiles, ...qtmFiles].map((f: any) => f.id);
+        if (fileIds.length) {
+          const { data: processedRows } = await supabase
+            .from("drive_file_index")
+            .select("file_id")
+            .eq("folder_type", "bank_slip")
+            .eq("processed", true)
+            .in("file_id", fileIds);
+          processedSet = new Set((processedRows || []).map((r: any) => r.file_id));
+        }
       }
 
       const processedSkippedCount = processedSet.size;
-      const targetFiles = files.filter((f: any) => !processedSet.has(f.id));
-      if (!targetFiles.length) throw new Error("Không còn file mới để đối soát (đã xử lý hết)");
+      const targetUncFiles = uncFiles.filter((f: any) => !processedSet.has(f.id));
+      const targetQtmFiles = qtmFiles.filter((f: any) => !processedSet.has(f.id));
 
-      setReconcileProgress({ done: 0, total: targetFiles.length, currentFile: "" });
+      if (!targetUncFiles.length && !targetQtmFiles.length) {
+        throw new Error("Không còn file mới để đối soát trong UNC/QTM (đã xử lý hết)");
+      }
 
-      const items: Array<{ fileId: string; fileName: string; amount: number; confidence: number; status: "matched" | "mismatch" | "needs_review" }> = [];
-      for (let i = 0; i < targetFiles.length; i += 1) {
-        const file = targetFiles[i];
-        setReconcileProgress({ done: i, total: targetFiles.length, currentFile: file.name || "" });
+      const totalTargets = targetUncFiles.length + targetQtmFiles.length;
+      setReconcileProgress({ done: 0, total: totalTargets, currentFile: "" });
+
+      const uncItems: Array<{ fileId: string; fileName: string; amount: number; confidence: number; status: "matched" | "mismatch" | "needs_review" }> = [];
+      let progressDone = 0;
+
+      for (let i = 0; i < targetUncFiles.length; i += 1) {
+        const file = targetUncFiles[i];
+        setReconcileProgress({ done: progressDone, total: totalTargets, currentFile: `[UNC] ${file.name || ""}` });
         const extracted = await extractSlipAmountFromBase64(file.base64, file.mimeType || "image/jpeg", "unc");
         const amount = Number(extracted?.amount || 0);
         const confidence = Number(extracted?.confidence || 0);
-        items.push({
+        uncItems.push({
           fileId: file.id,
           fileName: file.name,
           amount,
           confidence,
           status: confidence < uncLowConfidenceThreshold ? "needs_review" : "matched",
         });
+        progressDone += 1;
       }
 
-      const folderTotal = items.reduce((sum, x) => sum + x.amount, 0);
+      let qtmTotal = 0;
+      let qtmLowConfidence = 0;
+      for (let i = 0; i < targetQtmFiles.length; i += 1) {
+        const file = targetQtmFiles[i];
+        setReconcileProgress({ done: progressDone, total: totalTargets, currentFile: `[QTM] ${file.name || ""}` });
+        const extracted = await extractSlipAmountFromBase64(file.base64, file.mimeType || "image/jpeg", "qtm");
+        const amount = Number(extracted?.amount || 0);
+        const confidence = Number(extracted?.confidence || 0);
+        qtmTotal += amount;
+        if (confidence < uncLowConfidenceThreshold) qtmLowConfidence += 1;
+        progressDone += 1;
+      }
+
+      const folderTotal = uncItems.reduce((sum, x) => sum + x.amount, 0);
       const ceoTotal = Number(uncTotalDeclared || 0);
       const delta = folderTotal - ceoTotal;
       const status: "match" | "mismatch" = delta === 0 ? "match" : "mismatch";
-      const lowConfidenceCount = items.filter((x) => x.status === "needs_review").length;
+      const lowConfidenceCount = uncItems.filter((x) => x.status === "needs_review").length;
 
-      const finalItems = items.map((x) => {
+      const finalItems = uncItems.map((x) => {
         if (x.status === "needs_review") return x;
-        // Item-level mismatch cannot be inferred from total-level delta.
-        // Keep per-file status as matched when OCR is confident.
         return { ...x, status: "matched" as const };
       });
 
-      setReconcileProgress({ done: targetFiles.length, total: targetFiles.length, currentFile: "" });
+      setReconcileProgress({ done: totalTargets, total: totalTargets, currentFile: "" });
+      setQtmSpentFromFolder(Number(qtmTotal || 0));
+      setQtmLowConfidenceCount(Number(qtmLowConfidence || 0));
+
       setUncReconSummary({
-        folderDate: computedScanPath,
+        folderDate: uncPath,
         folderTotal,
         ceoTotal,
         delta,
         status,
         lowConfidenceCount,
-        qtmExcludedCount,
-        totalScannedCount,
+        qtmExcludedCount: 0,
+        totalScannedCount: uncTotalScannedCount,
         processedSkippedCount,
         items: finalItems,
       });
@@ -388,33 +416,44 @@ export default function FinanceControl() {
           closing_date: dateKey,
           extraction_meta: {
             ...(dailyDeclaration?.extraction_meta || {}),
-            unc_folder_path: computedScanPath,
+            unc_folder_path: uncPath,
             unc_folder_total: Number(folderTotal || 0),
             unc_folder_delta: Number(delta || 0),
             unc_folder_status: status,
             unc_folder_low_confidence_count: Number(lowConfidenceCount || 0),
             unc_folder_reconciled_at: new Date().toISOString(),
+            qtm_folder_path: qtmPath,
+            qtm_spent_from_folder: Number(qtmTotal || 0),
+            qtm_low_confidence_count: Number(qtmLowConfidence || 0),
+            qtm_folder_reconciled_at: new Date().toISOString(),
+            qtm_folder_scanned_count: Number(qtmTotalScannedCount || 0),
           },
         }, { onConflict: "closing_date" });
       await refetchDeclaration();
 
-      // Auto-fill only when current CEO declared total is empty/zero.
-      // If CEO already declared a value, keep it for proper mismatch comparison.
       if (ceoTotal === 0) {
         setUncTotalDeclared(folderTotal);
         toast({
           title: isVi ? "Đã tự điền UNC khai báo" : "UNC declared total auto-filled",
           description: isVi
-            ? `Đã cập nhật UNC khai báo = ${vnd(folderTotal)} từ folder ${computedScanPath}`
-            : `CEO UNC declared total updated to ${vnd(folderTotal)} from folder ${computedScanPath}`,
+            ? `Đã cập nhật UNC khai báo = ${vnd(folderTotal)} từ folder ${uncPath}`
+            : `CEO UNC declared total updated to ${vnd(folderTotal)} from folder ${uncPath}`,
         });
       }
 
+      toast({
+        title: isVi ? "Đã đối soát trong ngày" : "Daily reconciliation completed",
+        description: isVi
+          ? `Đã quét UNC (${uncTotalScannedCount} file) + QTM (${qtmTotalScannedCount} file) theo ngày ${format(selectedDate, "dd/MM/yyyy")}`
+          : `Scanned UNC (${uncTotalScannedCount} files) + QTM (${qtmTotalScannedCount} files) for ${format(selectedDate, "dd/MM/yyyy")}`,
+      });
+
       setUncStep(3);
     } catch (e: any) {
-      toast({ title: "Lỗi đối soát UNC", description: e?.message || "Không thể đối soát folder UNC", variant: "destructive" });
+      toast({ title: isVi ? "Lỗi đối soát trong ngày" : "Daily reconciliation error", description: e?.message || "Không thể đối soát UNC/QTM theo ngày", variant: "destructive" });
     } finally {
       setReconcilingFolderScan(false);
+      setQtmReconciling(false);
     }
   };
 
@@ -825,8 +864,8 @@ export default function FinanceControl() {
         <TabsContent value="daily" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>{isVi ? "Đối soát UNC theo folder" : "UNC Reconciliation by folder"}</CardTitle>
-              <CardDescription>{isVi ? "Chọn folder UNC theo ngày (ddmmyyyy), scan toàn bộ ảnh bank slip và đối soát với tổng UNC CEO đã khai báo." : "Pick UNC date folder (ddmmyyyy), scan all bank slip images, and reconcile with CEO UNC declared total."}</CardDescription>
+              <CardTitle>{isVi ? "Đối soát trong ngày" : "Daily reconciliation"}</CardTitle>
+              <CardDescription>{isVi ? "Hệ thống tự quét theo ngày đã chọn cho cả 2 thư mục UNC và QTM (YYYY/MM/DD), ví dụ 06/03/2026 → 2026/03/06." : "System auto-scans both UNC and QTM by selected day path (YYYY/MM/DD), e.g. 06/03/2026 → 2026/03/06."}</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex flex-wrap items-center gap-2">
@@ -835,9 +874,9 @@ export default function FinanceControl() {
                   setUncStep(1);
                   setUncReconSummary(null);
                 }}>
-                  {isVi ? "Đối soát UNC theo folder" : "Reconcile UNC folder"}
+                  {isVi ? "Đối soát trong ngày" : "Run daily reconciliation"}
                 </Button>
-                <Badge variant="secondary">{isVi ? `Ngày đang chọn: ${expectedFolderFromDate}` : `Expected folder: ${expectedFolderFromDate}`}</Badge>
+                <Badge variant="secondary">{isVi ? `Ngày đang chọn: ${expectedFolderFromDate} (scan: ${autoDayFolderPath}/UNC + ${autoDayFolderPath}/QTM)` : `Selected: ${expectedFolderFromDate} (scan: ${autoDayFolderPath}/UNC + ${autoDayFolderPath}/QTM)`}</Badge>
               </div>
             </CardContent>
           </Card>
@@ -938,8 +977,8 @@ export default function FinanceControl() {
                 <Badge variant="outline">{isVi ? `Path quét: ${autoDayFolderPath}/QTM` : `Scan path: ${autoDayFolderPath}/QTM`}</Badge>
               </div>
 
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={runQtmReconciliation} disabled={qtmReconciling}>{qtmReconciling ? (isVi ? "Đang quét QTM..." : "Scanning QTM...") : (isVi ? "Quét chi QTM" : "Scan QTM spent")}</Button>
+              <div className="text-xs text-muted-foreground">
+                {isVi ? "QTM được quét tự động khi bấm nút ‘Đối soát trong ngày’ ở phía trên." : "QTM is scanned automatically when running 'Daily reconciliation' above."}
               </div>
             </CardContent>
           </Card>
@@ -1118,9 +1157,9 @@ export default function FinanceControl() {
       <Dialog open={uncDialogOpen} onOpenChange={setUncDialogOpen}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
-            <DialogTitle>{isVi ? `Đối soát UNC theo folder (Bước ${uncStep}/3)` : `UNC folder reconciliation (Step ${uncStep}/3)`}</DialogTitle>
+            <DialogTitle>{isVi ? `Đối soát trong ngày (Bước ${uncStep}/3)` : `Daily reconciliation (Step ${uncStep}/3)`}</DialogTitle>
             <DialogDescription>
-              {isVi ? "Chọn folder UNC, cấu hình scan, rồi chạy đối soát với tổng khai báo CEO." : "Select UNC folder, configure scan options, then reconcile with CEO declared total."}
+              {isVi ? "Tự động quét cả UNC + QTM theo ngày đã chọn, sau đó đối soát với khai báo CEO." : "Automatically scan UNC + QTM by selected date, then reconcile with CEO declaration."}
             </DialogDescription>
           </DialogHeader>
 
@@ -1129,8 +1168,8 @@ export default function FinanceControl() {
               <Label>{isVi ? "Đường dẫn quét tự động theo ngày" : "Auto scan path by selected date"}</Label>
               <div className="rounded border p-3 text-sm space-y-1">
                 <div>{isVi ? "Ngày đang chọn" : "Selected date"}: <Badge variant="secondary">{format(selectedDate, "dd/MM/yyyy")}</Badge></div>
-                <div>{isVi ? "Chế độ mặc định" : "Default mode"}: <code>{autoDayFolderPath}/UNC</code></div>
-                <div>{isVi ? "Khi bật quét QTM audit" : "When QTM audit is ON"}: <code>{autoDayFolderPath}</code></div>
+                <div>{isVi ? "Đường dẫn UNC" : "UNC path"}: <code>{autoDayFolderPath}/UNC</code></div>
+                <div>{isVi ? "Đường dẫn QTM" : "QTM path"}: <code>{autoDayFolderPath}/QTM</code></div>
               </div>
               <div className="text-xs text-muted-foreground">
                 {isVi
@@ -1142,7 +1181,7 @@ export default function FinanceControl() {
 
           {uncStep === 2 && (
             <div className="space-y-4">
-              <div className="text-sm">{isVi ? "Folder sẽ quét:" : "Folder to scan:"} <Badge variant="secondary">{computedScanPath}</Badge></div>
+              <div className="text-sm">{isVi ? "Folder sẽ quét:" : "Folders to scan:"} <Badge variant="secondary">{autoDayFolderPath}/UNC</Badge> <Badge variant="secondary">{autoDayFolderPath}/QTM</Badge></div>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={uncSkipProcessed} onChange={(e) => setUncSkipProcessed(e.target.checked)} />
                 {isVi ? "Bỏ qua file đã xử lý trước đó" : "Skip previously processed files"}
@@ -1151,13 +1190,7 @@ export default function FinanceControl() {
                 <input type="checkbox" checked={uncScanImagesOnly} onChange={(e) => setUncScanImagesOnly(e.target.checked)} />
                 {isVi ? "Chỉ lấy file ảnh" : "Only include image files"}
               </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={uncIncludeQtmFolder} onChange={(e) => setUncIncludeQtmFolder(e.target.checked)} />
-                {isVi ? "Bao gồm thư mục QTM (chỉ dùng khi audit)" : "Include QTM folder (audit only)"}
-              </label>
-              {!uncIncludeQtmFolder && (
-                <div className="text-xs text-amber-600">{isVi ? "Mặc định đang loại trừ mọi file thuộc thư mục/tên có QTM khỏi đối soát UNC." : "By default, files under QTM folder/name are excluded from UNC reconciliation."}</div>
-              )}
+
               <div className="space-y-2">
                 <Label>{isVi ? "Ngưỡng confidence cần xác nhận" : "Low-confidence review threshold"}</Label>
                 <Input

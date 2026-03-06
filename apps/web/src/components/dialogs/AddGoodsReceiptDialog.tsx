@@ -257,14 +257,52 @@ export function AddGoodsReceiptDialog() {
 
   const mapExtractedItemsToForm = async (extractedItems: ExtractedItem[]) => {
     const autoCreatedSkuCount = { value: 0 };
+
+    const pickBestSku = (item: ExtractedItem) => {
+      const itemName = normalizeText(item.product_name || "");
+      const itemCode = normalizeText(item.product_code || "").replace(/\s+/g, "");
+      const itemTokens = itemName.split(" ").filter(Boolean);
+
+      let best: { sku: any; score: number } | null = null;
+
+      for (const sku of ingredientSkus || []) {
+        const skuName = normalizeText(sku.product_name || "");
+        const skuCode = normalizeText(sku.sku_code || "").replace(/\s+/g, "");
+        const skuTokens = skuName.split(" ").filter(Boolean);
+
+        let score = 0;
+
+        // Name-based matching (primary signal)
+        if (itemName && skuName) {
+          if (itemName === skuName) score += 60;
+          else if (skuName.includes(itemName) || itemName.includes(skuName)) score += 40;
+
+          const overlap = itemTokens.filter((t) => skuTokens.includes(t)).length;
+          if (overlap > 0) {
+            const coverage = overlap / Math.max(itemTokens.length || 1, skuTokens.length || 1);
+            score += Math.round(coverage * 40);
+          }
+        }
+
+        // Code-based matching (secondary, can be noisy OCR)
+        const hasCodeHit = Boolean(itemCode && skuCode && (skuCode.includes(itemCode) || itemCode.includes(skuCode)));
+        if (hasCodeHit) score += 35;
+
+        // Guardrail: code hit but name almost unrelated => penalize hard
+        const nameOverlap = itemTokens.filter((t) => skuTokens.includes(t)).length;
+        if (hasCodeHit && nameOverlap === 0 && itemTokens.length > 0) {
+          score -= 30;
+        }
+
+        if (!best || score > best.score) best = { sku, score };
+      }
+
+      return best && best.score >= 55 ? best.sku : null;
+    };
+
     const matchedItems: MatchedFormItem[] = await Promise.all(
       extractedItems.map(async (item) => {
-        const matchedSku = ingredientSkus?.find(
-          (sku) =>
-            (item.product_code && sku.sku_code.toLowerCase().includes(item.product_code.toLowerCase())) ||
-            sku.product_name.toLowerCase().includes(item.product_name.toLowerCase()) ||
-            item.product_name.toLowerCase().includes(sku.product_name.toLowerCase())
-        );
+        const matchedSku = pickBestSku(item);
 
         if (matchedSku) {
           return {
@@ -942,9 +980,11 @@ export function AddGoodsReceiptDialog() {
                           </TableCell>
                           <TableCell>
                             <Input
-                              type="number"
-                              step="0.01"
-                              {...form.register(`items.${index}.quantity`)}
+                              type="text"
+                              inputMode="decimal"
+                              {...form.register(`items.${index}.quantity`, {
+                                setValueAs: (v) => parseQuantity(v),
+                              })}
                               placeholder="0"
                             />
                           </TableCell>

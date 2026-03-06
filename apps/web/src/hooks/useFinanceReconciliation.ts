@@ -26,16 +26,19 @@ export function useUncDetailAmount(closingDate: Date) {
   return useQuery({
     queryKey: ["unc-detail-amount", date],
     queryFn: async () => {
+      const startUtc = new Date(`${date}T00:00:00+07:00`).toISOString();
+      const endUtc = new Date(`${date}T23:59:59.999+07:00`).toISOString();
+
       const [byCreatedAtRes, byInvoiceDateRes] = await Promise.all([
         supabase
           .from("payment_requests")
-          .select("id,total_amount")
+          .select("id,total_amount,title,description,notes,image_url")
           .eq("payment_method", "bank_transfer")
-          .gte("created_at", `${date}T00:00:00`)
-          .lte("created_at", `${date}T23:59:59.999`),
+          .gte("created_at", startUtc)
+          .lte("created_at", endUtc),
         (supabase as any)
           .from("payment_requests")
-          .select("id,total_amount,invoices!payment_requests_invoice_id_fkey(invoice_date)")
+          .select("id,total_amount,title,description,notes,image_url,invoices!payment_requests_invoice_id_fkey(invoice_date)")
           .eq("payment_method", "bank_transfer")
           .eq("invoices.invoice_date", date),
       ]);
@@ -43,11 +46,21 @@ export function useUncDetailAmount(closingDate: Date) {
       if (byCreatedAtRes.error) throw byCreatedAtRes.error;
       if (byInvoiceDateRes.error) throw byInvoiceDateRes.error;
 
+      const isLikelyQtm = (row: any) => {
+        const haystack = [row?.title, row?.description, row?.notes, row?.image_url]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return /(^|\W)qtm($|\W)|quỹ\s*tiền\s*mặt|quy\s*tien\s*mat|cash\s*fund/i.test(haystack);
+      };
+
       const merged = new Map<string, number>();
       for (const row of (byCreatedAtRes.data || []) as any[]) {
+        if (isLikelyQtm(row)) continue;
         merged.set(row.id, Number(row.total_amount || 0));
       }
       for (const row of (byInvoiceDateRes.data || []) as any[]) {
+        if (isLikelyQtm(row)) continue;
         if (!merged.has(row.id)) merged.set(row.id, Number(row.total_amount || 0));
       }
 
