@@ -185,3 +185,31 @@ Persist kết quả quét folder UNC vào ceo_daily_closing_declarations.extract
 - Tags: finance, reconciliation, source-of-truth, correction
 
 ---
+
+## [LRN-20260306-002] best_practice
+
+**Logged**: 2026-03-06T23:00:00+07:00
+**Priority**: high
+**Status**: pending
+**Area**: backend
+
+### Summary
+Với lỗi scan/OCR timeout trên Drive slips, cách ổn định nhất là chuyển sang pipeline lazy download + retry có điều kiện thay vì quét trả base64 cả folder.
+
+### Details
+Trong Finance Control, flow cũ trả base64 cho toàn bộ UNC/QTM ngay lúc scan nên dễ timeout ở edge/gateway. Cách xử lý hiệu quả đã được user xác nhận chạy tốt:
+1) scan metadata-only (`includeBase64=false`),
+2) tải file từng cái khi cần OCR (`mode=download_file`),
+3) OCR retry 1 lần với nén ảnh mạnh hơn khi timeout,
+4) scan UNC/QTM tuần tự + retry 1 lần cho timeout ngắn,
+5) persist `processed=true` để skip ở lần quét sau.
+
+### Suggested Action
+Giữ pattern này làm chuẩn cho các flow scan file lớn: tách "list" và "download", tránh payload lớn trong 1 request, có retry theo loại lỗi timeout, và cache trạng thái processed.
+
+### Metadata
+- Source: user_feedback
+- Related Files: apps/web/src/pages/FinanceControl.tsx; apps/web/supabase/functions/scan-drive-folder/index.ts
+- Tags: timeout, drive-scan, ocr, performance, reconciliation
+
+---

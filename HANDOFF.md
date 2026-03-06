@@ -1,10 +1,30 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.14**
+- apps/web: **0.0.15**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
 - Latest commit at handoff time: `git log -1 --oneline`
+
+## Latest update (2026-03-06 night)
+### Finance Control reconciliation hotfixes (UNC/QTM scan + OCR timeout mitigation)
+- Fix auth profile fetch 406 (PGRST116): đổi `single()` -> `maybeSingle()` trong `AuthContext`.
+- Tối ưu scan folder cho đối soát:
+  - `scan-drive-folder` hỗ trợ `skipProcessed` + `folderType`, lọc file đã xử lý ở server-side trước khi tải base64.
+  - thêm timeout cho từng request Google Drive (list/download) để tránh treo cả request UNC.
+- Tối ưu OCR UNC/QTM:
+  - nén/resize ảnh slip client-side trước khi gọi `finance-extract-slip-amount` để giảm payload, giảm xác suất timeout.
+- Đánh dấu processed ngay sau đối soát:
+  - sau khi quét & đối soát ngày xong, upsert `drive_file_index` với `processed=true`, `processed_at`, `last_seen_at` để lần chạy sau bỏ qua nhanh hơn, kể cả khi sync index nền bị chậm.
+- User validation:
+  - 2026-03-06 22:59 ICT: user xác nhận bản fix mới chạy tốt trên luồng đối soát.
+
+### Commit đáng chú ý (2026-03-06)
+- `32fc855` fix(auth): avoid 406 when profile row is missing by using maybeSingle
+- `6b99ecd` perf(reconcile): skip processed files server-side before downloading base64
+- `185d1b7` fix(reconcile): persist processed bank-slip markers after daily scan to speed reruns
+- `c02d41e` perf(ocr): compress slip images client-side before extract to reduce timeout risk
+- `c7af090` perf(scan-drive-folder): add per-request timeouts to avoid UNC scan hanging
 
 ## Latest update (2026-03-03 early morning)
 ### PO Quick View + Revenue Control filter hardening
