@@ -19,9 +19,11 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import {
   useDailyDeclaration,
+  useDailyDeclarationImages,
   useDailyReconciliation,
   useMonthlyReconciliation,
   useUncDetailAmount,
+  useQtmOpeningBalance,
 } from "@/hooks/useFinanceReconciliation";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -51,6 +53,8 @@ export default function FinanceControl() {
   const isVi = language === "vi";
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date());
+  const [activeTab, setActiveTab] = useState<string>("daily");
+  const [imagesRequested, setImagesRequested] = useState(false);
   const [saving, setSaving] = useState(false);
   const [reconciling, setReconciling] = useState(false);
   const [extracting, setExtracting] = useState(false);
@@ -83,7 +87,9 @@ export default function FinanceControl() {
   const { data: dailyDeclaration, isLoading: declarationLoading, isFetching: declarationFetching, refetch: refetchDeclaration } = useDailyDeclaration(selectedDate);
   const { data: uncDetailAmount, refetch: refetchUncDetail } = useUncDetailAmount(selectedDate);
   const { data: dailyReconciliation, refetch: refetchDailyReconciliation } = useDailyReconciliation(selectedDate);
-  const { data: monthlySummary, refetch: refetchMonthly } = useMonthlyReconciliation(selectedMonth);
+  const { data: monthlySummary, refetch: refetchMonthly } = useMonthlyReconciliation(selectedMonth, activeTab === "monthly");
+  const { data: declarationImages } = useDailyDeclarationImages(selectedDate, imagesRequested);
+  const { data: qtmOpeningBalanceFromHook } = useQtmOpeningBalance(selectedDate, dailyDeclaration?.extraction_meta);
 
   const [uncTotalDeclared, setUncTotalDeclared] = useState<number>(0);
   const [cashFundTopupAmount, setCashFundTopupAmount] = useState<number>(0);
@@ -121,22 +127,20 @@ export default function FinanceControl() {
     setQtmSpentFromFolder(Number(dailyDeclaration?.extraction_meta?.qtm_spent_from_folder || 0));
     setQtmLowConfidenceCount(Number(dailyDeclaration?.extraction_meta?.qtm_low_confidence_count || 0));
 
-    const qtmSaved = Array.isArray(dailyDeclaration?.extraction_meta?.qtm_images)
-      ? dailyDeclaration.extraction_meta.qtm_images
-      : (dailyDeclaration?.qtm_slip_image_base64 ? [dailyDeclaration.qtm_slip_image_base64] : []);
-    const uncSaved = Array.isArray(dailyDeclaration?.extraction_meta?.unc_images)
-      ? dailyDeclaration.extraction_meta.unc_images
-      : (dailyDeclaration?.unc_slip_image_base64 ? [dailyDeclaration.unc_slip_image_base64] : []);
-
-    setQtmSlipPreviews(qtmSaved.map((b64: string) => `data:image/jpeg;base64,${b64}`));
-    setUncSlipPreviews(uncSaved.map((b64: string) => `data:image/jpeg;base64,${b64}`));
-
-    // clear unsaved local state when data source changes (e.g. switch date)
+    // Images are now loaded lazily via useDailyDeclarationImages – don't extract here.
+    // Only clear unsaved local state when data source changes (e.g. switch date)
     setPendingQtmImagesBase64([]);
     setPendingUncImagesBase64([]);
     setPendingQtmExtractedList([]);
     setPendingUncExtractedList([]);
   }, [dailyDeclaration, declarationLoading, declarationFetching]);
+
+  // Populate slip previews from the lazy image hook when it arrives
+  useEffect(() => {
+    if (!declarationImages) return;
+    setQtmSlipPreviews(declarationImages.qtmImages.map((b64: string) => `data:image/jpeg;base64,${b64}`));
+    setUncSlipPreviews(declarationImages.uncImages.map((b64: string) => `data:image/jpeg;base64,${b64}`));
+  }, [declarationImages]);
 
   const dateKey = format(selectedDate, "yyyy-MM-dd");
 
@@ -157,79 +161,17 @@ export default function FinanceControl() {
     setPendingUncImagesBase64([]);
     setPendingQtmExtractedList([]);
     setPendingUncExtractedList([]);
+    // Reset lazy image loading for new date – will re-trigger on hover
+    setImagesRequested(false);
   }, [dateKey]);
 
+  // QTM opening balance is now powered by a dedicated React Query hook
+  // (useQtmOpeningBalance) which provides caching + automatic dedup.
   useEffect(() => {
-    let active = true;
-
-    const toNumberOrNull = (v: any) => {
-      if (v === null || v === undefined || v === "") return null;
-      const n = Number(v);
-      return Number.isFinite(n) ? n : null;
-    };
-
-    const deriveClosingFromRow = (row: any): number | null => {
-      if (!row) return null;
-      const explicitClosing = toNumberOrNull(row?.extraction_meta?.qtm_closing_balance);
-      if (explicitClosing !== null) return explicitClosing;
-
-      const opening = toNumberOrNull(row?.extraction_meta?.qtm_opening_balance);
-      const spent = toNumberOrNull(row?.extraction_meta?.qtm_spent_from_folder);
-      const topup = toNumberOrNull(row?.qtm_extracted_amount) ?? toNumberOrNull(row?.cash_fund_topup_amount);
-      if (opening !== null || spent !== null || topup !== null) {
-        return Number(opening || 0) + Number(topup || 0) - Number(spent || 0);
-      }
-
-      return null;
-    };
-
-    const loadPrevQtmBalance = async () => {
-      const selectedDateKey = format(selectedDate, "yyyy-MM-dd");
-      const prevDate = format(subDays(selectedDate, 1), "yyyy-MM-dd");
-
-      // 1) Ưu tiên đúng ngày hôm trước.
-      const { data: prevData } = await (supabase as any)
-        .from("ceo_daily_closing_declarations")
-        .select("closing_date,cash_fund_topup_amount,qtm_extracted_amount,extraction_meta")
-        .eq("closing_date", prevDate)
-        .maybeSingle();
-
-      if (!active) return;
-
-      const prevClosing = deriveClosingFromRow(prevData);
-      if (prevClosing !== null) {
-        setQtmOpeningBalance(prevClosing);
-        return;
-      }
-
-      // 2) Nếu thiếu dữ liệu hôm trước, lấy ngày gần nhất trước ngày đang chọn.
-      const { data: nearestPrevData } = await (supabase as any)
-        .from("ceo_daily_closing_declarations")
-        .select("closing_date,cash_fund_topup_amount,qtm_extracted_amount,extraction_meta")
-        .lt("closing_date", selectedDateKey)
-        .order("closing_date", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (!active) return;
-
-      const nearestPrevClosing = deriveClosingFromRow(nearestPrevData);
-      if (nearestPrevClosing !== null) {
-        setQtmOpeningBalance(nearestPrevClosing);
-        return;
-      }
-
-      // 3) Fallback cuối: dùng opening đã lưu của ngày hiện tại (nếu có), không thì 0.
-      const currentStoredOpening = toNumberOrNull(dailyDeclaration?.extraction_meta?.qtm_opening_balance);
-      setQtmOpeningBalance(Number(currentStoredOpening || 0));
-    };
-
-    loadPrevQtmBalance();
-
-    return () => {
-      active = false;
-    };
-  }, [selectedDate, dailyDeclaration]);
+    if (qtmOpeningBalanceFromHook !== undefined) {
+      setQtmOpeningBalance(Number(qtmOpeningBalanceFromHook || 0));
+    }
+  }, [qtmOpeningBalanceFromHook]);
 
   const expectedFolderFromDate = format(selectedDate, "ddMMyyyy");
   const autoDayFolderPath = format(selectedDate, "yyyy/MM/dd");
@@ -1011,7 +953,7 @@ export default function FinanceControl() {
         </Card>
       </div>
 
-      <Tabs defaultValue="daily" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="daily">{isVi ? "Đối soát ngày" : "Daily Reconciliation"}</TabsTrigger>
           <TabsTrigger value="monthly">{isVi ? "Chốt tháng" : "Monthly Closing"}</TabsTrigger>
@@ -1044,7 +986,7 @@ export default function FinanceControl() {
               <CardTitle>{isVi ? "Khai báo CEO (upload slip)" : "CEO Declaration (upload slips)"}</CardTitle>
               <CardDescription>{isVi ? "CEO upload slip theo 2 nguồn quỹ: NGÂN HÀNG và QTM. Hệ thống OCR tự cộng tổng khai báo theo ngày." : "CEO uploads slips by fund source: BANK and QTM. OCR auto-accumulates declared totals by day."}</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4" onMouseEnter={() => { if (!imagesRequested) setImagesRequested(true); }}>
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{isVi ? "Slip QTM" : "QTM slips"}</Label>
