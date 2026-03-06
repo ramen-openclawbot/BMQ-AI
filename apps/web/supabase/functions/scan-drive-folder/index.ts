@@ -166,7 +166,7 @@ serve(async (req) => {
     console.log("[scan-drive-folder] User authenticated:", user.id);
 
     // Parse request body
-    const { folderUrl, subfolderDate, mode, parentPath, includeBase64 = true, skipProcessed = false, folderType = 'bank_slip' } = await req.json();
+    const { folderUrl, subfolderDate, mode, parentPath, includeBase64 = true, skipProcessed = false, folderType = 'bank_slip', fileId, fileName, mimeType } = await req.json();
 
     if (!folderUrl) {
       return new Response(JSON.stringify({ error: 'Missing folderUrl' }), {
@@ -311,6 +311,54 @@ serve(async (req) => {
         success: true, 
         mode: 'list_all_dates',
         dates,
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // MODE: download_file - Download a single file by id (used for lazy OCR pipeline)
+    if (mode === 'download_file') {
+      if (!fileId) {
+        return new Response(JSON.stringify({ error: 'Missing fileId' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+      const downloadResponse = await fetchWithTimeout(downloadUrl, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      }, 10000);
+
+      if (!downloadResponse.ok) {
+        const errorText = await downloadResponse.text().catch(() => '');
+        return new Response(JSON.stringify({ error: 'Failed to download file', details: errorText }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const arrayBuffer = await downloadResponse.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      let binaryString = '';
+      const chunkSize = 8192;
+      for (let i = 0; i < uint8Array.length; i += chunkSize) {
+        const chunk = uint8Array.slice(i, i + chunkSize);
+        binaryString += String.fromCharCode.apply(null, Array.from(chunk));
+      }
+      const base64 = btoa(binaryString);
+
+      return new Response(JSON.stringify({
+        success: true,
+        file: {
+          id: String(fileId),
+          name: String(fileName || fileId),
+          mimeType: String(mimeType || 'image/jpeg'),
+          base64,
+        },
       }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

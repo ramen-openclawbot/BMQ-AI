@@ -338,7 +338,7 @@ export default function FinanceControl() {
               subfolderDate,
               folderType: "bank_slip",
               skipProcessed: uncSkipProcessed,
-              includeBase64: true,
+              includeBase64: false,
             }),
           }, 45000);
           if (!resp.ok) {
@@ -365,6 +365,31 @@ export default function FinanceControl() {
           // Retry once for transient gateway/network hiccups.
           return await scanOnce(subfolderDate);
         }
+      };
+
+      const downloadBase64File = async (f: any) => {
+        const resp = await fetchWithTimeout(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          },
+          body: JSON.stringify({
+            mode: "download_file",
+            folderUrl,
+            fileId: f.id,
+            fileName: f.name,
+            mimeType: f.mimeType || "image/jpeg",
+          }),
+        }, 45000);
+
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err?.error || `Không thể tải file ${String(f?.name || f?.id || "")}`);
+        }
+
+        const data = await resp.json();
+        return data?.file || null;
       };
 
       const uncPath = `${autoDayFolderPath}/UNC`;
@@ -423,7 +448,12 @@ export default function FinanceControl() {
       for (let i = 0; i < targetUncFiles.length; i += 1) {
         const file = targetUncFiles[i];
         setReconcileProgress({ done: progressDone, total: totalTargets, currentFile: `[UNC] ${file.name || ""}` });
-        const extracted = await extractSlipAmountFromBase64(file.base64, file.mimeType || "image/jpeg", "unc");
+        const downloaded = await downloadBase64File(file);
+        if (!downloaded?.base64) {
+          progressDone += 1;
+          continue;
+        }
+        const extracted = await extractSlipAmountFromBase64(downloaded.base64, downloaded.mimeType || file.mimeType || "image/jpeg", "unc");
         const amount = Number(extracted?.amount || 0);
         const confidence = Number(extracted?.confidence || 0);
         uncItems.push({
@@ -441,7 +471,12 @@ export default function FinanceControl() {
       for (let i = 0; i < targetQtmFiles.length; i += 1) {
         const file = targetQtmFiles[i];
         setReconcileProgress({ done: progressDone, total: totalTargets, currentFile: `[QTM] ${file.name || ""}` });
-        const extracted = await extractSlipAmountFromBase64(file.base64, file.mimeType || "image/jpeg", "qtm");
+        const downloaded = await downloadBase64File(file);
+        if (!downloaded?.base64) {
+          progressDone += 1;
+          continue;
+        }
+        const extracted = await extractSlipAmountFromBase64(downloaded.base64, downloaded.mimeType || file.mimeType || "image/jpeg", "qtm");
         const amount = Number(extracted?.amount || 0);
         const confidence = Number(extracted?.confidence || 0);
         qtmTotal += amount;
