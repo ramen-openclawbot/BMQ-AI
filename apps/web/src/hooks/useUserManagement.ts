@@ -267,7 +267,66 @@ export function useInviteUser() {
 }
 
 // ---------------------------------------------------------------------------
-// 7. useDeleteUser — remove user's role + profile (revoke access)
+// Default permission sets per role (mirrors the SQL seed logic)
+// ---------------------------------------------------------------------------
+const DEFAULT_VIEW: Record<string, string[]> = {
+  staff: ["dashboard","reports","finance_cost","finance_revenue","crm","sales_po_inbox","purchase_orders","inventory","goods_receipts","sku_costs","suppliers","invoices","payment_requests","low_stock","settings"],
+  warehouse: ["dashboard","purchase_orders","inventory","goods_receipts","suppliers","invoices","low_stock","settings"],
+  viewer: ["dashboard","inventory","low_stock","settings"],
+};
+const DEFAULT_EDIT: Record<string, string[]> = {
+  staff: ["dashboard","finance_cost","finance_revenue","crm","sales_po_inbox","purchase_orders","suppliers","invoices","payment_requests"],
+  warehouse: ["inventory","goods_receipts"],
+  viewer: [],
+};
+
+const ALL_MODULE_KEYS = [
+  "dashboard","reports","niraan_dashboard","finance_cost","finance_revenue","crm",
+  "sales_po_inbox","purchase_orders","inventory","goods_receipts","sku_costs",
+  "suppliers","invoices","payment_requests","low_stock","settings",
+];
+
+// ---------------------------------------------------------------------------
+// 7. useResetPermissionsToDefault — bulk upsert permissions based on role
+// ---------------------------------------------------------------------------
+export function useResetPermissionsToDefault() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
+      const viewSet = DEFAULT_VIEW[role] || [];
+      const editSet = DEFAULT_EDIT[role] || [];
+
+      const rows = ALL_MODULE_KEYS.map((key) => ({
+        user_id: userId,
+        module_key: key,
+        can_view: viewSet.includes(key),
+        can_edit: editSet.includes(key),
+      }));
+
+      const { error } = await (supabase as any)
+        .from("user_module_permissions")
+        .upsert(rows, { onConflict: "user_id,module_key" });
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["user-management-permissions"] });
+      toast({ title: "Đã gán quyền mặc định theo role" });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Lỗi gán quyền",
+        description: err?.message || "Vui lòng thử lại",
+        variant: "destructive",
+      });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 8. useDeleteUser — remove user's role + profile (revoke access)
 // Note: cannot delete from auth.users without service_role key.
 // Deleting profile + role effectively blocks all access.
 // ---------------------------------------------------------------------------

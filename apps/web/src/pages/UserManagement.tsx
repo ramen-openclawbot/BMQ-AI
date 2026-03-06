@@ -7,6 +7,7 @@ import {
   useAssignRole,
   useUpdatePermission,
   useDeleteUser,
+  useResetPermissionsToDefault,
   useInvitations,
   useInviteUser,
   useCancelInvitation,
@@ -32,7 +33,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Users, Mail, Shield, X, Trash2 } from "lucide-react";
+import { Loader2, Users, Mail, Shield, X, Trash2, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
@@ -434,6 +435,7 @@ function PermissionsTab({ isVi }: { isVi: boolean }) {
   const { data: users, isLoading: usersLoading } = useUsersList();
   const { data: permissions, isLoading: permsLoading } = useAllPermissions();
   const updatePermission = useUpdatePermission();
+  const resetToDefault = useResetPermissionsToDefault();
 
   const isLoading = usersLoading || permsLoading;
 
@@ -510,12 +512,26 @@ function PermissionsTab({ isVi }: { isVi: boolean }) {
                   Module
                 </TableHead>
                 {nonOwnerUsers.map((u) => (
-                  <TableHead key={u.user_id} className="text-center min-w-[120px]">
-                    <div className="space-y-1">
+                  <TableHead key={u.user_id} className="text-center min-w-[140px]">
+                    <div className="space-y-1.5">
                       <div className="font-medium text-xs">{u.full_name || u.email || "—"}</div>
                       <Badge variant={ROLE_BADGE[u.role || "viewer"]?.variant || "outline"} className="text-[10px]">
                         {ROLE_BADGE[u.role || "viewer"]?.label || u.role}
                       </Badge>
+                      {/* Reset to default button */}
+                      <div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-[10px] px-1.5 text-muted-foreground hover:text-foreground gap-1"
+                          onClick={() => resetToDefault.mutate({ userId: u.user_id, role: u.role || "viewer" })}
+                          disabled={resetToDefault.isPending}
+                          title={isVi ? "Gán quyền mặc định theo role" : "Reset to role defaults"}
+                        >
+                          <RefreshCw className="h-2.5 w-2.5" />
+                          {isVi ? "Mặc định" : "Defaults"}
+                        </Button>
+                      </div>
                     </div>
                   </TableHead>
                 ))}
