@@ -5,7 +5,15 @@ import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Max-Age': '86400',
 };
+
+const jsonResponse = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
 
 interface DriveFile {
   id: string;
@@ -128,7 +136,7 @@ serve(async (req) => {
   console.log("[sync-drive-index] Request started");
 
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response('ok', { headers: corsHeaders, status: 200 });
   }
 
   try {
@@ -136,10 +144,7 @@ serve(async (req) => {
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       console.log("[sync-drive-index] Missing authorization header");
-      return new Response(JSON.stringify({ error: 'Missing authorization header' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ error: 'Missing authorization header' }, 401);
     }
 
     const token = authHeader.replace('Bearer ', '');
@@ -155,23 +160,19 @@ serve(async (req) => {
     const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
     if (authError || !user) {
       console.log("[sync-drive-index] Invalid or expired token:", authError?.message);
-      return new Response(JSON.stringify({ error: 'Invalid or expired token' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ error: 'Invalid or expired token' }, 401);
     }
 
     console.log("[sync-drive-index] User authenticated:", user.id);
 
     // Parse request
-    const { folderType } = await req.json();
+    const { folderType, maxFolders } = await req.json();
     
     if (!folderType || !['po', 'bank_slip'].includes(folderType)) {
-      return new Response(JSON.stringify({ error: 'Invalid folderType. Must be "po" or "bank_slip"' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ error: 'Invalid folderType. Must be "po" or "bank_slip"' }, 400);
     }
+
+    const cappedFolders = Math.max(1, Math.min(Number(maxFolders || 60), 200));
 
     // Get folder URL from settings
     const settingKey = folderType === 'po' 
@@ -185,21 +186,13 @@ serve(async (req) => {
       .single();
 
     if (!settingData?.value) {
-      return new Response(JSON.stringify({ 
-        error: `Folder ${folderType} chưa được cấu hình` 
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ error: `Folder ${folderType} chưa được cấu hình` }, 400);
     }
 
     // Extract folder ID
     const folderIdMatch = settingData.value.match(/\/folders\/([a-zA-Z0-9_-]+)/);
     if (!folderIdMatch) {
-      return new Response(JSON.stringify({ error: 'Invalid Google Drive folder URL' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ error: 'Invalid Google Drive folder URL' }, 400);
     }
 
     const rootFolderId = folderIdMatch[1];
@@ -207,59 +200,62 @@ serve(async (req) => {
     // Get access token
     const accessToken = await getAccessToken(supabaseAdmin);
     if (!accessToken) {
-      return new Response(JSON.stringify({ 
-        error: 'Google Drive not connected. Please connect in Settings.' 
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ error: 'Google Drive not connected. Please connect in Settings.' }, 400);
     }
 
     // List all date subfolders
     console.log(`[sync-drive-index] Starting sync for ${folderType}`);
-    const dateFolders = await listSubfolders(accessToken, rootFolderId);
-    console.log(`[sync-drive-index] Found ${dateFolders.length} date folders`);
+    const allDateFolders = await listSubfolders(accessToken, rootFolderId);
+    const dateFolders = allDateFolders.slice(0, cappedFolders);
+    console.log(`[sync-drive-index] Found ${allDateFolders.length} folders, scanning ${dateFolders.length}`);
 
     let totalFilesSynced = 0;
     const errors: string[] = [];
     const now = new Date().toISOString();
 
-    // Process each date folder
-    for (const folder of dateFolders) {
-      try {
-        const files = await listAllFilesInFolder(accessToken, folder.id);
-        
-        if (files.length === 0) continue;
+    // Process folders with bounded concurrency to avoid long serial runtime / 504.
+    const concurrency = 6;
+    for (let i = 0; i < dateFolders.length; i += concurrency) {
+      const chunk = dateFolders.slice(i, i + concurrency);
+      const chunkResults = await Promise.allSettled(
+        chunk.map(async (folder) => {
+          const files = await listAllFilesInFolder(accessToken, folder.id);
+          if (!files.length) return { folder: folder.name, files: 0, ok: true as const };
 
-        // Prepare upsert data
-        const upsertData = files.map(file => ({
-          file_id: file.id,
-          file_name: file.name,
-          folder_date: folder.name,
-          folder_type: folderType,
-          mime_type: file.mimeType,
-          parent_folder_id: folder.id,
-          file_size: file.size ? parseInt(file.size) : null,
-          last_seen_at: now,
-        }));
+          const upsertData = files.map(file => ({
+            file_id: file.id,
+            file_name: file.name,
+            folder_date: folder.name,
+            folder_type: folderType,
+            mime_type: file.mimeType,
+            parent_folder_id: folder.id,
+            file_size: file.size ? parseInt(file.size) : null,
+            last_seen_at: now,
+          }));
 
-        // Batch upsert into drive_file_index
-        const { error: upsertError } = await supabaseAdmin
-          .from('drive_file_index')
-          .upsert(upsertData, { 
-            onConflict: 'file_id',
-            ignoreDuplicates: false
-          });
+          const { error: upsertError } = await supabaseAdmin
+            .from('drive_file_index')
+            .upsert(upsertData, {
+              onConflict: 'file_id',
+              ignoreDuplicates: false,
+            });
 
-        if (upsertError) {
-          console.error(`[sync-drive-index] Error upserting files from folder ${folder.name}:`, upsertError);
-          errors.push(`Folder ${folder.name}: ${upsertError.message}`);
+          if (upsertError) {
+            throw new Error(`Folder ${folder.name}: ${upsertError.message}`);
+          }
+
+          return { folder: folder.name, files: files.length, ok: true as const };
+        })
+      );
+
+      for (const r of chunkResults) {
+        if (r.status === 'fulfilled') {
+          totalFilesSynced += Number(r.value?.files || 0);
         } else {
-          totalFilesSynced += files.length;
+          const msg = r.reason instanceof Error ? r.reason.message : String(r.reason || 'Unknown error');
+          console.error('[sync-drive-index] Chunk item failed:', msg);
+          errors.push(msg);
         }
-      } catch (err) {
-        console.error(`[sync-drive-index] Error processing folder ${folder.name}:`, err);
-        errors.push(`Folder ${folder.name}: ${err instanceof Error ? err.message : 'Unknown error'}`);
       }
     }
 
@@ -280,24 +276,18 @@ serve(async (req) => {
 
     console.log(`[sync-drive-index] Sync complete in ${Date.now() - startTime}ms: ${totalFilesSynced} files, status: ${syncStatus}`);
 
-    return new Response(JSON.stringify({
+    return jsonResponse({
       success: true,
       folderType,
       foldersScanned: dateFolders.length,
       filesSynced: totalFilesSynced,
       status: syncStatus,
       errors: errors.length > 0 ? errors : undefined,
-    }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    }, 200);
 
   } catch (error: unknown) {
     console.error('[sync-drive-index] Error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ error: message }, 500);
   }
 });
