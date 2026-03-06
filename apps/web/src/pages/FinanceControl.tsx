@@ -230,7 +230,7 @@ export default function FinanceControl() {
   const expectedFolderFromDate = format(selectedDate, "ddMMyyyy");
   const autoDayFolderPath = format(selectedDate, "yyyy/MM/dd");
 
-  const optimizeSlipImageForOcr = async (imageBase64: string, mimeType: string) => {
+  const optimizeSlipImageForOcr = async (imageBase64: string, mimeType: string, aggressive = false) => {
     try {
       if (typeof window === "undefined") return { imageBase64, mimeType };
       const src = `data:${mimeType || "image/jpeg"};base64,${imageBase64}`;
@@ -241,7 +241,8 @@ export default function FinanceControl() {
         el.src = src;
       });
 
-      const maxW = 1600;
+      const maxW = aggressive ? 1200 : 1600;
+      const quality = aggressive ? 0.62 : 0.78;
       const scale = Math.min(1, maxW / Math.max(1, img.width));
       const w = Math.max(1, Math.round(img.width * scale));
       const h = Math.max(1, Math.round(img.height * scale));
@@ -253,11 +254,11 @@ export default function FinanceControl() {
       ctx.drawImage(img, 0, 0, w, h);
 
       const outMime = "image/jpeg";
-      const outDataUrl = canvas.toDataURL(outMime, 0.78);
+      const outDataUrl = canvas.toDataURL(outMime, quality);
       const outBase64 = outDataUrl.split(",")[1] || imageBase64;
 
       // Only use compressed version if it is materially smaller.
-      if (outBase64.length < imageBase64.length * 0.95) {
+      if (outBase64.length < imageBase64.length * (aggressive ? 0.85 : 0.95)) {
         return { imageBase64: outBase64, mimeType: outMime };
       }
       return { imageBase64, mimeType };
@@ -269,8 +270,8 @@ export default function FinanceControl() {
   const extractSlipAmountFromBase64 = async (imageBase64: string, mimeType: string, slipType: "qtm" | "unc") => {
     const { data: { session } } = await supabase.auth.getSession();
 
-    try {
-      const optimized = await optimizeSlipImageForOcr(imageBase64, mimeType);
+    const callExtract = async (aggressive: boolean) => {
+      const optimized = await optimizeSlipImageForOcr(imageBase64, mimeType, aggressive);
       const response = await fetchWithTimeout(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/finance-extract-slip-amount`, {
         method: "POST",
         headers: {
@@ -287,12 +288,26 @@ export default function FinanceControl() {
 
       const result = await response.json();
       return result.data as { amount: number; confidence?: number; transfer_date?: string; reference?: string };
+    };
+
+    try {
+      return await callExtract(false);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error || "");
-      if (msg.includes("AbortError") || msg.toLowerCase().includes("aborted") || msg.toLowerCase().includes("timeout")) {
-        throw new Error(`OCR slip ${slipType.toUpperCase()} quá thời gian chờ`);
+      const isTimeout = msg.includes("AbortError") || msg.toLowerCase().includes("aborted") || msg.toLowerCase().includes("timeout");
+      if (!isTimeout) throw error;
+
+      // Retry once with stronger compression to reduce payload/latency.
+      try {
+        return await callExtract(true);
+      } catch (retryError) {
+        const retryMsg = retryError instanceof Error ? retryError.message : String(retryError || "");
+        const stillTimeout = retryMsg.includes("AbortError") || retryMsg.toLowerCase().includes("aborted") || retryMsg.toLowerCase().includes("timeout");
+        if (stillTimeout) {
+          throw new Error(`OCR slip ${slipType.toUpperCase()} quá thời gian chờ`);
+        }
+        throw retryError;
       }
-      throw error;
     }
   };
 
