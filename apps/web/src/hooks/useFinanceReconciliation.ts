@@ -116,23 +116,39 @@ export function useMonthlyReconciliation(month: Date) {
         declarationMap.set(String(d.closing_date), d);
       }
 
-      const rows = (reconRes.data || []).map((r: any) => {
-        const decl = declarationMap.get(String(r.closing_date));
-        const folderTotal = Number(decl?.extraction_meta?.unc_folder_total || 0);
-        const declared = Number(decl?.unc_extracted_amount || decl?.unc_total_declared || r?.unc_declared_amount || 0);
+      const reconMap = new Map<string, any>();
+      for (const r of (reconRes.data || []) as any[]) {
+        reconMap.set(String(r.closing_date), r);
+      }
 
-        // Guardrail: when declaration has UNC folder reconciliation, prefer it over stale daily_reconciliations amount.
-        const resolvedUncDetail = folderTotal > 0 ? folderTotal : Number(r?.unc_detail_amount || 0);
-        const resolvedVariance = resolvedUncDetail - declared;
+      const allDates = new Set<string>([
+        ...Array.from(reconMap.keys()),
+        ...Array.from(declarationMap.keys()),
+      ]);
 
-        return {
-          ...r,
-          unc_detail_amount: resolvedUncDetail,
-          unc_declared_amount: declared,
-          variance_amount: resolvedVariance,
-          status: Math.abs(resolvedVariance) === 0 ? "match" : (r?.status || "mismatch"),
-        };
-      });
+      const rows = Array.from(allDates)
+        .sort((a, b) => a.localeCompare(b))
+        .map((closingDate) => {
+          const r = reconMap.get(closingDate) || null;
+          const decl = declarationMap.get(closingDate) || null;
+          const folderTotal = Number(decl?.extraction_meta?.unc_folder_total || 0);
+          const declared = Number(decl?.unc_extracted_amount || decl?.unc_total_declared || r?.unc_declared_amount || 0);
+
+          // Guardrail: when declaration has UNC folder reconciliation, prefer it over stale daily_reconciliations amount.
+          const resolvedUncDetail = folderTotal > 0 ? folderTotal : Number(r?.unc_detail_amount || 0);
+          const resolvedVariance = resolvedUncDetail - declared;
+          const resolvedStatus = r?.status
+            || (decl ? (Math.abs(resolvedVariance) === 0 ? "match" : "pending") : "pending");
+
+          return {
+            ...(r || { closing_date: closingDate }),
+            closing_date: closingDate,
+            unc_detail_amount: resolvedUncDetail,
+            unc_declared_amount: declared,
+            variance_amount: resolvedVariance,
+            status: resolvedStatus,
+          };
+        });
 
       const totalUncDetail = rows.reduce((s: number, r: any) => s + Number(r.unc_detail_amount || 0), 0);
       const totalUncDeclared = rows.reduce((s: number, r: any) => s + Number(r.unc_declared_amount || 0), 0);

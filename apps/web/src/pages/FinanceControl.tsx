@@ -80,7 +80,7 @@ export default function FinanceControl() {
     items: Array<{ fileId: string; fileName: string; amount: number; confidence: number; status: "matched" | "mismatch" | "needs_review" }>;
   } | null>(null);
 
-  const { data: dailyDeclaration, refetch: refetchDeclaration } = useDailyDeclaration(selectedDate);
+  const { data: dailyDeclaration, isLoading: declarationLoading, isFetching: declarationFetching, refetch: refetchDeclaration } = useDailyDeclaration(selectedDate);
   const { data: uncDetailAmount, refetch: refetchUncDetail } = useUncDetailAmount(selectedDate);
   const { data: dailyReconciliation, refetch: refetchDailyReconciliation } = useDailyReconciliation(selectedDate);
   const { data: monthlySummary, refetch: refetchMonthly } = useMonthlyReconciliation(selectedMonth);
@@ -104,6 +104,10 @@ export default function FinanceControl() {
   const [reconciliationAuditLogs, setReconciliationAuditLogs] = useState<Array<{ at: string; actor: string; action: string; detail?: string }>>([]);
 
   useEffect(() => {
+    // Guard against transient empty state while query is still loading/refetching,
+    // otherwise local form can be reset to zeros and accidentally overwrite DB on save.
+    if (dailyDeclaration === undefined || declarationLoading || declarationFetching) return;
+
     setUncTotalDeclared(Number(dailyDeclaration?.unc_extracted_amount || dailyDeclaration?.unc_total_declared || 0));
     setCashFundTopupAmount(Number(dailyDeclaration?.qtm_extracted_amount || dailyDeclaration?.cash_fund_topup_amount || 0));
     setNotes(String(dailyDeclaration?.notes || ""));
@@ -132,7 +136,7 @@ export default function FinanceControl() {
     setPendingUncImagesBase64([]);
     setPendingQtmExtractedList([]);
     setPendingUncExtractedList([]);
-  }, [dailyDeclaration]);
+  }, [dailyDeclaration, declarationLoading, declarationFetching]);
 
   const dateKey = format(selectedDate, "yyyy-MM-dd");
 
@@ -756,12 +760,19 @@ export default function FinanceControl() {
   const saveDeclaration = async (silent = false): Promise<boolean> => {
     setSaving(true);
     try {
-      const existingQtmImages = Array.isArray(dailyDeclaration?.extraction_meta?.qtm_images)
-        ? dailyDeclaration.extraction_meta.qtm_images
-        : (dailyDeclaration?.qtm_slip_image_base64 ? [dailyDeclaration.qtm_slip_image_base64] : []);
-      const existingUncImages = Array.isArray(dailyDeclaration?.extraction_meta?.unc_images)
-        ? dailyDeclaration.extraction_meta.unc_images
-        : (dailyDeclaration?.unc_slip_image_base64 ? [dailyDeclaration.unc_slip_image_base64] : []);
+      const { data: latestDecl } = await (supabase as any)
+        .from("ceo_daily_closing_declarations")
+        .select("*")
+        .eq("closing_date", dateKey)
+        .maybeSingle();
+
+      const sourceDecl = latestDecl || dailyDeclaration;
+      const existingQtmImages = Array.isArray(sourceDecl?.extraction_meta?.qtm_images)
+        ? sourceDecl.extraction_meta.qtm_images
+        : (sourceDecl?.qtm_slip_image_base64 ? [sourceDecl.qtm_slip_image_base64] : []);
+      const existingUncImages = Array.isArray(sourceDecl?.extraction_meta?.unc_images)
+        ? sourceDecl.extraction_meta.unc_images
+        : (sourceDecl?.unc_slip_image_base64 ? [sourceDecl.unc_slip_image_base64] : []);
       const finalQtmImages = [...existingQtmImages, ...pendingQtmImagesBase64];
       const finalUncImages = [...existingUncImages, ...pendingUncImagesBase64];
 
@@ -775,15 +786,15 @@ export default function FinanceControl() {
         qtm_slip_image_base64: finalQtmImages[0] || null,
         unc_slip_image_base64: finalUncImages[0] || null,
         extraction_meta: {
-          ...(dailyDeclaration?.extraction_meta || {}),
+          ...(sourceDecl?.extraction_meta || {}),
           qtm_images: finalQtmImages,
           unc_images: finalUncImages,
           qtm_items: [
-            ...((dailyDeclaration?.extraction_meta?.qtm_items as any[]) || []),
+            ...((sourceDecl?.extraction_meta?.qtm_items as any[]) || []),
             ...pendingQtmExtractedList,
           ],
           unc_items: [
-            ...((dailyDeclaration?.extraction_meta?.unc_items as any[]) || []),
+            ...((sourceDecl?.extraction_meta?.unc_items as any[]) || []),
             ...pendingUncExtractedList,
           ],
           ceo_declaration_locked: ceoDeclarationLocked,
