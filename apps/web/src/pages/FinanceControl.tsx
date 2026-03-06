@@ -355,13 +355,26 @@ export default function FinanceControl() {
         }
       };
 
+      const scanWithRetry = async (subfolderDate: string) => {
+        try {
+          return await scanOnce(subfolderDate);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e || "");
+          const isTimeout = msg.toLowerCase().includes("quá thời gian chờ") || msg.toLowerCase().includes("timeout") || msg.toLowerCase().includes("abort");
+          if (!isTimeout) throw e;
+          // Retry once for transient gateway/network hiccups.
+          return await scanOnce(subfolderDate);
+        }
+      };
+
       const uncPath = `${autoDayFolderPath}/UNC`;
       const qtmPath = `${autoDayFolderPath}/QTM`;
 
-      const [uncScanData, qtmScanData] = await Promise.all([
-        scanOnce(uncPath),
-        scanOnce(qtmPath),
-      ]);
+      // Scan sequentially to avoid double pressure on Drive + Edge runtime.
+      setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Đang quét UNC..." : "Scanning UNC..." });
+      const uncScanData = await scanWithRetry(uncPath);
+      setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Đang quét QTM..." : "Scanning QTM..." });
+      const qtmScanData = await scanWithRetry(qtmPath);
 
       const uncRawFiles = Array.isArray(uncScanData?.files) ? uncScanData.files : [];
       const qtmRawFiles = Array.isArray(qtmScanData?.files) ? qtmScanData.files : [];
@@ -375,7 +388,7 @@ export default function FinanceControl() {
 
       // fallback legacy: some old days store UNC files directly under YYYY/MM/DD
       if (!uncFiles.length) {
-        const dayScanData = await scanOnce(autoDayFolderPath);
+        const dayScanData = await scanWithRetry(autoDayFolderPath);
         const dayFiles = normalizeImageFiles(Array.isArray(dayScanData?.files) ? dayScanData.files : []);
         const isQtmPath = (f: any) => {
           const haystack = `${String(f?.name || "")} ${String(f?.path || "")} ${String(f?.folderPath || "")} ${String(f?.parentPath || "")}`.toLowerCase();
