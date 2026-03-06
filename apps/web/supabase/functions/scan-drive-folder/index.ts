@@ -17,6 +17,16 @@ interface DriveListResponse {
   files: DriveFile[];
 }
 
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function getAccessToken(supabaseClient: any): Promise<string | null> {
   // Get refresh token from database
   const { data: tokenData, error } = await supabaseClient
@@ -68,7 +78,7 @@ async function listChildFolders(parentFolderId: string, accessToken: string): Pr
     `'${parentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
   );
   const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,mimeType)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${accessToken}` } }, 10000);
   if (!res.ok) throw new Error(`Failed listing child folders: ${await res.text()}`);
   const data: DriveListResponse = await res.json();
   return data.files || [];
@@ -84,7 +94,7 @@ async function resolveFolderPath(rootFolderId: string, path: string, accessToken
       `'${currentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and name = '${segment.replace(/'/g, "\\'")}' and trashed = false`
     );
     const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${accessToken}` } }, 10000);
     if (!res.ok) throw new Error(`Failed resolving path segment '${segment}': ${await res.text()}`);
     const data: DriveListResponse = await res.json();
     if (!data.files?.length) return null;
@@ -97,7 +107,7 @@ async function resolveFolderPath(rootFolderId: string, path: string, accessToken
 async function countImagesInFolder(folderId: string, accessToken: string): Promise<number> {
   const q = encodeURIComponent(`'${folderId}' in parents and (mimeType contains 'image/') and trashed = false`);
   const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${accessToken}` } }, 10000);
   if (!res.ok) return 0;
   const data: DriveListResponse = await res.json();
   return data.files?.length || 0;
@@ -108,7 +118,7 @@ async function countChildFolders(folderId: string, accessToken: string): Promise
     `'${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
   );
   const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${accessToken}` } }, 10000);
   if (!res.ok) return 0;
   const data: DriveListResponse = await res.json();
   return data.files?.length || 0;
@@ -231,11 +241,11 @@ serve(async (req) => {
       );
       const subfolderUrl = `https://www.googleapis.com/drive/v3/files?q=${subfolderQuery}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
       
-      const subfolderResponse = await fetch(subfolderUrl, {
+      const subfolderResponse = await fetchWithTimeout(subfolderUrl, {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
         },
-      });
+      }, 10000);
 
       if (!subfolderResponse.ok) {
         const errorText = await subfolderResponse.text();
@@ -261,11 +271,11 @@ serve(async (req) => {
         const countUrl = `https://www.googleapis.com/drive/v3/files?q=${imageQuery}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
         
         try {
-          const countResponse = await fetch(countUrl, {
+          const countResponse = await fetchWithTimeout(countUrl, {
             headers: {
               'Authorization': `Bearer ${accessToken}`,
             },
-          });
+          }, 8000);
           
           if (countResponse.ok) {
             const countData: DriveListResponse = await countResponse.json();
@@ -334,11 +344,11 @@ serve(async (req) => {
     const imageQuery = encodeURIComponent(`'${targetFolderId}' in parents and (mimeType contains 'image/') and trashed = false`);
     const filesUrl = `https://www.googleapis.com/drive/v3/files?q=${imageQuery}&fields=files(id,name,mimeType)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
     
-    const filesResponse = await fetch(filesUrl, {
+    const filesResponse = await fetchWithTimeout(filesUrl, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
       },
-    });
+    }, 12000);
 
     if (!filesResponse.ok) {
       const errorText = await filesResponse.text();
@@ -420,11 +430,11 @@ serve(async (req) => {
         batch.map(async (file) => {
           try {
             const downloadUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`;
-            const downloadResponse = await fetch(downloadUrl, {
+            const downloadResponse = await fetchWithTimeout(downloadUrl, {
               headers: {
                 'Authorization': `Bearer ${accessToken}`,
               },
-            });
+            }, 10000);
             
             if (!downloadResponse.ok) {
               console.error(`[scan-drive-folder] Failed to download file ${file.name}`);
