@@ -1155,7 +1155,7 @@ export default function FinanceControl() {
       </Tabs>
 
       <Dialog open={uncDialogOpen} onOpenChange={setUncDialogOpen}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{isVi ? `Đối soát trong ngày (Bước ${uncStep}/3)` : `Daily reconciliation (Step ${uncStep}/3)`}</DialogTitle>
             <DialogDescription>
