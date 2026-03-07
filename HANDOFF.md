@@ -1,12 +1,18 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.23**
+- apps/web: **0.0.24**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
 - Latest commit at handoff time: `git log -1 --oneline`
 
-## Latest update (2026-03-07 — v0.0.23)
+## Latest update (2026-03-07 — v0.0.24)
+### Performance Fix — Gộp RLS policies + Drop duplicate index
+- **Migration** `20260307170000_fix_remaining_linter_warnings.sql`: Fix 6 warnings còn lại từ Supabase Performance Advisor.
+- **`user_module_permissions` (5 warnings)**: Gộp 2 SELECT policies (`owner_full_access_module_permissions` FOR ALL + `users_read_own_permissions` FOR SELECT) thành 1 policy SELECT duy nhất với OR logic: `uid() = user_id OR has_role(uid(), 'owner')`. Owner write ops tách riêng thành policy `owner_write_module_permissions`. Logic access không đổi, Postgres chỉ evaluate 1 policy thay vì 2.
+- **`ceo_daily_closing_declarations` (1 warning)**: Drop index `idx_ceo_declarations_closing_date` do v0.0.22 tạo trùng với index `idx_ceo_daily_closing_declarations_closing_date` đã có sẵn trên production.
+
+## Previous update (2026-03-07 — v0.0.23)
 ### Security Fix — Enable RLS trên 3 bảng bị thiếu (Supabase Security Advisor)
 - **Migration** `20260307160000_enable_rls_missing_tables.sql`: Fix 3 lỗi ERROR từ Supabase Security Advisor.
 - **`supplier_scan_templates`**: Enable RLS, không có policy cho `authenticated` — chỉ edge function `scan-invoice` (dùng `service_role`) mới được access. Direct API call từ frontend bị chặn hoàn toàn.
