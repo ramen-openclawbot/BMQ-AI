@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth, subDays } from "date-fns";
 import { vi } from "date-fns/locale";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,8 +51,10 @@ async function fileToBase64(file: File): Promise<string> {
 export default function FinanceControl() {
   const { toast } = useToast();
   const { language } = useLanguage();
+  const queryClient = useQueryClient();
   const isVi = language === "vi";
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [debouncedSelectedDate, setDebouncedSelectedDate] = useState<Date>(new Date());
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date());
   const [activeTab, setActiveTab] = useState<string>("daily");
   const [imagesRequested, setImagesRequested] = useState(false);
@@ -84,12 +87,17 @@ export default function FinanceControl() {
     items: Array<{ fileId: string; fileName: string; amount: number; confidence: number; status: "matched" | "mismatch" | "needs_review" }>;
   } | null>(null);
 
-  const { data: dailyDeclaration, isLoading: declarationLoading, isFetching: declarationFetching, error: declarationError, refetch: refetchDeclaration } = useDailyDeclaration(selectedDate);
-  const { data: uncDetailAmount, error: uncDetailError, refetch: refetchUncDetail } = useUncDetailAmount(selectedDate);
-  const { data: dailyReconciliation, error: dailyReconError, refetch: refetchDailyReconciliation } = useDailyReconciliation(selectedDate);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSelectedDate(selectedDate), 200);
+    return () => clearTimeout(t);
+  }, [selectedDate]);
+
+  const { data: dailyDeclaration, isLoading: declarationLoading, isFetching: declarationFetching, error: declarationError, refetch: refetchDeclaration } = useDailyDeclaration(debouncedSelectedDate);
+  const { data: uncDetailAmount, error: uncDetailError, refetch: refetchUncDetail } = useUncDetailAmount(debouncedSelectedDate);
+  const { data: dailyReconciliation, error: dailyReconError, refetch: refetchDailyReconciliation } = useDailyReconciliation(debouncedSelectedDate);
   const { data: monthlySummary, error: monthlyError, refetch: refetchMonthly } = useMonthlyReconciliation(selectedMonth, activeTab === "monthly");
-  const { data: declarationImages } = useDailyDeclarationImages(selectedDate, imagesRequested);
-  const { data: qtmOpeningBalanceFromHook, error: qtmBalanceError } = useQtmOpeningBalance(selectedDate, dailyDeclaration?.extraction_meta);
+  const { data: declarationImages } = useDailyDeclarationImages(debouncedSelectedDate, imagesRequested);
+  const { data: qtmOpeningBalanceFromHook, error: qtmBalanceError } = useQtmOpeningBalance(debouncedSelectedDate, dailyDeclaration?.extraction_meta);
 
   // Surface query errors to user via toast (fire once per error)
   useEffect(() => {
@@ -163,6 +171,42 @@ export default function FinanceControl() {
   }, [declarationImages]);
 
   const dateKey = format(selectedDate, "yyyy-MM-dd");
+
+  useEffect(() => {
+    const candidates = [subDays(debouncedSelectedDate, 1), subDays(debouncedSelectedDate, -1)];
+
+    for (const d of candidates) {
+      const date = format(d, "yyyy-MM-dd");
+
+      queryClient.prefetchQuery({
+        queryKey: ["daily-declaration", date],
+        queryFn: async () => {
+          const { data, error } = await (supabase as any)
+            .from("ceo_daily_closing_declarations")
+            .select("closing_date,unc_total_declared,unc_extracted_amount,cash_fund_topup_amount,qtm_extracted_amount,notes,extraction_meta")
+            .eq("closing_date", date)
+            .maybeSingle();
+          if (error) throw error;
+          return data || null;
+        },
+        staleTime: 5 * 60_000,
+      });
+
+      queryClient.prefetchQuery({
+        queryKey: ["daily-reconciliation", date],
+        queryFn: async () => {
+          const { data, error } = await (supabase as any)
+            .from("daily_reconciliations")
+            .select("*")
+            .eq("closing_date", date)
+            .maybeSingle();
+          if (error) throw error;
+          return data || null;
+        },
+        staleTime: 5 * 60_000,
+      });
+    }
+  }, [debouncedSelectedDate, queryClient]);
 
   const persistedFolderTotal = Number(dailyDeclaration?.extraction_meta?.unc_folder_total || 0);
   const persistedFolderStatus = dailyDeclaration?.extraction_meta?.unc_folder_status as ("match" | "mismatch" | undefined);

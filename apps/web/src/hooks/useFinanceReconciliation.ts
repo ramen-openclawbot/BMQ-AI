@@ -51,6 +51,7 @@ export function useDailyDeclaration(closingDate: Date) {
     },
     staleTime: DAILY_STALE_MS,
     gcTime: GC_TIME_MS,
+    placeholderData: (previous) => previous,
   });
 }
 
@@ -141,6 +142,7 @@ export function useUncDetailAmount(closingDate: Date) {
     },
     staleTime: DAILY_STALE_MS,
     gcTime: GC_TIME_MS,
+    placeholderData: (previous) => previous,
   });
 }
 
@@ -204,6 +206,7 @@ export function useDailyReconciliation(closingDate: Date) {
     },
     staleTime: DAILY_STALE_MS,
     gcTime: GC_TIME_MS,
+    placeholderData: (previous) => previous,
   });
 }
 
@@ -364,5 +367,6 @@ export function useQtmOpeningBalance(closingDate: Date, currentDeclExtractionMet
     },
     staleTime: DAILY_STALE_MS,
     gcTime: GC_TIME_MS,
+    placeholderData: (previous) => previous,
   });
 }
