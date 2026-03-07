@@ -1,12 +1,19 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.21**
+- apps/web: **0.0.22**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
 - Latest commit at handoff time: `git log -1 --oneline`
 
-## Latest update (2026-03-07 — v0.0.21)
+## Latest update (2026-03-07 — v0.0.22)
+### Database Index Optimization — Dựa trên Supabase Query Performance Advisor
+- **Migration** `20260307150000_add_missing_indexes.sql`: Thêm 12 index còn thiếu.
+- **`ceo_daily_closing_declarations(closing_date DESC)`**: Index quan trọng nhất — bảng này chiếm ~60% tổng DB time (query date range mean 2,412ms). Kỳ vọng giảm xuống <5ms sau khi index.
+- **`payment_requests`**: Thêm 6 index cho các cột filter thường dùng (`status`, `payment_status`, `delivery_status`, `invoice_created`, composite `status+payment_status`, `created_at DESC`). Hỗ trợ các query server-side filtering từ v0.0.20.
+- **Các bảng ORDER BY**: `purchase_orders`, `goods_receipts`, `suppliers` (cột `created_at DESC`), `product_skus` (cột `sku_code ASC`) — tổng 4 index.
+
+## Previous update (2026-03-07 — v0.0.21)
 ### Supabase Linter Fixes — RLS Performance + Duplicate Indexes
 - **Migration** `20260307140000_supabase_linter_fixes.sql`: Fix 23 cảnh báo từ Supabase Performance Advisor.
 - **RLS InitPlan fix (5 policies)**: Thay `auth.uid()` → `(select auth.uid())` trên 4 bảng (`user_module_permissions`, `user_invitations`, `audit_logs`, `ai_function_rate_limits`). Ngăn re-evaluate auth function mỗi row.
