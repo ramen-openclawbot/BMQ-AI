@@ -1,12 +1,19 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.20**
+- apps/web: **0.0.21**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
 - Latest commit at handoff time: `git log -1 --oneline`
 
-## Latest update (2026-03-07 — v0.0.20)
+## Latest update (2026-03-07 — v0.0.21)
+### Supabase Linter Fixes — RLS Performance + Duplicate Indexes
+- **Migration** `20260307140000_supabase_linter_fixes.sql`: Fix 23 cảnh báo từ Supabase Performance Advisor.
+- **RLS InitPlan fix (5 policies)**: Thay `auth.uid()` → `(select auth.uid())` trên 4 bảng (`user_module_permissions`, `user_invitations`, `audit_logs`, `ai_function_rate_limits`). Ngăn re-evaluate auth function mỗi row.
+- **Drop redundant permissive policies (11 bảng)**: Xoá SELECT policy thừa khi đã có FOR ALL policy. Ảnh hưởng: 6 bảng mini_crm, `cash_fund_topups`, `ceo_daily_closing_declarations`, `customer_po_inbox`, `daily_reconciliations`, `supplier_aliases`.
+- **Drop duplicate indexes**: Xoá 2 index trùng trên `inventory_batches` (`idx_inventory_batches_expiry`, `idx_inventory_batches_inventory_item`).
+
+## Previous update (2026-03-07 — v0.0.20)
 ### Performance Optimization — Tăng tốc hiển thị data
 - **QueryClient config**: `staleTime` 30s → 2 phút, tắt `refetchOnWindowFocus` — giảm ~80% refetch spam.
 - **usePaymentStats refactor**: thay fetch ALL rows + filter JS → 6 query song song với server-side `.eq()` + `count: "exact"`. Sidebar badge không còn gây refetch khi chuyển trang.
