@@ -32,6 +32,35 @@ const DECLARATION_LIGHT_COLS = [
 ].join(",");
 
 // ---------------------------------------------------------------------------
+// Phase 2: Single daily snapshot (declaration + UNC detail + reconciliation +
+// QTM opening balance) in one RPC call.
+// ---------------------------------------------------------------------------
+export function useFinanceDailySnapshot(closingDate: Date) {
+  const date = format(closingDate, "yyyy-MM-dd");
+
+  return useQuery({
+    queryKey: ["finance-daily-snapshot", date],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc("finance_daily_snapshot", {
+        p_date: date,
+      });
+
+      if (error) throw error;
+
+      return {
+        declaration: data?.declaration || null,
+        dailyReconciliation: data?.dailyReconciliation || null,
+        uncDetailAmount: Number(data?.uncDetailAmount || 0),
+        qtmOpeningBalance: Number(data?.qtmOpeningBalance || 0),
+      };
+    },
+    staleTime: DAILY_STALE_MS,
+    gcTime: GC_TIME_MS,
+    placeholderData: (previous) => previous,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // 1. Daily CEO declaration – lightweight (no images)
 // ---------------------------------------------------------------------------
 export function useDailyDeclaration(closingDate: Date) {

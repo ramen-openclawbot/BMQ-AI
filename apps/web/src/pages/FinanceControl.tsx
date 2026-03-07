@@ -19,12 +19,9 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  useDailyDeclaration,
+  useFinanceDailySnapshot,
   useDailyDeclarationImages,
-  useDailyReconciliation,
   useMonthlyReconciliation,
-  useUncDetailAmount,
-  useQtmOpeningBalance,
 } from "@/hooks/useFinanceReconciliation";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -92,12 +89,30 @@ export default function FinanceControl() {
     return () => clearTimeout(t);
   }, [selectedDate]);
 
-  const { data: dailyDeclaration, isLoading: declarationLoading, isFetching: declarationFetching, error: declarationError, refetch: refetchDeclaration } = useDailyDeclaration(debouncedSelectedDate);
-  const { data: uncDetailAmount, error: uncDetailError, refetch: refetchUncDetail } = useUncDetailAmount(debouncedSelectedDate);
-  const { data: dailyReconciliation, error: dailyReconError, refetch: refetchDailyReconciliation } = useDailyReconciliation(debouncedSelectedDate);
+  const {
+    data: dailySnapshot,
+    isLoading: declarationLoading,
+    isFetching: declarationFetching,
+    error: dailySnapshotError,
+    refetch: refetchDailySnapshot,
+  } = useFinanceDailySnapshot(debouncedSelectedDate);
+
+  const dailyDeclaration = dailySnapshot?.declaration || null;
+  const uncDetailAmount = Number(dailySnapshot?.uncDetailAmount || 0);
+  const dailyReconciliation = dailySnapshot?.dailyReconciliation || null;
+  const qtmOpeningBalanceFromHook = Number(dailySnapshot?.qtmOpeningBalance || 0);
+
+  const refetchDeclaration = refetchDailySnapshot;
+  const refetchUncDetail = refetchDailySnapshot;
+  const refetchDailyReconciliation = refetchDailySnapshot;
+
+  const declarationError = dailySnapshotError;
+  const uncDetailError = dailySnapshotError;
+  const dailyReconError = dailySnapshotError;
+  const qtmBalanceError = dailySnapshotError;
+
   const { data: monthlySummary, error: monthlyError, refetch: refetchMonthly } = useMonthlyReconciliation(selectedMonth, activeTab === "monthly");
   const { data: declarationImages } = useDailyDeclarationImages(debouncedSelectedDate, imagesRequested);
-  const { data: qtmOpeningBalanceFromHook, error: qtmBalanceError } = useQtmOpeningBalance(debouncedSelectedDate, dailyDeclaration?.extraction_meta);
 
   // Surface query errors to user via toast (fire once per error)
   useEffect(() => {
@@ -179,29 +194,19 @@ export default function FinanceControl() {
       const date = format(d, "yyyy-MM-dd");
 
       queryClient.prefetchQuery({
-        queryKey: ["daily-declaration", date],
+        queryKey: ["finance-daily-snapshot", date],
         queryFn: async () => {
-          const { data, error } = await (supabase as any)
-            .from("ceo_daily_closing_declarations")
-            .select("closing_date,unc_total_declared,unc_extracted_amount,cash_fund_topup_amount,qtm_extracted_amount,notes,extraction_meta")
-            .eq("closing_date", date)
-            .maybeSingle();
-          if (error) throw error;
-          return data || null;
-        },
-        staleTime: 5 * 60_000,
-      });
+          const { data, error } = await (supabase as any).rpc("finance_daily_snapshot", {
+            p_date: date,
+          });
 
-      queryClient.prefetchQuery({
-        queryKey: ["daily-reconciliation", date],
-        queryFn: async () => {
-          const { data, error } = await (supabase as any)
-            .from("daily_reconciliations")
-            .select("*")
-            .eq("closing_date", date)
-            .maybeSingle();
           if (error) throw error;
-          return data || null;
+          return {
+            declaration: data?.declaration || null,
+            dailyReconciliation: data?.dailyReconciliation || null,
+            uncDetailAmount: Number(data?.uncDetailAmount || 0),
+            qtmOpeningBalance: Number(data?.qtmOpeningBalance || 0),
+          };
         },
         staleTime: 5 * 60_000,
       });
