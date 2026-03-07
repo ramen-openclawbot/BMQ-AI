@@ -1,12 +1,22 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.24**
+- apps/web: **0.0.25**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
 - Latest commit at handoff time: `git log -1 --oneline`
 
-## Latest update (2026-03-07 — v0.0.24)
+## Latest update (2026-03-07 — v0.0.25)
+### Security Hardening — Critical RLS fixes + Function search_path (94 warnings từ Security Advisor)
+- **Migration** `20260307180000_security_hardening_rls_and_functions.sql`
+- **`user_roles` (CRITICAL)**: Drop write policies cho tất cả authenticated users → chỉ `owner` mới có thể INSERT/UPDATE/DELETE. Trước đây bất kỳ user nào cũng có thể tự cấp quyền owner (privilege escalation).
+- **`app_settings` (HIGH)**: Drop write policies → chỉ `owner` mới được sửa global config.
+- **`profiles` (HIGH)**: Drop write policies → user chỉ UPDATE được profile của chính mình; owner có full access.
+- **14 functions search_path (MEDIUM)**: `ALTER FUNCTION ... SET search_path = public` cho tất cả 14 functions bị mutable search_path. Bao gồm: set_updated_at, touch_updated_at, handle_updated_at, update_updated_at_column, normalize_email_before_write, set_mini_crm_po_templates_updated_at, set_mini_crm_customer_price_list_updated_at, set_mini_crm_knowledge_profiles_updated_at, enforce_goods_receipt_raw_material_sku, guard_inventory_batch_expiry_once, set_supplier_alias_key, normalize_storage_path, increment_supplier_template_hit, cleanup_expired_rate_limits.
+- **DEFER**: 75 warnings còn lại (`rls_policy_always_true` trên business tables) — intentional cho internal app với trusted staff.
+- **TODO (Dashboard)**: Auth → Password settings → Enable "Leaked Password Protection" (HaveIBeenPwned).
+
+## Previous update (2026-03-07 — v0.0.24)
 ### Performance Fix — Gộp RLS policies + Drop duplicate index
 - **Migration** `20260307170000_fix_remaining_linter_warnings.sql`: Fix 6 warnings còn lại từ Supabase Performance Advisor.
 - **`user_module_permissions` (5 warnings)**: Gộp 2 SELECT policies (`owner_full_access_module_permissions` FOR ALL + `users_read_own_permissions` FOR SELECT) thành 1 policy SELECT duy nhất với OR logic: `uid() = user_id OR has_role(uid(), 'owner')`. Owner write ops tách riêng thành policy `owner_write_module_permissions`. Logic access không đổi, Postgres chỉ evaluate 1 policy thay vì 2.
