@@ -1,12 +1,19 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.22**
+- apps/web: **0.0.23**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
 - Latest commit at handoff time: `git log -1 --oneline`
 
-## Latest update (2026-03-07 — v0.0.22)
+## Latest update (2026-03-07 — v0.0.23)
+### Security Fix — Enable RLS trên 3 bảng bị thiếu (Supabase Security Advisor)
+- **Migration** `20260307160000_enable_rls_missing_tables.sql`: Fix 3 lỗi ERROR từ Supabase Security Advisor.
+- **`supplier_scan_templates`**: Enable RLS, không có policy cho `authenticated` — chỉ edge function `scan-invoice` (dùng `service_role`) mới được access. Direct API call từ frontend bị chặn hoàn toàn.
+- **`mini_crm_po_template_learning_logs`**: Enable RLS + policy `authenticated FOR ALL` — nhất quán với các bảng mini_crm khác.
+- **`sku_formulations`**: Enable RLS + policy `authenticated FOR ALL` — SkuCostsManagement.tsx CRUD không bị ảnh hưởng.
+
+## Previous update (2026-03-07 — v0.0.22)
 ### Database Index Optimization — Dựa trên Supabase Query Performance Advisor
 - **Migration** `20260307150000_add_missing_indexes.sql`: Thêm 12 index còn thiếu.
 - **`ceo_daily_closing_declarations(closing_date DESC)`**: Index quan trọng nhất — bảng này chiếm ~60% tổng DB time (query date range mean 2,412ms). Kỳ vọng giảm xuống <5ms sau khi index.
