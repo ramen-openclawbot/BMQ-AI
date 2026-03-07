@@ -47,21 +47,40 @@ BEGIN
     LIMIT 1
   ) r;
 
-  -- UNC detail amount: bank_transfer requests by created_at (day window)
-  -- OR invoice_date == p_date, excluding likely QTM records.
-  SELECT COALESCE(SUM(pr.total_amount), 0)
+  -- UNC detail amount optimized for planner:
+  -- Use UNION of 2 indexed branches (created_at window + invoice_date match)
+  -- then dedupe by id and sum once.
+  SELECT COALESCE(SUM(x.total_amount), 0)
     INTO v_unc_detail
-  FROM public.payment_requests pr
-  LEFT JOIN public.invoices i ON i.id = pr.invoice_id
-  WHERE pr.payment_method = 'bank_transfer'
-    AND (
-      (pr.created_at >= v_start_utc AND pr.created_at < v_end_utc)
-      OR i.invoice_date = p_date
-    )
-    AND NOT (
-      lower(concat_ws(' ', pr.title, pr.description, pr.notes, pr.image_url))
-      ~ '(^|\W)qtm($|\W)|quỹ\s*tiền\s*mặt|quy\s*tien\s*mat|cash\s*fund'
-    );
+  FROM (
+    SELECT DISTINCT ON (u.id)
+      u.id,
+      u.total_amount
+    FROM (
+      SELECT pr.id, pr.total_amount
+      FROM public.payment_requests pr
+      WHERE pr.payment_method = 'bank_transfer'
+        AND pr.created_at >= v_start_utc
+        AND pr.created_at < v_end_utc
+        AND NOT (
+          lower(concat_ws(' ', pr.title, pr.description, pr.notes, pr.image_url))
+          ~ '(^|\W)qtm($|\W)|quỹ\s*tiền\s*mặt|quy\s*tien\s*mat|cash\s*fund'
+        )
+
+      UNION ALL
+
+      SELECT pr.id, pr.total_amount
+      FROM public.payment_requests pr
+      JOIN public.invoices i ON i.id = pr.invoice_id
+      WHERE pr.payment_method = 'bank_transfer'
+        AND i.invoice_date = p_date
+        AND NOT (
+          lower(concat_ws(' ', pr.title, pr.description, pr.notes, pr.image_url))
+          ~ '(^|\W)qtm($|\W)|quỹ\s*tiền\s*mặt|quy\s*tien\s*mat|cash\s*fund'
+        )
+    ) u
+    ORDER BY u.id
+  ) x;
 
   -- QTM opening precedence:
   -- 1) exact previous day closing
