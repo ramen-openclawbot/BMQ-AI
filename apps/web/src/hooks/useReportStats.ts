@@ -34,26 +34,27 @@ export function useMonthlyReceiptStats(month: Date = new Date()) {
   return useQuery({
     queryKey: ["monthly-receipt-stats", format(month, "yyyy-MM")],
     queryFn: async () => {
-      // Get purchase orders for the month (source of truth for PO value)
-      const { data: purchaseOrders, error: poError } = await supabase
-        .from("purchase_orders")
-        .select("id, total_amount, supplier_id, suppliers(id, name)")
-        .gte("order_date", format(start, "yyyy-MM-dd"))
-        .lte("order_date", format(end, "yyyy-MM-dd"));
+      // 2 queries chạy song song thay vì tuần tự
+      const [poRes, receiptsRes] = await Promise.all([
+        supabase
+          .from("purchase_orders")
+          .select("id, total_amount, supplier_id, suppliers(id, name)")
+          .gte("order_date", format(start, "yyyy-MM-dd"))
+          .lte("order_date", format(end, "yyyy-MM-dd")),
+        supabase
+          .from("goods_receipts")
+          .select("id, total_quantity")
+          .gte("receipt_date", format(start, "yyyy-MM-dd"))
+          .lte("receipt_date", format(end, "yyyy-MM-dd"))
+          .eq("status", "received"),
+      ]);
 
-      if (poError) throw poError;
+      if (poRes.error) throw poRes.error;
+      if (receiptsRes.error) throw receiptsRes.error;
 
-      // Keep receipt count/quantity for context cards only
-      const { data: receipts, error: receiptsError } = await supabase
-        .from("goods_receipts")
-        .select("id, total_quantity")
-        .gte("receipt_date", format(start, "yyyy-MM-dd"))
-        .lte("receipt_date", format(end, "yyyy-MM-dd"))
-        .eq("status", "received");
+      const purchaseOrders = poRes.data;
+      const receipts = receiptsRes.data;
 
-      if (receiptsError) throw receiptsError;
-
-      // Aggregate PO value by supplier
       const supplierMap = new Map<string, { name: string; quantity: number; value: number }>();
       let totalValue = 0;
 
@@ -83,7 +84,7 @@ export function useMonthlyReceiptStats(month: Date = new Date()) {
         bySupplier: Array.from(supplierMap.values()).sort((a, b) => b.value - a.value),
       } as MonthlyReceiptStats;
     },
-    staleTime: 60000,
+    staleTime: 2 * 60_000, // 2 phút
   });
 }
 
@@ -91,7 +92,7 @@ export function useDebtStats() {
   return useQuery({
     queryKey: ["debt-stats"],
     queryFn: async () => {
-      // Get all unpaid payment requests with supplier info
+      // Đã filter server-side (.eq("payment_status", "unpaid")) — OK pattern
       const { data, error } = await supabase
         .from("payment_requests")
         .select("id, total_amount, payment_method, supplier_id, suppliers(id, name)")
@@ -133,7 +134,7 @@ export function useDebtStats() {
         bySupplier: Array.from(supplierDebtMap.values()).sort((a, b) => b.debt - a.debt),
       } as DebtStats;
     },
-    staleTime: 30000,
+    staleTime: 2 * 60_000, // 2 phút (trước: 30s)
   });
 }
 
@@ -141,78 +142,43 @@ export function useSupplierStats() {
   return useQuery({
     queryKey: ["supplier-stats"],
     queryFn: async () => {
-      // Get all suppliers
-      const { data: suppliers, error: suppliersError } = await supabase
+      // 1 query duy nhất với joins — thay vì 4 queries riêng biệt
+      const { data: suppliers, error } = await supabase
         .from("suppliers")
-        .select("id, name");
+        .select(`
+          id, name,
+          purchase_orders(total_amount, status),
+          goods_receipts(total_quantity, status),
+          payment_requests(total_amount, payment_status)
+        `);
 
-      if (suppliersError) throw suppliersError;
+      if (error) throw error;
 
-      // Get purchase orders
-      const { data: orders, error: ordersError } = await supabase
-        .from("purchase_orders")
-        .select("supplier_id, total_amount, status");
+      const stats: SupplierStats[] = (suppliers || [])
+        .map((s: any) => {
+          const orders = Array.isArray(s.purchase_orders) ? s.purchase_orders : [];
+          const receipts = Array.isArray(s.goods_receipts)
+            ? s.goods_receipts.filter((r: any) => r.status === "received")
+            : [];
+          const unpaid = Array.isArray(s.payment_requests)
+            ? s.payment_requests.filter((r: any) => r.payment_status === "unpaid")
+            : [];
 
-      if (ordersError) throw ordersError;
-
-      // Get goods receipts
-      const { data: receipts, error: receiptsError } = await supabase
-        .from("goods_receipts")
-        .select("supplier_id, total_quantity, status")
-        .eq("status", "received");
-
-      if (receiptsError) throw receiptsError;
-
-      // Get unpaid payment requests
-      const { data: unpaid, error: unpaidError } = await supabase
-        .from("payment_requests")
-        .select("supplier_id, total_amount")
-        .eq("payment_status", "unpaid");
-
-      if (unpaidError) throw unpaidError;
-
-      // Aggregate stats per supplier
-      const statsMap = new Map<string, SupplierStats>();
-
-      suppliers?.forEach((s) => {
-        statsMap.set(s.id, {
-          id: s.id,
-          name: s.name,
-          totalOrders: 0,
-          totalValue: 0,
-          totalReceipts: 0,
-          totalQuantity: 0,
-          unpaidAmount: 0,
-        });
-      });
-
-      orders?.forEach((o) => {
-        if (o.supplier_id && statsMap.has(o.supplier_id)) {
-          const stats = statsMap.get(o.supplier_id)!;
-          stats.totalOrders += 1;
-          stats.totalValue += o.total_amount || 0;
-        }
-      });
-
-      receipts?.forEach((r) => {
-        if (r.supplier_id && statsMap.has(r.supplier_id)) {
-          const stats = statsMap.get(r.supplier_id)!;
-          stats.totalReceipts += 1;
-          stats.totalQuantity += r.total_quantity || 0;
-        }
-      });
-
-      unpaid?.forEach((u) => {
-        if (u.supplier_id && statsMap.has(u.supplier_id)) {
-          const stats = statsMap.get(u.supplier_id)!;
-          stats.unpaidAmount += u.total_amount || 0;
-        }
-      });
-
-      return Array.from(statsMap.values())
+          return {
+            id: s.id,
+            name: s.name,
+            totalOrders: orders.length,
+            totalValue: orders.reduce((sum: number, o: any) => sum + (o.total_amount || 0), 0),
+            totalReceipts: receipts.length,
+            totalQuantity: receipts.reduce((sum: number, r: any) => sum + (r.total_quantity || 0), 0),
+            unpaidAmount: unpaid.reduce((sum: number, u: any) => sum + (u.total_amount || 0), 0),
+          };
+        })
         .filter((s) => s.totalOrders > 0 || s.totalReceipts > 0 || s.unpaidAmount > 0)
         .sort((a, b) => b.totalValue - a.totalValue);
+
+      return stats;
     },
-    staleTime: 60000,
+    staleTime: 2 * 60_000, // 2 phút (trước: 60s)
   });
 }

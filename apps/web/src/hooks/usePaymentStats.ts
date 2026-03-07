@@ -15,54 +15,80 @@ export function usePaymentStats() {
   return useQuery({
     queryKey: ["payment-stats"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("payment_requests")
-        .select("status, payment_status, payment_method, total_amount, invoice_created, delivery_status");
+      // Server-side filtering — chỉ lấy count/sum cần thiết, không download toàn bộ bảng
+      const [
+        pendingRes,
+        approvedUnpaidRes,
+        deliveredRes,
+        uncRes,
+        cashRes,
+        pendingInvoiceRes,
+      ] = await Promise.all([
+        // Count pending
+        supabase
+          .from("payment_requests")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "pending"),
 
-      if (error) throw error;
+        // Count approved + unpaid
+        supabase
+          .from("payment_requests")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "approved")
+          .eq("payment_status", "unpaid"),
 
-      const pendingCount = data?.filter((r) => r.status === "pending").length || 0;
-      const approvedCount = data?.filter((r) => 
-        r.status === "approved" && r.payment_status === "unpaid"
-      ).length || 0;
-      const deliveredCount = data?.filter((r) => r.delivery_status === "delivered").length || 0;
+        // Count delivered
+        supabase
+          .from("payment_requests")
+          .select("*", { count: "exact", head: true })
+          .eq("delivery_status", "delivered"),
 
-      // Calculate totals for all unpaid requests (pending + approved)
-      const uncTotal =
-        data
-          ?.filter(
-            (r) =>
-              r.payment_status === "unpaid" &&
-              r.payment_method === "bank_transfer"
-          )
-          .reduce((sum, r) => sum + (r.total_amount || 0), 0) || 0;
+        // Sum UNC unpaid (bank_transfer) — chỉ lấy total_amount
+        supabase
+          .from("payment_requests")
+          .select("total_amount")
+          .eq("payment_status", "unpaid")
+          .eq("payment_method", "bank_transfer"),
 
-      const cashTotal =
-        data
-          ?.filter(
-            (r) =>
-              r.payment_status === "unpaid" &&
-              r.payment_method === "cash"
-          )
-          .reduce((sum, r) => sum + (r.total_amount || 0), 0) || 0;
+        // Sum cash unpaid — chỉ lấy total_amount
+        supabase
+          .from("payment_requests")
+          .select("total_amount")
+          .eq("payment_status", "unpaid")
+          .eq("payment_method", "cash"),
 
-      const totalUnpaid = uncTotal + cashTotal;
+        // Count approved but no invoice
+        supabase
+          .from("payment_requests")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "approved")
+          .eq("invoice_created", false),
+      ]);
 
-      const pendingInvoiceCount =
-        data?.filter((r) => r.status === "approved" && !r.invoice_created).length || 0;
+      const pendingCount = pendingRes.count || 0;
+      const approvedCount = approvedUnpaidRes.count || 0;
+      const deliveredCount = deliveredRes.count || 0;
+      const pendingInvoiceCount = pendingInvoiceRes.count || 0;
+
+      const uncTotal = (uncRes.data || []).reduce(
+        (sum, r) => sum + (r.total_amount || 0),
+        0,
+      );
+      const cashTotal = (cashRes.data || []).reduce(
+        (sum, r) => sum + (r.total_amount || 0),
+        0,
+      );
 
       return {
         pendingCount,
         approvedCount,
         uncTotal,
         cashTotal,
-        totalUnpaid,
+        totalUnpaid: uncTotal + cashTotal,
         pendingInvoiceCount,
         deliveredCount,
       } as PaymentStats;
     },
-    staleTime: 30000,
-    gcTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: true,
+    // Kế thừa global staleTime (2 phút), không override refetchOnWindowFocus
   });
 }

@@ -1,39 +1,41 @@
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { lazy, Suspense } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { OwnerRoute } from "@/components/OwnerRoute";
 import { Loader2, AlertTriangle, RefreshCw, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { clearSessionAndReload } from "@/lib/session-utils";
+
+// Eager load: pages nhẹ, core navigation
 import Index from "@/pages/Index";
 import Inventory from "@/pages/Inventory";
 import Suppliers from "@/pages/Suppliers";
 import Invoices from "@/pages/Invoices";
 import PaymentRequests from "@/pages/PaymentRequests";
 import LowStock from "@/pages/LowStock";
-// ProductSKUs removed
 import GoodsReceipts from "@/pages/GoodsReceipts";
 import PurchaseOrders from "@/pages/PurchaseOrders";
-import Reports from "@/pages/Reports";
-import NiraanDashboard from "@/pages/NiraanDashboard";
-import FinanceControl from "@/pages/FinanceControl";
-import FinanceRevenueControl from "@/pages/FinanceRevenueControl";
 import Settings from "@/pages/Settings";
-import MiniCrm from "@/pages/MiniCrm";
 import Auth from "@/pages/Auth";
 import NotFound from "@/pages/NotFound";
-import SkuCostsDjango from "@/pages/SkuCostsDjango";
-import SkuCostsManagement from "@/pages/SkuCostsManagement";
-import SkuCostsAnalysis from "@/pages/SkuCostsAnalysis";
 import SkuCostsProducts from "@/pages/SkuCostsProducts";
 import SkuCostsIngredients from "@/pages/SkuCostsIngredients";
 import SkuCostsEmployees from "@/pages/SkuCostsEmployees";
 import SkuCostsOverhead from "@/pages/SkuCostsOverhead";
 import TraceabilityPublic from "@/pages/TraceabilityPublic";
 import UserManagement from "@/pages/UserManagement";
-
-// Warehouse App - eager load to prevent Safari chunk loading issues
 import WarehouseHome from "@/warehouse/pages/WarehouseHome";
+
+// Lazy load: pages nặng — chỉ tải khi user vào trang đó
+const MiniCrm = lazy(() => import("@/pages/MiniCrm"));
+const FinanceControl = lazy(() => import("@/pages/FinanceControl"));
+const FinanceRevenueControl = lazy(() => import("@/pages/FinanceRevenueControl"));
+const SkuCostsManagement = lazy(() => import("@/pages/SkuCostsManagement"));
+const SkuCostsAnalysis = lazy(() => import("@/pages/SkuCostsAnalysis"));
+const SkuCostsDjango = lazy(() => import("@/pages/SkuCostsDjango"));
+const Reports = lazy(() => import("@/pages/Reports"));
+const NiraanDashboard = lazy(() => import("@/pages/NiraanDashboard"));
 
 function AppLoadingFallback() {
   return (
@@ -128,20 +130,20 @@ export function AppRoutes() {
         <Route path="/purchase-orders" element={<PurchaseOrders />} />
         <Route path="/low-stock" element={<LowStock />} />
         <Route path="/sku-costs" element={<Navigate to="/sku-costs/dashboard" replace />} />
-        <Route path="/sku-costs/dashboard" element={<SkuCostsDjango />} />
-        <Route path="/sku-costs/management" element={<SkuCostsManagement />} />
-        <Route path="/sku-costs/analysis" element={<SkuCostsAnalysis />} />
+        <Route path="/sku-costs/dashboard" element={<Suspense fallback={<AppLoadingFallback />}><SkuCostsDjango /></Suspense>} />
+        <Route path="/sku-costs/management" element={<Suspense fallback={<AppLoadingFallback />}><SkuCostsManagement /></Suspense>} />
+        <Route path="/sku-costs/analysis" element={<Suspense fallback={<AppLoadingFallback />}><SkuCostsAnalysis /></Suspense>} />
         <Route path="/sku-costs/products" element={<SkuCostsProducts />} />
         <Route path="/sku-costs/ingredients" element={<SkuCostsIngredients />} />
         <Route path="/sku-costs/employees" element={<SkuCostsEmployees />} />
         <Route path="/sku-costs/overhead" element={<SkuCostsOverhead />} />
-        <Route path="/reports" element={<Reports />} />
-        <Route path="/niraan-dashboard" element={<NiraanDashboard />} />
+        <Route path="/reports" element={<Suspense fallback={<AppLoadingFallback />}><Reports /></Suspense>} />
+        <Route path="/niraan-dashboard" element={<Suspense fallback={<AppLoadingFallback />}><NiraanDashboard /></Suspense>} />
         <Route path="/finance-control" element={<Navigate to="/finance-control/cost" replace />} />
-        <Route path="/finance-control/cost" element={<FinanceControl />} />
-        <Route path="/finance-control/revenue" element={<FinanceRevenueControl />} />
-        <Route path="/mini-crm" element={<MiniCrm />} />
-        <Route path="/sales-po-inbox" element={<MiniCrm />} />
+        <Route path="/finance-control/cost" element={<Suspense fallback={<AppLoadingFallback />}><FinanceControl /></Suspense>} />
+        <Route path="/finance-control/revenue" element={<Suspense fallback={<AppLoadingFallback />}><FinanceRevenueControl /></Suspense>} />
+        <Route path="/mini-crm" element={<Suspense fallback={<AppLoadingFallback />}><MiniCrm /></Suspense>} />
+        <Route path="/sales-po-inbox" element={<Suspense fallback={<AppLoadingFallback />}><MiniCrm /></Suspense>} />
         <Route path="/settings" element={<Settings />} />
         {/* Owner-only routes */}
         <Route path="/user-management" element={<OwnerRoute><UserManagement /></OwnerRoute>} />

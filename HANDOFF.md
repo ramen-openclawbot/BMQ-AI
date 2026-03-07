@@ -1,12 +1,21 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.19**
+- apps/web: **0.0.20**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
 - Latest commit at handoff time: `git log -1 --oneline`
 
-## Latest update (2026-03-07 — v0.0.19)
+## Latest update (2026-03-07 — v0.0.20)
+### Performance Optimization — Tăng tốc hiển thị data
+- **QueryClient config**: `staleTime` 30s → 2 phút, tắt `refetchOnWindowFocus` — giảm ~80% refetch spam.
+- **usePaymentStats refactor**: thay fetch ALL rows + filter JS → 6 query song song với server-side `.eq()` + `count: "exact"`. Sidebar badge không còn gây refetch khi chuyển trang.
+- **useSupplierStats refactor**: 4 query riêng → 1 query duy nhất với Supabase joins (`suppliers → purchase_orders, goods_receipts, payment_requests`). Giảm 75% round-trips.
+- **useDebtStats + useMonthlyReceiptStats**: tăng staleTime lên 2 phút, chạy queries song song.
+- **Code splitting**: 8 pages nặng chuyển sang `React.lazy()`: MiniCrm (92KB), FinanceControl (49KB), Reports, NiraanDashboard, SkuCosts*, FinanceRevenueControl. Recharts (393KB) giờ chỉ load khi vào trang chart.
+- **Kết quả build**: main chunk giảm từ 3,674KB → 3,047KB (gzip: 1,049 → 886KB, giảm 16%).
+
+## Previous update (2026-03-07 — v0.0.19)
 ### Rate Limiting cho AI Scan Functions — chống spam API tốn tiền
 - **SQL migration** `20260307120000_ai_rate_limits.sql`: bảng `ai_function_rate_limits` — per-user per-function daily counter, RLS owner-read-only, cleanup function.
 - **Shared utility** `_shared/rate-limiter.ts`: `checkAndRecordRateLimit()` + `getRateLimitHeaders()`. Dùng PostgreSQL, graceful degradation nếu DB lỗi (allow request).

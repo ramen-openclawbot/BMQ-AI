@@ -13,9 +13,9 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 1,
-      refetchOnWindowFocus: true,
+      refetchOnWindowFocus: false,   // Tắt auto-refetch khi chuyển tab — app nội bộ, user F5 nếu cần
       refetchOnReconnect: true,
-      staleTime: 30_000,
+      staleTime: 2 * 60_000,         // 2 phút (trước: 30s) — giảm refetch spam
       gcTime: 5 * 60_000,
     },
   },
