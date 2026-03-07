@@ -5,12 +5,15 @@ import { supabase } from "@/integrations/supabase/client";
 // ---------------------------------------------------------------------------
 // Shared stale-time constants
 // ---------------------------------------------------------------------------
-/** Daily data changes infrequently – keep fresh for 30 s */
-const DAILY_STALE_MS = 30_000;
+/** Daily declaration data doesn't change frequently – cache for 5 min.
+ *  Previously 30 s, which caused visible loading spinner on every date
+ *  navigation after 30 s of inactivity. */
+const DAILY_STALE_MS = 5 * 60_000;
 /** Monthly aggregates are even more stable – 5 min */
 const MONTHLY_STALE_MS = 5 * 60_000;
-/** Keep unused cache entries for 10 min before GC */
-const GC_TIME_MS = 10 * 60_000;
+/** Keep unused cache entries for 15 min before GC (user often navigates
+ *  back to recent dates – longer GC avoids unnecessary re-fetches) */
+const GC_TIME_MS = 15 * 60_000;
 
 // ---------------------------------------------------------------------------
 // Columns we actually need from ceo_daily_closing_declarations for the
@@ -322,39 +325,40 @@ export function useQtmOpeningBalance(closingDate: Date, currentDeclExtractionMet
         return null;
       };
 
-      // 1) Exact previous day
-      const { data: prevData, error: prevError } = await (supabase as any)
-        .from("ceo_daily_closing_declarations")
-        .select("closing_date,cash_fund_topup_amount,qtm_extracted_amount,extraction_meta")
-        .eq("closing_date", prevDate)
-        .maybeSingle();
+      // Run both lookups in parallel – avoids waterfall when prevDay has no data.
+      // 1) Exact previous day  2) Nearest previous day before selected date
+      const [prevResult, nearestPrevResult] = await Promise.all([
+        (supabase as any)
+          .from("ceo_daily_closing_declarations")
+          .select("closing_date,cash_fund_topup_amount,qtm_extracted_amount,extraction_meta")
+          .eq("closing_date", prevDate)
+          .maybeSingle(),
+        (supabase as any)
+          .from("ceo_daily_closing_declarations")
+          .select("closing_date,cash_fund_topup_amount,qtm_extracted_amount,extraction_meta")
+          .lt("closing_date", date)
+          .order("closing_date", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
 
-      if (prevError) {
-        console.error("[useQtmOpeningBalance] Error fetching previous day:", prevError);
-        throw prevError;
+      if (prevResult.error) {
+        console.error("[useQtmOpeningBalance] Error fetching previous day:", prevResult.error);
+        throw prevResult.error;
+      }
+      if (nearestPrevResult.error) {
+        console.error("[useQtmOpeningBalance] Error fetching nearest previous:", nearestPrevResult.error);
+        throw nearestPrevResult.error;
       }
 
-      const prevClosing = deriveClosingFromRow(prevData);
+      // Apply same precedence: exact prev day first, then nearest
+      const prevClosing = deriveClosingFromRow(prevResult.data);
       if (prevClosing !== null) return prevClosing;
 
-      // 2) Nearest previous day before selected date
-      const { data: nearestPrevData, error: nearestError } = await (supabase as any)
-        .from("ceo_daily_closing_declarations")
-        .select("closing_date,cash_fund_topup_amount,qtm_extracted_amount,extraction_meta")
-        .lt("closing_date", date)
-        .order("closing_date", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (nearestError) {
-        console.error("[useQtmOpeningBalance] Error fetching nearest previous:", nearestError);
-        throw nearestError;
-      }
-
-      const nearestPrevClosing = deriveClosingFromRow(nearestPrevData);
+      const nearestPrevClosing = deriveClosingFromRow(nearestPrevResult.data);
       if (nearestPrevClosing !== null) return nearestPrevClosing;
 
-      // 3) Fallback: use stored opening from current declaration
+      // Fallback: use stored opening from current declaration
       const currentStoredOpening = toNumberOrNull(currentDeclExtractionMeta?.qtm_opening_balance);
       return Number(currentStoredOpening || 0);
     },

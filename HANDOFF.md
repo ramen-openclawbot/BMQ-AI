@@ -1,12 +1,19 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.25**
+- apps/web: **0.0.26**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
 - Latest commit at handoff time: `git log -1 --oneline`
 
-## Latest update (2026-03-07 — v0.0.25)
+## Latest update (2026-03-07 — v0.0.26)
+### Perf Fix — Tổng số tiền quỹ load nhanh hơn khi chuyển ngày
+- **File**: `src/hooks/useFinanceReconciliation.ts`
+- **staleTime**: `DAILY_STALE_MS` tăng từ 30s → **5 phút**. Trước đây sau 30s không dùng là cache hết hạn, mỗi lần chuyển ngày đều thấy spinner. Giờ dữ liệu cùng ngày được dùng lại trong 5 phút.
+- **gcTime**: Tăng từ 10 phút → **15 phút** — data các ngày đã xem được giữ lâu hơn trong bộ nhớ, hỗ trợ việc navigate qua lại giữa các ngày.
+- **`useQtmOpeningBalance` parallel queries**: Thay 2 queries chạy nối tiếp (sequential waterfall) → **`Promise.all()`** chạy song song. Trước: query 2 chờ query 1 xong mới fire. Sau: cả 2 fire cùng lúc, thời gian chờ giảm ~50%.
+
+## Previous update (2026-03-07 — v0.0.25)
 ### Security Hardening — Critical RLS fixes + Function search_path (94 warnings từ Security Advisor)
 - **Migration** `20260307180000_security_hardening_rls_and_functions.sql`
 - **`user_roles` (CRITICAL)**: Drop write policies cho tất cả authenticated users → chỉ `owner` mới có thể INSERT/UPDATE/DELETE. Trước đây bất kỳ user nào cũng có thể tự cấp quyền owner (privilege escalation).
