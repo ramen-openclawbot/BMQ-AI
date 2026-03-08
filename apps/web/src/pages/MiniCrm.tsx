@@ -2418,49 +2418,74 @@ export default function MiniCrm() {
 
       {isSalesPoPage && (
       <>
-      <Card>
-        <CardHeader>
-          <CardTitle>PO Inbox (manual approval bắt buộc)</CardTitle>
-          <CardDescription>PO đọc từ email po@bmq.vn sẽ nằm ở đây trước khi duyệt tay.</CardDescription>
+      <Card className="border-border/70 bg-gradient-to-b from-background to-muted/20 shadow-sm">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <CardTitle className="text-2xl">PO Inbox (manual approval bắt buộc)</CardTitle>
+              <CardDescription className="mt-1">PO đọc từ email po@bmq.vn sẽ nằm ở đây trước khi duyệt tay.</CardDescription>
+            </div>
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+              <div className="rounded-lg border bg-background/80 px-3 py-2">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Đang lọc</div>
+                <div className="text-xl font-semibold leading-tight">{filteredPoInbox.length}</div>
+              </div>
+              <div className="rounded-lg border bg-background/80 px-3 py-2">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Pending</div>
+                <div className="text-xl font-semibold leading-tight">{statusCounts.pending_approval || 0}</div>
+              </div>
+              <div className="rounded-lg border bg-background/80 px-3 py-2">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Approved</div>
+                <div className="text-xl font-semibold leading-tight">{statusCounts.approved || 0}</div>
+              </div>
+              <div className="rounded-lg border bg-background/80 px-3 py-2">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Needs review</div>
+                <div className="text-xl font-semibold leading-tight text-amber-600">{pendingDeltaReviewCount}</div>
+              </div>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent>
-          <div className="mb-4 grid gap-3 md:grid-cols-9">
-            <div className="space-y-1">
-              <Label>Từ ngày</Label>
-              <Input type="date" value={poDateFrom} onChange={(e) => setPoDateFrom(e.target.value)} />
+        <CardContent className="space-y-4">
+          <div className="rounded-xl border bg-background/70 p-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <div className="space-y-1">
+                <Label>Từ ngày</Label>
+                <Input type="date" value={poDateFrom} onChange={(e) => setPoDateFrom(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label>Đến ngày</Label>
+                <Input type="date" value={poDateTo} onChange={(e) => setPoDateTo(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label>Khách hàng</Label>
+                <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={poCustomerFilter} onChange={(e) => setPoCustomerFilter(e.target.value)}>
+                  <option value="all">Tất cả khách hàng</option>
+                  {customers.map((c: any) => (
+                    <option key={c.id} value={c.id}>{c.customer_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label>PO mode</Label>
+                <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={poModeFilter} onChange={(e) => setPoModeFilter(e.target.value)}>
+                  <option value="all">Tất cả mode</option>
+                  <option value="daily_new_po">PO mới theo ngày</option>
+                  <option value="cumulative_snapshot">PO cộng dồn (delta)</option>
+                </select>
+              </div>
+              <div className="flex items-end">
+                <label className="flex items-center gap-2 text-sm rounded-md border bg-background px-3 h-10 w-full">
+                  <input
+                    type="checkbox"
+                    checked={poNeedsDeltaReviewOnly}
+                    onChange={(e) => setPoNeedsDeltaReviewOnly(e.target.checked)}
+                  />
+                  Chỉ hiện Needs delta review
+                </label>
+              </div>
             </div>
-            <div className="space-y-1">
-              <Label>Đến ngày</Label>
-              <Input type="date" value={poDateTo} onChange={(e) => setPoDateTo(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label>Khách hàng</Label>
-              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={poCustomerFilter} onChange={(e) => setPoCustomerFilter(e.target.value)}>
-                <option value="all">Tất cả khách hàng</option>
-                {customers.map((c: any) => (
-                  <option key={c.id} value={c.id}>{c.customer_name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <Label>PO mode</Label>
-              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={poModeFilter} onChange={(e) => setPoModeFilter(e.target.value)}>
-                <option value="all">Tất cả mode</option>
-                <option value="daily_new_po">PO mới theo ngày</option>
-                <option value="cumulative_snapshot">PO cộng dồn (delta)</option>
-              </select>
-            </div>
-            <div className="flex items-end">
-              <label className="flex items-center gap-2 text-sm rounded-md border px-3 h-10 w-full">
-                <input
-                  type="checkbox"
-                  checked={poNeedsDeltaReviewOnly}
-                  onChange={(e) => setPoNeedsDeltaReviewOnly(e.target.checked)}
-                />
-                Chỉ hiện Needs delta review
-              </label>
-            </div>
-            <div className="flex items-end">
+
+            <div className="mt-3 flex flex-wrap gap-2">
               <Button
                 type="button"
                 variant="outline"
@@ -2474,16 +2499,11 @@ export default function MiniCrm() {
               >
                 Reset bộ lọc
               </Button>
-            </div>
-            <div className="flex items-end">
               <Button type="button" variant="secondary" onClick={exportDeltaReconciliationCsv}>
                 Xuất CSV đối soát delta
               </Button>
-            </div>
-            <div className="flex items-end">
               <Button
                 type="button"
-                variant="default"
                 onClick={() => {
                   if (!vietjetCustomerId) {
                     toast({ title: "Chưa tìm thấy khách Vietjet", description: "Vui lòng kiểm tra tên customer trong CRM." });
@@ -2496,8 +2516,6 @@ export default function MiniCrm() {
               >
                 Preset Vietjet review
               </Button>
-            </div>
-            <div className="flex items-end">
               <Button
                 type="button"
                 variant="outline"
@@ -2515,71 +2533,81 @@ export default function MiniCrm() {
               </Button>
             </div>
           </div>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Received</TableHead>
-                <TableHead>From</TableHead>
-                <TableHead>Subject</TableHead>
-                <TableHead>Matched Customer</TableHead>
-                <TableHead>PO mode</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Action</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredPoInbox.map((row: any) => (
-                <TableRow key={row.id}>
-                  <TableCell>{new Date(row.received_at).toLocaleString("vi-VN")}</TableCell>
-                  <TableCell>{row.from_email}</TableCell>
-                  <TableCell>{row.email_subject || "(no subject)"}</TableCell>
-                  <TableCell>{row.mini_crm_customers?.customer_name || "Chưa match"}</TableCell>
-                  <TableCell>
-                    {(() => {
-                      const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === row.customer_id);
-                      if (!kb) return <span className="text-xs text-muted-foreground">Mặc định</span>;
-                      return <Badge variant="outline">{KB_PO_MODE_LABEL[String(kb.po_mode || "")] || String(kb.po_mode || "-")}</Badge>;
-                    })()}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col gap-1">
-                      <Badge variant={row.match_status === "approved" ? "default" : "secondary"}>{row.match_status}</Badge>
-                      {row?.raw_payload?.revenue_post?.requires_review && (
-                        <Badge variant="destructive" className="w-fit">Needs delta review</Badge>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="space-x-2">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => {
-                        setSelectedPoId(row.id);
-                        setPoSummaryDraft({
-                          po_number: row.po_number || "",
-                          delivery_date: row.delivery_date || "",
-                          subtotal_amount: row.subtotal_amount || "",
-                          vat_amount: row.vat_amount || "",
-                          total_amount: row.total_amount || "",
-                          production_items: Array.isArray(row.production_items) ? row.production_items : [],
-                        });
-                      }}
-                    >
-                      Xem nhanh
-                    </Button>
-                    <Button size="sm" onClick={() => reviewMutation.mutate({ id: row.id, status: "approved" })} disabled={reviewMutation.isPending || row.match_status === "approved"}>Approve</Button>
-                    <Button size="sm" variant="outline" onClick={() => reviewMutation.mutate({ id: row.id, status: "rejected" })} disabled={reviewMutation.isPending || row.match_status === "rejected"}>Reject</Button>
-                    {row?.raw_payload?.revenue_post?.requires_review && (
-                      <>
-                        <Button size="sm" variant="secondary" onClick={() => reviewDeltaMutation.mutate({ id: row.id, action: "approve_zero" })} disabled={reviewDeltaMutation.isPending}>Duyệt delta=0</Button>
-                        <Button size="sm" variant="destructive" onClick={() => reviewDeltaMutation.mutate({ id: row.id, action: "reject" })} disabled={reviewDeltaMutation.isPending}>Reject delta</Button>
-                      </>
-                    )}
-                  </TableCell>
+
+          <div className="rounded-xl border bg-background/70 overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="whitespace-nowrap">Received</TableHead>
+                  <TableHead className="whitespace-nowrap">From</TableHead>
+                  <TableHead>Subject</TableHead>
+                  <TableHead className="whitespace-nowrap">Matched Customer</TableHead>
+                  <TableHead className="whitespace-nowrap">PO mode</TableHead>
+                  <TableHead className="whitespace-nowrap">Status</TableHead>
+                  <TableHead className="whitespace-nowrap">Action</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filteredPoInbox.map((row: any) => (
+                  <TableRow key={row.id} className="align-top hover:bg-muted/40">
+                    <TableCell className="whitespace-nowrap">{new Date(row.received_at).toLocaleString("vi-VN")}</TableCell>
+                    <TableCell className="min-w-[200px] break-all">{row.from_email}</TableCell>
+                    <TableCell className="min-w-[280px]">{row.email_subject || "(no subject)"}</TableCell>
+                    <TableCell className="whitespace-nowrap">{row.mini_crm_customers?.customer_name || "Chưa match"}</TableCell>
+                    <TableCell>
+                      {(() => {
+                        const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === row.customer_id);
+                        if (!kb) return <span className="text-xs text-muted-foreground">Mặc định</span>;
+                        return <Badge variant="outline">{KB_PO_MODE_LABEL[String(kb.po_mode || "")] || String(kb.po_mode || "-")}</Badge>;
+                      })()}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-1">
+                        <Badge variant={row.match_status === "approved" ? "default" : "secondary"} className="w-fit">{row.match_status}</Badge>
+                        {row?.raw_payload?.revenue_post?.requires_review && (
+                          <Badge variant="destructive" className="w-fit">Needs delta review</Badge>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-2 min-w-[300px]">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => {
+                            setSelectedPoId(row.id);
+                            setPoSummaryDraft({
+                              po_number: row.po_number || "",
+                              delivery_date: row.delivery_date || "",
+                              subtotal_amount: row.subtotal_amount || "",
+                              vat_amount: row.vat_amount || "",
+                              total_amount: row.total_amount || "",
+                              production_items: Array.isArray(row.production_items) ? row.production_items : [],
+                            });
+                          }}
+                        >
+                          Xem nhanh
+                        </Button>
+                        <Button size="sm" onClick={() => reviewMutation.mutate({ id: row.id, status: "approved" })} disabled={reviewMutation.isPending || row.match_status === "approved"}>Approve</Button>
+                        <Button size="sm" variant="outline" onClick={() => reviewMutation.mutate({ id: row.id, status: "rejected" })} disabled={reviewMutation.isPending || row.match_status === "rejected"}>Reject</Button>
+                        {row?.raw_payload?.revenue_post?.requires_review && (
+                          <>
+                            <Button size="sm" variant="secondary" onClick={() => reviewDeltaMutation.mutate({ id: row.id, action: "approve_zero" })} disabled={reviewDeltaMutation.isPending}>Duyệt delta=0</Button>
+                            <Button size="sm" variant="destructive" onClick={() => reviewDeltaMutation.mutate({ id: row.id, action: "reject" })} disabled={reviewDeltaMutation.isPending}>Reject delta</Button>
+                          </>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {filteredPoInbox.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Không có PO phù hợp bộ lọc hiện tại.</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 
