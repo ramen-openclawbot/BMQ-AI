@@ -63,11 +63,12 @@ export function useFinanceDailySnapshot(closingDate: Date) {
 // ---------------------------------------------------------------------------
 // 1. Daily CEO declaration – lightweight (no images)
 // ---------------------------------------------------------------------------
-export function useDailyDeclaration(closingDate: Date) {
+export function useDailyDeclaration(closingDate: Date, enabled = true) {
   const date = format(closingDate, "yyyy-MM-dd");
 
   return useQuery({
     queryKey: ["daily-declaration", date],
+    enabled,
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("ceo_daily_closing_declarations")
@@ -125,11 +126,12 @@ export function useDailyDeclarationImages(closingDate: Date, enabled: boolean) {
 // ---------------------------------------------------------------------------
 // 2. UNC detail amount – OPTIMISED: single query with .or() filter
 // ---------------------------------------------------------------------------
-export function useUncDetailAmount(closingDate: Date) {
+export function useUncDetailAmount(closingDate: Date, enabled = true) {
   const date = format(closingDate, "yyyy-MM-dd");
 
   return useQuery({
     queryKey: ["unc-detail-amount", date],
+    enabled,
     queryFn: async () => {
       const startUtc = new Date(`${date}T00:00:00+07:00`).toISOString();
       const endUtc = new Date(`${date}T23:59:59.999+07:00`).toISOString();
@@ -218,11 +220,12 @@ async function uncDetailAmountFallback(date: string, startUtc: string, endUtc: s
 // ---------------------------------------------------------------------------
 // 3. Daily reconciliation row
 // ---------------------------------------------------------------------------
-export function useDailyReconciliation(closingDate: Date) {
+export function useDailyReconciliation(closingDate: Date, enabled = true) {
   const date = format(closingDate, "yyyy-MM-dd");
 
   return useQuery({
     queryKey: ["daily-reconciliation", date],
+    enabled,
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("daily_reconciliations")
@@ -330,12 +333,13 @@ export function useMonthlyReconciliation(month: Date, enabled = true) {
 // ---------------------------------------------------------------------------
 // 5. QTM Opening Balance – dedicated cached hook (replaces raw useEffect)
 // ---------------------------------------------------------------------------
-export function useQtmOpeningBalance(closingDate: Date, currentDeclExtractionMeta: any) {
+export function useQtmOpeningBalance(closingDate: Date, currentDeclExtractionMeta: any, enabled = true) {
   const date = format(closingDate, "yyyy-MM-dd");
   const prevDate = format(subDays(closingDate, 1), "yyyy-MM-dd");
 
   return useQuery({
     queryKey: ["qtm-opening-balance", date],
+    enabled,
     queryFn: async () => {
       const toNumberOrNull = (v: any): number | null => {
         if (v === null || v === undefined || v === "") return null;

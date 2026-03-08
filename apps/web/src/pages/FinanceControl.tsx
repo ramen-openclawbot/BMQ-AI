@@ -20,6 +20,10 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import {
   useFinanceDailySnapshot,
+  useDailyDeclaration,
+  useUncDetailAmount,
+  useDailyReconciliation,
+  useQtmOpeningBalance,
   useDailyDeclarationImages,
   useMonthlyReconciliation,
 } from "@/hooks/useFinanceReconciliation";
@@ -91,25 +95,53 @@ export default function FinanceControl() {
 
   const {
     data: dailySnapshot,
-    isLoading: declarationLoading,
-    isFetching: declarationFetching,
+    isLoading: snapshotLoading,
+    isFetching: snapshotFetching,
     error: dailySnapshotError,
     refetch: refetchDailySnapshot,
   } = useFinanceDailySnapshot(debouncedSelectedDate);
 
-  const dailyDeclaration = dailySnapshot?.declaration || null;
-  const uncDetailAmount = Number(dailySnapshot?.uncDetailAmount || 0);
-  const dailyReconciliation = dailySnapshot?.dailyReconciliation || null;
-  const qtmOpeningBalanceFromHook = Number(dailySnapshot?.qtmOpeningBalance || 0);
+  const snapshotFailed = Boolean(dailySnapshotError);
 
-  const refetchDeclaration = refetchDailySnapshot;
-  const refetchUncDetail = refetchDailySnapshot;
-  const refetchDailyReconciliation = refetchDailySnapshot;
+  const {
+    data: fallbackDailyDeclaration,
+    isLoading: fallbackDeclLoading,
+    isFetching: fallbackDeclFetching,
+    error: fallbackDeclarationError,
+    refetch: refetchFallbackDeclaration,
+  } = useDailyDeclaration(debouncedSelectedDate, snapshotFailed);
 
-  const declarationError = dailySnapshotError;
-  const uncDetailError = dailySnapshotError;
-  const dailyReconError = dailySnapshotError;
-  const qtmBalanceError = dailySnapshotError;
+  const { data: fallbackUncDetailAmount, error: fallbackUncDetailError, refetch: refetchFallbackUncDetail } = useUncDetailAmount(debouncedSelectedDate, snapshotFailed);
+  const { data: fallbackDailyReconciliation, error: fallbackDailyReconError, refetch: refetchFallbackDailyReconciliation } = useDailyReconciliation(debouncedSelectedDate, snapshotFailed);
+  const { data: fallbackQtmOpeningBalance, error: fallbackQtmBalanceError } = useQtmOpeningBalance(debouncedSelectedDate, fallbackDailyDeclaration?.extraction_meta, snapshotFailed);
+
+  const dailyDeclaration = snapshotFailed
+    ? (fallbackDailyDeclaration || null)
+    : (dailySnapshot?.declaration || null);
+
+  const uncDetailAmount = snapshotFailed
+    ? Number(fallbackUncDetailAmount || 0)
+    : Number(dailySnapshot?.uncDetailAmount || 0);
+
+  const dailyReconciliation = snapshotFailed
+    ? (fallbackDailyReconciliation || null)
+    : (dailySnapshot?.dailyReconciliation || null);
+
+  const qtmOpeningBalanceFromHook = snapshotFailed
+    ? Number(fallbackQtmOpeningBalance || 0)
+    : Number(dailySnapshot?.qtmOpeningBalance || 0);
+
+  const declarationLoading = snapshotFailed ? fallbackDeclLoading : snapshotLoading;
+  const declarationFetching = snapshotFailed ? fallbackDeclFetching : snapshotFetching;
+
+  const refetchDeclaration = snapshotFailed ? refetchFallbackDeclaration : refetchDailySnapshot;
+  const refetchUncDetail = snapshotFailed ? refetchFallbackUncDetail : refetchDailySnapshot;
+  const refetchDailyReconciliation = snapshotFailed ? refetchFallbackDailyReconciliation : refetchDailySnapshot;
+
+  const declarationError = snapshotFailed ? fallbackDeclarationError : dailySnapshotError;
+  const uncDetailError = snapshotFailed ? fallbackUncDetailError : dailySnapshotError;
+  const dailyReconError = snapshotFailed ? fallbackDailyReconError : dailySnapshotError;
+  const qtmBalanceError = snapshotFailed ? fallbackQtmBalanceError : dailySnapshotError;
 
   const { data: monthlySummary, error: monthlyError, refetch: refetchMonthly } = useMonthlyReconciliation(selectedMonth, activeTab === "monthly");
   const { data: declarationImages } = useDailyDeclarationImages(debouncedSelectedDate, imagesRequested);
