@@ -112,7 +112,7 @@ export function AddGoodsReceiptDialog() {
     },
   });
 
-  const { fields, append, remove } = useFieldArray({
+  const { fields, append, remove, replace } = useFieldArray({
     control: form.control,
     name: "items",
   });
@@ -421,7 +421,7 @@ export function AddGoodsReceiptDialog() {
     }
 
     const merged = Array.from(map.values());
-    form.setValue("items", merged as any);
+    replace(merged as any);
     setNewSkuItems([]);
   };
 
@@ -610,6 +610,11 @@ export function AddGoodsReceiptDialog() {
       toast.success("Đã tự tạo SKU nguyên vật liệu cho các dòng chưa có mã");
     }
 
+    const computedTotalQuantity = (data.items || []).reduce(
+      (sum, item) => sum + parseQuantity(item?.quantity),
+      0
+    );
+
     let createdReceiptId: string | null = null;
 
     try {
@@ -624,7 +629,7 @@ export function AddGoodsReceiptDialog() {
         receipt_date: data.receipt_date,
         image_url: imageUrl || null,
         notes: data.notes || null,
-        total_quantity: totalQuantity,
+        total_quantity: computedTotalQuantity,
         status: "draft",
         created_by: user?.id || null,
       });
@@ -660,7 +665,7 @@ export function AddGoodsReceiptDialog() {
       }
 
       // Chuyển trạng thái sau khi đã có item để tránh lỗi trigger/check trên DB production
-      await updateReceipt.mutateAsync({ id: receipt.id, status: "confirmed", total_quantity: totalQuantity });
+      await updateReceipt.mutateAsync({ id: receipt.id, status: "confirmed", total_quantity: computedTotalQuantity });
 
       toast.success("Đã tạo phiếu nhập kho thành công");
       setOpen(false);
