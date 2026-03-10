@@ -170,6 +170,10 @@ const parseEmailBodyToProductionItems = (subject?: string, body?: string) => {
 
   const normalize = (s: string) => s.replace(/^[-•]+\s*/, "").replace(/^\d+[.)]?\s*/, "").trim();
   const cleanNote = (s: string) => String(s || "").trim().replace(/^[-,;.]\s*/, "");
+  const extractExchangeQty = (s: string) => {
+    const m = String(s || "").match(/(?:\+\s*)?(?:doi|đổi)\s*[:=]?\s*([0-9]+)/i);
+    return Number(m?.[1] || 0);
+  };
 
   const items: any[] = [];
   for (const raw of chunks) {
@@ -180,10 +184,12 @@ const parseEmailBodyToProductionItems = (subject?: string, body?: string) => {
     let m = line.match(/^(.+?)\s*:\s*([0-9]+)(.*)$/i);
     if (m) {
       const location = String(m[1] || "").trim();
-      const qty = Number(m[2] || 0);
+      const qtyBase = Number(m[2] || 0);
       const note = cleanNote(String(m[3] || ""));
+      const qtyExchange = extractExchangeQty(note);
+      const qtyTotal = (Number.isFinite(qtyBase) ? qtyBase : 0) + (Number.isFinite(qtyExchange) ? qtyExchange : 0);
       if (location) {
-        items.push({ sku: "", product_name: location, unit: "cái", qty: Number.isFinite(qty) ? qty : 0, unit_price: 0, line_total: 0, parse_source: "email_body", note });
+        items.push({ sku: "", product_name: location, unit: "cái", qty_base: qtyBase, qty_exchange: qtyExchange, qty_total: qtyTotal, qty: qtyTotal, unit_price: 0, line_total: 0, parse_source: "email_body", note });
         continue;
       }
     }
@@ -192,10 +198,12 @@ const parseEmailBodyToProductionItems = (subject?: string, body?: string) => {
     m = line.match(/^(.+?)\s+([0-9]+)\s*:\s*(.*)$/i);
     if (m) {
       const location = String(m[1] || "").trim();
-      const qty = Number(m[2] || 0);
+      const qtyBase = Number(m[2] || 0);
       const note = cleanNote(String(m[3] || ""));
+      const qtyExchange = extractExchangeQty(note);
+      const qtyTotal = (Number.isFinite(qtyBase) ? qtyBase : 0) + (Number.isFinite(qtyExchange) ? qtyExchange : 0);
       if (location) {
-        items.push({ sku: "", product_name: location, unit: "cái", qty: Number.isFinite(qty) ? qty : 0, unit_price: 0, line_total: 0, parse_source: "email_body", note });
+        items.push({ sku: "", product_name: location, unit: "cái", qty_base: qtyBase, qty_exchange: qtyExchange, qty_total: qtyTotal, qty: qtyTotal, unit_price: 0, line_total: 0, parse_source: "email_body", note });
         continue;
       }
     }
@@ -205,10 +213,12 @@ const parseEmailBodyToProductionItems = (subject?: string, body?: string) => {
     if (m) {
       const location = String(m[1] || "").trim();
       const inside = String(m[2] || "");
-      const qty = Number((inside.match(/\d+/)?.[0] || "0"));
+      const qtyBase = Number((inside.match(/\d+/)?.[0] || "0"));
       const note = cleanNote(inside);
+      const qtyExchange = extractExchangeQty(note);
+      const qtyTotal = (Number.isFinite(qtyBase) ? qtyBase : 0) + (Number.isFinite(qtyExchange) ? qtyExchange : 0);
       if (location) {
-        items.push({ sku: "", product_name: location, unit: "cái", qty: Number.isFinite(qty) ? qty : 0, unit_price: 0, line_total: 0, parse_source: "email_body", note });
+        items.push({ sku: "", product_name: location, unit: "cái", qty_base: qtyBase, qty_exchange: qtyExchange, qty_total: qtyTotal, qty: qtyTotal, unit_price: 0, line_total: 0, parse_source: "email_body", note });
         continue;
       }
     }
@@ -3082,7 +3092,7 @@ export default function MiniCrm() {
             </div>
 
             <div className="space-y-2 md:col-span-2 rounded-md border p-3">
-              <Label>Knowledge Base Profile (Phase 2: approval workflow)</Label>
+              <Label>Knowledge Base Profile</Label>
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label className="text-xs text-muted-foreground">Tên profile</Label>
