@@ -1747,10 +1747,22 @@ export default function MiniCrm() {
   const recentRevenueAudit = useMemo(() => revenueAuditRows.slice(0, 20), [revenueAuditRows]);
 
   const selectedPo = useMemo(() => poInbox.find((r: any) => r.id === selectedPoId) || null, [poInbox, selectedPoId]);
+  const selectedPoResolvedCustomerId = useMemo(() => {
+    if (!selectedPo) return null;
+    if (selectedPo.customer_id) return selectedPo.customer_id;
+    const fromEmail = String(selectedPo.from_email || "").trim().toLowerCase();
+    if (!fromEmail) return null;
+    const matched = customers.filter((c: any) =>
+      Array.isArray(c?.mini_crm_customer_emails)
+      && c.mini_crm_customer_emails.some((e: any) => String(e?.email || "").trim().toLowerCase() === fromEmail)
+    );
+    if (matched.length === 1) return matched[0].id;
+    return null;
+  }, [selectedPo, customers]);
   const selectedPoKnowledgeProfile = useMemo(() => {
-    if (!selectedPo?.customer_id) return null;
-    return customerKnowledgeProfiles.find((x: any) => x.customer_id === selectedPo.customer_id) || null;
-  }, [customerKnowledgeProfiles, selectedPo]);
+    if (!selectedPoResolvedCustomerId) return null;
+    return customerKnowledgeProfiles.find((x: any) => x.customer_id === selectedPoResolvedCustomerId) || null;
+  }, [customerKnowledgeProfiles, selectedPoResolvedCustomerId]);
   const selectedPreview = useMemo(() => previewItems.find((r: any) => r.messageId === selectedPreviewId) || null, [previewItems, selectedPreviewId]);
 
   useEffect(() => {
@@ -2829,6 +2841,11 @@ export default function MiniCrm() {
                     <div>
                       <b>PO source:</b> {KB_PO_SOURCE_LABEL[getKbPoSource(selectedPoKnowledgeProfile)] || "Ưu tiên parse file đính kèm"}
                     </div>
+                    {!selectedPoKnowledgeProfile && (
+                      <div className="text-amber-600">
+                        Chưa áp dụng KB theo khách hàng cho email này. Vui lòng kiểm tra mapping email khách hàng trong CRM.
+                      </div>
+                    )}
                     {selectedPoKnowledgeProfile?.operational_notes && (
                       <div><b>Ops note:</b> {stripKbSystemMarkers(String(selectedPoKnowledgeProfile.operational_notes))}</div>
                     )}
