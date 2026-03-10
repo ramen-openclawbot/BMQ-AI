@@ -2227,23 +2227,6 @@ export default function MiniCrm() {
         </Dialog>
       )}
 
-      {isSalesPoPage && (
-        <div className="space-y-3">
-          <div className="grid gap-4 md:grid-cols-5">
-            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Tổng PO inbox (đang lọc)</div><div className="text-xl font-semibold">{filteredPoInbox.length}</div></CardContent></Card>
-            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Pending approval</div><div className="text-xl font-semibold">{statusCounts.pending_approval || 0}</div></CardContent></Card>
-            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Needs delta review</div><div className="text-xl font-semibold">{pendingDeltaReviewCount}</div></CardContent></Card>
-            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Approved</div><div className="text-xl font-semibold">{statusCounts.approved || 0}</div></CardContent></Card>
-            <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Unmatched</div><div className="text-xl font-semibold">{statusCounts.unmatched || 0}</div></CardContent></Card>
-          </div>
-          <div className="flex justify-end">
-            <Button variant="secondary" onClick={() => autoPostSafeMutation.mutate()} disabled={autoPostSafeMutation.isPending}>
-              {autoPostSafeMutation.isPending ? "Đang auto-post..." : "Auto-post an toàn (daily)"}
-            </Button>
-          </div>
-        </div>
-      )}
-
       {!isSalesPoPage && (
       <> 
       <div className="flex justify-end">
@@ -2531,30 +2514,42 @@ export default function MiniCrm() {
               >
                 Preset Vietjet all cumulative
               </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => autoPostSafeMutation.mutate()}
+                disabled={autoPostSafeMutation.isPending}
+              >
+                {autoPostSafeMutation.isPending ? "Đang auto-post..." : "Auto-post an toàn (daily)"}
+              </Button>
             </div>
           </div>
 
+          <div className="text-xs text-muted-foreground">Màn hình nhỏ có thể vuốt ngang để xem đủ cột.</div>
           <div className="rounded-xl border bg-background/70 overflow-x-auto">
-            <Table>
+            <Table className="min-w-[980px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="whitespace-nowrap">Received</TableHead>
-                  <TableHead className="whitespace-nowrap">From</TableHead>
-                  <TableHead>Subject</TableHead>
+                  <TableHead className="whitespace-nowrap hidden lg:table-cell">From</TableHead>
+                  <TableHead className="min-w-[220px]">Subject</TableHead>
                   <TableHead className="whitespace-nowrap">Matched Customer</TableHead>
-                  <TableHead className="whitespace-nowrap">PO mode</TableHead>
+                  <TableHead className="whitespace-nowrap hidden md:table-cell">PO mode</TableHead>
                   <TableHead className="whitespace-nowrap">Status</TableHead>
-                  <TableHead className="whitespace-nowrap">Action</TableHead>
+                  <TableHead className="whitespace-nowrap sticky right-0 z-10 bg-background">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredPoInbox.map((row: any) => (
                   <TableRow key={row.id} className="align-top hover:bg-muted/40">
                     <TableCell className="whitespace-nowrap">{new Date(row.received_at).toLocaleString("vi-VN")}</TableCell>
-                    <TableCell className="min-w-[200px] break-all">{row.from_email}</TableCell>
-                    <TableCell className="min-w-[280px]">{row.email_subject || "(no subject)"}</TableCell>
+                    <TableCell className="min-w-[200px] break-all hidden lg:table-cell">{row.from_email}</TableCell>
+                    <TableCell className="min-w-[280px]">
+                      <div className="font-medium">{row.email_subject || "(no subject)"}</div>
+                      <div className="text-xs text-muted-foreground mt-1 lg:hidden break-all">{row.from_email}</div>
+                    </TableCell>
                     <TableCell className="whitespace-nowrap">{row.mini_crm_customers?.customer_name || "Chưa match"}</TableCell>
-                    <TableCell>
+                    <TableCell className="hidden md:table-cell">
                       {(() => {
                         const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === row.customer_id);
                         if (!kb) return <span className="text-xs text-muted-foreground">Mặc định</span>;
@@ -2569,8 +2564,8 @@ export default function MiniCrm() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-2 min-w-[300px]">
+                    <TableCell className="sticky right-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+                      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 min-w-[220px]">
                         <Button
                           size="sm"
                           variant="secondary"
@@ -2725,7 +2720,7 @@ export default function MiniCrm() {
                   </div>
 
                   <Tabs defaultValue="accounting" className="w-full">
-                    <TabsList>
+                    <TabsList className="w-full justify-start overflow-x-auto">
                       <TabsTrigger value="accounting">Kế toán</TabsTrigger>
                       <TabsTrigger value="production">QL Sản xuất</TabsTrigger>
                     </TabsList>
@@ -2771,7 +2766,7 @@ export default function MiniCrm() {
                       </div>
 
                       <div className="rounded-md border overflow-x-auto">
-                        <Table>
+                        <Table className="min-w-[820px]">
                           <TableHeader>
                             <TableRow>
                               <TableHead>SKU</TableHead>
