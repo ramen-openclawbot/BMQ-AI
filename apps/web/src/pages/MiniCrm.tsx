@@ -45,11 +45,17 @@ const KB_PO_SOURCE_LABEL: Record<string, string> = {
   email_body_only: "PO từ nội dung email",
 };
 
-const stripPoSourceMarker = (note?: string | null) =>
+const stripKbSystemMarkers = (note?: string | null) =>
   String(note || "")
     .replace(/\s*\[PO_SOURCE:[^\]]+\]\s*/gi, " ")
+    .replace(/\[EMAIL_BODY_TEMPLATE_START\][\s\S]*?\[EMAIL_BODY_TEMPLATE_END\]/gi, " ")
     .replace(/\s{2,}/g, " ")
     .trim();
+
+const extractEmailBodyTemplate = (note?: string | null) => {
+  const m = String(note || "").match(/\[EMAIL_BODY_TEMPLATE_START\]([\s\S]*?)\[EMAIL_BODY_TEMPLATE_END\]/i);
+  return String(m?.[1] || "").trim();
+};
 
 const getKbPoSource = (kb?: any) => {
   const hay = `${String(kb?.operational_notes || "")} ${String(kb?.calculation_notes || "")}`.toLowerCase();
@@ -58,9 +64,19 @@ const getKbPoSource = (kb?: any) => {
 };
 
 const injectPoSourceMarker = (note: string, source: string) => {
-  const base = stripPoSourceMarker(note);
+  const base = stripKbSystemMarkers(note);
   const marker = `[PO_SOURCE:${source}]`;
   return `${base ? `${base} ` : ""}${marker}`.trim();
+};
+
+const composeOperationalNotes = (note: string, source: string, emailBodyTemplate: string) => {
+  const withSource = injectPoSourceMarker(note, source);
+  const sample = String(emailBodyTemplate || "").trim();
+  if (!sample) return withSource;
+  return `${withSource}
+[EMAIL_BODY_TEMPLATE_START]
+${sample}
+[EMAIL_BODY_TEMPLATE_END]`.trim();
 };
 
 const extractPoNumberFromSubject = (subject?: string) => {
@@ -257,6 +273,7 @@ export default function MiniCrm() {
   const [viewCustomer, setViewCustomer] = useState<any | null>(null);
   const [setupContractFile, setSetupContractFile] = useState<File | null>(null);
   const [setupPriceRows, setSetupPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
+  const [setupEmailBodyTemplate, setSetupEmailBodyTemplate] = useState("");
   const [editContractFile, setEditContractFile] = useState<File | null>(null);
   const [editPriceRows, setEditPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
   const [editKbProfileName, setEditKbProfileName] = useState("Default Customer Knowledge");
@@ -264,6 +281,7 @@ export default function MiniCrm() {
   const [editKbPoSource, setEditKbPoSource] = useState("attachment_first");
   const [editKbCalcNotes, setEditKbCalcNotes] = useState("");
   const [editKbOperationalNotes, setEditKbOperationalNotes] = useState("");
+  const [editEmailBodyTemplate, setEditEmailBodyTemplate] = useState("");
   const [kbChangeNote, setKbChangeNote] = useState("");
   const [agentCommand, setAgentCommand] = useState("");
   const [agentDraft, setAgentDraft] = useState<any | null>(null);
@@ -450,7 +468,8 @@ export default function MiniCrm() {
     setEditKbPoMode(String(kb?.po_mode || "daily_new_po"));
     setEditKbPoSource(getKbPoSource(kb));
     setEditKbCalcNotes(String(kb?.calculation_notes || ""));
-    setEditKbOperationalNotes(String(kb?.operational_notes || ""));
+    setEditKbOperationalNotes(stripKbSystemMarkers(String(kb?.operational_notes || "")));
+    setEditEmailBodyTemplate(extractEmailBodyTemplate(String(kb?.operational_notes || "")));
     setKbChangeNote("");
   };
 
@@ -476,6 +495,7 @@ export default function MiniCrm() {
     setEditKbPoSource("attachment_first");
     setEditKbCalcNotes("");
     setEditKbOperationalNotes("");
+    setEditEmailBodyTemplate("");
     setKbChangeNote("");
   };
 
@@ -771,7 +791,7 @@ export default function MiniCrm() {
         po_mode: "daily_new_po",
         profile_status: "active",
         calculation_notes: null,
-        operational_notes: null,
+        operational_notes: composeOperationalNotes("", "attachment_first", setupEmailBodyTemplate),
       };
       const { data: kbInserted, error: kbError } = await (supabase as any)
         .from("mini_crm_knowledge_profiles")
@@ -807,6 +827,7 @@ export default function MiniCrm() {
       setEmailsInput("");
       setSetupContractFile(null);
       setSetupPriceRows([{ skuId: "", price: "" }]);
+      setSetupEmailBodyTemplate("");
       setTemplateFileName("");
       setTemplatePreview(null);
       await Promise.all([
@@ -1082,7 +1103,7 @@ export default function MiniCrm() {
         profile_name: editKbProfileName.trim() || `${trimmedName} Knowledge`,
         po_mode: editKbPoMode,
         calculation_notes: editKbCalcNotes.trim() || null,
-        operational_notes: injectPoSourceMarker(editKbOperationalNotes.trim(), editKbPoSource),
+        operational_notes: composeOperationalNotes(editKbOperationalNotes.trim(), editKbPoSource, editEmailBodyTemplate),
         profile_status: "active",
       };
       const { data: kbSaved, error: kbError } = await (supabase as any)
@@ -1143,7 +1164,7 @@ export default function MiniCrm() {
         po_mode: editKbPoMode,
         profile_status: "pending_approval",
         calculation_notes: editKbCalcNotes.trim() || null,
-        operational_notes: injectPoSourceMarker(editKbOperationalNotes.trim(), editKbPoSource),
+        operational_notes: composeOperationalNotes(editKbOperationalNotes.trim(), editKbPoSource, editEmailBodyTemplate),
         change_note: kbChangeNote.trim() || "KB update request",
         request_status: "pending",
         requested_by: "mini-crm-ui",
@@ -2367,6 +2388,17 @@ export default function MiniCrm() {
               />
               {templateFileName && <div className="text-xs text-muted-foreground">Đã xác nhận: {templateFileName}</div>}
             </div>
+
+            <div className="space-y-2 md:col-span-2 rounded-md border p-3">
+              <Label>Mẫu nội dung PO từ email (copy/paste)</Label>
+              <textarea
+                className="min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={setupEmailBodyTemplate}
+                onChange={(e) => setSetupEmailBodyTemplate(e.target.value)}
+                placeholder="Dán 1 mẫu email PO thực tế để lưu vào Knowledge Base (không bắt buộc)."
+              />
+              <div className="text-xs text-muted-foreground">Dùng khi khách hàng gửi PO trong nội dung email thay vì file đính kèm.</div>
+            </div>
           </div>
 
           <div className="flex justify-end gap-2">
@@ -2788,7 +2820,7 @@ export default function MiniCrm() {
                       <b>PO source:</b> {KB_PO_SOURCE_LABEL[getKbPoSource(selectedPoKnowledgeProfile)] || "Ưu tiên parse file đính kèm"}
                     </div>
                     {selectedPoKnowledgeProfile?.operational_notes && (
-                      <div><b>Ops note:</b> {String(selectedPoKnowledgeProfile.operational_notes)}</div>
+                      <div><b>Ops note:</b> {stripKbSystemMarkers(String(selectedPoKnowledgeProfile.operational_notes))}</div>
                     )}
                     {selectedPo?.raw_payload?.revenue_post && (
                       <div className="rounded-md border p-2 bg-muted/30 mt-2">
@@ -3077,6 +3109,15 @@ export default function MiniCrm() {
                 <div className="space-y-2 md:col-span-2">
                   <Label className="text-xs text-muted-foreground">Operational notes</Label>
                   <Input value={editKbOperationalNotes} onChange={(e) => setEditKbOperationalNotes(e.target.value)} placeholder="Ví dụ: Vietjet gửi file snapshot cộng dồn hàng ngày" />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label className="text-xs text-muted-foreground">Mẫu nội dung PO từ email (copy/paste)</Label>
+                  <textarea
+                    className="min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={editEmailBodyTemplate}
+                    onChange={(e) => setEditEmailBodyTemplate(e.target.value)}
+                    placeholder="Dán mẫu email PO để hệ thống lưu trong KB và tham chiếu khi parse body email."
+                  />
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <Label className="text-xs text-muted-foreground">Change note (bắt buộc khi gửi duyệt)</Label>
