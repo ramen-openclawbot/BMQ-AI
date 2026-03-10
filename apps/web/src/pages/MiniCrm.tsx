@@ -134,6 +134,16 @@ const getReadableError = (e: any) => {
   }
 };
 
+const normalizeVietnameseText = (value?: string | null) =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
 const parseEmailBodyToProductionItems = (subject?: string, body?: string) => {
   const text = String(body || "").replace(/\r/g, "\n");
   const chunks = text
@@ -225,6 +235,7 @@ export default function MiniCrm() {
   const [poDateFrom, setPoDateFrom] = useState<string>("");
   const [poDateTo, setPoDateTo] = useState<string>("");
   const [poNeedsDeltaReviewOnly, setPoNeedsDeltaReviewOnly] = useState<boolean>(false);
+  const [customerSearch, setCustomerSearch] = useState<string>("");
   const [poCustomerFilter, setPoCustomerFilter] = useState<string>("all");
   const [poModeFilter, setPoModeFilter] = useState<string>("all");
   const [syncDate, setSyncDate] = useState<string>(() => {
@@ -1678,6 +1689,19 @@ export default function MiniCrm() {
     );
   }, [filteredPoInbox]);
 
+  const filteredCustomers = useMemo(() => {
+    const keyword = normalizeVietnameseText(customerSearch);
+    if (!keyword) return customers;
+    return customers.filter((c: any) => {
+      const name = normalizeVietnameseText(c?.customer_name);
+      const group = normalizeVietnameseText(GROUP_LABEL_MAP[c?.customer_group] || c?.customer_group || "");
+      const productGroup = normalizeVietnameseText(PRODUCT_GROUP_LABEL_MAP[c?.product_group] || c?.product_group || "");
+      const emails = normalizeVietnameseText((c?.mini_crm_customer_emails || []).map((e: any) => e?.email).join(" "));
+      const haystack = `${name} ${group} ${productGroup} ${emails}`;
+      return haystack.includes(keyword);
+    });
+  }, [customers, customerSearch]);
+
   const pendingDeltaReviewCount = useMemo(() => {
     return filteredPoInbox.filter((row: any) => Boolean(row?.raw_payload?.revenue_post?.requires_review)).length;
   }, [filteredPoInbox]);
@@ -2360,6 +2384,17 @@ export default function MiniCrm() {
           <CardTitle>Danh sách khách hàng</CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="mb-3 flex items-center gap-2">
+            <Input
+              value={customerSearch}
+              onChange={(e) => setCustomerSearch(e.target.value)}
+              placeholder="Tìm khách hàng (hỗ trợ tiếng Việt: ví dụ 'my tho', 'mỹ thọ', email...)"
+              className="max-w-md"
+            />
+            {customerSearch && (
+              <Button type="button" variant="ghost" size="sm" onClick={() => setCustomerSearch("")}>Xoá</Button>
+            )}
+          </div>
           {editFeedback && (
             <div
               className={`mb-3 rounded-md border px-3 py-2 text-sm ${
@@ -2386,7 +2421,7 @@ export default function MiniCrm() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {customers.map((c: any) => {
+              {filteredCustomers.map((c: any) => {
                 return (
                   <TableRow key={c.id}>
                     <TableCell>{c.customer_name}</TableCell>
@@ -2432,6 +2467,11 @@ export default function MiniCrm() {
                   </TableRow>
                 );
               })}
+              {filteredCustomers.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-6">Không tìm thấy khách hàng phù hợp.</TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </CardContent>
