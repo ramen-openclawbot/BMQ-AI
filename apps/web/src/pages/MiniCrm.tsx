@@ -40,6 +40,28 @@ const KB_PO_MODE_LABEL: Record<string, string> = {
   cumulative_snapshot: "PO cộng dồn (delta)",
 };
 
+const KB_PO_SOURCE_LABEL: Record<string, string> = {
+  attachment_first: "Ưu tiên parse file đính kèm",
+  email_body_only: "PO từ nội dung email",
+};
+
+const stripPoSourceMarker = (note?: string | null) =>
+  String(note || "")
+    .replace(/\s*\[PO_SOURCE:[^\]]+\]\s*/gi, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+const getKbPoSource = (kb?: any) => {
+  const hay = `${String(kb?.operational_notes || "")} ${String(kb?.calculation_notes || "")}`.toLowerCase();
+  if (/\[po_source\s*:\s*email_body_only\]/i.test(hay) || /po_source\s*=\s*email_body_only/i.test(hay)) return "email_body_only";
+  return "attachment_first";
+};
+
+const injectPoSourceMarker = (note: string, source: string) => {
+  const base = stripPoSourceMarker(note);
+  const marker = `[PO_SOURCE:${source}]`;
+  return `${base ? `${base} ` : ""}${marker}`.trim();
+};
 
 const extractPoNumberFromSubject = (subject?: string) => {
   const s = String(subject || "");
@@ -228,6 +250,7 @@ export default function MiniCrm() {
   const [editPriceRows, setEditPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
   const [editKbProfileName, setEditKbProfileName] = useState("Default Customer Knowledge");
   const [editKbPoMode, setEditKbPoMode] = useState("daily_new_po");
+  const [editKbPoSource, setEditKbPoSource] = useState("attachment_first");
   const [editKbCalcNotes, setEditKbCalcNotes] = useState("");
   const [editKbOperationalNotes, setEditKbOperationalNotes] = useState("");
   const [kbChangeNote, setKbChangeNote] = useState("");
@@ -414,6 +437,7 @@ export default function MiniCrm() {
     const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === c.id);
     setEditKbProfileName(String(kb?.profile_name || `${c.customer_name || "Customer"} Knowledge`));
     setEditKbPoMode(String(kb?.po_mode || "daily_new_po"));
+    setEditKbPoSource(getKbPoSource(kb));
     setEditKbCalcNotes(String(kb?.calculation_notes || ""));
     setEditKbOperationalNotes(String(kb?.operational_notes || ""));
     setKbChangeNote("");
@@ -438,6 +462,7 @@ export default function MiniCrm() {
     setEditPriceRows([{ skuId: "", price: "" }]);
     setEditKbProfileName("Default Customer Knowledge");
     setEditKbPoMode("daily_new_po");
+    setEditKbPoSource("attachment_first");
     setEditKbCalcNotes("");
     setEditKbOperationalNotes("");
     setKbChangeNote("");
@@ -1046,7 +1071,7 @@ export default function MiniCrm() {
         profile_name: editKbProfileName.trim() || `${trimmedName} Knowledge`,
         po_mode: editKbPoMode,
         calculation_notes: editKbCalcNotes.trim() || null,
-        operational_notes: editKbOperationalNotes.trim() || null,
+        operational_notes: injectPoSourceMarker(editKbOperationalNotes.trim(), editKbPoSource),
         profile_status: "active",
       };
       const { data: kbSaved, error: kbError } = await (supabase as any)
@@ -1107,7 +1132,7 @@ export default function MiniCrm() {
         po_mode: editKbPoMode,
         profile_status: "pending_approval",
         calculation_notes: editKbCalcNotes.trim() || null,
-        operational_notes: editKbOperationalNotes.trim() || null,
+        operational_notes: injectPoSourceMarker(editKbOperationalNotes.trim(), editKbPoSource),
         change_note: kbChangeNote.trim() || "KB update request",
         request_status: "pending",
         requested_by: "mini-crm-ui",
@@ -1700,9 +1725,25 @@ export default function MiniCrm() {
   }, [selectedPo]);
 
   useEffect(() => {
-    setSavePoStatus("");
-    setPostRevenueStatus("");
-  }, [selectedPoId]);
+    if (!selectedPo || !selectedPoKnowledgeProfile) return;
+    const source = getKbPoSource(selectedPoKnowledgeProfile);
+    if (source !== "email_body_only") return;
+
+    const currentItems = Array.isArray(poSummaryDraft?.production_items) ? poSummaryDraft.production_items : [];
+    if (currentItems.length > 0) return;
+
+    const parsed = parseEmailBodyToProductionItems(selectedPo?.email_subject, selectedPo?.body_preview || selectedPo?.raw_payload?.snippet || "");
+    if (!Array.isArray(parsed.items) || parsed.items.length === 0) return;
+
+    setPoSummaryDraft((s: any) => ({
+      ...s,
+      delivery_date: s?.delivery_date || parsed.deliveryDate || "",
+      production_items: parsed.items,
+      subtotal_amount: 0,
+      vat_amount: 0,
+      total_amount: 0,
+    }));
+  }, [selectedPo, selectedPoKnowledgeProfile, poSummaryDraft?.production_items]);
 
   const parseAttachmentMutation = useMutation({
     mutationFn: async (inboxId: string) => {
@@ -2703,6 +2744,9 @@ export default function MiniCrm() {
                     <div>
                       <b>Knowledge mode:</b> {selectedPoKnowledgeProfile ? (KB_PO_MODE_LABEL[String(selectedPoKnowledgeProfile.po_mode || "")] || String(selectedPoKnowledgeProfile.po_mode || "-")) : "Mặc định (PO mới theo ngày)"}
                     </div>
+                    <div>
+                      <b>PO source:</b> {KB_PO_SOURCE_LABEL[getKbPoSource(selectedPoKnowledgeProfile)] || "Ưu tiên parse file đính kèm"}
+                    </div>
                     {selectedPoKnowledgeProfile?.operational_notes && (
                       <div><b>Ops note:</b> {String(selectedPoKnowledgeProfile.operational_notes)}</div>
                     )}
@@ -2977,6 +3021,13 @@ export default function MiniCrm() {
                   <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editKbPoMode} onChange={(e) => setEditKbPoMode(e.target.value)}>
                     <option value="daily_new_po">PO mới theo ngày</option>
                     <option value="cumulative_snapshot">PO cộng dồn (delta)</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Nguồn PO ưu tiên</Label>
+                  <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editKbPoSource} onChange={(e) => setEditKbPoSource(e.target.value)}>
+                    <option value="attachment_first">Ưu tiên file đính kèm</option>
+                    <option value="email_body_only">PO từ nội dung email</option>
                   </select>
                 </div>
                 <div className="space-y-2 md:col-span-2">
