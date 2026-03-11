@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useForm, useFieldArray, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -15,7 +15,7 @@ import { Plus, Trash2, Loader2, Upload, Scan, AlertCircle, CheckCircle } from "l
 import { toast } from "sonner";
 import { useSuppliers } from "@/hooks/useSuppliers";
 import { useCreateGoodsReceipt, useCreateGoodsReceiptItem, useUpdateGoodsReceipt, useDeleteGoodsReceipt, uploadGoodsReceiptImage } from "@/hooks/useGoodsReceipts";
-import { useProductSKUs } from "@/hooks/useProductSKUs";
+import { findSKUByCodeOrName, useProductSKUs } from "@/hooks/useProductSKUs";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -93,6 +93,8 @@ export function AddGoodsReceiptDialog() {
   const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 });
   const [batchSupplierId, setBatchSupplierId] = useState<string>("");
   const [showBatchPanel, setShowBatchPanel] = useState(false);
+  const isAutoSyncingSkuRef = useRef(false);
+  const lastAutoSyncedNameRef = useRef<Record<number, string>>({});
 
   const { data: suppliers } = useSuppliers();
   const { data: skus } = useProductSKUs();
@@ -214,14 +216,10 @@ export function AddGoodsReceiptDialog() {
     const normalizedName = String(productName || "").trim();
     if (!normalizedName) throw new Error("Thiếu tên nguyên vật liệu để tạo SKU");
 
-    const { data: existing } = await supabase
-      .from("product_skus")
-      .select("id, sku_code, sku_type, category")
-      .ilike("product_name", normalizedName)
-      .limit(1)
-      .maybeSingle();
-
-    if (existing?.id) return { id: existing.id, sku_code: (existing as any).sku_code || "" };
+    const matched = await findSKUByCodeOrName(undefined, normalizedName);
+    if (matched?.id) {
+      return { id: matched.id, sku_code: matched.sku_code || "" };
+    }
 
     const base = slugifySku(normalizedName) || "NVL";
     const skuCode = `NVL-${base}-${Date.now().toString().slice(-4)}`;
@@ -589,6 +587,50 @@ export function AddGoodsReceiptDialog() {
     }
   };
 
+  // Re-sync / tạo SKU realtime khi user nhập hoặc sửa tên sản phẩm thủ công
+  useEffect(() => {
+    if (!open || !watchedItems?.length) return;
+    if (isAutoSyncingSkuRef.current) return;
+
+    const timer = setTimeout(async () => {
+      isAutoSyncingSkuRef.current = true;
+      try {
+        for (let index = 0; index < watchedItems.length; index++) {
+          const row = watchedItems[index];
+          const productName = String(row?.product_name || "").trim();
+          if (!productName || productName.length < 3) continue;
+
+          const normalizedCurrentName = normalizeText(productName);
+          const lastName = lastAutoSyncedNameRef.current[index];
+          if (lastName === normalizedCurrentName && row?.sku_id) continue;
+
+          const matchedSku = await findSKUByCodeOrName(undefined, productName);
+          if (matchedSku?.id) {
+            form.setValue(`items.${index}.sku_id`, matchedSku.id, { shouldDirty: true });
+            form.setValue(`items.${index}.sku_code`, matchedSku.sku_code || "", { shouldDirty: true });
+            form.setValue(`items.${index}.sku_status`, "found", { shouldDirty: true });
+            setNewSkuItems((prev) => prev.filter((i) => i !== index));
+            lastAutoSyncedNameRef.current[index] = normalizedCurrentName;
+            continue;
+          }
+
+          const createdSku = await ensureRawMaterialSku(productName, row?.unit || "kg");
+          form.setValue(`items.${index}.sku_id`, createdSku.id, { shouldDirty: true });
+          form.setValue(`items.${index}.sku_code`, createdSku.sku_code || "", { shouldDirty: true });
+          form.setValue(`items.${index}.sku_status`, "found", { shouldDirty: true });
+          setNewSkuItems((prev) => prev.filter((i) => i !== index));
+          lastAutoSyncedNameRef.current[index] = normalizedCurrentName;
+        }
+      } catch (syncErr) {
+        console.warn("Auto-sync SKU error:", syncErr);
+      } finally {
+        isAutoSyncingSkuRef.current = false;
+      }
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [open, watchedItems, form]);
+
   // Submit form
   const onSubmit = async (data: FormData) => {
     // Safety net: nếu còn dòng thiếu SKU (manual edit sau scan), tự tạo SKU NVL trước khi submit
@@ -714,6 +756,7 @@ export function AddGoodsReceiptDialog() {
       setBatchSupplierId("");
       setShowBatchPanel(false);
       setBatchProgress({ done: 0, total: 0 });
+      lastAutoSyncedNameRef.current = {};
     }
   }, [open, form]);
 
