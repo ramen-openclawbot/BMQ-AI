@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Table,
   TableBody,
@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useInventory, useDeleteInventoryItem, InventoryItem } from "@/hooks/useInventory";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -38,6 +39,27 @@ export function InventoryTable() {
   const deleteItem = useDeleteInventoryItem();
   const [editItem, setEditItem] = useState<InventoryItem | null>(null);
   const [deleteItemId, setDeleteItemId] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const normalizeText = (text: string) =>
+    text
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+
+  const filteredInventory = useMemo(() => {
+    if (!inventory) return [];
+    if (!searchTerm.trim()) return inventory;
+
+    const normalizedSearch = normalizeText(searchTerm);
+    return inventory.filter((item) => {
+      const values = [item.name, item.category, item.unit].filter(
+        (value): value is string => typeof value === "string" && value.length > 0
+      );
+      return values.some((value) => normalizeText(value).includes(normalizedSearch));
+    });
+  }, [inventory, searchTerm]);
 
   const handleDelete = async () => {
     if (!deleteItemId) return;
@@ -104,9 +126,16 @@ export function InventoryTable() {
   return (
     <>
       <div className="card-elevated rounded-xl border border-border overflow-hidden">
-        <div className="px-6 py-4 border-b border-border">
-          <h3 className="font-display text-lg font-semibold">Tồn kho</h3>
-          <p className="text-sm text-muted-foreground">Mức tồn nguyên liệu</p>
+        <div className="px-6 py-4 border-b border-border space-y-3">
+          <div>
+            <h3 className="font-display text-lg font-semibold">Tồn kho</h3>
+            <p className="text-sm text-muted-foreground">Mức tồn nguyên liệu</p>
+          </div>
+          <Input
+            placeholder="Tìm kiếm nguyên liệu, danh mục..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
         </div>
         <Table>
           <TableHeader>
@@ -120,52 +149,60 @@ export function InventoryTable() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {inventory.map((item) => {
-              const status = getStockStatus(item.quantity, item.min_stock || 0);
-              return (
-                <TableRow key={item.id}>
-                  <TableCell className="font-medium">{item.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{item.category}</TableCell>
-                  <TableCell className="text-right font-medium">
-                    {item.quantity} {item.unit}
-                  </TableCell>
-                  <TableCell>
-                    <Badge 
-                      variant="outline"
-                      className={cn(
-                        "font-medium",
-                        status.variant === "destructive" && "border-destructive/50 text-destructive bg-destructive/10",
-                        status.variant === "warning" && "border-warning/50 text-warning bg-warning/10",
-                        status.variant === "success" && "border-success/50 text-success bg-success/10"
-                      )}
-                    >
-                      {status.label}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{item.min_stock} {item.unit}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => setEditItem(item)}
+            {filteredInventory.length ? (
+              filteredInventory.map((item) => {
+                const status = getStockStatus(item.quantity, item.min_stock || 0);
+                return (
+                  <TableRow key={item.id}>
+                    <TableCell className="font-medium">{item.name}</TableCell>
+                    <TableCell className="text-muted-foreground">{item.category}</TableCell>
+                    <TableCell className="text-right font-medium">
+                      {item.quantity} {item.unit}
+                    </TableCell>
+                    <TableCell>
+                      <Badge 
+                        variant="outline"
+                        className={cn(
+                          "font-medium",
+                          status.variant === "destructive" && "border-destructive/50 text-destructive bg-destructive/10",
+                          status.variant === "warning" && "border-warning/50 text-warning bg-warning/10",
+                          status.variant === "success" && "border-success/50 text-success bg-success/10"
+                        )}
                       >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={() => setDeleteItemId(item.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+                        {status.label}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{item.min_stock} {item.unit}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => setEditItem(item)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          onClick={() => setDeleteItemId(item.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            ) : (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                  Không tìm thấy mặt hàng phù hợp.
+                </TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
       </div>
