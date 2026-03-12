@@ -23,6 +23,8 @@ interface MigrationSummary {
   records: number;
   files: number;
   totalSizeMb: number;
+  imageFiles: number;
+  imageSizeMb: number;
 }
 
 const TABLES = [
@@ -114,6 +116,8 @@ export function DataMigrationSettings() {
     records: 0,
     files: 0,
     totalSizeMb: 0,
+    imageFiles: 0,
+    imageSizeMb: 0,
   });
 
   const canExport = useMemo(() => isOwner && busyFormat === null, [isOwner, busyFormat]);
@@ -142,11 +146,17 @@ export function DataMigrationSettings() {
 
       const { data: fileSizeRows } = await (supabase as any)
         .from("drive_file_index")
-        .select("file_size")
+        .select("file_size,mime_type")
         .not("file_size", "is", null)
         .limit(50000);
 
-      const totalFileBytes = (fileSizeRows || []).reduce((sum: number, row: any) => sum + Number(row.file_size || 0), 0);
+      const rows = (fileSizeRows || []) as Array<{ file_size: number | null; mime_type: string | null }>;
+      const isImageMime = (mimeType: string | null | undefined) => String(mimeType || "").toLowerCase().startsWith("image/");
+
+      const totalFileBytes = rows.reduce((sum: number, row) => sum + Number(row.file_size || 0), 0);
+      const imageFileRows = rows.filter((row) => isImageMime(row.mime_type));
+      const imageFileBytes = imageFileRows.reduce((sum: number, row) => sum + Number(row.file_size || 0), 0);
+
       const estimatedDbBytes = records * 600;
       const estimatedTotalMb = (totalFileBytes + estimatedDbBytes) / (1024 * 1024);
 
@@ -155,6 +165,8 @@ export function DataMigrationSettings() {
         records,
         files: filesCount || 0,
         totalSizeMb: Number(estimatedTotalMb.toFixed(1)),
+        imageFiles: imageFileRows.length,
+        imageSizeMb: Number((imageFileBytes / (1024 * 1024)).toFixed(1)),
       });
     } catch (error: any) {
       toast({
@@ -419,7 +431,7 @@ export function DataMigrationSettings() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="rounded-lg border p-3">
           <p className="text-xs text-muted-foreground">Tables</p>
           <p className="text-lg font-semibold">{summary.tables}</p>
@@ -436,7 +448,18 @@ export function DataMigrationSettings() {
           <p className="text-xs text-muted-foreground">Estimated size</p>
           <p className="text-lg font-semibold">{summary.totalSizeMb.toFixed(1)} MB</p>
         </div>
+        <div className="rounded-lg border p-3">
+          <p className="text-xs text-muted-foreground">Image files</p>
+          <p className="text-lg font-semibold">{summary.imageFiles.toLocaleString()}</p>
+        </div>
+        <div className="rounded-lg border p-3">
+          <p className="text-xs text-muted-foreground">Image size</p>
+          <p className="text-lg font-semibold">{summary.imageSizeMb.toFixed(1)} MB</p>
+        </div>
       </div>
+      <p className="text-xs text-muted-foreground">
+        Estimated size = dữ liệu DB ước tính + toàn bộ file trong drive_file_index. Image size chỉ tính file có mime_type bắt đầu bằng image/.
+      </p>
 
       <div className="flex justify-end">
         <Button variant="outline" disabled={!isOwner || loadingSummary} onClick={fetchSummary}>
