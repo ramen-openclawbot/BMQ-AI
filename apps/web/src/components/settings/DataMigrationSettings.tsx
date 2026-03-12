@@ -146,15 +146,23 @@ export function DataMigrationSettings() {
 
       const { data: fileSizeRows } = await (supabase as any)
         .from("drive_file_index")
-        .select("file_size,mime_type")
+        .select("file_size,mime_type,file_name")
         .not("file_size", "is", null)
         .limit(50000);
 
-      const rows = (fileSizeRows || []) as Array<{ file_size: number | null; mime_type: string | null }>;
-      const isImageMime = (mimeType: string | null | undefined) => String(mimeType || "").toLowerCase().startsWith("image/");
+      const rows = (fileSizeRows || []) as Array<{ file_size: number | null; mime_type: string | null; file_name: string | null }>;
+      const imageExts = new Set(["jpg", "jpeg", "png", "webp", "gif", "heic", "heif", "bmp", "tif", "tiff", "avif"]);
+      const isImageRow = (row: { mime_type: string | null; file_name: string | null }) => {
+        const mime = String(row?.mime_type || "").toLowerCase();
+        if (mime.startsWith("image/")) return true;
+
+        const name = String(row?.file_name || "").toLowerCase();
+        const ext = name.includes(".") ? name.split(".").pop() || "" : "";
+        return imageExts.has(ext);
+      };
 
       const totalFileBytes = rows.reduce((sum: number, row) => sum + Number(row.file_size || 0), 0);
-      const imageFileRows = rows.filter((row) => isImageMime(row.mime_type));
+      const imageFileRows = rows.filter((row) => isImageRow(row));
       const imageFileBytes = imageFileRows.reduce((sum: number, row) => sum + Number(row.file_size || 0), 0);
 
       const estimatedDbBytes = records * 600;
@@ -458,7 +466,7 @@ export function DataMigrationSettings() {
         </div>
       </div>
       <p className="text-xs text-muted-foreground">
-        Estimated size = dữ liệu DB ước tính + toàn bộ file trong drive_file_index. Image size chỉ tính file có mime_type bắt đầu bằng image/.
+        Estimated size = dữ liệu DB ước tính + toàn bộ file trong drive_file_index. Image size tính theo mime_type image/* và fallback theo đuôi file ảnh (jpg/png/webp/heic...).
       </p>
 
       <div className="flex justify-end">
