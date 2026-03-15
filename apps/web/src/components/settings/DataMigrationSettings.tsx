@@ -27,13 +27,6 @@ interface MigrationSummary {
   imageSizeMb: number;
 }
 
-interface StorageStats {
-  files: number;
-  totalBytes: number;
-  imageFiles: number;
-  imageBytes: number;
-}
-
 const TABLES = [
   "profiles",
   "user_roles",
@@ -113,100 +106,6 @@ function toSqlLiteral(value: any): string {
   return `'${text.replace(/'/g, "''")}'`;
 }
 
-const IMAGE_EXTS = new Set(["jpg", "jpeg", "png", "webp", "gif", "heic", "heif", "bmp", "tif", "tiff", "avif"]);
-
-function getObjectMime(item?: any) {
-  return String(
-    item?.metadata?.mimetype ||
-      item?.metadata?.mimeType ||
-      item?.metadata?.contentType ||
-      item?.metadata?.content_type ||
-      item?.mimetype ||
-      item?.mimeType ||
-      item?.contentType ||
-      item?.content_type ||
-      "",
-  ).toLowerCase();
-}
-
-function getObjectSize(item?: any) {
-  return Number(item?.metadata?.size ?? item?.size ?? item?.metadata?.contentLength ?? 0);
-}
-
-function looksLikeFileObject(item?: any) {
-  const name = String(item?.name || "");
-  if (!name) return false;
-
-  if (item?.id || item?.metadata) return true;
-  if (typeof item?.size === "number") return true;
-  if (getObjectMime(item)) return true;
-
-  const lower = name.toLowerCase();
-  const ext = lower.includes(".") ? lower.split(".").pop() || "" : "";
-  return IMAGE_EXTS.has(ext);
-}
-
-function isImageObject(item?: any) {
-  const mime = getObjectMime(item);
-  if (mime.startsWith("image/")) return true;
-
-  const lower = String(item?.name || "").toLowerCase();
-  const ext = lower.includes(".") ? lower.split(".").pop() || "" : "";
-  return IMAGE_EXTS.has(ext);
-}
-
-async function collectBucketStats(bucketId: string): Promise<StorageStats> {
-  const stats: StorageStats = { files: 0, totalBytes: 0, imageFiles: 0, imageBytes: 0 };
-  const queue: string[] = [""];
-  const pageSize = 100;
-
-  while (queue.length > 0) {
-    const prefix = queue.shift() || "";
-    let offset = 0;
-
-    while (true) {
-      const { data, error } = await supabase.storage.from(bucketId).list(prefix, {
-        limit: pageSize,
-        offset,
-        sortBy: { column: "name", order: "asc" },
-      });
-
-      if (error) {
-        throw new Error(`Không thể đọc bucket ${bucketId}${prefix ? `/${prefix}` : ""}: ${error.message}`);
-      }
-
-      const rows = data || [];
-      if (!rows.length) break;
-
-      for (const item of rows as any[]) {
-        const name = String(item?.name || "");
-        if (!name) continue;
-
-        const isFile = looksLikeFileObject(item);
-        if (!isFile) {
-          const childPrefix = prefix ? `${prefix}/${name}` : name;
-          queue.push(childPrefix);
-          continue;
-        }
-
-        const size = getObjectSize(item);
-        stats.files += 1;
-        stats.totalBytes += size;
-
-        if (isImageObject(item)) {
-          stats.imageFiles += 1;
-          stats.imageBytes += size;
-        }
-      }
-
-      if (rows.length < pageSize) break;
-      offset += pageSize;
-    }
-  }
-
-  return stats;
-}
-
 export function DataMigrationSettings() {
   const { toast } = useToast();
   const [busyFormat, setBusyFormat] = useState<ExportFormat | "manifest" | "zip" | null>(null);
@@ -241,32 +140,26 @@ export function DataMigrationSettings() {
       const counts = await Promise.all(countPromises);
       const records = counts.reduce((sum, c) => sum + c, 0);
 
-      const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets();
-      if (bucketsError) throw bucketsError;
+      const { data: storageSummary, error: storageError } = await supabase.functions.invoke("migration-storage-summary", {
+        body: {},
+      });
 
-      const bucketIds = (buckets || []).map((b: any) => String(b.id || b.name)).filter(Boolean);
-      const bucketStats = await Promise.all(bucketIds.map((bucketId) => collectBucketStats(bucketId)));
+      if (storageError) {
+        throw new Error(storageError.message || "Không lấy được thống kê storage.");
+      }
 
-      const storageStats = bucketStats.reduce(
-        (acc, s) => ({
-          files: acc.files + s.files,
-          totalBytes: acc.totalBytes + s.totalBytes,
-          imageFiles: acc.imageFiles + s.imageFiles,
-          imageBytes: acc.imageBytes + s.imageBytes,
-        }),
-        { files: 0, totalBytes: 0, imageFiles: 0, imageBytes: 0 },
-      );
-
+      const totalBytes = Number(storageSummary?.totalBytes || 0);
+      const imageBytes = Number(storageSummary?.imageBytes || 0);
       const estimatedDbBytes = records * 600;
-      const estimatedTotalMb = (storageStats.totalBytes + estimatedDbBytes) / (1024 * 1024);
+      const estimatedTotalMb = (totalBytes + estimatedDbBytes) / (1024 * 1024);
 
       setSummary({
         tables: TABLES.length,
         records,
-        files: storageStats.files,
+        files: Number(storageSummary?.files || 0),
         totalSizeMb: Number(estimatedTotalMb.toFixed(1)),
-        imageFiles: storageStats.imageFiles,
-        imageSizeMb: Number((storageStats.imageBytes / (1024 * 1024)).toFixed(1)),
+        imageFiles: Number(storageSummary?.imageFiles || 0),
+        imageSizeMb: Number((imageBytes / (1024 * 1024)).toFixed(1)),
       });
     } catch (error: any) {
       toast({
