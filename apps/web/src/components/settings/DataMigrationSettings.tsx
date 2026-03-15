@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Archive,
   Database,
@@ -8,7 +8,6 @@ import {
   FolderArchive,
   HardDrive,
   ListChecks,
-  Loader2,
   ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,15 +16,6 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
 type ExportFormat = "schema" | "json" | "sql";
-
-interface MigrationSummary {
-  tables: number;
-  records: number;
-  files: number;
-  totalSizeMb: number;
-  imageFiles: number;
-  imageSizeMb: number;
-}
 
 const TABLES = [
   "profiles",
@@ -52,10 +42,11 @@ const TABLES = [
 
 const IMPORT_STEPS = [
   "Chạy migrations để tạo schema trước khi nạp dữ liệu.",
-  "Tạo đầy đủ buckets storage cần thiết.",
-  "Upload files theo storage manifest (giữ nguyên bucket/path).",
+  "Tạo đầy đủ buckets storage cần thiết ở môi trường đích.",
+  "Import storage-manifest.json để khôi phục đúng bucket/path cho từng file.",
+  "Upload file ZIP theo đúng cấu trúc bucket/path đã export.",
   "Import SQL hoặc JSON theo đúng thứ tự phụ thuộc.",
-  "Đối soát record count + checksum để xác minh toàn vẹn.",
+  "Đối soát manifest, số object và checksum để xác minh toàn vẹn.",
 ];
 
 function downloadTextFile(fileName: string, content: string, contentType = "application/json") {
@@ -98,94 +89,16 @@ function toSqlLiteral(value: any): string {
   if (typeof value === "number" || typeof value === "bigint") return String(value);
   if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
 
-  const text =
-    typeof value === "object"
-      ? JSON.stringify(value)
-      : String(value);
-
+  const text = typeof value === "object" ? JSON.stringify(value) : String(value);
   return `'${text.replace(/'/g, "''")}'`;
 }
 
 export function DataMigrationSettings() {
   const { toast } = useToast();
   const [busyFormat, setBusyFormat] = useState<ExportFormat | "manifest" | "zip" | null>(null);
-  const [loadingSummary, setLoadingSummary] = useState(false);
   const [isOwner, setIsOwner] = useState(false);
-  const [summary, setSummary] = useState<MigrationSummary>({
-    tables: TABLES.length,
-    records: 0,
-    files: 0,
-    totalSizeMb: 0,
-    imageFiles: 0,
-    imageSizeMb: 0,
-  });
 
-  const canExport = useMemo(() => isOwner && busyFormat === null, [isOwner, busyFormat]);
-
-  const fetchSummary = async () => {
-    setLoadingSummary(true);
-    try {
-      const countPromises = TABLES.map(async (table) => {
-        const { count, error } = await (supabase as any)
-          .from(table)
-          .select("*", { count: "exact", head: true });
-
-        if (error) {
-          console.warn(`[DataMigration] count failed for ${table}:`, error.message);
-          return 0;
-        }
-        return count || 0;
-      });
-
-      const counts = await Promise.all(countPromises);
-      const records = counts.reduce((sum, c) => sum + c, 0);
-      const estimatedDbBytes = records * 600;
-
-      setSummary((prev) => ({
-        ...prev,
-        tables: TABLES.length,
-        records,
-        totalSizeMb: Number((estimatedDbBytes / (1024 * 1024)).toFixed(1)),
-      }));
-
-      try {
-        const { data: storageSummary, error: storageError } = await supabase.functions.invoke("migration-storage-summary", {
-          body: {},
-        });
-
-        if (storageError) {
-          throw new Error(storageError.message || "Không lấy được thống kê storage.");
-        }
-
-        const totalBytes = Number(storageSummary?.totalBytes || 0);
-        const imageBytes = Number(storageSummary?.imageBytes || 0);
-        const estimatedTotalMb = (totalBytes + estimatedDbBytes) / (1024 * 1024);
-
-        setSummary({
-          tables: TABLES.length,
-          records,
-          files: Number(storageSummary?.files || 0),
-          totalSizeMb: Number(estimatedTotalMb.toFixed(1)),
-          imageFiles: Number(storageSummary?.imageFiles || 0),
-          imageSizeMb: Number((imageBytes / (1024 * 1024)).toFixed(1)),
-        });
-      } catch (storageError: any) {
-        toast({
-          title: "Không tải được thống kê storage",
-          description: storageError?.message || "Storage summary hiện chưa sẵn sàng.",
-          variant: "destructive",
-        });
-      }
-    } catch (error: any) {
-      toast({
-        title: "Không tải được thống kê migration",
-        description: error?.message || "Vui lòng thử lại.",
-        variant: "destructive",
-      });
-    } finally {
-      setLoadingSummary(false);
-    }
-  };
+  const canExport = isOwner && busyFormat === null;
 
   useEffect(() => {
     const init = async () => {
@@ -207,10 +120,6 @@ export function DataMigrationSettings() {
 
       const owner = (roleRows || []).some((r: any) => r.role === "owner");
       setIsOwner(owner);
-
-      if (owner) {
-        await fetchSummary();
-      }
     };
 
     init();
@@ -306,29 +215,34 @@ export function DataMigrationSettings() {
     try {
       setBusyFormat("manifest");
 
-      const { data, error } = await (supabase as any)
-        .from("drive_file_index")
-        .select("file_id,file_name,file_size,mime_type,folder_type,folder_date,parent_folder_id")
-        .limit(50000);
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
 
-      if (error) throw error;
+      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/migration-storage-manifest`;
+      const resp = await fetch(functionUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
 
-      const manifest = {
-        generatedAt: new Date().toISOString(),
-        source: "drive_file_index",
-        files: (data || []).map((item: any) => ({
-          provider: "google-drive",
-          fileId: item.file_id,
-          fileName: item.file_name,
-          size: item.file_size,
-          mimeType: item.mime_type,
-          folderType: item.folder_type,
-          folderDate: item.folder_date,
-          parentFolderId: item.parent_folder_id,
-        })),
-      };
+      if (!resp.ok) {
+        let errMsg = `Tạo manifest thất bại (HTTP ${resp.status})`;
+        try {
+          const errJson = await resp.json();
+          errMsg = errJson?.error || errMsg;
+        } catch {
+          // ignore json parse errors
+        }
+        throw new Error(errMsg);
+      }
 
-      downloadTextFile("storage-manifest.json", JSON.stringify(manifest, null, 2));
+      const manifestText = await resp.text();
+      downloadTextFile("storage-manifest.json", manifestText);
       toast({
         title: "Đã tạo manifest",
         description: "storage-manifest.json đã sẵn sàng.",
@@ -369,7 +283,7 @@ export function DataMigrationSettings() {
           apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ folderType: "all" }),
+        body: JSON.stringify({}),
       });
 
       if (!resp.ok) {
@@ -418,7 +332,7 @@ export function DataMigrationSettings() {
         <Archive className="h-5 w-5 text-primary" />
         <div>
           <h2 className="font-display font-semibold text-lg">Data Migration</h2>
-          <p className="text-sm text-muted-foreground">Xuất dữ liệu và storage để backup/chuyển môi trường an toàn.</p>
+          <p className="text-sm text-muted-foreground">Xuất dữ liệu và storage theo chuẩn migration-safe để backup/chuyển môi trường.</p>
         </div>
       </div>
 
@@ -429,43 +343,6 @@ export function DataMigrationSettings() {
           Chỉ tài khoản role <strong>owner</strong> mới có quyền export dữ liệu.
         </div>
       )}
-
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="rounded-lg border p-3">
-          <p className="text-xs text-muted-foreground">Tables</p>
-          <p className="text-lg font-semibold">{summary.tables}</p>
-        </div>
-        <div className="rounded-lg border p-3">
-          <p className="text-xs text-muted-foreground">Records</p>
-          <p className="text-lg font-semibold">{summary.records.toLocaleString()}</p>
-        </div>
-        <div className="rounded-lg border p-3">
-          <p className="text-xs text-muted-foreground">Files</p>
-          <p className="text-lg font-semibold">{summary.files.toLocaleString()}</p>
-        </div>
-        <div className="rounded-lg border p-3">
-          <p className="text-xs text-muted-foreground">Estimated size</p>
-          <p className="text-lg font-semibold">{summary.totalSizeMb.toFixed(1)} MB</p>
-        </div>
-        <div className="rounded-lg border p-3">
-          <p className="text-xs text-muted-foreground">Image files</p>
-          <p className="text-lg font-semibold">{summary.imageFiles.toLocaleString()}</p>
-        </div>
-        <div className="rounded-lg border p-3">
-          <p className="text-xs text-muted-foreground">Image size</p>
-          <p className="text-lg font-semibold">{summary.imageSizeMb.toFixed(1)} MB</p>
-        </div>
-      </div>
-      <p className="text-xs text-muted-foreground">
-        Estimated size = dữ liệu DB ước tính + toàn bộ file thực tế trong Supabase Storage buckets. Image size tính theo metadata mime_type image/* và fallback theo đuôi file ảnh.
-      </p>
-
-      <div className="flex justify-end">
-        <Button variant="outline" disabled={!isOwner || loadingSummary} onClick={fetchSummary}>
-          {loadingSummary ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-          Làm mới thống kê
-        </Button>
-      </div>
 
       <div className="space-y-3">
         <div className="flex items-center gap-2">
@@ -493,6 +370,12 @@ export function DataMigrationSettings() {
           <HardDrive className="h-4 w-4 text-primary" />
           <p className="font-medium">Export Storage</p>
         </div>
+        <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground space-y-1">
+          <p className="font-medium text-foreground">Chuẩn export hiện tại</p>
+          <p>Manifest lấy từ <code>storage.objects</code>.</p>
+          <p>ZIP giữ nguyên cấu trúc <code>bucket/path</code> để phục vụ restore chính xác.</p>
+          <p>Mỗi file trong manifest gồm bucket, path, contentType, size, checksum và timestamps.</p>
+        </div>
         <div className="grid sm:grid-cols-2 gap-2">
           <Button variant="outline" onClick={generateManifest} disabled={!canExport}>
             <ListChecks className="h-4 w-4 mr-2" />
@@ -511,11 +394,11 @@ export function DataMigrationSettings() {
           <p className="font-medium">Guardrails khuyến nghị</p>
         </div>
         <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
-          <li>Chỉ cho phép role owner/admin thao tác export.</li>
-          <li>Mask hoặc loại bỏ dữ liệu nhạy cảm (PII) trước khi tải.</li>
-          <li>Ghi audit log: người export, thời điểm, loại dữ liệu.</li>
-          <li>Áp checksum SHA256 cho từng file và toàn bộ gói backup.</li>
-          <li>Giới hạn dung lượng/timeout và có retry cho job lớn.</li>
+          <li>Chỉ cho phép role owner thao tác export.</li>
+          <li>Luôn export manifest trước khi tải ZIP để có mapping bucket/path.</li>
+          <li>Giữ nguyên cấu trúc bucket/path khi restore sang môi trường mới.</li>
+          <li>Đối soát checksum sau import để xác minh toàn vẹn file.</li>
+          <li>Với archive lớn, cân nhắc tách batch thay vì 1 ZIP duy nhất.</li>
         </ul>
       </div>
 
@@ -526,16 +409,6 @@ export function DataMigrationSettings() {
             <li key={step}>{step}</li>
           ))}
         </ol>
-      </div>
-
-      <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground space-y-1">
-        <p className="font-medium text-foreground">API contract khuyến nghị (backend)</p>
-        <p>GET /api/migration/summary</p>
-        <p>POST /api/migration/export/schema</p>
-        <p>POST /api/migration/export/json</p>
-        <p>POST /api/migration/export/sql</p>
-        <p>POST /api/migration/storage/manifest</p>
-        <p>POST /api/migration/storage/archive</p>
       </div>
     </div>
   );

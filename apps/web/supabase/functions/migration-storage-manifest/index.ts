@@ -1,11 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
-import JSZip from "npm:jszip@3.10.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 
-const PAGE_SIZE = 500;
-const MAX_FILES = 5000;
-const MAX_TOTAL_BYTES = 1024 * 1024 * 1024; // 1GB hard-limit
+const PAGE_SIZE = 1000;
 
 function getObjectMime(metadata?: any) {
   return String(
@@ -87,7 +84,7 @@ serve(async (req) => {
     const user = await requireOwner(req, supabaseAdmin, corsHeaders);
 
     let from = 0;
-    const objects: any[] = [];
+    const allRows: any[] = [];
 
     while (true) {
       const { data, error } = await supabaseAdmin
@@ -101,93 +98,38 @@ serve(async (req) => {
       if (error) throw error;
 
       const rows = data || [];
-      objects.push(...rows);
+      allRows.push(...rows);
       if (rows.length < PAGE_SIZE) break;
       from += PAGE_SIZE;
     }
 
-    if (!objects.length) {
-      return new Response(JSON.stringify({ error: "No storage objects found." }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const manifest = {
+      generatedAt: new Date().toISOString(),
+      source: "storage.objects",
+      exportedBy: user.id,
+      files: allRows.map((row: any) => ({
+        objectId: row.id,
+        bucket: row.bucket_id,
+        path: row.name,
+        size: getObjectSize(row.metadata),
+        contentType: getObjectMime(row.metadata),
+        checksum: getObjectChecksum(row.metadata),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      })),
+    };
 
-    if (objects.length > MAX_FILES) {
-      return new Response(JSON.stringify({ error: `Too many files (${objects.length}). Max is ${MAX_FILES}.` }), {
-        status: 413,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const estimatedBytes = objects.reduce((sum, row) => sum + getObjectSize(row.metadata), 0);
-    if (estimatedBytes > MAX_TOTAL_BYTES) {
-      return new Response(JSON.stringify({ error: `Archive too large (${Math.round(estimatedBytes / 1024 / 1024)}MB). Max is ${Math.round(MAX_TOTAL_BYTES / 1024 / 1024)}MB.` }), {
-        status: 413,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const zip = new JSZip();
-    const failed: Array<{ bucket: string; path: string; reason: string }> = [];
-
-    for (const row of objects) {
-      const bucket = String(row.bucket_id || "");
-      const path = String(row.name || "");
-      if (!bucket || !path) continue;
-
-      try {
-        const { data, error } = await supabaseAdmin.storage.from(bucket).download(path);
-        if (error || !data) {
-          failed.push({ bucket, path, reason: error?.message || "download_failed" });
-          continue;
-        }
-
-        const bytes = new Uint8Array(await data.arrayBuffer());
-        zip.file(`${bucket}/${path}`, bytes);
-      } catch (err: any) {
-        failed.push({ bucket, path, reason: err?.message || "download_failed" });
-      }
-    }
-
-    zip.file(
-      "storage-manifest.json",
-      JSON.stringify(
-        {
-          generatedAt: new Date().toISOString(),
-          source: "storage.objects",
-          exportedBy: user.id,
-          files: objects.map((row: any) => ({
-            objectId: row.id,
-            bucket: row.bucket_id,
-            path: row.name,
-            size: getObjectSize(row.metadata),
-            contentType: getObjectMime(row.metadata),
-            checksum: getObjectChecksum(row.metadata),
-            createdAt: row.created_at,
-            updatedAt: row.updated_at,
-          })),
-          failed,
-        },
-        null,
-        2,
-      ),
-    );
-
-    const zipBuffer = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-
-    return new Response(zipBuffer, {
+    return new Response(JSON.stringify(manifest, null, 2), {
       status: 200,
       headers: {
         ...corsHeaders,
-        "Content-Type": "application/zip",
-        "Content-Disposition": `attachment; filename="bmq-storage-archive-${stamp}.zip"`,
+        "Content-Type": "application/json",
+        "Content-Disposition": 'attachment; filename="storage-manifest.json"',
       },
     });
   } catch (error: any) {
     if (error instanceof Response) return error;
-    console.error("[migration-storage-archive] fatal", error);
+    console.error("[migration-storage-manifest] fatal", error);
     return new Response(JSON.stringify({ error: error?.message || "Internal error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
