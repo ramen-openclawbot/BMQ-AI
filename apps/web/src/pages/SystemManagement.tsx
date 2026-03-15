@@ -1,8 +1,9 @@
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Separator } from "@/components/ui/separator";
-import { Database, FolderCog } from "lucide-react";
+import { Database, FolderCog, Info } from "lucide-react";
 import { GoogleDriveSettings } from "@/components/settings/GoogleDriveSettings";
 import { DataMigrationSettings } from "@/components/settings/DataMigrationSettings";
+import { AppVersionSection } from "@/components/settings/AppVersionSection";
 
 export default function SystemManagement() {
   const { t } = useLanguage();
@@ -22,6 +23,7 @@ export default function SystemManagement() {
         <div className="flex gap-2 overflow-x-auto whitespace-nowrap">
           <a href="#google-drive" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Google Drive Integration</a>
           <a href="#data-migration" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Data Migration</a>
+          <a href="#app-info" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Thông tin ứng dụng</a>
         </div>
       </div>
 
@@ -51,6 +53,20 @@ export default function SystemManagement() {
           </p>
         </div>
         <DataMigrationSettings />
+      </div>
+
+      <div id="app-info" className="scroll-mt-24 space-y-4">
+        <div className="card-elevated rounded-xl border border-border p-6 space-y-4">
+          <div className="flex items-center gap-3">
+            <Info className="h-5 w-5 text-primary" />
+            <h2 className="font-display font-semibold text-lg">Thông tin ứng dụng</h2>
+          </div>
+          <Separator />
+          <p className="text-sm text-muted-foreground">
+            Theo dõi phiên bản hiện tại và thời điểm build của ứng dụng.
+          </p>
+        </div>
+        <AppVersionSection />
       </div>
     </div>
   );

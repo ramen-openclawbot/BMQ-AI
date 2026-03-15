@@ -9,7 +9,6 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Separator } from "@/components/ui/separator";
 import { supabase } from "@/integrations/supabase/client";
-import { AppVersionSection } from "@/components/settings/AppVersionSection";
 import {
   Select,
   SelectContent,
@@ -200,8 +199,6 @@ const Settings = () => {
         </div>
       </div>
 
-      {/* App Version Section */}
-      <AppVersionSection />
     </div>
   );
 };
