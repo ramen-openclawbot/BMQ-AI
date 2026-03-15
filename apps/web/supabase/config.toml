@@ -46,6 +46,9 @@ verify_jwt = true
 [functions.get-ai-credit-balance]
 verify_jwt = true
 
+[functions.migration-storage-summary]
+verify_jwt = true
+
 # ──────────────────────────────────────────────────────────
 # Functions with JWT verification DISABLED
 # Reason: OAuth callbacks (no JWT available) or Cron jobs (use x-cron-secret)

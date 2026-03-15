@@ -193,8 +193,6 @@ export function DataMigrationSettings() {
       const userId = auth?.user?.id;
       if (!userId) return;
 
-      // Nếu hệ thống chưa cấu hình phân quyền user_roles thì mặc định cho phép tài khoản đã đăng nhập sử dụng migration.
-      // Khi bảng role đã có dữ liệu, chỉ owner mới được phép.
       const { data: roleRows, error } = await (supabase as any)
         .from("user_roles")
         .select("role")
@@ -202,19 +200,12 @@ export function DataMigrationSettings() {
         .limit(10);
 
       if (error) {
-        console.warn("[DataMigration] Không đọc được user_roles, fallback allow logged-in user", error.message);
-        setIsOwner(true);
-        await fetchSummary();
+        console.warn("[DataMigration] Không đọc được user_roles", error.message);
+        setIsOwner(false);
         return;
       }
 
-      if (!roleRows || roleRows.length === 0) {
-        setIsOwner(true);
-        await fetchSummary();
-        return;
-      }
-
-      const owner = roleRows.some((r: any) => r.role === "owner");
+      const owner = (roleRows || []).some((r: any) => r.role === "owner");
       setIsOwner(owner);
 
       if (owner) {
