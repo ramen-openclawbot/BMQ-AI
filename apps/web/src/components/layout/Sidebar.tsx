@@ -23,6 +23,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Shield,
+  ServerCog,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -48,6 +49,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { icon: Shield, labelKey: "userManagement", path: "/user-management", section: "execution", ownerOnly: true, moduleKey: "user_management" },
+  { icon: ServerCog, labelKey: "systemManagement", path: "/system-management", section: "execution", ownerOnly: true },
   { icon: Landmark, labelKey: "investorDashboard", path: "/niraan-dashboard", section: "execution", moduleKey: "niraan_dashboard" },
   { icon: LayoutDashboard, labelKey: "dashboard", path: "/", section: "execution", moduleKey: "dashboard" },
   { icon: BarChart3, labelKey: "reports", path: "/reports", section: "execution", moduleKey: "reports" },

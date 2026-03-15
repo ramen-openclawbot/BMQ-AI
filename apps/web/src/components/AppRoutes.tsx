@@ -25,6 +25,7 @@ import SkuCostsEmployees from "@/pages/SkuCostsEmployees";
 import SkuCostsOverhead from "@/pages/SkuCostsOverhead";
 import TraceabilityPublic from "@/pages/TraceabilityPublic";
 import UserManagement from "@/pages/UserManagement";
+import SystemManagement from "@/pages/SystemManagement";
 import WarehouseHome from "@/warehouse/pages/WarehouseHome";
 
 // Lazy load: pages nặng — chỉ tải khi user vào trang đó
@@ -147,6 +148,7 @@ export function AppRoutes() {
         <Route path="/settings" element={<Settings />} />
         {/* Owner-only routes */}
         <Route path="/user-management" element={<OwnerRoute><UserManagement /></OwnerRoute>} />
+        <Route path="/system-management" element={<OwnerRoute><SystemManagement /></OwnerRoute>} />
       </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>

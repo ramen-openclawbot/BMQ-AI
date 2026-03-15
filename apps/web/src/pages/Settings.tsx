@@ -9,9 +9,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Separator } from "@/components/ui/separator";
 import { supabase } from "@/integrations/supabase/client";
-import { GoogleDriveSettings } from "@/components/settings/GoogleDriveSettings";
 import { AppVersionSection } from "@/components/settings/AppVersionSection";
-import { DataMigrationSettings } from "@/components/settings/DataMigrationSettings";
 import {
   Select,
   SelectContent,
@@ -30,14 +28,6 @@ const Settings = () => {
   useEffect(() => {
     setDisplayName(profile?.full_name || user?.user_metadata?.full_name || "");
   }, [profile, user]);
-
-  useEffect(() => {
-    if (window.location.hash === "#data-migration") {
-      setTimeout(() => {
-        document.getElementById("data-migration")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 120);
-    }
-  }, []);
 
   const handleSaveProfile = async () => {
     if (!user) return;
@@ -73,7 +63,6 @@ const Settings = () => {
           <a href="#profile" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Hồ sơ</a>
           <a href="#language" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Ngôn ngữ</a>
           <a href="#appearance" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Giao diện</a>
-          <a href="#data-migration" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Data Migration</a>
           <a href="#security" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Bảo mật</a>
         </div>
       </div>
@@ -186,12 +175,6 @@ const Settings = () => {
           </div>
         </div>
       </div>
-
-      {/* Google Drive Integration */}
-      <GoogleDriveSettings />
-
-      {/* Data Migration */}
-      <DataMigrationSettings />
 
       {/* Troubleshooting Section */}
       <div className="card-elevated rounded-xl border border-border p-6 space-y-4">

@@ -33,6 +33,7 @@ interface Translations {
   sectionOperations: string;
   createPOFromDrive: string;
   userManagement: string;
+  systemManagement: string;
   team: string;
   settings: string;
   
@@ -188,6 +189,7 @@ const translations: Record<Language, Translations> = {
     sectionOperations: "Operations",
     createPOFromDrive: "Create PO from Google Drive",
     userManagement: "User Management",
+    systemManagement: "System Management",
     team: "Team",
     settings: "Settings",
     
@@ -341,6 +343,7 @@ const translations: Record<Language, Translations> = {
     sectionOperations: "Vận hành",
     createPOFromDrive: "Tạo PO từ Google Drive",
     userManagement: "Quản lý người dùng",
+    systemManagement: "Quản lý hệ thống",
     team: "Đội ngũ",
     settings: "Cài đặt",
     
