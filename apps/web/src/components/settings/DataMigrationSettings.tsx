@@ -27,6 +27,13 @@ interface MigrationSummary {
   imageSizeMb: number;
 }
 
+interface StorageStats {
+  files: number;
+  totalBytes: number;
+  imageFiles: number;
+  imageBytes: number;
+}
+
 const TABLES = [
   "profiles",
   "user_roles",
@@ -106,6 +113,70 @@ function toSqlLiteral(value: any): string {
   return `'${text.replace(/'/g, "''")}'`;
 }
 
+const IMAGE_EXTS = new Set(["jpg", "jpeg", "png", "webp", "gif", "heic", "heif", "bmp", "tif", "tiff", "avif"]);
+
+function isImageObject(name?: string | null, metadata?: any) {
+  const mime = String(metadata?.mimetype || metadata?.mimeType || "").toLowerCase();
+  if (mime.startsWith("image/")) return true;
+
+  const lower = String(name || "").toLowerCase();
+  const ext = lower.includes(".") ? lower.split(".").pop() || "" : "";
+  return IMAGE_EXTS.has(ext);
+}
+
+async function collectBucketStats(bucketId: string): Promise<StorageStats> {
+  const stats: StorageStats = { files: 0, totalBytes: 0, imageFiles: 0, imageBytes: 0 };
+  const queue: string[] = [""];
+  const pageSize = 100;
+
+  while (queue.length > 0) {
+    const prefix = queue.shift() || "";
+    let offset = 0;
+
+    while (true) {
+      const { data, error } = await supabase.storage.from(bucketId).list(prefix, {
+        limit: pageSize,
+        offset,
+        sortBy: { column: "name", order: "asc" },
+      });
+
+      if (error) {
+        console.warn(`[DataMigration] list failed for bucket=${bucketId}, prefix=${prefix}:`, error.message);
+        break;
+      }
+
+      const rows = data || [];
+      if (!rows.length) break;
+
+      for (const item of rows as any[]) {
+        const name = String(item?.name || "");
+        if (!name) continue;
+
+        const isFolder = !item?.metadata && !item?.id;
+        if (isFolder) {
+          const childPrefix = prefix ? `${prefix}/${name}` : name;
+          queue.push(childPrefix);
+          continue;
+        }
+
+        const size = Number(item?.metadata?.size || 0);
+        stats.files += 1;
+        stats.totalBytes += size;
+
+        if (isImageObject(name, item?.metadata)) {
+          stats.imageFiles += 1;
+          stats.imageBytes += size;
+        }
+      }
+
+      if (rows.length < pageSize) break;
+      offset += pageSize;
+    }
+  }
+
+  return stats;
+}
+
 export function DataMigrationSettings() {
   const { toast } = useToast();
   const [busyFormat, setBusyFormat] = useState<ExportFormat | "manifest" | "zip" | null>(null);
@@ -140,41 +211,32 @@ export function DataMigrationSettings() {
       const counts = await Promise.all(countPromises);
       const records = counts.reduce((sum, c) => sum + c, 0);
 
-      const { count: filesCount } = await (supabase as any)
-        .from("drive_file_index")
-        .select("id", { count: "exact", head: true });
+      const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets();
+      if (bucketsError) throw bucketsError;
 
-      const { data: fileSizeRows } = await (supabase as any)
-        .from("drive_file_index")
-        .select("file_size,mime_type,file_name")
-        .not("file_size", "is", null)
-        .limit(50000);
+      const bucketIds = (buckets || []).map((b: any) => String(b.id || b.name)).filter(Boolean);
+      const bucketStats = await Promise.all(bucketIds.map((bucketId) => collectBucketStats(bucketId)));
 
-      const rows = (fileSizeRows || []) as Array<{ file_size: number | null; mime_type: string | null; file_name: string | null }>;
-      const imageExts = new Set(["jpg", "jpeg", "png", "webp", "gif", "heic", "heif", "bmp", "tif", "tiff", "avif"]);
-      const isImageRow = (row: { mime_type: string | null; file_name: string | null }) => {
-        const mime = String(row?.mime_type || "").toLowerCase();
-        if (mime.startsWith("image/")) return true;
-
-        const name = String(row?.file_name || "").toLowerCase();
-        const ext = name.includes(".") ? name.split(".").pop() || "" : "";
-        return imageExts.has(ext);
-      };
-
-      const totalFileBytes = rows.reduce((sum: number, row) => sum + Number(row.file_size || 0), 0);
-      const imageFileRows = rows.filter((row) => isImageRow(row));
-      const imageFileBytes = imageFileRows.reduce((sum: number, row) => sum + Number(row.file_size || 0), 0);
+      const storageStats = bucketStats.reduce(
+        (acc, s) => ({
+          files: acc.files + s.files,
+          totalBytes: acc.totalBytes + s.totalBytes,
+          imageFiles: acc.imageFiles + s.imageFiles,
+          imageBytes: acc.imageBytes + s.imageBytes,
+        }),
+        { files: 0, totalBytes: 0, imageFiles: 0, imageBytes: 0 },
+      );
 
       const estimatedDbBytes = records * 600;
-      const estimatedTotalMb = (totalFileBytes + estimatedDbBytes) / (1024 * 1024);
+      const estimatedTotalMb = (storageStats.totalBytes + estimatedDbBytes) / (1024 * 1024);
 
       setSummary({
         tables: TABLES.length,
         records,
-        files: filesCount || 0,
+        files: storageStats.files,
         totalSizeMb: Number(estimatedTotalMb.toFixed(1)),
-        imageFiles: imageFileRows.length,
-        imageSizeMb: Number((imageFileBytes / (1024 * 1024)).toFixed(1)),
+        imageFiles: storageStats.imageFiles,
+        imageSizeMb: Number((storageStats.imageBytes / (1024 * 1024)).toFixed(1)),
       });
     } catch (error: any) {
       toast({
@@ -466,7 +528,7 @@ export function DataMigrationSettings() {
         </div>
       </div>
       <p className="text-xs text-muted-foreground">
-        Estimated size = dữ liệu DB ước tính + toàn bộ file trong drive_file_index. Image size tính theo mime_type image/* và fallback theo đuôi file ảnh (jpg/png/webp/heic...).
+        Estimated size = dữ liệu DB ước tính + toàn bộ file thực tế trong Supabase Storage buckets. Image size tính theo metadata mime_type image/* và fallback theo đuôi file ảnh.
       </p>
 
       <div className="flex justify-end">

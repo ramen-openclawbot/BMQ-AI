@@ -284,6 +284,8 @@ export default function MiniCrm() {
   const [setupContractFile, setSetupContractFile] = useState<File | null>(null);
   const [setupPriceRows, setSetupPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
   const [setupEmailBodyTemplate, setSetupEmailBodyTemplate] = useState("");
+  const [setupIsNpp, setSetupIsNpp] = useState(false);
+  const [setupSuppliedByNppCustomerId, setSetupSuppliedByNppCustomerId] = useState("");
   const [editContractFile, setEditContractFile] = useState<File | null>(null);
   const [editPriceRows, setEditPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
   const [editKbProfileName, setEditKbProfileName] = useState("Default Customer Knowledge");
@@ -292,6 +294,8 @@ export default function MiniCrm() {
   const [editKbCalcNotes, setEditKbCalcNotes] = useState("");
   const [editKbOperationalNotes, setEditKbOperationalNotes] = useState("");
   const [editEmailBodyTemplate, setEditEmailBodyTemplate] = useState("");
+  const [editIsNpp, setEditIsNpp] = useState(false);
+  const [editSuppliedByNppCustomerId, setEditSuppliedByNppCustomerId] = useState("");
   const [kbChangeNote, setKbChangeNote] = useState("");
   const [agentCommand, setAgentCommand] = useState("");
   const [agentDraft, setAgentDraft] = useState<any | null>(null);
@@ -461,6 +465,8 @@ export default function MiniCrm() {
     setEditCustomerGroup(c.customer_group || "banhmi_point");
     setEditProductGroup(c.product_group || "banhmi");
     setEditIsActive(Boolean(c.is_active));
+    setEditIsNpp(Boolean(c.is_npp));
+    setEditSuppliedByNppCustomerId(String(c.supplied_by_npp_customer_id || ""));
     const emails = (c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ");
     setEditEmailsInput(emails);
     setEditOriginalEmailsInput(emails);
@@ -490,6 +496,8 @@ export default function MiniCrm() {
     setEditCustomerGroup("banhmi_point");
     setEditProductGroup("banhmi");
     setEditIsActive(true);
+    setEditIsNpp(false);
+    setEditSuppliedByNppCustomerId("");
     setEditEmailsInput("");
     setEditOriginalEmailsInput("");
     setTemplateFileName("");
@@ -740,7 +748,7 @@ export default function MiniCrm() {
 
       const { data: created, error: createError } = await (supabase as any)
         .from("mini_crm_customers")
-        .insert({ customer_name: trimmedName, customer_group: customerGroup, product_group: productGroup })
+        .insert({ customer_name: trimmedName, customer_group: customerGroup, product_group: productGroup, is_npp: setupIsNpp, supplied_by_npp_customer_id: setupIsNpp ? null : (setupSuppliedByNppCustomerId || null) })
         .select("id")
         .single();
       if (createError) throw createError;
@@ -838,6 +846,8 @@ export default function MiniCrm() {
       setSetupContractFile(null);
       setSetupPriceRows([{ skuId: "", price: "" }]);
       setSetupEmailBodyTemplate("");
+      setSetupIsNpp(false);
+      setSetupSuppliedByNppCustomerId("");
       setTemplateFileName("");
       setTemplatePreview(null);
       await Promise.all([
@@ -1013,6 +1023,8 @@ export default function MiniCrm() {
           customer_group: editCustomerGroup,
           product_group: editProductGroup,
           is_active: editIsActive,
+          is_npp: editIsNpp,
+          supplied_by_npp_customer_id: editIsNpp ? null : (editSuppliedByNppCustomerId || null),
         })
         .eq("id", editingCustomerId)
         .select("id")
@@ -1756,7 +1768,11 @@ export default function MiniCrm() {
       Array.isArray(c?.mini_crm_customer_emails)
       && c.mini_crm_customer_emails.some((e: any) => String(e?.email || "").trim().toLowerCase() === fromEmail)
     );
-    if (matched.length === 1) return matched[0].id;
+    const nonNppDependent = matched.filter((c: any) => !c?.supplied_by_npp_customer_id);
+    const preferredNpp = nonNppDependent.filter((c: any) => Boolean(c?.is_npp));
+    if (preferredNpp.length === 1) return preferredNpp[0].id;
+    if (preferredNpp.length > 1) return null;
+    if (nonNppDependent.length === 1) return nonNppDependent[0].id;
     return null;
   }, [selectedPo, customers]);
   const selectedPoKnowledgeProfile = useMemo(() => {
@@ -1764,6 +1780,7 @@ export default function MiniCrm() {
     return customerKnowledgeProfiles.find((x: any) => x.customer_id === selectedPoResolvedCustomerId) || null;
   }, [customerKnowledgeProfiles, selectedPoResolvedCustomerId]);
   const selectedPreview = useMemo(() => previewItems.find((r: any) => r.messageId === selectedPreviewId) || null, [previewItems, selectedPreviewId]);
+  const nppCustomers = useMemo(() => customers.filter((c: any) => Boolean(c?.is_npp)), [customers]);
 
   useEffect(() => {
     if (!templateConfirmOpen || !pendingTemplatePreview?.confirmationView) return;
@@ -2369,6 +2386,24 @@ export default function MiniCrm() {
               <Label>Email nhận diện (phân tách dấu phẩy)</Label>
               <Input value={emailsInput} onChange={(e) => setEmailsInput(e.target.value)} placeholder="buyer@agency.com, order@agency.com" />
             </div>
+            <div className="space-y-2">
+              <Label>NPP (yes/no)</Label>
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={setupIsNpp ? "yes" : "no"} onChange={(e) => {
+                const next = e.target.value === "yes";
+                setSetupIsNpp(next);
+                if (next) setSetupSuppliedByNppCustomerId("");
+              }}>
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label>Lấy hàng qua NPP</Label>
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={setupSuppliedByNppCustomerId} onChange={(e) => setSetupSuppliedByNppCustomerId(e.target.value)} disabled={setupIsNpp}>
+                <option value="">-- Không --</option>
+                {nppCustomers.map((npp: any) => <option key={npp.id} value={npp.id}>{npp.customer_name}</option>)}
+              </select>
+            </div>
 
             <div className="space-y-2 md:col-span-2 rounded-md border p-3">
               <Label>Upload hợp đồng (PDF)</Label>
@@ -2469,6 +2504,8 @@ export default function MiniCrm() {
                 <TableHead>Nhóm</TableHead>
                 <TableHead>Nhóm sản phẩm</TableHead>
                 <TableHead>Email</TableHead>
+                <TableHead>NPP</TableHead>
+                <TableHead>Lấy qua NPP</TableHead>
                 <TableHead>Knowledge</TableHead>
                 <TableHead>Trạng thái</TableHead>
                 <TableHead className="text-right">Thao tác</TableHead>
@@ -2482,6 +2519,8 @@ export default function MiniCrm() {
                     <TableCell>{GROUP_LABEL_MAP[c.customer_group] || c.customer_group}</TableCell>
                     <TableCell>{PRODUCT_GROUP_LABEL_MAP[c.product_group] || c.product_group || "-"}</TableCell>
                     <TableCell>{(c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"}</TableCell>
+                    <TableCell>{c.is_npp ? <Badge variant="default">Yes</Badge> : <Badge variant="secondary">No</Badge>}</TableCell>
+                    <TableCell>{(() => { const npp = customers.find((x: any) => x.id === c.supplied_by_npp_customer_id); return npp?.customer_name || "-"; })()}</TableCell>
                     <TableCell>
                       {(() => {
                         const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === c.id);
@@ -2523,7 +2562,7 @@ export default function MiniCrm() {
               })}
               {filteredCustomers.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground py-6">Không tìm thấy khách hàng phù hợp.</TableCell>
+                  <TableCell colSpan={9} className="text-center text-muted-foreground py-6">Không tìm thấy khách hàng phù hợp.</TableCell>
                 </TableRow>
               )}
             </TableBody>
@@ -3048,6 +3087,24 @@ export default function MiniCrm() {
               <Label>Nhóm sản phẩm</Label>
               <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editProductGroup} onChange={(e) => setEditProductGroup(e.target.value)}>
                 {PRODUCT_GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label>NPP (yes/no)</Label>
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editIsNpp ? "yes" : "no"} onChange={(e) => {
+                const next = e.target.value === "yes";
+                setEditIsNpp(next);
+                if (next) setEditSuppliedByNppCustomerId("");
+              }}>
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label>Lấy hàng qua NPP</Label>
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editSuppliedByNppCustomerId} onChange={(e) => setEditSuppliedByNppCustomerId(e.target.value)} disabled={editIsNpp}>
+                <option value="">-- Không --</option>
+                {nppCustomers.filter((npp: any) => npp.id !== editingCustomerId).map((npp: any) => <option key={npp.id} value={npp.id}>{npp.customer_name}</option>)}
               </select>
             </div>
             <div className="space-y-2 md:col-span-2">
