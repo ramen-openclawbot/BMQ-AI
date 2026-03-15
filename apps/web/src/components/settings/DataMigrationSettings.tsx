@@ -139,28 +139,43 @@ export function DataMigrationSettings() {
 
       const counts = await Promise.all(countPromises);
       const records = counts.reduce((sum, c) => sum + c, 0);
-
-      const { data: storageSummary, error: storageError } = await supabase.functions.invoke("migration-storage-summary", {
-        body: {},
-      });
-
-      if (storageError) {
-        throw new Error(storageError.message || "Không lấy được thống kê storage.");
-      }
-
-      const totalBytes = Number(storageSummary?.totalBytes || 0);
-      const imageBytes = Number(storageSummary?.imageBytes || 0);
       const estimatedDbBytes = records * 600;
-      const estimatedTotalMb = (totalBytes + estimatedDbBytes) / (1024 * 1024);
 
-      setSummary({
+      setSummary((prev) => ({
+        ...prev,
         tables: TABLES.length,
         records,
-        files: Number(storageSummary?.files || 0),
-        totalSizeMb: Number(estimatedTotalMb.toFixed(1)),
-        imageFiles: Number(storageSummary?.imageFiles || 0),
-        imageSizeMb: Number((imageBytes / (1024 * 1024)).toFixed(1)),
-      });
+        totalSizeMb: Number((estimatedDbBytes / (1024 * 1024)).toFixed(1)),
+      }));
+
+      try {
+        const { data: storageSummary, error: storageError } = await supabase.functions.invoke("migration-storage-summary", {
+          body: {},
+        });
+
+        if (storageError) {
+          throw new Error(storageError.message || "Không lấy được thống kê storage.");
+        }
+
+        const totalBytes = Number(storageSummary?.totalBytes || 0);
+        const imageBytes = Number(storageSummary?.imageBytes || 0);
+        const estimatedTotalMb = (totalBytes + estimatedDbBytes) / (1024 * 1024);
+
+        setSummary({
+          tables: TABLES.length,
+          records,
+          files: Number(storageSummary?.files || 0),
+          totalSizeMb: Number(estimatedTotalMb.toFixed(1)),
+          imageFiles: Number(storageSummary?.imageFiles || 0),
+          imageSizeMb: Number((imageBytes / (1024 * 1024)).toFixed(1)),
+        });
+      } catch (storageError: any) {
+        toast({
+          title: "Không tải được thống kê storage",
+          description: storageError?.message || "Storage summary hiện chưa sẵn sàng.",
+          variant: "destructive",
+        });
+      }
     } catch (error: any) {
       toast({
         title: "Không tải được thống kê migration",

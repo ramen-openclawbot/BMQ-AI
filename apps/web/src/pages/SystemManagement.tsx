@@ -1,9 +1,7 @@
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Separator } from "@/components/ui/separator";
-import { Database, FolderCog, Info } from "lucide-react";
+import { AppVersionSection } from "@/components/settings/AppVersionSection";
 import { GoogleDriveSettings } from "@/components/settings/GoogleDriveSettings";
 import { DataMigrationSettings } from "@/components/settings/DataMigrationSettings";
-import { AppVersionSection } from "@/components/settings/AppVersionSection";
 
 export default function SystemManagement() {
   const { t } = useLanguage();
@@ -27,45 +25,15 @@ export default function SystemManagement() {
         </div>
       </div>
 
-      <div id="google-drive" className="scroll-mt-24 space-y-4">
-        <div className="card-elevated rounded-xl border border-border p-6 space-y-4">
-          <div className="flex items-center gap-3">
-            <FolderCog className="h-5 w-5 text-primary" />
-            <h2 className="font-display font-semibold text-lg">Google Drive Integration</h2>
-          </div>
-          <Separator />
-          <p className="text-sm text-muted-foreground">
-            Cấu hình kết nối Google Drive/Gmail và đồng bộ thư mục nghiệp vụ.
-          </p>
-        </div>
+      <div id="google-drive" className="scroll-mt-24">
         <GoogleDriveSettings />
       </div>
 
-      <div id="data-migration" className="scroll-mt-24 space-y-4">
-        <div className="card-elevated rounded-xl border border-border p-6 space-y-4">
-          <div className="flex items-center gap-3">
-            <Database className="h-5 w-5 text-primary" />
-            <h2 className="font-display font-semibold text-lg">Data Migration</h2>
-          </div>
-          <Separator />
-          <p className="text-sm text-muted-foreground">
-            Xuất dữ liệu và kiểm tra các thành phần lưu trữ phục vụ migration hệ thống.
-          </p>
-        </div>
+      <div id="data-migration" className="scroll-mt-24">
         <DataMigrationSettings />
       </div>
 
-      <div id="app-info" className="scroll-mt-24 space-y-4">
-        <div className="card-elevated rounded-xl border border-border p-6 space-y-4">
-          <div className="flex items-center gap-3">
-            <Info className="h-5 w-5 text-primary" />
-            <h2 className="font-display font-semibold text-lg">Thông tin ứng dụng</h2>
-          </div>
-          <Separator />
-          <p className="text-sm text-muted-foreground">
-            Theo dõi phiên bản hiện tại và thời điểm build của ứng dụng.
-          </p>
-        </div>
+      <div id="app-info" className="scroll-mt-24">
         <AppVersionSection />
       </div>
     </div>
