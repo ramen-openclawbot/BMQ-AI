@@ -115,11 +115,42 @@ function toSqlLiteral(value: any): string {
 
 const IMAGE_EXTS = new Set(["jpg", "jpeg", "png", "webp", "gif", "heic", "heif", "bmp", "tif", "tiff", "avif"]);
 
-function isImageObject(name?: string | null, metadata?: any) {
-  const mime = String(metadata?.mimetype || metadata?.mimeType || "").toLowerCase();
+function getObjectMime(item?: any) {
+  return String(
+    item?.metadata?.mimetype ||
+      item?.metadata?.mimeType ||
+      item?.metadata?.contentType ||
+      item?.metadata?.content_type ||
+      item?.mimetype ||
+      item?.mimeType ||
+      item?.contentType ||
+      item?.content_type ||
+      "",
+  ).toLowerCase();
+}
+
+function getObjectSize(item?: any) {
+  return Number(item?.metadata?.size ?? item?.size ?? item?.metadata?.contentLength ?? 0);
+}
+
+function looksLikeFileObject(item?: any) {
+  const name = String(item?.name || "");
+  if (!name) return false;
+
+  if (item?.id || item?.metadata) return true;
+  if (typeof item?.size === "number") return true;
+  if (getObjectMime(item)) return true;
+
+  const lower = name.toLowerCase();
+  const ext = lower.includes(".") ? lower.split(".").pop() || "" : "";
+  return IMAGE_EXTS.has(ext);
+}
+
+function isImageObject(item?: any) {
+  const mime = getObjectMime(item);
   if (mime.startsWith("image/")) return true;
 
-  const lower = String(name || "").toLowerCase();
+  const lower = String(item?.name || "").toLowerCase();
   const ext = lower.includes(".") ? lower.split(".").pop() || "" : "";
   return IMAGE_EXTS.has(ext);
 }
@@ -141,8 +172,7 @@ async function collectBucketStats(bucketId: string): Promise<StorageStats> {
       });
 
       if (error) {
-        console.warn(`[DataMigration] list failed for bucket=${bucketId}, prefix=${prefix}:`, error.message);
-        break;
+        throw new Error(`Không thể đọc bucket ${bucketId}${prefix ? `/${prefix}` : ""}: ${error.message}`);
       }
 
       const rows = data || [];
@@ -152,18 +182,18 @@ async function collectBucketStats(bucketId: string): Promise<StorageStats> {
         const name = String(item?.name || "");
         if (!name) continue;
 
-        const isFolder = !item?.metadata && !item?.id;
-        if (isFolder) {
+        const isFile = looksLikeFileObject(item);
+        if (!isFile) {
           const childPrefix = prefix ? `${prefix}/${name}` : name;
           queue.push(childPrefix);
           continue;
         }
 
-        const size = Number(item?.metadata?.size || 0);
+        const size = getObjectSize(item);
         stats.files += 1;
         stats.totalBytes += size;
 
-        if (isImageObject(name, item?.metadata)) {
+        if (isImageObject(item)) {
           stats.imageFiles += 1;
           stats.imageBytes += size;
         }
