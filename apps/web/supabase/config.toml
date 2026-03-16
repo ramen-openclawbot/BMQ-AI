@@ -50,7 +50,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.migration-storage-manifest]
-verify_jwt = true
+verify_jwt = false
 
 # ──────────────────────────────────────────────────────────
 # Functions with JWT verification DISABLED

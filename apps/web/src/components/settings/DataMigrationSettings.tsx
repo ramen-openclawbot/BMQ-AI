@@ -11,6 +11,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -97,6 +98,8 @@ export function DataMigrationSettings() {
   const { toast } = useToast();
   const [busyFormat, setBusyFormat] = useState<ExportFormat | "manifest" | "zip" | null>(null);
   const [isOwner, setIsOwner] = useState(false);
+  const [bucketFilter, setBucketFilter] = useState("");
+  const [maxFiles, setMaxFiles] = useState("1000");
 
   const canExport = isOwner && busyFormat === null;
 
@@ -215,8 +218,15 @@ export function DataMigrationSettings() {
     try {
       setBusyFormat("manifest");
 
+      const bucketIds = bucketFilter
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
       const { data, error } = await supabase.functions.invoke("migration-storage-manifest", {
-        body: {},
+        body: {
+          bucketIds: bucketIds.length ? bucketIds : undefined,
+        },
       });
 
       if (error) {
@@ -256,6 +266,12 @@ export function DataMigrationSettings() {
       const accessToken = sessionData?.session?.access_token;
       if (!accessToken) throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
 
+      const bucketIds = bucketFilter
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const parsedMaxFiles = Number(maxFiles || "0") || undefined;
+
       const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/migration-storage-archive`;
       const resp = await fetch(functionUrl, {
         method: "POST",
@@ -264,7 +280,10 @@ export function DataMigrationSettings() {
           apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          bucketIds: bucketIds.length ? bucketIds : undefined,
+          maxFiles: parsedMaxFiles,
+        }),
       });
 
       if (!resp.ok) {
@@ -353,9 +372,30 @@ export function DataMigrationSettings() {
         </div>
         <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground space-y-1">
           <p className="font-medium text-foreground">Chuẩn export hiện tại</p>
-          <p>Manifest lấy từ <code>storage.objects</code>.</p>
+          <p>Manifest lấy từ <code>supabase.storage</code>.</p>
           <p>ZIP giữ nguyên cấu trúc <code>bucket/path</code> để phục vụ restore chính xác.</p>
           <p>Mỗi file trong manifest gồm bucket, path, contentType, size, checksum và timestamps.</p>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Bucket filter (tuỳ chọn)</p>
+            <Input
+              value={bucketFilter}
+              onChange={(e) => setBucketFilter(e.target.value)}
+              placeholder="vd: invoices,purchase-orders"
+            />
+            <p className="text-xs text-muted-foreground">Để trống = export tất cả buckets.</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Max files cho ZIP</p>
+            <Input
+              value={maxFiles}
+              onChange={(e) => setMaxFiles(e.target.value)}
+              inputMode="numeric"
+              placeholder="1000"
+            />
+            <p className="text-xs text-muted-foreground">Giảm số này nếu archive quá lớn hoặc timeout.</p>
+          </div>
         </div>
         <div className="grid sm:grid-cols-2 gap-2">
           <Button variant="outline" onClick={generateManifest} disabled={!canExport}>

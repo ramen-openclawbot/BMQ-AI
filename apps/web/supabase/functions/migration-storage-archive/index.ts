@@ -136,6 +136,12 @@ serve(async (req) => {
     });
 
     const user = await requireOwner(req, supabaseAdmin, corsHeaders);
+    const body = await req.json().catch(() => ({}));
+    const requestedBucketIds = Array.isArray(body?.bucketIds)
+      ? body.bucketIds.map((v: unknown) => String(v || "").trim()).filter(Boolean)
+      : [];
+    const requestedMaxFiles = Math.max(1, Math.min(Number(body?.maxFiles || MAX_FILES) || MAX_FILES, MAX_FILES));
+
     const { data: buckets, error: bucketsError } = await supabaseAdmin.storage.listBuckets();
     if (bucketsError) throw bucketsError;
 
@@ -143,8 +149,10 @@ serve(async (req) => {
     for (const bucket of buckets || []) {
       const bucketId = String((bucket as any)?.id || (bucket as any)?.name || "");
       if (!bucketId) continue;
+      if (requestedBucketIds.length > 0 && !requestedBucketIds.includes(bucketId)) continue;
       const bucketFiles = await listBucketObjects(supabaseAdmin.storage, bucketId);
       objects.push(...bucketFiles);
+      if (objects.length >= requestedMaxFiles) break;
     }
 
     if (!objects.length) {
@@ -152,6 +160,10 @@ serve(async (req) => {
         status: 404,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    if (objects.length > requestedMaxFiles) {
+      objects.length = requestedMaxFiles;
     }
 
     if (objects.length > MAX_FILES) {
