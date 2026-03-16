@@ -3,26 +3,39 @@ import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import JSZip from "npm:jszip@3.10.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 
-const PAGE_SIZE = 500;
+const PAGE_SIZE = 100;
 const MAX_FILES = 5000;
-const MAX_TOTAL_BYTES = 1024 * 1024 * 1024; // 1GB hard-limit
+const MAX_TOTAL_BYTES = 1024 * 1024 * 1024;
 
-function getObjectMime(metadata?: any) {
+function getObjectMime(item?: any) {
   return String(
-    metadata?.mimetype ||
-      metadata?.mimeType ||
-      metadata?.contentType ||
-      metadata?.content_type ||
+    item?.metadata?.mimetype ||
+      item?.metadata?.mimeType ||
+      item?.metadata?.contentType ||
+      item?.metadata?.content_type ||
+      item?.mimetype ||
+      item?.mimeType ||
+      item?.contentType ||
+      item?.content_type ||
       "",
   ).toLowerCase();
 }
 
-function getObjectSize(metadata?: any) {
-  return Number(metadata?.size ?? metadata?.contentLength ?? 0);
+function getObjectSize(item?: any) {
+  return Number(item?.metadata?.size ?? item?.size ?? item?.metadata?.contentLength ?? 0);
 }
 
-function getObjectChecksum(metadata?: any) {
-  return String(metadata?.eTag || metadata?.etag || metadata?.checksum || "");
+function getObjectChecksum(item?: any) {
+  return String(item?.metadata?.eTag || item?.metadata?.etag || item?.metadata?.checksum || "");
+}
+
+function looksLikeFileObject(item?: any) {
+  const name = String(item?.name || "");
+  if (!name) return false;
+  if (item?.id || item?.metadata) return true;
+  if (typeof item?.size === "number") return true;
+  if (getObjectMime(item)) return true;
+  return name.includes(".");
 }
 
 async function requireOwner(req: Request, supabaseAdmin: any, corsHeaders: Record<string, string>) {
@@ -36,7 +49,6 @@ async function requireOwner(req: Request, supabaseAdmin: any, corsHeaders: Recor
 
   const token = authHeader.replace("Bearer ", "");
   const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-
   if (authError || !user) {
     throw new Response(JSON.stringify({ error: "Invalid or expired token" }), {
       status: 401,
@@ -44,12 +56,7 @@ async function requireOwner(req: Request, supabaseAdmin: any, corsHeaders: Recor
     });
   }
 
-  const { data: roleRows } = await supabaseAdmin
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", user.id)
-    .limit(10);
-
+  const { data: roleRows } = await supabaseAdmin.from("user_roles").select("role").eq("user_id", user.id).limit(10);
   const isOwner = (roleRows || []).some((r: any) => r.role === "owner");
   if (!isOwner) {
     throw new Response(JSON.stringify({ error: "Forbidden. Owner role required." }), {
@@ -61,11 +68,57 @@ async function requireOwner(req: Request, supabaseAdmin: any, corsHeaders: Recor
   return user;
 }
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return corsPreflightResponse(req);
+async function listBucketObjects(storage: any, bucketId: string) {
+  const results: any[] = [];
+  const queue: string[] = [""];
+
+  while (queue.length > 0) {
+    const prefix = queue.shift() || "";
+    let offset = 0;
+
+    while (true) {
+      const { data, error } = await storage.from(bucketId).list(prefix, {
+        limit: PAGE_SIZE,
+        offset,
+        sortBy: { column: "name", order: "asc" },
+      });
+
+      if (error) throw new Error(`Không thể đọc bucket ${bucketId}${prefix ? `/${prefix}` : ""}: ${error.message}`);
+
+      const rows = data || [];
+      if (!rows.length) break;
+
+      for (const item of rows) {
+        const name = String(item?.name || "");
+        if (!name) continue;
+
+        if (looksLikeFileObject(item)) {
+          const path = prefix ? `${prefix}/${name}` : name;
+          results.push({
+            objectId: item?.id || null,
+            bucket: bucketId,
+            path,
+            size: getObjectSize(item),
+            contentType: getObjectMime(item),
+            checksum: getObjectChecksum(item),
+            createdAt: item?.created_at || null,
+            updatedAt: item?.updated_at || null,
+          });
+        } else {
+          queue.push(prefix ? `${prefix}/${name}` : name);
+        }
+      }
+
+      if (rows.length < PAGE_SIZE) break;
+      offset += PAGE_SIZE;
+    }
   }
 
+  return results;
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return corsPreflightResponse(req);
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
       status: 405,
@@ -78,32 +131,20 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
-      db: { schema: "public" },
     });
 
     const user = await requireOwner(req, supabaseAdmin, corsHeaders);
+    const { data: buckets, error: bucketsError } = await supabaseAdmin.storage.listBuckets();
+    if (bucketsError) throw bucketsError;
 
-    let from = 0;
     const objects: any[] = [];
-
-    while (true) {
-      const { data, error } = await supabaseAdmin
-        .schema("storage")
-        .from("objects")
-        .select("id,bucket_id,name,created_at,updated_at,metadata")
-        .order("bucket_id", { ascending: true })
-        .order("name", { ascending: true })
-        .range(from, from + PAGE_SIZE - 1);
-
-      if (error) throw error;
-
-      const rows = data || [];
-      objects.push(...rows);
-      if (rows.length < PAGE_SIZE) break;
-      from += PAGE_SIZE;
+    for (const bucket of buckets || []) {
+      const bucketId = String((bucket as any)?.id || (bucket as any)?.name || "");
+      if (!bucketId) continue;
+      const bucketFiles = await listBucketObjects(supabaseAdmin.storage, bucketId);
+      objects.push(...bucketFiles);
     }
 
     if (!objects.length) {
@@ -120,7 +161,7 @@ serve(async (req) => {
       });
     }
 
-    const estimatedBytes = objects.reduce((sum, row) => sum + getObjectSize(row.metadata), 0);
+    const estimatedBytes = objects.reduce((sum, row) => sum + Number(row.size || 0), 0);
     if (estimatedBytes > MAX_TOTAL_BYTES) {
       return new Response(JSON.stringify({ error: `Archive too large (${Math.round(estimatedBytes / 1024 / 1024)}MB). Max is ${Math.round(MAX_TOTAL_BYTES / 1024 / 1024)}MB.` }), {
         status: 413,
@@ -132,8 +173,8 @@ serve(async (req) => {
     const failed: Array<{ bucket: string; path: string; reason: string }> = [];
 
     for (const row of objects) {
-      const bucket = String(row.bucket_id || "");
-      const path = String(row.name || "");
+      const bucket = String(row.bucket || "");
+      const path = String(row.path || "");
       if (!bucket || !path) continue;
 
       try {
@@ -150,29 +191,22 @@ serve(async (req) => {
       }
     }
 
-    zip.file(
-      "storage-manifest.json",
-      JSON.stringify(
-        {
-          generatedAt: new Date().toISOString(),
-          source: "storage.objects",
-          exportedBy: user.id,
-          files: objects.map((row: any) => ({
-            objectId: row.id,
-            bucket: row.bucket_id,
-            path: row.name,
-            size: getObjectSize(row.metadata),
-            contentType: getObjectMime(row.metadata),
-            checksum: getObjectChecksum(row.metadata),
-            createdAt: row.created_at,
-            updatedAt: row.updated_at,
-          })),
-          failed,
-        },
-        null,
-        2,
-      ),
-    );
+    zip.file("storage-manifest.json", JSON.stringify({
+      generatedAt: new Date().toISOString(),
+      source: "supabase.storage",
+      exportedBy: user.id,
+      files: objects.map((row: any) => ({
+        objectId: row.objectId,
+        bucket: row.bucket,
+        path: row.path,
+        size: row.size,
+        contentType: row.contentType,
+        checksum: row.checksum,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      })),
+      failed,
+    }, null, 2));
 
     const zipBuffer = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");

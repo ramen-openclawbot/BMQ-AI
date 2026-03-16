@@ -215,34 +215,15 @@ export function DataMigrationSettings() {
     try {
       setBusyFormat("manifest");
 
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
-
-      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/migration-storage-manifest`;
-      const resp = await fetch(functionUrl, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({}),
+      const { data, error } = await supabase.functions.invoke("migration-storage-manifest", {
+        body: {},
       });
 
-      if (!resp.ok) {
-        let errMsg = `Tạo manifest thất bại (HTTP ${resp.status})`;
-        try {
-          const errJson = await resp.json();
-          errMsg = errJson?.error || errMsg;
-        } catch {
-          // ignore json parse errors
-        }
-        throw new Error(errMsg);
+      if (error) {
+        throw new Error(error.message || "Không thể tạo storage manifest.");
       }
 
-      const manifestText = await resp.text();
-      downloadTextFile("storage-manifest.json", manifestText);
+      downloadTextFile("storage-manifest.json", JSON.stringify(data, null, 2));
       toast({
         title: "Đã tạo manifest",
         description: "storage-manifest.json đã sẵn sàng.",

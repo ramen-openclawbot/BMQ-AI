@@ -2,24 +2,37 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 
-const PAGE_SIZE = 1000;
+const PAGE_SIZE = 100;
 
-function getObjectMime(metadata?: any) {
+function getObjectMime(item?: any) {
   return String(
-    metadata?.mimetype ||
-      metadata?.mimeType ||
-      metadata?.contentType ||
-      metadata?.content_type ||
+    item?.metadata?.mimetype ||
+      item?.metadata?.mimeType ||
+      item?.metadata?.contentType ||
+      item?.metadata?.content_type ||
+      item?.mimetype ||
+      item?.mimeType ||
+      item?.contentType ||
+      item?.content_type ||
       "",
   ).toLowerCase();
 }
 
-function getObjectSize(metadata?: any) {
-  return Number(metadata?.size ?? metadata?.contentLength ?? 0);
+function getObjectSize(item?: any) {
+  return Number(item?.metadata?.size ?? item?.size ?? item?.metadata?.contentLength ?? 0);
 }
 
-function getObjectChecksum(metadata?: any) {
-  return String(metadata?.eTag || metadata?.etag || metadata?.checksum || "");
+function getObjectChecksum(item?: any) {
+  return String(item?.metadata?.eTag || item?.metadata?.etag || item?.metadata?.checksum || "");
+}
+
+function looksLikeFileObject(item?: any) {
+  const name = String(item?.name || "");
+  if (!name) return false;
+  if (item?.id || item?.metadata) return true;
+  if (typeof item?.size === "number") return true;
+  if (getObjectMime(item)) return true;
+  return name.includes(".");
 }
 
 async function requireOwner(req: Request, supabaseAdmin: any, corsHeaders: Record<string, string>) {
@@ -58,11 +71,59 @@ async function requireOwner(req: Request, supabaseAdmin: any, corsHeaders: Recor
   return user;
 }
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return corsPreflightResponse(req);
+async function listBucketObjects(storage: any, bucketId: string) {
+  const results: any[] = [];
+  const queue: string[] = [""];
+
+  while (queue.length > 0) {
+    const prefix = queue.shift() || "";
+    let offset = 0;
+
+    while (true) {
+      const { data, error } = await storage.from(bucketId).list(prefix, {
+        limit: PAGE_SIZE,
+        offset,
+        sortBy: { column: "name", order: "asc" },
+      });
+
+      if (error) {
+        throw new Error(`Không thể đọc bucket ${bucketId}${prefix ? `/${prefix}` : ""}: ${error.message}`);
+      }
+
+      const rows = data || [];
+      if (!rows.length) break;
+
+      for (const item of rows) {
+        const name = String(item?.name || "");
+        if (!name) continue;
+
+        if (looksLikeFileObject(item)) {
+          const path = prefix ? `${prefix}/${name}` : name;
+          results.push({
+            objectId: item?.id || null,
+            bucket: bucketId,
+            path,
+            size: getObjectSize(item),
+            contentType: getObjectMime(item),
+            checksum: getObjectChecksum(item),
+            createdAt: item?.created_at || null,
+            updatedAt: item?.updated_at || null,
+          });
+        } else {
+          queue.push(prefix ? `${prefix}/${name}` : name);
+        }
+      }
+
+      if (rows.length < PAGE_SIZE) break;
+      offset += PAGE_SIZE;
+    }
   }
 
+  return results;
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return corsPreflightResponse(req);
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
       status: 405,
@@ -75,51 +136,28 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
-      db: { schema: "public" },
     });
 
     const user = await requireOwner(req, supabaseAdmin, corsHeaders);
+    const { data: buckets, error: bucketsError } = await supabaseAdmin.storage.listBuckets();
+    if (bucketsError) throw bucketsError;
 
-    let from = 0;
-    const allRows: any[] = [];
-
-    while (true) {
-      const { data, error } = await supabaseAdmin
-        .schema("storage")
-        .from("objects")
-        .select("id,bucket_id,name,created_at,updated_at,metadata")
-        .order("bucket_id", { ascending: true })
-        .order("name", { ascending: true })
-        .range(from, from + PAGE_SIZE - 1);
-
-      if (error) throw error;
-
-      const rows = data || [];
-      allRows.push(...rows);
-      if (rows.length < PAGE_SIZE) break;
-      from += PAGE_SIZE;
+    const files = [] as any[];
+    for (const bucket of buckets || []) {
+      const bucketId = String((bucket as any)?.id || (bucket as any)?.name || "");
+      if (!bucketId) continue;
+      const bucketFiles = await listBucketObjects(supabaseAdmin.storage, bucketId);
+      files.push(...bucketFiles);
     }
 
-    const manifest = {
+    return new Response(JSON.stringify({
       generatedAt: new Date().toISOString(),
-      source: "storage.objects",
+      source: "supabase.storage",
       exportedBy: user.id,
-      files: allRows.map((row: any) => ({
-        objectId: row.id,
-        bucket: row.bucket_id,
-        path: row.name,
-        size: getObjectSize(row.metadata),
-        contentType: getObjectMime(row.metadata),
-        checksum: getObjectChecksum(row.metadata),
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      })),
-    };
-
-    return new Response(JSON.stringify(manifest, null, 2), {
+      files,
+    }, null, 2), {
       status: 200,
       headers: {
         ...corsHeaders,
