@@ -242,6 +242,27 @@ const createDraftFromPoRow = (po: any, fallbackCustomerId?: string | null) => {
   };
 };
 
+const buildManualSummaryMessage = (po: any) => {
+  if (!hasManualPoDraft(po)) return "";
+  const editedAt = po?.raw_payload?.manual_summary?.edited_at;
+  return `Đang dùng dữ liệu đã chỉnh tay${editedAt ? ` • lưu lúc ${new Date(editedAt).toLocaleString("vi-VN")}` : ""}`;
+};
+
+const parseDraftItemsForSave = (items: any[]) =>
+  normalizePoDraftItems(items || [])
+    .map((item: any) => ({
+      sku: String(item?.sku || "").trim(),
+      product_name: String(item?.product_name || "").trim(),
+      unit: String(item?.unit || "").trim() || "cái",
+      qty: Number(item?.qty || 0) || 0,
+      unit_price: Number(item?.unit_price || 0) || 0,
+      line_total: Number(item?.line_total || 0) || 0,
+      specification: String(item?.specification || "").trim(),
+      note: String(item?.note || "").trim(),
+      line_source: String(item?.source || "parsed"),
+    }))
+    .filter((item: any) => item.product_name || item.sku || item.qty || item.unit_price || item.line_total || item.note);
+
 const parseEmailBodyToProductionItems = (subject?: string, body?: string) => {
   const text = String(body || "").replace(/\r/g, "\n");
   const chunks = text
@@ -1863,6 +1884,36 @@ export default function MiniCrm() {
   const poDraftSignature = useMemo(() => buildPoDraftSignature(poSummaryDraft), [poSummaryDraft]);
   const isPoDraftDirty = useMemo(() => Boolean(selectedPoId) && poDraftSignature !== poDraftBaseSignature, [selectedPoId, poDraftSignature, poDraftBaseSignature]);
 
+  const resetPoDraftFromRow = (po: any, fallbackCustomerId?: string | null) => {
+    if (!po) return;
+    const nextDraft = createDraftFromPoRow(po, fallbackCustomerId);
+    setPoSummaryDraft(nextDraft);
+    setPoDraftBaseSignature(buildPoDraftSignature(nextDraft));
+    setPendingParseAction(null);
+    setPostRevenueStatus("");
+    setSavePoStatus(buildManualSummaryMessage(po));
+  };
+
+  const updatePoDraft = (updater: (draft: any) => any) => {
+    setPoSummaryDraft((current: any) => updater(current || {}));
+  };
+
+  const updatePoDraftItem = (index: number, updater: (item: any) => any) => {
+    updatePoDraft((draft: any) => {
+      const nextItems = normalizePoDraftItems(draft?.production_items || []);
+      nextItems[index] = updater(nextItems[index] || createEmptyPoDraftItem());
+      return { ...draft, production_items: nextItems };
+    });
+  };
+
+  const replacePoDraftItems = (items: any[], extra: Record<string, any> = {}) => {
+    updatePoDraft((draft: any) => ({
+      ...draft,
+      ...extra,
+      production_items: normalizePoDraftItems(items),
+    }));
+  };
+
   const selectedPoResolvedCustomerId = useMemo(() => {
     if (!selectedPo) return null;
     if (selectedPo.customer_id) return selectedPo.customer_id;
@@ -1900,16 +1951,7 @@ export default function MiniCrm() {
     if (poDraftHydrationKeyRef.current === hydrationKey) return;
     poDraftHydrationKeyRef.current = hydrationKey;
 
-    const nextDraft = createDraftFromPoRow(selectedPo, selectedPoResolvedCustomerId);
-    setPoSummaryDraft(nextDraft);
-    setPoDraftBaseSignature(buildPoDraftSignature(nextDraft));
-    setPendingParseAction(null);
-    setPostRevenueStatus("");
-    setSavePoStatus(
-      hasManualPoDraft(selectedPo)
-        ? `Đang dùng dữ liệu đã chỉnh tay${selectedPo?.raw_payload?.manual_summary?.edited_at ? ` • lưu lúc ${new Date(selectedPo.raw_payload.manual_summary.edited_at).toLocaleString("vi-VN")}` : ""}`
-        : ""
-    );
+    resetPoDraftFromRow(selectedPo, selectedPoResolvedCustomerId);
   }, [selectedPo, selectedPoResolvedCustomerId, poDraftHydrationNonce]);
 
   useEffect(() => {
@@ -1956,15 +1998,13 @@ export default function MiniCrm() {
         const subtotal = Number(result?.parsed?.subtotal || calcSubtotalFromItems(parsedItems) || 0);
         const vat = Number(result?.parsed?.vat ?? 0);
         const total = subtotal + vat;
-        setPoSummaryDraft((s: any) => ({
-          ...s,
-          po_number: s?.po_number || extractPoNumberFromSubject(selectedPo?.email_subject),
-          delivery_date: s?.delivery_date || extractDeliveryDateFromSubject(selectedPo?.email_subject),
-          production_items: normalizePoDraftItems(parsedItems),
-          subtotal_amount: subtotal || s?.subtotal_amount,
+        replacePoDraftItems(parsedItems, {
+          po_number: poSummaryDraft?.po_number || extractPoNumberFromSubject(selectedPo?.email_subject),
+          delivery_date: poSummaryDraft?.delivery_date || extractDeliveryDateFromSubject(selectedPo?.email_subject),
+          subtotal_amount: subtotal || poSummaryDraft?.subtotal_amount,
           vat_amount: vat,
           total_amount: total,
-        }));
+        });
       }
       setSavePoStatus("Đã cập nhật draft từ file đính kèm. Nhớ lưu trước khi đẩy doanh thu.");
       toast({ title: "Đã parse file đính kèm", description: `${result?.parsed?.itemCount || 0} dòng sản phẩm` });
@@ -1980,19 +2020,7 @@ export default function MiniCrm() {
     },
     mutationFn: async () => {
       if (!selectedPoId) throw new Error("Chưa chọn PO");
-      const normalizedItems = normalizePoDraftItems(poSummaryDraft.production_items || [])
-        .map((item: any) => ({
-          sku: String(item?.sku || "").trim(),
-          product_name: String(item?.product_name || "").trim(),
-          unit: String(item?.unit || "").trim() || "cái",
-          qty: Number(item?.qty || 0) || 0,
-          unit_price: Number(item?.unit_price || 0) || 0,
-          line_total: Number(item?.line_total || 0) || 0,
-          specification: String(item?.specification || "").trim(),
-          note: String(item?.note || "").trim(),
-          line_source: String(item?.source || "parsed"),
-        }))
-        .filter((item: any) => item.product_name || item.sku || item.qty || item.unit_price || item.line_total || item.note);
+      const normalizedItems = parseDraftItemsForSave(poSummaryDraft.production_items || []);
 
       if (normalizedItems.length === 0) throw new Error("Cần ít nhất 1 dòng sản phẩm hoặc dịch vụ trước khi lưu");
       const hasInvalidQty = normalizedItems.some((item: any) => Number(item.qty || 0) <= 0);
@@ -2089,14 +2117,12 @@ export default function MiniCrm() {
   const applyParseFromEmailBody = () => {
     const parsed = parseEmailBodyToProductionItems(selectedPo?.email_subject, selectedPo?.body_preview || selectedPo?.raw_payload?.snippet || "");
     const nextItems = normalizePoDraftItems(Array.isArray(parsed.items) ? parsed.items : []);
-    setPoSummaryDraft((s: any) => ({
-      ...s,
-      delivery_date: s?.delivery_date || parsed.deliveryDate || "",
-      production_items: nextItems,
+    replacePoDraftItems(nextItems, {
+      delivery_date: poSummaryDraft?.delivery_date || parsed.deliveryDate || "",
       subtotal_amount: 0,
       vat_amount: 0,
       total_amount: 0,
-    }));
+    });
     setSavePoStatus("Đã cập nhật draft từ nội dung email. Nhớ lưu trước khi đẩy doanh thu.");
     if (!nextItems.length) {
       toast({ title: "Không parse được từ nội dung email", description: "Email có thể bị cắt ngắn. Vui lòng mở mail gốc hoặc bổ sung thủ công.", variant: "destructive" });
@@ -3201,9 +3227,9 @@ export default function MiniCrm() {
                             type="button"
                             size="sm"
                             variant="outline"
-                            onClick={() => setPoSummaryDraft((s: any) => ({
-                              ...s,
-                              production_items: [...normalizePoDraftItems(s?.production_items || []), createEmptyPoDraftItem()],
+                            onClick={() => updatePoDraft((draft: any) => ({
+                              ...draft,
+                              production_items: [...normalizePoDraftItems(draft?.production_items || []), createEmptyPoDraftItem()],
                             }))}
                           >
                             <Plus className="h-4 w-4 mr-1" />Thêm dòng
@@ -3233,44 +3259,28 @@ export default function MiniCrm() {
                                 <TableCell>
                                   <Input
                                     value={item?.sku || ""}
-                                    onChange={(e) => setPoSummaryDraft((s: any) => {
-                                      const next = normalizePoDraftItems(s?.production_items || []);
-                                      next[idx] = { ...next[idx], sku: e.target.value };
-                                      return { ...s, production_items: next };
-                                    })}
+                                    onChange={(e) => updatePoDraftItem(idx, (item: any) => ({ ...item, sku: e.target.value }))}
                                     placeholder="Mã nội bộ"
                                   />
                                 </TableCell>
                                 <TableCell>
                                   <Input
                                     value={item?.product_name || ""}
-                                    onChange={(e) => setPoSummaryDraft((s: any) => {
-                                      const next = normalizePoDraftItems(s?.production_items || []);
-                                      next[idx] = { ...next[idx], product_name: e.target.value };
-                                      return { ...s, production_items: next };
-                                    })}
+                                    onChange={(e) => updatePoDraftItem(idx, (item: any) => ({ ...item, product_name: e.target.value }))}
                                     placeholder="Tên sản phẩm / dịch vụ"
                                   />
                                 </TableCell>
                                 <TableCell>
                                   <Input
                                     value={item?.specification || ""}
-                                    onChange={(e) => setPoSummaryDraft((s: any) => {
-                                      const next = normalizePoDraftItems(s?.production_items || []);
-                                      next[idx] = { ...next[idx], specification: e.target.value };
-                                      return { ...s, production_items: next };
-                                    })}
+                                    onChange={(e) => updatePoDraftItem(idx, (item: any) => ({ ...item, specification: e.target.value }))}
                                     placeholder="Quy cách, mô tả"
                                   />
                                 </TableCell>
                                 <TableCell>
                                   <Input
                                     value={item?.unit || ""}
-                                    onChange={(e) => setPoSummaryDraft((s: any) => {
-                                      const next = normalizePoDraftItems(s?.production_items || []);
-                                      next[idx] = { ...next[idx], unit: e.target.value };
-                                      return { ...s, production_items: next };
-                                    })}
+                                    onChange={(e) => updatePoDraftItem(idx, (item: any) => ({ ...item, unit: e.target.value }))}
                                     placeholder="cái / hộp / kg"
                                   />
                                 </TableCell>
@@ -3278,12 +3288,10 @@ export default function MiniCrm() {
                                   <Input
                                     type="number"
                                     value={item?.qty ?? ""}
-                                    onChange={(e) => setPoSummaryDraft((s: any) => {
-                                      const next = normalizePoDraftItems(s?.production_items || []);
+                                    onChange={(e) => updatePoDraftItem(idx, (item: any) => {
                                       const qty = Number(e.target.value || 0) || 0;
-                                      const unitPrice = Number(next[idx]?.unit_price || 0) || 0;
-                                      next[idx] = { ...next[idx], qty, line_total: qty * unitPrice || Number(next[idx]?.line_total || 0) || 0 };
-                                      return { ...s, production_items: next };
+                                      const unitPrice = Number(item?.unit_price || 0) || 0;
+                                      return { ...item, qty, line_total: qty * unitPrice || Number(item?.line_total || 0) || 0 };
                                     })}
                                     className="text-right"
                                     placeholder="0"
@@ -3293,12 +3301,10 @@ export default function MiniCrm() {
                                   <Input
                                     type="number"
                                     value={item?.unit_price ?? ""}
-                                    onChange={(e) => setPoSummaryDraft((s: any) => {
-                                      const next = normalizePoDraftItems(s?.production_items || []);
+                                    onChange={(e) => updatePoDraftItem(idx, (item: any) => {
                                       const unitPrice = Number(e.target.value || 0) || 0;
-                                      const qty = Number(next[idx]?.qty || 0) || 0;
-                                      next[idx] = { ...next[idx], unit_price: unitPrice, line_total: qty * unitPrice || Number(next[idx]?.line_total || 0) || 0 };
-                                      return { ...s, production_items: next };
+                                      const qty = Number(item?.qty || 0) || 0;
+                                      return { ...item, unit_price: unitPrice, line_total: qty * unitPrice || Number(item?.line_total || 0) || 0 };
                                     })}
                                     className="text-right"
                                     placeholder="0"
@@ -3308,11 +3314,7 @@ export default function MiniCrm() {
                                   <Input
                                     type="number"
                                     value={item?.line_total ?? ""}
-                                    onChange={(e) => setPoSummaryDraft((s: any) => {
-                                      const next = normalizePoDraftItems(s?.production_items || []);
-                                      next[idx] = { ...next[idx], line_total: Number(e.target.value || 0) || 0 };
-                                      return { ...s, production_items: next };
-                                    })}
+                                    onChange={(e) => updatePoDraftItem(idx, (item: any) => ({ ...item, line_total: Number(e.target.value || 0) || 0 }))}
                                     className="text-right"
                                     placeholder="0"
                                   />
@@ -3321,11 +3323,7 @@ export default function MiniCrm() {
                                 <TableCell>
                                   <Input
                                     value={item?.note || ""}
-                                    onChange={(e) => setPoSummaryDraft((s: any) => {
-                                      const next = normalizePoDraftItems(s?.production_items || []);
-                                      next[idx] = { ...next[idx], note: e.target.value };
-                                      return { ...s, production_items: next };
-                                    })}
+                                    onChange={(e) => updatePoDraftItem(idx, (item: any) => ({ ...item, note: e.target.value }))}
                                     placeholder="Ghi chú thêm"
                                   />
                                 </TableCell>
@@ -3339,9 +3337,9 @@ export default function MiniCrm() {
                                     type="button"
                                     size="icon"
                                     variant="ghost"
-                                    onClick={() => setPoSummaryDraft((s: any) => ({
-                                      ...s,
-                                      production_items: normalizePoDraftItems(s?.production_items || []).filter((_: any, rowIdx: number) => rowIdx !== idx),
+                                    onClick={() => updatePoDraft((draft: any) => ({
+                                      ...draft,
+                                      production_items: normalizePoDraftItems(draft?.production_items || []).filter((_: any, rowIdx: number) => rowIdx !== idx),
                                     }))}
                                   >
                                     <Trash2 className="h-4 w-4 text-destructive" />
