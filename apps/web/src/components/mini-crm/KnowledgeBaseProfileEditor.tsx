@@ -10,10 +10,7 @@ type Props = {
   editKbProfileName: string;
   editKbPoMode: string;
   editKbPoSource: string;
-  editKbCalcNotes: string;
-  editKbOperationalNotes: string;
   editKbBusinessDescription: string;
-  editEmailBodyTemplate: string;
   kbAiSuggestion: KbAiParseSuggestion | null;
   kbAiStatus: string;
   kbChangeNote: string;
@@ -26,10 +23,7 @@ type Props = {
   onKbProfileNameChange: (v: string) => void;
   onKbPoModeChange: (v: string) => void;
   onKbPoSourceChange: (v: string) => void;
-  onKbCalcNotesChange: (v: string) => void;
-  onKbOperationalNotesChange: (v: string) => void;
   onKbBusinessDescriptionChange: (v: string) => void;
-  onEmailBodyTemplateChange: (v: string) => void;
   onKbChangeNoteChange: (v: string) => void;
   onTemplateFileChange: (file: File | null) => void | Promise<void>;
   onClearTemplate: () => void | Promise<void>;
@@ -48,10 +42,7 @@ export function KnowledgeBaseProfileEditor(props: Props) {
     editKbProfileName,
     editKbPoMode,
     editKbPoSource,
-    editKbCalcNotes,
-    editKbOperationalNotes,
     editKbBusinessDescription,
-    editEmailBodyTemplate,
     kbAiSuggestion,
     kbAiStatus,
     kbChangeNote,
@@ -64,10 +55,7 @@ export function KnowledgeBaseProfileEditor(props: Props) {
     onKbProfileNameChange,
     onKbPoModeChange,
     onKbPoSourceChange,
-    onKbCalcNotesChange,
-    onKbOperationalNotesChange,
     onKbBusinessDescriptionChange,
-    onEmailBodyTemplateChange,
     onKbChangeNoteChange,
     onTemplateFileChange,
     onClearTemplate,
@@ -77,7 +65,7 @@ export function KnowledgeBaseProfileEditor(props: Props) {
   } = props;
 
   const activeTemplateName = poTemplates.find((t: any) => t.customer_id === editingCustomerId)?.file_name || "Chưa có";
-  const canRunAi = Boolean(editKbBusinessDescription.trim() || editEmailBodyTemplate.trim() || templateAiContext.trim());
+  const canRunAi = Boolean(editKbBusinessDescription.trim() || templateAiContext.trim());
 
   return (
     <div className="md:col-span-2 space-y-4 rounded-2xl border border-border/70 bg-gradient-to-br from-background via-background to-muted/30 p-4">
@@ -177,34 +165,8 @@ export function KnowledgeBaseProfileEditor(props: Props) {
                   placeholder="Ví dụ: Khách gửi PO trong email body, mỗi đoạn ngăn bởi dấu phẩy là một điểm giao. Số 'đổi' phải cộng vào số lượng chính."
                 />
               </div>
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wide text-muted-foreground">Mẫu nội dung PO từ email</Label>
-                <textarea
-                  className="min-h-[140px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm leading-6"
-                  value={editEmailBodyTemplate}
-                  onChange={(e) => onEmailBodyTemplateChange(e.target.value)}
-                  placeholder='Ví dụ: "Rạch Giá 200: Đổi 7, ĐVC: 100, Coopmart NAT: 60, Quang Trung: 120+ đổi 4"'
-                />
-              </div>
-              <div className="grid gap-3 lg:grid-cols-2">
-                <div className="space-y-2">
-                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">Calculation notes</Label>
-                  <textarea
-                    className="min-h-[92px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm leading-6"
-                    value={editKbCalcNotes}
-                    onChange={(e) => onKbCalcNotesChange(e.target.value)}
-                    placeholder="Ví dụ: qty_total = qty_base + qty_exchange"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">Operational notes</Label>
-                  <textarea
-                    className="min-h-[92px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm leading-6"
-                    value={editKbOperationalNotes}
-                    onChange={(e) => onKbOperationalNotesChange(e.target.value)}
-                    placeholder="Ví dụ: nếu mail có file đính kèm thì file vẫn là nguồn đáng tin hơn body"
-                  />
-                </div>
+              <div className="rounded-lg border border-primary/15 bg-primary/5 px-3 py-2 text-sm leading-6 text-foreground/85">
+                AI sẽ suy ra parse rule và công thức tính từ <b>mô tả business</b> + <b>template context</b> mà anh/chị upload. Không cần nhập tay email mẫu, calculation notes hay operational notes nữa.
               </div>
             </div>
           </div>

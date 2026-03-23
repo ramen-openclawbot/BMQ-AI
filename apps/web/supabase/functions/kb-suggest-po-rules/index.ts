@@ -29,15 +29,15 @@ serve(async (req) => {
       });
     }
 
-    const { businessDescription, sampleEmailContent, poMode, poSource, profileName, templateFileName, templateExtractedContext } = await req.json();
+    const { businessDescription, poMode, poSource, profileName, templateFileName, templateExtractedContext } = await req.json();
     const business = String(businessDescription || "").trim();
-    const sample = String(sampleEmailContent || "").trim();
     const templateContext = String(templateExtractedContext || "").trim();
-    if (!business && !sample && !templateContext) {
-      return new Response(JSON.stringify({ error: "Cần ít nhất mô tả business, mẫu email hoặc ngữ cảnh template để AI phân tích" }), { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } });
+    if (!business && !templateContext) {
+      return new Response(JSON.stringify({ error: "Cần ít nhất mô tả business hoặc ngữ cảnh template để AI phân tích" }), { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } });
     }
 
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    const OPENAI_MODEL = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
     if (!OPENAI_API_KEY) {
       return new Response(JSON.stringify({ code: "CONFIG_MISSING_OPENAI_API_KEY", error: "Thiếu cấu hình AI key (OPENAI_API_KEY)" }), { status: 503, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } });
     }
@@ -75,7 +75,6 @@ Yêu cầu:
       template_file_name: String(templateFileName || ""),
       template_extracted_context: templateContext,
       business_description: business,
-      sample_email_content: sample,
     };
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -85,7 +84,7 @@ Yêu cầu:
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: OPENAI_MODEL,
         temperature: 0.2,
         response_format: { type: "json_object" },
         messages: [

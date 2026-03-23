@@ -1075,7 +1075,6 @@ export default function MiniCrm() {
           poMode: editKbPoMode,
           poSource: editKbPoSource,
           businessDescription: editKbBusinessDescription,
-          sampleEmailContent: editEmailBodyTemplate,
           templateFileName: activeTemplateName || templateFileName || null,
           templateExtractedContext: templateAiContext || null,
         },
@@ -3405,10 +3404,7 @@ export default function MiniCrm() {
               editKbProfileName={editKbProfileName}
               editKbPoMode={editKbPoMode}
               editKbPoSource={editKbPoSource}
-              editKbCalcNotes={editKbCalcNotes}
-              editKbOperationalNotes={editKbOperationalNotes}
               editKbBusinessDescription={editKbBusinessDescription}
-              editEmailBodyTemplate={editEmailBodyTemplate}
               kbAiSuggestion={kbAiSuggestion}
               kbAiStatus={kbAiStatus}
               kbChangeNote={kbChangeNote}
@@ -3421,10 +3417,7 @@ export default function MiniCrm() {
               onKbProfileNameChange={setEditKbProfileName}
               onKbPoModeChange={setEditKbPoMode}
               onKbPoSourceChange={setEditKbPoSource}
-              onKbCalcNotesChange={setEditKbCalcNotes}
-              onKbOperationalNotesChange={setEditKbOperationalNotes}
               onKbBusinessDescriptionChange={setEditKbBusinessDescription}
-              onEmailBodyTemplateChange={setEditEmailBodyTemplate}
               onKbChangeNoteChange={setKbChangeNote}
               onTemplateFileChange={async (f) => {
                 if (!f) return;
