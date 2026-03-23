@@ -1084,18 +1084,18 @@ export default function MiniCrm() {
         },
       });
       if (error) {
+        // Try to extract structured error detail from function response
+        let detail = "";
         const context = (error as any)?.context;
         if (context?.json) {
           try {
             const payload = await context.json();
-            const detail = [payload?.error, payload?.message, payload?.code, payload?.details].filter(Boolean).join(" | ");
-            throw new Error(detail || error.message || "Edge Function returned a non-2xx status code");
+            detail = [payload?.error, payload?.message, payload?.code, payload?.details].filter(Boolean).join(" | ");
           } catch {
-            // ignore json parse error and fall through to generic handling
+            // JSON parse failed (e.g. proxy 401 with no body) — ignore
           }
         }
-        if ((error as any)?.message) throw new Error((error as any).message);
-        throw error;
+        throw new Error(detail || (error as any)?.message || "Edge Function returned a non-2xx status code");
       }
       if (!data?.suggestion) throw new Error("AI không trả về rule hợp lệ");
       return data.suggestion as KbAiParseSuggestion;

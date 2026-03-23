@@ -1,12 +1,18 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.26**
+- apps/web: **0.0.27**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
 - Latest commit at handoff time: `git log -1 --oneline`
 
-## Latest update (2026-03-07 — v0.0.26)
+## Latest update (2026-03-24 — v0.0.27)
+### Bug Fix — KB AI "AI Tính Toán" error handling + auth consistency
+- **`MiniCrm.tsx`**: Fix bug trong `kbAiSuggestMutation` error handling — `catch` block nuốt mất detailed error message. Trước đây: `throw new Error(detail)` nằm TRONG `try` → `catch` bắt luôn rồi bỏ qua → user luôn thấy generic "Edge Function returned a non-2xx status code". Sau: tách JSON parsing ra riêng, chỉ throw 1 lần cuối cùng với detail nếu có.
+- **`kb-suggest-po-rules/index.ts`**: Refactor auth — thay inline bearer token parsing bằng `requireAuth()` từ `_shared/auth.ts` (nhất quán với 25 functions khác). Thêm `console.error` cho OpenAI errors. Catch block xử lý đúng Response objects từ `requireAuth()`.
+- **Không thay đổi**: `config.toml` đã có `verify_jwt = true` — giữ nguyên.
+
+## Previous update (2026-03-07 — v0.0.26)
 ### Perf Fix — Tổng số tiền quỹ load nhanh hơn khi chuyển ngày
 - **File**: `src/hooks/useFinanceReconciliation.ts`
 - **staleTime**: `DAILY_STALE_MS` tăng từ 30s → **5 phút**. Trước đây sau 30s không dùng là cache hết hạn, mỗi lần chuyển ngày đều thấy spinner. Giờ dữ liệu cùng ngày được dùng lại trong 5 phút.

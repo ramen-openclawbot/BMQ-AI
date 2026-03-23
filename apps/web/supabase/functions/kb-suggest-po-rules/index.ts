@@ -1,45 +1,42 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
+import { requireAuth } from "../_shared/auth.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflightResponse(req);
 
+  const corsHeaders = getCorsHeaders(req);
+  const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
+
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } });
-    }
+    // Auth — uses shared helper (consistent with all other functions)
+    // config.toml has verify_jwt = true so Supabase proxy validates JWT first,
+    // then requireAuth() validates again and gives us the user for rate limiting.
+    const { user } = await requireAuth(req, corsHeaders);
 
-    const token = authHeader.replace("Bearer ", "");
-    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, { auth: { persistSession: false, autoRefreshToken: false } });
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(JSON.stringify({ code: 401, message: "Invalid JWT", details: authError?.message }), { status: 401, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } });
-    }
-
+    // Rate limit — 50 calls/day per user
     const rateLimit = await checkAndRecordRateLimit(user.id, "kb-suggest-po-rules", 50);
     if (!rateLimit.allowed) {
       return new Response(JSON.stringify({ error: "Bạn đã vượt quá giới hạn AI hôm nay. Vui lòng thử lại sau.", code: "RATE_LIMIT_EXCEEDED" }), {
         status: 429,
-        headers: { ...getCorsHeaders(req), "Content-Type": "application/json", ...getRateLimitHeaders(rateLimit) },
+        headers: { ...jsonHeaders, ...getRateLimitHeaders(rateLimit) },
       });
     }
 
+    // Parse request body
     const { businessDescription, poMode, poSource, profileName, templateFileName, templateExtractedContext } = await req.json();
     const business = String(businessDescription || "").trim();
     const templateContext = String(templateExtractedContext || "").trim();
     if (!business && !templateContext) {
-      return new Response(JSON.stringify({ error: "Cần ít nhất mô tả business hoặc ngữ cảnh template để AI phân tích" }), { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ error: "Cần ít nhất mô tả business hoặc ngữ cảnh template để AI phân tích" }), { status: 400, headers: jsonHeaders });
     }
 
+    // OpenAI config
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
     const OPENAI_MODEL = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
     if (!OPENAI_API_KEY) {
-      return new Response(JSON.stringify({ code: "CONFIG_MISSING_OPENAI_API_KEY", error: "Thiếu cấu hình AI key (OPENAI_API_KEY)" }), { status: 503, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ code: "CONFIG_MISSING_OPENAI_API_KEY", error: "Thiếu cấu hình AI key (OPENAI_API_KEY)" }), { status: 503, headers: jsonHeaders });
     }
 
     const systemPrompt = `Bạn là chuyên gia thiết kế Knowledge Base parse đơn bán hàng từ email/PO cho hệ thống nội bộ.
@@ -77,6 +74,7 @@ Yêu cầu:
       business_description: business,
     };
 
+    // Call OpenAI
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -96,9 +94,11 @@ Yêu cầu:
 
     const payload = await response.json();
     if (!response.ok) {
-      return new Response(JSON.stringify({ error: payload?.error?.message || "AI request failed", details: payload }), {
+      const aiMsg = payload?.error?.message || "AI request failed";
+      console.error("[kb-suggest-po-rules] OpenAI error:", aiMsg, payload);
+      return new Response(JSON.stringify({ error: aiMsg, code: "OPENAI_ERROR", details: payload?.error?.type }), {
         status: 500,
-        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+        headers: jsonHeaders,
       });
     }
 
@@ -127,9 +127,13 @@ Yêu cầu:
 
     return new Response(JSON.stringify({ suggestion: normalized }), {
       status: 200,
-      headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+      headers: jsonHeaders,
     });
   } catch (error) {
+    // requireAuth() throws Response objects — pass them through
+    if (error instanceof Response) return error;
+
+    console.error("[kb-suggest-po-rules] Unhandled error:", error);
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), {
       status: 500,
       headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
