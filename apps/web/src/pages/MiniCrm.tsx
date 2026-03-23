@@ -1023,16 +1023,18 @@ export default function MiniCrm() {
       if (!trimmedName) throw new Error("Vui lòng nhập tên khách hàng");
       if (!editIsNpp && editUsesNpp && !editSuppliedByNppCustomerId) throw new Error("Vui lòng chọn nhà phân phối cung cấp hàng");
 
+      const customerUpdatePayload = {
+        customer_name: trimmedName,
+        customer_group: editCustomerGroup,
+        product_group: editProductGroup,
+        is_active: editIsActive,
+        is_npp: editIsNpp,
+        supplied_by_npp_customer_id: editIsNpp ? null : (editUsesNpp ? (editSuppliedByNppCustomerId || null) : null),
+      };
+
       const { data: updatedCustomer, error: updateError } = await (supabase as any)
         .from("mini_crm_customers")
-        .update({
-          customer_name: trimmedName,
-          customer_group: editCustomerGroup,
-          product_group: editProductGroup,
-          is_active: editIsActive,
-          is_npp: editIsNpp,
-          supplied_by_npp_customer_id: editIsNpp ? null : (editUsesNpp ? (editSuppliedByNppCustomerId || null) : null),
-        })
+        .update(customerUpdatePayload)
         .eq("id", editingCustomerId)
         .select("id")
         .maybeSingle();
@@ -1055,117 +1057,123 @@ export default function MiniCrm() {
       const emails = normalizeEmails(editEmailsInput);
       const oldEmails = normalizeEmails(editOriginalEmailsInput);
       const emailChanged = JSON.stringify(emails) !== JSON.stringify(oldEmails);
+      const warnings: string[] = [];
 
-      if (emailChanged) {
-        const { error: deleteEmailsError } = await (supabase as any)
-          .from("mini_crm_customer_emails")
-          .delete()
-          .eq("customer_id", editingCustomerId);
-
-        if (deleteEmailsError) {
-          throw new Error(`Lỗi cập nhật danh sách email (bước xoá email cũ): ${deleteEmailsError.message}`);
-        }
-
-        if (emails.length) {
-          const { error: insertEmailsError } = await (supabase as any)
+      try {
+        if (emailChanged) {
+          const { error: deleteEmailsError } = await (supabase as any)
             .from("mini_crm_customer_emails")
-            .insert(emails.map((email, idx) => ({ customer_id: editingCustomerId, email, is_primary: idx === 0 })));
-          if (insertEmailsError) {
-            throw new Error(`Lỗi cập nhật danh sách email (bước thêm email mới): ${insertEmailsError.message}`);
+            .delete()
+            .eq("customer_id", editingCustomerId);
+
+          if (deleteEmailsError) {
+            throw new Error(`Lỗi cập nhật danh sách email (bước xoá email cũ): ${deleteEmailsError.message}`);
+          }
+
+          if (emails.length) {
+            const { error: insertEmailsError } = await (supabase as any)
+              .from("mini_crm_customer_emails")
+              .insert(emails.map((email, idx) => ({ customer_id: editingCustomerId, email, is_primary: idx === 0 })));
+            if (insertEmailsError) {
+              throw new Error(`Lỗi cập nhật danh sách email (bước thêm email mới): ${insertEmailsError.message}`);
+            }
           }
         }
-      }
 
-      if (editContractFile) {
-        const { error: deactivateContractError } = await (supabase as any)
-          .from("mini_crm_customer_contracts")
-          .update({ is_active: false })
-          .eq("customer_id", editingCustomerId)
-          .eq("is_active", true);
-        if (deactivateContractError) throw deactivateContractError;
+        if (editContractFile) {
+          const { error: deactivateContractError } = await (supabase as any)
+            .from("mini_crm_customer_contracts")
+            .update({ is_active: false })
+            .eq("customer_id", editingCustomerId)
+            .eq("is_active", true);
+          if (deactivateContractError) throw deactivateContractError;
 
-        const filePath = `${editingCustomerId}/${Date.now()}-${editContractFile.name}`;
-        const { error: uploadError } = await (supabase as any).storage.from("customer-contracts").upload(filePath, editContractFile, { upsert: false, contentType: editContractFile.type || "application/pdf" });
-        if (uploadError) throw uploadError;
-        const { data: pub } = (supabase as any).storage.from("customer-contracts").getPublicUrl(filePath);
-        const { error: contractInsertError } = await (supabase as any)
-          .from("mini_crm_customer_contracts")
-          .insert({ customer_id: editingCustomerId, file_name: editContractFile.name, file_url: pub?.publicUrl || filePath, file_size: editContractFile.size, mime_type: editContractFile.type || "application/pdf", is_active: true });
-        if (contractInsertError) throw contractInsertError;
-      }
+          const filePath = `${editingCustomerId}/${Date.now()}-${editContractFile.name}`;
+          const { error: uploadError } = await (supabase as any).storage.from("customer-contracts").upload(filePath, editContractFile, { upsert: false, contentType: editContractFile.type || "application/pdf" });
+          if (uploadError) throw uploadError;
+          const { data: pub } = (supabase as any).storage.from("customer-contracts").getPublicUrl(filePath);
+          const { error: contractInsertError } = await (supabase as any)
+            .from("mini_crm_customer_contracts")
+            .insert({ customer_id: editingCustomerId, file_name: editContractFile.name, file_url: pub?.publicUrl || filePath, file_size: editContractFile.size, mime_type: editContractFile.type || "application/pdf", is_active: true });
+          if (contractInsertError) throw contractInsertError;
+        }
 
-      const validRows = editPriceRows
-        .map((r) => ({ sku_id: r.skuId, price_vnd_per_unit: Number(String(r.price || "").replace(/[^0-9]/g, "")) }))
-        .filter((r) => r.sku_id && Number.isFinite(r.price_vnd_per_unit) && r.price_vnd_per_unit > 0);
+        const validRows = editPriceRows
+          .map((r) => ({ sku_id: r.skuId, price_vnd_per_unit: Number(String(r.price || "").replace(/[^0-9]/g, "")) }))
+          .filter((r) => r.sku_id && Number.isFinite(r.price_vnd_per_unit) && r.price_vnd_per_unit > 0);
 
-      const { error: deactivatePriceError } = await (supabase as any)
-        .from("mini_crm_customer_price_list")
-        .update({ is_active: false })
-        .eq("customer_id", editingCustomerId)
-        .eq("is_active", true);
-      if (deactivatePriceError) throw deactivatePriceError;
-
-      if (validRows.length) {
-        const { error: priceInsertError } = await (supabase as any)
+        const { error: deactivatePriceError } = await (supabase as any)
           .from("mini_crm_customer_price_list")
-          .insert(validRows.map((r) => ({ customer_id: editingCustomerId, sku_id: r.sku_id, price_vnd_per_unit: r.price_vnd_per_unit, currency: "VND", is_active: true })));
-        if (priceInsertError) throw priceInsertError;
-      }
-
-      if (templatePreview?.parserConfig) {
-        const { error: deactivateTplError } = await (supabase as any)
-          .from("mini_crm_po_templates")
           .update({ is_active: false })
           .eq("customer_id", editingCustomerId)
           .eq("is_active", true);
-        if (deactivateTplError) throw deactivateTplError;
+        if (deactivatePriceError) throw deactivatePriceError;
 
-        const versionNo = await getNextTemplateVersion(editingCustomerId);
-        const { error: tplInsertError } = await (supabase as any)
-          .from("mini_crm_po_templates")
-          .insert({ customer_id: editingCustomerId, template_name: `Template v${versionNo} - ${new Date().toLocaleString("vi-VN")}`, file_name: templateFileName || "uploaded-template.xlsx", parser_config: { ...(templatePreview.parserConfig || {}), version_no: versionNo }, sample_preview: templatePreview.sampleRows || [], confirmation_snapshot: templatePreview?.confirmationView || {}, parse_confidence: Number(templatePreview?.confidenceScore || 1), version_no: versionNo, is_active: true });
-        if (tplInsertError) throw tplInsertError;
+        if (validRows.length) {
+          const { error: priceInsertError } = await (supabase as any)
+            .from("mini_crm_customer_price_list")
+            .insert(validRows.map((r) => ({ customer_id: editingCustomerId, sku_id: r.sku_id, price_vnd_per_unit: r.price_vnd_per_unit, currency: "VND", is_active: true })));
+          if (priceInsertError) throw priceInsertError;
+        }
+
+        if (templatePreview?.parserConfig) {
+          const { error: deactivateTplError } = await (supabase as any)
+            .from("mini_crm_po_templates")
+            .update({ is_active: false })
+            .eq("customer_id", editingCustomerId)
+            .eq("is_active", true);
+          if (deactivateTplError) throw deactivateTplError;
+
+          const versionNo = await getNextTemplateVersion(editingCustomerId);
+          const { error: tplInsertError } = await (supabase as any)
+            .from("mini_crm_po_templates")
+            .insert({ customer_id: editingCustomerId, template_name: `Template v${versionNo} - ${new Date().toLocaleString("vi-VN")}`, file_name: templateFileName || "uploaded-template.xlsx", parser_config: { ...(templatePreview.parserConfig || {}), version_no: versionNo }, sample_preview: templatePreview.sampleRows || [], confirmation_snapshot: templatePreview?.confirmationView || {}, parse_confidence: Number(templatePreview?.confidenceScore || 1), version_no: versionNo, is_active: true });
+          if (tplInsertError) throw tplInsertError;
+        }
+
+        const kbPayload = {
+          customer_id: editingCustomerId,
+          profile_name: editKbProfileName.trim() || `${trimmedName} Knowledge`,
+          po_mode: editKbPoMode,
+          calculation_notes: editKbCalcNotes.trim() || null,
+          operational_notes: composeOperationalNotes(editKbOperationalNotes.trim(), editKbPoSource, editEmailBodyTemplate),
+          profile_status: "active",
+        };
+        const { data: kbSaved, error: kbError } = await (supabase as any)
+          .from("mini_crm_knowledge_profiles")
+          .upsert(kbPayload, { onConflict: "customer_id" })
+          .select("id,customer_id,profile_name,po_mode,profile_status,calculation_notes,operational_notes")
+          .single();
+        if (kbError) throw new Error(`Lỗi lưu Knowledge Base profile: ${kbError.message}`);
+
+        const kbVersionNo = await getNextKnowledgeProfileVersion(editingCustomerId);
+        const { error: kbVersionError } = await (supabase as any)
+          .from("mini_crm_knowledge_profile_versions")
+          .insert({
+            customer_id: editingCustomerId,
+            knowledge_profile_id: kbSaved?.id || null,
+            version_no: kbVersionNo,
+            profile_name: kbSaved?.profile_name || kbPayload.profile_name,
+            po_mode: kbSaved?.po_mode || kbPayload.po_mode,
+            profile_status: kbSaved?.profile_status || kbPayload.profile_status,
+            calculation_notes: kbSaved?.calculation_notes || kbPayload.calculation_notes || null,
+            operational_notes: kbSaved?.operational_notes || kbPayload.operational_notes || null,
+            changed_by: "mini-crm-ui",
+            change_note: "Profile updated from CRM",
+            is_active: true,
+            effective_from: new Date().toISOString(),
+          });
+        if (kbVersionError) throw new Error(`Lỗi lưu KB version: ${kbVersionError.message}`);
+      } catch (detailError: any) {
+        warnings.push(detailError?.message || "Một phần dữ liệu mở rộng chưa lưu được");
       }
 
-      const kbPayload = {
-        customer_id: editingCustomerId,
-        profile_name: editKbProfileName.trim() || `${trimmedName} Knowledge`,
-        po_mode: editKbPoMode,
-        calculation_notes: editKbCalcNotes.trim() || null,
-        operational_notes: composeOperationalNotes(editKbOperationalNotes.trim(), editKbPoSource, editEmailBodyTemplate),
-        profile_status: "active",
-      };
-      const { data: kbSaved, error: kbError } = await (supabase as any)
-        .from("mini_crm_knowledge_profiles")
-        .upsert(kbPayload, { onConflict: "customer_id" })
-        .select("id,customer_id,profile_name,po_mode,profile_status,calculation_notes,operational_notes")
-        .single();
-      if (kbError) throw new Error(`Lỗi lưu Knowledge Base profile: ${kbError.message}`);
-
-      const kbVersionNo = await getNextKnowledgeProfileVersion(editingCustomerId);
-      const { error: kbVersionError } = await (supabase as any)
-        .from("mini_crm_knowledge_profile_versions")
-        .insert({
-          customer_id: editingCustomerId,
-          knowledge_profile_id: kbSaved?.id || null,
-          version_no: kbVersionNo,
-          profile_name: kbSaved?.profile_name || kbPayload.profile_name,
-          po_mode: kbSaved?.po_mode || kbPayload.po_mode,
-          profile_status: kbSaved?.profile_status || kbPayload.profile_status,
-          calculation_notes: kbSaved?.calculation_notes || kbPayload.calculation_notes || null,
-          operational_notes: kbSaved?.operational_notes || kbPayload.operational_notes || null,
-          changed_by: "mini-crm-ui",
-          change_note: "Profile updated from CRM",
-          is_active: true,
-          effective_from: new Date().toISOString(),
-        });
-      if (kbVersionError) throw new Error(`Lỗi lưu KB version: ${kbVersionError.message}`);
-
-      return { saved: true, emailCount: emails.length, emailChanged };
+      return { saved: true, emailCount: emails.length, emailChanged, warnings };
     },
     onSuccess: async (result: any) => {
       cancelEditCustomer();
-      const msg = `Đã lưu thành công${result?.emailChanged ? ` (${result?.emailCount || 0} email)` : ""}.`;
+      const warningText = Array.isArray(result?.warnings) && result.warnings.length ? ` Tuy nhiên có phần mở rộng chưa lưu được: ${result.warnings.join("; ")}.` : "";
+      const msg = `Đã lưu thành công${result?.emailChanged ? ` (${result?.emailCount || 0} email)` : ""}.${warningText}`;
       setEditFeedback(msg);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] }),
@@ -1175,7 +1183,7 @@ export default function MiniCrm() {
         queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profiles"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profile-versions"] }),
       ]);
-      toast({ title: "Lưu thành công", description: msg });
+      toast({ title: Array.isArray(result?.warnings) && result.warnings.length ? "Lưu thành công một phần" : "Lưu thành công", description: msg });
     },
     onError: (e: any) => {
       const msg = e?.message || "Không thể cập nhật khách hàng";
@@ -3277,7 +3285,7 @@ export default function MiniCrm() {
 
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={cancelEditCustomer}>Huỷ</Button>
-            <Button onClick={async () => { setEditFeedback("Đang lưu..."); await updateCustomerMutation.mutateAsync(); }} disabled={updateCustomerMutation.isPending}>
+            <Button onClick={async () => { setEditFeedback("Đang lưu..."); try { await updateCustomerMutation.mutateAsync(); } catch (_) {} }} disabled={updateCustomerMutation.isPending}>
               {updateCustomerMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}Lưu thay đổi
             </Button>
           </div>
