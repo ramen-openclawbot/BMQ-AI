@@ -13,7 +13,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import ExcelJS from "exceljs";
+import { getDocument, GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { SalesPoQuickViewEditor } from "@/components/mini-crm/SalesPoQuickViewEditor";
+import { KnowledgeBaseProfileEditor } from "@/components/mini-crm/KnowledgeBaseProfileEditor";
 import {
   buildManualSummaryMessage,
   buildPoDraftSignature,
@@ -32,6 +34,13 @@ import {
   normalizePoDraftItems,
   parseDraftItemsForSave,
 } from "@/components/mini-crm/poDraftUtils";
+import {
+  composeKbAiMarkers,
+  extractKbAiConfig,
+  extractKbBusinessDescription,
+  stripKbAiMarkers,
+  type KbAiParseSuggestion,
+} from "@/components/mini-crm/kbAiUtils";
 
 const GROUP_OPTIONS = [
   { value: "banhmi_point", label: "Bán lẻ" },
@@ -65,11 +74,13 @@ const KB_PO_SOURCE_LABEL: Record<string, string> = {
 };
 
 const stripKbSystemMarkers = (note?: string | null) =>
-  String(note || "")
-    .replace(/\s*\[PO_SOURCE:[^\]]+\]\s*/gi, " ")
-    .replace(/\[EMAIL_BODY_TEMPLATE_START\][\s\S]*?\[EMAIL_BODY_TEMPLATE_END\]/gi, " ")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+  stripKbAiMarkers(
+    String(note || "")
+      .replace(/\s*\[PO_SOURCE:[^\]]+\]\s*/gi, " ")
+      .replace(/\[EMAIL_BODY_TEMPLATE_START\][\s\S]*?\[EMAIL_BODY_TEMPLATE_END\]/gi, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim()
+  );
 
 const extractEmailBodyTemplate = (note?: string | null) => {
   const m = String(note || "").match(/\[EMAIL_BODY_TEMPLATE_START\]([\s\S]*?)\[EMAIL_BODY_TEMPLATE_END\]/i);
@@ -88,14 +99,23 @@ const injectPoSourceMarker = (note: string, source: string) => {
   return `${base ? `${base} ` : ""}${marker}`.trim();
 };
 
-const composeOperationalNotes = (note: string, source: string, emailBodyTemplate: string) => {
+const composeOperationalNotes = (
+  note: string,
+  source: string,
+  emailBodyTemplate: string,
+  businessDescription = "",
+  aiConfig: KbAiParseSuggestion | null = null,
+) => {
   const withSource = injectPoSourceMarker(note, source);
   const sample = String(emailBodyTemplate || "").trim();
-  if (!sample) return withSource;
-  return `${withSource}
+  const base = sample
+    ? `${withSource}
 [EMAIL_BODY_TEMPLATE_START]
 ${sample}
-[EMAIL_BODY_TEMPLATE_END]`.trim();
+[EMAIL_BODY_TEMPLATE_END]`.trim()
+    : withSource;
+  const aiMarkers = composeKbAiMarkers(businessDescription, aiConfig);
+  return [base, aiMarkers].filter(Boolean).join("\n").trim();
 };
 
 const normalizeIsoDay = (s?: string | null) => {
@@ -134,7 +154,9 @@ const normalizeVietnameseText = (value?: string | null) =>
     .replace(/\s+/g, " ")
     .trim();
 
-const parseEmailBodyToProductionItems = (subject?: string, body?: string) => {
+GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.mjs", import.meta.url).toString();
+
+const parseEmailBodyToProductionItems = (subject?: string, body?: string, aiConfig?: KbAiParseSuggestion | null) => {
   const text = String(body || "").replace(/\r/g, "\n");
   const chunks = text
     .split(/\n+/)
@@ -142,11 +164,46 @@ const parseEmailBodyToProductionItems = (subject?: string, body?: string) => {
     .filter(Boolean)
     .flatMap((line) => line.split(/\s{2,}|(?=\d+\.)/g).map((x) => x.trim()).filter(Boolean));
 
-  const normalize = (s: string) => s.replace(/^[-•]+\s*/, "").replace(/^\d+[.)]?\s*/, "").trim();
+  const aiExchangeKeywords = Array.isArray(aiConfig?.exchange_keywords) && aiConfig?.exchange_keywords.length > 0
+    ? aiConfig.exchange_keywords.map((x) => normalizeVietnameseText(String(x || "")).replace(/\s+/g, "\\s*"))
+    : ["doi", "đổi"].map((x) => normalizeVietnameseText(x).replace(/\s+/g, "\\s*"));
+  const exchangeRegex = new RegExp(`(?:\\+\\s*)?(?:${aiExchangeKeywords.join("|")})\\s*[:=]?\\s*([0-9]+)`, "i");
+  const prefersCommaSegments = String(aiConfig?.item_split_rule || "").toLowerCase().includes("comma") || String(aiConfig?.item_split_rule || "").toLowerCase().includes("segment");
+  const normalize = (s: string) => s
+    .replace(/^[-•]+\s*/, "")
+    .replace(/^\d+[.)]?\s*/, "")
+    .replace(/Ð/g, "Đ")
+    .replace(/\bdoi\b/gi, "đổi")
+    .trim();
   const cleanNote = (s: string) => String(s || "").trim().replace(/^[-,;.]\s*/, "");
   const extractExchangeQty = (s: string) => {
-    const m = String(s || "").match(/(?:\+\s*)?(?:doi|đổi)\s*[:=]?\s*([0-9]+)/i);
+    const m = String(s || "").match(exchangeRegex);
     return Number(m?.[1] || 0);
+  };
+  const pushParsedItem = (locationRaw: string, qtyBaseRaw: any, noteRaw = "") => {
+    const location = normalize(String(locationRaw || "").replace(/:$/, "")).trim();
+    const qtyBase = Number(qtyBaseRaw || 0);
+    const note = cleanNote(String(noteRaw || ""));
+    const qtyExchange = extractExchangeQty(note);
+    const formula = String(aiConfig?.quantity_formula?.expression || "qty_total = qty_base + qty_exchange").toLowerCase();
+    const qtyTotal = formula.includes("-")
+      ? (Number.isFinite(qtyBase) ? qtyBase : 0) - (Number.isFinite(qtyExchange) ? qtyExchange : 0)
+      : (Number.isFinite(qtyBase) ? qtyBase : 0) + (Number.isFinite(qtyExchange) ? qtyExchange : 0);
+    if (!location) return false;
+    items.push({
+      sku: "",
+      product_name: location,
+      unit: "cái",
+      qty_base: qtyBase,
+      qty_exchange: qtyExchange,
+      qty_total: qtyTotal,
+      qty: qtyTotal,
+      unit_price: 0,
+      line_total: 0,
+      parse_source: aiConfig ? "email_body_ai_rule" : "email_body",
+      note,
+    });
+    return true;
   };
 
   const items: any[] = [];
@@ -154,52 +211,53 @@ const parseEmailBodyToProductionItems = (subject?: string, body?: string) => {
     const line = normalize(raw);
     if (!line) continue;
 
-    // Pattern 1: "Tên điểm: 300 ghi chú"
+    const compactSegments = line.split(/\s*,\s*/).map((seg) => normalize(seg)).filter(Boolean);
+    if ((prefersCommaSegments || compactSegments.length > 1) && compactSegments.some((seg) => seg.includes(":"))) {
+      let parsedCompact = 0;
+      for (const seg of compactSegments) {
+        let mCompact = seg.match(/^(.+?)\s*:\s*\(([^)]*?)\)$/i);
+        if (mCompact) {
+          const inside = String(mCompact[2] || "");
+          const qtyBase = Number((inside.match(/\d+/)?.[0] || "0"));
+          if (pushParsedItem(mCompact[1], qtyBase, inside)) parsedCompact += 1;
+          continue;
+        }
+
+        mCompact = seg.match(/^(.+?)\s*:\s*([0-9]+)\s*(.*)$/i);
+        if (mCompact) {
+          if (pushParsedItem(mCompact[1], mCompact[2], mCompact[3])) parsedCompact += 1;
+          continue;
+        }
+
+        mCompact = seg.match(/^(.+?)\s+([0-9]+)\s*:\s*(.*)$/i);
+        if (mCompact) {
+          if (pushParsedItem(mCompact[1], mCompact[2], mCompact[3])) parsedCompact += 1;
+          continue;
+        }
+      }
+      if (parsedCompact > 0) continue;
+    }
+
     let m = line.match(/^(.+?)\s*:\s*([0-9]+)(.*)$/i);
     if (m) {
-      const location = String(m[1] || "").trim();
-      const qtyBase = Number(m[2] || 0);
-      const note = cleanNote(String(m[3] || ""));
-      const qtyExchange = extractExchangeQty(note);
-      const qtyTotal = (Number.isFinite(qtyBase) ? qtyBase : 0) + (Number.isFinite(qtyExchange) ? qtyExchange : 0);
-      if (location) {
-        items.push({ sku: "", product_name: location, unit: "cái", qty_base: qtyBase, qty_exchange: qtyExchange, qty_total: qtyTotal, qty: qtyTotal, unit_price: 0, line_total: 0, parse_source: "email_body", note });
-        continue;
-      }
+      if (pushParsedItem(m[1], m[2], m[3])) continue;
     }
 
-    // Pattern 2: "Tên điểm 200: đổi 6" (số đứng trước dấu ":")
     m = line.match(/^(.+?)\s+([0-9]+)\s*:\s*(.*)$/i);
     if (m) {
-      const location = String(m[1] || "").trim();
-      const qtyBase = Number(m[2] || 0);
-      const note = cleanNote(String(m[3] || ""));
-      const qtyExchange = extractExchangeQty(note);
-      const qtyTotal = (Number.isFinite(qtyBase) ? qtyBase : 0) + (Number.isFinite(qtyExchange) ? qtyExchange : 0);
-      if (location) {
-        items.push({ sku: "", product_name: location, unit: "cái", qty_base: qtyBase, qty_exchange: qtyExchange, qty_total: qtyTotal, qty: qtyTotal, unit_price: 0, line_total: 0, parse_source: "email_body", note });
-        continue;
-      }
+      if (pushParsedItem(m[1], m[2], m[3])) continue;
     }
 
-    // Pattern 3: "Tên điểm: (0 đặt bánh)"
     m = line.match(/^(.+?)\s*:\s*\(([^)]*?)\)$/i);
     if (m) {
-      const location = String(m[1] || "").trim();
       const inside = String(m[2] || "");
       const qtyBase = Number((inside.match(/\d+/)?.[0] || "0"));
-      const note = cleanNote(inside);
-      const qtyExchange = extractExchangeQty(note);
-      const qtyTotal = (Number.isFinite(qtyBase) ? qtyBase : 0) + (Number.isFinite(qtyExchange) ? qtyExchange : 0);
-      if (location) {
-        items.push({ sku: "", product_name: location, unit: "cái", qty_base: qtyBase, qty_exchange: qtyExchange, qty_total: qtyTotal, qty: qtyTotal, unit_price: 0, line_total: 0, parse_source: "email_body", note });
-        continue;
-      }
+      if (pushParsedItem(m[1], qtyBase, inside)) continue;
     }
   }
 
   const deliveryDate = extractDeliveryDateFromSubject(subject) || null;
-  return { items, deliveryDate };
+  return { items, deliveryDate, aiApplied: Boolean(aiConfig) };
 };
 
 
@@ -228,6 +286,7 @@ export default function MiniCrm() {
   const [templateConfirmOpen, setTemplateConfirmOpen] = useState<boolean>(false);
   const [templateReviewDraft, setTemplateReviewDraft] = useState<any | null>(null);
   const [templateReviewTouched, setTemplateReviewTouched] = useState<boolean>(false);
+  const [templateAiContext, setTemplateAiContext] = useState<string>("");
   const [selectedPoId, setSelectedPoId] = useState<string | null>(null);
   const [poSummaryDraft, setPoSummaryDraft] = useState<any>({});
   const [poDraftBaseSignature, setPoDraftBaseSignature] = useState<string>("");
@@ -273,6 +332,9 @@ export default function MiniCrm() {
   const [editKbCalcNotes, setEditKbCalcNotes] = useState("");
   const [editKbOperationalNotes, setEditKbOperationalNotes] = useState("");
   const [editEmailBodyTemplate, setEditEmailBodyTemplate] = useState("");
+  const [editKbBusinessDescription, setEditKbBusinessDescription] = useState("");
+  const [kbAiSuggestion, setKbAiSuggestion] = useState<KbAiParseSuggestion | null>(null);
+  const [kbAiStatus, setKbAiStatus] = useState("");
   const [editIsNpp, setEditIsNpp] = useState(false);
   const [editUsesNpp, setEditUsesNpp] = useState(false);
   const [editSuppliedByNppCustomerId, setEditSuppliedByNppCustomerId] = useState("");
@@ -453,6 +515,7 @@ export default function MiniCrm() {
     setEditOriginalEmailsInput(emails);
     setTemplateFileName("");
     setTemplatePreview(null);
+    setTemplateAiContext("");
     setPendingTemplateFileName("");
     setPendingTemplatePreview(null);
     setTemplateConfirmOpen(false);
@@ -467,6 +530,10 @@ export default function MiniCrm() {
     setEditKbCalcNotes(String(kb?.calculation_notes || ""));
     setEditKbOperationalNotes(stripKbSystemMarkers(String(kb?.operational_notes || "")));
     setEditEmailBodyTemplate(extractEmailBodyTemplate(String(kb?.operational_notes || "")));
+    setEditKbBusinessDescription(String(kb?.business_description || extractKbBusinessDescription(String(kb?.operational_notes || ""))));
+    setKbAiSuggestion((kb?.ai_parse_config as KbAiParseSuggestion | null) || extractKbAiConfig(String(kb?.operational_notes || "")));
+    setTemplateAiContext(String(kb?.template_context || ""));
+    setKbAiStatus("");
     setKbChangeNote("");
   };
 
@@ -484,6 +551,7 @@ export default function MiniCrm() {
     setEditOriginalEmailsInput("");
     setTemplateFileName("");
     setTemplatePreview(null);
+    setTemplateAiContext("");
     setPendingTemplateFileName("");
     setPendingTemplatePreview(null);
     setTemplateConfirmOpen(false);
@@ -496,6 +564,9 @@ export default function MiniCrm() {
     setEditKbCalcNotes("");
     setEditKbOperationalNotes("");
     setEditEmailBodyTemplate("");
+    setEditKbBusinessDescription("");
+    setKbAiSuggestion(null);
+    setKbAiStatus("");
     setKbChangeNote("");
   };
 
@@ -834,6 +905,7 @@ export default function MiniCrm() {
       setSetupSuppliedByNppCustomerId("");
       setTemplateFileName("");
       setTemplatePreview(null);
+      setTemplateAiContext("");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-contracts"] }),
@@ -994,6 +1066,38 @@ export default function MiniCrm() {
     },
   });
 
+  const kbAiSuggestMutation = useMutation({
+    mutationFn: async () => {
+      const activeTemplateName = poTemplates.find((t: any) => t.customer_id === editingCustomerId && t.is_active)?.file_name || null;
+      const { data, error } = await supabase.functions.invoke("kb-suggest-po-rules", {
+        body: {
+          profileName: editKbProfileName,
+          poMode: editKbPoMode,
+          poSource: editKbPoSource,
+          businessDescription: editKbBusinessDescription,
+          sampleEmailContent: editEmailBodyTemplate,
+          templateFileName: activeTemplateName || templateFileName || null,
+          templateExtractedContext: templateAiContext || null,
+        },
+      });
+      if (error) throw error;
+      if (!data?.suggestion) throw new Error("AI không trả về rule hợp lệ");
+      return data.suggestion as KbAiParseSuggestion;
+    },
+    onMutate: () => {
+      setKbAiStatus("AI đang phân tích mô tả + mẫu email để đề xuất rule...");
+    },
+    onSuccess: (suggestion) => {
+      setKbAiSuggestion(suggestion);
+      setKbAiStatus(`Đã tạo đề xuất AI • confidence ${Math.round(Number(suggestion?.confidence || 0) * 100)}%`);
+      toast({ title: "AI đã đề xuất rule KB", description: suggestion?.human_summary || "" });
+    },
+    onError: (e: any) => {
+      setKbAiStatus(`AI tính toán thất bại: ${e?.message || "Không rõ lỗi"}`);
+      toast({ title: "AI tính toán thất bại", description: e?.message || "Không thể tạo rule KB", variant: "destructive" });
+    },
+  });
+
   const updateCustomerMutation = useMutation({
     mutationFn: async () => {
       if (!editingCustomerId) throw new Error("Chưa chọn khách hàng để sửa");
@@ -1114,7 +1218,10 @@ export default function MiniCrm() {
           profile_name: editKbProfileName.trim() || `${trimmedName} Knowledge`,
           po_mode: editKbPoMode,
           calculation_notes: editKbCalcNotes.trim() || null,
-          operational_notes: composeOperationalNotes(editKbOperationalNotes.trim(), editKbPoSource, editEmailBodyTemplate),
+          business_description: editKbBusinessDescription.trim() || null,
+          ai_parse_config: kbAiSuggestion || null,
+          template_context: templateAiContext || null,
+          operational_notes: composeOperationalNotes(editKbOperationalNotes.trim(), editKbPoSource, editEmailBodyTemplate, editKbBusinessDescription, kbAiSuggestion),
           profile_status: "active",
         };
         const { data: kbSaved, error: kbError } = await (supabase as any)
@@ -1179,7 +1286,10 @@ export default function MiniCrm() {
         po_mode: editKbPoMode,
         profile_status: "pending_approval",
         calculation_notes: editKbCalcNotes.trim() || null,
-        operational_notes: composeOperationalNotes(editKbOperationalNotes.trim(), editKbPoSource, editEmailBodyTemplate),
+        business_description: editKbBusinessDescription.trim() || null,
+        ai_parse_config: kbAiSuggestion || null,
+        template_context: templateAiContext || null,
+        operational_notes: composeOperationalNotes(editKbOperationalNotes.trim(), editKbPoSource, editEmailBodyTemplate, editKbBusinessDescription, kbAiSuggestion),
         change_note: kbChangeNote.trim() || "KB update request",
         request_status: "pending",
         requested_by: "mini-crm-ui",
@@ -1208,6 +1318,9 @@ export default function MiniCrm() {
         profile_name: pending.profile_name,
         po_mode: pending.po_mode,
         calculation_notes: pending.calculation_notes,
+        business_description: pending.business_description || null,
+        ai_parse_config: pending.ai_parse_config || null,
+        template_context: pending.template_context || null,
         operational_notes: pending.operational_notes,
         profile_status: "active",
       };
@@ -1227,6 +1340,9 @@ export default function MiniCrm() {
         po_mode: kbSaved?.po_mode || kbPayload.po_mode,
         profile_status: "active",
         calculation_notes: kbSaved?.calculation_notes || null,
+        business_description: kbSaved?.business_description || pending.business_description || null,
+        ai_parse_config: kbSaved?.ai_parse_config || pending.ai_parse_config || null,
+        template_context: kbSaved?.template_context || pending.template_context || null,
         operational_notes: kbSaved?.operational_notes || null,
         changed_by: "mini-crm-approver",
         change_note: pending.change_note || "Approved KB request",
@@ -1276,6 +1392,42 @@ export default function MiniCrm() {
       toast({ title: "Xoá khách hàng thất bại", description: e?.message || "Không thể xoá khách hàng", variant: "destructive" });
     },
   });
+
+  const extractPdfTemplateContext = async (file: File) => {
+    const buffer = await file.arrayBuffer();
+    const pdf = await getDocument({ data: buffer }).promise;
+    const pages = Math.min(pdf.numPages, 5);
+    const texts: string[] = [];
+    for (let p = 1; p <= pages; p++) {
+      const page = await pdf.getPage(p);
+      const content = await page.getTextContent();
+      const pageText = content.items.map((item: any) => String(item?.str || "")).join(" ").replace(/\s+/g, " ").trim();
+      if (pageText) texts.push(pageText);
+    }
+    return texts.join("\n").slice(0, 8000);
+  };
+
+  const extractImageTemplateContext = async (file: File) => {
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || "");
+        const payload = result.split(",")[1];
+        if (!payload) reject(new Error("Không đọc được ảnh mẫu"));
+        else resolve(payload);
+      };
+      reader.onerror = () => reject(reader.error || new Error("Không thể đọc file ảnh"));
+      reader.readAsDataURL(file);
+    });
+    const { data, error } = await supabase.functions.invoke("scan-purchase-order", {
+      body: { imageBase64: base64, mimeType: file.type || "image/png" },
+    });
+    if (error) throw error;
+    const items = Array.isArray(data?.items) ? data.items : [];
+    const supplier = String(data?.supplier_name || "").trim();
+    const lines = items.slice(0, 20).map((it: any) => `${String(it?.product_name || "").trim()} | qty=${Number(it?.quantity || 0) || 0} | unit=${String(it?.unit || "").trim()}`);
+    return [`supplier=${supplier}`, ...lines].filter(Boolean).join("\n").slice(0, 8000);
+  };
 
   const handleAnalyzeTemplateFile = async (file?: File | null) => {
     if (!file) return;
@@ -1472,6 +1624,7 @@ export default function MiniCrm() {
       await queryClient.invalidateQueries({ queryKey: ["mini-crm-po-templates"] });
       setTemplateFileName("");
       setTemplatePreview(null);
+      setTemplateAiContext("");
       toast({ title: "Lưu mẫu PO thành công", description: "Đã lưu format để scan cho lần sau." });
     },
     onError: (e: any) => {
@@ -1828,6 +1981,7 @@ export default function MiniCrm() {
     if (!selectedPoResolvedCustomerId) return null;
     return customerKnowledgeProfiles.find((x: any) => x.customer_id === selectedPoResolvedCustomerId) || null;
   }, [customerKnowledgeProfiles, selectedPoResolvedCustomerId]);
+  const selectedPoAiConfig = useMemo(() => extractKbAiConfig(String(selectedPoKnowledgeProfile?.operational_notes || "")), [selectedPoKnowledgeProfile]);
   const selectedPreview = useMemo(() => previewItems.find((r: any) => r.messageId === selectedPreviewId) || null, [previewItems, selectedPreviewId]);
   const nppCustomers = useMemo(() => customers.filter((c: any) => Boolean(c?.is_npp)), [customers]);
   const setupAvailableNppCustomers = useMemo(() => nppCustomers, [nppCustomers]);
@@ -1856,7 +2010,7 @@ export default function MiniCrm() {
     const currentItems = Array.isArray(poSummaryDraft?.production_items) ? poSummaryDraft.production_items : [];
     if (currentItems.length > 0 || isPoDraftDirty) return;
 
-    const parsed = parseEmailBodyToProductionItems(selectedPo?.email_subject, selectedPo?.body_preview || selectedPo?.raw_payload?.snippet || "");
+    const parsed = parseEmailBodyToProductionItems(selectedPo?.email_subject, selectedPo?.body_preview || selectedPo?.raw_payload?.snippet || "", selectedPoAiConfig);
     if (!Array.isArray(parsed.items) || parsed.items.length === 0) return;
 
     setPoSummaryDraft((s: any) => ({
@@ -1867,7 +2021,7 @@ export default function MiniCrm() {
       vat_amount: 0,
       total_amount: 0,
     }));
-  }, [selectedPo, selectedPoKnowledgeProfile, poSummaryDraft?.production_items, isPoDraftDirty]);
+  }, [selectedPo, selectedPoKnowledgeProfile, selectedPoAiConfig, poSummaryDraft?.production_items, isPoDraftDirty]);
 
   const parseAttachmentMutation = useMutation({
     mutationFn: async (inboxId: string) => {
@@ -2018,7 +2172,7 @@ export default function MiniCrm() {
   };
 
   const applyParseFromEmailBody = () => {
-    const parsed = parseEmailBodyToProductionItems(selectedPo?.email_subject, selectedPo?.body_preview || selectedPo?.raw_payload?.snippet || "");
+    const parsed = parseEmailBodyToProductionItems(selectedPo?.email_subject, selectedPo?.body_preview || selectedPo?.raw_payload?.snippet || "", selectedPoAiConfig);
     const nextItems = normalizePoDraftItems(Array.isArray(parsed.items) ? parsed.items : []);
     replacePoDraftItems(nextItems, {
       delivery_date: poSummaryDraft?.delivery_date || parsed.deliveryDate || "",
@@ -2026,7 +2180,7 @@ export default function MiniCrm() {
       vat_amount: 0,
       total_amount: 0,
     });
-    setSavePoStatus("Đã cập nhật draft từ nội dung email. Nhớ lưu trước khi đẩy doanh thu.");
+    setSavePoStatus(parsed.aiApplied ? "Đã cập nhật draft từ nội dung email theo AI rule đã duyệt. Nhớ lưu trước khi đẩy doanh thu." : "Đã cập nhật draft từ nội dung email. Nhớ lưu trước khi đẩy doanh thu.");
     if (!nextItems.length) {
       toast({ title: "Không parse được từ nội dung email", description: "Email có thể bị cắt ngắn. Vui lòng mở mail gốc hoặc bổ sung thủ công.", variant: "destructive" });
       return;
@@ -3245,81 +3399,69 @@ export default function MiniCrm() {
               <Button type="button" variant="outline" onClick={() => setEditPriceRows((prev) => [...prev, { skuId: "", price: "" }])}>+ Thêm SKU</Button>
             </div>
 
-            <div className="space-y-2 md:col-span-2 rounded-md border p-3">
-              <Label>Mẫu PO (.xlsx)</Label>
-              <div className="text-xs">Active: {(poTemplates.find((t: any) => t.customer_id === editingCustomerId)?.file_name) || "Chưa có"}</div>
-              <div className="flex gap-2">
-                <Input type="file" accept=".xlsx" onChange={async (e) => {
-                  const f = e.target.files?.[0];
-                  if (!f) return;
-                  try { await handleAnalyzeTemplateFile(f); } catch (err: any) { toast({ title: "Đọc file mẫu thất bại", description: err?.message || "Không thể đọc file", variant: "destructive" }); }
-                }} />
-                <Button type="button" variant="outline" onClick={async () => {
-                  await (supabase as any).from("mini_crm_po_templates").update({ is_active: false }).eq("customer_id", editingCustomerId).eq("is_active", true);
-                  await queryClient.invalidateQueries({ queryKey: ["mini-crm-po-templates"] });
-                  toast({ title: "Đã xoá mẫu PO active" });
-                }}>Xoá mẫu</Button>
-              </div>
-              {templateFileName && <div className="text-xs text-muted-foreground">Đã xác nhận mẫu mới: {templateFileName}</div>}
-            </div>
-
-            <div className="space-y-2 md:col-span-2 rounded-md border p-3">
-              <Label>Knowledge Base Profile</Label>
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">Tên profile</Label>
-                  <Input value={editKbProfileName} onChange={(e) => setEditKbProfileName(e.target.value)} placeholder="Ví dụ: Vietjet_PO_Standard" />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">PO mode</Label>
-                  <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editKbPoMode} onChange={(e) => setEditKbPoMode(e.target.value)}>
-                    <option value="daily_new_po">PO mới theo ngày</option>
-                    <option value="cumulative_snapshot">PO cộng dồn (delta)</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">Nguồn PO ưu tiên</Label>
-                  <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editKbPoSource} onChange={(e) => setEditKbPoSource(e.target.value)}>
-                    <option value="attachment_first">Ưu tiên file đính kèm</option>
-                    <option value="email_body_only">PO từ nội dung email</option>
-                  </select>
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label className="text-xs text-muted-foreground">Calculation notes</Label>
-                  <Input value={editKbCalcNotes} onChange={(e) => setEditKbCalcNotes(e.target.value)} placeholder="Ví dụ: net_qty = gross - reject; round half up 2 digits" />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label className="text-xs text-muted-foreground">Operational notes</Label>
-                  <Input value={editKbOperationalNotes} onChange={(e) => setEditKbOperationalNotes(e.target.value)} placeholder="Ví dụ: Vietjet gửi file snapshot cộng dồn hàng ngày" />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label className="text-xs text-muted-foreground">Mẫu nội dung PO từ email (copy/paste)</Label>
-                  <textarea
-                    className="min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={editEmailBodyTemplate}
-                    onChange={(e) => setEditEmailBodyTemplate(e.target.value)}
-                    placeholder="Dán mẫu email PO để hệ thống lưu trong KB và tham chiếu khi parse body email."
-                  />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label className="text-xs text-muted-foreground">Change note (bắt buộc khi gửi duyệt)</Label>
-                  <Input value={kbChangeNote} onChange={(e) => setKbChangeNote(e.target.value)} placeholder="Mô tả thay đổi rule/profile" />
-                </div>
-                <div className="md:col-span-2 flex items-center justify-between gap-2 flex-wrap rounded-md bg-muted/30 p-2">
-                  <div className="text-xs text-muted-foreground">
-                    Pending requests: {knowledgeChangeRequests.filter((r: any) => r.customer_id === editingCustomerId && r.request_status === "pending").length}
-                  </div>
-                  <div className="flex gap-2">
-                    <Button type="button" variant="outline" onClick={() => submitKbChangeRequestMutation.mutate()} disabled={submitKbChangeRequestMutation.isPending || !kbChangeNote.trim()}>
-                      Gửi duyệt KB
-                    </Button>
-                    <Button type="button" variant="secondary" onClick={() => approveKbLatestRequestMutation.mutate()} disabled={approveKbLatestRequestMutation.isPending}>
-                      Duyệt & áp dụng KB
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <KnowledgeBaseProfileEditor
+              poTemplates={poTemplates}
+              editingCustomerId={editingCustomerId}
+              editKbProfileName={editKbProfileName}
+              editKbPoMode={editKbPoMode}
+              editKbPoSource={editKbPoSource}
+              editKbCalcNotes={editKbCalcNotes}
+              editKbOperationalNotes={editKbOperationalNotes}
+              editKbBusinessDescription={editKbBusinessDescription}
+              editEmailBodyTemplate={editEmailBodyTemplate}
+              kbAiSuggestion={kbAiSuggestion}
+              kbAiStatus={kbAiStatus}
+              kbChangeNote={kbChangeNote}
+              templateFileName={templateFileName}
+              templateAiContext={templateAiContext}
+              kbAiSuggestPending={kbAiSuggestMutation.isPending}
+              submitPending={submitKbChangeRequestMutation.isPending}
+              approvePending={approveKbLatestRequestMutation.isPending}
+              pendingCount={knowledgeChangeRequests.filter((r: any) => r.customer_id === editingCustomerId && r.request_status === "pending").length}
+              onKbProfileNameChange={setEditKbProfileName}
+              onKbPoModeChange={setEditKbPoMode}
+              onKbPoSourceChange={setEditKbPoSource}
+              onKbCalcNotesChange={setEditKbCalcNotes}
+              onKbOperationalNotesChange={setEditKbOperationalNotes}
+              onKbBusinessDescriptionChange={setEditKbBusinessDescription}
+              onEmailBodyTemplateChange={setEditEmailBodyTemplate}
+              onKbChangeNoteChange={setKbChangeNote}
+              onTemplateFileChange={async (f) => {
+                if (!f) return;
+                try {
+                  if (/\.xlsx$/i.test(f.name)) {
+                    await handleAnalyzeTemplateFile(f);
+                  } else if (/\.pdf$/i.test(f.name)) {
+                    const context = await extractPdfTemplateContext(f);
+                    setTemplateFileName(f.name);
+                    setTemplateAiContext(context);
+                    toast({ title: "Đã đọc mẫu PDF", description: context ? "Đã trích xuất text ngữ cảnh để dùng cho AI Tính Toán." : "PDF không trích được text rõ ràng, anh/chị vẫn có thể bổ sung mô tả tay." });
+                  } else if ((f.type || "").startsWith("image/")) {
+                    const context = await extractImageTemplateContext(f);
+                    setTemplateFileName(f.name);
+                    setTemplateAiContext(context);
+                    toast({ title: "Đã đọc mẫu ảnh", description: context ? "Đã trích xuất ngữ cảnh từ ảnh để dùng cho AI Tính Toán." : "Ảnh chưa trích được đủ dữ liệu, anh/chị vẫn có thể bổ sung mô tả tay." });
+                  } else {
+                    setTemplateFileName(f.name);
+                    setTemplateAiContext("");
+                    toast({ title: "Đã nhận mẫu KB", description: "Định dạng file này chưa có parser riêng. Anh/chị vẫn có thể dùng mô tả business + mẫu email để AI tạo rule." });
+                  }
+                } catch (err: any) {
+                  toast({ title: "Đọc file mẫu thất bại", description: err?.message || "Không thể đọc file", variant: "destructive" });
+                }
+              }}
+              onClearTemplate={async () => {
+                await (supabase as any).from("mini_crm_po_templates").update({ is_active: false }).eq("customer_id", editingCustomerId).eq("is_active", true);
+                setTemplateFileName("");
+                setTemplatePreview(null);
+                setTemplateAiContext("");
+                await queryClient.invalidateQueries({ queryKey: ["mini-crm-po-templates"] });
+                toast({ title: "Đã xoá mẫu PO active" });
+              }}
+              onAiSuggest={() => kbAiSuggestMutation.mutate()}
+              onSubmitApproval={() => submitKbChangeRequestMutation.mutate()}
+              onApproveLatest={() => approveKbLatestRequestMutation.mutate()}
+            />
           </div>
 
           <div className="flex justify-end gap-2">
