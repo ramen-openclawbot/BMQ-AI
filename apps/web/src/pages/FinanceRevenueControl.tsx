@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { calcTotalFromRawPayload } from "@/components/mini-crm/poDraftUtils";
 
 const vnd = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value || 0);
 
@@ -48,14 +49,7 @@ const calcAmountFromRow = (row: any) => {
   if (postedTotal > 0) return postedTotal;
   const direct = Number(row?.total_amount || row?.subtotal_amount || 0);
   if (direct > 0) return direct;
-  const meta = row?.raw_payload?.parse_meta || {};
-  const metaTotal = Number(meta?.total_amount || 0);
-  if (metaTotal > 0) return metaTotal;
-  const metaSubtotal = Number(meta?.subtotal || 0);
-  const metaVat = Number(meta?.vat_amount || 0);
-  if (metaSubtotal > 0) return metaSubtotal + metaVat;
-  const items = Array.isArray(row?.raw_payload?.parsed_items_preview) ? row.raw_payload.parsed_items_preview : [];
-  return items.reduce((sum: number, it: any) => sum + Number(it?.line_total || 0), 0);
+  return calcTotalFromRawPayload(row?.raw_payload || {});
 };
 const todayLocal = () => {
   const d = new Date();
