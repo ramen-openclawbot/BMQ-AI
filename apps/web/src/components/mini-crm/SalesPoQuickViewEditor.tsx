@@ -21,20 +21,20 @@ type LineItemRowProps = {
 const PoLineItemRow = memo(function PoLineItemRow({ item, onPatch, onRemove }: LineItemRowProps) {
   const source = sanitizePoLineSource(item?.source);
   return (
-    <TableRow>
-      <TableCell>
-        <Input value={item?.sku || ""} onChange={(e) => onPatch({ sku: e.target.value })} placeholder="Mã nội bộ" />
+    <TableRow className="align-top">
+      <TableCell className="py-2 pr-2">
+        <Input className="h-9" value={item?.sku || ""} onChange={(e) => onPatch({ sku: e.target.value })} placeholder="Mã" />
       </TableCell>
-      <TableCell>
-        <Input value={item?.product_name || ""} onChange={(e) => onPatch({ product_name: e.target.value })} placeholder="Tên sản phẩm / dịch vụ" />
+      <TableCell className="py-2 pr-2">
+        <Input className="h-9" value={item?.product_name || ""} onChange={(e) => onPatch({ product_name: e.target.value, source: source === "parsed" ? "manually_edited" : source })} placeholder="Tên sản phẩm / điểm giao" />
       </TableCell>
-      <TableCell>
-        <Input value={item?.specification || ""} onChange={(e) => onPatch({ specification: e.target.value })} placeholder="Quy cách, mô tả" />
+      <TableCell className="py-2 pr-2">
+        <Input className="h-9" value={item?.specification || ""} onChange={(e) => onPatch({ specification: e.target.value, source: source === "parsed" ? "manually_edited" : source })} placeholder="Quy cách" />
       </TableCell>
-      <TableCell>
-        <Input value={item?.unit || ""} onChange={(e) => onPatch({ unit: e.target.value })} placeholder="cái / hộp / kg" />
+      <TableCell className="py-2 pr-2">
+        <Input className="h-9" value={item?.unit || ""} onChange={(e) => onPatch({ unit: e.target.value, source: source === "parsed" ? "manually_edited" : source })} placeholder="cái" />
       </TableCell>
-      <TableCell>
+      <TableCell className="py-2 pr-2">
         <Input
           type="number"
           value={item?.qty ?? ""}
@@ -43,11 +43,11 @@ const PoLineItemRow = memo(function PoLineItemRow({ item, onPatch, onRemove }: L
             const unitPrice = Number(item?.unit_price || 0) || 0;
             onPatch({ qty, line_total: qty * unitPrice || Number(item?.line_total || 0) || 0, source: source === "parsed" ? "manually_edited" : source });
           }}
-          className="text-right"
+          className="h-9 text-right"
           placeholder="0"
         />
       </TableCell>
-      <TableCell>
+      <TableCell className="py-2 pr-2">
         <Input
           type="number"
           value={item?.unit_price ?? ""}
@@ -56,28 +56,28 @@ const PoLineItemRow = memo(function PoLineItemRow({ item, onPatch, onRemove }: L
             const qty = Number(item?.qty || 0) || 0;
             onPatch({ unit_price: unitPrice, line_total: qty * unitPrice || Number(item?.line_total || 0) || 0, source: source === "parsed" ? "manually_edited" : source });
           }}
-          className="text-right"
+          className="h-9 text-right"
           placeholder="0"
         />
       </TableCell>
-      <TableCell>
+      <TableCell className="py-2 pr-2">
         <Input
           type="number"
           value={item?.line_total ?? ""}
           onChange={(e) => onPatch({ line_total: Number(e.target.value || 0) || 0, source: source === "parsed" ? "manually_edited" : source })}
-          className="text-right"
+          className="h-9 text-right"
           placeholder="0"
         />
-        <div className="mt-1 text-[11px] text-muted-foreground text-right">{formatVnd(item?.line_total || 0)}</div>
+        <div className="mt-1 text-[10px] text-muted-foreground text-right leading-none">{formatVnd(item?.line_total || 0)}</div>
       </TableCell>
-      <TableCell>
-        <Input value={item?.note || ""} onChange={(e) => onPatch({ note: e.target.value, source: source === "parsed" ? "manually_edited" : source })} placeholder="Ghi chú thêm" />
+      <TableCell className="py-2 pr-2">
+        <Input className="h-9" value={item?.note || ""} onChange={(e) => onPatch({ note: e.target.value, source: source === "parsed" ? "manually_edited" : source })} placeholder="Ghi chú" />
       </TableCell>
-      <TableCell>
-        <Badge variant={source === "parsed" ? "secondary" : "default"}>{source}</Badge>
+      <TableCell className="py-2 pr-2">
+        <Badge variant={source === "parsed" ? "secondary" : "default"} className="whitespace-nowrap text-[11px]">{source}</Badge>
       </TableCell>
-      <TableCell className="text-right">
-        <Button type="button" size="icon" variant="ghost" onClick={onRemove}>
+      <TableCell className="py-2 text-right">
+        <Button type="button" size="icon" variant="ghost" className="h-9 w-9" onClick={onRemove}>
           <Trash2 className="h-4 w-4 text-destructive" />
         </Button>
       </TableCell>
@@ -141,8 +141,12 @@ export function SalesPoQuickViewEditor(props: Props) {
   const productionItems = Array.isArray(poSummaryDraft.production_items) ? poSummaryDraft.production_items : [];
   const totalQty = productionItems.reduce((sum: number, item: any) => sum + Number(item?.qty || item?.quantity || 0), 0);
 
+  const primaryStatus = isPoDraftDirty
+    ? "Bạn đang có thay đổi chưa lưu. Hãy lưu tóm tắt PO trước khi parse lại hoặc đẩy sang kiểm soát doanh thu."
+    : savePoStatus;
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <Tabs defaultValue="accounting" className="w-full">
         <TabsList className="w-full justify-start overflow-x-auto">
           <TabsTrigger value="accounting">Kế toán</TabsTrigger>
@@ -186,7 +190,7 @@ export function SalesPoQuickViewEditor(props: Props) {
         </TabsContent>
 
         <TabsContent value="production" className="space-y-3 pt-3">
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-[minmax(260px,1fr)_minmax(320px,1.2fr)]">
             <div>
               <Label>Khách hàng / NPP</Label>
               <select
@@ -211,32 +215,32 @@ export function SalesPoQuickViewEditor(props: Props) {
             </div>
           </div>
 
-          <div className="flex items-center justify-between gap-3">
-            <Label>Danh sách sản phẩm cho quản lí sản xuất</Label>
-            <div className="flex items-center gap-3">
-              <div className="text-xs text-muted-foreground">
+          <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2">
+            <Label className="text-sm font-medium">Danh sách sản phẩm cho quản lí sản xuất</Label>
+            <div className="flex items-center gap-2">
+              <div className="text-xs text-muted-foreground whitespace-nowrap">
                 Tổng dòng: {productionItems.length} • Tổng SL: {totalQty.toLocaleString("vi-VN")}
               </div>
-              <Button type="button" size="sm" variant="outline" onClick={onAddLineItem}>
-                <Plus className="h-4 w-4 mr-1" />Thêm dòng
+              <Button type="button" size="sm" variant="outline" className="h-8 px-2" onClick={onAddLineItem}>
+                <Plus className="h-4 w-4" />
               </Button>
             </div>
           </div>
 
           <div className="rounded-md border overflow-x-auto">
-            <Table className="min-w-[1200px]">
+            <Table className="min-w-[1080px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[150px]">SKU</TableHead>
-                  <TableHead className="min-w-[220px]">Tên sản phẩm</TableHead>
+                  <TableHead className="w-[110px] pl-4">SKU</TableHead>
+                  <TableHead className="min-w-[250px]">Tên sản phẩm</TableHead>
                   <TableHead className="min-w-[180px]">Quy cách / mô tả</TableHead>
-                  <TableHead className="w-[110px]">ĐVT</TableHead>
-                  <TableHead className="w-[120px] text-right">SL</TableHead>
-                  <TableHead className="w-[140px] text-right">Đơn giá</TableHead>
-                  <TableHead className="w-[160px] text-right">Thành tiền</TableHead>
-                  <TableHead className="min-w-[200px]">Ghi chú dòng</TableHead>
-                  <TableHead className="w-[140px]">Nguồn</TableHead>
-                  <TableHead className="w-[90px] text-right">Xoá</TableHead>
+                  <TableHead className="w-[84px]">ĐVT</TableHead>
+                  <TableHead className="w-[88px] text-right">SL</TableHead>
+                  <TableHead className="w-[110px] text-right">Đơn giá</TableHead>
+                  <TableHead className="w-[120px] text-right">Thành tiền</TableHead>
+                  <TableHead className="min-w-[190px]">Ghi chú dòng</TableHead>
+                  <TableHead className="w-[120px]">Nguồn</TableHead>
+                  <TableHead className="w-[56px] text-right pr-4"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -261,24 +265,23 @@ export function SalesPoQuickViewEditor(props: Props) {
         </TabsContent>
       </Tabs>
 
-      <div className="flex flex-wrap gap-2">
-        <Button variant="secondary" onClick={onParseAttachment} disabled={parseAttachmentPending}>
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        <Button variant="secondary" className="h-9" onClick={onParseAttachment} disabled={parseAttachmentPending}>
           {parseAttachmentPending ? "Đang parse..." : "Parse từ file đính kèm"}
         </Button>
-        <Button variant="outline" onClick={onParseEmailBody}>Parse từ nội dung email</Button>
-        <Button onClick={onSave} disabled={savePending}>Lưu tóm tắt PO</Button>
-        <Button variant="outline" onClick={onPostRevenue} disabled={postRevenuePending || isPoDraftDirty}>
+        <Button variant="outline" className="h-9" onClick={onParseEmailBody}>Parse từ nội dung email</Button>
+        <Button className="h-9" onClick={onSave} disabled={savePending}>Lưu tóm tắt PO</Button>
+        <Button variant="outline" className="h-9" onClick={onPostRevenue} disabled={postRevenuePending || isPoDraftDirty}>
           {postRevenuePending ? "Đang đẩy..." : "Đẩy sang kiểm soát doanh thu"}
         </Button>
       </div>
 
-      {isPoDraftDirty && (
-        <div className="text-sm rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-700 dark:text-amber-300">
-          Bạn đang có thay đổi chưa lưu. Hãy lưu tóm tắt PO trước khi parse lại hoặc đẩy sang kiểm soát doanh thu.
+      {primaryStatus && (
+        <div className={`text-sm rounded-md border px-3 py-2 ${isPoDraftDirty ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-muted/40"}`}>
+          {primaryStatus}
         </div>
       )}
-      {savePoStatus && <div className="text-sm rounded-md border px-3 py-2 bg-muted/40">{savePoStatus}</div>}
-      {postRevenueStatus && <div className="text-sm rounded-md border px-3 py-2 bg-muted/40">{postRevenueStatus}</div>}
+      {!isPoDraftDirty && postRevenueStatus && <div className="text-sm rounded-md border px-3 py-2 bg-muted/40">{postRevenueStatus}</div>}
     </div>
   );
 }

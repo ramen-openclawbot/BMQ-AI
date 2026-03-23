@@ -3082,21 +3082,6 @@ export default function MiniCrm() {
                     onSave={() => savePoSummaryMutation.mutate()}
                     onPostRevenue={handlePostRevenue}
                   />
-                  {isPoDraftDirty && (
-                    <div className="text-sm rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-700 dark:text-amber-300">
-                      Bạn đang có thay đổi chưa lưu. Hãy lưu tóm tắt PO trước khi parse lại hoặc đẩy sang kiểm soát doanh thu.
-                    </div>
-                  )}
-                  {savePoStatus && (
-                    <div className="text-sm rounded-md border px-3 py-2 bg-muted/40">
-                      {savePoStatus}
-                    </div>
-                  )}
-                  {postRevenueStatus && (
-                    <div className="text-sm rounded-md border px-3 py-2 bg-muted/40">
-                      {postRevenueStatus}
-                    </div>
-                  )}
                 </div>
               </>
             )}
