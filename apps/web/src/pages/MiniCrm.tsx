@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Pencil, Save, X, Trash2 } from "lucide-react";
+import { Loader2, RefreshCw, Pencil, Plus, Save, X, Trash2 } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -159,6 +159,40 @@ const normalizeVietnameseText = (value?: string | null) =>
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+const createPoDraftItem = (seed: any = {}) => {
+  const qty = Number(seed?.qty ?? seed?.quantity ?? seed?.qty_total ?? 0) || 0;
+  const unitPrice = Number(seed?.unit_price || 0) || 0;
+  const explicitLineTotal = Number(seed?.line_total || 0) || 0;
+  const lineTotal = explicitLineTotal > 0 ? explicitLineTotal : qty * unitPrice;
+  return {
+    _rowId: String(seed?._rowId || seed?.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+    sku: String(seed?.sku || seed?.item_code || ""),
+    product_name: String(seed?.product_name || seed?.name || ""),
+    unit: String(seed?.unit || "cái"),
+    qty,
+    unit_price: unitPrice,
+    line_total: lineTotal,
+    specification: String(seed?.specification || seed?.description || ""),
+    note: String(seed?.note || ""),
+    source: String(seed?.source || seed?.line_source || seed?.parse_source || (seed?._isManual ? "manually_added" : "parsed")),
+  };
+};
+
+const normalizePoDraftItems = (items: any[]) =>
+  (Array.isArray(items) ? items : []).map((item: any) => createPoDraftItem(item));
+
+const createEmptyPoDraftItem = () => createPoDraftItem({ _isManual: true, source: 'manually_added' });
+
+const hasManualPoDraft = (po: any) => Boolean(po?.raw_payload?.manual_summary?.edited_at || po?.raw_payload?.manual_summary?.edited);
+
+const getPoDraftItemsFromRow = (po: any) => {
+  if (!po) return [];
+  if (hasManualPoDraft(po)) return normalizePoDraftItems(po?.production_items || []);
+  if (Array.isArray(po?.production_items) && po.production_items.length > 0) return normalizePoDraftItems(po.production_items);
+  if (Array.isArray(po?.raw_payload?.parsed_items_preview)) return normalizePoDraftItems(po.raw_payload.parsed_items_preview);
+  return [];
+};
 
 const parseEmailBodyToProductionItems = (subject?: string, body?: string) => {
   const text = String(body || "").replace(/\r/g, "\n");
@@ -1807,23 +1841,33 @@ export default function MiniCrm() {
 
   useEffect(() => {
     if (!selectedPo) return;
-    const items = Array.isArray(selectedPo.production_items)
-      ? selectedPo.production_items
-      : Array.isArray(selectedPo?.raw_payload?.parsed_items_preview)
-        ? selectedPo.raw_payload.parsed_items_preview
-        : [];
-    const subtotal = Number(selectedPo.subtotal_amount || selectedPo?.raw_payload?.parse_meta?.subtotal || calcSubtotalFromItems(items) || 0);
-    const vat = Number(selectedPo.vat_amount ?? selectedPo?.raw_payload?.parse_meta?.vat_amount ?? 0);
-    const total = Number((subtotal > 0 ? subtotal + vat : 0) || selectedPo.total_amount || selectedPo?.raw_payload?.parse_meta?.total_amount || 0);
+    const items = getPoDraftItemsFromRow(selectedPo);
+    const hasManual = hasManualPoDraft(selectedPo);
+    const subtotal = hasManual
+      ? Number(selectedPo.subtotal_amount || 0)
+      : Number(selectedPo.subtotal_amount || selectedPo?.raw_payload?.parse_meta?.subtotal || calcSubtotalFromItems(items) || 0);
+    const vat = hasManual
+      ? Number(selectedPo.vat_amount || 0)
+      : Number(selectedPo.vat_amount ?? selectedPo?.raw_payload?.parse_meta?.vat_amount ?? 0);
+    const total = hasManual
+      ? Number(selectedPo.total_amount || calcSafeTotal(subtotal, vat, 0) || 0)
+      : Number((subtotal > 0 ? subtotal + vat : 0) || selectedPo.total_amount || selectedPo?.raw_payload?.parse_meta?.total_amount || 0);
     setPoSummaryDraft({
+      customer_id: selectedPo.customer_id || selectedPoResolvedCustomerId || "",
       po_number: selectedPo.po_number || extractPoNumberFromSubject(selectedPo.email_subject) || "",
       delivery_date: selectedPo.delivery_date || extractDeliveryDateFromSubject(selectedPo.email_subject) || "",
       subtotal_amount: subtotal || "",
       vat_amount: vat,
       total_amount: total || "",
+      notes: String(selectedPo?.raw_payload?.manual_summary?.notes || ""),
       production_items: items,
     });
-  }, [selectedPo]);
+    setSavePoStatus(
+      hasManual
+        ? `Đang dùng dữ liệu đã chỉnh tay${selectedPo?.raw_payload?.manual_summary?.edited_at ? ` • lưu lúc ${new Date(selectedPo.raw_payload.manual_summary.edited_at).toLocaleString("vi-VN")}` : ""}`
+        : ""
+    );
+  }, [selectedPo, selectedPoResolvedCustomerId]);
 
   useEffect(() => {
     if (!selectedPo || !selectedPoKnowledgeProfile) return;
@@ -1839,7 +1883,7 @@ export default function MiniCrm() {
     setPoSummaryDraft((s: any) => ({
       ...s,
       delivery_date: s?.delivery_date || parsed.deliveryDate || "",
-      production_items: parsed.items,
+      production_items: normalizePoDraftItems(parsed.items),
       subtotal_amount: 0,
       vat_amount: 0,
       total_amount: 0,
@@ -1873,7 +1917,7 @@ export default function MiniCrm() {
           ...s,
           po_number: s?.po_number || extractPoNumberFromSubject(selectedPo?.email_subject),
           delivery_date: s?.delivery_date || extractDeliveryDateFromSubject(selectedPo?.email_subject),
-          production_items: parsedItems,
+          production_items: normalizePoDraftItems(parsedItems),
           subtotal_amount: subtotal || s?.subtotal_amount,
           vat_amount: vat,
           total_amount: total,
@@ -1892,25 +1936,52 @@ export default function MiniCrm() {
     },
     mutationFn: async () => {
       if (!selectedPoId) throw new Error("Chưa chọn PO");
+      const normalizedItems = normalizePoDraftItems(poSummaryDraft.production_items || [])
+        .map((item: any) => ({
+          sku: String(item?.sku || "").trim(),
+          product_name: String(item?.product_name || "").trim(),
+          unit: String(item?.unit || "").trim() || "cái",
+          qty: Number(item?.qty || 0) || 0,
+          unit_price: Number(item?.unit_price || 0) || 0,
+          line_total: Number(item?.line_total || 0) || 0,
+          specification: String(item?.specification || "").trim(),
+          note: String(item?.note || "").trim(),
+          line_source: String(item?.source || "parsed"),
+        }))
+        .filter((item: any) => item.product_name || item.sku || item.qty || item.unit_price || item.line_total || item.note);
+
+      if (normalizedItems.length === 0) throw new Error("Cần ít nhất 1 dòng sản phẩm hoặc dịch vụ trước khi lưu");
+      const hasInvalidQty = normalizedItems.some((item: any) => Number(item.qty || 0) <= 0);
+      if (hasInvalidQty) throw new Error("Mỗi dòng cần có số lượng lớn hơn 0");
+
       const safeTotal = calcSafeTotal(poSummaryDraft.subtotal_amount, poSummaryDraft.vat_amount, poSummaryDraft.total_amount);
       const poNumber = poSummaryDraft.po_number || extractPoNumberFromSubject(selectedPo?.email_subject) || null;
+      const customerId = String(poSummaryDraft.customer_id || selectedPo?.customer_id || selectedPoResolvedCustomerId || "").trim() || null;
+      const manualSummary = {
+        edited: true,
+        edited_at: new Date().toISOString(),
+        notes: String(poSummaryDraft.notes || "").trim(),
+        item_count: normalizedItems.length,
+      };
       const payload = {
+        customer_id: customerId,
         po_number: poNumber,
         delivery_date: poSummaryDraft.delivery_date || null,
         subtotal_amount: Number(poSummaryDraft.subtotal_amount || 0) || null,
         vat_amount: Number(poSummaryDraft.vat_amount || 0) || null,
         total_amount: Number(safeTotal || 0) || null,
-        production_items: poSummaryDraft.production_items || [],
+        production_items: normalizedItems,
         raw_payload: {
           ...(selectedPo?.raw_payload || {}),
           po_number: poNumber,
+          manual_summary: manualSummary,
         },
       };
       const { data, error } = await (supabase as any)
         .from("customer_po_inbox")
         .update(payload)
         .eq("id", selectedPoId)
-        .select("id,po_number")
+        .select("id,po_number,customer_id,raw_payload")
         .single();
       if (error) throw error;
       return data;
@@ -1930,7 +2001,7 @@ export default function MiniCrm() {
 
   const applyParseFromEmailBody = () => {
     const parsed = parseEmailBodyToProductionItems(selectedPo?.email_subject, selectedPo?.body_preview || selectedPo?.raw_payload?.snippet || "");
-    const nextItems = Array.isArray(parsed.items) ? parsed.items : [];
+    const nextItems = normalizePoDraftItems(Array.isArray(parsed.items) ? parsed.items : []);
     setPoSummaryDraft((s: any) => ({
       ...s,
       delivery_date: s?.delivery_date || parsed.deliveryDate || "",
@@ -2784,12 +2855,14 @@ export default function MiniCrm() {
                           onClick={() => {
                             setSelectedPoId(row.id);
                             setPoSummaryDraft({
+                              customer_id: row.customer_id || "",
                               po_number: row.po_number || "",
                               delivery_date: row.delivery_date || "",
                               subtotal_amount: row.subtotal_amount || "",
                               vat_amount: row.vat_amount || "",
                               total_amount: row.total_amount || "",
-                              production_items: Array.isArray(row.production_items) ? row.production_items : [],
+                              notes: String(row?.raw_payload?.manual_summary?.notes || ""),
+                              production_items: getPoDraftItemsFromRow(row),
                             });
                           }}
                         >
@@ -2978,40 +3051,193 @@ export default function MiniCrm() {
                     </TabsContent>
 
                     <TabsContent value="production" className="space-y-3 pt-3">
-                      <div className="flex items-center justify-between">
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div>
+                          <Label>Khách hàng / NPP</Label>
+                          <select
+                            className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                            value={poSummaryDraft.customer_id || selectedPo.customer_id || selectedPoResolvedCustomerId || ""}
+                            onChange={(e) => setPoSummaryDraft((s: any) => ({ ...s, customer_id: e.target.value }))}
+                          >
+                            <option value="">-- Chưa chọn khách hàng --</option>
+                            {customers.map((c: any) => (
+                              <option key={c.id} value={c.id}>{c.customer_name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <Label>Ghi chú xử lý tay</Label>
+                          <textarea
+                            className="mt-1 min-h-[92px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            value={poSummaryDraft.notes || ""}
+                            onChange={(e) => setPoSummaryDraft((s: any) => ({ ...s, notes: e.target.value }))}
+                            placeholder="Ví dụ: thêm 2 dòng hàng còn thiếu theo xác nhận của khách / chỉnh lại số lượng theo file gốc"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-3">
                         <Label>Danh sách sản phẩm cho quản lí sản xuất</Label>
-                        <div className="text-xs text-muted-foreground">
-                          Tổng dòng: {Array.isArray(poSummaryDraft.production_items) ? poSummaryDraft.production_items.length : 0} • Tổng SL: {Array.isArray(poSummaryDraft.production_items) ? (poSummaryDraft.production_items as any[]).reduce((sum: number, item: any) => sum + Number(item?.qty || item?.quantity || 0), 0).toLocaleString("vi-VN") : "0"}
+                        <div className="flex items-center gap-3">
+                          <div className="text-xs text-muted-foreground">
+                            Tổng dòng: {Array.isArray(poSummaryDraft.production_items) ? poSummaryDraft.production_items.length : 0} • Tổng SL: {Array.isArray(poSummaryDraft.production_items) ? (poSummaryDraft.production_items as any[]).reduce((sum: number, item: any) => sum + Number(item?.qty || item?.quantity || 0), 0).toLocaleString("vi-VN") : "0"}
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setPoSummaryDraft((s: any) => ({
+                              ...s,
+                              production_items: [...normalizePoDraftItems(s?.production_items || []), createEmptyPoDraftItem()],
+                            }))}
+                          >
+                            <Plus className="h-4 w-4 mr-1" />Thêm dòng
+                          </Button>
                         </div>
                       </div>
 
                       <div className="rounded-md border overflow-x-auto">
-                        <Table className="min-w-[820px]">
+                        <Table className="min-w-[1200px]">
                           <TableHeader>
                             <TableRow>
-                              <TableHead>SKU</TableHead>
-                              <TableHead>Tên sản phẩm</TableHead>
-                              <TableHead>ĐVT</TableHead>
-                              <TableHead className="text-right">SL</TableHead>
-                              <TableHead className="text-right">Đơn giá</TableHead>
-                              <TableHead className="text-right">Thành tiền</TableHead>
+                              <TableHead className="w-[150px]">SKU</TableHead>
+                              <TableHead className="min-w-[220px]">Tên sản phẩm</TableHead>
+                              <TableHead className="min-w-[180px]">Quy cách / mô tả</TableHead>
+                              <TableHead className="w-[110px]">ĐVT</TableHead>
+                              <TableHead className="w-[120px] text-right">SL</TableHead>
+                              <TableHead className="w-[140px] text-right">Đơn giá</TableHead>
+                              <TableHead className="w-[160px] text-right">Thành tiền</TableHead>
+                              <TableHead className="min-w-[200px]">Ghi chú dòng</TableHead>
+                              <TableHead className="w-[140px]">Nguồn</TableHead>
+                              <TableHead className="w-[90px] text-right">Xoá</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {(Array.isArray(poSummaryDraft.production_items) ? poSummaryDraft.production_items : []).map((item: any, idx: number) => (
-                              <TableRow key={`${item?.sku || "row"}-${idx}`}>
-                                <TableCell>{item?.sku || "-"}</TableCell>
-                                <TableCell>{item?.product_name || item?.name || "-"}</TableCell>
-                                <TableCell>{item?.unit || "-"}</TableCell>
-                                <TableCell className="text-right">{Number(item?.qty || item?.quantity || 0).toLocaleString("vi-VN")}</TableCell>
-                                <TableCell className="text-right">{formatVnd(item?.unit_price || 0)}</TableCell>
-                                <TableCell className="text-right">{formatVnd(item?.line_total || 0)}</TableCell>
+                              <TableRow key={item?._rowId || `${item?.sku || "row"}-${idx}`}>
+                                <TableCell>
+                                  <Input
+                                    value={item?.sku || ""}
+                                    onChange={(e) => setPoSummaryDraft((s: any) => {
+                                      const next = normalizePoDraftItems(s?.production_items || []);
+                                      next[idx] = { ...next[idx], sku: e.target.value };
+                                      return { ...s, production_items: next };
+                                    })}
+                                    placeholder="Mã nội bộ"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    value={item?.product_name || ""}
+                                    onChange={(e) => setPoSummaryDraft((s: any) => {
+                                      const next = normalizePoDraftItems(s?.production_items || []);
+                                      next[idx] = { ...next[idx], product_name: e.target.value };
+                                      return { ...s, production_items: next };
+                                    })}
+                                    placeholder="Tên sản phẩm / dịch vụ"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    value={item?.specification || ""}
+                                    onChange={(e) => setPoSummaryDraft((s: any) => {
+                                      const next = normalizePoDraftItems(s?.production_items || []);
+                                      next[idx] = { ...next[idx], specification: e.target.value };
+                                      return { ...s, production_items: next };
+                                    })}
+                                    placeholder="Quy cách, mô tả"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    value={item?.unit || ""}
+                                    onChange={(e) => setPoSummaryDraft((s: any) => {
+                                      const next = normalizePoDraftItems(s?.production_items || []);
+                                      next[idx] = { ...next[idx], unit: e.target.value };
+                                      return { ...s, production_items: next };
+                                    })}
+                                    placeholder="cái / hộp / kg"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number"
+                                    value={item?.qty ?? ""}
+                                    onChange={(e) => setPoSummaryDraft((s: any) => {
+                                      const next = normalizePoDraftItems(s?.production_items || []);
+                                      const qty = Number(e.target.value || 0) || 0;
+                                      const unitPrice = Number(next[idx]?.unit_price || 0) || 0;
+                                      next[idx] = { ...next[idx], qty, line_total: qty * unitPrice || Number(next[idx]?.line_total || 0) || 0 };
+                                      return { ...s, production_items: next };
+                                    })}
+                                    className="text-right"
+                                    placeholder="0"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number"
+                                    value={item?.unit_price ?? ""}
+                                    onChange={(e) => setPoSummaryDraft((s: any) => {
+                                      const next = normalizePoDraftItems(s?.production_items || []);
+                                      const unitPrice = Number(e.target.value || 0) || 0;
+                                      const qty = Number(next[idx]?.qty || 0) || 0;
+                                      next[idx] = { ...next[idx], unit_price: unitPrice, line_total: qty * unitPrice || Number(next[idx]?.line_total || 0) || 0 };
+                                      return { ...s, production_items: next };
+                                    })}
+                                    className="text-right"
+                                    placeholder="0"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    type="number"
+                                    value={item?.line_total ?? ""}
+                                    onChange={(e) => setPoSummaryDraft((s: any) => {
+                                      const next = normalizePoDraftItems(s?.production_items || []);
+                                      next[idx] = { ...next[idx], line_total: Number(e.target.value || 0) || 0 };
+                                      return { ...s, production_items: next };
+                                    })}
+                                    className="text-right"
+                                    placeholder="0"
+                                  />
+                                  <div className="mt-1 text-[11px] text-muted-foreground text-right">{formatVnd(item?.line_total || 0)}</div>
+                                </TableCell>
+                                <TableCell>
+                                  <Input
+                                    value={item?.note || ""}
+                                    onChange={(e) => setPoSummaryDraft((s: any) => {
+                                      const next = normalizePoDraftItems(s?.production_items || []);
+                                      next[idx] = { ...next[idx], note: e.target.value };
+                                      return { ...s, production_items: next };
+                                    })}
+                                    placeholder="Ghi chú thêm"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant={String(item?.source || '').includes('manual') ? 'default' : 'secondary'}>
+                                    {String(item?.source || '').includes('manual') ? 'manual' : 'parsed'}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <Button
+                                    type="button"
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => setPoSummaryDraft((s: any) => ({
+                                      ...s,
+                                      production_items: normalizePoDraftItems(s?.production_items || []).filter((_: any, rowIdx: number) => rowIdx !== idx),
+                                    }))}
+                                  >
+                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                  </Button>
+                                </TableCell>
                               </TableRow>
                             ))}
                             {(!Array.isArray(poSummaryDraft.production_items) || poSummaryDraft.production_items.length === 0) && (
                               <TableRow>
-                                <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
-                                  Chưa có dữ liệu sản phẩm. Bấm "Parse từ file đính kèm" để lấy tự động.
+                                <TableCell colSpan={10} className="text-center text-muted-foreground py-6">
+                                  Chưa có dữ liệu sản phẩm. Có thể parse lại hoặc bấm “Thêm dòng” để nhập tay.
                                 </TableCell>
                               </TableRow>
                             )}
