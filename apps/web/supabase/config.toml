@@ -49,6 +49,9 @@ verify_jwt = true
 [functions.migration-storage-summary]
 verify_jwt = true
 
+[functions.kb-suggest-po-rules]
+verify_jwt = true
+
 [functions.migration-storage-manifest]
 verify_jwt = false
 
@@ -97,3 +100,4 @@ verify_jwt = false
 
 [functions.migration-storage-archive]
 verify_jwt = false
+

@@ -1068,6 +1068,10 @@ export default function MiniCrm() {
 
   const kbAiSuggestMutation = useMutation({
     mutationFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại rồi thử AI Tính Toán.");
+      }
       const activeTemplateName = poTemplates.find((t: any) => t.customer_id === editingCustomerId && t.is_active)?.file_name || null;
       const { data, error } = await supabase.functions.invoke("kb-suggest-po-rules", {
         body: {
@@ -3311,7 +3315,7 @@ export default function MiniCrm() {
       </Dialog>
 
       <Dialog open={Boolean(editingCustomerId)} onOpenChange={(open) => !open && cancelEditCustomer()}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent aria-describedby={undefined} className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Sửa khách hàng</DialogTitle>
           </DialogHeader>
