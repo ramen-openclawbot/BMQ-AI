@@ -285,6 +285,7 @@ export default function MiniCrm() {
   const [setupPriceRows, setSetupPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
   const [setupEmailBodyTemplate, setSetupEmailBodyTemplate] = useState("");
   const [setupIsNpp, setSetupIsNpp] = useState(false);
+  const [setupUsesNpp, setSetupUsesNpp] = useState(false);
   const [setupSuppliedByNppCustomerId, setSetupSuppliedByNppCustomerId] = useState("");
   const [editContractFile, setEditContractFile] = useState<File | null>(null);
   const [editPriceRows, setEditPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
@@ -295,6 +296,7 @@ export default function MiniCrm() {
   const [editKbOperationalNotes, setEditKbOperationalNotes] = useState("");
   const [editEmailBodyTemplate, setEditEmailBodyTemplate] = useState("");
   const [editIsNpp, setEditIsNpp] = useState(false);
+  const [editUsesNpp, setEditUsesNpp] = useState(false);
   const [editSuppliedByNppCustomerId, setEditSuppliedByNppCustomerId] = useState("");
   const [kbChangeNote, setKbChangeNote] = useState("");
   const [agentCommand, setAgentCommand] = useState("");
@@ -466,6 +468,7 @@ export default function MiniCrm() {
     setEditProductGroup(c.product_group || "banhmi");
     setEditIsActive(Boolean(c.is_active));
     setEditIsNpp(Boolean(c.is_npp));
+    setEditUsesNpp(Boolean(c.supplied_by_npp_customer_id));
     setEditSuppliedByNppCustomerId(String(c.supplied_by_npp_customer_id || ""));
     const emails = (c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ");
     setEditEmailsInput(emails);
@@ -497,6 +500,7 @@ export default function MiniCrm() {
     setEditProductGroup("banhmi");
     setEditIsActive(true);
     setEditIsNpp(false);
+    setEditUsesNpp(false);
     setEditSuppliedByNppCustomerId("");
     setEditEmailsInput("");
     setEditOriginalEmailsInput("");
@@ -745,10 +749,11 @@ export default function MiniCrm() {
     mutationFn: async () => {
       const trimmedName = customerName.trim();
       if (!trimmedName) throw new Error("Vui lòng nhập tên khách hàng");
+      if (!setupIsNpp && setupUsesNpp && !setupSuppliedByNppCustomerId) throw new Error("Vui lòng chọn nhà phân phối cung cấp hàng");
 
       const { data: created, error: createError } = await (supabase as any)
         .from("mini_crm_customers")
-        .insert({ customer_name: trimmedName, customer_group: customerGroup, product_group: productGroup, is_npp: setupIsNpp, supplied_by_npp_customer_id: setupIsNpp ? null : (setupSuppliedByNppCustomerId || null) })
+        .insert({ customer_name: trimmedName, customer_group: customerGroup, product_group: productGroup, is_npp: setupIsNpp, supplied_by_npp_customer_id: setupIsNpp ? null : (setupUsesNpp ? (setupSuppliedByNppCustomerId || null) : null) })
         .select("id")
         .single();
       if (createError) throw createError;
@@ -847,6 +852,7 @@ export default function MiniCrm() {
       setSetupPriceRows([{ skuId: "", price: "" }]);
       setSetupEmailBodyTemplate("");
       setSetupIsNpp(false);
+      setSetupUsesNpp(false);
       setSetupSuppliedByNppCustomerId("");
       setTemplateFileName("");
       setTemplatePreview(null);
@@ -1015,6 +1021,7 @@ export default function MiniCrm() {
       if (!editingCustomerId) throw new Error("Chưa chọn khách hàng để sửa");
       const trimmedName = editCustomerName.trim();
       if (!trimmedName) throw new Error("Vui lòng nhập tên khách hàng");
+      if (!editIsNpp && editUsesNpp && !editSuppliedByNppCustomerId) throw new Error("Vui lòng chọn nhà phân phối cung cấp hàng");
 
       const { data: updatedCustomer, error: updateError } = await (supabase as any)
         .from("mini_crm_customers")
@@ -1024,7 +1031,7 @@ export default function MiniCrm() {
           product_group: editProductGroup,
           is_active: editIsActive,
           is_npp: editIsNpp,
-          supplied_by_npp_customer_id: editIsNpp ? null : (editSuppliedByNppCustomerId || null),
+          supplied_by_npp_customer_id: editIsNpp ? null : (editUsesNpp ? (editSuppliedByNppCustomerId || null) : null),
         })
         .eq("id", editingCustomerId)
         .select("id")
@@ -2391,7 +2398,10 @@ export default function MiniCrm() {
               <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={setupIsNpp ? "yes" : "no"} onChange={(e) => {
                 const next = e.target.value === "yes";
                 setSetupIsNpp(next);
-                if (next) setSetupSuppliedByNppCustomerId("");
+                if (next) {
+                  setSetupUsesNpp(false);
+                  setSetupSuppliedByNppCustomerId("");
+                }
               }}>
                 <option value="no">No</option>
                 <option value="yes">Yes</option>
@@ -2399,11 +2409,25 @@ export default function MiniCrm() {
             </div>
             <div className="space-y-2">
               <Label>Lấy hàng qua NPP</Label>
-              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={setupSuppliedByNppCustomerId} onChange={(e) => setSetupSuppliedByNppCustomerId(e.target.value)} disabled={setupIsNpp}>
-                <option value="">-- Không --</option>
-                {nppCustomers.map((npp: any) => <option key={npp.id} value={npp.id}>{npp.customer_name}</option>)}
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={setupUsesNpp ? "yes" : "no"} onChange={(e) => {
+                const next = e.target.value === "yes";
+                setSetupUsesNpp(next);
+                if (!next) setSetupSuppliedByNppCustomerId("");
+              }} disabled={setupIsNpp}>
+                <option value="no">Không</option>
+                <option value="yes">Có</option>
               </select>
             </div>
+            {setupUsesNpp && !setupIsNpp && (
+              <div className="space-y-2 md:col-span-2">
+                <Label>Chọn nhà phân phối</Label>
+                <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={setupSuppliedByNppCustomerId} onChange={(e) => setSetupSuppliedByNppCustomerId(e.target.value)}>
+                  <option value="">-- Chọn nhà phân phối --</option>
+                  {nppCustomers.map((npp: any) => <option key={npp.id} value={npp.id}>{npp.customer_name}</option>)}
+                </select>
+                {nppCustomers.length === 0 && <div className="text-xs text-muted-foreground">Chưa có khách hàng nào được đánh dấu là NPP để chọn.</div>}
+              </div>
+            )}
 
             <div className="space-y-2 md:col-span-2 rounded-md border p-3">
               <Label>Upload hợp đồng (PDF)</Label>
@@ -3094,7 +3118,10 @@ export default function MiniCrm() {
               <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editIsNpp ? "yes" : "no"} onChange={(e) => {
                 const next = e.target.value === "yes";
                 setEditIsNpp(next);
-                if (next) setEditSuppliedByNppCustomerId("");
+                if (next) {
+                  setEditUsesNpp(false);
+                  setEditSuppliedByNppCustomerId("");
+                }
               }}>
                 <option value="no">No</option>
                 <option value="yes">Yes</option>
@@ -3102,11 +3129,25 @@ export default function MiniCrm() {
             </div>
             <div className="space-y-2">
               <Label>Lấy hàng qua NPP</Label>
-              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editSuppliedByNppCustomerId} onChange={(e) => setEditSuppliedByNppCustomerId(e.target.value)} disabled={editIsNpp}>
-                <option value="">-- Không --</option>
-                {nppCustomers.filter((npp: any) => npp.id !== editingCustomerId).map((npp: any) => <option key={npp.id} value={npp.id}>{npp.customer_name}</option>)}
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editUsesNpp ? "yes" : "no"} onChange={(e) => {
+                const next = e.target.value === "yes";
+                setEditUsesNpp(next);
+                if (!next) setEditSuppliedByNppCustomerId("");
+              }} disabled={editIsNpp}>
+                <option value="no">Không</option>
+                <option value="yes">Có</option>
               </select>
             </div>
+            {editUsesNpp && !editIsNpp && (
+              <div className="space-y-2 md:col-span-2">
+                <Label>Chọn nhà phân phối</Label>
+                <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editSuppliedByNppCustomerId} onChange={(e) => setEditSuppliedByNppCustomerId(e.target.value)}>
+                  <option value="">-- Chọn nhà phân phối --</option>
+                  {nppCustomers.filter((npp: any) => npp.id !== editingCustomerId).map((npp: any) => <option key={npp.id} value={npp.id}>{npp.customer_name}</option>)}
+                </select>
+                {nppCustomers.filter((npp: any) => npp.id !== editingCustomerId).length === 0 && <div className="text-xs text-muted-foreground">Chưa có nhà phân phối nào khả dụng để chọn.</div>}
+              </div>
+            )}
             <div className="space-y-2 md:col-span-2">
               <Label>Email nhận diện</Label>
               <Input value={editEmailsInput} onChange={(e) => setEditEmailsInput(e.target.value)} />
