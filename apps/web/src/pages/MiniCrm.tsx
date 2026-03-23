@@ -1068,8 +1068,10 @@ export default function MiniCrm() {
 
   const kbAiSuggestMutation = useMutation({
     mutationFn: async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
+      // refreshSession() ensures a fresh access token — getSession() only
+      // returns the cached token which may already be expired, causing 401.
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError || !refreshData.session?.access_token) {
         throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại rồi thử AI Tính Toán.");
       }
       const activeTemplateName = poTemplates.find((t: any) => t.customer_id === editingCustomerId && t.is_active)?.file_name || null;
@@ -1436,6 +1438,8 @@ export default function MiniCrm() {
       reader.onerror = () => reject(reader.error || new Error("Không thể đọc file ảnh"));
       reader.readAsDataURL(file);
     });
+    // Ensure fresh token before calling edge function
+    await supabase.auth.refreshSession();
     const { data, error } = await supabase.functions.invoke("scan-purchase-order", {
       body: { imageBase64: base64, mimeType: file.type || "image/png" },
     });

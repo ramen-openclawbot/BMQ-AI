@@ -94,12 +94,22 @@ function toSqlLiteral(value: any): string {
   return `'${text.replace(/'/g, "''")}'`;
 }
 
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / Math.pow(1024, index);
+  return `${value >= 100 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
+}
+
 export function DataMigrationSettings() {
   const { toast } = useToast();
   const [busyFormat, setBusyFormat] = useState<ExportFormat | "manifest" | "zip" | null>(null);
   const [isOwner, setIsOwner] = useState(false);
   const [bucketFilter, setBucketFilter] = useState("");
   const [maxFiles, setMaxFiles] = useState("1000");
+  const [zipProgress, setZipProgress] = useState<number | null>(null);
+  const [zipProgressText, setZipProgressText] = useState("");
 
   const canExport = isOwner && busyFormat === null;
 
@@ -218,12 +228,20 @@ export function DataMigrationSettings() {
     try {
       setBusyFormat("manifest");
 
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+
       const bucketIds = bucketFilter
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
 
       const { data, error } = await supabase.functions.invoke("migration-storage-manifest", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
         body: {
           bucketIds: bucketIds.length ? bucketIds : undefined,
         },
@@ -261,6 +279,8 @@ export function DataMigrationSettings() {
 
     try {
       setBusyFormat("zip");
+      setZipProgress(0);
+      setZipProgressText("Đang chuẩn bị tải ZIP...");
 
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData?.session?.access_token;
@@ -297,10 +317,44 @@ export function DataMigrationSettings() {
         throw new Error(errMsg);
       }
 
-      const blob = await resp.blob();
       const contentDisposition = resp.headers.get("Content-Disposition") || "";
       const match = contentDisposition.match(/filename="?([^\"]+)"?/i);
       const filename = match?.[1] || `bmq-storage-archive-${Date.now()}.zip`;
+
+      const totalBytes = Number(resp.headers.get("Content-Length") || 0);
+      const reader = resp.body?.getReader();
+
+      let blob: Blob;
+      if (!reader) {
+        blob = await resp.blob();
+        setZipProgress(100);
+        setZipProgressText("Tải hoàn tất.");
+      } else {
+        const chunks: Uint8Array[] = [];
+        let receivedBytes = 0;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value) continue;
+
+          chunks.push(value);
+          receivedBytes += value.length;
+
+          if (totalBytes > 0) {
+            const percent = Math.min(100, Math.round((receivedBytes / totalBytes) * 100));
+            setZipProgress(percent);
+            setZipProgressText(`Đã tải ${formatBytes(receivedBytes)} / ${formatBytes(totalBytes)}`);
+          } else {
+            setZipProgress(null);
+            setZipProgressText(`Đã tải ${formatBytes(receivedBytes)}...`);
+          }
+        }
+
+        blob = new Blob(chunks, { type: "application/zip" });
+        setZipProgress(100);
+        setZipProgressText("Tải hoàn tất.");
+      }
 
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -323,6 +377,10 @@ export function DataMigrationSettings() {
       });
     } finally {
       setBusyFormat(null);
+      setTimeout(() => {
+        setZipProgress(null);
+        setZipProgressText("");
+      }, 1200);
     }
   };
 
@@ -404,9 +462,34 @@ export function DataMigrationSettings() {
           </Button>
           <Button variant="outline" onClick={exportFilesZip} disabled={!isOwner || busyFormat !== null}>
             <FolderArchive className="h-4 w-4 mr-2" />
-            {busyFormat === "zip" ? "Đang nén..." : "Download Files ZIP"}
+            {busyFormat === "zip"
+              ? zipProgress !== null
+                ? `Đang tải ZIP (${zipProgress}%)`
+                : "Đang tải ZIP..."
+              : "Download Files ZIP"}
           </Button>
         </div>
+
+        {(busyFormat === "zip" || zipProgressText) && (
+          <div className="rounded-md border border-primary/20 bg-primary/5 p-3 space-y-2">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>{zipProgressText || "Đang tải ZIP..."}</span>
+              {zipProgress !== null && <span className="font-medium text-foreground">{zipProgress}%</span>}
+            </div>
+            {zipProgress !== null ? (
+              <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full bg-primary transition-all duration-200"
+                  style={{ width: `${zipProgress}%` }}
+                />
+              </div>
+            ) : (
+              <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                <div className="h-full w-1/3 animate-pulse bg-primary/60" />
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="rounded-lg border p-4 space-y-2">

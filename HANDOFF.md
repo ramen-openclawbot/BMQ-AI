@@ -1,12 +1,18 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.27**
+- apps/web: **0.0.28**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
 - Latest commit at handoff time: `git log -1 --oneline`
 
-## Latest update (2026-03-24 — v0.0.27)
+## Latest update (2026-03-24 — v0.0.28)
+### Bug Fix — KB AI 401 Invalid JWT: stale cached token
+- **Root cause**: `supabase.auth.getSession()` trả về cached token từ memory — KHÔNG verify hay refresh nếu đã expire. Khi user mở tab lâu, access token hết hạn trong cache nhưng check `if (!session?.access_token)` chỉ kiểm tra token CÓ TỒN TẠI, không kiểm tra còn hiệu lực → `functions.invoke()` gửi expired JWT → config.toml `verify_jwt = true` reject trước khi function code chạy → 401 "Invalid JWT".
+- **Fix `MiniCrm.tsx`**: Thay `getSession()` bằng `refreshSession()` trong `kbAiSuggestMutation` — đảm bảo access token luôn fresh trước khi gọi edge function. Nếu refresh thất bại (refresh token cũng hết hạn) → hiển thị message yêu cầu đăng nhập lại.
+- **Fix `MiniCrm.tsx`**: Thêm `refreshSession()` trước `scan-purchase-order` invoke — cùng pattern, tránh 401 tương tự.
+
+## Previous update (2026-03-24 — v0.0.27)
 ### Bug Fix — KB AI "AI Tính Toán" error handling + auth consistency
 - **`MiniCrm.tsx`**: Fix bug trong `kbAiSuggestMutation` error handling — `catch` block nuốt mất detailed error message. Trước đây: `throw new Error(detail)` nằm TRONG `try` → `catch` bắt luôn rồi bỏ qua → user luôn thấy generic "Edge Function returned a non-2xx status code". Sau: tách JSON parsing ra riêng, chỉ throw 1 lần cuối cùng với detail nếu có.
 - **`kb-suggest-po-rules/index.ts`**: Refactor auth — thay inline bearer token parsing bằng `requireAuth()` từ `_shared/auth.ts` (nhất quán với 25 functions khác). Thêm `console.error` cho OpenAI errors. Catch block xử lý đúng Response objects từ `requireAuth()`.
