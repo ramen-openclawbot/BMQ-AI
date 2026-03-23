@@ -1788,6 +1788,8 @@ export default function MiniCrm() {
   }, [customerKnowledgeProfiles, selectedPoResolvedCustomerId]);
   const selectedPreview = useMemo(() => previewItems.find((r: any) => r.messageId === selectedPreviewId) || null, [previewItems, selectedPreviewId]);
   const nppCustomers = useMemo(() => customers.filter((c: any) => Boolean(c?.is_npp)), [customers]);
+  const setupAvailableNppCustomers = useMemo(() => nppCustomers, [nppCustomers]);
+  const editAvailableNppCustomers = useMemo(() => nppCustomers.filter((npp: any) => npp.id !== editingCustomerId), [nppCustomers, editingCustomerId]);
 
   useEffect(() => {
     if (!templateConfirmOpen || !pendingTemplatePreview?.confirmationView) return;
@@ -2412,7 +2414,11 @@ export default function MiniCrm() {
               <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={setupUsesNpp ? "yes" : "no"} onChange={(e) => {
                 const next = e.target.value === "yes";
                 setSetupUsesNpp(next);
-                if (!next) setSetupSuppliedByNppCustomerId("");
+                if (!next) {
+                  setSetupSuppliedByNppCustomerId("");
+                } else if (setupAvailableNppCustomers.length === 1) {
+                  setSetupSuppliedByNppCustomerId(String(setupAvailableNppCustomers[0].id));
+                }
               }} disabled={setupIsNpp}>
                 <option value="no">Không</option>
                 <option value="yes">Có</option>
@@ -2423,9 +2429,9 @@ export default function MiniCrm() {
                 <Label>Chọn nhà phân phối</Label>
                 <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={setupSuppliedByNppCustomerId} onChange={(e) => setSetupSuppliedByNppCustomerId(e.target.value)}>
                   <option value="">-- Chọn nhà phân phối --</option>
-                  {nppCustomers.map((npp: any) => <option key={npp.id} value={npp.id}>{npp.customer_name}</option>)}
+                  {setupAvailableNppCustomers.map((npp: any) => <option key={npp.id} value={npp.id}>{npp.customer_name}</option>)}
                 </select>
-                {nppCustomers.length === 0 && <div className="text-xs text-muted-foreground">Chưa có khách hàng nào được đánh dấu là NPP để chọn.</div>}
+                {setupAvailableNppCustomers.length === 0 && <div className="text-xs text-muted-foreground">Chưa có khách hàng nào được đánh dấu là NPP để chọn.</div>}
               </div>
             )}
 
@@ -3132,7 +3138,11 @@ export default function MiniCrm() {
               <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editUsesNpp ? "yes" : "no"} onChange={(e) => {
                 const next = e.target.value === "yes";
                 setEditUsesNpp(next);
-                if (!next) setEditSuppliedByNppCustomerId("");
+                if (!next) {
+                  setEditSuppliedByNppCustomerId("");
+                } else if (editAvailableNppCustomers.length === 1) {
+                  setEditSuppliedByNppCustomerId(String(editAvailableNppCustomers[0].id));
+                }
               }} disabled={editIsNpp}>
                 <option value="no">Không</option>
                 <option value="yes">Có</option>
@@ -3143,9 +3153,9 @@ export default function MiniCrm() {
                 <Label>Chọn nhà phân phối</Label>
                 <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editSuppliedByNppCustomerId} onChange={(e) => setEditSuppliedByNppCustomerId(e.target.value)}>
                   <option value="">-- Chọn nhà phân phối --</option>
-                  {nppCustomers.filter((npp: any) => npp.id !== editingCustomerId).map((npp: any) => <option key={npp.id} value={npp.id}>{npp.customer_name}</option>)}
+                  {editAvailableNppCustomers.map((npp: any) => <option key={npp.id} value={npp.id}>{npp.customer_name}</option>)}
                 </select>
-                {nppCustomers.filter((npp: any) => npp.id !== editingCustomerId).length === 0 && <div className="text-xs text-muted-foreground">Chưa có nhà phân phối nào khả dụng để chọn.</div>}
+                {editAvailableNppCustomers.length === 0 && <div className="text-xs text-muted-foreground">Chưa có nhà phân phối nào khả dụng để chọn.</div>}
               </div>
             )}
             <div className="space-y-2 md:col-span-2">
