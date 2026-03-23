@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, RefreshCw, Pencil, Plus, Save, X, Trash2 } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -194,6 +194,54 @@ const getPoDraftItemsFromRow = (po: any) => {
   return [];
 };
 
+const buildPoDraftSignature = (draft: any) => {
+  const items = normalizePoDraftItems(draft?.production_items || []).map((item: any) => ({
+    sku: String(item?.sku || "").trim(),
+    product_name: String(item?.product_name || "").trim(),
+    unit: String(item?.unit || "").trim(),
+    qty: Number(item?.qty || 0) || 0,
+    unit_price: Number(item?.unit_price || 0) || 0,
+    line_total: Number(item?.line_total || 0) || 0,
+    specification: String(item?.specification || "").trim(),
+    note: String(item?.note || "").trim(),
+    source: String(item?.source || "").trim(),
+  }));
+  return JSON.stringify({
+    customer_id: String(draft?.customer_id || "").trim(),
+    po_number: String(draft?.po_number || "").trim(),
+    delivery_date: String(draft?.delivery_date || "").trim(),
+    subtotal_amount: Number(draft?.subtotal_amount || 0) || 0,
+    vat_amount: Number(draft?.vat_amount || 0) || 0,
+    total_amount: Number(draft?.total_amount || 0) || 0,
+    notes: String(draft?.notes || "").trim(),
+    items,
+  });
+};
+
+const createDraftFromPoRow = (po: any, fallbackCustomerId?: string | null) => {
+  const items = getPoDraftItemsFromRow(po);
+  const hasManual = hasManualPoDraft(po);
+  const subtotal = hasManual
+    ? Number(po?.subtotal_amount || 0)
+    : Number(po?.subtotal_amount || po?.raw_payload?.parse_meta?.subtotal || calcSubtotalFromItems(items) || 0);
+  const vat = hasManual
+    ? Number(po?.vat_amount || 0)
+    : Number(po?.vat_amount ?? po?.raw_payload?.parse_meta?.vat_amount ?? 0);
+  const total = hasManual
+    ? Number(po?.total_amount || calcSafeTotal(subtotal, vat, 0) || 0)
+    : Number((subtotal > 0 ? subtotal + vat : 0) || po?.total_amount || po?.raw_payload?.parse_meta?.total_amount || 0);
+  return {
+    customer_id: po?.customer_id || fallbackCustomerId || "",
+    po_number: po?.po_number || extractPoNumberFromSubject(po?.email_subject) || "",
+    delivery_date: po?.delivery_date || extractDeliveryDateFromSubject(po?.email_subject) || "",
+    subtotal_amount: subtotal || "",
+    vat_amount: vat,
+    total_amount: total || "",
+    notes: String(po?.raw_payload?.manual_summary?.notes || ""),
+    production_items: items,
+  };
+};
+
 const parseEmailBodyToProductionItems = (subject?: string, body?: string) => {
   const text = String(body || "").replace(/\r/g, "\n");
   const chunks = text
@@ -290,6 +338,10 @@ export default function MiniCrm() {
   const [templateReviewTouched, setTemplateReviewTouched] = useState<boolean>(false);
   const [selectedPoId, setSelectedPoId] = useState<string | null>(null);
   const [poSummaryDraft, setPoSummaryDraft] = useState<any>({});
+  const [poDraftBaseSignature, setPoDraftBaseSignature] = useState<string>("");
+  const [poDraftHydrationNonce, setPoDraftHydrationNonce] = useState(0);
+  const [pendingParseAction, setPendingParseAction] = useState<null | "attachment" | "email_body">(null);
+  const poDraftHydrationKeyRef = useRef<string>("");
   const [savePoStatus, setSavePoStatus] = useState<string>("");
   const [postRevenueStatus, setPostRevenueStatus] = useState<string>("");
   const [poDateFrom, setPoDateFrom] = useState<string>("");
@@ -1808,6 +1860,9 @@ export default function MiniCrm() {
   const recentRevenueAudit = useMemo(() => revenueAuditRows.slice(0, 20), [revenueAuditRows]);
 
   const selectedPo = useMemo(() => poInbox.find((r: any) => r.id === selectedPoId) || null, [poInbox, selectedPoId]);
+  const poDraftSignature = useMemo(() => buildPoDraftSignature(poSummaryDraft), [poSummaryDraft]);
+  const isPoDraftDirty = useMemo(() => Boolean(selectedPoId) && poDraftSignature !== poDraftBaseSignature, [selectedPoId, poDraftSignature, poDraftBaseSignature]);
+
   const selectedPoResolvedCustomerId = useMemo(() => {
     if (!selectedPo) return null;
     if (selectedPo.customer_id) return selectedPo.customer_id;
@@ -1841,33 +1896,21 @@ export default function MiniCrm() {
 
   useEffect(() => {
     if (!selectedPo) return;
-    const items = getPoDraftItemsFromRow(selectedPo);
-    const hasManual = hasManualPoDraft(selectedPo);
-    const subtotal = hasManual
-      ? Number(selectedPo.subtotal_amount || 0)
-      : Number(selectedPo.subtotal_amount || selectedPo?.raw_payload?.parse_meta?.subtotal || calcSubtotalFromItems(items) || 0);
-    const vat = hasManual
-      ? Number(selectedPo.vat_amount || 0)
-      : Number(selectedPo.vat_amount ?? selectedPo?.raw_payload?.parse_meta?.vat_amount ?? 0);
-    const total = hasManual
-      ? Number(selectedPo.total_amount || calcSafeTotal(subtotal, vat, 0) || 0)
-      : Number((subtotal > 0 ? subtotal + vat : 0) || selectedPo.total_amount || selectedPo?.raw_payload?.parse_meta?.total_amount || 0);
-    setPoSummaryDraft({
-      customer_id: selectedPo.customer_id || selectedPoResolvedCustomerId || "",
-      po_number: selectedPo.po_number || extractPoNumberFromSubject(selectedPo.email_subject) || "",
-      delivery_date: selectedPo.delivery_date || extractDeliveryDateFromSubject(selectedPo.email_subject) || "",
-      subtotal_amount: subtotal || "",
-      vat_amount: vat,
-      total_amount: total || "",
-      notes: String(selectedPo?.raw_payload?.manual_summary?.notes || ""),
-      production_items: items,
-    });
+    const hydrationKey = `${selectedPo.id}:${poDraftHydrationNonce}`;
+    if (poDraftHydrationKeyRef.current === hydrationKey) return;
+    poDraftHydrationKeyRef.current = hydrationKey;
+
+    const nextDraft = createDraftFromPoRow(selectedPo, selectedPoResolvedCustomerId);
+    setPoSummaryDraft(nextDraft);
+    setPoDraftBaseSignature(buildPoDraftSignature(nextDraft));
+    setPendingParseAction(null);
+    setPostRevenueStatus("");
     setSavePoStatus(
-      hasManual
+      hasManualPoDraft(selectedPo)
         ? `Đang dùng dữ liệu đã chỉnh tay${selectedPo?.raw_payload?.manual_summary?.edited_at ? ` • lưu lúc ${new Date(selectedPo.raw_payload.manual_summary.edited_at).toLocaleString("vi-VN")}` : ""}`
         : ""
     );
-  }, [selectedPo, selectedPoResolvedCustomerId]);
+  }, [selectedPo, selectedPoResolvedCustomerId, poDraftHydrationNonce]);
 
   useEffect(() => {
     if (!selectedPo || !selectedPoKnowledgeProfile) return;
@@ -1875,7 +1918,7 @@ export default function MiniCrm() {
     if (source !== "email_body_only") return;
 
     const currentItems = Array.isArray(poSummaryDraft?.production_items) ? poSummaryDraft.production_items : [];
-    if (currentItems.length > 0) return;
+    if (currentItems.length > 0 || isPoDraftDirty) return;
 
     const parsed = parseEmailBodyToProductionItems(selectedPo?.email_subject, selectedPo?.body_preview || selectedPo?.raw_payload?.snippet || "");
     if (!Array.isArray(parsed.items) || parsed.items.length === 0) return;
@@ -1888,7 +1931,7 @@ export default function MiniCrm() {
       vat_amount: 0,
       total_amount: 0,
     }));
-  }, [selectedPo, selectedPoKnowledgeProfile, poSummaryDraft?.production_items]);
+  }, [selectedPo, selectedPoKnowledgeProfile, poSummaryDraft?.production_items, isPoDraftDirty]);
 
   const parseAttachmentMutation = useMutation({
     mutationFn: async (inboxId: string) => {
@@ -1923,6 +1966,7 @@ export default function MiniCrm() {
           total_amount: total,
         }));
       }
+      setSavePoStatus("Đã cập nhật draft từ file đính kèm. Nhớ lưu trước khi đẩy doanh thu.");
       toast({ title: "Đã parse file đính kèm", description: `${result?.parsed?.itemCount || 0} dòng sản phẩm` });
     },
     onError: (e: any) => {
@@ -1954,10 +1998,18 @@ export default function MiniCrm() {
       const hasInvalidQty = normalizedItems.some((item: any) => Number(item.qty || 0) <= 0);
       if (hasInvalidQty) throw new Error("Mỗi dòng cần có số lượng lớn hơn 0");
 
+      const { data: latestRow, error: latestRowError } = await (supabase as any)
+        .from("customer_po_inbox")
+        .select("id, customer_id, email_subject, raw_payload, updated_at")
+        .eq("id", selectedPoId)
+        .single();
+      if (latestRowError || !latestRow) throw latestRowError || new Error("Không tải được dữ liệu PO mới nhất trước khi lưu");
+
       const safeTotal = calcSafeTotal(poSummaryDraft.subtotal_amount, poSummaryDraft.vat_amount, poSummaryDraft.total_amount);
-      const poNumber = poSummaryDraft.po_number || extractPoNumberFromSubject(selectedPo?.email_subject) || null;
-      const customerId = String(poSummaryDraft.customer_id || selectedPo?.customer_id || selectedPoResolvedCustomerId || "").trim() || null;
+      const poNumber = poSummaryDraft.po_number || extractPoNumberFromSubject(latestRow?.email_subject || selectedPo?.email_subject) || null;
+      const customerId = String(poSummaryDraft.customer_id || latestRow?.customer_id || selectedPoResolvedCustomerId || "").trim() || null;
       const manualSummary = {
+        ...(latestRow?.raw_payload?.manual_summary || {}),
         edited: true,
         edited_at: new Date().toISOString(),
         notes: String(poSummaryDraft.notes || "").trim(),
@@ -1972,23 +2024,29 @@ export default function MiniCrm() {
         total_amount: Number(safeTotal || 0) || null,
         production_items: normalizedItems,
         raw_payload: {
-          ...(selectedPo?.raw_payload || {}),
+          ...(latestRow?.raw_payload || {}),
           po_number: poNumber,
           manual_summary: manualSummary,
         },
       };
-      const { data, error } = await (supabase as any)
+      let updateQuery = (supabase as any)
         .from("customer_po_inbox")
         .update(payload)
-        .eq("id", selectedPoId)
-        .select("id,po_number,customer_id,raw_payload")
+        .eq("id", selectedPoId);
+      if (latestRow?.updated_at) updateQuery = updateQuery.eq("updated_at", latestRow.updated_at);
+      const { data, error } = await updateQuery
+        .select("id,po_number,customer_id,raw_payload,updated_at")
         .single();
       if (error) throw error;
+      if (!data) throw new Error("Lưu thất bại vì dữ liệu PO vừa thay đổi ở nơi khác. Vui lòng tải lại và thử lại.");
       return data;
     },
     onSuccess: async (saved: any) => {
-      await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
       const poCode = saved?.po_number || poSummaryDraft?.po_number || selectedPoId;
+      const nextDraft = { ...poSummaryDraft };
+      setPoDraftBaseSignature(buildPoDraftSignature(nextDraft));
+      setPoDraftHydrationNonce((n) => n + 1);
+      await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
       setSavePoStatus(`✅ Lưu thành công: ${poCode}`);
       toast({ title: "✅ Đã lưu tóm tắt PO", description: String(poCode || "") });
     },
@@ -1998,6 +2056,35 @@ export default function MiniCrm() {
       toast({ title: "Lỗi lưu PO", description: errMsg, variant: "destructive" });
     },
   });
+
+  const requestParseAttachment = () => {
+    if (!selectedPo?.id) return;
+    if (isPoDraftDirty) {
+      setPendingParseAction("attachment");
+      return;
+    }
+    parseAttachmentMutation.mutate(selectedPo.id);
+  };
+
+  const requestParseFromEmailBody = () => {
+    if (isPoDraftDirty) {
+      setPendingParseAction("email_body");
+      return;
+    }
+    applyParseFromEmailBody();
+  };
+
+  const confirmOverwriteDraftAndParse = () => {
+    if (pendingParseAction === "attachment") {
+      setPendingParseAction(null);
+      if (selectedPo?.id) parseAttachmentMutation.mutate(selectedPo.id);
+      return;
+    }
+    if (pendingParseAction === "email_body") {
+      setPendingParseAction(null);
+      applyParseFromEmailBody();
+    }
+  };
 
   const applyParseFromEmailBody = () => {
     const parsed = parseEmailBodyToProductionItems(selectedPo?.email_subject, selectedPo?.body_preview || selectedPo?.raw_payload?.snippet || "");
@@ -2010,11 +2097,23 @@ export default function MiniCrm() {
       vat_amount: 0,
       total_amount: 0,
     }));
+    setSavePoStatus("Đã cập nhật draft từ nội dung email. Nhớ lưu trước khi đẩy doanh thu.");
     if (!nextItems.length) {
       toast({ title: "Không parse được từ nội dung email", description: "Email có thể bị cắt ngắn. Vui lòng mở mail gốc hoặc bổ sung thủ công.", variant: "destructive" });
       return;
     }
     toast({ title: "Đã parse từ nội dung email", description: `${nextItems.length} dòng sản phẩm` });
+  };
+
+  const handlePostRevenue = () => {
+    if (!selectedPo?.id) return;
+    if (isPoDraftDirty) {
+      const message = "Draft PO đang có thay đổi chưa lưu. Vui lòng lưu tóm tắt PO trước khi đẩy sang kiểm soát doanh thu.";
+      setPostRevenueStatus(`⚠️ ${message}`);
+      toast({ title: "Cần lưu trước khi đẩy doanh thu", description: message, variant: "destructive" });
+      return;
+    }
+    postRevenueMutation.mutate(selectedPo.id);
   };
 
   const postRevenueMutation = useMutation({
@@ -2041,10 +2140,10 @@ export default function MiniCrm() {
         .maybeSingle();
       const poMode = String(kbProfile?.po_mode || "daily_new_po");
 
-      const postedSubtotal = Number(poSummaryDraft?.subtotal_amount || row?.subtotal_amount || 0);
-      const postedVat = Number(poSummaryDraft?.vat_amount || row?.vat_amount || 0);
+      const postedSubtotal = Number(row?.subtotal_amount || 0);
+      const postedVat = Number(row?.vat_amount || 0);
       const fullTotal = Number(
-        calcSafeTotal(postedSubtotal, postedVat, poSummaryDraft?.total_amount) ||
+        calcSafeTotal(postedSubtotal, postedVat, row?.total_amount) ||
         row?.total_amount ||
         calcTotalFromRawPayload(row?.raw_payload || {}) ||
         0
@@ -2318,6 +2417,7 @@ export default function MiniCrm() {
       </div>
 
       {isSalesPoPage && (
+        <>
         <Dialog open={syncModalOpen} onOpenChange={setSyncModalOpen}>
           <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
@@ -2438,6 +2538,21 @@ export default function MiniCrm() {
             </div>
           </DialogContent>
         </Dialog>
+
+        <Dialog open={Boolean(pendingParseAction)} onOpenChange={(open) => { if (!open) setPendingParseAction(null); }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Ghi đè thay đổi chưa lưu?</DialogTitle>
+              <DialogDescription>Draft hiện tại có thay đổi chưa lưu. Nếu parse lại bây giờ, các chỉnh sửa tay trên màn hình có thể bị thay thế.</DialogDescription>
+            </DialogHeader>
+            <div className="text-sm text-muted-foreground">Hãy lưu trước nếu muốn giữ lại chỉnh sửa hiện tại.</div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setPendingParseAction(null)}>Huỷ</Button>
+              <Button variant="destructive" onClick={confirmOverwriteDraftAndParse}>Vẫn parse và ghi đè</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+        </>
       )}
 
       {!isSalesPoPage && (
@@ -3248,17 +3363,22 @@ export default function MiniCrm() {
                   </Tabs>
 
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="secondary" onClick={() => parseAttachmentMutation.mutate(selectedPo.id)} disabled={parseAttachmentMutation.isPending}>
+                    <Button variant="secondary" onClick={requestParseAttachment} disabled={parseAttachmentMutation.isPending}>
                       {parseAttachmentMutation.isPending ? "Đang parse..." : "Parse từ file đính kèm"}
                     </Button>
-                    <Button variant="outline" onClick={applyParseFromEmailBody}>
+                    <Button variant="outline" onClick={requestParseFromEmailBody}>
                       Parse từ nội dung email
                     </Button>
                     <Button onClick={() => savePoSummaryMutation.mutate()} disabled={savePoSummaryMutation.isPending}>Lưu tóm tắt PO</Button>
-                    <Button variant="outline" onClick={() => postRevenueMutation.mutate(selectedPo.id)} disabled={postRevenueMutation.isPending}>
+                    <Button variant="outline" onClick={handlePostRevenue} disabled={postRevenueMutation.isPending || isPoDraftDirty}>
                       {postRevenueMutation.isPending ? "Đang đẩy..." : "Đẩy sang kiểm soát doanh thu"}
                     </Button>
                   </div>
+                  {isPoDraftDirty && (
+                    <div className="text-sm rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-700 dark:text-amber-300">
+                      Bạn đang có thay đổi chưa lưu. Hãy lưu tóm tắt PO trước khi parse lại hoặc đẩy sang kiểm soát doanh thu.
+                    </div>
+                  )}
                   {savePoStatus && (
                     <div className="text-sm rounded-md border px-3 py-2 bg-muted/40">
                       {savePoStatus}
