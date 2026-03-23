@@ -1079,12 +1079,25 @@ export default function MiniCrm() {
           templateExtractedContext: templateAiContext || null,
         },
       });
-      if (error) throw error;
+      if (error) {
+        const context = (error as any)?.context;
+        if (context?.json) {
+          try {
+            const payload = await context.json();
+            const detail = [payload?.error, payload?.message, payload?.code, payload?.details].filter(Boolean).join(" | ");
+            throw new Error(detail || error.message || "Edge Function returned a non-2xx status code");
+          } catch {
+            // ignore json parse error and fall through to generic handling
+          }
+        }
+        if ((error as any)?.message) throw new Error((error as any).message);
+        throw error;
+      }
       if (!data?.suggestion) throw new Error("AI không trả về rule hợp lệ");
       return data.suggestion as KbAiParseSuggestion;
     },
     onMutate: () => {
-      setKbAiStatus("AI đang phân tích mô tả + mẫu email để đề xuất rule...");
+      setKbAiStatus("AI đang phân tích mô tả business + template để đề xuất rule...");
     },
     onSuccess: (suggestion) => {
       setKbAiSuggestion(suggestion);
@@ -1092,8 +1105,9 @@ export default function MiniCrm() {
       toast({ title: "AI đã đề xuất rule KB", description: suggestion?.human_summary || "" });
     },
     onError: (e: any) => {
-      setKbAiStatus(`AI tính toán thất bại: ${e?.message || "Không rõ lỗi"}`);
-      toast({ title: "AI tính toán thất bại", description: e?.message || "Không thể tạo rule KB", variant: "destructive" });
+      const message = e?.message || "Không thể tạo rule KB";
+      setKbAiStatus(`AI tính toán thất bại: ${message}`);
+      toast({ title: "AI tính toán thất bại", description: message, variant: "destructive" });
     },
   });
 
