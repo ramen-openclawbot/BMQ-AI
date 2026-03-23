@@ -248,6 +248,28 @@ const buildManualSummaryMessage = (po: any) => {
   return `Đang dùng dữ liệu đã chỉnh tay${editedAt ? ` • lưu lúc ${new Date(editedAt).toLocaleString("vi-VN")}` : ""}`;
 };
 
+const ALLOWED_PO_LINE_SOURCES = new Set(["parsed", "manually_added", "manually_edited"]);
+
+const sanitizePoLineSource = (value?: string | null) => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "parsed";
+  if (ALLOWED_PO_LINE_SOURCES.has(raw)) return raw;
+  if (raw.includes("manual") && raw.includes("add")) return "manually_added";
+  if (raw.includes("manual") || raw.includes("edit")) return "manually_edited";
+  return "parsed";
+};
+
+const calcDraftItemLineTotal = (item: any) => {
+  const explicit = Number(item?.line_total || 0) || 0;
+  if (explicit > 0) return explicit;
+  const qty = Number(item?.qty || 0) || 0;
+  const unitPrice = Number(item?.unit_price || 0) || 0;
+  return qty * unitPrice;
+};
+
+const calcDraftItemsAmount = (items: any[]) =>
+  normalizePoDraftItems(items || []).reduce((sum: number, item: any) => sum + calcDraftItemLineTotal(item), 0);
+
 const parseDraftItemsForSave = (items: any[]) =>
   normalizePoDraftItems(items || [])
     .map((item: any) => ({
@@ -256,10 +278,10 @@ const parseDraftItemsForSave = (items: any[]) =>
       unit: String(item?.unit || "").trim() || "cái",
       qty: Number(item?.qty || 0) || 0,
       unit_price: Number(item?.unit_price || 0) || 0,
-      line_total: Number(item?.line_total || 0) || 0,
+      line_total: calcDraftItemLineTotal(item),
       specification: String(item?.specification || "").trim(),
       note: String(item?.note || "").trim(),
-      line_source: String(item?.source || "parsed"),
+      line_source: sanitizePoLineSource(item?.source),
     }))
     .filter((item: any) => item.product_name || item.sku || item.qty || item.unit_price || item.line_total || item.note);
 
@@ -1884,6 +1906,12 @@ export default function MiniCrm() {
   const poDraftSignature = useMemo(() => buildPoDraftSignature(poSummaryDraft), [poSummaryDraft]);
   const isPoDraftDirty = useMemo(() => Boolean(selectedPoId) && poDraftSignature !== poDraftBaseSignature, [selectedPoId, poDraftSignature, poDraftBaseSignature]);
 
+  const poDraftLineItemsAmount = useMemo(() => calcDraftItemsAmount(poSummaryDraft?.production_items || []), [poSummaryDraft?.production_items]);
+  const poDraftSubtotalAmount = useMemo(() => Number(poSummaryDraft?.subtotal_amount || 0) || 0, [poSummaryDraft?.subtotal_amount]);
+  const poDraftVatAmount = useMemo(() => Number(poSummaryDraft?.vat_amount || 0) || 0, [poSummaryDraft?.vat_amount]);
+  const poDraftDerivedTotalAmount = useMemo(() => calcSafeTotal(poDraftSubtotalAmount, poDraftVatAmount, poSummaryDraft?.total_amount), [poDraftSubtotalAmount, poDraftVatAmount, poSummaryDraft?.total_amount]);
+  const poDraftSubtotalMismatch = useMemo(() => Math.abs(poDraftLineItemsAmount - poDraftSubtotalAmount) >= 1, [poDraftLineItemsAmount, poDraftSubtotalAmount]);
+
   const resetPoDraftFromRow = (po: any, fallbackCustomerId?: string | null) => {
     if (!po) return;
     const nextDraft = createDraftFromPoRow(po, fallbackCustomerId);
@@ -2023,6 +2051,8 @@ export default function MiniCrm() {
       const normalizedItems = parseDraftItemsForSave(poSummaryDraft.production_items || []);
 
       if (normalizedItems.length === 0) throw new Error("Cần ít nhất 1 dòng sản phẩm hoặc dịch vụ trước khi lưu");
+      const hasMissingIdentity = normalizedItems.some((item: any) => !String(item.product_name || "").trim() && !String(item.sku || "").trim());
+      if (hasMissingIdentity) throw new Error("Mỗi dòng cần có tên sản phẩm hoặc SKU");
       const hasInvalidQty = normalizedItems.some((item: any) => Number(item.qty || 0) <= 0);
       if (hasInvalidQty) throw new Error("Mỗi dòng cần có số lượng lớn hơn 0");
 
@@ -2036,12 +2066,19 @@ export default function MiniCrm() {
       const safeTotal = calcSafeTotal(poSummaryDraft.subtotal_amount, poSummaryDraft.vat_amount, poSummaryDraft.total_amount);
       const poNumber = poSummaryDraft.po_number || extractPoNumberFromSubject(latestRow?.email_subject || selectedPo?.email_subject) || null;
       const customerId = String(poSummaryDraft.customer_id || latestRow?.customer_id || selectedPoResolvedCustomerId || "").trim() || null;
+      const latestItems = normalizePoDraftItems(getPoDraftItemsFromRow(latestRow));
+      const latestItemKeys = new Set(latestItems.map((item: any) => `${String(item?.sku || "").trim()}|${String(item?.product_name || "").trim()}|${Number(item?.qty || 0) || 0}|${Number(calcDraftItemLineTotal(item) || 0) || 0}`));
+      const nextItemKeys = new Set(normalizedItems.map((item: any) => `${String(item?.sku || "").trim()}|${String(item?.product_name || "").trim()}|${Number(item?.qty || 0) || 0}|${Number(item?.line_total || 0) || 0}`));
       const manualSummary = {
         ...(latestRow?.raw_payload?.manual_summary || {}),
         edited: true,
         edited_at: new Date().toISOString(),
         notes: String(poSummaryDraft.notes || "").trim(),
         item_count: normalizedItems.length,
+        has_manual_additions: normalizedItems.some((item: any) => item.line_source === "manually_added"),
+        has_manual_edits: normalizedItems.some((item: any) => item.line_source === "manually_edited"),
+        has_deleted_items: latestItems.length > normalizedItems.length || Array.from(latestItemKeys).some((key: any) => !nextItemKeys.has(key)),
+        subtotal_mismatch_warning: Math.abs((Number(poSummaryDraft.subtotal_amount || 0) || 0) - calcDraftItemsAmount(normalizedItems)) >= 1,
       };
       const payload = {
         customer_id: customerId,
@@ -3183,12 +3220,20 @@ export default function MiniCrm() {
                           <Label>Tổng tiền đơn hàng</Label>
                           <Input
                             type="number"
-                            value={calcSafeTotal(poSummaryDraft.subtotal_amount, poSummaryDraft.vat_amount, poSummaryDraft.total_amount) || ""}
+                            value={poDraftDerivedTotalAmount || ""}
                             readOnly
                           />
-                          <div className="text-xs text-muted-foreground mt-1">{formatVnd(calcSafeTotal(poSummaryDraft.subtotal_amount, poSummaryDraft.vat_amount, poSummaryDraft.total_amount))}</div>
+                          <div className="text-xs text-muted-foreground mt-1">{formatVnd(poDraftDerivedTotalAmount)}</div>
                         </div>
                       </div>
+                      <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                        Tổng dòng sản phẩm: <b>{formatVnd(poDraftLineItemsAmount)}</b> • Tạm tính hiện nhập: <b>{formatVnd(poDraftSubtotalAmount)}</b> • VAT: <b>{formatVnd(poDraftVatAmount)}</b>
+                      </div>
+                      {poDraftSubtotalMismatch && (
+                        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+                          Cảnh báo: tổng thành tiền của line items ({formatVnd(poDraftLineItemsAmount)}) đang lệch so với tạm tính ({formatVnd(poDraftSubtotalAmount)}). Hệ thống vẫn cho phép lưu, nhưng anh/chị nên kiểm tra lại trước khi chốt.
+                        </div>
+                      )}
                     </TabsContent>
 
                     <TabsContent value="production" className="space-y-3 pt-3">
@@ -3328,8 +3373,8 @@ export default function MiniCrm() {
                                   />
                                 </TableCell>
                                 <TableCell>
-                                  <Badge variant={String(item?.source || '').includes('manual') ? 'default' : 'secondary'}>
-                                    {String(item?.source || '').includes('manual') ? 'manual' : 'parsed'}
+                                  <Badge variant={sanitizePoLineSource(item?.source) === 'parsed' ? 'secondary' : 'default'}>
+                                    {sanitizePoLineSource(item?.source) === 'parsed' ? 'parsed' : sanitizePoLineSource(item?.source)}
                                   </Badge>
                                 </TableCell>
                                 <TableCell className="text-right">
