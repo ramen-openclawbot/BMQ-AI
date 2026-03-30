@@ -31,9 +31,15 @@ interface Translations {
   sectionExecution: string;
   sectionFinance: string;
   sectionOperations: string;
+  sectionProduction: string;
   createPOFromDrive: string;
   userManagement: string;
   systemManagement: string;
+  productionPlanning: string;
+  productionShifts: string;
+  qaInspection: string;
+  warehouseDispatch: string;
+  stockReport: string;
   team: string;
   settings: string;
   
@@ -187,9 +193,15 @@ const translations: Record<Language, Translations> = {
     sectionExecution: "Executive",
     sectionFinance: "Finance",
     sectionOperations: "Operations",
+    sectionProduction: "Production",
     createPOFromDrive: "Create PO from Google Drive",
     userManagement: "User Management",
     systemManagement: "System Management",
+    productionPlanning: "Production Planning",
+    productionShifts: "Production Shifts",
+    qaInspection: "QA Inspection",
+    warehouseDispatch: "Dispatch",
+    stockReport: "Stock Report",
     team: "Team",
     settings: "Settings",
     
@@ -341,8 +353,14 @@ const translations: Record<Language, Translations> = {
     sectionExecution: "Điều hành",
     sectionFinance: "Tài chính",
     sectionOperations: "Vận hành",
+    sectionProduction: "Sản xuất",
     createPOFromDrive: "Tạo PO từ Google Drive",
     userManagement: "Quản lý người dùng",
+    productionPlanning: "Kế hoạch SX",
+    productionShifts: "Ca sản xuất",
+    qaInspection: "QA & Nhập kho TP",
+    warehouseDispatch: "Xuất kho",
+    stockReport: "Báo cáo tồn kho",
     systemManagement: "Quản lý hệ thống",
     team: "Đội ngũ",
     settings: "Cài đặt",

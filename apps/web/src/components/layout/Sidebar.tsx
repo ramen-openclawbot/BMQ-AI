@@ -24,6 +24,11 @@ import {
   ChevronRight,
   Shield,
   ServerCog,
+  Factory,
+  CalendarClock,
+  ClipboardCheck,
+  Truck,
+  BarChart4,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -38,7 +43,7 @@ interface NavItem {
   icon: LucideIcon;
   labelKey: keyof ReturnType<typeof useLanguage>["t"];
   path: string;
-  section: "operations" | "finance" | "execution";
+  section: "operations" | "finance" | "execution" | "production";
   showBadge?: boolean;
   showPOBadge?: boolean;
   /** Module key for permission filtering. If undefined, item is always visible. */
@@ -60,8 +65,14 @@ const navItems: NavItem[] = [
   { icon: Inbox, labelKey: "poSales", path: "/sales-po-inbox", section: "finance", moduleKey: "sales_po_inbox" },
   { icon: ShoppingCart, labelKey: "poPurchasing", path: "/purchase-orders", section: "finance", showPOBadge: true, moduleKey: "purchase_orders" },
 
+  { icon: Factory, labelKey: "productionPlanning", path: "/production/planning", section: "production", moduleKey: "production" },
+  { icon: CalendarClock, labelKey: "productionShifts", path: "/production/shifts", section: "production", moduleKey: "production" },
+  { icon: ClipboardCheck, labelKey: "qaInspection", path: "/production/qa", section: "production", moduleKey: "production" },
+
   { icon: Package, labelKey: "inventory", path: "/inventory", section: "operations", moduleKey: "inventory" },
   { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts", section: "operations", moduleKey: "goods_receipts" },
+  { icon: Truck, labelKey: "warehouseDispatch", path: "/warehouse/dispatch", section: "operations", moduleKey: "inventory" },
+  { icon: BarChart4, labelKey: "stockReport", path: "/warehouse/stock-report", section: "operations", moduleKey: "inventory" },
   { icon: Barcode, labelKey: "skuCosts", path: "/sku-costs", section: "operations", moduleKey: "sku_costs" },
   { icon: Users, labelKey: "suppliers", path: "/suppliers", section: "operations", moduleKey: "suppliers" },
   { icon: FileText, labelKey: "invoices", path: "/invoices", section: "operations", moduleKey: "invoices" },
@@ -75,6 +86,7 @@ export function Sidebar() {
   const sectionLabels: Record<NavItem["section"], string> = {
     execution: t.sectionExecution,
     finance: t.sectionFinance,
+    production: t.sectionProduction,
     operations: t.sectionOperations,
   };
   const queryClient = useQueryClient();

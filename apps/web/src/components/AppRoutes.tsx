@@ -37,6 +37,11 @@ const SkuCostsAnalysis = lazy(() => import("@/pages/SkuCostsAnalysis"));
 const SkuCostsDjango = lazy(() => import("@/pages/SkuCostsDjango"));
 const Reports = lazy(() => import("@/pages/Reports"));
 const NiraanDashboard = lazy(() => import("@/pages/NiraanDashboard"));
+const ProductionPlanning = lazy(() => import("@/pages/ProductionPlanning"));
+const ProductionShifts = lazy(() => import("@/pages/ProductionShifts"));
+const QAInspection = lazy(() => import("@/pages/QAInspection"));
+const WarehouseDispatch = lazy(() => import("@/pages/WarehouseDispatch"));
+const StockReport = lazy(() => import("@/pages/StockReport"));
 
 function AppLoadingFallback() {
   return (
@@ -145,6 +150,13 @@ export function AppRoutes() {
         <Route path="/finance-control/revenue" element={<Suspense fallback={<AppLoadingFallback />}><FinanceRevenueControl /></Suspense>} />
         <Route path="/mini-crm" element={<Suspense fallback={<AppLoadingFallback />}><MiniCrm /></Suspense>} />
         <Route path="/sales-po-inbox" element={<Suspense fallback={<AppLoadingFallback />}><MiniCrm /></Suspense>} />
+        {/* Production routes */}
+        <Route path="/production/planning" element={<Suspense fallback={<AppLoadingFallback />}><ProductionPlanning /></Suspense>} />
+        <Route path="/production/shifts" element={<Suspense fallback={<AppLoadingFallback />}><ProductionShifts /></Suspense>} />
+        <Route path="/production/qa" element={<Suspense fallback={<AppLoadingFallback />}><QAInspection /></Suspense>} />
+        {/* Warehouse extension routes */}
+        <Route path="/warehouse/dispatch" element={<Suspense fallback={<AppLoadingFallback />}><WarehouseDispatch /></Suspense>} />
+        <Route path="/warehouse/stock-report" element={<Suspense fallback={<AppLoadingFallback />}><StockReport /></Suspense>} />
         <Route path="/settings" element={<Settings />} />
         {/* Owner-only routes */}
         <Route path="/user-management" element={<OwnerRoute><UserManagement /></OwnerRoute>} />

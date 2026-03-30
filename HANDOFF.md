@@ -1,16 +1,122 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.28**
+- apps/web: **0.0.31**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
 - Latest commit at handoff time: `git log -1 --oneline`
 
-## Latest update (2026-03-24 — v0.0.28)
-### Bug Fix — KB AI 401 Invalid JWT: stale cached token
-- **Root cause**: `supabase.auth.getSession()` trả về cached token từ memory — KHÔNG verify hay refresh nếu đã expire. Khi user mở tab lâu, access token hết hạn trong cache nhưng check `if (!session?.access_token)` chỉ kiểm tra token CÓ TỒN TẠI, không kiểm tra còn hiệu lực → `functions.invoke()` gửi expired JWT → config.toml `verify_jwt = true` reject trước khi function code chạy → 401 "Invalid JWT".
-- **Fix `MiniCrm.tsx`**: Thay `getSession()` bằng `refreshSession()` trong `kbAiSuggestMutation` — đảm bảo access token luôn fresh trước khi gọi edge function. Nếu refresh thất bại (refresh token cũng hết hạn) → hiển thị message yêu cầu đăng nhập lại.
-- **Fix `MiniCrm.tsx`**: Thêm `refreshSession()` trước `scan-purchase-order` invoke — cùng pattern, tránh 401 tương tự.
+## Latest update (2026-03-30 — v0.0.31)
+### Feature — Module Sản Xuất (Production Management Pipeline)
+
+**Tổng quan:** Pipeline 6 bước từ PO bán hàng → Sản xuất → QA → Xuất kho → Báo cáo tồn kho.
+Kết hợp AI agent gợi ý + người dùng duyệt/xác nhận trên UI.
+
+**Database migration** (`20260330120000_production_module.sql`):
+- 6 enums mới: `production_order_status`, `production_shift_type`, `production_shift_status`, `qa_inspection_status`, `warehouse_dispatch_status`, `inventory_movement_type`
+- 9 tables mới:
+  1. `production_orders` — Lệnh sản xuất (link từ customer_po_inbox)
+  2. `production_order_items` — Chi tiết lệnh SX (finished goods)
+  3. `production_shifts` — Ca sản xuất
+  4. `production_shift_items` — Items phân bổ vào ca
+  5. `qa_inspections` — Phiếu kiểm tra QA
+  6. `qa_inspection_items` — Chi tiết QA từng SKU
+  7. `warehouse_dispatches` — Phiếu xuất kho
+  8. `warehouse_dispatch_items` — Chi tiết xuất kho
+  9. `inventory_movements` — Sổ kho thống nhất (unified stock ledger)
+- RLS: authenticated full access cho tất cả tables mới
+- Helper function: `generate_production_number(prefix, date)` cho SX/CA/QA/XK auto-numbering
+
+**Sidebar (Sidebar.tsx):**
+- Thêm section "Sản Xuất" với 3 items: Kế hoạch SX, Ca sản xuất, QA & Nhập kho TP
+- Thêm 2 items vào section "Vận hành": Xuất kho, Báo cáo tồn kho
+- Module key: `production` (cho sidebar permission filtering)
+
+**5 pages mới:**
+1. **ProductionPlanning.tsx** (`/production/planning`)
+   - Hiển thị PO bán hàng (customer_po_inbox approved) chưa lên lệnh SX
+   - Tạo lệnh sản xuất từ PO → production_orders + production_order_items
+   - Stats cards: PO chờ SX, Đang thực hiện, Hoàn thành hôm nay
+2. **ProductionShifts.tsx** (`/production/shifts`)
+   - Board view 7 ngày (tuần), mỗi cột 1 ngày hiển thị shift cards
+   - Tạo ca, phân bổ items từ lệnh SX, gán người
+   - Transition: scheduled → in_progress → completed (cập nhật actual_qty)
+3. **QAInspection.tsx** (`/production/qa`)
+   - Tạo phiếu QA, kiểm tra qty approved/rejected
+   - **Business logic quan trọng**: Duyệt QA → nhập kho thành phẩm:
+     - Upsert inventory_items cho finished goods
+     - Insert inventory_movements type='production_output'
+   - TODO: Raw material consumption via BOM (sku_formulations) chưa implement
+4. **WarehouseDispatch.tsx** (`/warehouse/dispatch`)
+   - Tạo phiếu xuất kho giao khách
+   - Status flow: pending → picked → dispatched → delivered
+   - Xuất kho (dispatched) → deduct inventory_items + insert inventory_movements type='dispatch_out'
+5. **StockReport.tsx** (`/warehouse/stock-report`)
+   - Báo cáo tồn kho theo kỳ (date range)
+   - 3 sections: Tồn kho hiện tại, Lịch sử nhập xuất, Đối soát tồn kho
+   - Filter theo SKU type (NVL/TP) và search theo tên
+
+**LanguageContext** — thêm translations cho: sectionProduction, productionPlanning, productionShifts, qaInspection, warehouseDispatch, stockReport
+
+**Routing (AppRoutes.tsx)** — 5 lazy-loaded routes mới
+
+**Kho hàng:** Cùng 1 kho, phân biệt NVL vs TP bằng `product_skus.sku_type`
+
+**TODO cho phases tiếp theo:**
+- AI agent tự động suggest production plan từ PO (Edge Function)
+- Raw material consumption tự động từ BOM (sku_formulations) khi QA duyệt
+- AI agent QA phân tích ảnh thành phẩm
+- Realtime notification khi có PO mới / QA cần duyệt
+- Module permission `production` cần add cho users qua User Management
+
+**Deploy:**
+1. `supabase db push` hoặc chạy migration `20260330120000_production_module.sql`
+2. Deploy frontend (Vercel hoặc build + upload)
+3. Add `production` module permission cho users cần truy cập
+
+## Previous update (2026-03-24 — v0.0.30)
+### Bug Fix — "Duyệt & áp dụng KB" không thông báo sau AI Tính Toán
+
+**Root cause:**
+- `approveKbLatestRequestMutation` chỉ hoạt động khi có pending change request trong DB (tạo bởi "Gửi duyệt KB")
+- Khi user chạy "AI Tính Toán" xong rồi click "Duyệt & áp dụng KB" trực tiếp (bỏ qua "Gửi duyệt KB"), không có pending record → mutation throw silent error → không có toast nào hiện ra
+- UI không giải thích tại sao không có phản hồi → confusing UX
+
+**Fix (`MiniCrm.tsx` — `approveKbLatestRequestMutation`):**
+- Nếu **có** pending request: dùng data từ pending request (behavior cũ, giữ nguyên)
+- Nếu **không có** pending request: dùng current form state trực tiếp (profile name, po_mode, calc_notes, business_description, `kbAiSuggestion`, operational_notes) — áp dụng ngay không qua bước "Gửi duyệt"
+- Version snapshot vẫn được insert trong cả 2 trường hợp
+- `change_note` dùng: `pending.change_note` → `kbChangeNote` → fallback `"Direct KB apply"`
+
+**Kết quả:** User có thể chạy AI Tính Toán → click "Duyệt & áp dụng KB" → thấy toast "Đã duyệt & áp dụng KB" ngay, không cần bước "Gửi duyệt KB" trung gian.
+
+## Previous update (2026-03-24 — v0.0.29)
+### Bug Fix — KB AI "AI Tính Toán" 401: ES256 vs HS256 JWT algorithm mismatch
+
+**Root cause xác nhận bằng browser diagnostic (đọc JWT từ localStorage trực tiếp):**
+- User JWT dùng **`alg: ES256`** (asymmetric, có `kid: "97b091d5-..."`) — Supabase project đã upgrade lên asymmetric JWT signing
+- Anon key vẫn dùng **`alg: HS256`** (symmetric, format cũ)
+- Edge function `kb-suggest-po-rules` được deploy từ trước khi project upgrade → gateway cũ chỉ biết verify HS256 → gặp ES256 user token → reject `"Invalid JWT" 401`
+- Anon key (HS256) pass được proxy → đó là lý do test với anon key trả về lỗi khác (`"Invalid or expired token"` từ `requireAuth()`) trong khi user token bị proxy reject trước
+
+**Fix:**
+- **`supabase/config.toml`**: `kb-suggest-po-rules` → `verify_jwt = false`. Proxy không còn validate JWT nữa; auth được xử lý hoàn toàn bởi `requireAuth()` bên trong function, gọi `supabaseAdmin.auth.getUser(token)` — Supabase auth server tự biết verify ES256.
+- **`kb-suggest-po-rules/index.ts`**: Xoá debug logs, cập nhật comment giải thích lý do `verify_jwt = false`.
+- **Deploy**: `supabase functions deploy kb-suggest-po-rules --project-ref cxntbdvfsikwmitapony`
+
+**Lưu ý quan trọng cho các functions khác:**
+- Tất cả functions có `verify_jwt = true` đều có thể gặp lỗi tương tự nếu user dùng với ES256 token
+- Khi nào cần fix: chỉ fix khi có báo cáo 401 từ function đó
+- Cách fix: đặt `verify_jwt = false` + đảm bảo function có `requireAuth()` trong code
+
+**Các thay đổi v0.0.28 giữ nguyên** (defensive coding, không harmful):
+- `getFreshAccessToken()` helper trong `supabase-helpers.ts` — vẫn hữu ích đảm bảo token fresh
+- Các call site dùng `getFreshAccessToken()` thay `getSession()` — best practice
+
+## Previous update (2026-03-24 — v0.0.28)
+### [SUPERSEDED] Hypothesis: stale cached token — root cause thực tế là ES256 mismatch (xem v0.0.29)
+- `getFreshAccessToken()` helper trong `supabase-helpers.ts`
+- Fix `MiniCrm.tsx`, `useUserManagement.ts`, `CreateInvoiceFromRequestDialog.tsx`, `DataMigrationSettings.tsx` — thay `getSession()` bằng `getFreshAccessToken()` trước các `functions.invoke()` calls
 
 ## Previous update (2026-03-24 — v0.0.27)
 ### Bug Fix — KB AI "AI Tính Toán" error handling + auth consistency

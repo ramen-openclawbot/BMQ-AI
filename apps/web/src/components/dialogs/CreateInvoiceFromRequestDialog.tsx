@@ -27,6 +27,7 @@ import {
   getPaymentRequestImageUrl,
 } from "@/hooks/usePaymentRequests";
 import { supabase } from "@/integrations/supabase/client";
+import { getFreshAccessToken } from "@/lib/supabase-helpers";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
@@ -110,9 +111,12 @@ export function CreateInvoiceFromRequestDialog({
 
     setIsSubmitting(true);
     try {
-      // Get auth token
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
+      // Get fresh auth token (refreshSession ensures token is not stale)
+      let session: { access_token: string } | null = null;
+      try {
+        const accessToken = await getFreshAccessToken();
+        session = { access_token: accessToken };
+      } catch {
         toast.error("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
         return;
       }

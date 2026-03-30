@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { getFreshAccessToken } from "@/lib/supabase-helpers";
 
 type ExportFormat = "schema" | "json" | "sql";
 
@@ -228,9 +229,7 @@ export function DataMigrationSettings() {
     try {
       setBusyFormat("manifest");
 
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+      const accessToken = await getFreshAccessToken();
 
       const bucketIds = bucketFilter
         .split(",")
@@ -282,9 +281,7 @@ export function DataMigrationSettings() {
       setZipProgress(0);
       setZipProgressText("Đang chuẩn bị tải ZIP...");
 
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+      const accessToken = await getFreshAccessToken();
 
       const bucketIds = bucketFilter
         .split(",")

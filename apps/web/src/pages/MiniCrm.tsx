@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { getFreshAccessToken } from "@/lib/supabase-helpers";
 import ExcelJS from "exceljs";
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { SalesPoQuickViewEditor } from "@/components/mini-crm/SalesPoQuickViewEditor";
@@ -1068,12 +1069,8 @@ export default function MiniCrm() {
 
   const kbAiSuggestMutation = useMutation({
     mutationFn: async () => {
-      // refreshSession() ensures a fresh access token — getSession() only
-      // returns the cached token which may already be expired, causing 401.
-      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
-      if (refreshError || !refreshData.session?.access_token) {
-        throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại rồi thử AI Tính Toán.");
-      }
+      // Ensure fresh JWT — getSession() returns stale cached token → 401
+      await getFreshAccessToken();
       const activeTemplateName = poTemplates.find((t: any) => t.customer_id === editingCustomerId && t.is_active)?.file_name || null;
       const { data, error } = await supabase.functions.invoke("kb-suggest-po-rules", {
         body: {
@@ -1330,19 +1327,32 @@ export default function MiniCrm() {
     mutationFn: async () => {
       if (!editingCustomerId) throw new Error("Chưa chọn khách hàng");
       const pending = knowledgeChangeRequests.find((r: any) => r.customer_id === editingCustomerId && r.request_status === "pending");
-      if (!pending) throw new Error("Không có yêu cầu KB pending để duyệt");
 
-      const kbPayload = {
-        customer_id: editingCustomerId,
-        profile_name: pending.profile_name,
-        po_mode: pending.po_mode,
-        calculation_notes: pending.calculation_notes,
-        business_description: pending.business_description || null,
-        ai_parse_config: pending.ai_parse_config || null,
-        template_context: pending.template_context || null,
-        operational_notes: pending.operational_notes,
-        profile_status: "active",
-      };
+      // If no pending request exists, apply current form state directly (e.g. after AI Tính Toán)
+      const kbPayload = pending
+        ? {
+            customer_id: editingCustomerId,
+            profile_name: pending.profile_name,
+            po_mode: pending.po_mode,
+            calculation_notes: pending.calculation_notes,
+            business_description: pending.business_description || null,
+            ai_parse_config: pending.ai_parse_config || null,
+            template_context: pending.template_context || null,
+            operational_notes: pending.operational_notes,
+            profile_status: "active",
+          }
+        : {
+            customer_id: editingCustomerId,
+            profile_name: editKbProfileName.trim() || `${editCustomerName.trim() || "Customer"} Knowledge`,
+            po_mode: editKbPoMode,
+            calculation_notes: editKbCalcNotes.trim() || null,
+            business_description: editKbBusinessDescription.trim() || null,
+            ai_parse_config: kbAiSuggestion || null,
+            template_context: templateAiContext || null,
+            operational_notes: composeOperationalNotes(editKbOperationalNotes.trim(), editKbPoSource, editEmailBodyTemplate, editKbBusinessDescription, kbAiSuggestion),
+            profile_status: "active",
+          };
+
       const { data: kbSaved, error: kbError } = await (supabase as any)
         .from("mini_crm_knowledge_profiles")
         .upsert(kbPayload, { onConflict: "customer_id" })
@@ -1359,22 +1369,25 @@ export default function MiniCrm() {
         po_mode: kbSaved?.po_mode || kbPayload.po_mode,
         profile_status: "active",
         calculation_notes: kbSaved?.calculation_notes || null,
-        business_description: kbSaved?.business_description || pending.business_description || null,
-        ai_parse_config: kbSaved?.ai_parse_config || pending.ai_parse_config || null,
-        template_context: kbSaved?.template_context || pending.template_context || null,
+        business_description: kbSaved?.business_description || kbPayload.business_description || null,
+        ai_parse_config: kbSaved?.ai_parse_config || kbPayload.ai_parse_config || null,
+        template_context: kbSaved?.template_context || kbPayload.template_context || null,
         operational_notes: kbSaved?.operational_notes || null,
         changed_by: "mini-crm-approver",
-        change_note: pending.change_note || "Approved KB request",
+        change_note: pending?.change_note || kbChangeNote.trim() || "Direct KB apply",
         is_active: true,
         effective_from: new Date().toISOString(),
       });
       if (verErr) throw verErr;
 
-      const { error: reqErr } = await (supabase as any)
-        .from("mini_crm_knowledge_change_requests")
-        .update({ request_status: "approved", approved_by: "mini-crm-approver", approved_at: new Date().toISOString(), applied_version_no: versionNo })
-        .eq("id", pending.id);
-      if (reqErr) throw reqErr;
+      // Update pending request status only if one was found
+      if (pending) {
+        const { error: reqErr } = await (supabase as any)
+          .from("mini_crm_knowledge_change_requests")
+          .update({ request_status: "approved", approved_by: "mini-crm-approver", approved_at: new Date().toISOString(), applied_version_no: versionNo })
+          .eq("id", pending.id);
+        if (reqErr) throw reqErr;
+      }
     },
     onSuccess: async () => {
       await Promise.all([
@@ -1438,8 +1451,8 @@ export default function MiniCrm() {
       reader.onerror = () => reject(reader.error || new Error("Không thể đọc file ảnh"));
       reader.readAsDataURL(file);
     });
-    // Ensure fresh token before calling edge function
-    await supabase.auth.refreshSession();
+    // Ensure fresh JWT — getSession() returns stale cached token → 401
+    await getFreshAccessToken();
     const { data, error } = await supabase.functions.invoke("scan-purchase-order", {
       body: { imageBase64: base64, mimeType: file.type || "image/png" },
     });

@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { getFreshAccessToken } from "@/lib/supabase-helpers";
 import { useToast } from "@/hooks/use-toast";
 
 // ---------------------------------------------------------------------------
@@ -244,13 +245,12 @@ export function useInviteUser() {
 
   return useMutation({
     mutationFn: async ({ email, role }: { email: string; role: AppRole }) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Not authenticated");
+      const accessToken = await getFreshAccessToken();
 
       const { data, error } = await supabase.functions.invoke("user-invite-member", {
         body: { email: email.trim().toLowerCase(), role },
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
       });
 
@@ -351,13 +351,12 @@ export function useDeleteUser() {
 
   return useMutation({
     mutationFn: async (userId: string) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Not authenticated");
+      const accessToken = await getFreshAccessToken();
 
       const { data, error } = await supabase.functions.invoke("user-delete-member", {
         body: { userId },
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
         },
       });
 

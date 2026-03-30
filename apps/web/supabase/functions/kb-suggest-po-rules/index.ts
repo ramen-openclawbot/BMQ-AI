@@ -10,9 +10,9 @@ serve(async (req) => {
   const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
 
   try {
-    // Auth — uses shared helper (consistent with all other functions)
-    // config.toml has verify_jwt = true so Supabase proxy validates JWT first,
-    // then requireAuth() validates again and gives us the user for rate limiting.
+    // Auth: verify_jwt=false in config.toml because the Supabase project uses ES256
+    // (asymmetric JWT signing) for user tokens, but the old proxy gateway only supports HS256.
+    // requireAuth() calls supabaseAdmin.auth.getUser(token) which correctly validates ES256.
     const { user } = await requireAuth(req, corsHeaders);
 
     // Rate limit — 50 calls/day per user

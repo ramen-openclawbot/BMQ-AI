@@ -50,7 +50,10 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.kb-suggest-po-rules]
-verify_jwt = true
+# verify_jwt disabled: proxy uses HS256 but project now issues ES256 user tokens
+# (alg: ES256, kid present). Auth is handled inside the function via requireAuth()
+# which calls supabaseAdmin.auth.getUser(token) — this correctly validates ES256.
+verify_jwt = false
 
 [functions.migration-storage-manifest]
 verify_jwt = false
