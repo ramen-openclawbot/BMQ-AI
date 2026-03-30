@@ -293,8 +293,9 @@ export default function SkuCostsManagement() {
     };
   }), [formula, skus, priceMap, inventoryMap]);
 
+  const importedOutputQty = Math.max(1, toNumber(skuForm.finished_output_qty, FORMULA_BASE_QTY));
+
   const importedMaterialSummary = useMemo(() => {
-    const baseQty = FORMULA_BASE_QTY;
     const total = importedFormulaDraft.reduce((sum, r) => {
       const name = String(r.level2_name || r.level1_name || r.ingredient_name || "").trim();
       if (!name) return sum;
@@ -302,8 +303,8 @@ export default function SkuCostsManagement() {
       return sum + lineCost;
     }, 0);
 
-    return { total, perUnit: Math.round(total / baseQty) };
-  }, [importedFormulaDraft]);
+    return { total, perUnit: Math.round(total / importedOutputQty) };
+  }, [importedFormulaDraft, importedOutputQty]);
 
   const level1Options = useMemo(() => {
     const seen = new Set<string>();
@@ -848,7 +849,7 @@ export default function SkuCostsManagement() {
               <div className="md:col-span-1"><Label>Tên món</Label><Input value={skuForm.product_name || ""} onChange={(e) => setSkuForm({ ...skuForm, product_name: e.target.value })} /></div>
               <div><Label>Mã SKU thành phẩm</Label><Input value={skuForm.sku_code || ""} onChange={(e) => setSkuForm({ ...skuForm, sku_code: e.target.value })} /></div>
               <div><Label>Thành phẩm ĐVT</Label><Input value={skuForm.finished_output_unit || "cái"} onChange={(e) => setSkuForm({ ...skuForm, finished_output_unit: e.target.value })} /></div>
-              <div><Label>Thành phẩm SL (mặc định)</Label><Input type="number" value={FORMULA_BASE_QTY} readOnly /></div>
+              <div><Label>Sản lượng thành phẩm / mẻ</Label><Input type="number" min={1} value={skuForm.finished_output_qty ?? FORMULA_BASE_QTY} onChange={(e) => setSkuForm({ ...skuForm, finished_output_qty: Math.max(1, Number(e.target.value || FORMULA_BASE_QTY)) })} /></div>
             </div>
 
             <div className="rounded border">
@@ -873,7 +874,7 @@ export default function SkuCostsManagement() {
                     const aggregatedUnitPrice = aggregatedDosage > 0 ? aggregatedLineCost / aggregatedDosage : (hasChildren ? 0 : toNumber(r.unit_price, 0));
 
                     const lineCost = aggregatedLineCost;
-                    const perUnit = Math.round(lineCost / FORMULA_BASE_QTY);
+                    const perUnit = Math.round(lineCost / importedOutputQty);
 
                     return (
                       <TableRow key={`draft-${idx}`} className={isLevel1Row ? "" : "bg-muted/30"}>
@@ -930,7 +931,7 @@ export default function SkuCostsManagement() {
                 </TableBody>
               </Table>
             </div>
-            <div className="text-sm text-muted-foreground">Ghi chú: NVL được tính bằng Gram. Định lượng mặc định theo mẻ 100 sản phẩm. Chi phí NVL tổng hợp tự động cộng toàn bộ dòng NVL hợp lệ.</div>
+            <div className="text-sm text-muted-foreground">Ghi chú: NVL được tính bằng Gram. Sản lượng thành phẩm / mẻ mặc định là 100 nhưng có thể chỉnh theo từng SKU. Chi phí NVL tổng hợp tự động cộng toàn bộ dòng NVL hợp lệ.</div>
 
             <div className="grid md:grid-cols-3 gap-3 text-sm">
               <div className="p-3 rounded border bg-muted/30">Chi phí NVL tổng hợp: <b>{vnd(importedMaterialSummary.total)}</b></div>
