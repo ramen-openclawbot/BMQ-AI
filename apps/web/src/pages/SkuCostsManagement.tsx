@@ -174,6 +174,95 @@ const normalizeScannedIngredient = (row: any) => {
   };
 };
 
+const LEVEL2_SEPARATOR = " > ";
+
+const splitStoredFormulaName = (name: unknown) => {
+  const raw = String(name || "").trim();
+  const idx = raw.indexOf(LEVEL2_SEPARATOR);
+  if (idx <= 0) return null;
+  const level1 = raw.slice(0, idx).trim();
+  const level2 = raw.slice(idx + LEVEL2_SEPARATOR.length).trim();
+  if (!level1 || !level2) return null;
+  return { level1, level2 };
+};
+
+const isStoredLevel2FormulaRow = (row: any) => !!splitStoredFormulaName(row?.ingredient_name);
+
+const computeDraftLineCost = (row: any) => toNumber(row?.line_cost, toNumber(row?.unit_price, 0) * toNumber(row?.dosage_qty, 0));
+
+const toDraftRow = (row: any, overrides: Record<string, any> = {}) => {
+  const dosageQty = parseDosageGramInput(overrides.dosage_qty ?? row?.dosage_qty, 0);
+  const unitPrice = toNumber(overrides.unit_price ?? row?.unit_price, 0);
+  const lineCost = toNumber(overrides.line_cost, unitPrice * dosageQty);
+  return {
+    is_level2: overrides.is_level2 ?? false,
+    level1_sku_id: overrides.level1_sku_id ?? row?.ingredient_sku_id ?? "",
+    ingredient_sku_id: overrides.ingredient_sku_id ?? row?.ingredient_sku_id ?? "",
+    level1_name: overrides.level1_name ?? row?.ingredient_name ?? "",
+    level2_name: overrides.level2_name ?? "",
+    ingredient_name: overrides.ingredient_name ?? row?.ingredient_name ?? "",
+    unit: overrides.unit ?? row?.unit ?? "g",
+    unit_price: unitPrice,
+    unit_price_input: overrides.unit_price_input ?? (unitPrice === 0 ? "" : String(unitPrice)),
+    dosage_qty: dosageQty,
+    dosage_input: overrides.dosage_input ?? (dosageQty === 0 ? "" : String(dosageQty).replace(".", ",")),
+    line_cost: lineCost,
+  };
+};
+
+const buildDraftFromStoredRows = (rows: any[]) => {
+  const groups = new Map<string, { order: number; parent: any | null; children: any[] }>();
+
+  rows.forEach((row: any, idx: number) => {
+    const parsed = splitStoredFormulaName(row?.ingredient_name);
+    const level1 = parsed?.level1 || String(row?.ingredient_name || "").trim();
+    if (!level1) return;
+    const group = groups.get(level1) || { order: toNumber(row?.sort_order, idx + 1), parent: null, children: [] };
+    group.order = Math.min(group.order, toNumber(row?.sort_order, idx + 1));
+    if (parsed) {
+      group.children.push({ ...row, level2_name: parsed.level2 });
+    } else {
+      group.parent = row;
+    }
+    groups.set(level1, group);
+  });
+
+  return Array.from(groups.entries())
+    .sort((a, b) => a[1].order - b[1].order)
+    .flatMap(([level1, group]) => {
+      const childRows = [...group.children].sort((a, b) => toNumber(a?.sort_order, 0) - toNumber(b?.sort_order, 0));
+      const childBatchQty = childRows.reduce((sum, row) => sum + parseDosageGramInput(row?.dosage_qty, 0), 0);
+      const childBatchCost = childRows.reduce((sum, row) => sum + toNumber(row?.unit_price, 0) * parseDosageGramInput(row?.dosage_qty, 0), 0);
+      const parentUnitPrice = childBatchQty > 0 ? childBatchCost / childBatchQty : toNumber(group.parent?.unit_price, 0);
+      const parentDosage = group.parent ? parseDosageGramInput(group.parent?.dosage_qty, 0) : childBatchQty;
+
+      const parentRow = toDraftRow(group.parent || {}, {
+        is_level2: false,
+        level1_sku_id: group.parent?.ingredient_sku_id || "",
+        ingredient_sku_id: group.parent?.ingredient_sku_id || "",
+        level1_name: level1,
+        ingredient_name: level1,
+        unit: group.parent?.unit || "g",
+        unit_price: parentUnitPrice,
+        dosage_qty: parentDosage,
+        line_cost: parentUnitPrice * parentDosage,
+      });
+
+      const draftChildren = childRows.map((row) => toDraftRow(row, {
+        is_level2: true,
+        ingredient_sku_id: row?.ingredient_sku_id || "",
+        level1_name: level1,
+        level2_name: row?.level2_name || "",
+        ingredient_name: `${level1}${row?.level2_name ? `${LEVEL2_SEPARATOR}${row.level2_name}` : ""}`,
+        unit: row?.unit || "g",
+        unit_price: toNumber(row?.unit_price, 0),
+        dosage_qty: parseDosageGramInput(row?.dosage_qty, 0),
+      }));
+
+      return [parentRow, ...draftChildren];
+    });
+};
+
 export default function SkuCostsManagement() {
   const { toast } = useToast();
   const [skus, setSkus] = useState<SKU[]>([]);
@@ -266,45 +355,77 @@ export default function SkuCostsManagement() {
     return map;
   }, [skus, purchasePoints, priceMode]);
 
-  const formulaComputed = useMemo(() => formula.map((r) => {
-    const selectedSku = skus.find((s) => s.id === r.ingredient_sku_id);
-    const market = r.ingredient_sku_id ? priceMap.get(r.ingredient_sku_id) : null;
-    const standardUnitPrice = toNumber(r.unit_price, 0);
-    const actualUnitPrice = market?.price || standardUnitPrice;
-    const dosage = toNumber(r.dosage_qty, 0);
+  const formulaComputed = useMemo(() => formula
+    .filter((r) => !isStoredLevel2FormulaRow(r))
+    .map((r) => {
+      const selectedSku = skus.find((s) => s.id === r.ingredient_sku_id);
+      const market = r.ingredient_sku_id ? priceMap.get(r.ingredient_sku_id) : null;
+      const standardUnitPrice = toNumber(r.unit_price, 0);
+      const actualUnitPrice = market?.price || standardUnitPrice;
+      const dosage = toNumber(r.dosage_qty, 0);
 
-    const priceUnit = selectedSku?.unit || r.unit || "";
-    const dosageInPriceUnit = convertAmountByUnit(dosage, r.unit || "", priceUnit);
-    const standardLineCost = standardUnitPrice * dosageInPriceUnit;
-    const actualLineCost = actualUnitPrice * dosageInPriceUnit;
+      const priceUnit = selectedSku?.unit || r.unit || "";
+      const dosageInPriceUnit = convertAmountByUnit(dosage, r.unit || "", priceUnit);
+      const standardLineCost = standardUnitPrice * dosageInPriceUnit;
+      const actualLineCost = actualUnitPrice * dosageInPriceUnit;
 
-    return {
-      ...r,
-      displayUnit: priceUnit,
-      displayName: selectedSku?.product_name || r.ingredient_name || "",
-      displayCode: selectedSku?.sku_code || "",
-      currentStock: r.ingredient_sku_id ? toNumber(inventoryMap.get(r.ingredient_sku_id), 0) : 0,
-      standardUnitPrice,
-      resolvedUnitPrice: actualUnitPrice,
-      standardLineCost,
-      lineCost: actualLineCost,
-      varianceLineCost: actualLineCost - standardLineCost,
-      source: market?.source,
-    };
-  }), [formula, skus, priceMap, inventoryMap]);
+      return {
+        ...r,
+        displayUnit: priceUnit,
+        displayName: selectedSku?.product_name || r.ingredient_name || "",
+        displayCode: selectedSku?.sku_code || "",
+        currentStock: r.ingredient_sku_id ? toNumber(inventoryMap.get(r.ingredient_sku_id), 0) : 0,
+        standardUnitPrice,
+        resolvedUnitPrice: actualUnitPrice,
+        standardLineCost,
+        lineCost: actualLineCost,
+        varianceLineCost: actualLineCost - standardLineCost,
+        source: market?.source,
+      };
+    }), [formula, skus, priceMap, inventoryMap]);
 
   const importedOutputQty = Math.max(1, toNumber(skuForm.finished_output_qty, FORMULA_BASE_QTY));
 
+  const importedDraftComputed = useMemo(() => importedFormulaDraft.map((r, idx) => {
+    const level1 = String(r.level1_name || "").trim();
+    const isLevel1Row = !r.is_level2;
+    const childRows = importedFormulaDraft.filter((x, j) => j !== idx && x.is_level2 && String(x.level1_name || "").trim() === level1);
+    const hasChildren = isLevel1Row && level1 && childRows.length > 0;
+
+    const childBatchQty = childRows.reduce((sum, child) => sum + toNumber(child.dosage_qty, 0), 0);
+    const childBatchCost = childRows.reduce((sum, child) => sum + computeDraftLineCost(child), 0);
+    const parentDosage = toNumber(r.dosage_qty, 0);
+    const derivedUnitPrice = childBatchQty > 0 ? childBatchCost / childBatchQty : 0;
+    const displayUnitPrice = hasChildren ? derivedUnitPrice : toNumber(r.unit_price, 0);
+    const displayDosage = parentDosage;
+    const lineCost = hasChildren ? displayUnitPrice * displayDosage : computeDraftLineCost(r);
+    const perUnit = Math.round(lineCost / importedOutputQty);
+
+    return {
+      ...r,
+      level1,
+      isLevel1Row,
+      childRows,
+      hasChildren,
+      childBatchQty,
+      childBatchCost,
+      displayUnitPrice,
+      displayDosage,
+      lineCost,
+      perUnit,
+    };
+  }), [importedFormulaDraft, importedOutputQty]);
+
   const importedMaterialSummary = useMemo(() => {
-    const total = importedFormulaDraft.reduce((sum, r) => {
-      const name = String(r.level2_name || r.level1_name || r.ingredient_name || "").trim();
+    const total = importedDraftComputed.reduce((sum, row) => {
+      if (!row.isLevel1Row) return sum;
+      const name = String(row.level1_name || row.ingredient_name || "").trim();
       if (!name) return sum;
-      const lineCost = toNumber(r.line_cost, toNumber(r.unit_price, 0) * toNumber(r.dosage_qty, 0));
-      return sum + lineCost;
+      return sum + row.lineCost;
     }, 0);
 
     return { total, perUnit: Math.round(total / importedOutputQty) };
-  }, [importedFormulaDraft, importedOutputQty]);
+  }, [importedDraftComputed, importedOutputQty]);
 
   const level1Options = useMemo(() => {
     const seen = new Set<string>();
@@ -393,56 +514,78 @@ export default function SkuCostsManagement() {
   const openSkuDetail = (sku: SKU) => { setActiveSkuId(sku.id); setDetailOpen(true); };
 
   const buildFormulaRowsFromDraft = (skuId: string) => {
-    const rowsToSave = importedFormulaDraft.filter((r: any, idx: number) => {
-      const level1 = String(r.level1_name || "").trim();
-      if (r.is_level2) return !!String(r.level2_name || "").trim();
-      if (!level1) return false;
-      const hasChildren = importedFormulaDraft.some((x: any, j: number) => j !== idx && x.is_level2 && String(x.level1_name || "").trim() === level1);
-      return !hasChildren;
-    });
+    const rows: any[] = [];
+    const level1Rows = importedFormulaDraft.filter((r: any) => !r.is_level2 && String(r.level1_name || r.ingredient_name || "").trim());
 
-    return rowsToSave.map((r: any, idx: number) => {
+    level1Rows.forEach((r: any) => {
       const level1 = String(r.level1_name || r.ingredient_name || "").trim();
-      const level2 = String(r.level2_name || "").trim();
-      const ingredientLabel = level2 ? `${level1} > ${level2}` : level1;
-      const n = ingredientLabel.toLowerCase();
-      const matched = ingredientSkus.find((s) => s.id === (r.ingredient_sku_id || r.level1_sku_id)) || ingredientSkus.find((s) => {
+      const childRows = importedFormulaDraft.filter((x: any) => x.is_level2 && String(x.level1_name || "").trim() === level1 && String(x.level2_name || "").trim());
+      const matchLevel1 = ingredientSkus.find((s) => s.id === (r.level1_sku_id || r.ingredient_sku_id)) || ingredientSkus.find((s) => {
+        const n = level1.toLowerCase();
         const t = `${s.sku_code} ${s.product_name}`.toLowerCase();
         return t.includes(n) || n.includes(String(s.product_name || "").toLowerCase());
       });
 
-      return {
+      if (childRows.length > 0) {
+        const childBatchQty = childRows.reduce((sum: number, child: any) => sum + parseDosageGramInput(child.dosage_input ?? child.dosage_qty, 0), 0);
+        const childBatchCost = childRows.reduce((sum: number, child: any) => sum + computeDraftLineCost(child), 0);
+        const parentUnitPrice = childBatchQty > 0 ? childBatchCost / childBatchQty : toNumber(r.unit_price, 0);
+        const parentDosageQty = parseDosageGramInput(r.dosage_input ?? r.dosage_qty, 0);
+
+        rows.push({
+          sku_id: skuId,
+          ingredient_sku_id: matchLevel1?.id || null,
+          ingredient_name: matchLevel1?.product_name || level1,
+          unit: "g",
+          unit_price: parentUnitPrice,
+          dosage_qty: parentDosageQty,
+          wastage_percent: 0,
+          sort_order: rows.length + 1,
+        });
+
+        childRows.forEach((child: any) => {
+          const level2 = String(child.level2_name || "").trim();
+          const ingredientLabel = `${level1}${LEVEL2_SEPARATOR}${level2}`;
+          const matchedChild = ingredientSkus.find((s) => s.id === child.ingredient_sku_id) || ingredientSkus.find((s) => {
+            const n = ingredientLabel.toLowerCase();
+            const t = `${s.sku_code} ${s.product_name}`.toLowerCase();
+            return t.includes(n) || n.includes(String(s.product_name || "").toLowerCase());
+          });
+
+          rows.push({
+            sku_id: skuId,
+            ingredient_sku_id: matchedChild?.id || null,
+            ingredient_name: ingredientLabel,
+            unit: "g",
+            unit_price: toNumber(child.unit_price, 0),
+            dosage_qty: parseDosageGramInput(child.dosage_input ?? child.dosage_qty, 0),
+            wastage_percent: 0,
+            sort_order: rows.length + 1,
+          });
+        });
+        return;
+      }
+
+      rows.push({
         sku_id: skuId,
-        ingredient_sku_id: matched?.id || null,
-        ingredient_name: matched?.product_name || ingredientLabel,
+        ingredient_sku_id: matchLevel1?.id || null,
+        ingredient_name: matchLevel1?.product_name || level1,
         unit: "g",
         unit_price: toNumber(r.unit_price, 0),
         dosage_qty: parseDosageGramInput(r.dosage_input ?? r.dosage_qty, 0),
         wastage_percent: 0,
-        sort_order: idx + 1,
-      };
+        sort_order: rows.length + 1,
+      });
     });
+
+    return rows;
   };
 
   const openEditSku = async (sku: SKU) => {
     setSaveSkuError("");
     setSkuForm({ ...sku, cost_template: parseCostTemplate(sku.cost_template), cost_values: parseCostValues(sku.cost_values), cost_widgets: parseWidgets(sku.cost_widgets) });
     const { data } = await sb.from("sku_formulations").select("*").eq("sku_id", sku.id).order("sort_order");
-    const draft = (data || []).map((r: any) => ({
-      is_level2: false,
-      level1_sku_id: r.ingredient_sku_id || "",
-      ingredient_sku_id: r.ingredient_sku_id || "",
-      level1_name: r.ingredient_name || "",
-      level2_name: "",
-      ingredient_name: r.ingredient_name || "",
-      unit: r.unit || "g",
-      unit_price: toNumber(r.unit_price, 0),
-      unit_price_input: toNumber(r.unit_price, 0) === 0 ? "" : String(toNumber(r.unit_price, 0)),
-      dosage_qty: parseDosageGramInput(r.dosage_qty, 0),
-      dosage_input: parseDosageGramInput(r.dosage_qty, 0) === 0 ? "" : String(parseDosageGramInput(r.dosage_qty, 0)).replace(".", ","),
-      line_cost: toNumber(r.unit_price, 0) * parseDosageGramInput(r.dosage_qty, 0),
-    }));
-    setImportedFormulaDraft(draft);
+    setImportedFormulaDraft(buildDraftFromStoredRows(data || []));
     setDialogOpen(true);
   };
 
@@ -863,18 +1006,14 @@ export default function SkuCostsManagement() {
                   {importedFormulaDraft.length === 0 && (
                     <TableRow><TableCell colSpan={7} className="text-muted-foreground">Chưa có dòng NVL. Anh bấm “+ Thêm NVL cấp 1” để nhập thủ công.</TableCell></TableRow>
                   )}
-                  {importedFormulaDraft.map((r, idx) => {
-                    const level1 = String(r.level1_name || "").trim();
-                    const isLevel1Row = !r.is_level2;
-                    const childRows = importedFormulaDraft.filter((x, j) => j !== idx && x.is_level2 && String(x.level1_name || "").trim() === level1);
-                    const hasChildren = isLevel1Row && level1 && childRows.length > 0;
-
-                    const aggregatedDosage = hasChildren ? childRows.reduce((s, c) => s + toNumber(c.dosage_qty, 0), 0) : toNumber(r.dosage_qty, 0);
-                    const aggregatedLineCost = hasChildren ? childRows.reduce((s, c) => s + toNumber(c.line_cost, toNumber(c.unit_price, 0) * toNumber(c.dosage_qty, 0)), 0) : toNumber(r.line_cost, toNumber(r.unit_price, 0) * toNumber(r.dosage_qty, 0));
-                    const aggregatedUnitPrice = aggregatedDosage > 0 ? aggregatedLineCost / aggregatedDosage : (hasChildren ? 0 : toNumber(r.unit_price, 0));
-
-                    const lineCost = aggregatedLineCost;
-                    const perUnit = Math.round(lineCost / importedOutputQty);
+                  {importedDraftComputed.map((row, idx) => {
+                    const r = row;
+                    const isLevel1Row = row.isLevel1Row;
+                    const hasChildren = row.hasChildren;
+                    const displayUnitPrice = row.displayUnitPrice;
+                    const displayDosage = row.displayDosage;
+                    const lineCost = row.lineCost;
+                    const perUnit = row.perUnit;
 
                     return (
                       <TableRow key={`draft-${idx}`} className={isLevel1Row ? "" : "bg-muted/30"}>
@@ -918,8 +1057,8 @@ export default function SkuCostsManagement() {
                           </datalist>
                         </TableCell>
                         {/* DVT cố định gram theo nghiệp vụ */}
-                        <TableCell><Input disabled={hasChildren} value={hasChildren ? String(Math.round(aggregatedUnitPrice * 1000) / 1000) : (r.unit_price_input ?? (toNumber(r.unit_price, 0) === 0 ? "" : String(toNumber(r.unit_price, 0))))} onChange={(e) => { const next = [...importedFormulaDraft]; const unit_price_input = e.target.value; const unit_price = unit_price_input === "" ? 0 : Number(unit_price_input); const dosage_qty = toNumber(next[idx].dosage_qty, 0); next[idx] = { ...next[idx], unit_price_input, unit_price: Number.isFinite(unit_price) ? unit_price : 0, line_cost: (Number.isFinite(unit_price) ? unit_price : 0) * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
-                        <TableCell><Input disabled={hasChildren} value={hasChildren ? String(aggregatedDosage).replace(".", ",") : (r.dosage_input ?? (toNumber(r.dosage_qty, 0) === 0 ? "" : String(toNumber(r.dosage_qty, 0)).replace(".", ",")))} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_input = e.target.value; const dosage_qty = dosage_input === "" ? 0 : parseDosageGramInput(dosage_input, 0); const unit_price = toNumber(next[idx].unit_price, 0); next[idx] = { ...next[idx], dosage_input, dosage_qty, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
+                        <TableCell><Input disabled={hasChildren} value={hasChildren ? String(Math.round(displayUnitPrice * 1000) / 1000) : (r.unit_price_input ?? (toNumber(r.unit_price, 0) === 0 ? "" : String(toNumber(r.unit_price, 0))))} onChange={(e) => { const next = [...importedFormulaDraft]; const unit_price_input = e.target.value; const unit_price = unit_price_input === "" ? 0 : Number(unit_price_input); const dosage_qty = toNumber(next[idx].dosage_qty, 0); next[idx] = { ...next[idx], unit_price_input, unit_price: Number.isFinite(unit_price) ? unit_price : 0, line_cost: (Number.isFinite(unit_price) ? unit_price : 0) * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
+                        <TableCell><Input value={displayDosage === 0 ? "" : String(displayDosage).replace(".", ",")} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_input = e.target.value; const dosage_qty = dosage_input === "" ? 0 : parseDosageGramInput(dosage_input, 0); const unit_price = toNumber(next[idx].unit_price, 0); next[idx] = { ...next[idx], dosage_input, dosage_qty, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
                         <TableCell>{vnd(lineCost)}</TableCell>
                         <TableCell>{vnd(perUnit)}</TableCell>
                         <TableCell>

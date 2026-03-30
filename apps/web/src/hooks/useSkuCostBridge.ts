@@ -31,6 +31,8 @@ const ym = (d: string) => {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
 };
 
+const isLevel2FormulaRow = (name: string) => String(name || "").includes(" > ");
+
 export function useSkuCostBridge() {
   return useQuery({
     queryKey: ["sku-cost-bridge"],
@@ -82,7 +84,7 @@ export function useSkuCostBridge() {
 
       const items = skuRows.map((sku: any) => {
         const costValues = parseCostValues(sku.cost_values);
-        const lines = formulas.filter((f) => f.sku_id === sku.id);
+        const lines = formulas.filter((f) => f.sku_id === sku.id && !isLevel2FormulaRow(f.ingredient_name));
 
         // Đồng bộ với màn Edit/Detail: dùng unit_price * dosage_qty từ công thức đã lưu
         const materialBatchCost = lines.reduce((sum, l) => {
