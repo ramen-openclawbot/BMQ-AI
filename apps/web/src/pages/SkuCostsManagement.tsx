@@ -482,7 +482,8 @@ export default function SkuCostsManagement() {
 
         toast({ title: "Đã cập nhật SKU" });
       } else {
-        const { data, error } = await sb.from("product_skus").insert({ ...skuForm, sku_type: "finished_good" }).select("*").single();
+        const { id: _unusedId, ...skuInsertPayload } = skuForm;
+        const { data, error } = await sb.from("product_skus").insert({ ...skuInsertPayload, sku_type: "finished_good" }).select("*").single();
         if (error) throw error;
 
         if (data?.id) {
