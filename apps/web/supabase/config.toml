@@ -10,8 +10,11 @@ verify_jwt = true
 [functions.scan-purchase-order]
 verify_jwt = true
 
+# verify_jwt disabled: proxy/gateway JWT verification can reject valid ES256 user tokens
+# before the function runs. scan-drive-folder now relies on frontend apikey + Bearer
+# contract and performs only lightweight header checks in code.
 [functions.scan-drive-folder]
-verify_jwt = true
+verify_jwt = false
 
 [functions.sync-drive-index]
 verify_jwt = true

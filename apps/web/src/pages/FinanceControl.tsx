@@ -430,6 +430,7 @@ export default function FinanceControl() {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
+              "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
               ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
             },
             body: JSON.stringify({
@@ -476,6 +477,7 @@ export default function FinanceControl() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
             ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
           },
           body: JSON.stringify({
@@ -1032,7 +1034,7 @@ export default function FinanceControl() {
     setPreviewLoading(true);
     try {
       const session = await getFreshSession();
-      const folderUrl = customFolderUrl || savedFolderUrl || await getUncRootFolderUrl();
+      const folderUrl = savedFolderUrl || await getUncRootFolderUrl();
       const uncPath = `${autoDayFolderPath}/UNC`;
       const qtmPath = `${autoDayFolderPath}/QTM`;
 
@@ -1041,6 +1043,7 @@ export default function FinanceControl() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
             ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
           },
           body: JSON.stringify({ folderUrl, subfolderDate: path, includeBase64: false, skipProcessed: false }),
@@ -1070,21 +1073,6 @@ export default function FinanceControl() {
     }
   };
 
-  // Save custom folder URL to app_settings
-  const saveCustomFolderUrl = async () => {
-    if (!customFolderUrl.trim()) return;
-    try {
-      await (supabase as any).from("app_settings").upsert(
-        { key: "google_drive_receipts_folder", value: customFolderUrl.trim() },
-        { onConflict: "key" }
-      );
-      setSavedFolderUrl(customFolderUrl.trim());
-      toast({ title: isVi ? "Đã lưu" : "Saved", description: isVi ? "Thư mục mặc định đã cập nhật" : "Default folder updated" });
-    } catch (e: any) {
-      toast({ title: isVi ? "Lỗi" : "Error", description: e?.message, variant: "destructive" });
-    }
-  };
-
   // Browse subfolder hierarchy via list_children mode
   const browseFolder = async (pathSegments: string[]) => {
     setBrowsingLoading(true);
@@ -1097,7 +1085,7 @@ export default function FinanceControl() {
         setBrowseError(isVi ? "Chưa đăng nhập — vui lòng tải lại trang và đăng nhập lại" : "Not logged in — please reload and sign in again");
         return;
       }
-      const folderUrl = customFolderUrl || savedFolderUrl || await getUncRootFolderUrl();
+      const folderUrl = savedFolderUrl || await getUncRootFolderUrl();
       setBrowsedFolderUrl(folderUrl || "");
       if (!folderUrl) throw new Error("Chưa cấu hình thư mục gốc Google Drive");
       const parentPath = pathSegments.join("/");
@@ -1122,7 +1110,9 @@ export default function FinanceControl() {
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
         const detail = resp.status === 401
-          ? "Phiên đăng nhập đã hết hạn hoàn toàn — vui lòng tải lại trang (F5) và đăng nhập lại"
+          ? (isVi
+              ? "Không xác thực được quyền duyệt thư mục Drive. Em đang dùng cấu hình thư mục gốc đã lưu trong Google Drive Integration — vui lòng kiểm tra lại kết nối hoặc deploy function mới nhất."
+              : "Unable to authorize Drive folder browsing. Check the saved Google Drive Integration connection or redeploy the latest function.")
           : err?.error || err?.details || `HTTP ${resp.status}`;
         throw new Error(detail);
       }
@@ -1418,27 +1408,6 @@ export default function FinanceControl() {
 
           {closeDialogStep === "preview" && (
             <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
-              {/* Folder URL config */}
-              <div className="space-y-2">
-                <Label className="text-sm">{isVi ? "Thư mục gốc Google Drive" : "Google Drive root folder"}</Label>
-                <div className="flex gap-2">
-                  <Input
-                    className="text-xs"
-                    value={customFolderUrl}
-                    onChange={(e) => setCustomFolderUrl(e.target.value)}
-                    placeholder="https://drive.google.com/drive/folders/..."
-                  />
-                  {customFolderUrl !== savedFolderUrl && customFolderUrl.trim() && (
-                    <Button variant="outline" size="sm" onClick={saveCustomFolderUrl}>
-                      {isVi ? "Lưu" : "Save"}
-                    </Button>
-                  )}
-                </div>
-                {savedFolderUrl && customFolderUrl === savedFolderUrl && (
-                  <div className="text-xs text-green-600">{isVi ? "Đã lưu mặc định" : "Saved as default"}</div>
-                )}
-              </div>
-
               {/* Folder browser */}
               <div className="rounded border p-3 space-y-2">
                 <div className="flex items-center justify-between">
