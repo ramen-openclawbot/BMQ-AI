@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Truck, Plus, Loader2, PackageCheck, AlertTriangle, RefreshCw } from "lucide-react";
-import { format } from "date-fns";
+import { format, subDays } from "date-fns";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type DispatchStatus = "pending" | "picked" | "dispatched" | "delivered";
@@ -131,15 +131,22 @@ export default function WarehouseDispatch() {
     },
   });
 
-  // Approved sales POs for dispatch (chưa xuất kho hết)
+  // Approved sales POs for dispatch — delivery_date trong 3 ngày trước ngày xuất kho
+  // Ví dụ: ngày xuất = 04/04 → lấy PO có delivery_date từ 01/04 đến 03/04
   const { data: salesPOs = [] } = useQuery<PoInbox[]>({
-    queryKey: ["po_inbox_for_dispatch"],
+    queryKey: ["po_inbox_for_dispatch", dispatchDate],
     queryFn: async () => {
+      const dispatchDateObj = new Date(dispatchDate);
+      const fromDate = format(subDays(dispatchDateObj, 3), "yyyy-MM-dd"); // -3 ngày
+      const toDate   = format(subDays(dispatchDateObj, 1), "yyyy-MM-dd"); // -1 ngày (không lấy chính ngày xuất)
+
       const { data, error } = await (supabase as any)
         .from("customer_po_inbox")
         .select("id, po_number, from_name, delivery_date, matched_customer_id, production_items")
         .eq("match_status", "approved")
         .not("production_items", "is", null)
+        .gte("delivery_date", fromDate)
+        .lte("delivery_date", toDate)
         .order("delivery_date", { ascending: true });
       if (error) throw error;
       return data || [];
@@ -479,14 +486,25 @@ export default function WarehouseDispatch() {
           <div className="space-y-5">
             {/* Select Sales PO */}
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Đơn hàng bán (Sales PO) <span className="text-destructive">*</span></label>
+              <label className="text-sm font-medium">
+                Đơn hàng bán (Sales PO) <span className="text-destructive">*</span>
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Hiển thị PO có ngày giao trong 3 ngày trước ngày xuất kho
+                {dispatchDate && (
+                  <> ({format(subDays(new Date(dispatchDate), 3), "dd/MM")} — {format(subDays(new Date(dispatchDate), 1), "dd/MM")})</>
+                )}
+              </p>
               <Select value={selectedPoId} onValueChange={handleSelectPO}>
                 <SelectTrigger>
                   <SelectValue placeholder="Chọn đơn hàng cần xuất kho..." />
                 </SelectTrigger>
                 <SelectContent>
                   {salesPOs.length === 0 && (
-                    <div className="px-3 py-2 text-sm text-muted-foreground">Không có đơn hàng approved</div>
+                    <div className="px-3 py-2 text-sm text-muted-foreground">
+                      Không có đơn hàng nào trong khoảng{" "}
+                      {dispatchDate && `${format(subDays(new Date(dispatchDate), 3), "dd/MM")} – ${format(subDays(new Date(dispatchDate), 1), "dd/MM")}`}
+                    </div>
                   )}
                   {salesPOs.map((po) => (
                     <SelectItem key={po.id} value={po.id}>
