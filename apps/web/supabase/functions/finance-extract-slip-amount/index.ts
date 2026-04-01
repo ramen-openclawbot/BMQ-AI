@@ -9,6 +9,22 @@ const jsonResponse = (body: unknown, status = 200, corsHeaders?: Record<string, 
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
+/** Parse Vietnamese-formatted amount string to number.
+ *  "41.006.300,00" → 41006300  |  "41.006.300" → 41006300
+ *  Handles: dots as thousands sep, comma as decimal sep. */
+const parseAmountVN = (v: unknown): number | null => {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  const raw = String(v ?? "").trim();
+  if (!raw) return null;
+  const normalized = raw
+    .replace(/\s+/g, "")
+    .replace(/\.(?=\d{3}(\D|$))/g, "")
+    .replace(/,/g, ".")
+    .replace(/[^0-9.-]/g, "");
+  const n = Number(normalized);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflightResponse(req);
 
@@ -32,7 +48,7 @@ serve(async (req) => {
       return jsonResponse({ error: "OPENAI_API_KEY missing" }, 503, getCorsHeaders(req));
     }
 
-    const system = `You extract transfer amount from Vietnamese bank slips.\nReturn only JSON via tool with fields:\n- amount: number (VND, no separators)\n- transfer_date: string | null (YYYY-MM-DD if found)\n- reference: string | null\n- confidence: number (0..1)\n- notes: string | null\n\nRules:\n- Amount must be final transfer amount, not account number.\n- If uncertain, still return best guess and lower confidence.`;
+    const system = `You extract transfer amount from Vietnamese bank slips.\nReturn only JSON via tool with fields:\n- amount: STRING — the exact amount as shown on the slip, preserving dots and commas. Example: "41.006.300,00" or "41.006.300". Do NOT convert to a plain number. In Vietnamese format, dots (.) are thousands separators and commas (,) are decimal separators.\n- transfer_date: string | null (YYYY-MM-DD if found)\n- reference: string | null\n- confidence: number (0..1)\n- notes: string | null\n\nRules:\n- amount MUST be a string preserving the original formatting from the image. Do NOT reorder digits or remove separators.\n- Cross-check amount with the "Bằng chữ / In Words" line if visible on the slip.\n- Amount must be the final transfer amount, not account number.\n- If uncertain, still return best guess and lower confidence.`;
 
     const userText = `Slip type: ${slipType || "unknown"}. Extract transfer amount.`;
 
@@ -65,7 +81,7 @@ serve(async (req) => {
               parameters: {
                 type: "object",
                 properties: {
-                  amount: { type: "number" },
+                  amount: { type: "string", description: "Exact amount string as shown on slip, preserving dots and commas. E.g. '41.006.300,00'" },
                   transfer_date: { type: ["string", "null"] },
                   reference: { type: ["string", "null"] },
                   confidence: { type: "number" },
@@ -95,9 +111,18 @@ serve(async (req) => {
       data = null;
     }
 
-    if (!data || typeof data.amount !== "number") {
+    if (!data || !data.amount) {
       return jsonResponse({ error: "Unable to extract amount", raw }, 422, getCorsHeaders(req));
     }
+
+    // Parse Vietnamese-formatted amount string → number
+    const rawAmount = data.amount;
+    const parsedAmount = parseAmountVN(rawAmount);
+    if (!parsedAmount) {
+      return jsonResponse({ error: "Failed to parse amount string", rawAmount, raw }, 422, getCorsHeaders(req));
+    }
+    data.amount = parsedAmount;
+    data.amount_raw = rawAmount; // Keep original string for audit
 
     return jsonResponse({ success: true, data }, 200, getCorsHeaders(req));
   } catch (e) {

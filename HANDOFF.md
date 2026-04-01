@@ -1,12 +1,41 @@
 # HANDOFF
 
 ## Current Version
-- apps/web: **0.0.31**
+- apps/web: **0.0.33**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
 - Latest commit at handoff time: `git log -1 --oneline`
 
-## Latest update (2026-03-30 — v0.0.31)
+## Latest update (2026-04-01 — v0.0.33)
+### Finance Module — OCR Bug Fix + Reconciliation Overhaul
+
+**OCR Fix (Edge Functions):**
+- `scan-bank-slip/index.ts`: Changed GPT-4o-mini tool schema `amount` from `type: ['number','string','null']` → `type: 'string'` to prevent digit transposition (41.006.300 → 41.060.300). Added `amount_raw` audit field. Updated system prompt to instruct exact string output with Vietnamese format cross-check.
+- `finance-extract-slip-amount/index.ts`: Same fix — schema `amount` from `type: "number"` → `type: "string"`. Added `parseAmountVN` server-side parsing + `amount_raw` audit field.
+
+**Reconciliation Rules (FinanceControl.tsx):**
+- UNC: Exact match required (`variance === 0`), no tolerance. Bank transfers are automated — any mismatch is flagged.
+- QTM: Underspend allowed (CEO declared ≥ folder total = match). Only overspend (folder > declared) = mismatch.
+- Overall status: both UNC and QTM must match.
+
+**UX — 1-click Daily Close:**
+- Replaced 3-button wizard (Reject/Conditional/Approve) with single "Khoá & Chốt ngày" button.
+- Button runs: save → reconcile → lock → approve in one click.
+- Unlock button available for re-editing after close.
+- Added QTM summary section alongside UNC in closing card.
+
+**Performance (FinanceControl.tsx):**
+- Parallel batch processing (BATCH_SIZE=5) in `runFolderReconciliation` — replaced sequential for-loop with `Promise.allSettled`.
+- Auto-save after `processSlipUpload` (OCR) — no manual save needed.
+
+**DB Migration** (`20260401090000_finance_v033_reconciliation.sql`):
+- Added columns to `daily_reconciliations`: `qtm_spent_from_folder`, `qtm_variance_amount`, `unc_status`, `qtm_status`
+- Performance indexes: `idx_daily_reconciliations_closing_date`, `idx_ceo_declarations_closing_date` (DESC)
+
+**Deferred:**
+- Component refactoring (split FinanceControl.tsx 1,486 lines into smaller components) — hooks `useDeclarationForm.ts` and `useFolderScan.ts` created but not yet integrated.
+
+## Previous update (2026-03-30 — v0.0.31)
 ### Feature — Module Sản Xuất (Production Management Pipeline)
 
 **Tổng quan:** Pipeline 6 bước từ PO bán hàng → Sản xuất → QA → Xuất kho → Báo cáo tồn kho.

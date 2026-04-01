@@ -507,43 +507,56 @@ export default function FinanceControl() {
       const uncItems: Array<{ fileId: string; fileName: string; amount: number; confidence: number; status: "matched" | "mismatch" | "needs_review" }> = [];
       let progressDone = 0;
 
-      for (let i = 0; i < targetUncFiles.length; i += 1) {
-        const file = targetUncFiles[i];
-        setReconcileProgress({ done: progressDone, total: totalTargets, currentFile: `[UNC] ${file.name || ""}` });
-        const downloaded = await downloadBase64File(file);
-        if (!downloaded?.base64) {
-          progressDone += 1;
-          continue;
+      // ── Parallel batch processing (5 files at a time) ──────────
+      const BATCH_SIZE = 5;
+
+      const processFileBatch = async (
+        files: any[],
+        slipType: "unc" | "qtm",
+      ): Promise<Array<{ amount: number; confidence: number; fileId: string; fileName: string } | null>> => {
+        const results: Array<{ amount: number; confidence: number; fileId: string; fileName: string } | null> = [];
+        for (let i = 0; i < files.length; i += BATCH_SIZE) {
+          const batch = files.slice(i, i + BATCH_SIZE);
+          setReconcileProgress({ done: progressDone, total: totalTargets, currentFile: `[${slipType.toUpperCase()}] Batch ${Math.ceil((i + 1) / BATCH_SIZE)}/${Math.ceil(files.length / BATCH_SIZE)}` });
+          const batchResults = await Promise.allSettled(
+            batch.map(async (file) => {
+              const downloaded = await downloadBase64File(file);
+              if (!downloaded?.base64) return null;
+              const extracted = await extractSlipAmountFromBase64(downloaded.base64, downloaded.mimeType || file.mimeType || "image/jpeg", slipType);
+              return {
+                fileId: file.id,
+                fileName: file.name,
+                amount: Number(extracted?.amount || 0),
+                confidence: Number(extracted?.confidence || 0),
+              };
+            })
+          );
+          for (const r of batchResults) {
+            results.push(r.status === "fulfilled" ? r.value : null);
+            progressDone += 1;
+          }
         }
-        const extracted = await extractSlipAmountFromBase64(downloaded.base64, downloaded.mimeType || file.mimeType || "image/jpeg", "unc");
-        const amount = Number(extracted?.amount || 0);
-        const confidence = Number(extracted?.confidence || 0);
+        return results;
+      };
+
+      // Process UNC files in parallel batches
+      const uncResults = await processFileBatch(targetUncFiles, "unc");
+      for (const r of uncResults) {
+        if (!r) continue;
         uncItems.push({
-          fileId: file.id,
-          fileName: file.name,
-          amount,
-          confidence,
-          status: confidence < uncLowConfidenceThreshold ? "needs_review" : "matched",
+          ...r,
+          status: r.confidence < uncLowConfidenceThreshold ? "needs_review" : "matched",
         });
-        progressDone += 1;
       }
 
+      // Process QTM files in parallel batches
+      const qtmResults = await processFileBatch(targetQtmFiles, "qtm");
       let qtmTotal = 0;
       let qtmLowConfidence = 0;
-      for (let i = 0; i < targetQtmFiles.length; i += 1) {
-        const file = targetQtmFiles[i];
-        setReconcileProgress({ done: progressDone, total: totalTargets, currentFile: `[QTM] ${file.name || ""}` });
-        const downloaded = await downloadBase64File(file);
-        if (!downloaded?.base64) {
-          progressDone += 1;
-          continue;
-        }
-        const extracted = await extractSlipAmountFromBase64(downloaded.base64, downloaded.mimeType || file.mimeType || "image/jpeg", "qtm");
-        const amount = Number(extracted?.amount || 0);
-        const confidence = Number(extracted?.confidence || 0);
-        qtmTotal += amount;
-        if (confidence < uncLowConfidenceThreshold) qtmLowConfidence += 1;
-        progressDone += 1;
+      for (const r of qtmResults) {
+        if (!r) continue;
+        qtmTotal += r.amount;
+        if (r.confidence < uncLowConfidenceThreshold) qtmLowConfidence += 1;
       }
 
       const folderTotal = uncItems.reduce((sum, x) => sum + x.amount, 0);
@@ -752,9 +765,13 @@ export default function FinanceControl() {
       }
 
       toast({
-        title: "Đã scan slip (chưa lưu)",
+        title: isVi ? "Đã scan slip — tự động lưu" : "Slip scanned — auto-saving",
         description: `${slipType === "qtm" ? "QTM" : "UNC"}: +${vnd(batchSum)} (${batchResults.length} ảnh)`,
       });
+
+      // Auto-save declaration after OCR (no separate "Save" button needed)
+      // Use setTimeout to let state updates settle before saving
+      setTimeout(() => { saveDeclaration(true); }, 100);
     } catch (e: any) {
       toast({ title: "Lỗi OCR slip", description: e?.message || "Không thể trích xuất số tiền", variant: "destructive" });
     } finally {
@@ -880,12 +897,21 @@ export default function FinanceControl() {
   const runReconcile = async () => {
     setReconciling(true);
     try {
+      // --- UNC reconciliation: exact match required (bank-automated, no tolerance) ---
       const uncDetail = Number((uncReconSummary?.folderTotal ?? persistedFolderTotal ?? dailyReconciliation?.unc_detail_amount ?? uncDetailAmount) || 0);
       const uncDeclared = Number((uncReconSummary?.ceoTotal ?? dailyReconciliation?.unc_declared_amount ?? uncTotalDeclared) || 0);
-      const topup = Number(cashFundTopupAmount || 0);
-      const tolerance = 0;
-      const variance = uncDetail - uncDeclared;
-      const status = Math.abs(variance) <= tolerance ? "match" : "mismatch";
+      const uncVariance = uncDetail - uncDeclared;
+      const uncStatus: "match" | "mismatch" = uncVariance === 0 ? "match" : "mismatch";
+
+      // --- QTM reconciliation: underspend OK, overspend = mismatch ---
+      const qtmDeclared = Number(cashFundTopupAmount || 0);
+      const qtmSpent = Number(qtmSpentFromFolder || 0);
+      const qtmVariance = qtmSpent - qtmDeclared; // positive = overspend
+      // QTM: CEO total >= sum of slips → match (underspend OK); CEO total < sum of slips → mismatch (overspend)
+      const qtmStatus: "match" | "mismatch" = qtmVariance <= 0 ? "match" : "mismatch";
+
+      // Overall status: both must match
+      const status: "match" | "mismatch" = (uncStatus === "match" && qtmStatus === "match") ? "match" : "mismatch";
 
       const { error } = await (supabase as any)
         .from("daily_reconciliations")
@@ -893,24 +919,36 @@ export default function FinanceControl() {
           closing_date: dateKey,
           unc_detail_amount: uncDetail,
           unc_declared_amount: uncDeclared,
-          cash_fund_topup_amount: topup,
-          variance_amount: variance,
+          cash_fund_topup_amount: qtmDeclared,
+          qtm_spent_from_folder: qtmSpent,
+          variance_amount: uncVariance,
+          qtm_variance_amount: qtmVariance,
+          unc_status: uncStatus,
+          qtm_status: qtmStatus,
           status,
-          tolerance_amount: tolerance,
+          tolerance_amount: 0,
           matched_at: new Date().toISOString(),
           notes: notes || null,
         }, { onConflict: "closing_date" });
 
       if (error) throw error;
 
+      const summaryParts: string[] = [];
+      if (uncStatus === "mismatch") summaryParts.push(`UNC ${isVi ? "chênh lệch" : "variance"}: ${vnd(uncVariance)}`);
+      if (qtmStatus === "mismatch") summaryParts.push(`QTM ${isVi ? "vượt chi" : "overspend"}: ${vnd(qtmVariance)}`);
+
       toast({
-        title: status === "match" ? "Reconciled: MATCH" : "Reconciled: MISMATCH",
-        description: `${isVi ? "Chênh lệch" : "Variance"}: ${vnd(variance)}`,
+        title: status === "match"
+          ? (isVi ? "Đối soát: KHỚP" : "Reconciled: MATCH")
+          : (isVi ? "Đối soát: LỆCH" : "Reconciled: MISMATCH"),
+        description: summaryParts.length > 0
+          ? summaryParts.join(" | ")
+          : (isVi ? "UNC và QTM đều khớp" : "UNC and QTM both match"),
         variant: status === "match" ? "default" : "destructive",
       });
 
       await Promise.all([refetchDailyReconciliation(), refetchMonthly()]);
-      return { status, variance };
+      return { status, uncVariance, qtmVariance };
     } catch (e: any) {
       toast({ title: "Error", description: e?.message || "Reconciliation failed", variant: "destructive" });
       return null;
@@ -1186,104 +1224,83 @@ export default function FinanceControl() {
 
           <Card>
             <CardHeader>
-              <CardTitle>{isVi ? "Chốt ngày (theo đối soát folder UNC)" : "Daily Closing (from UNC folder reconciliation)"}</CardTitle>
-              <CardDescription>{isVi ? "Dùng kết quả từ nút ‘Đối soát UNC theo folder’ để chốt số UNC trong ngày với khai báo CEO." : "Use the result from 'UNC folder reconciliation' to close daily UNC against CEO declared total."}</CardDescription>
+              <CardTitle>{isVi ? "Chốt ngày" : "Daily Closing"}</CardTitle>
+              <CardDescription>{isVi ? "Tổng hợp đối soát UNC và QTM. Bấm 1 nút để lưu, đối soát, khoá và chốt ngày." : "Combined UNC and QTM reconciliation. One click to save, reconcile, lock and close."}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>{isVi ? "UNC từ folder đã đối soát" : "UNC from reconciled folder"}</Label>
-                  <Input value={vnd(resolvedUncDetail)} readOnly />
+              {/* UNC Summary */}
+              <div className="space-y-2">
+                <div className="text-sm font-medium">{isVi ? "UNC (Ủy nhiệm chi)" : "UNC (Bank Transfer)"}</div>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "UNC từ folder" : "UNC from folder"}</div><div className="text-xl font-semibold">{vnd(resolvedUncDetail)}</div></CardContent></Card>
+                  <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "CEO khai báo UNC" : "CEO UNC declared"}</div><div className="text-xl font-semibold">{vnd(resolvedUncDeclared)}</div></CardContent></Card>
+                  <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch UNC" : "UNC Variance"}</div><div className={`text-xl font-semibold ${resolvedVariance === 0 ? "text-green-600" : "text-red-600"}`}>{vnd(resolvedVariance)}</div></CardContent></Card>
                 </div>
-                <div className="space-y-2">
-                  <Label>Status</Label>
-                  <div className="h-10 px-3 rounded-md border flex items-center">
-                    {resolvedStatus === "match" && <Badge className="bg-green-600">MATCH</Badge>}
-                    {resolvedStatus === "mismatch" && <Badge variant="destructive">MISMATCH</Badge>}
-                    {!resolvedStatus && <span className="text-muted-foreground">{isVi ? "Chờ" : "Pending"}</span>}
-                  </div>
-                </div>
+                <div className="text-xs text-muted-foreground">{isVi ? "Quy tắc: UNC phải khớp chính xác (ngân hàng tự động, không cho phép chênh lệch)" : "Rule: UNC must match exactly (bank automated, no tolerance)"}</div>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>{isVi ? "Tổng UNC CEO khai báo" : "CEO UNC Total Declared"}</Label>
-                  <Input value={vnd(resolvedUncDeclared)} readOnly />
+              {/* QTM Summary */}
+              <div className="space-y-2">
+                <div className="text-sm font-medium">{isVi ? "QTM (Quỹ tiền mặt)" : "QTM (Cash Fund)"}</div>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "QTM từ folder" : "QTM from folder"}</div><div className="text-xl font-semibold">{vnd(qtmSpentFromFolder)}</div></CardContent></Card>
+                  <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "CEO khai báo QTM" : "CEO QTM declared"}</div><div className="text-xl font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div></CardContent></Card>
+                  <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch QTM" : "QTM Variance"}</div><div className={`text-xl font-semibold ${(qtmSpentFromFolder - Number(cashFundTopupAmount || 0)) <= 0 ? "text-green-600" : "text-red-600"}`}>{vnd(qtmSpentFromFolder - Number(cashFundTopupAmount || 0))}</div></CardContent></Card>
                 </div>
-                <div className="space-y-2">
-                  <Label>{isVi ? "Số tiền bù quỹ tiền mặt" : "Cash Fund Top-up Amount"}</Label>
-                  <Input value={vnd(Number(cashFundTopupAmount || 0))} readOnly />
-                </div>
+                <div className="text-xs text-muted-foreground">{isVi ? "Quy tắc: QTM cho phép chi dưới mức khai báo (tiền dư OK), chi vượt mức = lệch" : "Rule: QTM allows underspend (surplus OK), overspend = mismatch"}</div>
+              </div>
+
+              {/* Overall Status */}
+              <div className="flex items-center gap-3 p-3 rounded-lg border">
+                <div className="text-sm font-medium">{isVi ? "Trạng thái tổng:" : "Overall status:"}</div>
+                {resolvedStatus === "match" && <Badge className="bg-green-600">{isVi ? "KHỚP" : "MATCH"}</Badge>}
+                {resolvedStatus === "mismatch" && <Badge variant="destructive">{isVi ? "LỆCH" : "MISMATCH"}</Badge>}
+                {!resolvedStatus && <span className="text-muted-foreground text-sm">{isVi ? "Chờ đối soát" : "Pending reconciliation"}</span>}
               </div>
 
               <div className="space-y-2">
                 <Label>{isVi ? "Ghi chú" : "Notes"}</Label>
-                <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={isVi ? "Ghi chú (tuỳ chọn)" : "Optional note"} />
+                <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={isVi ? "Ghi chú (tuỳ chọn)" : "Optional note"} disabled={closeApprovalLocked} />
               </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "UNC theo folder" : "UNC by folder"}</div><div className="text-xl font-semibold">{vnd(resolvedUncDetail)}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "UNC khai báo" : "UNC Declared"}</div><div className="text-xl font-semibold">{vnd(resolvedUncDeclared)}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch" : "Variance"}</div><div className="text-xl font-semibold">{vnd(resolvedVariance)}</div></CardContent></Card>
-              </div>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{isVi ? "Kết luận chốt ngày" : "Daily closing decision"}</CardTitle>
-                  <CardDescription>{isVi ? "Chọn một trong 3 trạng thái: Không chốt / Chốt có điều kiện / Phê duyệt chốt ngày." : "Pick one of 3 statuses: Reject / Conditional / Approve close."}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <button
-                      type="button"
-                      disabled={closeActing || reconciling || (!uncReconSummary && !dailyReconciliation) || closeApprovalLocked}
-                      className={`rounded-xl border px-4 py-3 text-sm text-left font-medium transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_3px_0_rgba(0,0,0,0.12)] hover:-translate-y-0.5 hover:shadow-[0_6px_14px_rgba(0,0,0,0.18)] active:translate-y-0 active:shadow-[0_2px_0_rgba(0,0,0,0.12)] ${closeDecision === "reject" ? "border-red-500 bg-gradient-to-b from-red-500/25 to-red-600/20 text-red-800 dark:text-red-100" : "border-red-300/70 bg-red-500/10 text-red-700 dark:text-red-200"}`}
-                      onClick={() => handleCloseAction("reject")}
-                    >
-                      {isVi ? "❌ Không chốt" : "❌ Reject close"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={closeActing || reconciling || (!uncReconSummary && !dailyReconciliation) || closeApprovalLocked}
-                      className={`rounded-xl border px-4 py-3 text-sm text-left font-medium transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_3px_0_rgba(0,0,0,0.12)] hover:-translate-y-0.5 hover:shadow-[0_6px_14px_rgba(0,0,0,0.18)] active:translate-y-0 active:shadow-[0_2px_0_rgba(0,0,0,0.12)] ${closeDecision === "conditional" ? "border-amber-500 bg-gradient-to-b from-amber-400/30 to-amber-500/25 text-amber-900 dark:text-amber-100" : "border-amber-300/70 bg-amber-500/10 text-amber-800 dark:text-amber-200"}`}
-                      onClick={() => handleCloseAction("conditional")}
-                    >
-                      {isVi ? "⚠️ Chốt có điều kiện" : "⚠️ Conditional close"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={closeActing || reconciling || (!uncReconSummary && !dailyReconciliation)}
-                      className={`rounded-xl border px-4 py-3 text-sm text-left font-medium transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_3px_0_rgba(0,0,0,0.12)] hover:-translate-y-0.5 hover:shadow-[0_6px_14px_rgba(0,0,0,0.18)] active:translate-y-0 active:shadow-[0_2px_0_rgba(0,0,0,0.12)] ${closeDecision === "approve" ? "border-green-500 bg-gradient-to-b from-green-500/25 to-green-600/20 text-green-800 dark:text-green-100" : "border-green-300/70 bg-green-500/10 text-green-700 dark:text-green-200"}`}
-                      onClick={() => handleCloseAction("approve")}
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        {closeDecision === "approve" && closeApprovalLocked && <Lock className="h-4 w-4" />}
-                        {closeDecision === "approve" && closeApprovalLocked
-                          ? (isVi ? "✅ Đã phê duyệt" : "✅ Approved")
-                          : (isVi ? "✅ Phê duyệt chốt ngày" : "✅ Approve close")}
-                      </span>
-                    </button>
-                  </div>
-
-                  {closeDecision === "approve" && closeApprovalLocked && (
-                    <div className="flex justify-end">
-                      <Button type="button" variant="outline" size="sm" onClick={handleUnlockApproval} disabled={closeActing}>
-                        <Unlock className="h-4 w-4 mr-2" />
-                        {isVi ? "Mở khoá phê duyệt" : "Unlock approval"}
-                      </Button>
+              {/* 1-click close action */}
+              <div className="flex items-center gap-3">
+                {closeApprovalLocked ? (
+                  <>
+                    <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
+                      <Lock className="h-4 w-4" />
+                      <span className="font-medium">{isVi ? "Đã khoá & chốt ngày" : "Locked & closed"}</span>
                     </div>
-                  )}
-
-                  <div className="space-y-2">
-                    <Label>{isVi ? "Giải trình / lý do" : "Explanation / reason"}</Label>
-                    <Input value={closeReason} onChange={(e) => setCloseReason(e.target.value)} placeholder={isVi ? "Nhập lý do cho quyết định chốt ngày" : "Enter reason for close decision"} />
-                  </div>
-                </CardContent>
-              </Card>
+                    <Button type="button" variant="outline" size="sm" onClick={handleUnlockApproval} disabled={closeActing}>
+                      <Unlock className="h-4 w-4 mr-2" />
+                      {isVi ? "Mở khoá để chỉnh sửa" : "Unlock to edit"}
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    type="button"
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                    disabled={closeActing || reconciling || saving}
+                    onClick={() => handleCloseAction("approve")}
+                  >
+                    {closeActing || reconciling ? (
+                      <span className="inline-flex items-center gap-2">
+                        <span className="animate-spin">⏳</span>
+                        {isVi ? "Đang xử lý..." : "Processing..."}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-2">
+                        <Lock className="h-4 w-4" />
+                        {isVi ? "Khoá & Chốt ngày" : "Lock & Close Day"}
+                      </span>
+                    )}
+                  </Button>
+                )}
+              </div>
 
               {!uncReconSummary && !dailyReconciliation && (
                 <div className="text-xs text-amber-600">
-                  {isVi ? "Chưa có dữ liệu đối soát cho ngày này. Hãy bấm ‘Đối soát trong ngày’ trước khi chốt." : "No reconciliation data for this date yet. Please run 'Daily reconciliation' first."}
+                  {isVi ? "Chưa có dữ liệu đối soát. Hãy bấm ‘Đối soát trong ngày’ trước khi chốt." : "No reconciliation data yet. Please run ‘Daily reconciliation’ first."}
                 </div>
               )}
 

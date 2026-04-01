@@ -110,7 +110,7 @@ serve(async (req) => {
     const systemPrompt = `Bạn là chuyên gia trích xuất dữ liệu từ ảnh UNC/ủy nhiệm chi tiếng Việt.
 
 Hãy trích xuất các trường sau:
-1. amount: số tiền chuyển khoản (VND, chỉ lấy số)
+1. amount: số tiền chuyển khoản — trả về dạng CHUỖI chính xác như hiển thị trên ảnh (VD: "41.006.300" hoặc "41.006.300,00"). KHÔNG tự tính toán, KHÔNG đổi thứ tự chữ số, KHÔNG bỏ dấu chấm phẩy.
 2. recipient_name: tên người thụ hưởng
 3. recipient_account: số tài khoản thụ hưởng
 4. recipient_bank: ngân hàng thụ hưởng
@@ -120,9 +120,11 @@ Hãy trích xuất các trường sau:
 8. sender_name: tên người chuyển
 
 Quy tắc quan trọng:
-- amount phải là số dương.
+- amount PHẢI là chuỗi (string), giữ nguyên định dạng gốc trên ảnh. Ví dụ: "41.006.300,00" chứ KHÔNG phải 41006300.
+- Chú ý: trong tiếng Việt, dấu chấm (.) là phân cách hàng nghìn, dấu phẩy (,) là phân cách thập phân. VD: "41.006.300,00" = bốn mươi mốt triệu không trăm linh sáu nghìn ba trăm đồng.
 - Nếu ảnh mờ, vẫn cố gắng suy luận từ vùng số tiền.
 - Nếu không chắc một trường, trả null cho trường đó.
+- Có thể đối chiếu amount với dòng "Bằng chữ / In Words" trên ảnh để kiểm tra lại.
 
 Trả về JSON.`;
 
@@ -166,7 +168,7 @@ Trả về JSON.`;
                 parameters: {
                   type: 'object',
                   properties: {
-                    amount: { type: ['number', 'string', 'null'] },
+                    amount: { type: 'string', description: 'Exact amount string as shown on slip, preserving dots and commas. E.g. "41.006.300,00"' },
                     recipient_name: { type: ['string', 'null'] },
                     recipient_account: { type: ['string', 'null'] },
                     recipient_bank: { type: ['string', 'null'] },
@@ -219,7 +221,9 @@ Trả về JSON.`;
     }
 
     const extractedData = JSON.parse(toolCall.function.arguments || '{}');
+    extractedData.amount_raw = extractedData.amount; // Keep original string for audit
     extractedData.amount = parseAmountVN(extractedData.amount);
+    console.log(`[scan-bank-slip] Amount: raw="${extractedData.amount_raw}" → parsed=${extractedData.amount}`);
 
     console.log(`[scan-bank-slip] Completed in ${Date.now() - startTime}ms`);
     return new Response(JSON.stringify({ 
