@@ -61,7 +61,7 @@ export default function FinanceControl() {
   const [reconciling, setReconciling] = useState(false);
   const [extracting, setExtracting] = useState(false);
 
-  const [uncSkipProcessed, setUncSkipProcessed] = useState(false);
+  const [uncSkipProcessed, setUncSkipProcessed] = useState(true);
   const [uncScanImagesOnly, setUncScanImagesOnly] = useState(true);
   const [uncLowConfidenceThreshold, setUncLowConfidenceThreshold] = useState(0.75);
   const [reconcilingFolderScan, setReconcilingFolderScan] = useState(false);
@@ -429,7 +429,7 @@ export default function FinanceControl() {
               folderUrl,
               subfolderDate,
               folderType: "bank_slip",
-              skipProcessed: uncSkipProcessed,
+              skipProcessed: false,
               includeBase64: false,
             }),
           }, 45000);
@@ -512,8 +512,6 @@ export default function FinanceControl() {
       const uncTotalScannedCount = Number(uncScanData?.totalFilesFound ?? uncFiles.length);
       const qtmTotalScannedCount = Number(qtmScanData?.totalFilesFound ?? qtmFiles.length);
 
-      // Server-side skipProcessed already filtered returned files, so no extra client filtering needed.
-      const processedSkippedCount = uncSkipProcessed ? preSkippedByServer : 0;
       const targetUncFiles = uncFiles;
       const targetQtmFiles = qtmFiles;
 
@@ -526,22 +524,50 @@ export default function FinanceControl() {
           isVi
             ? folderNotFound
               ? `Không tìm thấy thư mục trên Drive. Kiểm tra cấu trúc: ${pathInfo}. ${uncMsg}`
-              : `Không có file ảnh trong thư mục (UNC: ${uncTotalScannedCount} found, QTM: ${qtmTotalScannedCount} found, skipped: ${processedSkippedCount}). Path: ${pathInfo}`
+              : `Không có file ảnh trong thư mục (UNC: ${uncTotalScannedCount} found, QTM: ${qtmTotalScannedCount} found). Path: ${pathInfo}`
             : folderNotFound
               ? `Folder not found on Drive. Check structure: ${pathInfo}. ${uncMsg}`
-              : `No image files in folders (UNC: ${uncTotalScannedCount}, QTM: ${qtmTotalScannedCount}, skipped: ${processedSkippedCount}). Path: ${pathInfo}`
+              : `No image files in folders (UNC: ${uncTotalScannedCount}, QTM: ${qtmTotalScannedCount}). Path: ${pathInfo}`
         );
       }
 
-      const totalTargets = targetUncFiles.length + targetQtmFiles.length;
-      setReconcileProgress({ done: 0, total: totalTargets, currentFile: "" });
+      // ── OCR cache lookup: reuse previously extracted amounts from drive_file_index ──
+      const ocrCache = new Map<string, { amount: number; confidence: number }>();
+      {
+        const allFileIds = [...targetUncFiles, ...targetQtmFiles].map((f: any) => f.id);
+        const CHUNK = 500;
+        for (let i = 0; i < allFileIds.length; i += CHUNK) {
+          const chunk = allFileIds.slice(i, i + CHUNK);
+          const { data: cachedRows } = await (supabase as any)
+            .from("drive_file_index")
+            .select("file_id, extracted_amount, extraction_confidence")
+            .in("file_id", chunk)
+            .not("extracted_amount", "is", null);
+          for (const row of (cachedRows || [])) {
+            if (row?.file_id && Number(row.extracted_amount) > 0) {
+              ocrCache.set(row.file_id, {
+                amount: Number(row.extracted_amount),
+                confidence: Number(row.extraction_confidence || 0),
+              });
+            }
+          }
+        }
+      }
+      const cachedCount = ocrCache.size;
+      const uncachedUncFiles = targetUncFiles.filter((f: any) => !ocrCache.has(f.id));
+      const uncachedQtmFiles = targetQtmFiles.filter((f: any) => !ocrCache.has(f.id));
+      const processedSkippedCount = cachedCount;
+      console.log(`[reconcile] OCR cache hit: ${cachedCount} files, need OCR: UNC ${uncachedUncFiles.length}, QTM ${uncachedQtmFiles.length}`);
+
+      const totalTargets = uncachedUncFiles.length + uncachedQtmFiles.length;
+      setReconcileProgress({ done: 0, total: totalTargets, currentFile: totalTargets === 0 ? (isVi ? "Tất cả file đã có cache OCR" : "All files have cached OCR") : "" });
 
       const uncItems: Array<{ fileId: string; fileName: string; amount: number; confidence: number; status: "matched" | "mismatch" | "needs_review" }> = [];
       const ocrErrors: string[] = [];
       let progressDone = 0;
 
-      // ── Parallel batch processing (5 files at a time) ──────────
-      const BATCH_SIZE = 5;
+      // ── Parallel batch processing (3 files at a time to reduce concurrent load) ──
+      const BATCH_SIZE = 3;
 
       const processFileBatch = async (
         files: any[],
@@ -584,8 +610,22 @@ export default function FinanceControl() {
         return results;
       };
 
-      // Process UNC files in parallel batches
-      const uncResults = await processFileBatch(targetUncFiles, "unc");
+      // ── Inject cached UNC results (no download/OCR needed) ──
+      for (const f of targetUncFiles) {
+        const cached = ocrCache.get(f.id);
+        if (cached) {
+          uncItems.push({
+            fileId: f.id,
+            fileName: f.name,
+            amount: cached.amount,
+            confidence: cached.confidence,
+            status: cached.confidence < uncLowConfidenceThreshold ? "needs_review" : "matched",
+          });
+        }
+      }
+
+      // Process only UNCACHED UNC files via download + OCR
+      const uncResults = await processFileBatch(uncachedUncFiles, "unc");
       for (const r of uncResults) {
         if (!r) continue;
         uncItems.push({
@@ -594,10 +634,19 @@ export default function FinanceControl() {
         });
       }
 
-      // Process QTM files in parallel batches
-      const qtmResults = await processFileBatch(targetQtmFiles, "qtm");
+      // ── Inject cached QTM results ──
       let qtmTotal = 0;
       let qtmLowConfidence = 0;
+      for (const f of targetQtmFiles) {
+        const cached = ocrCache.get(f.id);
+        if (cached) {
+          qtmTotal += cached.amount;
+          if (cached.confidence < uncLowConfidenceThreshold) qtmLowConfidence += 1;
+        }
+      }
+
+      // Process only UNCACHED QTM files via download + OCR
+      const qtmResults = await processFileBatch(uncachedQtmFiles, "qtm");
       for (const r of qtmResults) {
         if (!r) continue;
         qtmTotal += r.amount;
@@ -632,20 +681,37 @@ export default function FinanceControl() {
       setQtmSpentFromFolder(Number(qtmTotal || 0));
       setQtmLowConfidenceCount(Number(qtmLowConfidence || 0));
 
-      // Persist processed markers right after reconciliation so next runs can skip quickly
-      // even when Drive index sync is delayed/unavailable.
+      // Persist processed markers + OCR amounts so next runs can reuse cached results
+      // instead of re-downloading + re-OCR-ing every file.
       const processedAt = new Date().toISOString();
-      const processedRows = [...targetUncFiles, ...targetQtmFiles].map((f: any) => ({
-        file_id: String(f.id),
-        file_name: String(f.name || f.id),
-        folder_date: autoDayFolderPath,
-        folder_type: "bank_slip",
-        mime_type: f?.mimeType || null,
-        parent_folder_id: null,
-        processed: true,
-        processed_at: processedAt,
-        last_seen_at: processedAt,
-      }));
+      const ocrAmountMap = new Map<string, { amount: number; confidence: number }>();
+      // Include fresh OCR results from this run
+      for (const r of uncResults) {
+        if (r) ocrAmountMap.set(r.fileId, { amount: r.amount, confidence: r.confidence });
+      }
+      for (const r of qtmResults) {
+        if (r) ocrAmountMap.set(r.fileId, { amount: r.amount, confidence: r.confidence });
+      }
+      // Also include previously cached results so upsert doesn't overwrite them with null
+      for (const [fileId, cached] of ocrCache.entries()) {
+        if (!ocrAmountMap.has(fileId)) ocrAmountMap.set(fileId, cached);
+      }
+      const processedRows = [...targetUncFiles, ...targetQtmFiles].map((f: any) => {
+        const ocr = ocrAmountMap.get(f.id);
+        return {
+          file_id: String(f.id),
+          file_name: String(f.name || f.id),
+          folder_date: autoDayFolderPath,
+          folder_type: "bank_slip",
+          mime_type: f?.mimeType || null,
+          parent_folder_id: null,
+          processed: true,
+          processed_at: processedAt,
+          last_seen_at: processedAt,
+          extracted_amount: ocr?.amount ?? null,
+          extraction_confidence: ocr?.confidence ?? null,
+        };
+      });
 
       if (processedRows.length > 0) {
         const { error: processedUpsertError } = await (supabase as any)
