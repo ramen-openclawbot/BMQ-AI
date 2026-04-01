@@ -992,18 +992,18 @@ export default function FinanceControl() {
     }
   };
 
-  const runReconcile = async (freshData?: { uncFolderTotal?: number; qtmFolderTotal?: number }) => {
+  const runReconcile = async (freshData?: { uncFolderTotal?: number; qtmFolderTotal?: number; uncDeclared?: number; qtmDeclared?: number }) => {
     setReconciling(true);
     try {
       // --- UNC reconciliation: exact match required (bank-automated, no tolerance) ---
       // freshData bypasses stale React state when called right after runFolderReconciliation
       const uncDetail = Number((freshData?.uncFolderTotal ?? uncReconSummary?.folderTotal ?? persistedFolderTotal ?? dailyReconciliation?.unc_detail_amount ?? uncDetailAmount) || 0);
-      const uncDeclared = Number((uncReconSummary?.ceoTotal ?? dailyReconciliation?.unc_declared_amount ?? uncTotalDeclared) || 0);
+      const uncDeclared = Number((freshData?.uncDeclared ?? uncReconSummary?.ceoTotal ?? dailyReconciliation?.unc_declared_amount ?? uncTotalDeclared) || 0);
       const uncVariance = uncDetail - uncDeclared;
       const uncStatus: "match" | "mismatch" = uncVariance === 0 ? "match" : "mismatch";
 
       // --- QTM reconciliation: underspend OK, overspend = mismatch ---
-      const qtmDeclared = Number(cashFundTopupAmount || 0);
+      const qtmDeclared = Number((freshData?.qtmDeclared ?? cashFundTopupAmount) || 0);
       const qtmSpent = Number((freshData?.qtmFolderTotal ?? qtmSpentFromFolder) || 0);
       const qtmVariance = qtmSpent - qtmDeclared; // positive = overspend
       // QTM: CEO total >= sum of slips → match (underspend OK); CEO total < sum of slips → mismatch (overspend)
@@ -1158,6 +1158,8 @@ export default function FinanceControl() {
       const result = await runReconcile({
         uncFolderTotal: folderScanResult.uncFolderTotal,
         qtmFolderTotal: folderScanResult.qtmFolderTotal,
+        uncDeclared: Number(uncTotalDeclared || 0),
+        qtmDeclared: Number(cashFundTopupAmount || 0),
       });
       if (!result) {
         throw new Error(isVi ? "Không thể hoàn tất đối soát UNC/QTM" : "Failed to complete reconciliation");
