@@ -8,7 +8,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-// Dialog removed — 1-click close flow uses inline progress instead
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -66,6 +73,15 @@ export default function FinanceControl() {
   const [qtmSpentFromFolder, setQtmSpentFromFolder] = useState<number>(0);
   const [qtmReconciling, setQtmReconciling] = useState(false);
   const [qtmLowConfidenceCount, setQtmLowConfidenceCount] = useState(0);
+  // Close dialog state
+  const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+  const [closeDialogStep, setCloseDialogStep] = useState<"preview" | "running" | "done">("preview");
+  const [previewUncFiles, setPreviewUncFiles] = useState<number>(0);
+  const [previewQtmFiles, setPreviewQtmFiles] = useState<number>(0);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [customFolderUrl, setCustomFolderUrl] = useState<string>("");
+  const [savedFolderUrl, setSavedFolderUrl] = useState<string>("");
+
   const [uncReconSummary, setUncReconSummary] = useState<{
     folderDate: string;
     folderTotal: number;
@@ -83,6 +99,17 @@ export default function FinanceControl() {
     const t = setTimeout(() => setDebouncedSelectedDate(selectedDate), 200);
     return () => clearTimeout(t);
   }, [selectedDate]);
+
+  // Load saved Drive folder URL on mount
+  useEffect(() => {
+    const loadSavedFolder = async () => {
+      const envUrl = import.meta.env.VITE_GOOGLE_DRIVE_RECEIPTS_FOLDER as string | undefined;
+      if (envUrl) { setSavedFolderUrl(envUrl); setCustomFolderUrl(envUrl); return; }
+      const { data } = await supabase.from("app_settings").select("value").eq("key", "google_drive_receipts_folder").single();
+      if (data?.value) { setSavedFolderUrl(String(data.value)); setCustomFolderUrl(String(data.value)); }
+    };
+    loadSavedFolder();
+  }, []);
 
   const {
     data: dailySnapshot,
@@ -658,7 +685,7 @@ export default function FinanceControl() {
       setReconcileError(msg);
       setReconcileProgress((prev) => ({ ...prev, currentFile: "" }));
       toast({ title: isVi ? "Lỗi đối soát trong ngày" : "Daily reconciliation error", description: msg, variant: "destructive" });
-      throw e; // Re-throw so handleOneClickClose stops
+      throw e; // Re-throw so executeClose stops
     } finally {
       setReconcilingFolderScan(false);
       setQtmReconciling(false);
@@ -960,7 +987,8 @@ export default function FinanceControl() {
     }
   };
 
-  const handleOneClickClose = async () => {
+  // Open close dialog → preview step (scan file list only, no OCR yet)
+  const openCloseDialog = async () => {
     if (closeApprovalLocked) {
       toast({
         title: isVi ? "Đã khoá" : "Already locked",
@@ -968,7 +996,69 @@ export default function FinanceControl() {
       });
       return;
     }
+    setCloseDialogOpen(true);
+    setCloseDialogStep("preview");
+    setReconcileError(null);
+    setPreviewUncFiles(0);
+    setPreviewQtmFiles(0);
 
+    // Quick preview: scan file list (no OCR, no download)
+    setPreviewLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const folderUrl = customFolderUrl || savedFolderUrl || await getUncRootFolderUrl();
+      const uncPath = `${autoDayFolderPath}/UNC`;
+      const qtmPath = `${autoDayFolderPath}/QTM`;
+
+      const scanPreview = async (path: string) => {
+        const resp = await fetchWithTimeout(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          },
+          body: JSON.stringify({ folderUrl, subfolderDate: path, includeBase64: false, skipProcessed: false }),
+        }, 20000);
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          return { files: [], error: err?.details || err?.error || `HTTP ${resp.status}` };
+        }
+        return await resp.json();
+      };
+
+      const [uncData, qtmData] = await Promise.all([scanPreview(uncPath), scanPreview(qtmPath)]);
+      setPreviewUncFiles(uncData?.totalFilesFound ?? uncData?.files?.length ?? 0);
+      setPreviewQtmFiles(qtmData?.totalFilesFound ?? qtmData?.files?.length ?? 0);
+
+      if (uncData?.error || qtmData?.error) {
+        const errors = [uncData?.error && `UNC: ${uncData.error}`, qtmData?.error && `QTM: ${qtmData.error}`].filter(Boolean).join(" | ");
+        setReconcileError(errors);
+      }
+    } catch (e: any) {
+      setReconcileError(e?.message || (isVi ? "Không thể kết nối Drive" : "Cannot connect to Drive"));
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  // Save custom folder URL to app_settings
+  const saveCustomFolderUrl = async () => {
+    if (!customFolderUrl.trim()) return;
+    try {
+      await (supabase as any).from("app_settings").upsert(
+        { key: "google_drive_receipts_folder", value: customFolderUrl.trim() },
+        { onConflict: "key" }
+      );
+      setSavedFolderUrl(customFolderUrl.trim());
+      toast({ title: isVi ? "Đã lưu" : "Saved", description: isVi ? "Thư mục mặc định đã cập nhật" : "Default folder updated" });
+    } catch (e: any) {
+      toast({ title: isVi ? "Lỗi" : "Error", description: e?.message, variant: "destructive" });
+    }
+  };
+
+  // Execute: save → scan → reconcile → lock → close
+  const executeClose = async () => {
+    setCloseDialogStep("running");
     setCloseActing(true);
     setReconcileError(null);
     try {
@@ -980,7 +1070,7 @@ export default function FinanceControl() {
       }
 
       // Step 2: Scan Drive folders (UNC + QTM)
-      setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 2/4: Quét thư mục UNC & QTM trên Drive..." : "Step 2/4: Scanning UNC & QTM folders on Drive..." });
+      setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 2/4: Quét & OCR bank slip..." : "Step 2/4: Scanning & OCR bank slips..." });
       await runFolderReconciliation();
 
       // Step 3: Run reconciliation
@@ -994,6 +1084,7 @@ export default function FinanceControl() {
       await saveReconciliationWorkflowMeta("approve", true);
 
       setReconcileProgress({ done: 0, total: 0, currentFile: "" });
+      setCloseDialogStep("done");
       toast({
         title: isVi ? "Đã duyệt & chốt ngày thành công" : "Day approved & closed successfully",
         description: result?.status === "match"
@@ -1004,7 +1095,7 @@ export default function FinanceControl() {
       await refetchDeclaration();
     } catch (e: any) {
       setReconcileError(e?.message || (isVi ? "Lỗi khi chốt ngày" : "Failed closing day"));
-      toast({ title: isVi ? "Lỗi" : "Error", description: e?.message || (isVi ? "Không thể chốt ngày" : "Failed closing day"), variant: "destructive" });
+      setCloseDialogStep("preview"); // Go back to preview so user can retry or change settings
     } finally {
       setCloseActing(false);
     }
@@ -1143,7 +1234,7 @@ export default function FinanceControl() {
                     size="lg"
                     className="bg-green-600 hover:bg-green-700 text-white text-base px-8"
                     disabled={closeActing || reconcilingFolderScan || reconciling || saving || extracting}
-                    onClick={handleOneClickClose}
+                    onClick={openCloseDialog}
                   >
                     <Lock className="h-5 w-5 mr-2" />
                     {isVi ? "Duyệt & Chốt ngày" : "Approve & Close Day"}
@@ -1151,86 +1242,35 @@ export default function FinanceControl() {
                 )}
               </div>
 
-              {/* Inline progress */}
-              {(closeActing || reconcilingFolderScan) && (
-                <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    <span className="animate-spin">⏳</span>
-                    {reconcileProgress.currentFile || (isVi ? "Đang xử lý..." : "Processing...")}
-                  </div>
-                  {reconcileProgress.total > 0 && (
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>{isVi ? "OCR bank slip" : "OCR bank slips"}: {reconcileProgress.done}/{reconcileProgress.total}</span>
-                        <span>{Math.round((reconcileProgress.done / reconcileProgress.total) * 100)}%</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-muted overflow-hidden">
-                        <div className="h-full bg-green-600 rounded-full transition-all duration-300" style={{ width: `${(reconcileProgress.done / reconcileProgress.total) * 100}%` }} />
-                      </div>
-                    </div>
-                  )}
+              {/* Last reconciliation result (compact) */}
+              {uncReconSummary && (
+                <div className="grid gap-2 grid-cols-2 md:grid-cols-4 text-sm">
+                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">UNC Drive</span><div className="font-semibold">{vnd(resolvedUncDetail)}</div></div>
+                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">UNC CEO</span><div className="font-semibold">{vnd(resolvedUncDeclared)}</div></div>
+                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">QTM Drive</span><div className="font-semibold">{vnd(qtmSpentFromFolder)}</div></div>
+                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">QTM CEO</span><div className="font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div></div>
                 </div>
               )}
 
-              {/* Error display */}
-              {reconcileError && !closeActing && (
-                <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-                  {reconcileError}
+              {/* Ghi chú + Audit log */}
+              <div className="flex gap-3 items-end">
+                <div className="flex-1 space-y-1">
+                  <Label className="text-xs">{isVi ? "Ghi chú" : "Notes"}</Label>
+                  <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={isVi ? "Tuỳ chọn" : "Optional"} disabled={closeApprovalLocked} className="text-sm" />
                 </div>
-              )}
-
-              {/* Reconciliation result summary (after scan) */}
-              {uncReconSummary && !closeActing && (
-                <div className="space-y-3">
-                  <div className="text-sm font-medium">{isVi ? "Kết quả đối soát" : "Reconciliation result"}</div>
-                  <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
-                    <div className="rounded-lg border p-3">
-                      <div className="text-xs text-muted-foreground">UNC Drive</div>
-                      <div className="font-semibold">{vnd(resolvedUncDetail)}</div>
+                {reconciliationAuditLogs.length > 0 && (
+                  <details className="text-xs shrink-0">
+                    <summary className="cursor-pointer text-muted-foreground">{isVi ? `Nhật ký (${reconciliationAuditLogs.length})` : `Log (${reconciliationAuditLogs.length})`}</summary>
+                    <div className="mt-1 space-y-1 max-h-32 overflow-auto">
+                      {reconciliationAuditLogs.slice().reverse().slice(0, 5).map((log, idx) => (
+                        <div key={`${log.at}-${idx}`} className="rounded border px-2 py-1">
+                          {new Date(log.at).toLocaleString("vi-VN")} — {log.action}
+                        </div>
+                      ))}
                     </div>
-                    <div className="rounded-lg border p-3">
-                      <div className="text-xs text-muted-foreground">{isVi ? "UNC khai báo" : "UNC declared"}</div>
-                      <div className="font-semibold">{vnd(resolvedUncDeclared)}</div>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <div className="text-xs text-muted-foreground">QTM Drive</div>
-                      <div className="font-semibold">{vnd(qtmSpentFromFolder)}</div>
-                    </div>
-                    <div className="rounded-lg border p-3">
-                      <div className="text-xs text-muted-foreground">{isVi ? "QTM khai báo" : "QTM declared"}</div>
-                      <div className="font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-muted-foreground">{isVi ? "Files:" : "Files:"}</span>
-                    <span>{isVi ? `UNC ${uncReconSummary.totalScannedCount} file` : `UNC ${uncReconSummary.totalScannedCount} files`}</span>
-                    {uncReconSummary.lowConfidenceCount > 0 && (
-                      <Badge variant="secondary" className="text-xs">{uncReconSummary.lowConfidenceCount} {isVi ? "cần xem lại" : "need review"}</Badge>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Ghi chú */}
-              <div className="space-y-1">
-                <Label className="text-xs">{isVi ? "Ghi chú" : "Notes"}</Label>
-                <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={isVi ? "Tuỳ chọn" : "Optional"} disabled={closeApprovalLocked} className="text-sm" />
+                  </details>
+                )}
               </div>
-
-              {/* Audit log (collapsed by default) */}
-              {reconciliationAuditLogs.length > 0 && (
-                <details className="text-sm">
-                  <summary className="cursor-pointer text-muted-foreground hover:text-foreground">{isVi ? `Nhật ký (${reconciliationAuditLogs.length})` : `Audit log (${reconciliationAuditLogs.length})`}</summary>
-                  <div className="mt-2 space-y-1">
-                    {reconciliationAuditLogs.slice().reverse().slice(0, 5).map((log, idx) => (
-                      <div key={`${log.at}-${idx}`} className="rounded border px-3 py-1.5 text-xs">
-                        <span className="font-medium">{new Date(log.at).toLocaleString("vi-VN")}</span>
-                        <span className="text-muted-foreground"> {log.action}{log.detail ? ` — ${log.detail}` : ""}</span>
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -1281,6 +1321,157 @@ export default function FinanceControl() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Close Dialog: preview → folder picker → execute */}
+      <Dialog open={closeDialogOpen} onOpenChange={(open) => { if (!closeActing) setCloseDialogOpen(open); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{isVi ? "Duyệt & Chốt ngày" : "Approve & Close Day"}</DialogTitle>
+            <DialogDescription>
+              {format(selectedDate, "dd/MM/yyyy")} — {isVi ? "Kiểm tra thông tin trước khi thực hiện" : "Review before executing"}
+            </DialogDescription>
+          </DialogHeader>
+
+          {closeDialogStep === "preview" && (
+            <div className="space-y-4">
+              {/* Folder URL config */}
+              <div className="space-y-2">
+                <Label className="text-sm">{isVi ? "Thư mục gốc Google Drive" : "Google Drive root folder"}</Label>
+                <div className="flex gap-2">
+                  <Input
+                    className="text-xs"
+                    value={customFolderUrl}
+                    onChange={(e) => setCustomFolderUrl(e.target.value)}
+                    placeholder="https://drive.google.com/drive/folders/..."
+                  />
+                  {customFolderUrl !== savedFolderUrl && customFolderUrl.trim() && (
+                    <Button variant="outline" size="sm" onClick={saveCustomFolderUrl}>
+                      {isVi ? "Lưu" : "Save"}
+                    </Button>
+                  )}
+                </div>
+                {savedFolderUrl && customFolderUrl === savedFolderUrl && (
+                  <div className="text-xs text-green-600">{isVi ? "Đã lưu mặc định" : "Saved as default"}</div>
+                )}
+              </div>
+
+              {/* Scan paths */}
+              <div className="rounded border p-3 space-y-2 text-sm">
+                <div className="font-medium">{isVi ? "Đường dẫn quét" : "Scan paths"}</div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">UNC</Badge>
+                  <code className="text-xs">{autoDayFolderPath}/UNC</code>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">QTM</Badge>
+                  <code className="text-xs">{autoDayFolderPath}/QTM</code>
+                </div>
+              </div>
+
+              {/* Preview results */}
+              <div className="rounded border p-3 space-y-2">
+                <div className="text-sm font-medium">{isVi ? "Kết quả quét nhanh" : "Quick scan result"}</div>
+                {previewLoading ? (
+                  <div className="text-sm text-muted-foreground animate-pulse">{isVi ? "Đang quét danh sách file..." : "Scanning file list..."}</div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded bg-muted/50 p-2 text-center">
+                      <div className="text-2xl font-bold">{previewUncFiles}</div>
+                      <div className="text-xs text-muted-foreground">{isVi ? "file UNC" : "UNC files"}</div>
+                    </div>
+                    <div className="rounded bg-muted/50 p-2 text-center">
+                      <div className="text-2xl font-bold">{previewQtmFiles}</div>
+                      <div className="text-xs text-muted-foreground">{isVi ? "file QTM" : "QTM files"}</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* CEO declared summary */}
+              <div className="rounded border p-3 space-y-1 text-sm">
+                <div className="font-medium">{isVi ? "CEO đã khai báo" : "CEO declared"}</div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">UNC:</span>
+                  <span className="font-semibold">{vnd(Number(uncTotalDeclared || 0))}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">QTM:</span>
+                  <span className="font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</span>
+                </div>
+              </div>
+
+              {/* Error */}
+              {reconcileError && (
+                <div className="rounded border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                  {reconcileError}
+                </div>
+              )}
+            </div>
+          )}
+
+          {closeDialogStep === "running" && (
+            <div className="space-y-4 py-4">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <span className="animate-spin text-lg">⏳</span>
+                {reconcileProgress.currentFile || (isVi ? "Đang xử lý..." : "Processing...")}
+              </div>
+              {reconcileProgress.total > 0 && (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>OCR: {reconcileProgress.done}/{reconcileProgress.total}</span>
+                    <span>{Math.round((reconcileProgress.done / reconcileProgress.total) * 100)}%</span>
+                  </div>
+                  <div className="h-2.5 rounded-full bg-muted overflow-hidden">
+                    <div className="h-full bg-green-600 rounded-full transition-all duration-300" style={{ width: `${(reconcileProgress.done / reconcileProgress.total) * 100}%` }} />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {closeDialogStep === "done" && (
+            <div className="space-y-4 py-4">
+              <div className="flex items-center gap-2 text-green-700">
+                <Lock className="h-5 w-5" />
+                <span className="text-lg font-semibold">{isVi ? "Đã chốt ngày thành công" : "Day closed successfully"}</span>
+              </div>
+              {uncReconSummary && (
+                <div className="grid gap-2 grid-cols-2 text-sm">
+                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">UNC Drive</span><div className="font-semibold">{vnd(resolvedUncDetail)}</div></div>
+                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">UNC CEO</span><div className="font-semibold">{vnd(resolvedUncDeclared)}</div></div>
+                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">QTM Drive</span><div className="font-semibold">{vnd(qtmSpentFromFolder)}</div></div>
+                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">QTM CEO</span><div className="font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div></div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            {closeDialogStep === "preview" && (
+              <div className="flex gap-2 w-full justify-end">
+                <Button variant="outline" onClick={() => setCloseDialogOpen(false)}>{isVi ? "Huỷ" : "Cancel"}</Button>
+                <Button variant="outline" size="sm" onClick={openCloseDialog} disabled={previewLoading}>
+                  {isVi ? "Quét lại" : "Re-scan"}
+                </Button>
+                <Button
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                  disabled={previewLoading || (previewUncFiles === 0 && previewQtmFiles === 0 && !reconcileError)}
+                  onClick={executeClose}
+                >
+                  <Lock className="h-4 w-4 mr-2" />
+                  {isVi ? "Thực hiện" : "Execute"}
+                </Button>
+              </div>
+            )}
+            {closeDialogStep === "running" && (
+              <div className="text-xs text-muted-foreground">{isVi ? "Vui lòng không đóng cửa sổ..." : "Please don't close this window..."}</div>
+            )}
+            {closeDialogStep === "done" && (
+              <Button onClick={() => setCloseDialogOpen(false)}>{isVi ? "Đóng" : "Close"}</Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
