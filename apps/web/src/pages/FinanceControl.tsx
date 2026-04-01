@@ -1550,12 +1550,12 @@ export default function FinanceControl() {
                 <Lock className="h-5 w-5" />
                 <span className="text-lg font-semibold">{isVi ? "Đã chốt ngày thành công" : "Day closed successfully"}</span>
               </div>
-              {(closeResultSnapshot || uncReconSummary) && (
+              {closeResultSnapshot && (
                 <div className="grid gap-2 grid-cols-2 text-sm">
-                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">UNC Drive</span><div className="font-semibold">{vnd(Number(closeResultSnapshot?.uncDrive ?? resolvedUncDetail))}</div></div>
-                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">UNC CEO</span><div className="font-semibold">{vnd(Number(closeResultSnapshot?.uncCEO ?? resolvedUncDeclared))}</div></div>
-                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">QTM Drive</span><div className="font-semibold">{vnd(Number(closeResultSnapshot?.qtmDrive ?? qtmSpentFromFolder))}</div></div>
-                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">QTM CEO</span><div className="font-semibold">{vnd(Number((closeResultSnapshot?.qtmCEO ?? cashFundTopupAmount) || 0))}</div></div>
+                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">UNC Drive</span><div className="font-semibold">{vnd(closeResultSnapshot.uncDrive)}</div></div>
+                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">UNC CEO</span><div className="font-semibold">{vnd(closeResultSnapshot.uncCEO)}</div></div>
+                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">QTM Drive</span><div className="font-semibold">{vnd(closeResultSnapshot.qtmDrive)}</div></div>
+                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">QTM CEO</span><div className="font-semibold">{vnd(closeResultSnapshot.qtmCEO)}</div></div>
                 </div>
               )}
             </div>
