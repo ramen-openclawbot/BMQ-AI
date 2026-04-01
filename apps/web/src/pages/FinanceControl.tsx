@@ -570,6 +570,7 @@ export default function FinanceControl() {
       setReconcileProgress({ done: 0, total: totalTargets, currentFile: "" });
 
       const uncItems: Array<{ fileId: string; fileName: string; amount: number; confidence: number; status: "matched" | "mismatch" | "needs_review" }> = [];
+      const ocrErrors: string[] = [];
       let progressDone = 0;
 
       // ── Parallel batch processing (5 files at a time) ──────────
@@ -586,20 +587,32 @@ export default function FinanceControl() {
           const batchResults = await Promise.allSettled(
             batch.map(async (file) => {
               const downloaded = await downloadBase64File(file);
-              if (!downloaded?.base64) return null;
+              if (!downloaded?.base64) throw new Error(`Không tải được file ${String(file?.name || file?.id || "")}`);
               const extracted = await extractSlipAmountFromBase64(downloaded.base64, downloaded.mimeType || file.mimeType || "image/jpeg", slipType);
+              const amount = Number(extracted?.amount || 0);
+              const confidence = Number(extracted?.confidence || 0);
+              if (!(amount > 0)) {
+                throw new Error(`OCR trả về số tiền = 0 cho file ${String(file?.name || file?.id || "")}`);
+              }
               return {
                 fileId: file.id,
                 fileName: file.name,
-                amount: Number(extracted?.amount || 0),
-                confidence: Number(extracted?.confidence || 0),
+                amount,
+                confidence,
               };
             })
           );
-          for (const r of batchResults) {
-            results.push(r.status === "fulfilled" ? r.value : null);
+          batchResults.forEach((r, idx) => {
+            if (r.status === "fulfilled") {
+              results.push(r.value);
+            } else {
+              const file = batch[idx];
+              const reason = r.reason instanceof Error ? r.reason.message : String(r.reason || "OCR failed");
+              ocrErrors.push(`${slipType.toUpperCase()}: ${String(file?.name || file?.id || "unknown")}: ${reason}`);
+              results.push(null);
+            }
             progressDone += 1;
-          }
+          });
         }
         return results;
       };
@@ -625,6 +638,12 @@ export default function FinanceControl() {
       }
 
       const folderTotal = uncItems.reduce((sum, x) => sum + x.amount, 0);
+      if ((targetUncFiles.length + targetQtmFiles.length) > 0 && uncItems.length === 0 && qtmTotal === 0) {
+        const preview = ocrErrors.slice(0, 6).join(" | ");
+        throw new Error(isVi
+          ? `Drive đã thấy file nhưng OCR không đọc được số tiền. ${preview || "Vui lòng kiểm tra format bank slip hoặc edge function finance-extract-slip-amount."}`
+          : `Drive found files but OCR could not extract amounts. ${preview || "Please verify bank slip format or finance-extract-slip-amount."}`);
+      }
       const ceoTotal = Number(uncTotalDeclared || 0);
       const delta = folderTotal - ceoTotal;
       const status: "match" | "mismatch" = delta === 0 ? "match" : "mismatch";
@@ -712,8 +731,8 @@ export default function FinanceControl() {
       toast({
         title: isVi ? "Đã đối soát trong ngày" : "Daily reconciliation completed",
         description: isVi
-          ? `Đã quét UNC (${uncTotalScannedCount} file) + QTM (${qtmTotalScannedCount} file) theo ngày ${format(selectedDate, "dd/MM/yyyy")}`
-          : `Scanned UNC (${uncTotalScannedCount} files) + QTM (${qtmTotalScannedCount} files) for ${format(selectedDate, "dd/MM/yyyy")}`,
+          ? `Đã quét UNC (${uncTotalScannedCount} file) + QTM (${qtmTotalScannedCount} file) theo ngày ${format(selectedDate, "dd/MM/yyyy")}${ocrErrors.length ? `. OCR lỗi: ${ocrErrors.length} file` : ""}`
+          : `Scanned UNC (${uncTotalScannedCount} files) + QTM (${qtmTotalScannedCount} files) for ${format(selectedDate, "dd/MM/yyyy")}${ocrErrors.length ? `. OCR failed on ${ocrErrors.length} file(s)` : ""}`,
       });
 
       return {

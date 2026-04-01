@@ -48,9 +48,24 @@ serve(async (req) => {
       return jsonResponse({ error: "OPENAI_API_KEY missing" }, 503, getCorsHeaders(req));
     }
 
-    const system = `You extract transfer amount from Vietnamese bank slips.\nReturn only JSON via tool with fields:\n- amount: STRING — the exact amount as shown on the slip, preserving dots and commas. Example: "41.006.300,00" or "41.006.300". Do NOT convert to a plain number. In Vietnamese format, dots (.) are thousands separators and commas (,) are decimal separators.\n- transfer_date: string | null (YYYY-MM-DD if found)\n- reference: string | null\n- confidence: number (0..1)\n- notes: string | null\n\nRules:\n- amount MUST be a string preserving the original formatting from the image. Do NOT reorder digits or remove separators.\n- Cross-check amount with the "Bằng chữ / In Words" line if visible on the slip.\n- Amount must be the final transfer amount, not account number.\n- If uncertain, still return best guess and lower confidence.`;
+    const system = `You extract transfer amount from Vietnamese bank slips.
+Return only JSON via tool with fields:
+- amount: STRING — the exact amount as shown on the slip, preserving dots and commas. Example: "41.006.300,00" or "41.006.300". Do NOT convert to a plain number. In Vietnamese format, dots (.) are thousands separators and commas (,) are decimal separators.
+- transfer_date: string | null (YYYY-MM-DD if found)
+- reference: string | null
+- confidence: number (0..1)
+- notes: string | null
 
-    const userText = `Slip type: ${slipType || "unknown"}. Extract transfer amount.`;
+Rules:
+- Read the actual transferred amount / paid amount from the slip.
+- Prioritize fields such as: "Số tiền", "Số tiền chuyển", "Giá trị giao dịch", "Amount", "Credit amount", "Debit amount", "Số tiền ghi nợ", "Số tiền ghi có".
+- NEVER return account number, transaction id, phone number, OTP, timestamp, or balance as amount.
+- amount MUST be a string preserving the original formatting from the image. Do NOT reorder digits or remove separators.
+- Cross-check amount with the "Bằng chữ / In Words" line if visible on the slip.
+- If there are multiple numbers, choose the final transfer amount that matches the payment transaction itself.
+- If uncertain, still return best guess and lower confidence with notes.`;
+
+    const userText = `Slip type: ${slipType || "unknown"}. Extract the transferred amount from this Vietnamese bank slip. Focus on the actual payment value, not account number or running balance.`;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 45000);
@@ -61,7 +76,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: "gpt-4.1",
         messages: [
           { role: "system", content: system },
           {
