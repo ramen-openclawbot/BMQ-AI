@@ -9,20 +9,64 @@ const jsonResponse = (body: unknown, status = 200, corsHeaders?: Record<string, 
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
-/** Parse Vietnamese-formatted amount string to number.
- *  "41.006.300,00" → 41006300  |  "41.006.300" → 41006300
- *  Handles: dots as thousands sep, comma as decimal sep. */
+/** Parse common VN/EN bank-slip amount strings to number.
+ *  Examples:
+ *  - "41.006.300,00" -> 41006300
+ *  - "41.006.300" -> 41006300
+ *  - "2,700,000 VND" -> 2700000
+ *  - "2.700.000 VND" -> 2700000
+ */
 const parseAmountVN = (v: unknown): number | null => {
-  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "number") return Number.isFinite(v) && v > 0 ? v : null;
   const raw = String(v ?? "").trim();
   if (!raw) return null;
-  const normalized = raw
-    .replace(/\s+/g, "")
-    .replace(/\.(?=\d{3}(\D|$))/g, "")
-    .replace(/,/g, ".")
-    .replace(/[^0-9.-]/g, "");
+
+  const cleaned = raw.replace(/\s+/g, "").replace(/[^0-9,.-]/g, "");
+  if (!cleaned) return null;
+
+  const commaCount = (cleaned.match(/,/g) || []).length;
+  const dotCount = (cleaned.match(/\./g) || []).length;
+
+  let normalized = cleaned;
+
+  if (commaCount > 0 && dotCount > 0) {
+    const lastComma = cleaned.lastIndexOf(",");
+    const lastDot = cleaned.lastIndexOf(".");
+    if (lastComma > lastDot) {
+      // 41.006.300,00 -> decimal comma, thousand dots
+      normalized = cleaned.replace(/\./g, "").replace(/,/g, ".");
+    } else {
+      // 41,006,300.00 -> decimal dot, thousand commas
+      normalized = cleaned.replace(/,/g, "");
+    }
+  } else if (commaCount > 0) {
+    if (/^\d{1,3}(,\d{3})+(,\d{2})?$/.test(cleaned)) {
+      // 2,700,000 or 2,700,000,00 -> treat commas as thousands separators
+      const parts = cleaned.split(",");
+      const maybeDecimal = parts[parts.length - 1];
+      if (maybeDecimal.length === 2 && parts.length > 1) {
+        normalized = parts.slice(0, -1).join("") + "." + maybeDecimal;
+      } else {
+        normalized = cleaned.replace(/,/g, "");
+      }
+    } else {
+      // 2700000,00 -> decimal comma
+      normalized = cleaned.replace(/,/g, ".");
+    }
+  } else if (dotCount > 0) {
+    if (/^\d{1,3}(\.\d{3})+(\.\d{2})?$/.test(cleaned)) {
+      const parts = cleaned.split(".");
+      const maybeDecimal = parts[parts.length - 1];
+      if (maybeDecimal.length === 2 && parts.length > 1) {
+        normalized = parts.slice(0, -1).join("") + "." + maybeDecimal;
+      } else {
+        normalized = cleaned.replace(/\./g, "");
+      }
+    }
+  }
+
   const n = Number(normalized);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
 };
 
 serve(async (req) => {
