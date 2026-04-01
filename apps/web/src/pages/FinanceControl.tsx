@@ -81,11 +81,6 @@ export default function FinanceControl() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [uncPathTemplate, setUncPathTemplate] = useState("yyyy/MM/dd/UNC");
   const [qtmPathTemplate, setQtmPathTemplate] = useState("yyyy/MM/dd/QTM");
-  const [browsingPath, setBrowsingPath] = useState<string[]>([]);
-  const [childFolders, setChildFolders] = useState<Array<{ name: string; folderId: string; imageCount: number; hasChildren: boolean; childFolderCount: number }>>([]);
-  const [browsingLoading, setBrowsingLoading] = useState(false);
-  const [browseError, setBrowseError] = useState<string | null>(null);
-  const [currentBrowseFolderId, setCurrentBrowseFolderId] = useState<string>("");
   // Folder browser state
 
   const [uncReconSummary, setUncReconSummary] = useState<{
@@ -1039,42 +1034,6 @@ export default function FinanceControl() {
     }
   };
 
-  const browseDebugFolder = async (pathSegments: string[] = []) => {
-    setBrowsingLoading(true);
-    setBrowseError(null);
-    try {
-      const session = await getFreshSession();
-      if (!session?.access_token) throw new Error(isVi ? "Chưa đăng nhập" : "Not logged in");
-      const folderUrl = await getUncRootFolderUrl();
-      const parentPath = pathSegments.join("/");
-      const resp = await fetchWithTimeout(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ folderUrl, mode: "list_children", parentPath }),
-      }, 20000);
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err?.details || err?.error || `HTTP ${resp.status}`);
-      }
-      const data = await resp.json();
-      setBrowsingPath(pathSegments);
-      setCurrentBrowseFolderId(String(data?.currentFolderId || ""));
-      setChildFolders(Array.isArray(data?.folders) ? data.folders : []);
-      if (!(data?.folders || []).length) {
-        setBrowseError(isVi ? `Không có thư mục con tại "${parentPath || "root"}"` : `No subfolders at "${parentPath || "root"}"`);
-      }
-    } catch (e: any) {
-      setBrowseError(e?.message || (isVi ? "Không thể duyệt thư mục" : "Cannot browse folder"));
-      setChildFolders([]);
-    } finally {
-      setBrowsingLoading(false);
-    }
-  };
-
   // Open close dialog → preview step (scan file list only, no OCR yet)
   const openCloseDialog = async () => {
     if (closeApprovalLocked) {
@@ -1090,11 +1049,6 @@ export default function FinanceControl() {
     setPreviewUncFiles(0);
     setPreviewQtmFiles(0);
     setPreviewLoading(true);
-    setBrowsingPath([]);
-    setChildFolders([]);
-    setBrowseError(null);
-    setCurrentBrowseFolderId("");
-    browseDebugFolder([]);
     try {
       const session = await getFreshSession();
       const folderUrl = await getUncRootFolderUrl();
@@ -1443,42 +1397,6 @@ export default function FinanceControl() {
 
           {closeDialogStep === "preview" && (
             <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
-              {/* Debug folder browser */}
-              <div className="rounded border p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-medium">{isVi ? "Browser thư mục gốc (debug)" : "Root folder browser (debug)"}</div>
-                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => browseDebugFolder(browsingPath)} disabled={browsingLoading}>
-                    {browsingLoading ? (isVi ? "Đang tải..." : "Loading...") : (isVi ? "Tải lại" : "Reload")}
-                  </Button>
-                </div>
-                <div className="flex items-center gap-1 text-xs flex-wrap">
-                  <button className="text-blue-600 hover:underline font-medium" onClick={() => browseDebugFolder([])} disabled={browsingLoading}>{isVi ? "Gốc" : "Root"}</button>
-                  {browsingPath.map((seg, i) => (
-                    <span key={i} className="flex items-center gap-1">
-                      <span className="text-muted-foreground">/</span>
-                      <button className="text-blue-600 hover:underline" onClick={() => browseDebugFolder(browsingPath.slice(0, i + 1))} disabled={browsingLoading}>{seg}</button>
-                    </span>
-                  ))}
-                </div>
-                {currentBrowseFolderId && (
-                  <div className="text-[11px] text-muted-foreground">Folder ID: <code className="bg-muted px-1 rounded">{currentBrowseFolderId}</code></div>
-                )}
-                {browseError && <div className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300">{browseError}</div>}
-                <div className="max-h-48 overflow-auto rounded border">
-                  {childFolders.length > 0 ? childFolders.map((f) => (
-                    <button key={`${f.folderId}-${f.name}`} className="flex w-full items-center justify-between gap-3 border-b px-3 py-2 text-left last:border-b-0 hover:bg-muted/40" onClick={() => browseDebugFolder([...browsingPath, f.name])}>
-                      <div>
-                        <div className="text-sm font-medium">{f.name}</div>
-                        <div className="text-[11px] text-muted-foreground">{f.childFolderCount} {isVi ? "thư mục con" : "child folders"} • {f.imageCount} {isVi ? "ảnh trực tiếp" : "direct images"}</div>
-                      </div>
-                      <span className="text-xs text-muted-foreground">→</span>
-                    </button>
-                  )) : (
-                    <div className="px-3 py-4 text-xs text-muted-foreground">{browsingLoading ? (isVi ? "Đang tải..." : "Loading...") : (isVi ? "Không có thư mục con để hiển thị" : "No child folders to display")}</div>
-                  )}
-                </div>
-              </div>
-
               {/* Planned scan paths */}
               <div className="rounded border p-3 space-y-2">
                 <div className="text-sm font-medium">{isVi ? "Đường dẫn sẽ quét" : "Planned scan paths"}</div>
