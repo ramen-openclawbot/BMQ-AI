@@ -653,7 +653,7 @@ export default function FinanceControl() {
         }
       }
 
-      setUncReconSummary({
+      const uncSummary = {
         folderDate: uncPath,
         folderTotal,
         ceoTotal,
@@ -664,7 +664,8 @@ export default function FinanceControl() {
         totalScannedCount: uncTotalScannedCount,
         processedSkippedCount,
         items: finalItems,
-      });
+      };
+      setUncReconSummary(uncSummary);
 
       await (supabase as any)
         .from("ceo_daily_closing_declarations")
@@ -703,6 +704,16 @@ export default function FinanceControl() {
           ? `Đã quét UNC (${uncTotalScannedCount} file) + QTM (${qtmTotalScannedCount} file) theo ngày ${format(selectedDate, "dd/MM/yyyy")}`
           : `Scanned UNC (${uncTotalScannedCount} files) + QTM (${qtmTotalScannedCount} files) for ${format(selectedDate, "dd/MM/yyyy")}`,
       });
+
+      return {
+        uncPath,
+        qtmPath,
+        uncTotalScannedCount,
+        qtmTotalScannedCount,
+        uncFolderTotal: Number(folderTotal || 0),
+        qtmFolderTotal: Number(qtmTotal || 0),
+        uncSummary,
+      };
 
     } catch (e: any) {
       const msg = e?.message || (isVi ? "Không thể đối soát UNC/QTM theo ngày" : "Failed reconciling UNC/QTM by date");
@@ -1176,12 +1187,41 @@ export default function FinanceControl() {
 
       // Step 2: Scan Drive folders (UNC + QTM)
       setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 2/4: Quét & OCR bank slip..." : "Step 2/4: Scanning & OCR bank slips..." });
-      await runFolderReconciliation();
+      const folderScanResult = await runFolderReconciliation();
+      if (!folderScanResult) {
+        throw new Error(isVi ? "Không nhận được kết quả quét thư mục Drive" : "Missing Drive scan result");
+      }
+
+      const hasDeclaredUnc = Number(uncTotalDeclared || 0) > 0;
+      const hasDeclaredQtm = Number(cashFundTopupAmount || 0) > 0;
+      if (hasDeclaredUnc && folderScanResult.uncTotalScannedCount === 0) {
+        throw new Error(isVi
+          ? `Không thể chốt ngày: UNC đã khai báo ${vnd(Number(uncTotalDeclared || 0))} nhưng thư mục Drive UNC không quét được file nào (${folderScanResult.uncPath}).`
+          : `Cannot close day: UNC was declared but Drive UNC scan returned 0 files (${folderScanResult.uncPath}).`);
+      }
+      if (hasDeclaredQtm && folderScanResult.qtmTotalScannedCount === 0) {
+        throw new Error(isVi
+          ? `Không thể chốt ngày: QTM đã khai báo ${vnd(Number(cashFundTopupAmount || 0))} nhưng thư mục Drive QTM không quét được file nào (${folderScanResult.qtmPath}).`
+          : `Cannot close day: QTM was declared but Drive QTM scan returned 0 files (${folderScanResult.qtmPath}).`);
+      }
+      if ((hasDeclaredUnc && Number(folderScanResult.uncFolderTotal || 0) === 0) || (hasDeclaredQtm && Number(folderScanResult.qtmFolderTotal || 0) === 0)) {
+        throw new Error(isVi
+          ? "Không thể chốt ngày: có bank slip đã khai báo nhưng tổng tiền quét từ Drive vẫn bằng 0. Vui lòng kiểm tra lại thư mục đang lưu hoặc kết quả OCR."
+          : "Cannot close day: declared bank slips exist but Drive scanned total is still 0. Please verify the saved folder or OCR results.");
+      }
 
       // Step 3: Run reconciliation
       setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 3/4: Đối soát UNC & QTM..." : "Step 3/4: Reconciling UNC & QTM..." });
       await refetchUncDetail();
       const result = await runReconcile();
+      if (!result) {
+        throw new Error(isVi ? "Không thể hoàn tất đối soát UNC/QTM" : "Failed to complete reconciliation");
+      }
+      if (result.status !== "match" || Number(result.uncVariance || 0) !== 0 || Number(result.qtmVariance || 0) > 0) {
+        throw new Error(isVi
+          ? "Không thể chốt ngày vì UNC/QTM còn chênh lệch. Vui lòng xử lý xong mismatch trước khi chốt."
+          : "Cannot close day while UNC/QTM reconciliation is mismatched.");
+      }
 
       // Step 4: Lock & close
       setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 4/4: Khoá & chốt ngày..." : "Step 4/4: Locking & closing..." });
@@ -1622,7 +1662,7 @@ export default function FinanceControl() {
                 </Button>
                 <Button
                   className="bg-green-600 hover:bg-green-700 text-white"
-                  disabled={previewLoading || (previewUncFiles === 0 && previewQtmFiles === 0 && !reconcileError)}
+                  disabled={previewLoading || closeActing || previewUncFiles === 0 || previewQtmFiles === 0 || !!reconcileError}
                   onClick={executeClose}
                 >
                   <Lock className="h-4 w-4 mr-2" />
