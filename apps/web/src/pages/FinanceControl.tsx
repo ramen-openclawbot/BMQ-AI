@@ -605,11 +605,18 @@ export default function FinanceControl() {
       }
 
       const folderTotal = uncItems.reduce((sum, x) => sum + x.amount, 0);
-      if ((targetUncFiles.length + targetQtmFiles.length) > 0 && uncItems.length === 0 && qtmTotal === 0) {
-        const preview = ocrErrors.slice(0, 6).join(" | ");
+      const uncOcrFailedHard = targetUncFiles.length > 0 && uncItems.length === 0;
+      const qtmOcrFailedHard = targetQtmFiles.length > 0 && qtmTotal === 0;
+      if (uncOcrFailedHard || qtmOcrFailedHard) {
+        const preview = ocrErrors.slice(0, 8).join(" | ");
+        const scope = uncOcrFailedHard && qtmOcrFailedHard
+          ? (isVi ? "UNC và QTM" : "UNC and QTM")
+          : uncOcrFailedHard
+            ? "UNC"
+            : "QTM";
         throw new Error(isVi
-          ? `Drive đã thấy file nhưng OCR không đọc được số tiền. ${preview || "Vui lòng kiểm tra format bank slip hoặc edge function finance-extract-slip-amount."}`
-          : `Drive found files but OCR could not extract amounts. ${preview || "Please verify bank slip format or finance-extract-slip-amount."}`);
+          ? `${scope}: Drive đã thấy file nhưng OCR không đọc được số tiền. ${preview || "Vui lòng kiểm tra format bank slip hoặc edge function finance-extract-slip-amount."}`
+          : `${scope}: Drive found files but OCR could not extract amounts. ${preview || "Please verify bank slip format or finance-extract-slip-amount."}`);
       }
       const ceoTotal = Number(uncTotalDeclared || 0);
       const delta = folderTotal - ceoTotal;
