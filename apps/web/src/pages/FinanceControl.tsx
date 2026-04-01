@@ -284,7 +284,8 @@ export default function FinanceControl() {
   const hasDeclaredUnc = Number(uncTotalDeclared || 0) > 0;
   const hasDeclaredQtm = Number(cashFundTopupAmount || 0) > 0;
   const missingRequiredPreview = (hasDeclaredUnc && previewUncFiles === 0) || (hasDeclaredQtm && previewQtmFiles === 0);
-  const qtmClosingBalance = Number(qtmOpeningBalance || 0) + Number(cashFundTopupAmount || 0) - Number(qtmSpentFromFolder || 0);
+  const resolvedQtmDrive = Number((closeResultSnapshot?.qtmDrive ?? dailyDeclaration?.extraction_meta?.qtm_spent_from_folder ?? qtmSpentFromFolder) || 0);
+  const qtmClosingBalance = Number(qtmOpeningBalance || 0) + Number(cashFundTopupAmount || 0) - resolvedQtmDrive;
   const qtmNegative = qtmClosingBalance < 0;
 
   useEffect(() => {
@@ -1376,7 +1377,7 @@ export default function FinanceControl() {
                 <div className="grid gap-2 grid-cols-2 md:grid-cols-4 text-sm">
                   <div className="rounded border p-2"><span className="text-xs text-muted-foreground">UNC Drive</span><div className="font-semibold">{vnd(resolvedUncDetail)}</div></div>
                   <div className="rounded border p-2"><span className="text-xs text-muted-foreground">UNC CEO</span><div className="font-semibold">{vnd(resolvedUncDeclared)}</div></div>
-                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">QTM Drive</span><div className="font-semibold">{vnd(qtmSpentFromFolder)}</div></div>
+                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">QTM Drive</span><div className="font-semibold">{vnd(resolvedQtmDrive)}</div></div>
                   <div className="rounded border p-2"><span className="text-xs text-muted-foreground">QTM CEO</span><div className="font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div></div>
                 </div>
               )}
