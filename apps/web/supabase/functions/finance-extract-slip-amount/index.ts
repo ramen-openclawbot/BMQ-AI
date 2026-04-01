@@ -33,35 +33,31 @@ const parseAmountVN = (v: unknown): number | null => {
     const lastComma = cleaned.lastIndexOf(",");
     const lastDot = cleaned.lastIndexOf(".");
     if (lastComma > lastDot) {
-      // 41.006.300,00 -> decimal comma, thousand dots
-      normalized = cleaned.replace(/\./g, "").replace(/,/g, ".");
+      normalized = cleaned.replace(/\./g, "").replace(/,(?=\d{2}$)/, ".").replace(/,/g, "");
     } else {
-      // 41,006,300.00 -> decimal dot, thousand commas
       normalized = cleaned.replace(/,/g, "");
     }
   } else if (commaCount > 0) {
-    if (/^\d{1,3}(,\d{3})+(,\d{2})?$/.test(cleaned)) {
-      // 2,700,000 or 2,700,000,00 -> treat commas as thousands separators
-      const parts = cleaned.split(",");
-      const maybeDecimal = parts[parts.length - 1];
-      if (maybeDecimal.length === 2 && parts.length > 1) {
-        normalized = parts.slice(0, -1).join("") + "." + maybeDecimal;
-      } else {
-        normalized = cleaned.replace(/,/g, "");
-      }
-    } else {
-      // 2700000,00 -> decimal comma
+    const parts = cleaned.split(",");
+    const tail = parts[parts.length - 1] || "";
+    if (parts.length > 2 || (parts.length > 1 && tail.length === 3)) {
+      // 2,700,000 or 47,361,940
+      normalized = cleaned.replace(/,/g, "");
+    } else if (tail.length === 2) {
+      // 123,45 decimal comma
       normalized = cleaned.replace(/,/g, ".");
+    } else {
+      normalized = cleaned.replace(/,/g, "");
     }
   } else if (dotCount > 0) {
-    if (/^\d{1,3}(\.\d{3})+(\.\d{2})?$/.test(cleaned)) {
-      const parts = cleaned.split(".");
-      const maybeDecimal = parts[parts.length - 1];
-      if (maybeDecimal.length === 2 && parts.length > 1) {
-        normalized = parts.slice(0, -1).join("") + "." + maybeDecimal;
-      } else {
-        normalized = cleaned.replace(/\./g, "");
-      }
+    const parts = cleaned.split(".");
+    const tail = parts[parts.length - 1] || "";
+    if (parts.length > 2 || (parts.length > 1 && tail.length === 3)) {
+      normalized = cleaned.replace(/\./g, "");
+    } else if (tail.length === 2) {
+      normalized = cleaned;
+    } else {
+      normalized = cleaned.replace(/\./g, "");
     }
   }
 
@@ -103,13 +99,14 @@ Return only JSON via tool with fields:
 Rules:
 - Read the actual transferred amount / paid amount from the slip.
 - Prioritize fields such as: "Số tiền", "Số tiền chuyển", "Giá trị giao dịch", "Amount", "Credit amount", "Debit amount", "Số tiền ghi nợ", "Số tiền ghi có".
-- NEVER return account number, transaction id, phone number, OTP, timestamp, or balance as amount.
+- For Vietcombank / VCB / DigiBiz debit advice layouts, prioritize the amount shown next to "Số tiền nợ / Debit Amount" or "Số tiền có / Credit Amount".
+- NEVER return account number, transaction id, document number, reference code, phone number, OTP, date, timestamp, or balance as amount.
 - amount MUST be a string preserving the original formatting from the image. Do NOT reorder digits or remove separators.
 - Cross-check amount with the "Bằng chữ / In Words" line if visible on the slip.
-- If there are multiple numbers, choose the final transfer amount that matches the payment transaction itself.
+- If there are multiple numbers, choose the payment amount from the debit/credit amount field, not identifiers elsewhere on the slip.
 - If uncertain, still return best guess and lower confidence with notes.`;
 
-    const userText = `Slip type: ${slipType || "unknown"}. Extract the transferred amount from this Vietnamese bank slip. Focus on the actual payment value, not account number or running balance.`;
+    const userText = `Slip type: ${slipType || "unknown"}. Extract the transferred amount from this Vietnamese bank slip. Focus on the actual payment value. If the slip is a Vietcombank/VCB debit advice, prefer the number next to Debit Amount / Credit Amount and cross-check with the In Words line.`;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 45000);
