@@ -77,6 +77,7 @@ export default function FinanceControl() {
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const [closeDialogStep, setCloseDialogStep] = useState<"preview" | "running" | "mismatch" | "done">("preview");
   const [mismatchResult, setMismatchResult] = useState<any>(null);
+  const [closeResultSnapshot, setCloseResultSnapshot] = useState<{ uncDrive: number; uncCEO: number; qtmDrive: number; qtmCEO: number; status: "match" | "mismatch" } | null>(null);
   const [previewUncFiles, setPreviewUncFiles] = useState<number>(0);
   const [previewQtmFiles, setPreviewQtmFiles] = useState<number>(0);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -1064,6 +1065,7 @@ export default function FinanceControl() {
     setPreviewUncFiles(0);
     setPreviewQtmFiles(0);
     setPreviewLoading(true);
+    setCloseResultSnapshot(null);
     try {
       const session = await getFreshSession();
       const folderUrl = await getUncRootFolderUrl();
@@ -1157,6 +1159,13 @@ export default function FinanceControl() {
       if (result.status !== "match" || Number(result.uncVariance || 0) !== 0) {
         // Show mismatch warning — let CEO decide whether to override
         setMismatchResult(result);
+        setCloseResultSnapshot({
+          uncDrive: Number(folderScanResult.uncFolderTotal || 0),
+          uncCEO: Number(uncTotalDeclared || 0),
+          qtmDrive: Number(folderScanResult.qtmFolderTotal || 0),
+          qtmCEO: Number(cashFundTopupAmount || 0),
+          status: result.status,
+        });
         setCloseDialogStep("mismatch");
         return; // finally block will call setCloseActing(false)
       }
@@ -1167,6 +1176,13 @@ export default function FinanceControl() {
       await saveReconciliationWorkflowMeta("approve", true);
 
       setReconcileProgress({ done: 0, total: 0, currentFile: "" });
+      setCloseResultSnapshot({
+        uncDrive: Number(folderScanResult.uncFolderTotal || 0),
+        uncCEO: Number(uncTotalDeclared || 0),
+        qtmDrive: Number(folderScanResult.qtmFolderTotal || 0),
+        qtmCEO: Number(cashFundTopupAmount || 0),
+        status: result.status,
+      });
       setCloseDialogStep("done");
       toast({
         title: isVi ? "Đã duyệt & chốt ngày thành công" : "Day approved & closed successfully",
@@ -1192,6 +1208,13 @@ export default function FinanceControl() {
       setCloseDecision("approve");
       await saveReconciliationWorkflowMeta("approve", true);
       setReconcileProgress({ done: 0, total: 0, currentFile: "" });
+      setCloseResultSnapshot({
+        uncDrive: Number(folderScanResult.uncFolderTotal || 0),
+        uncCEO: Number(uncTotalDeclared || 0),
+        qtmDrive: Number(folderScanResult.qtmFolderTotal || 0),
+        qtmCEO: Number(cashFundTopupAmount || 0),
+        status: result.status,
+      });
       setCloseDialogStep("done");
       toast({
         title: isVi ? "Đã chốt ngày (có chênh lệch)" : "Day closed (with variance)",
@@ -1527,12 +1550,12 @@ export default function FinanceControl() {
                 <Lock className="h-5 w-5" />
                 <span className="text-lg font-semibold">{isVi ? "Đã chốt ngày thành công" : "Day closed successfully"}</span>
               </div>
-              {uncReconSummary && (
+              {(closeResultSnapshot || uncReconSummary) && (
                 <div className="grid gap-2 grid-cols-2 text-sm">
-                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">UNC Drive</span><div className="font-semibold">{vnd(resolvedUncDetail)}</div></div>
-                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">UNC CEO</span><div className="font-semibold">{vnd(resolvedUncDeclared)}</div></div>
-                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">QTM Drive</span><div className="font-semibold">{vnd(qtmSpentFromFolder)}</div></div>
-                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">QTM CEO</span><div className="font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div></div>
+                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">UNC Drive</span><div className="font-semibold">{vnd(Number(closeResultSnapshot?.uncDrive ?? resolvedUncDetail))}</div></div>
+                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">UNC CEO</span><div className="font-semibold">{vnd(Number(closeResultSnapshot?.uncCEO ?? resolvedUncDeclared))}</div></div>
+                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">QTM Drive</span><div className="font-semibold">{vnd(Number(closeResultSnapshot?.qtmDrive ?? qtmSpentFromFolder))}</div></div>
+                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">QTM CEO</span><div className="font-semibold">{vnd(Number((closeResultSnapshot?.qtmCEO ?? cashFundTopupAmount) || 0))}</div></div>
                 </div>
               )}
             </div>
