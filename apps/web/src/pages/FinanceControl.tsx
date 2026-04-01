@@ -993,14 +993,15 @@ export default function FinanceControl() {
       const uncVariance = uncDetail - uncDeclared;
       const uncStatus: "match" | "mismatch" = uncVariance === 0 ? "match" : "mismatch";
 
-      // --- QTM reconciliation: underspend OK, overspend = mismatch ---
+      // --- QTM reconciliation: overspend is allowed as long as closing cash stays non-negative ---
       const qtmDeclared = Number((freshData?.qtmDeclared ?? cashFundTopupAmount) || 0);
       const qtmSpent = Number((freshData?.qtmFolderTotal ?? qtmSpentFromFolder) || 0);
-      const qtmVariance = qtmSpent - qtmDeclared; // positive = overspend
-      // QTM: CEO total >= sum of slips → match (underspend OK); CEO total < sum of slips → mismatch (overspend)
-      const qtmStatus: "match" | "mismatch" = qtmVariance <= 0 ? "match" : "mismatch";
+      const qtmVariance = qtmSpent - qtmDeclared; // positive = spent more than CEO declared
+      const effectiveOpeningBalance = Number(qtmOpeningBalance || 0);
+      const qtmClosingBalanceFresh = effectiveOpeningBalance + qtmDeclared - qtmSpent;
+      const qtmStatus: "match" | "mismatch" = qtmClosingBalanceFresh >= 0 ? "match" : "mismatch";
 
-      // Overall status: both must match
+      // Overall status: UNC must match exactly; QTM only fails if closing balance goes negative
       const status: "match" | "mismatch" = (uncStatus === "match" && qtmStatus === "match") ? "match" : "mismatch";
 
       const { error } = await (supabase as any)
@@ -1025,7 +1026,7 @@ export default function FinanceControl() {
 
       const summaryParts: string[] = [];
       if (uncStatus === "mismatch") summaryParts.push(`UNC ${isVi ? "chênh lệch" : "variance"}: ${vnd(uncVariance)}`);
-      if (qtmStatus === "mismatch") summaryParts.push(`QTM ${isVi ? "vượt chi" : "overspend"}: ${vnd(qtmVariance)}`);
+      if (qtmStatus === "mismatch") summaryParts.push(`QTM ${isVi ? "âm quỹ" : "negative closing balance"}: ${vnd(Math.abs(qtmClosingBalanceFresh))}`);
 
       toast({
         title: status === "match"
@@ -1153,7 +1154,7 @@ export default function FinanceControl() {
       if (!result) {
         throw new Error(isVi ? "Không thể hoàn tất đối soát UNC/QTM" : "Failed to complete reconciliation");
       }
-      if (result.status !== "match" || Number(result.uncVariance || 0) !== 0 || Number(result.qtmVariance || 0) > 0) {
+      if (result.status !== "match" || Number(result.uncVariance || 0) !== 0) {
         // Show mismatch warning — let CEO decide whether to override
         setMismatchResult(result);
         setCloseDialogStep("mismatch");
