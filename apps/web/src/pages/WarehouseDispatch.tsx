@@ -10,15 +10,48 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Truck, Plus, PackageCheck, Loader2, MapPin } from "lucide-react";
+import { Truck, Plus, Loader2, PackageCheck, AlertTriangle, RefreshCw } from "lucide-react";
 import { format } from "date-fns";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type DispatchStatus = "pending" | "picked" | "dispatched" | "delivered";
+
+interface PoInbox {
+  id: string;
+  po_number: string | null;
+  from_name: string | null;
+  delivery_date: string | null;
+  matched_customer_id: string | null;
+  production_items: Array<{
+    product_name: string;
+    qty: number;
+    unit: string;
+    sku?: string;
+  }> | null;
+}
+
+interface InventoryItem {
+  id: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  sku_id?: string;
+}
+
+interface DispatchFormItem {
+  product_name: string;
+  sku?: string;
+  ordered_qty: number;    // from sales PO
+  available_qty: number;  // from inventory
+  dispatch_qty: number;   // what we're dispatching
+  unit: string;
+  inventory_item_id?: string;
+}
 
 interface DispatchItem {
   id: string;
   dispatch_id: string;
+  sku_id?: string;
   product_name: string;
   quantity: number;
   unit: string;
@@ -27,586 +60,546 @@ interface DispatchItem {
 interface Dispatch {
   id: string;
   dispatch_number: string;
-  production_order_id: string;
-  customer_id: string;
+  customer_id: string | null;
+  production_order_id: string | null;
   status: DispatchStatus;
-  dispatch_date: string;
+  dispatch_date: string | null;
   delivered_date: string | null;
-  delivery_address: string;
+  delivery_address: string | null;
   notes: string | null;
   created_at: string;
-  production_order?: {
-    production_number: string;
-    customer_id: string;
-  };
-  customer?: {
-    name: string;
-  };
   items?: DispatchItem[];
+  // joined
+  source_po_number?: string;
+  customer_name?: string;
 }
 
-interface ProductionOrder {
-  id: string;
-  production_number: string;
-  customer_id: string;
-  status: string;
-  mini_crm_customers?: {
-    name: string;
-  };
-}
+const statusConfig: Record<DispatchStatus, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+  pending:    { label: "Chờ xuất kho",   variant: "secondary" },
+  picked:     { label: "Đang lấy hàng",  variant: "default" },
+  dispatched: { label: "Đã xuất kho",    variant: "default" },
+  delivered:  { label: "Đã giao",        variant: "default" },
+};
 
-const statusConfig: Record<DispatchStatus, { label: string; color: string }> = {
-  pending: { label: "Chờ xuất kho", color: "bg-gray-500" },
-  picked: { label: "Đang lấy hàng", color: "bg-blue-500" },
-  dispatched: { label: "Đã xuất kho", color: "bg-amber-500" },
-  delivered: { label: "Đã giao", color: "bg-green-500" },
+const statusColors: Record<DispatchStatus, string> = {
+  pending:    "bg-slate-100 text-slate-700",
+  picked:     "bg-blue-100 text-blue-700",
+  dispatched: "bg-amber-100 text-amber-700",
+  delivered:  "bg-green-100 text-green-700",
 };
 
 export default function WarehouseDispatch() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<DispatchStatus | "all">("all");
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
-  const [selectedDispatch, setSelectedDispatch] = useState<Dispatch | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [selected, setSelected] = useState<Dispatch | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
 
-  // Form state for create dialog
-  const [formData, setFormData] = useState({
-    production_order_id: "",
-    dispatch_date: format(new Date(), "yyyy-MM-dd"),
-    delivery_address: "",
-    notes: "",
-    items: [] as Array<{ id: string; product_name: string; quantity: number; unit: string }>,
-  });
+  // Form state
+  const [selectedPoId, setSelectedPoId] = useState("");
+  const [dispatchDate, setDispatchDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [notes, setNotes] = useState("");
+  const [formItems, setFormItems] = useState<DispatchFormItem[]>([]);
 
-  // Fetch dispatches
-  const { data: dispatches = [], isLoading: dispatchesLoading } = useQuery({
+  // ── Queries ──────────────────────────────────────────────────────────────
+
+  // Dispatches list
+  const { data: dispatches = [], isLoading } = useQuery({
     queryKey: ["warehouse_dispatches"],
     queryFn: async () => {
-      const query = (supabase as any)
-        .from("warehouse_dispatches")
-        .select(
-          `
-          id,
-          dispatch_number,
-          production_order_id,
-          customer_id,
-          status,
-          dispatch_date,
-          delivered_date,
-          delivery_address,
-          notes,
-          created_at,
-          production_orders (
-            production_number
-          ),
-          mini_crm_customers (
-            name
-          )
-        `,
-        )
-        .order("created_at", { ascending: false });
-
-      const { data, error } = await query;
-      if (error) throw error;
-      return data || [];
-    },
-  });
-
-  // Fetch production orders for create dialog
-  const { data: productionOrders = [] } = useQuery({
-    queryKey: ["production_orders_for_dispatch"],
-    queryFn: async () => {
       const { data, error } = await (supabase as any)
-        .from("production_orders")
-        .select("id, production_number, customer_id, status, mini_crm_customers (name)")
-        .in("status", ["completed", "qa_approved"])
+        .from("warehouse_dispatches")
+        .select("*")
         .order("created_at", { ascending: false });
-
       if (error) throw error;
       return data || [];
     },
   });
 
-  // Fetch dispatch items
-  const { data: dispatchItems = [] } = useQuery({
+  // Dispatch items (all, filtered client-side)
+  const { data: allDispatchItems = [] } = useQuery({
     queryKey: ["warehouse_dispatch_items"],
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("warehouse_dispatch_items")
         .select("*");
-
       if (error) throw error;
       return data || [];
     },
   });
 
-  // Fetch production order items for selected order
-  const { data: productionOrderItems = [] } = useQuery({
-    queryKey: ["production_order_items", formData.production_order_id],
+  // Approved sales POs for dispatch (chưa xuất kho hết)
+  const { data: salesPOs = [] } = useQuery<PoInbox[]>({
+    queryKey: ["po_inbox_for_dispatch"],
     queryFn: async () => {
-      if (!formData.production_order_id) return [];
-
       const { data, error } = await (supabase as any)
-        .from("production_order_items")
-        .select("id, product_name, actual_qty, unit")
-        .eq("production_order_id", formData.production_order_id)
-        .gt("actual_qty", 0);
-
+        .from("customer_po_inbox")
+        .select("id, po_number, from_name, delivery_date, matched_customer_id, production_items")
+        .eq("match_status", "approved")
+        .not("production_items", "is", null)
+        .order("delivery_date", { ascending: true });
       if (error) throw error;
       return data || [];
     },
-    enabled: !!formData.production_order_id,
+    enabled: createOpen,
   });
 
-  // Create dispatch mutation
-  const createDispatchMutation = useMutation({
+  // Finished goods inventory (sku_type = 'finished_good')
+  const { data: finishedInventory = [] } = useQuery<InventoryItem[]>({
+    queryKey: ["inventory_finished_goods"],
+    queryFn: async () => {
+      // Get inventory_items joined with product_skus to filter finished_good
+      const { data: skus, error: skuErr } = await supabase
+        .from("product_skus")
+        .select("id, product_name, sku_code")
+        .eq("sku_type", "finished_good" as any);
+      if (skuErr) throw skuErr;
+
+      const { data: items, error: itemErr } = await supabase
+        .from("inventory_items")
+        .select("id, name, quantity, unit");
+      if (itemErr) throw itemErr;
+
+      // Cross-reference by name (loose match)
+      const skuNames = new Set((skus || []).map((s: any) => s.product_name.toLowerCase().trim()));
+      return (items || []).filter((inv: any) =>
+        skuNames.has(inv.name.toLowerCase().trim()) || inv.quantity > 0
+      ).map((inv: any) => ({ ...inv }));
+    },
+    enabled: createOpen,
+  });
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
+
+  const handleSelectPO = (poId: string) => {
+    setSelectedPoId(poId);
+    const po = salesPOs.find((p) => p.id === poId);
+    if (!po?.production_items?.length) {
+      setFormItems([]);
+      return;
+    }
+
+    // Map PO items → form items, cross-reference with inventory
+    const mapped: DispatchFormItem[] = po.production_items.map((pi) => {
+      const inv = finishedInventory.find(
+        (i) => i.name.toLowerCase().includes(pi.product_name.toLowerCase().trim()) ||
+               pi.product_name.toLowerCase().includes(i.name.toLowerCase().trim())
+      );
+      return {
+        product_name: pi.product_name,
+        sku: pi.sku,
+        ordered_qty: pi.qty ?? 0,
+        available_qty: inv?.quantity ?? 0,
+        dispatch_qty: Math.min(pi.qty ?? 0, inv?.quantity ?? 0),
+        unit: pi.unit || inv?.unit || "kg",
+        inventory_item_id: inv?.id,
+      };
+    });
+    setFormItems(mapped);
+    // Pre-fill delivery date from PO
+    if (po.delivery_date) setDispatchDate(po.delivery_date);
+  };
+
+  const handleDispatchQtyChange = (idx: number, val: string) => {
+    const qty = Math.max(0, parseFloat(val) || 0);
+    setFormItems((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], dispatch_qty: qty };
+      return next;
+    });
+  };
+
+  const resetForm = () => {
+    setSelectedPoId("");
+    setDispatchDate(format(new Date(), "yyyy-MM-dd"));
+    setDeliveryAddress("");
+    setNotes("");
+    setFormItems([]);
+  };
+
+  // ── Mutations ─────────────────────────────────────────────────────────────
+
+  const createMutation = useMutation({
     mutationFn: async () => {
-      // Generate dispatch number: XK-YYYYMMDD-NNN
-      const now = new Date();
-      const dateStr = format(now, "yyyyMMdd");
-      const countResponse = await (supabase as any)
+      if (!selectedPoId) throw new Error("Vui lòng chọn đơn hàng bán");
+      if (!formItems.length) throw new Error("Không có sản phẩm nào để xuất");
+      const itemsToDispatch = formItems.filter((i) => i.dispatch_qty > 0);
+      if (!itemsToDispatch.length) throw new Error("Số lượng xuất phải lớn hơn 0");
+
+      // Check over-dispatch
+      const over = itemsToDispatch.find((i) => i.dispatch_qty > i.available_qty);
+      if (over) throw new Error(`Tồn kho không đủ: ${over.product_name} chỉ còn ${over.available_qty} ${over.unit}`);
+
+      // Generate XK number
+      const dateStr = format(new Date(), "yyyyMMdd");
+      const { data: existing } = await (supabase as any)
         .from("warehouse_dispatches")
         .select("id")
         .ilike("dispatch_number", `XK-${dateStr}-%`);
+      const seq = String((existing?.length ?? 0) + 1).padStart(3, "0");
+      const dispatch_number = `XK-${dateStr}-${seq}`;
 
-      const count = (countResponse.data || []).length;
-      const sequence = String(count + 1).padStart(3, "0");
-      const dispatch_number = `XK-${dateStr}-${sequence}`;
+      const po = salesPOs.find((p) => p.id === selectedPoId);
 
-      // Create dispatch
-      const { data: dispatchData, error: dispatchError } = await (supabase as any)
+      // Find linked production order if exists
+      const { data: linkedPO } = await (supabase as any)
+        .from("production_orders")
+        .select("id")
+        .eq("source_po_inbox_id", selectedPoId)
+        .maybeSingle();
+
+      // Create dispatch header
+      const { data: dispatchData, error: dispatchErr } = await (supabase as any)
         .from("warehouse_dispatches")
         .insert({
           dispatch_number,
-          production_order_id: formData.production_order_id,
-          customer_id: productionOrders.find((o) => o.id === formData.production_order_id)?.customer_id,
+          customer_id: po?.matched_customer_id ?? null,
+          production_order_id: linkedPO?.id ?? null,
           status: "pending",
-          dispatch_date: formData.dispatch_date,
-          delivery_address: formData.delivery_address,
-          notes: formData.notes,
+          dispatch_date: dispatchDate,
+          delivery_address: deliveryAddress || null,
+          notes: notes || null,
         })
         .select()
         .single();
+      if (dispatchErr) throw dispatchErr;
 
-      if (dispatchError) throw dispatchError;
-
-      // Create dispatch items
-      const itemsToInsert = formData.items.map((item) => ({
-        dispatch_id: dispatchData.id,
-        product_name: item.product_name,
-        quantity: item.quantity,
-        unit: item.unit,
-      }));
-
-      if (itemsToInsert.length > 0) {
-        const { error: itemsError } = await (supabase as any)
-          .from("warehouse_dispatch_items")
-          .insert(itemsToInsert);
-
-        if (itemsError) throw itemsError;
-      }
-
-      return dispatchData;
+      // Insert items
+      const { error: itemsErr } = await (supabase as any)
+        .from("warehouse_dispatch_items")
+        .insert(
+          itemsToDispatch.map((i) => ({
+            dispatch_id: dispatchData.id,
+            product_name: i.product_name,
+            quantity: i.dispatch_qty,
+            unit: i.unit,
+          }))
+        );
+      if (itemsErr) throw itemsErr;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["warehouse_dispatches"] });
       queryClient.invalidateQueries({ queryKey: ["warehouse_dispatch_items"] });
-      toast({
-        title: "Thành công",
-        description: "Phiếu xuất kho được tạo thành công",
-      });
-      setCreateDialogOpen(false);
+      toast({ title: "Tạo phiếu xuất kho thành công" });
+      setCreateOpen(false);
       resetForm();
     },
-    onError: (error) => {
-      toast({
-        title: "Lỗi",
-        description: "Không thể tạo phiếu xuất kho",
-        variant: "destructive",
-      });
-      console.error(error);
+    onError: (e: any) => {
+      toast({ title: "Lỗi tạo phiếu", description: e?.message, variant: "destructive" });
     },
   });
 
-  // Update dispatch status mutation
   const updateStatusMutation = useMutation({
     mutationFn: async ({ dispatchId, newStatus }: { dispatchId: string; newStatus: DispatchStatus }) => {
       const updateData: any = { status: newStatus };
 
-      // If transitioning to dispatched, deduct from inventory
-      if (newStatus === "dispatched" && selectedDispatch) {
-        const dispatch = dispatches.find((d) => d.id === dispatchId);
-        if (dispatch) {
-          const items = dispatchItems.filter((item) => item.dispatch_id === dispatchId);
+      // "Xuất kho" → deduct inventory + record movement
+      if (newStatus === "dispatched" && selected) {
+        const items = allDispatchItems.filter((i: any) => i.dispatch_id === dispatchId);
+        for (const item of items) {
+          const { data: inv } = await (supabase as any)
+            .from("inventory_items")
+            .select("id, quantity")
+            .ilike("name", `%${item.product_name}%`)
+            .maybeSingle();
 
-          for (const item of items) {
-            // Deduct from inventory
-            const { data: inventoryItem, error: findError } = await (supabase as any)
+          if (inv) {
+            await (supabase as any)
               .from("inventory_items")
-              .select("id, quantity")
-              .eq("product_name", item.product_name)
-              .single();
+              .update({ quantity: Math.max(0, inv.quantity - item.quantity) })
+              .eq("id", inv.id);
 
-            if (!findError && inventoryItem) {
-              const newQuantity = inventoryItem.quantity - item.quantity;
-
-              await (supabase as any)
-                .from("inventory_items")
-                .update({ quantity: newQuantity })
-                .eq("id", inventoryItem.id);
-
-              // Create inventory movement record
-              await (supabase as any)
-                .from("inventory_movements")
-                .insert({
-                  inventory_item_id: inventoryItem.id,
-                  movement_type: "dispatch_out",
-                  quantity: -item.quantity,
-                  reference_type: "dispatch",
-                  reference_id: dispatchId,
-                });
-            }
+            await (supabase as any)
+              .from("inventory_movements")
+              .insert({
+                movement_type: "dispatch_out",
+                inventory_item_id: inv.id,
+                quantity: -item.quantity,
+                unit: item.unit,
+                reference_type: "dispatch",
+                reference_id: dispatchId,
+                movement_date: format(new Date(), "yyyy-MM-dd"),
+                notes: `Xuất kho ${selected.dispatch_number}`,
+              });
           }
         }
       }
 
-      // If transitioning to delivered, set delivered_date
       if (newStatus === "delivered") {
         updateData.delivered_date = format(new Date(), "yyyy-MM-dd");
       }
 
-      const { data, error } = await (supabase as any)
+      const { error } = await (supabase as any)
         .from("warehouse_dispatches")
         .update(updateData)
-        .eq("id", dispatchId)
-        .select()
-        .single();
-
+        .eq("id", dispatchId);
       if (error) throw error;
-      return data;
     },
-    onSuccess: () => {
+    onSuccess: (_, { newStatus }) => {
       queryClient.invalidateQueries({ queryKey: ["warehouse_dispatches"] });
-      toast({
-        title: "Thành công",
-        description: "Cập nhật trạng thái thành công",
-      });
-      setDetailDialogOpen(false);
-      setSelectedDispatch(null);
+      queryClient.invalidateQueries({ queryKey: ["inventory_finished_goods"] });
+      const msgs: Record<string, string> = {
+        picked: "Bắt đầu lấy hàng",
+        dispatched: "Đã xuất kho — tồn kho thành phẩm đã được trừ",
+        delivered: "Xác nhận giao hàng thành công",
+      };
+      toast({ title: msgs[newStatus] || "Cập nhật thành công" });
+      setDetailOpen(false);
     },
-    onError: (error) => {
-      toast({
-        title: "Lỗi",
-        description: "Không thể cập nhật trạng thái",
-        variant: "destructive",
-      });
-      console.error(error);
+    onError: (e: any) => {
+      toast({ title: "Lỗi cập nhật", description: e?.message, variant: "destructive" });
     },
   });
 
-  const resetForm = () => {
-    setFormData({
-      production_order_id: "",
-      dispatch_date: format(new Date(), "yyyy-MM-dd"),
-      delivery_address: "",
-      notes: "",
-      items: [],
-    });
-  };
+  // ── Computed ──────────────────────────────────────────────────────────────
 
-  const handleProductionOrderChange = (orderId: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      production_order_id: orderId,
-      items: [],
-    }));
-  };
+  const filtered = activeTab === "all" ? dispatches : dispatches.filter((d: any) => d.status === activeTab);
 
-  const handleProductionOrderItemsSync = () => {
-    const items = productionOrderItems.map((item) => ({
-      id: item.id,
-      product_name: item.product_name,
-      quantity: item.actual_qty,
-      unit: item.unit,
-    }));
-    setFormData((prev) => ({ ...prev, items }));
-  };
-
-  const handleItemQuantityChange = (index: number, quantity: number) => {
-    setFormData((prev) => {
-      const newItems = [...prev.items];
-      newItems[index].quantity = Math.max(0, quantity);
-      return { ...prev, items: newItems };
-    });
-  };
-
-  const handleRemoveItem = (index: number) => {
-    setFormData((prev) => ({
-      ...prev,
-      items: prev.items.filter((_, i) => i !== index),
-    }));
-  };
-
-  const openDispatchDetail = async (dispatch: Dispatch) => {
-    const items = dispatchItems.filter((item) => item.dispatch_id === dispatch.id);
-    setSelectedDispatch({
-      ...dispatch,
-      items,
-    });
-    setDetailDialogOpen(true);
-  };
-
-  // Filter dispatches based on active tab
-  const filteredDispatches = activeTab === "all" ? dispatches : dispatches.filter((d) => d.status === activeTab);
-
-  // Calculate stats
   const stats = {
-    pending: dispatches.filter((d) => d.status === "pending").length,
-    picked: dispatches.filter((d) => d.status === "picked").length,
-    dispatched: dispatches.filter((d) => d.status === "dispatched").length,
-    delivered: dispatches.filter((d) => d.status === "delivered").length,
+    pending:    dispatches.filter((d: any) => d.status === "pending").length,
+    picked:     dispatches.filter((d: any) => d.status === "picked").length,
+    dispatched: dispatches.filter((d: any) => d.status === "dispatched").length,
+    delivered:  dispatches.filter((d: any) => d.status === "delivered").length,
   };
 
-  if (dispatchesLoading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-      </div>
-    );
-  }
+  const selectedPO = salesPOs.find((p) => p.id === selectedPoId);
+  const totalDispatchQty = formItems.reduce((s, i) => s + i.dispatch_qty, 0);
+
+  const openDetail = (d: any) => {
+    setSelected({ ...d, items: allDispatchItems.filter((i: any) => i.dispatch_id === d.id) });
+    setDetailOpen(true);
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  if (isLoading) return (
+    <div className="flex items-center justify-center h-96">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  );
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Truck className="h-8 w-8 text-blue-600" />
-          <h1 className="text-3xl font-bold">Xuất Kho</h1>
+          <Truck className="h-6 w-6 text-primary" />
+          <div>
+            <h1 className="text-2xl font-bold">Xuất kho</h1>
+            <p className="text-sm text-muted-foreground">Tạo phiếu xuất kho từ đơn hàng bán → giao khách</p>
+          </div>
         </div>
-        <Button onClick={() => setCreateDialogOpen(true)} className="gap-2">
-          <Plus className="h-4 w-4" />
-          Tạo phiếu xuất kho
+        <Button onClick={() => setCreateOpen(true)}>
+          <Plus className="h-4 w-4 mr-2" /> Tạo phiếu xuất kho
         </Button>
       </div>
 
-      {/* Stats Row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-gray-600">Chờ xuất kho</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">{stats.pending}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-gray-600">Đang lấy hàng</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">{stats.picked}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-gray-600">Đã xuất kho</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">{stats.dispatched}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-gray-600">Đã giao</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">{stats.delivered}</p>
-          </CardContent>
-        </Card>
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {(["pending", "picked", "dispatched", "delivered"] as DispatchStatus[]).map((s) => (
+          <Card key={s} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setActiveTab(s)}>
+            <CardHeader className="pb-1 pt-4 px-4">
+              <CardTitle className="text-xs text-muted-foreground font-normal">{statusConfig[s].label}</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <span className="text-2xl font-bold">{stats[s]}</span>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
-        <TabsList>
-          <TabsTrigger value="all">Tất cả</TabsTrigger>
-          <TabsTrigger value="pending">Chờ xuất</TabsTrigger>
-          <TabsTrigger value="picked">Đang lấy</TabsTrigger>
-          <TabsTrigger value="dispatched">Đã xuất</TabsTrigger>
-          <TabsTrigger value="delivered">Đã giao</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value={activeTab} className="space-y-4">
-          {/* Dispatch List Table */}
-          {filteredDispatches.length === 0 ? (
-            <Card>
-              <CardContent className="pt-8">
-                <p className="text-center text-gray-500">Không có phiếu xuất kho</p>
-              </CardContent>
-            </Card>
+      {/* Tabs + Table */}
+      <Card>
+        <CardHeader className="pb-0">
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
+            <TabsList>
+              <TabsTrigger value="all">Tất cả ({dispatches.length})</TabsTrigger>
+              <TabsTrigger value="pending">Chờ xuất ({stats.pending})</TabsTrigger>
+              <TabsTrigger value="picked">Đang lấy ({stats.picked})</TabsTrigger>
+              <TabsTrigger value="dispatched">Đã xuất ({stats.dispatched})</TabsTrigger>
+              <TabsTrigger value="delivered">Đã giao ({stats.delivered})</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </CardHeader>
+        <CardContent className="pt-4">
+          {filtered.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <Truck className="h-10 w-10 mx-auto mb-3 opacity-30" />
+              <p>Không có phiếu xuất kho nào</p>
+            </div>
           ) : (
-            <Card>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Mã phiếu XK</TableHead>
-                      <TableHead>Lệnh SX</TableHead>
-                      <TableHead>Khách hàng</TableHead>
-                      <TableHead>Trạng thái</TableHead>
-                      <TableHead>Ngày xuất</TableHead>
-                      <TableHead>Ghi chú</TableHead>
-                      <TableHead className="w-32">Hành động</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredDispatches.map((dispatch) => (
-                      <TableRow key={dispatch.id} className="hover:bg-gray-50 cursor-pointer">
-                        <TableCell className="font-medium">{dispatch.dispatch_number}</TableCell>
-                        <TableCell>{dispatch.production_order?.production_number || "-"}</TableCell>
-                        <TableCell>{dispatch.customer?.name || "-"}</TableCell>
-                        <TableCell>
-                          <Badge className={`${statusConfig[dispatch.status].color} text-white`}>
-                            {statusConfig[dispatch.status].label}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{format(new Date(dispatch.dispatch_date), "dd/MM/yyyy")}</TableCell>
-                        <TableCell className="text-sm text-gray-600 max-w-xs truncate">{dispatch.notes || "-"}</TableCell>
-                        <TableCell>
-                          <Button variant="outline" size="sm" onClick={() => openDispatchDetail(dispatch)}>
-                            <PackageCheck className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Mã phiếu XK</TableHead>
+                  <TableHead>Khách hàng</TableHead>
+                  <TableHead>Ngày xuất</TableHead>
+                  <TableHead>Ngày giao</TableHead>
+                  <TableHead>Trạng thái</TableHead>
+                  <TableHead>Ghi chú</TableHead>
+                  <TableHead className="text-right">Thao tác</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((d: any) => (
+                  <TableRow key={d.id} className="cursor-pointer hover:bg-muted/30" onClick={() => openDetail(d)}>
+                    <TableCell className="font-mono font-medium">{d.dispatch_number}</TableCell>
+                    <TableCell className="text-muted-foreground text-sm">{d.customer_id ?? "—"}</TableCell>
+                    <TableCell>{d.dispatch_date ? format(new Date(d.dispatch_date), "dd/MM/yyyy") : "—"}</TableCell>
+                    <TableCell>{d.delivered_date ? format(new Date(d.delivered_date), "dd/MM/yyyy") : "—"}</TableCell>
+                    <TableCell>
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[d.status as DispatchStatus]}`}>
+                        {statusConfig[d.status as DispatchStatus]?.label ?? d.status}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{d.notes ?? "—"}</TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); openDetail(d); }}>Chi tiết</Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
-        </TabsContent>
-      </Tabs>
+        </CardContent>
+      </Card>
 
-      {/* Create Dispatch Dialog */}
-      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent className="max-w-2xl">
+      {/* ── Create Dialog ────────────────────────────────────────────────── */}
+      <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (!o) resetForm(); }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Tạo phiếu xuất kho</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Truck className="h-5 w-5" /> Tạo phiếu xuất kho
+            </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4">
-            {/* Production Order Selection */}
-            <div>
-              <label className="block text-sm font-medium mb-2">Lệnh SX</label>
-              <Select value={formData.production_order_id} onValueChange={handleProductionOrderChange}>
+          <div className="space-y-5">
+            {/* Select Sales PO */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Đơn hàng bán (Sales PO) <span className="text-destructive">*</span></label>
+              <Select value={selectedPoId} onValueChange={handleSelectPO}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Chọn lệnh SX" />
+                  <SelectValue placeholder="Chọn đơn hàng cần xuất kho..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {productionOrders.map((order) => (
-                    <SelectItem key={order.id} value={order.id}>
-                      {order.production_number} - {order.mini_crm_customers?.name || "N/A"}
+                  {salesPOs.length === 0 && (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">Không có đơn hàng approved</div>
+                  )}
+                  {salesPOs.map((po) => (
+                    <SelectItem key={po.id} value={po.id}>
+                      <span className="font-medium">{po.po_number ?? po.id.slice(0, 8)}</span>
+                      <span className="ml-2 text-muted-foreground text-xs">— {po.from_name}</span>
+                      {po.delivery_date && (
+                        <span className="ml-2 text-muted-foreground text-xs">| Giao: {format(new Date(po.delivery_date), "dd/MM")}</span>
+                      )}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {selectedPO && (
+                <p className="text-xs text-muted-foreground">
+                  Khách: <strong>{selectedPO.from_name}</strong>
+                  {selectedPO.delivery_date && ` · Ngày giao: ${format(new Date(selectedPO.delivery_date), "dd/MM/yyyy")}`}
+                </p>
+              )}
             </div>
 
-            {/* Customer Name (Read-only) */}
-            {formData.production_order_id && (
-              <div>
-                <label className="block text-sm font-medium mb-2">Khách hàng</label>
-                <Input
-                  value={
-                    productionOrders.find((o) => o.id === formData.production_order_id)?.mini_crm_customers?.name ||
-                    "N/A"
-                  }
-                  disabled
-                />
-              </div>
-            )}
-
-            {/* Dispatch Date */}
-            <div>
-              <label className="block text-sm font-medium mb-2">Ngày xuất</label>
-              <Input
-                type="date"
-                value={formData.dispatch_date}
-                onChange={(e) => setFormData((prev) => ({ ...prev, dispatch_date: e.target.value }))}
-              />
-            </div>
-
-            {/* Delivery Address */}
-            <div>
-              <label className="block text-sm font-medium mb-2 flex items-center gap-2">
-                <MapPin className="h-4 w-4" />
-                Địa chỉ giao
-              </label>
-              <Textarea
-                placeholder="Nhập địa chỉ giao hàng"
-                value={formData.delivery_address}
-                onChange={(e) => setFormData((prev) => ({ ...prev, delivery_address: e.target.value }))}
-              />
-            </div>
-
-            {/* Items */}
-            {formData.production_order_id && (
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <label className="block text-sm font-medium">Sản phẩm</label>
-                  <Button size="sm" variant="outline" onClick={handleProductionOrderItemsSync}>
-                    Đồng bộ sản phẩm
-                  </Button>
+            {/* Items from PO × Inventory */}
+            {formItems.length > 0 && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Sản phẩm xuất kho</label>
+                <div className="rounded-lg border overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/40">
+                        <TableHead>Sản phẩm</TableHead>
+                        <TableHead className="text-right">Đặt (PO)</TableHead>
+                        <TableHead className="text-right">Tồn kho</TableHead>
+                        <TableHead className="text-right w-28">Số lượng XK</TableHead>
+                        <TableHead>ĐVT</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {formItems.map((item, idx) => {
+                        const overStock = item.dispatch_qty > item.available_qty;
+                        return (
+                          <TableRow key={idx} className={overStock ? "bg-red-50" : ""}>
+                            <TableCell className="font-medium text-sm">{item.product_name}</TableCell>
+                            <TableCell className="text-right text-muted-foreground text-sm">{item.ordered_qty}</TableCell>
+                            <TableCell className="text-right text-sm">
+                              <span className={item.available_qty === 0 ? "text-destructive font-medium" : "text-green-700 font-medium"}>
+                                {item.available_qty}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Input
+                                type="number"
+                                min={0}
+                                max={item.available_qty}
+                                value={item.dispatch_qty}
+                                onChange={(e) => handleDispatchQtyChange(idx, e.target.value)}
+                                className={`w-24 text-right h-8 ${overStock ? "border-destructive" : ""}`}
+                              />
+                              {overStock && <p className="text-[10px] text-destructive mt-0.5">Vượt tồn kho</p>}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground text-sm">{item.unit}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
                 </div>
-
-                {formData.items.length === 0 ? (
-                  <p className="text-sm text-gray-500">Chưa có sản phẩm</p>
-                ) : (
-                  <div className="space-y-2 border rounded p-3 bg-gray-50">
-                    {formData.items.map((item, index) => (
-                      <div key={index} className="flex gap-2 items-center">
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">{item.product_name}</p>
-                        </div>
-                        <div className="w-24">
-                          <Input
-                            type="number"
-                            min="0"
-                            value={item.quantity}
-                            onChange={(e) => handleItemQuantityChange(index, parseInt(e.target.value) || 0)}
-                          />
-                        </div>
-                        <span className="text-sm w-12">{item.unit}</span>
-                        <Button variant="ghost" size="sm" onClick={() => handleRemoveItem(index)}>
-                          ✕
-                        </Button>
-                      </div>
-                    ))}
+                {formItems.some((i) => i.available_qty === 0) && (
+                  <div className="flex items-center gap-2 text-amber-700 text-xs bg-amber-50 rounded px-3 py-2">
+                    <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+                    Một số sản phẩm chưa có trong kho — cần QA duyệt nhập kho thành phẩm trước.
                   </div>
                 )}
+                <p className="text-xs text-muted-foreground text-right">
+                  Tổng xuất: <strong>{totalDispatchQty.toLocaleString("vi-VN")}</strong> đơn vị
+                </p>
               </div>
             )}
 
-            {/* Notes */}
-            <div>
-              <label className="block text-sm font-medium mb-2">Ghi chú</label>
-              <Textarea
-                placeholder="Nhập ghi chú"
-                value={formData.notes}
-                onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
-              />
+            {selectedPoId && formItems.length === 0 && (
+              <div className="text-center py-4 text-muted-foreground text-sm">
+                <RefreshCw className="h-4 w-4 mx-auto mb-2 animate-pulse" />
+                Đang tải sản phẩm từ đơn hàng...
+              </div>
+            )}
+
+            {/* Dates */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Ngày xuất kho</label>
+                <Input type="date" value={dispatchDate} onChange={(e) => setDispatchDate(e.target.value)} />
+              </div>
             </div>
 
-            {/* Actions */}
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
-                Hủy
-              </Button>
+            {/* Address + Notes */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Địa chỉ giao hàng</label>
+              <Input
+                value={deliveryAddress}
+                onChange={(e) => setDeliveryAddress(e.target.value)}
+                placeholder="Địa chỉ giao..."
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Ghi chú</label>
+              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Ghi chú thêm..." rows={2} />
+            </div>
+
+            <div className="flex gap-3 justify-end pt-2">
+              <Button variant="outline" onClick={() => setCreateOpen(false)}>Hủy</Button>
               <Button
-                onClick={() => createDispatchMutation.mutate()}
-                disabled={!formData.production_order_id || formData.items.length === 0 || createDispatchMutation.isPending}
+                onClick={() => createMutation.mutate()}
+                disabled={createMutation.isPending || !selectedPoId || formItems.every((i) => i.dispatch_qty === 0)}
               >
-                {createDispatchMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Truck className="h-4 w-4 mr-2" />}
                 Tạo phiếu xuất kho
               </Button>
             </div>
@@ -614,114 +607,113 @@ export default function WarehouseDispatch() {
         </DialogContent>
       </Dialog>
 
-      {/* Dispatch Detail Dialog */}
-      {selectedDispatch && (
-        <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Chi tiết xuất kho - {selectedDispatch.dispatch_number}</DialogTitle>
-            </DialogHeader>
+      {/* ── Detail / Status Dialog ───────────────────────────────────────── */}
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Truck className="h-5 w-5" />
+              {selected?.dispatch_number}
+            </DialogTitle>
+          </DialogHeader>
 
+          {selected && (
             <div className="space-y-4">
-              {/* Basic Info */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-gray-600">Lệnh SX</p>
-                  <p className="font-medium">{selectedDispatch.production_order?.production_number || "-"}</p>
+              {/* Info grid */}
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-lg border px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Trạng thái</p>
+                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium mt-1 ${statusColors[selected.status]}`}>
+                    {statusConfig[selected.status]?.label}
+                  </span>
                 </div>
-                <div>
-                  <p className="text-sm text-gray-600">Khách hàng</p>
-                  <p className="font-medium">{selectedDispatch.customer?.name || "-"}</p>
+                <div className="rounded-lg border px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Ngày xuất kho</p>
+                  <p className="font-medium">{selected.dispatch_date ? format(new Date(selected.dispatch_date), "dd/MM/yyyy") : "—"}</p>
                 </div>
-                <div>
-                  <p className="text-sm text-gray-600">Trạng thái</p>
-                  <Badge className={`${statusConfig[selectedDispatch.status].color} text-white`}>
-                    {statusConfig[selectedDispatch.status].label}
-                  </Badge>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Ngày xuất</p>
-                  <p className="font-medium">{format(new Date(selectedDispatch.dispatch_date), "dd/MM/yyyy")}</p>
-                </div>
-              </div>
-
-              {/* Delivery Address */}
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Địa chỉ giao</p>
-                <p className="text-sm border rounded p-2 bg-gray-50">{selectedDispatch.delivery_address}</p>
+                {selected.delivered_date && (
+                  <div className="rounded-lg border px-3 py-2">
+                    <p className="text-xs text-muted-foreground">Ngày giao</p>
+                    <p className="font-medium">{format(new Date(selected.delivered_date), "dd/MM/yyyy")}</p>
+                  </div>
+                )}
+                {selected.delivery_address && (
+                  <div className="rounded-lg border px-3 py-2 col-span-2">
+                    <p className="text-xs text-muted-foreground">Địa chỉ giao</p>
+                    <p className="font-medium">{selected.delivery_address}</p>
+                  </div>
+                )}
+                {selected.notes && (
+                  <div className="rounded-lg border px-3 py-2 col-span-2">
+                    <p className="text-xs text-muted-foreground">Ghi chú</p>
+                    <p>{selected.notes}</p>
+                  </div>
+                )}
               </div>
 
               {/* Items */}
               <div>
-                <p className="text-sm font-medium mb-2">Sản phẩm</p>
-                <div className="border rounded overflow-hidden">
+                <p className="text-sm font-medium mb-2">Danh sách sản phẩm</p>
+                <div className="rounded-lg border overflow-hidden">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Tên sản phẩm</TableHead>
-                        <TableHead>Số lượng</TableHead>
-                        <TableHead>Đơn vị</TableHead>
+                      <TableRow className="bg-muted/40">
+                        <TableHead>Sản phẩm</TableHead>
+                        <TableHead className="text-right">Số lượng</TableHead>
+                        <TableHead>ĐVT</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {selectedDispatch.items?.map((item) => (
+                      {selected.items?.map((item) => (
                         <TableRow key={item.id}>
-                          <TableCell className="text-sm">{item.product_name}</TableCell>
-                          <TableCell className="text-sm">{item.quantity}</TableCell>
-                          <TableCell className="text-sm">{item.unit}</TableCell>
+                          <TableCell>{item.product_name}</TableCell>
+                          <TableCell className="text-right font-medium">{item.quantity}</TableCell>
+                          <TableCell className="text-muted-foreground">{item.unit}</TableCell>
                         </TableRow>
                       ))}
+                      {!selected.items?.length && (
+                        <TableRow>
+                          <TableCell colSpan={3} className="text-center text-muted-foreground py-4">Không có sản phẩm</TableCell>
+                        </TableRow>
+                      )}
                     </TableBody>
                   </Table>
                 </div>
               </div>
 
-              {/* Notes */}
-              {selectedDispatch.notes && (
-                <div>
-                  <p className="text-sm text-gray-600 mb-1">Ghi chú</p>
-                  <p className="text-sm border rounded p-2 bg-gray-50">{selectedDispatch.notes}</p>
-                </div>
-              )}
-
-              {/* Status Transition Buttons */}
-              <div className="flex gap-2 justify-end">
-                {selectedDispatch.status === "pending" && (
-                  <Button
-                    onClick={() => updateStatusMutation.mutate({ dispatchId: selectedDispatch.id, newStatus: "picked" })}
-                    disabled={updateStatusMutation.isPending}
-                  >
-                    {updateStatusMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {/* Action buttons based on status */}
+              <div className="flex gap-3 justify-end pt-2 border-t">
+                <Button variant="outline" onClick={() => setDetailOpen(false)}>Đóng</Button>
+                {selected.status === "pending" && (
+                  <Button onClick={() => updateStatusMutation.mutate({ dispatchId: selected.id, newStatus: "picked" })}
+                    disabled={updateStatusMutation.isPending}>
+                    {updateStatusMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                     Bắt đầu lấy hàng
                   </Button>
                 )}
-                {selectedDispatch.status === "picked" && (
+                {selected.status === "picked" && (
                   <Button
-                    onClick={() =>
-                      updateStatusMutation.mutate({ dispatchId: selectedDispatch.id, newStatus: "dispatched" })
-                    }
+                    onClick={() => updateStatusMutation.mutate({ dispatchId: selected.id, newStatus: "dispatched" })}
                     disabled={updateStatusMutation.isPending}
+                    className="bg-amber-600 hover:bg-amber-700"
                   >
-                    {updateStatusMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                    Xuất kho
+                    {updateStatusMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <PackageCheck className="h-4 w-4 mr-2" />}
+                    Xuất kho (trừ tồn kho)
                   </Button>
                 )}
-                {selectedDispatch.status === "dispatched" && (
-                  <Button
-                    onClick={() =>
-                      updateStatusMutation.mutate({ dispatchId: selectedDispatch.id, newStatus: "delivered" })
-                    }
+                {selected.status === "dispatched" && (
+                  <Button onClick={() => updateStatusMutation.mutate({ dispatchId: selected.id, newStatus: "delivered" })}
                     disabled={updateStatusMutation.isPending}
-                  >
-                    {updateStatusMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                    Xác nhận giao hàng
+                    className="bg-green-600 hover:bg-green-700">
+                    {updateStatusMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    Xác nhận đã giao
                   </Button>
                 )}
               </div>
             </div>
-          </DialogContent>
-        </Dialog>
-      )}
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
