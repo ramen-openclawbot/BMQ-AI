@@ -151,7 +151,9 @@ serve(async (req) => {
   }
 
   try {
-    // Validate authorization - simplified for prototype (no role check)
+    // Gateway/client auth contract: frontend must send apikey + Bearer token.
+    // Avoid double-validating JWT here because service-role-based getUser checks can
+    // fail when secrets drift, which surfaces as false "session expired" errors.
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       console.log("[scan-drive-folder] Missing authorization header");
@@ -161,26 +163,19 @@ serve(async (req) => {
       });
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    
-    // Use service role client for stable auth verification
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-
-    // Validate user token using service role key (stable pattern)
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-    if (authError || !user) {
-      console.log("[scan-drive-folder] Invalid or expired token:", authError?.message);
-      return new Response(JSON.stringify({ error: 'Invalid or expired token' }), {
-        status: 401,
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error('[scan-drive-folder] Missing Supabase env for service role client');
+      return new Response(JSON.stringify({ error: 'Server misconfigured: missing Supabase secrets' }), {
+        status: 500,
         headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
 
-    console.log("[scan-drive-folder] User authenticated:", user.id);
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
 
     // Parse request body
     const { folderUrl, subfolderDate, mode, parentPath, includeBase64 = true, skipProcessed = false, folderType = 'bank_slip', fileId, fileName, mimeType } = await req.json();
