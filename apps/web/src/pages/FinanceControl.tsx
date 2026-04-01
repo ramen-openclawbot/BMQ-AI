@@ -85,6 +85,8 @@ export default function FinanceControl() {
   const [browsingPath, setBrowsingPath] = useState<string[]>([]);
   const [childFolders, setChildFolders] = useState<Array<{ name: string; folderId: string; imageCount: number; hasChildren: boolean; childFolderCount: number }>>([]);
   const [browsingLoading, setBrowsingLoading] = useState(false);
+  const [browseError, setBrowseError] = useState<string | null>(null);
+  const [browsedFolderUrl, setBrowsedFolderUrl] = useState<string>("");
 
   const [uncReconSummary, setUncReconSummary] = useState<{
     folderDate: string;
@@ -1019,6 +1021,8 @@ export default function FinanceControl() {
     setPreviewQtmFiles(0);
     setChildFolders([]);
     setBrowsingPath([]);
+    setBrowseError(null);
+    setBrowsedFolderUrl("");
 
     // Browse root folder to show subfolder tree + quick preview
     browseFolder([]);
@@ -1082,9 +1086,13 @@ export default function FinanceControl() {
   const browseFolder = async (pathSegments: string[]) => {
     setBrowsingLoading(true);
     setBrowsingPath(pathSegments);
+    setBrowseError(null);
+    setChildFolders([]);
     try {
       const session = await getFreshSession();
       const folderUrl = customFolderUrl || savedFolderUrl || await getUncRootFolderUrl();
+      setBrowsedFolderUrl(folderUrl || "");
+      if (!folderUrl) throw new Error("Chưa cấu hình thư mục gốc Google Drive");
       const parentPath = pathSegments.join("/");
       const resp = await fetchWithTimeout(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
         method: "POST",
@@ -1096,12 +1104,19 @@ export default function FinanceControl() {
       }, 20000);
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
-        throw new Error(err?.error || `HTTP ${resp.status}`);
+        const detail = resp.status === 401
+          ? "Phiên đăng nhập hết hạn — vui lòng đăng nhập lại"
+          : err?.error || err?.details || `HTTP ${resp.status}`;
+        throw new Error(detail);
       }
       const data = await resp.json();
-      setChildFolders(data.folders || []);
+      const folders = data.folders || [];
+      setChildFolders(folders);
+      if (folders.length === 0) {
+        setBrowseError(isVi ? `Không tìm thấy thư mục con trong "${parentPath || "root"}"` : `No subfolders found in "${parentPath || "root"}"`);
+      }
     } catch (e: any) {
-      toast({ title: isVi ? "Lỗi duyệt thư mục" : "Browse error", description: e?.message, variant: "destructive" });
+      setBrowseError(e?.message || (isVi ? "Không thể duyệt thư mục" : "Cannot browse folder"));
       setChildFolders([]);
     } finally {
       setBrowsingLoading(false);
@@ -1411,8 +1426,21 @@ export default function FinanceControl() {
               <div className="rounded border p-3 space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-medium">{isVi ? "Duyệt thư mục" : "Browse folders"}</div>
-                  {browsingLoading && <span className="text-xs text-muted-foreground animate-pulse">{isVi ? "Đang tải..." : "Loading..."}</span>}
+                  <div className="flex items-center gap-2">
+                    {browsingLoading && <span className="text-xs text-muted-foreground animate-pulse">{isVi ? "Đang tải..." : "Loading..."}</span>}
+                    {!browsingLoading && (
+                      <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => browseFolder(browsingPath)}>
+                        ↻ {isVi ? "Tải lại" : "Reload"}
+                      </Button>
+                    )}
+                  </div>
                 </div>
+                {/* Show URL being browsed */}
+                {browsedFolderUrl && (
+                  <div className="text-xs text-muted-foreground truncate" title={browsedFolderUrl}>
+                    {isVi ? "Thư mục" : "Folder"}: <code className="bg-muted px-1 rounded">{browsedFolderUrl.match(/\/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? browsedFolderUrl.slice(-20)}</code>
+                  </div>
+                )}
                 {/* Breadcrumb */}
                 <div className="flex items-center gap-1 text-xs flex-wrap">
                   <button
@@ -1435,14 +1463,18 @@ export default function FinanceControl() {
                     </span>
                   ))}
                 </div>
+                {/* Error */}
+                {browseError && !browsingLoading && (
+                  <div className="rounded bg-destructive/10 border border-destructive/30 px-3 py-2 text-xs text-destructive">
+                    {browseError}
+                  </div>
+                )}
                 {/* Folder list */}
                 {childFolders.length > 0 ? (
                   <div className="max-h-40 overflow-y-auto space-y-1">
                     {childFolders.map((f) => (
                       <div key={f.folderId} className="flex items-center justify-between rounded px-2 py-1.5 hover:bg-muted/60 cursor-pointer text-sm group" onClick={() => {
-                        if (f.hasChildren) {
-                          browseFolder([...browsingPath, f.name]);
-                        }
+                        browseFolder([...browsingPath, f.name]);
                       }}>
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-base">{f.hasChildren ? "📁" : "📂"}</span>
@@ -1459,7 +1491,7 @@ export default function FinanceControl() {
                       </div>
                     ))}
                   </div>
-                ) : !browsingLoading ? (
+                ) : !browsingLoading && !browseError ? (
                   <div className="text-xs text-muted-foreground py-2 text-center">{isVi ? "Không có thư mục con" : "No subfolders"}</div>
                 ) : null}
               </div>
