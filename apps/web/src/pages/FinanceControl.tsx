@@ -79,16 +79,7 @@ export default function FinanceControl() {
   const [previewUncFiles, setPreviewUncFiles] = useState<number>(0);
   const [previewQtmFiles, setPreviewQtmFiles] = useState<number>(0);
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [customFolderUrl, setCustomFolderUrl] = useState<string>("");
-  const [savedFolderUrl, setSavedFolderUrl] = useState<string>("");
   // Folder browser state
-  const [browsingPath, setBrowsingPath] = useState<string[]>([]);
-  const [childFolders, setChildFolders] = useState<Array<{ name: string; folderId: string; imageCount: number; hasChildren: boolean; childFolderCount: number }>>([]);
-  const [browsingLoading, setBrowsingLoading] = useState(false);
-  const [browseError, setBrowseError] = useState<string | null>(null);
-  const [browsedFolderUrl, setBrowsedFolderUrl] = useState<string>("");
-  const [currentBrowseFolderId, setCurrentBrowseFolderId] = useState<string>("");
-  const [savingCurrentFolder, setSavingCurrentFolder] = useState(false);
 
   const [uncReconSummary, setUncReconSummary] = useState<{
     folderDate: string;
@@ -108,16 +99,7 @@ export default function FinanceControl() {
     return () => clearTimeout(t);
   }, [selectedDate]);
 
-  // Load saved Drive folder URL on mount
-  useEffect(() => {
-    const loadSavedFolder = async () => {
-      const envUrl = import.meta.env.VITE_GOOGLE_DRIVE_RECEIPTS_FOLDER as string | undefined;
-      if (envUrl) { setSavedFolderUrl(envUrl); setCustomFolderUrl(envUrl); return; }
-      const { data } = await supabase.from("app_settings").select("value").eq("key", "google_drive_receipts_folder").single();
-      if (data?.value) { setSavedFolderUrl(String(data.value)); setCustomFolderUrl(String(data.value)); }
-    };
-    loadSavedFolder();
-  }, []);
+  // Root folder is configured in Google Drive Integration and resolved on demand.
 
   const {
     data: dailySnapshot,
@@ -1037,18 +1019,10 @@ export default function FinanceControl() {
     setReconcileError(null);
     setPreviewUncFiles(0);
     setPreviewQtmFiles(0);
-    setChildFolders([]);
-    setBrowsingPath([]);
-    setBrowseError(null);
-    setBrowsedFolderUrl("");
-    setCurrentBrowseFolderId("");
-
-    // Browse root folder to show subfolder tree + quick preview
-    browseFolder([]);
     setPreviewLoading(true);
     try {
       const session = await getFreshSession();
-      const folderUrl = savedFolderUrl || await getUncRootFolderUrl();
+      const folderUrl = await getUncRootFolderUrl();
       const uncPath = `${autoDayFolderPath}/UNC`;
       const qtmPath = `${autoDayFolderPath}/QTM`;
 
@@ -1084,91 +1058,6 @@ export default function FinanceControl() {
       setReconcileError(e?.message || (isVi ? "Không thể kết nối Drive" : "Cannot connect to Drive"));
     } finally {
       setPreviewLoading(false);
-    }
-  };
-
-  // Browse subfolder hierarchy via list_children mode
-  const browseFolder = async (pathSegments: string[]) => {
-    setBrowsingLoading(true);
-    setBrowsingPath(pathSegments);
-    setBrowseError(null);
-    setChildFolders([]);
-    try {
-      const session = await getFreshSession();
-      if (!session?.access_token) {
-        setBrowseError(isVi ? "Chưa đăng nhập — vui lòng tải lại trang và đăng nhập lại" : "Not logged in — please reload and sign in again");
-        return;
-      }
-      const folderUrl = savedFolderUrl || await getUncRootFolderUrl();
-      setBrowsedFolderUrl(folderUrl || "");
-      if (!folderUrl) throw new Error("Chưa cấu hình thư mục gốc Google Drive");
-      const parentPath = pathSegments.join("/");
-
-      const callScan = async (token: string) =>
-        fetchWithTimeout(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY, Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ folderUrl, mode: "list_children", parentPath }),
-        }, 20000);
-
-      let resp = await callScan(session.access_token);
-
-      // Auto-retry once with hard refresh if 401
-      if (resp.status === 401) {
-        const { data: retrySession } = await supabase.auth.refreshSession();
-        if (retrySession.session?.access_token) {
-          resp = await callScan(retrySession.session.access_token);
-        }
-      }
-
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        const detail = resp.status === 401
-          ? (isVi
-              ? "Không xác thực được quyền duyệt thư mục Drive. Em đang dùng cấu hình thư mục gốc đã lưu trong Google Drive Integration — vui lòng kiểm tra lại kết nối hoặc deploy function mới nhất."
-              : "Unable to authorize Drive folder browsing. Check the saved Google Drive Integration connection or redeploy the latest function.")
-          : err?.error || err?.details || `HTTP ${resp.status}`;
-        throw new Error(detail);
-      }
-      const data = await resp.json();
-      setCurrentBrowseFolderId(String(data?.currentFolderId || ""));
-      const folders = data.folders || [];
-      setChildFolders(folders);
-      if (folders.length === 0) {
-        setBrowseError(isVi ? `Không tìm thấy thư mục con tại "${parentPath || "root"}"` : `No subfolders found at "${parentPath || "root"}"`);
-      }
-    } catch (e: any) {
-      setBrowseError(e?.message || (isVi ? "Không thể duyệt thư mục" : "Cannot browse folder"));
-      setChildFolders([]);
-    } finally {
-      setBrowsingLoading(false);
-    }
-  };
-
-  const saveCurrentBrowsedFolder = async () => {
-    if (!currentBrowseFolderId) {
-      setBrowseError(isVi ? "Chưa xác định được thư mục hiện tại để lưu" : "Current folder is not available to save");
-      return;
-    }
-    setSavingCurrentFolder(true);
-    try {
-      const nextUrl = `https://drive.google.com/drive/folders/${currentBrowseFolderId}`;
-      await (supabase as any).from("app_settings").upsert(
-        { key: "google_drive_receipts_folder", value: nextUrl },
-        { onConflict: "key" }
-      );
-      setSavedFolderUrl(nextUrl);
-      setBrowsedFolderUrl(nextUrl);
-      toast({
-        title: isVi ? "Đã lưu thư mục hiện tại" : "Current folder saved",
-        description: isVi
-          ? "Hệ thống sẽ dùng thư mục này cho các lần sau cho đến khi anh đổi thư mục khác."
-          : "This folder will be reused in future sessions until changed.",
-      });
-    } catch (e: any) {
-      setBrowseError(e?.message || (isVi ? "Không thể lưu thư mục hiện tại" : "Cannot save current folder"));
-    } finally {
-      setSavingCurrentFolder(false);
     }
   };
 
@@ -1479,99 +1368,23 @@ export default function FinanceControl() {
 
           {closeDialogStep === "preview" && (
             <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
-              {/* Folder browser */}
+              {/* Planned scan paths */}
               <div className="rounded border p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-medium">{isVi ? "Duyệt thư mục" : "Browse folders"}</div>
-                  <div className="flex items-center gap-2">
-                    {browsingLoading && <span className="text-xs text-muted-foreground animate-pulse">{isVi ? "Đang tải..." : "Loading..."}</span>}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-6 px-2 text-xs"
-                      onClick={saveCurrentBrowsedFolder}
-                      disabled={browsingLoading || savingCurrentFolder || !currentBrowseFolderId}
-                    >
-                      {savingCurrentFolder ? (isVi ? "Đang lưu..." : "Saving...") : (isVi ? "Lưu thư mục hiện tại" : "Save current folder")}
-                    </Button>
-                    {!browsingLoading && (
-                      <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => browseFolder(browsingPath)}>
-                        ↻ {isVi ? "Tải lại" : "Reload"}
-                      </Button>
-                    )}
+                <div className="text-sm font-medium">{isVi ? "Đường dẫn sẽ quét" : "Planned scan paths"}</div>
+                <div className="grid gap-2 text-sm">
+                  <div className="rounded bg-muted/50 p-2">
+                    <div className="text-xs text-muted-foreground">UNC</div>
+                    <code className="text-xs break-all">{autoDayFolderPath}/UNC</code>
+                  </div>
+                  <div className="rounded bg-muted/50 p-2">
+                    <div className="text-xs text-muted-foreground">QTM</div>
+                    <code className="text-xs break-all">{autoDayFolderPath}/QTM</code>
                   </div>
                 </div>
-                {/* Show URL being browsed */}
-                {browsedFolderUrl && (
-                  <div className="text-xs text-muted-foreground truncate" title={browsedFolderUrl}>
-                    {isVi ? "Thư mục đang dùng" : "Active folder"}: <code className="bg-muted px-1 rounded">{browsedFolderUrl.match(/\/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? browsedFolderUrl.slice(-20)}</code>
-                  </div>
-                )}
-                {/* Breadcrumb */}
-                <div className="flex items-center gap-1 text-xs flex-wrap">
-                  <button
-                    className="text-blue-600 hover:underline font-medium"
-                    onClick={() => browseFolder([])}
-                    disabled={browsingLoading}
-                  >
-                    {isVi ? "Gốc" : "Root"}
-                  </button>
-                  {browsingPath.map((seg, i) => (
-                    <span key={i} className="flex items-center gap-1">
-                      <span className="text-muted-foreground">/</span>
-                      <button
-                        className="text-blue-600 hover:underline"
-                        onClick={() => browseFolder(browsingPath.slice(0, i + 1))}
-                        disabled={browsingLoading}
-                      >
-                        {seg}
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                {/* Error */}
-                {browseError && !browsingLoading && (
-                  <div className="rounded bg-destructive/10 border border-destructive/30 px-3 py-2 text-xs text-destructive">
-                    {browseError}
-                  </div>
-                )}
-                {/* Folder list */}
-                {childFolders.length > 0 ? (
-                  <div className="max-h-40 overflow-y-auto space-y-1">
-                    {childFolders.map((f) => (
-                      <div key={f.folderId} className="flex items-center justify-between rounded px-2 py-1.5 hover:bg-muted/60 cursor-pointer text-sm group" onClick={() => {
-                        browseFolder([...browsingPath, f.name]);
-                      }}>
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-base">{f.hasChildren ? "📁" : "📂"}</span>
-                          <span className="truncate">{f.name}</span>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {f.imageCount > 0 && (
-                            <Badge variant="outline" className="text-xs">{f.imageCount} {isVi ? "ảnh" : "img"}</Badge>
-                          )}
-                          {f.hasChildren && (
-                            <Badge variant="secondary" className="text-xs">{f.childFolderCount} {isVi ? "thư mục" : "sub"}</Badge>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : !browsingLoading && !browseError ? (
-                  <div className="text-xs text-muted-foreground py-2 text-center">{isVi ? "Không có thư mục con" : "No subfolders"}</div>
-                ) : null}
-              </div>
-
-              {/* Scan paths */}
-              <div className="rounded border p-3 space-y-2 text-sm">
-                <div className="font-medium">{isVi ? "Đường dẫn quét" : "Scan paths"}</div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary">UNC</Badge>
-                  <code className="text-xs">{autoDayFolderPath}/UNC</code>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary">QTM</Badge>
-                  <code className="text-xs">{autoDayFolderPath}/QTM</code>
+                <div className="text-xs text-muted-foreground">
+                  {isVi
+                    ? "Thư mục gốc lấy từ Settings > Google Drive Integration. Cửa sổ này không cho chọn thủ công để tránh chọn sai folder ngày."
+                    : "Root folder comes from Settings > Google Drive Integration. Manual browsing is disabled here to avoid choosing the wrong day folder."}
                 </div>
               </div>
 
