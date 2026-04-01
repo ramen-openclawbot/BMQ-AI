@@ -280,6 +280,9 @@ export default function FinanceControl() {
   const resolvedUncDeclared = Number((uncReconSummary?.ceoTotal ?? dailyReconciliation?.unc_declared_amount ?? uncTotalDeclared) || 0);
   const resolvedVariance = resolvedUncDetail - resolvedUncDeclared;
   const resolvedStatus = (uncReconSummary?.status || persistedFolderStatus || dailyReconciliation?.status) as ("match" | "mismatch" | undefined);
+  const hasDeclaredUnc = Number(uncTotalDeclared || 0) > 0;
+  const hasDeclaredQtm = Number(cashFundTopupAmount || 0) > 0;
+  const missingRequiredPreview = (hasDeclaredUnc && previewUncFiles === 0) || (hasDeclaredQtm && previewQtmFiles === 0);
   const qtmClosingBalance = Number(qtmOpeningBalance || 0) + Number(cashFundTopupAmount || 0) - Number(qtmSpentFromFolder || 0);
   const qtmNegative = qtmClosingBalance < 0;
 
@@ -1133,8 +1136,6 @@ export default function FinanceControl() {
         throw new Error(isVi ? "Không nhận được kết quả quét thư mục Drive" : "Missing Drive scan result");
       }
 
-      const hasDeclaredUnc = Number(uncTotalDeclared || 0) > 0;
-      const hasDeclaredQtm = Number(cashFundTopupAmount || 0) > 0;
       if (hasDeclaredUnc && folderScanResult.uncTotalScannedCount === 0) {
         throw new Error(isVi
           ? `Không thể chốt ngày: UNC đã khai báo ${vnd(Number(uncTotalDeclared || 0))} nhưng thư mục Drive UNC không quét được file nào (${folderScanResult.uncPath}).`
@@ -1590,7 +1591,7 @@ export default function FinanceControl() {
                 </Button>
                 <Button
                   className="bg-green-600 hover:bg-green-700 text-white"
-                  disabled={previewLoading || closeActing || previewUncFiles === 0 || previewQtmFiles === 0 || !!reconcileError}
+                  disabled={previewLoading || closeActing || missingRequiredPreview || !!reconcileError}
                   onClick={executeClose}
                 >
                   <Lock className="h-4 w-4 mr-2" />
