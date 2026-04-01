@@ -8,14 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+// Dialog removed — 1-click close flow uses inline progress instead
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -63,9 +56,7 @@ export default function FinanceControl() {
   const [reconciling, setReconciling] = useState(false);
   const [extracting, setExtracting] = useState(false);
 
-  const [uncDialogOpen, setUncDialogOpen] = useState(false);
-  const [uncStep, setUncStep] = useState<1 | 2 | 3>(1);
-  const [uncSkipProcessed, setUncSkipProcessed] = useState(true);
+  const [uncSkipProcessed, setUncSkipProcessed] = useState(false);
   const [uncScanImagesOnly, setUncScanImagesOnly] = useState(true);
   const [uncLowConfidenceThreshold, setUncLowConfidenceThreshold] = useState(0.75);
   const [reconcilingFolderScan, setReconcilingFolderScan] = useState(false);
@@ -650,7 +641,6 @@ export default function FinanceControl() {
           : `Scanned UNC (${uncTotalScannedCount} files) + QTM (${qtmTotalScannedCount} files) for ${format(selectedDate, "dd/MM/yyyy")}`,
       });
 
-      setUncStep(3);
     } catch (e: any) {
       const msg = e?.message || (isVi ? "Không thể đối soát UNC/QTM theo ngày" : "Failed reconciling UNC/QTM by date");
       setReconcileError(msg);
@@ -957,39 +947,51 @@ export default function FinanceControl() {
     }
   };
 
-  const handleCloseAction = async (decision: "reject" | "conditional" | "approve") => {
-    if (closeApprovalLocked && decision !== "approve") {
+  const handleOneClickClose = async () => {
+    if (closeApprovalLocked) {
       toast({
-        title: isVi ? "Đang khoá phê duyệt" : "Approval is locked",
-        description: isVi ? "Vui lòng mở khoá trước khi đổi trạng thái chốt ngày." : "Please unlock before changing close status.",
+        title: isVi ? "Đã khoá" : "Already locked",
+        description: isVi ? "Ngày này đã chốt. Mở khoá trước để chỉnh sửa." : "This day is already closed. Unlock first to edit.",
       });
       return;
     }
 
     setCloseActing(true);
+    setReconcileError(null);
     try {
-      setCloseDecision(decision);
-
-      // Khi chốt ngày: luôn persist đầy đủ declaration trước, để tránh thiếu dữ liệu top-level.
+      // Step 1: Save CEO declaration
+      setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 1/4: Lưu khai báo CEO..." : "Step 1/4: Saving CEO declaration..." });
       const declarationSaved = await saveDeclaration(true);
       if (!declarationSaved) {
-        throw new Error(isVi ? "Không thể lưu khai báo CEO trước khi chốt" : "Failed to save CEO declaration before close");
+        throw new Error(isVi ? "Không thể lưu khai báo CEO" : "Failed to save CEO declaration");
       }
 
+      // Step 2: Scan Drive folders (UNC + QTM)
+      setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 2/4: Quét thư mục UNC & QTM trên Drive..." : "Step 2/4: Scanning UNC & QTM folders on Drive..." });
+      await runFolderReconciliation();
+
+      // Step 3: Run reconciliation
+      setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 3/4: Đối soát UNC & QTM..." : "Step 3/4: Reconciling UNC & QTM..." });
       await refetchUncDetail();
-      await runReconcile();
-      await saveReconciliationWorkflowMeta(decision, decision === "approve" ? true : closeApprovalLocked);
+      const result = await runReconcile();
+
+      // Step 4: Lock & close
+      setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 4/4: Khoá & chốt ngày..." : "Step 4/4: Locking & closing..." });
+      setCloseDecision("approve");
+      await saveReconciliationWorkflowMeta("approve", true);
+
+      setReconcileProgress({ done: 0, total: 0, currentFile: "" });
       toast({
-        title: isVi ? "Đã cập nhật trạng thái chốt ngày" : "Daily close decision updated",
-        description: decision === "reject"
-          ? (isVi ? "Đã chuyển trạng thái: Không chốt" : "Status set to Reject close")
-          : decision === "conditional"
-            ? (isVi ? "Đã chuyển trạng thái: Chốt có điều kiện" : "Status set to Conditional close")
-            : (isVi ? "Đã chuyển trạng thái: Phê duyệt chốt ngày" : "Status set to Approve close"),
+        title: isVi ? "Đã duyệt & chốt ngày thành công" : "Day approved & closed successfully",
+        description: result?.status === "match"
+          ? (isVi ? "UNC và QTM đều khớp" : "UNC and QTM both match")
+          : (isVi ? "Có chênh lệch — vui lòng kiểm tra" : "Variance detected — please review"),
+        variant: result?.status === "match" ? "default" : "destructive",
       });
       await refetchDeclaration();
     } catch (e: any) {
-      toast({ title: isVi ? "Lỗi" : "Error", description: e?.message || (isVi ? "Không thể cập nhật chốt ngày" : "Failed updating close decision"), variant: "destructive" });
+      setReconcileError(e?.message || (isVi ? "Lỗi khi chốt ngày" : "Failed closing day"));
+      toast({ title: isVi ? "Lỗi" : "Error", description: e?.message || (isVi ? "Không thể chốt ngày" : "Failed closing day"), variant: "destructive" });
     } finally {
       setCloseActing(false);
     }
@@ -1015,310 +1017,207 @@ export default function FinanceControl() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-display font-bold">{isVi ? "Quản lý chi phí" : "Cost management"}</h1>
-        <p className="text-muted-foreground">{isVi ? "Đối soát hằng ngày và hằng tháng cho UNC và quỹ tiền mặt." : "Daily & monthly reconciliation for UNC and cash fund top-up."}</p>
+      {/* Header + Date picker */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-display font-bold">{isVi ? "Quản lý chi phí" : "Cost management"}</h1>
+          <p className="text-muted-foreground text-sm">{isVi ? "Khai báo, đối soát và chốt ngày" : "Declare, reconcile and close daily"}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="outline" size="icon" onClick={() => setSelectedDate((d) => subDays(d, 1))}>←</Button>
+          <Input type="date" className="w-40" value={toDateInputValue(selectedDate)} onChange={(e) => setSelectedDate(parseDateInputValue(e.target.value))} />
+          <Button type="button" variant="outline" size="icon" onClick={() => setSelectedDate((d) => subDays(d, -1))}>→</Button>
+        </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{isVi ? "Chọn ngày/tháng" : "Choose date/month"}</CardTitle>
-          <CardDescription>{isVi ? "Chọn ngày để làm việc theo ngày (có thể dùng mũi tên để qua lại) và chọn tháng để xem chốt tháng." : "Choose date for daily workflow (use arrows to move between days) and month for monthly closing."}</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label>{isVi ? "Ngày" : "Date"}</Label>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={() => setSelectedDate((d) => subDays(d, 1))}
-                aria-label={isVi ? "Ngày trước" : "Previous day"}
-              >
-                ←
-              </Button>
-              <Input
-                type="date"
-                value={toDateInputValue(selectedDate)}
-                onChange={(e) => setSelectedDate(parseDateInputValue(e.target.value))}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={() => setSelectedDate((d) => subDays(d, -1))}
-                aria-label={isVi ? "Ngày sau" : "Next day"}
-              >
-                →
-              </Button>
-            </div>
+      {/* Dashboard */}
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+        <Card><CardContent className="p-4">
+          <div className="text-xs text-muted-foreground">{isVi ? "UNC khai báo" : "UNC declared"}</div>
+          <div className="text-xl font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <div className="text-xs text-muted-foreground">{isVi ? "QTM khai báo" : "QTM declared"}</div>
+          <div className="text-xl font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <div className="text-xs text-muted-foreground">{isVi ? "Số dư QTM" : "QTM balance"}</div>
+          <div className={`text-xl font-semibold ${qtmNegative ? "text-red-600" : ""}`}>{vnd(qtmClosingBalance)}</div>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <div className="text-xs text-muted-foreground">{isVi ? "Trạng thái" : "Status"}</div>
+          <div className="text-xl font-semibold">
+            {closeApprovalLocked
+              ? <Badge className="bg-green-600">{isVi ? "Đã chốt" : "Closed"}</Badge>
+              : resolvedStatus === "match" ? <Badge className="bg-green-600">{isVi ? "Khớp" : "Match"}</Badge>
+              : resolvedStatus === "mismatch" ? <Badge variant="destructive">{isVi ? "Lệch" : "Mismatch"}</Badge>
+              : <Badge variant="secondary">{isVi ? "Chờ" : "Pending"}</Badge>}
           </div>
-          <div className="space-y-2">
-            <Label>{isVi ? "Tháng" : "Month"}</Label>
-            <Input type="month" value={format(selectedMonth, "yyyy-MM")} onChange={(e) => setSelectedMonth(new Date(`${e.target.value}-01`))} />
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">{isVi ? "CEO khai báo UNC" : "CEO UNC declared"}</div>
-            <div className="text-xl font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">{isVi ? "CEO khai báo QTM" : "CEO QTM declared"}</div>
-            <div className="text-xl font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">{isVi ? "Tình trạng đối soát" : "Reconciliation status"}</div>
-            <div className="text-xl font-semibold">
-              {resolvedStatus === "match" && <Badge className="bg-green-600">MATCH</Badge>}
-              {resolvedStatus === "mismatch" && <Badge variant="destructive">MISMATCH</Badge>}
-              {!resolvedStatus && <Badge variant="secondary">{isVi ? "Chờ" : "Pending"}</Badge>}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">{isVi ? "Tổng số tiền quỹ" : "Total cash fund"}</div>
-            <div className="text-xl font-semibold">{vnd(Number(qtmClosingBalance || 0))}</div>
-          </CardContent>
-        </Card>
+        </CardContent></Card>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
-          <TabsTrigger value="daily">{isVi ? "Đối soát ngày" : "Daily Reconciliation"}</TabsTrigger>
-          <TabsTrigger value="monthly">{isVi ? "Chốt tháng" : "Monthly Closing"}</TabsTrigger>
+          <TabsTrigger value="daily">{isVi ? "Chốt ngày" : "Daily Close"}</TabsTrigger>
+          <TabsTrigger value="monthly">{isVi ? "Chốt tháng" : "Monthly Close"}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="daily" className="space-y-4">
+          {/* CEO Declaration */}
           <Card>
-            <CardHeader>
-              <CardTitle>{isVi ? "Đối soát trong ngày" : "Daily reconciliation"}</CardTitle>
-              <CardDescription>{isVi ? "Hệ thống tự quét theo ngày đã chọn cho cả 2 thư mục UNC và QTM (YYYY/MM/DD), ví dụ 06/03/2026 → 2026/03/06." : "System auto-scans both UNC and QTM by selected day path (YYYY/MM/DD), e.g. 06/03/2026 → 2026/03/06."}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button onClick={async () => {
-                  setUncDialogOpen(true);
-                  setUncStep(1);
-                  setUncReconSummary(null);
-                  setReconcileError(null);
-                  setReconcileProgress({ done: 0, total: 0, currentFile: "" });
-                }}>
-                  {isVi ? "Đối soát trong ngày" : "Run daily reconciliation"}
-                </Button>
-                <Badge variant="secondary">{isVi ? `Ngày đang chọn: ${expectedFolderFromDate} (scan: ${autoDayFolderPath}/UNC + ${autoDayFolderPath}/QTM)` : `Selected: ${expectedFolderFromDate} (scan: ${autoDayFolderPath}/UNC + ${autoDayFolderPath}/QTM)`}</Badge>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>{isVi ? "Khai báo CEO (upload slip)" : "CEO Declaration (upload slips)"}</CardTitle>
-              <CardDescription>{isVi ? "CEO upload slip theo 2 nguồn quỹ: NGÂN HÀNG và QTM. Hệ thống OCR tự cộng tổng khai báo theo ngày." : "CEO uploads slips by fund source: BANK and QTM. OCR auto-accumulates declared totals by day."}</CardDescription>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">{isVi ? "CEO Khai báo" : "CEO Declaration"}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4" onMouseEnter={() => { if (!imagesRequested) setImagesRequested(true); }}>
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>{isVi ? "Slip QTM" : "QTM slips"}</Label>
-                  <Input type="file" accept="image/*" multiple disabled={ceoDeclarationLocked} onChange={async (e) => {
-                    const files = Array.from(e.target.files || []);
-                    if (files.length) await processSlipUpload("qtm", files);
-                    e.currentTarget.value = "";
-                  }} />
-                  {!!qtmSlipPreviews.length && (
-                    <div className="grid grid-cols-2 gap-2">
-                      {qtmSlipPreviews.map((src, idx) => (
-                        <img key={`qtm-${idx}`} src={src} alt={`QTM slip ${idx + 1}`} className="max-h-40 rounded border object-contain" />
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label>{isVi ? "Slip NGÂN HÀNG" : "BANK slips"}</Label>
-                  <Input type="file" accept="image/*" multiple disabled={ceoDeclarationLocked} onChange={async (e) => {
+                  <Label className="text-sm font-medium">{isVi ? "Slip ngân hàng (UNC)" : "Bank slips (UNC)"}</Label>
+                  <Input type="file" accept="image/*" multiple disabled={ceoDeclarationLocked || closeApprovalLocked} onChange={async (e) => {
                     const files = Array.from(e.target.files || []);
                     if (files.length) await processSlipUpload("unc", files);
                     e.currentTarget.value = "";
                   }} />
                   {!!uncSlipPreviews.length && (
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="flex flex-wrap gap-2">
                       {uncSlipPreviews.map((src, idx) => (
-                        <img key={`unc-${idx}`} src={src} alt={`UNC slip ${idx + 1}`} className="max-h-40 rounded border object-contain" />
+                        <img key={`unc-${idx}`} src={src} alt={`UNC slip ${idx + 1}`} className="h-20 rounded border object-contain" />
                       ))}
                     </div>
                   )}
+                  <div className="text-lg font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">{isVi ? "Slip tiền mặt (QTM)" : "Cash slips (QTM)"}</Label>
+                  <Input type="file" accept="image/*" multiple disabled={ceoDeclarationLocked || closeApprovalLocked} onChange={async (e) => {
+                    const files = Array.from(e.target.files || []);
+                    if (files.length) await processSlipUpload("qtm", files);
+                    e.currentTarget.value = "";
+                  }} />
+                  {!!qtmSlipPreviews.length && (
+                    <div className="flex flex-wrap gap-2">
+                      {qtmSlipPreviews.map((src, idx) => (
+                        <img key={`qtm-${idx}`} src={src} alt={`QTM slip ${idx + 1}`} className="h-20 rounded border object-contain" />
+                      ))}
+                    </div>
+                  )}
+                  <div className="text-lg font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div>
                 </div>
               </div>
 
-              {extracting && <div className="text-sm text-muted-foreground">{isVi ? "Đang scan slip và cập nhật số tiền..." : "Scanning slips and updating amount..."}</div>}
-              {(pendingQtmImagesBase64.length > 0 || pendingUncImagesBase64.length > 0) && (
-                <div className="text-sm text-amber-600">
-                  {isVi
-                    ? `Có dữ liệu slip mới chưa lưu (QTM +${pendingQtmImagesBase64.length}, BANK +${pendingUncImagesBase64.length}). Vui lòng bấm Lưu khai báo để lưu vào DB.`
-                    : `There are unsaved slip data (QTM +${pendingQtmImagesBase64.length}, BANK +${pendingUncImagesBase64.length}). Please click Save Declaration to persist to DB.`}
-                </div>
-              )}
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "CEO khai báo NGÂN HÀNG" : "CEO BANK declared"}</div><div className="text-xl font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "CEO khai báo QTM" : "CEO QTM declared"}</div><div className="text-xl font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div></CardContent></Card>
-              </div>
-
-              {ceoDeclarationLocked && (
-                <div className="text-sm text-green-700">{isVi ? "Khai báo CEO đã khoá cho ngày này. Mở khoá để chỉnh sửa thêm." : "CEO declaration is locked for this day. Unlock to edit."}</div>
-              )}
-
-              <div className="flex gap-2">
-                <Button onClick={saveDeclaration} disabled={saving || ceoDeclarationLocked}>{saving ? (isVi ? "Đang lưu..." : "Saving...") : (isVi ? "Lưu khai báo CEO" : "Save CEO Declaration")}</Button>
-                <Button variant="outline" onClick={() => setCeoDeclarationLocked((v) => !v)}>
-                  {ceoDeclarationLocked ? (isVi ? "Mở khoá khai báo" : "Unlock declaration") : (isVi ? "Khoá khai báo ngày" : "Lock declaration")}
-                </Button>
-              </div>
+              {extracting && <div className="text-sm text-muted-foreground animate-pulse">{isVi ? "Đang scan slip..." : "Scanning slips..."}</div>}
             </CardContent>
           </Card>
 
+          {/* 1-click: Duyệt & Chốt ngày */}
           <Card>
-            <CardHeader>
-              <CardTitle>{isVi ? "Kiểm soát quỹ tiền mặt (QTM)" : "Cash fund control (QTM)"}</CardTitle>
-              <CardDescription>{isVi ? "QTM cuối ngày = (CEO gửi quỹ + tồn đầu ngày) - tổng chi từ thư mục QTM" : "End-of-day QTM = (CEO top-up + opening balance) - spent from QTM folder"}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>{isVi ? "Tồn quỹ đầu ngày" : "Opening balance"}</Label>
-                  <Input type="number" value={qtmOpeningBalance} onChange={(e) => setQtmOpeningBalance(Number(e.target.value || 0))} />
-                </div>
-                <div className="space-y-2">
-                  <Label>{isVi ? "Chi tiền mặt từ folder QTM" : "Spent from QTM folder"}</Label>
-                  <Input value={vnd(qtmSpentFromFolder)} readOnly />
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-4">
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tồn đầu ngày" : "Opening"}</div><div className="text-lg font-semibold">{vnd(qtmOpeningBalance)}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "CEO gửi quỹ" : "CEO top-up"}</div><div className="text-lg font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tổng chi QTM" : "QTM spent"}</div><div className="text-lg font-semibold">{vnd(qtmSpentFromFolder)}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Số dư QTM" : "QTM balance"}</div><div className="text-lg font-semibold">{vnd(qtmClosingBalance)}</div></CardContent></Card>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                {qtmNegative ? <Badge variant="destructive">{isVi ? "Cảnh báo âm quỹ" : "Negative balance"}</Badge> : <Badge className="bg-green-600">{isVi ? "Quỹ dương" : "Positive balance"}</Badge>}
-                {qtmLowConfidenceCount > 0 && <Badge variant="secondary">{isVi ? `Thiếu chứng từ/độ tin cậy thấp: ${qtmLowConfidenceCount}` : `Low-confidence receipts: ${qtmLowConfidenceCount}`}</Badge>}
-                <Badge variant="outline">{isVi ? `Path quét: ${autoDayFolderPath}/QTM` : `Scan path: ${autoDayFolderPath}/QTM`}</Badge>
-              </div>
-
-              <div className="text-xs text-muted-foreground">
-                {isVi ? "QTM được quét tự động khi bấm nút ‘Đối soát trong ngày’ ở phía trên." : "QTM is scanned automatically when running 'Daily reconciliation' above."}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>{isVi ? "Chốt ngày" : "Daily Closing"}</CardTitle>
-              <CardDescription>{isVi ? "Tổng hợp đối soát UNC và QTM. Bấm 1 nút để lưu, đối soát, khoá và chốt ngày." : "Combined UNC and QTM reconciliation. One click to save, reconcile, lock and close."}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* UNC Summary */}
-              <div className="space-y-2">
-                <div className="text-sm font-medium">{isVi ? "UNC (Ủy nhiệm chi)" : "UNC (Bank Transfer)"}</div>
-                <div className="grid gap-4 md:grid-cols-3">
-                  <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "UNC từ folder" : "UNC from folder"}</div><div className="text-xl font-semibold">{vnd(resolvedUncDetail)}</div></CardContent></Card>
-                  <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "CEO khai báo UNC" : "CEO UNC declared"}</div><div className="text-xl font-semibold">{vnd(resolvedUncDeclared)}</div></CardContent></Card>
-                  <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch UNC" : "UNC Variance"}</div><div className={`text-xl font-semibold ${resolvedVariance === 0 ? "text-green-600" : "text-red-600"}`}>{vnd(resolvedVariance)}</div></CardContent></Card>
-                </div>
-                <div className="text-xs text-muted-foreground">{isVi ? "Quy tắc: UNC phải khớp chính xác (ngân hàng tự động, không cho phép chênh lệch)" : "Rule: UNC must match exactly (bank automated, no tolerance)"}</div>
-              </div>
-
-              {/* QTM Summary */}
-              <div className="space-y-2">
-                <div className="text-sm font-medium">{isVi ? "QTM (Quỹ tiền mặt)" : "QTM (Cash Fund)"}</div>
-                <div className="grid gap-4 md:grid-cols-3">
-                  <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "QTM từ folder" : "QTM from folder"}</div><div className="text-xl font-semibold">{vnd(qtmSpentFromFolder)}</div></CardContent></Card>
-                  <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "CEO khai báo QTM" : "CEO QTM declared"}</div><div className="text-xl font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div></CardContent></Card>
-                  <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch QTM" : "QTM Variance"}</div><div className={`text-xl font-semibold ${(qtmSpentFromFolder - Number(cashFundTopupAmount || 0)) <= 0 ? "text-green-600" : "text-red-600"}`}>{vnd(qtmSpentFromFolder - Number(cashFundTopupAmount || 0))}</div></CardContent></Card>
-                </div>
-                <div className="text-xs text-muted-foreground">{isVi ? "Quy tắc: QTM cho phép chi dưới mức khai báo (tiền dư OK), chi vượt mức = lệch" : "Rule: QTM allows underspend (surplus OK), overspend = mismatch"}</div>
-              </div>
-
-              {/* Overall Status */}
-              <div className="flex items-center gap-3 p-3 rounded-lg border">
-                <div className="text-sm font-medium">{isVi ? "Trạng thái tổng:" : "Overall status:"}</div>
-                {resolvedStatus === "match" && <Badge className="bg-green-600">{isVi ? "KHỚP" : "MATCH"}</Badge>}
-                {resolvedStatus === "mismatch" && <Badge variant="destructive">{isVi ? "LỆCH" : "MISMATCH"}</Badge>}
-                {!resolvedStatus && <span className="text-muted-foreground text-sm">{isVi ? "Chờ đối soát" : "Pending reconciliation"}</span>}
-              </div>
-
-              <div className="space-y-2">
-                <Label>{isVi ? "Ghi chú" : "Notes"}</Label>
-                <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={isVi ? "Ghi chú (tuỳ chọn)" : "Optional note"} disabled={closeApprovalLocked} />
-              </div>
-
-              {/* 1-click close action */}
+            <CardContent className="p-6 space-y-4">
+              {/* Action button */}
               <div className="flex items-center gap-3">
                 {closeApprovalLocked ? (
                   <>
                     <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
-                      <Lock className="h-4 w-4" />
-                      <span className="font-medium">{isVi ? "Đã khoá & chốt ngày" : "Locked & closed"}</span>
+                      <Lock className="h-5 w-5" />
+                      <span className="text-lg font-semibold">{isVi ? "Đã duyệt & chốt ngày" : "Approved & closed"}</span>
                     </div>
                     <Button type="button" variant="outline" size="sm" onClick={handleUnlockApproval} disabled={closeActing}>
                       <Unlock className="h-4 w-4 mr-2" />
-                      {isVi ? "Mở khoá để chỉnh sửa" : "Unlock to edit"}
+                      {isVi ? "Mở khoá" : "Unlock"}
                     </Button>
                   </>
                 ) : (
                   <Button
                     type="button"
-                    className="bg-green-600 hover:bg-green-700 text-white"
-                    disabled={closeActing || reconciling || saving}
-                    onClick={() => handleCloseAction("approve")}
+                    size="lg"
+                    className="bg-green-600 hover:bg-green-700 text-white text-base px-8"
+                    disabled={closeActing || reconcilingFolderScan || reconciling || saving || extracting}
+                    onClick={handleOneClickClose}
                   >
-                    {closeActing || reconciling ? (
-                      <span className="inline-flex items-center gap-2">
-                        <span className="animate-spin">⏳</span>
-                        {isVi ? "Đang xử lý..." : "Processing..."}
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-2">
-                        <Lock className="h-4 w-4" />
-                        {isVi ? "Khoá & Chốt ngày" : "Lock & Close Day"}
-                      </span>
-                    )}
+                    <Lock className="h-5 w-5 mr-2" />
+                    {isVi ? "Duyệt & Chốt ngày" : "Approve & Close Day"}
                   </Button>
                 )}
               </div>
 
-              {!uncReconSummary && !dailyReconciliation && (
-                <div className="text-xs text-amber-600">
-                  {isVi ? "Chưa có dữ liệu đối soát. Hãy bấm ‘Đối soát trong ngày’ trước khi chốt." : "No reconciliation data yet. Please run ‘Daily reconciliation’ first."}
+              {/* Inline progress */}
+              {(closeActing || reconcilingFolderScan) && (
+                <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <span className="animate-spin">⏳</span>
+                    {reconcileProgress.currentFile || (isVi ? "Đang xử lý..." : "Processing...")}
+                  </div>
+                  {reconcileProgress.total > 0 && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>{isVi ? "OCR bank slip" : "OCR bank slips"}: {reconcileProgress.done}/{reconcileProgress.total}</span>
+                        <span>{Math.round((reconcileProgress.done / reconcileProgress.total) * 100)}%</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-muted overflow-hidden">
+                        <div className="h-full bg-green-600 rounded-full transition-all duration-300" style={{ width: `${(reconcileProgress.done / reconcileProgress.total) * 100}%` }} />
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
+              {/* Error display */}
+              {reconcileError && !closeActing && (
+                <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                  {reconcileError}
+                </div>
+              )}
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{isVi ? "Nhật ký kiểm toán" : "Audit log"}</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2 text-sm">
-                  {!reconciliationAuditLogs.length && <div className="text-muted-foreground">{isVi ? "Chưa có bản ghi" : "No records yet"}</div>}
-                  {reconciliationAuditLogs.slice().reverse().slice(0, 8).map((log, idx) => (
-                    <div key={`${log.at}-${idx}`} className="rounded border px-3 py-2">
-                      <div className="font-medium">{new Date(log.at).toLocaleString("vi-VN")} • {log.actor}</div>
-                      <div className="text-muted-foreground">{log.action}{log.detail ? ` — ${log.detail}` : ""}</div>
+              {/* Reconciliation result summary (after scan) */}
+              {uncReconSummary && !closeActing && (
+                <div className="space-y-3">
+                  <div className="text-sm font-medium">{isVi ? "Kết quả đối soát" : "Reconciliation result"}</div>
+                  <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs text-muted-foreground">UNC Drive</div>
+                      <div className="font-semibold">{vnd(resolvedUncDetail)}</div>
                     </div>
-                  ))}
-                </CardContent>
-              </Card>
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs text-muted-foreground">{isVi ? "UNC khai báo" : "UNC declared"}</div>
+                      <div className="font-semibold">{vnd(resolvedUncDeclared)}</div>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs text-muted-foreground">QTM Drive</div>
+                      <div className="font-semibold">{vnd(qtmSpentFromFolder)}</div>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs text-muted-foreground">{isVi ? "QTM khai báo" : "QTM declared"}</div>
+                      <div className="font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-muted-foreground">{isVi ? "Files:" : "Files:"}</span>
+                    <span>{isVi ? `UNC ${uncReconSummary.totalScannedCount} file` : `UNC ${uncReconSummary.totalScannedCount} files`}</span>
+                    {uncReconSummary.lowConfidenceCount > 0 && (
+                      <Badge variant="secondary" className="text-xs">{uncReconSummary.lowConfidenceCount} {isVi ? "cần xem lại" : "need review"}</Badge>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Ghi chú */}
+              <div className="space-y-1">
+                <Label className="text-xs">{isVi ? "Ghi chú" : "Notes"}</Label>
+                <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={isVi ? "Tuỳ chọn" : "Optional"} disabled={closeApprovalLocked} className="text-sm" />
+              </div>
+
+              {/* Audit log (collapsed by default) */}
+              {reconciliationAuditLogs.length > 0 && (
+                <details className="text-sm">
+                  <summary className="cursor-pointer text-muted-foreground hover:text-foreground">{isVi ? `Nhật ký (${reconciliationAuditLogs.length})` : `Audit log (${reconciliationAuditLogs.length})`}</summary>
+                  <div className="mt-2 space-y-1">
+                    {reconciliationAuditLogs.slice().reverse().slice(0, 5).map((log, idx) => (
+                      <div key={`${log.at}-${idx}`} className="rounded border px-3 py-1.5 text-xs">
+                        <span className="font-medium">{new Date(log.at).toLocaleString("vi-VN")}</span>
+                        <span className="text-muted-foreground"> {log.action}{log.detail ? ` — ${log.detail}` : ""}</span>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -1326,27 +1225,25 @@ export default function FinanceControl() {
         <TabsContent value="monthly" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>{isVi ? "Chốt tháng" : "Monthly Closing"}</CardTitle>
-              <CardDescription>{isVi ? "Tổng hợp kết quả đối soát theo ngày" : "Aggregate daily reconciliation results"}</CardDescription>
+              <div className="flex items-center justify-between">
+                <CardTitle>{isVi ? "Chốt tháng" : "Monthly Closing"}</CardTitle>
+                <Input type="month" className="w-40" value={format(selectedMonth, "yyyy-MM")} onChange={(e) => setSelectedMonth(new Date(`${e.target.value}-01`))} />
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-end gap-3">
-                <Button variant="outline" onClick={() => refetchMonthly()}>{isVi ? "Làm mới" : "Refresh"}</Button>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-4">
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Total {isVi ? "UNC chi tiết" : "UNC Detail"}</div><div className="text-xl font-semibold">{vnd(Number(monthlySummary?.totalUncDetail || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Total {isVi ? "UNC khai báo" : "UNC Declared"}</div><div className="text-xl font-semibold">{vnd(Number(monthlySummary?.totalUncDeclared || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch ròng" : "Net variance"}</div><div className="text-xl font-semibold">{vnd(Number(monthlySummary?.netVariance || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tỷ lệ khớp" : "Match Rate"}</div><div className="text-xl font-semibold">{monthlySummary?.totalDays ? `${monthlySummary.matchDays}/${monthlySummary.totalDays}` : "0/0"}</div></CardContent></Card>
+              <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tổng UNC thực" : "Total UNC actual"}</div><div className="text-xl font-semibold">{vnd(Number(monthlySummary?.totalUncDetail || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tổng UNC khai báo" : "Total UNC declared"}</div><div className="text-xl font-semibold">{vnd(Number(monthlySummary?.totalUncDeclared || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch" : "Variance"}</div><div className="text-xl font-semibold">{vnd(Number(monthlySummary?.netVariance || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tỷ lệ khớp" : "Match rate"}</div><div className="text-xl font-semibold">{monthlySummary?.totalDays ? `${monthlySummary.matchDays}/${monthlySummary.totalDays}` : "—"}</div></CardContent></Card>
               </div>
 
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>{isVi ? "Ngày" : "Date"}</TableHead>
-                    <TableHead className="text-right">{isVi ? "UNC chi tiết" : "UNC Detail"}</TableHead>
-                    <TableHead className="text-right">{isVi ? "UNC khai báo" : "UNC Declared"}</TableHead>
+                    <TableHead className="text-right">{isVi ? "UNC thực" : "UNC actual"}</TableHead>
+                    <TableHead className="text-right">{isVi ? "UNC khai báo" : "UNC declared"}</TableHead>
                     <TableHead className="text-right">{isVi ? "Chênh lệch" : "Variance"}</TableHead>
                     <TableHead>{isVi ? "Trạng thái" : "Status"}</TableHead>
                   </TableRow>
@@ -1358,146 +1255,19 @@ export default function FinanceControl() {
                       <TableCell className="text-right">{vnd(Number(r.unc_detail_amount || 0))}</TableCell>
                       <TableCell className="text-right">{vnd(Number(r.unc_declared_amount || 0))}</TableCell>
                       <TableCell className="text-right">{vnd(Number(r.variance_amount || 0))}</TableCell>
-                      <TableCell>{r.status === "match" ? <Badge className="bg-green-600">MATCH</Badge> : r.status === "mismatch" ? <Badge variant="destructive">MISMATCH</Badge> : <Badge variant="secondary">PENDING</Badge>}</TableCell>
+                      <TableCell>{r.status === "match" ? <Badge className="bg-green-600">MATCH</Badge> : r.status === "mismatch" ? <Badge variant="destructive">MISMATCH</Badge> : <Badge variant="secondary">—</Badge>}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
 
               {!monthlySummary?.rows?.length && (
-                <div className="text-sm text-muted-foreground">{isVi ? "Không có dữ liệu đối soát trong tháng" : "No reconciliation data in this month"} ({format(startOfMonth(selectedMonth), "MM/yyyy")} - {format(endOfMonth(selectedMonth), "MM/yyyy")}).</div>
+                <div className="text-sm text-muted-foreground text-center py-4">{isVi ? "Chưa có dữ liệu" : "No data yet"}</div>
               )}
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
-
-      <Dialog open={uncDialogOpen} onOpenChange={setUncDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{isVi ? `Đối soát trong ngày (Bước ${uncStep}/3)` : `Daily reconciliation (Step ${uncStep}/3)`}</DialogTitle>
-            <DialogDescription>
-              {isVi ? "Tự động quét cả UNC + QTM theo ngày đã chọn, sau đó đối soát với khai báo CEO." : "Automatically scan UNC + QTM by selected date, then reconcile with CEO declaration."}
-            </DialogDescription>
-          </DialogHeader>
-
-          {uncStep === 1 && (
-            <div className="space-y-3">
-              <Label>{isVi ? "Đường dẫn quét tự động theo ngày" : "Auto scan path by selected date"}</Label>
-              <div className="rounded border p-3 text-sm space-y-1">
-                <div>{isVi ? "Ngày đang chọn" : "Selected date"}: <Badge variant="secondary">{format(selectedDate, "dd/MM/yyyy")}</Badge></div>
-                <div>{isVi ? "Đường dẫn UNC" : "UNC path"}: <code>{autoDayFolderPath}/UNC</code></div>
-                <div>{isVi ? "Đường dẫn QTM" : "QTM path"}: <code>{autoDayFolderPath}/QTM</code></div>
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {isVi
-                  ? "Không cần chọn thủ công thư mục. Hệ thống sẽ tự đi theo YYYY/MM/DD từ ngày phía trên."
-                  : "No manual folder selection required. System follows YYYY/MM/DD from the selected date above."}
-              </div>
-            </div>
-          )}
-
-          {uncStep === 2 && (
-            <div className="space-y-4">
-              <div className="text-sm">{isVi ? "Folder sẽ quét:" : "Folders to scan:"} <Badge variant="secondary">{autoDayFolderPath}/UNC</Badge> <Badge variant="secondary">{autoDayFolderPath}/QTM</Badge></div>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={uncSkipProcessed} onChange={(e) => setUncSkipProcessed(e.target.checked)} />
-                {isVi ? "Bỏ qua file đã xử lý trước đó" : "Skip previously processed files"}
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={uncScanImagesOnly} onChange={(e) => setUncScanImagesOnly(e.target.checked)} />
-                {isVi ? "Chỉ lấy file ảnh" : "Only include image files"}
-              </label>
-
-              <div className="space-y-2">
-                <Label>{isVi ? "Ngưỡng confidence cần xác nhận" : "Low-confidence review threshold"}</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={uncLowConfidenceThreshold}
-                  onChange={(e) => setUncLowConfidenceThreshold(Math.max(0, Math.min(1, Number(e.target.value || 0))))}
-                />
-              </div>
-              {reconcilingFolderScan && (
-                <div className="rounded border p-3 text-sm">
-                  <div>{isVi ? "Tiến độ" : "Progress"}: {reconcileProgress.done}/{reconcileProgress.total}</div>
-                  <div className="text-muted-foreground">{reconcileProgress.currentFile}</div>
-                </div>
-              )}
-              {reconcileError && (
-                <div className="rounded border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-                  {reconcileError}
-                </div>
-              )}
-            </div>
-          )}
-
-          {uncStep === 3 && uncReconSummary && (
-            <div className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-4">
-                <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">Folder UNC</div><div className="font-semibold">{vnd(uncReconSummary.folderTotal)}</div></CardContent></Card>
-                <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">CEO UNC</div><div className="font-semibold">{vnd(uncReconSummary.ceoTotal)}</div></CardContent></Card>
-                <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch" : "Delta"}</div><div className="font-semibold">{vnd(uncReconSummary.delta)}</div></CardContent></Card>
-                <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">Status</div>{uncReconSummary.status === "match" ? <Badge className="bg-green-600">SUCCESS</Badge> : <Badge variant="destructive">MISMATCH</Badge>}</CardContent></Card>
-              </div>
-              <div className="text-xs text-amber-600">{isVi ? `File confidence thấp cần xác nhận: ${uncReconSummary.lowConfidenceCount}` : `Low confidence files: ${uncReconSummary.lowConfidenceCount}`}</div>
-
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">{isVi ? "Ngoại lệ & loại trừ" : "Exceptions & exclusions"}</CardTitle>
-                </CardHeader>
-                <CardContent className="grid gap-2 text-sm md:grid-cols-3">
-                  <div>{isVi ? "Tổng file scan" : "Total scanned"}: <span className="font-semibold">{uncReconSummary.totalScannedCount}</span></div>
-                  <div>{isVi ? "Đã loại trừ QTM" : "QTM excluded"}: <span className="font-semibold">{uncReconSummary.qtmExcludedCount}</span></div>
-                  <div>{isVi ? "Bỏ qua do đã xử lý" : "Skipped as processed"}: <span className="font-semibold">{uncReconSummary.processedSkippedCount}</span></div>
-                </CardContent>
-              </Card>
-
-              <div className="max-h-64 overflow-auto rounded border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>File</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                      <TableHead className="text-right">Confidence</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {uncReconSummary.items.map((item) => (
-                      <TableRow key={item.fileId}>
-                        <TableCell>{item.fileName}</TableCell>
-                        <TableCell className="text-right">{vnd(item.amount)}</TableCell>
-                        <TableCell className="text-right">{item.confidence.toFixed(2)}</TableCell>
-                        <TableCell>
-                          {item.status === "needs_review" ? <Badge variant="secondary">{isVi ? "Cần xác nhận" : "Needs review"}</Badge> : item.status === "matched" ? <Badge className="bg-green-600">Matched</Badge> : <Badge variant="destructive">Mismatch</Badge>}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            {uncStep > 1 && uncStep < 3 && (
-              <Button variant="outline" onClick={() => setUncStep((s) => (s === 2 ? 1 : s))}>{isVi ? "Quay lại" : "Back"}</Button>
-            )}
-            {uncStep === 1 && (
-              <Button onClick={() => setUncStep(2)}>{isVi ? "Tiếp tục" : "Continue"}</Button>
-            )}
-            {uncStep === 2 && (
-              <Button onClick={runFolderReconciliation} disabled={reconcilingFolderScan}>{reconcilingFolderScan ? (isVi ? "Đang đối soát..." : "Reconciling...") : (isVi ? "Quét & Đối soát" : "Scan & Reconcile")}</Button>
-            )}
-            {uncStep === 3 && (
-              <Button onClick={() => setUncDialogOpen(false)}>{isVi ? "Đóng" : "Close"}</Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

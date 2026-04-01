@@ -86,15 +86,36 @@ async function resolveFolderPath(rootFolderId: string, path: string, accessToken
 
   let currentFolderId = rootFolderId;
   for (const segment of segments) {
-    const q = encodeURIComponent(
+    // Try exact match first
+    const qExact = encodeURIComponent(
       `'${currentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and name = '${segment.replace(/'/g, "\\'")}' and trashed = false`
     );
-    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
-    const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${accessToken}` } }, 10000);
-    if (!res.ok) throw new Error(`Failed resolving path segment '${segment}': ${await res.text()}`);
-    const data: DriveListResponse = await res.json();
-    if (!data.files?.length) return null;
-    currentFolderId = data.files[0].id;
+    const urlExact = `https://www.googleapis.com/drive/v3/files?q=${qExact}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
+    const resExact = await fetchWithTimeout(urlExact, { headers: { Authorization: `Bearer ${accessToken}` } }, 10000);
+    if (!resExact.ok) throw new Error(`Failed resolving path segment '${segment}': ${await resExact.text()}`);
+    const dataExact: DriveListResponse = await resExact.json();
+
+    if (dataExact.files?.length) {
+      currentFolderId = dataExact.files[0].id;
+      continue;
+    }
+
+    // Fallback: case-insensitive match — list all child folders and match by lowercased name
+    console.log(`[scan-drive-folder] Exact match failed for '${segment}', trying case-insensitive fallback`);
+    const qAll = encodeURIComponent(
+      `'${currentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
+    );
+    const urlAll = `https://www.googleapis.com/drive/v3/files?q=${qAll}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true&pageSize=200`;
+    const resAll = await fetchWithTimeout(urlAll, { headers: { Authorization: `Bearer ${accessToken}` } }, 10000);
+    if (!resAll.ok) return null;
+    const dataAll: DriveListResponse = await resAll.json();
+    const match = (dataAll.files || []).find((f) => f.name.toLowerCase() === segment.toLowerCase());
+    if (!match) {
+      console.log(`[scan-drive-folder] No folder found for segment '${segment}' (case-insensitive). Available: ${(dataAll.files || []).map(f => f.name).join(', ')}`);
+      return null;
+    }
+    console.log(`[scan-drive-folder] Case-insensitive match: '${segment}' → '${match.name}' (${match.id})`);
+    currentFolderId = match.id;
   }
 
   return currentFolderId;
