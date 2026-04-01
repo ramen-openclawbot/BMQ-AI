@@ -87,6 +87,8 @@ export default function FinanceControl() {
   const [browsingLoading, setBrowsingLoading] = useState(false);
   const [browseError, setBrowseError] = useState<string | null>(null);
   const [browsedFolderUrl, setBrowsedFolderUrl] = useState<string>("");
+  const [currentBrowseFolderId, setCurrentBrowseFolderId] = useState<string>("");
+  const [savingCurrentFolder, setSavingCurrentFolder] = useState(false);
 
   const [uncReconSummary, setUncReconSummary] = useState<{
     folderDate: string;
@@ -1028,6 +1030,7 @@ export default function FinanceControl() {
     setBrowsingPath([]);
     setBrowseError(null);
     setBrowsedFolderUrl("");
+    setCurrentBrowseFolderId("");
 
     // Browse root folder to show subfolder tree + quick preview
     browseFolder([]);
@@ -1117,6 +1120,7 @@ export default function FinanceControl() {
         throw new Error(detail);
       }
       const data = await resp.json();
+      setCurrentBrowseFolderId(String(data?.currentFolderId || ""));
       const folders = data.folders || [];
       setChildFolders(folders);
       if (folders.length === 0) {
@@ -1127,6 +1131,33 @@ export default function FinanceControl() {
       setChildFolders([]);
     } finally {
       setBrowsingLoading(false);
+    }
+  };
+
+  const saveCurrentBrowsedFolder = async () => {
+    if (!currentBrowseFolderId) {
+      setBrowseError(isVi ? "Chưa xác định được thư mục hiện tại để lưu" : "Current folder is not available to save");
+      return;
+    }
+    setSavingCurrentFolder(true);
+    try {
+      const nextUrl = `https://drive.google.com/drive/folders/${currentBrowseFolderId}`;
+      await (supabase as any).from("app_settings").upsert(
+        { key: "google_drive_receipts_folder", value: nextUrl },
+        { onConflict: "key" }
+      );
+      setSavedFolderUrl(nextUrl);
+      setBrowsedFolderUrl(nextUrl);
+      toast({
+        title: isVi ? "Đã lưu thư mục hiện tại" : "Current folder saved",
+        description: isVi
+          ? "Hệ thống sẽ dùng thư mục này cho các lần sau cho đến khi anh đổi thư mục khác."
+          : "This folder will be reused in future sessions until changed.",
+      });
+    } catch (e: any) {
+      setBrowseError(e?.message || (isVi ? "Không thể lưu thư mục hiện tại" : "Cannot save current folder"));
+    } finally {
+      setSavingCurrentFolder(false);
     }
   };
 
@@ -1414,6 +1445,15 @@ export default function FinanceControl() {
                   <div className="text-sm font-medium">{isVi ? "Duyệt thư mục" : "Browse folders"}</div>
                   <div className="flex items-center gap-2">
                     {browsingLoading && <span className="text-xs text-muted-foreground animate-pulse">{isVi ? "Đang tải..." : "Loading..."}</span>}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={saveCurrentBrowsedFolder}
+                      disabled={browsingLoading || savingCurrentFolder || !currentBrowseFolderId}
+                    >
+                      {savingCurrentFolder ? (isVi ? "Đang lưu..." : "Saving...") : (isVi ? "Lưu thư mục hiện tại" : "Save current folder")}
+                    </Button>
                     {!browsingLoading && (
                       <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => browseFolder(browsingPath)}>
                         ↻ {isVi ? "Tải lại" : "Reload"}
@@ -1424,7 +1464,7 @@ export default function FinanceControl() {
                 {/* Show URL being browsed */}
                 {browsedFolderUrl && (
                   <div className="text-xs text-muted-foreground truncate" title={browsedFolderUrl}>
-                    {isVi ? "Thư mục" : "Folder"}: <code className="bg-muted px-1 rounded">{browsedFolderUrl.match(/\/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? browsedFolderUrl.slice(-20)}</code>
+                    {isVi ? "Thư mục đang dùng" : "Active folder"}: <code className="bg-muted px-1 rounded">{browsedFolderUrl.match(/\/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? browsedFolderUrl.slice(-20)}</code>
                   </div>
                 )}
                 {/* Breadcrumb */}

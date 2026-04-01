@@ -215,7 +215,7 @@ serve(async (req) => {
       const resolvedParentId = await resolveFolderPath(rootFolderId, normalizedParentPath, accessToken);
 
       if (!resolvedParentId) {
-        return new Response(JSON.stringify({ success: true, mode: 'list_children', folders: [], parentPath: normalizedParentPath }), {
+        return new Response(JSON.stringify({ success: true, mode: 'list_children', folders: [], parentPath: normalizedParentPath, currentFolderId: resolvedParentId }), {
           status: 200,
           headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
         });
@@ -239,7 +239,7 @@ serve(async (req) => {
 
       folders.sort((a, b) => a.name.localeCompare(b.name));
 
-      return new Response(JSON.stringify({ success: true, mode: 'list_children', parentPath: normalizedParentPath, folders }), {
+      return new Response(JSON.stringify({ success: true, mode: 'list_children', parentPath: normalizedParentPath, currentFolderId: resolvedParentId, folders }), {
         status: 200,
         headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
