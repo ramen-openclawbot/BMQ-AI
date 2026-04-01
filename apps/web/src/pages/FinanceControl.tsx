@@ -380,6 +380,7 @@ export default function FinanceControl() {
 
       const scanOnce = async (subfolderDate: string) => {
         try {
+          console.log(`[scan] Requesting: ${subfolderDate}, folderUrl: ${folderUrl?.slice(0, 60)}...`);
           const resp = await fetchWithTimeout(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
             method: "POST",
             headers: {
@@ -396,13 +397,16 @@ export default function FinanceControl() {
           }, 45000);
           if (!resp.ok) {
             const err = await resp.json().catch(() => ({}));
-            throw new Error(err?.error || "Không thể scan folder UNC/QTM");
+            const detail = err?.details || err?.error || `HTTP ${resp.status}`;
+            throw new Error(`Scan "${subfolderDate}" thất bại: ${detail}`);
           }
-          return await resp.json();
+          const data = await resp.json();
+          console.log(`[scan] ${subfolderDate}: ${data?.files?.length ?? 0} files, total: ${data?.totalFilesFound ?? '?'}, skipped: ${data?.skippedProcessedCount ?? 0}`);
+          return data;
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error || "");
           if (msg.includes("AbortError") || msg.toLowerCase().includes("aborted") || msg.toLowerCase().includes("timeout")) {
-            throw new Error(`Scan thư mục quá thời gian chờ: ${subfolderDate}`);
+            throw new Error(`Scan "${subfolderDate}" quá thời gian chờ (45s)`);
           }
           throw error;
         }
@@ -485,10 +489,18 @@ export default function FinanceControl() {
       const targetQtmFiles = qtmFiles;
 
       if (!targetUncFiles.length && !targetQtmFiles.length) {
+        const uncMsg = uncScanData?.message || "";
+        const qtmMsg = qtmScanData?.message || "";
+        const pathInfo = `UNC: ${uncPath}, QTM: ${qtmPath}`;
+        const folderNotFound = uncMsg.includes("No subfolder") || qtmMsg.includes("No subfolder");
         throw new Error(
           isVi
-            ? `Không có file mới để đối soát (UNC: ${uncTotalScannedCount}, QTM: ${qtmTotalScannedCount}, đã xử lý: ${processedSkippedCount}).`
-            : `No new files to reconcile (UNC: ${uncTotalScannedCount}, QTM: ${qtmTotalScannedCount}, skipped processed: ${processedSkippedCount}).`
+            ? folderNotFound
+              ? `Không tìm thấy thư mục trên Drive. Kiểm tra cấu trúc: ${pathInfo}. ${uncMsg}`
+              : `Không có file ảnh trong thư mục (UNC: ${uncTotalScannedCount} found, QTM: ${qtmTotalScannedCount} found, skipped: ${processedSkippedCount}). Path: ${pathInfo}`
+            : folderNotFound
+              ? `Folder not found on Drive. Check structure: ${pathInfo}. ${uncMsg}`
+              : `No image files in folders (UNC: ${uncTotalScannedCount}, QTM: ${qtmTotalScannedCount}, skipped: ${processedSkippedCount}). Path: ${pathInfo}`
         );
       }
 
@@ -646,6 +658,7 @@ export default function FinanceControl() {
       setReconcileError(msg);
       setReconcileProgress((prev) => ({ ...prev, currentFile: "" }));
       toast({ title: isVi ? "Lỗi đối soát trong ngày" : "Daily reconciliation error", description: msg, variant: "destructive" });
+      throw e; // Re-throw so handleOneClickClose stops
     } finally {
       setReconcilingFolderScan(false);
       setQtmReconciling(false);
