@@ -106,7 +106,8 @@ export function GoogleDriveSettings() {
 
   const validateGoogleDriveUrl = (url: string): boolean => {
     if (!url) return true;
-    return url.includes("drive.google.com/drive/folders/");
+    // Accept both /drive/folders/ and /drive/u/N/folders/ (user-index variant)
+    return url.includes("drive.google.com") && url.includes("/folders/");
   };
 
   const handleConnect = async () => {
