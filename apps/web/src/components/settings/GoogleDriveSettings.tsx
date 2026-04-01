@@ -16,6 +16,8 @@ export function GoogleDriveSettings() {
   const [poFolderUrl, setPoFolderUrl] = useState("");
   const [receiptsFolderUrl, setReceiptsFolderUrl] = useState("");
   const [connectedEmail, setConnectedEmail] = useState<string | null>(null);
+  const [receiptsUncPattern, setReceiptsUncPattern] = useState("yyyy/MM/dd/UNC");
+  const [receiptsQtmPattern, setReceiptsQtmPattern] = useState("yyyy/MM/dd/QTM");
   const [gmailConnectedEmail, setGmailConnectedEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -34,11 +36,13 @@ export function GoogleDriveSettings() {
         const { data } = await supabase
           .from("app_settings")
           .select("key, value")
-          .in("key", ["google_drive_po_folder", "google_drive_receipts_folder", "google_drive_connected_email", "google_gmail_connected_email"]);
+          .in("key", ["google_drive_po_folder", "google_drive_receipts_folder", "google_drive_receipts_unc_pattern", "google_drive_receipts_qtm_pattern", "google_drive_connected_email", "google_gmail_connected_email"]);
 
         if (data) {
           const poFolder = data.find(d => d.key === "google_drive_po_folder");
           const receiptsFolder = data.find(d => d.key === "google_drive_receipts_folder");
+          const uncPatternSetting = data.find(d => d.key === "google_drive_receipts_unc_pattern");
+          const qtmPatternSetting = data.find(d => d.key === "google_drive_receipts_qtm_pattern");
           const emailSetting = data.find(d => d.key === "google_drive_connected_email");
           const gmailEmailSetting = data.find(d => d.key === "google_gmail_connected_email");
           
@@ -50,6 +54,8 @@ export function GoogleDriveSettings() {
             setReceiptsFolderUrl(receiptsFolder.value);
             setReceiptsFolderSaved(true);
           }
+          if (uncPatternSetting?.value) setReceiptsUncPattern(String(uncPatternSetting.value));
+          if (qtmPatternSetting?.value) setReceiptsQtmPattern(String(qtmPatternSetting.value));
           if (emailSetting?.value) {
             setConnectedEmail(emailSetting.value);
           }
@@ -354,6 +360,16 @@ export function GoogleDriveSettings() {
 
       if (receiptsError) throw receiptsError;
 
+      const { error: uncPatternError } = await supabase
+        .from("app_settings")
+        .upsert({ key: "google_drive_receipts_unc_pattern", value: receiptsUncPattern.trim() || "yyyy/MM/dd/UNC", updated_at: new Date().toISOString() }, { onConflict: 'key' });
+      if (uncPatternError) throw uncPatternError;
+
+      const { error: qtmPatternError } = await supabase
+        .from("app_settings")
+        .upsert({ key: "google_drive_receipts_qtm_pattern", value: receiptsQtmPattern.trim() || "yyyy/MM/dd/QTM", updated_at: new Date().toISOString() }, { onConflict: 'key' });
+      if (qtmPatternError) throw qtmPatternError;
+
       setPoFolderSaved(true);
       setReceiptsFolderSaved(true);
       
@@ -614,6 +630,32 @@ export function GoogleDriveSettings() {
           </div>
         </div>
       </div>
+
+        {/* Bank Receipts Patterns */}
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="receipts-unc-pattern">UNC path template</Label>
+            <Input
+              id="receipts-unc-pattern"
+              type="text"
+              value={receiptsUncPattern}
+              onChange={(e) => setReceiptsUncPattern(e.target.value)}
+              placeholder="yyyy/MM/dd/UNC"
+            />
+            <p className="text-xs text-muted-foreground">Ví dụ: <code>yyyy/MM/dd/UNC</code></p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="receipts-qtm-pattern">QTM path template</Label>
+            <Input
+              id="receipts-qtm-pattern"
+              type="text"
+              value={receiptsQtmPattern}
+              onChange={(e) => setReceiptsQtmPattern(e.target.value)}
+              placeholder="yyyy/MM/dd/QTM"
+            />
+            <p className="text-xs text-muted-foreground">Ví dụ: <code>yyyy/MM/dd/QTM</code></p>
+          </div>
+        </div>
 
       <Separator />
 

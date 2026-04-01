@@ -79,6 +79,8 @@ export default function FinanceControl() {
   const [previewUncFiles, setPreviewUncFiles] = useState<number>(0);
   const [previewQtmFiles, setPreviewQtmFiles] = useState<number>(0);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [uncPathTemplate, setUncPathTemplate] = useState("yyyy/MM/dd/UNC");
+  const [qtmPathTemplate, setQtmPathTemplate] = useState("yyyy/MM/dd/QTM");
   // Folder browser state
 
   const [uncReconSummary, setUncReconSummary] = useState<{
@@ -100,6 +102,24 @@ export default function FinanceControl() {
   }, [selectedDate]);
 
   // Root folder is configured in Google Drive Integration and resolved on demand.
+
+  useEffect(() => {
+    const loadReceiptPathTemplates = async () => {
+      try {
+        const { data } = await supabase
+          .from("app_settings")
+          .select("key, value")
+          .in("key", ["google_drive_receipts_unc_pattern", "google_drive_receipts_qtm_pattern"]);
+        const unc = data?.find((d: any) => d.key === "google_drive_receipts_unc_pattern")?.value;
+        const qtm = data?.find((d: any) => d.key === "google_drive_receipts_qtm_pattern")?.value;
+        if (unc) setUncPathTemplate(String(unc));
+        if (qtm) setQtmPathTemplate(String(qtm));
+      } catch (error) {
+        console.error("Failed to load receipts path templates:", error);
+      }
+    };
+    loadReceiptPathTemplates();
+  }, []);
 
   const {
     data: dailySnapshot,
@@ -283,6 +303,15 @@ export default function FinanceControl() {
   }, [qtmOpeningBalanceFromHook]);
 
   const expectedFolderFromDate = format(selectedDate, "ddMMyyyy");
+  const applyDatePathTemplate = (template: string) => {
+    const normalized = String(template || "").trim() || "yyyy/MM/dd";
+    return normalized
+      .replace(/yyyy/g, format(selectedDate, "yyyy"))
+      .replace(/MM/g, format(selectedDate, "MM"))
+      .replace(/dd/g, format(selectedDate, "dd"));
+  };
+  const uncPathForDate = applyDatePathTemplate(uncPathTemplate);
+  const qtmPathForDate = applyDatePathTemplate(qtmPathTemplate);
   const autoDayFolderPath = format(selectedDate, "yyyy/MM/dd");
 
   const optimizeSlipImageForOcr = async (imageBase64: string, mimeType: string, aggressive = false) => {
@@ -482,8 +511,8 @@ export default function FinanceControl() {
         return data?.file || null;
       };
 
-      const uncPath = `${autoDayFolderPath}/UNC`;
-      const qtmPath = `${autoDayFolderPath}/QTM`;
+      const uncPath = uncPathForDate;
+      const qtmPath = qtmPathForDate;
 
       // Scan sequentially to avoid double pressure on Drive + Edge runtime.
       setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Đang quét UNC..." : "Scanning UNC..." });
@@ -714,7 +743,7 @@ export default function FinanceControl() {
     try {
       const session = await getFreshSession();
       const folderUrl = await getUncRootFolderUrl();
-      const qtmPath = `${autoDayFolderPath}/QTM`;
+      const qtmPath = qtmPathForDate;
 
       const scanResponse = await fetchWithTimeout(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
         method: "POST",
@@ -1023,8 +1052,8 @@ export default function FinanceControl() {
     try {
       const session = await getFreshSession();
       const folderUrl = await getUncRootFolderUrl();
-      const uncPath = `${autoDayFolderPath}/UNC`;
-      const qtmPath = `${autoDayFolderPath}/QTM`;
+      const uncPath = uncPathForDate;
+      const qtmPath = qtmPathForDate;
 
       const scanPreview = async (path: string) => {
         const resp = await fetchWithTimeout(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
@@ -1374,17 +1403,17 @@ export default function FinanceControl() {
                 <div className="grid gap-2 text-sm">
                   <div className="rounded bg-muted/50 p-2">
                     <div className="text-xs text-muted-foreground">UNC</div>
-                    <code className="text-xs break-all">{autoDayFolderPath}/UNC</code>
+                    <code className="text-xs break-all">{uncPathForDate}</code>
                   </div>
                   <div className="rounded bg-muted/50 p-2">
                     <div className="text-xs text-muted-foreground">QTM</div>
-                    <code className="text-xs break-all">{autoDayFolderPath}/QTM</code>
+                    <code className="text-xs break-all">{qtmPathForDate}</code>
                   </div>
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {isVi
-                    ? "Thư mục gốc lấy từ Settings > Google Drive Integration. Cửa sổ này không cho chọn thủ công để tránh chọn sai folder ngày."
-                    : "Root folder comes from Settings > Google Drive Integration. Manual browsing is disabled here to avoid choosing the wrong day folder."}
+                    ? `Thư mục gốc lấy từ Settings > Google Drive Integration. Pattern hiện tại: UNC = ${uncPathTemplate}, QTM = ${qtmPathTemplate}.`
+                    : `Root folder comes from Settings > Google Drive Integration. Current templates: UNC = ${uncPathTemplate}, QTM = ${qtmPathTemplate}.`}
                 </div>
               </div>
 
