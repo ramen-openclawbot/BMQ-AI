@@ -177,8 +177,8 @@ export async function findSKUByCodeOrName(
     if (productName) {
       const { data: candidates } = await supabase
         .from("product_skus")
-        .select("*, suppliers(id, name)")
-        .limit(500);
+        .select("id,sku_code,product_name,category,unit,unit_price,supplier_id, suppliers(id, name)")
+        .limit(100);
 
       if (candidates?.length) {
         const best = candidates
@@ -212,7 +212,7 @@ export async function getLastPrice(
       .from("invoice_items")
       .select("unit_price, product_name, created_at")
       .order("created_at", { ascending: false })
-      .limit(300);
+      .limit(50);
 
     const best = (data || [])
       .map((row: any) => ({ row, score: scoreNameMatch(productName, row.product_name || "") }))
@@ -236,7 +236,7 @@ export async function checkInventory(
     const { data } = await supabase
       .from("inventory_items")
       .select("id, name, quantity")
-      .limit(500);
+      .limit(100);
 
     const best = (data || [])
       .map((row: any) => ({ row, score: scoreNameMatch(productName, row.name || "") }))

@@ -25,8 +25,8 @@ export default function TraceabilityPublic() {
       if (!b) return;
 
       const [{ data: m }, { data: d }] = await Promise.all([
-        sb.from("production_batch_materials").select("*").eq("batch_id", b.id).order("sort_order"),
-        sb.from("sku_trace_documents").select("*").eq("sku_id", b.sku_id).order("created_at", { ascending: false }),
+        sb.from("production_batch_materials").select("id,batch_id,ingredient_name,ingredient_sku_id,quantity,unit,sort_order").eq("batch_id", b.id).order("sort_order").limit(100),
+        sb.from("sku_trace_documents").select("id,sku_id,doc_type,doc_url,title,created_at").eq("sku_id", b.sku_id).order("created_at", { ascending: false }).limit(50),
       ]);
 
       setMaterials(m || []);

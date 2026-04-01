@@ -892,7 +892,7 @@ export default function FinanceControl() {
     try {
       const { data: latestDecl } = await (supabase as any)
         .from("ceo_daily_closing_declarations")
-        .select("*")
+        .select("closing_date,unc_total_declared,unc_extracted_amount,cash_fund_topup_amount,qtm_extracted_amount,notes,extraction_meta")
         .eq("closing_date", dateKey)
         .maybeSingle();
 

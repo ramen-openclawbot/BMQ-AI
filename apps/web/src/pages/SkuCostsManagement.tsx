@@ -297,10 +297,10 @@ export default function SkuCostsManagement() {
 
   const loadAll = async () => {
     const [skuRes, poRes, prRes, invRes] = await Promise.all([
-      sb.from("product_skus").select("*").order("updated_at", { ascending: false }),
-      sb.from("purchase_order_items").select("sku_id, unit_price, created_at, purchase_order_id, purchase_orders(po_number, order_date)").not("sku_id", "is", null),
-      sb.from("payment_request_items").select("sku_id, unit_price, created_at, payment_request_id, payment_requests(request_number)").not("sku_id", "is", null),
-      sb.from("inventory_batches").select("sku_id, quantity").not("sku_id", "is", null),
+      sb.from("product_skus").select("id,sku_code,product_name,category,unit,unit_price,updated_at,supplier_id,sku_type,notes,cost_values,cost_widgets,cost_template,finished_output_qty,finished_output_unit,created_at,created_by").order("updated_at", { ascending: false }),
+      sb.from("purchase_order_items").select("sku_id, unit_price, created_at, purchase_order_id, purchase_orders(po_number, order_date)").not("sku_id", "is", null).limit(500),
+      sb.from("payment_request_items").select("sku_id, unit_price, created_at, payment_request_id, payment_requests(request_number)").not("sku_id", "is", null).limit(500),
+      sb.from("inventory_batches").select("sku_id, quantity").not("sku_id", "is", null).limit(500),
     ]);
 
     const pp: PurchasePoint[] = [

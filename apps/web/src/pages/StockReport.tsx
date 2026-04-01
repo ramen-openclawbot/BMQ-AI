@@ -119,7 +119,8 @@ export default function StockReport() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("inventory_items")
-        .select("*");
+        .select("id,name,category,quantity,unit,min_stock,supplier_id,updated_at")
+        .limit(500);
       if (error) throw error;
       return (data || []) as InventoryItem[];
     },
@@ -129,9 +130,10 @@ export default function StockReport() {
   const { data: productSkus = [] } = useQuery({
     queryKey: ["product_skus"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("product_skus")
-        .select("*");
+        .select("id,sku_code,product_name,category,unit,unit_price")
+        .limit(500);
       if (error) throw error;
       return (data || []) as ProductSku[];
     },
@@ -143,10 +145,11 @@ export default function StockReport() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("inventory_movements")
-        .select("*")
+        .select("id,item_id,sku_id,type,quantity,date,reference_type,reference_id,notes,created_at")
         .gte("date", dateFrom)
         .lte("date", dateTo)
-        .order("date", { ascending: false });
+        .order("date", { ascending: false })
+        .limit(1000);
       if (error) throw error;
       return (data || []) as InventoryMovement[];
     },

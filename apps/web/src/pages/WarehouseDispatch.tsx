@@ -113,8 +113,9 @@ export default function WarehouseDispatch() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("warehouse_dispatches")
-        .select("*")
-        .order("created_at", { ascending: false });
+        .select("id,dispatch_number,dispatch_date,customer_name,notes,status,created_at,created_by")
+        .order("created_at", { ascending: false })
+        .limit(200);
       if (error) throw error;
       return data || [];
     },
@@ -126,7 +127,8 @@ export default function WarehouseDispatch() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("warehouse_dispatch_items")
-        .select("*");
+        .select("id,dispatch_id,sku_id,sku_code,product_name,quantity,unit,notes")
+        .limit(1000);
       if (error) throw error;
       return data || [];
     },

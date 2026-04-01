@@ -11,7 +11,7 @@ export default function SkuCostsDjango() {
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await supabase.from("product_skus").select("*").order("updated_at", { ascending: false });
+        const { data } = await (supabase as any).from("product_skus").select("id,sku_code,product_name,category,unit,updated_at,cost_values").order("updated_at", { ascending: false });
         const finished = (data || []).filter((s: any) => isFinishedSku(s));
         setSkus(finished);
       } finally {

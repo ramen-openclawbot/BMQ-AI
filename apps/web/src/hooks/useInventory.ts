@@ -20,8 +20,9 @@ export function useInventory() {
     queryFn: async () => {
       const { data, error } = await db
         .from("inventory_items")
-        .select("*")
-        .order("created_at", { ascending: false });
+        .select("id,name,category,quantity,unit,min_stock,supplier_id,created_at,updated_at,created_by")
+        .order("created_at", { ascending: false })
+        .limit(500);
       if (error) throw error;
       return data as InventoryItem[];
     },
@@ -37,7 +38,7 @@ export function useLowStockItems() {
     queryFn: async () => {
       const { data, error } = await db
         .from("inventory_items")
-        .select("*")
+        .select("id,name,category,quantity,unit,min_stock,supplier_id,created_at,updated_at")
         .order("quantity", { ascending: true });
       if (error) throw error;
       return (data as InventoryItem[]).filter(

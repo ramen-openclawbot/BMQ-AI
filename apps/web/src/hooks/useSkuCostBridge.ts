@@ -37,7 +37,7 @@ export function useSkuCostBridge() {
   return useQuery({
     queryKey: ["sku-cost-bridge"],
     queryFn: async () => {
-      const { data: skus } = await sb.from("product_skus").select("*").order("updated_at", { ascending: false });
+      const { data: skus } = await sb.from("product_skus").select("id,sku_code,product_name,category,unit,updated_at,cost_values,finished_output_qty,finished_output_unit").order("updated_at", { ascending: false });
 
       const skuRows = (skus || []).filter((s: any) => isFinishedSku(String(s.category || "")));
       const skuIds = skuRows.map((s: any) => s.id);
@@ -53,21 +53,25 @@ export function useSkuCostBridge() {
           .from("payment_request_items")
           .select("sku_id, unit_price, created_at")
           .not("sku_id", "is", null)
-          .order("created_at", { ascending: true }),
+          .order("created_at", { ascending: true })
+          .limit(500),
         sb
           .from("purchase_order_items")
           .select("sku_id, unit_price, created_at, purchase_orders(order_date)")
           .not("sku_id", "is", null)
-          .order("created_at", { ascending: true }),
+          .order("created_at", { ascending: true })
+          .limit(500),
         sb
           .from("inventory_batches")
           .select("sku_id, quantity, received_date")
           .not("sku_id", "is", null)
-          .order("received_date", { ascending: true }),
+          .order("received_date", { ascending: true })
+          .limit(500),
         sb
           .from("sku_cost_snapshots")
           .select("snapshot_date, ingredient_cost, packaging_cost, labor_cost, delivery_cost, other_production_cost, sga_cost, total_cost_per_unit")
-          .order("snapshot_date", { ascending: true }),
+          .order("snapshot_date", { ascending: true })
+          .limit(200),
       ]);
 
       const formulas = (formulaRes.data || []) as FormulaRow[];
