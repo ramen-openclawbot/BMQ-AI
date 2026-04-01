@@ -347,6 +347,7 @@ export default function FinanceControl() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
         body: JSON.stringify({ imageBase64: optimized.imageBase64, mimeType: optimized.mimeType, slipType }),
@@ -722,6 +723,7 @@ export default function FinanceControl() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
         body: JSON.stringify({ folderUrl, subfolderDate: qtmPath }),
@@ -1103,7 +1105,7 @@ export default function FinanceControl() {
       const callScan = async (token: string) =>
         fetchWithTimeout(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          headers: { "Content-Type": "application/json", "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY, Authorization: `Bearer ${token}` },
           body: JSON.stringify({ folderUrl, mode: "list_children", parentPath }),
         }, 20000);
 
