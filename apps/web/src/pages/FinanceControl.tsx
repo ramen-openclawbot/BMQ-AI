@@ -81,6 +81,10 @@ export default function FinanceControl() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [customFolderUrl, setCustomFolderUrl] = useState<string>("");
   const [savedFolderUrl, setSavedFolderUrl] = useState<string>("");
+  // Folder browser state
+  const [browsingPath, setBrowsingPath] = useState<string[]>([]);
+  const [childFolders, setChildFolders] = useState<Array<{ name: string; folderId: string; imageCount: number; hasChildren: boolean; childFolderCount: number }>>([]);
+  const [browsingLoading, setBrowsingLoading] = useState(false);
 
   const [uncReconSummary, setUncReconSummary] = useState<{
     folderDate: string;
@@ -1013,8 +1017,11 @@ export default function FinanceControl() {
     setReconcileError(null);
     setPreviewUncFiles(0);
     setPreviewQtmFiles(0);
+    setChildFolders([]);
+    setBrowsingPath([]);
 
-    // Quick preview: scan file list (no OCR, no download)
+    // Browse root folder to show subfolder tree + quick preview
+    browseFolder([]);
     setPreviewLoading(true);
     try {
       const session = await getFreshSession();
@@ -1068,6 +1075,36 @@ export default function FinanceControl() {
       toast({ title: isVi ? "Đã lưu" : "Saved", description: isVi ? "Thư mục mặc định đã cập nhật" : "Default folder updated" });
     } catch (e: any) {
       toast({ title: isVi ? "Lỗi" : "Error", description: e?.message, variant: "destructive" });
+    }
+  };
+
+  // Browse subfolder hierarchy via list_children mode
+  const browseFolder = async (pathSegments: string[]) => {
+    setBrowsingLoading(true);
+    setBrowsingPath(pathSegments);
+    try {
+      const session = await getFreshSession();
+      const folderUrl = customFolderUrl || savedFolderUrl || await getUncRootFolderUrl();
+      const parentPath = pathSegments.join("/");
+      const resp = await fetchWithTimeout(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ folderUrl, mode: "list_children", parentPath }),
+      }, 20000);
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err?.error || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      setChildFolders(data.folders || []);
+    } catch (e: any) {
+      toast({ title: isVi ? "Lỗi duyệt thư mục" : "Browse error", description: e?.message, variant: "destructive" });
+      setChildFolders([]);
+    } finally {
+      setBrowsingLoading(false);
     }
   };
 
@@ -1339,7 +1376,7 @@ export default function FinanceControl() {
 
       {/* Close Dialog: preview → folder picker → execute */}
       <Dialog open={closeDialogOpen} onOpenChange={(open) => { if (!closeActing) setCloseDialogOpen(open); }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>{isVi ? "Duyệt & Chốt ngày" : "Approve & Close Day"}</DialogTitle>
             <DialogDescription>
@@ -1348,7 +1385,7 @@ export default function FinanceControl() {
           </DialogHeader>
 
           {closeDialogStep === "preview" && (
-            <div className="space-y-4">
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
               {/* Folder URL config */}
               <div className="space-y-2">
                 <Label className="text-sm">{isVi ? "Thư mục gốc Google Drive" : "Google Drive root folder"}</Label>
@@ -1368,6 +1405,63 @@ export default function FinanceControl() {
                 {savedFolderUrl && customFolderUrl === savedFolderUrl && (
                   <div className="text-xs text-green-600">{isVi ? "Đã lưu mặc định" : "Saved as default"}</div>
                 )}
+              </div>
+
+              {/* Folder browser */}
+              <div className="rounded border p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium">{isVi ? "Duyệt thư mục" : "Browse folders"}</div>
+                  {browsingLoading && <span className="text-xs text-muted-foreground animate-pulse">{isVi ? "Đang tải..." : "Loading..."}</span>}
+                </div>
+                {/* Breadcrumb */}
+                <div className="flex items-center gap-1 text-xs flex-wrap">
+                  <button
+                    className="text-blue-600 hover:underline font-medium"
+                    onClick={() => browseFolder([])}
+                    disabled={browsingLoading}
+                  >
+                    {isVi ? "Gốc" : "Root"}
+                  </button>
+                  {browsingPath.map((seg, i) => (
+                    <span key={i} className="flex items-center gap-1">
+                      <span className="text-muted-foreground">/</span>
+                      <button
+                        className="text-blue-600 hover:underline"
+                        onClick={() => browseFolder(browsingPath.slice(0, i + 1))}
+                        disabled={browsingLoading}
+                      >
+                        {seg}
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                {/* Folder list */}
+                {childFolders.length > 0 ? (
+                  <div className="max-h-40 overflow-y-auto space-y-1">
+                    {childFolders.map((f) => (
+                      <div key={f.folderId} className="flex items-center justify-between rounded px-2 py-1.5 hover:bg-muted/60 cursor-pointer text-sm group" onClick={() => {
+                        if (f.hasChildren) {
+                          browseFolder([...browsingPath, f.name]);
+                        }
+                      }}>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-base">{f.hasChildren ? "📁" : "📂"}</span>
+                          <span className="truncate">{f.name}</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {f.imageCount > 0 && (
+                            <Badge variant="outline" className="text-xs">{f.imageCount} {isVi ? "ảnh" : "img"}</Badge>
+                          )}
+                          {f.hasChildren && (
+                            <Badge variant="secondary" className="text-xs">{f.childFolderCount} {isVi ? "thư mục" : "sub"}</Badge>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : !browsingLoading ? (
+                  <div className="text-xs text-muted-foreground py-2 text-center">{isVi ? "Không có thư mục con" : "No subfolders"}</div>
+                ) : null}
               </div>
 
               {/* Scan paths */}

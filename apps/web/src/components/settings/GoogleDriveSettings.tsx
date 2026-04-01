@@ -247,16 +247,28 @@ export function GoogleDriveSettings() {
     setTesting(true);
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/test-drive-connection`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {}),
           },
           body: JSON.stringify({ folderUrl: url }),
         }
       );
+
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}));
+        throw new Error(
+          response.status === 401
+            ? "Phiên đăng nhập hết hạn — vui lòng đăng nhập lại"
+            : errBody?.error || `HTTP ${response.status}`
+        );
+      }
 
       const result = await response.json();
 
