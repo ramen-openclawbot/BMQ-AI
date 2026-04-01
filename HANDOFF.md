@@ -4,7 +4,87 @@
 - apps/web: **0.0.33**
 - websites/banhmique-com-rebuild: **0.1.0**
 - Branch: `main`
-- Latest commit at handoff time: `git log -1 --oneline`
+- Latest commit: `7068d1d fix(auth): thêm apikey header vào tất cả edge function calls`
+
+---
+
+## 🔴 PENDING BUG — Cần fix ngay (2026-04-01)
+
+### Lỗi: `scan-drive-folder` trả 401 — "Phiên đăng nhập hết hạn"
+
+**Triệu chứng:** Mở dialog "Duyệt & Chốt ngày" → folder browser + scan preview đều báo 401.
+Lỗi xảy ra sau cả khi đã: thêm `apikey` header, thêm `refreshSession()`, retry on 401.
+
+**Root cause xác định:**
+Edge function `scan-drive-folder` tự validate JWT bằng `supabaseAdmin.auth.getUser(token)` (line 174 của `index.ts`). Đây là bước kiểm tra thứ 2 SAU gateway — nếu `SUPABASE_SERVICE_ROLE_KEY` chưa được set trong Supabase Edge Function Secrets, hoặc function chưa được deploy lại sau khi thêm secrets, thì `createClient(url, serviceKey)` sẽ fail silently và `getUser` sẽ trả lỗi → 401.
+
+**File liên quan:**
+- `apps/web/supabase/functions/scan-drive-folder/index.ts` — lines 153–181
+
+**2 hướng fix (chọn 1):**
+
+**Option A — Bỏ `getUser`, tin vào gateway validation (đơn giản, nhanh):**
+```typescript
+// THAY đoạn lines 153–181 bằng:
+const authHeader = req.headers.get('Authorization');
+if (!authHeader?.startsWith('Bearer ')) {
+  return new Response(JSON.stringify({ error: 'Missing authorization' }), {
+    status: 401, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
+  });
+}
+// Bỏ hoàn toàn getUser — gateway đã validate JWT khi có apikey + Bearer
+// Vẫn cần supabaseAdmin cho getAccessToken() bên dưới
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
+```
+
+**Option B — Kiểm tra và set secret trong Supabase:**
+1. Vào Supabase Dashboard → Edge Functions → `scan-drive-folder` → Secrets
+2. Đảm bảo có `SUPABASE_SERVICE_ROLE_KEY` (copy từ Settings → API → service_role key)
+3. Deploy lại: `supabase functions deploy scan-drive-folder`
+
+**Khuyến nghị:** Option A nhanh hơn — gateway của Supabase đã validate JWT khi client gửi đúng `apikey` + `Authorization: Bearer`. Double-check trong function là thừa và gây lỗi nếu service role key chưa set.
+
+**Context thêm:**
+- Client-side đã gửi đúng header từ commit `7068d1d`: `apikey: VITE_SUPABASE_PUBLISHABLE_KEY` + `Authorization: Bearer <token>`
+- `getFreshSession()` đã được cập nhật để luôn gọi `refreshSession()` trước, đảm bảo token mới nhất
+- `browseFolder` đã có retry on 401 — nếu vẫn 401 sau retry thì chắc chắn là edge function side issue
+
+---
+
+## Latest update (2026-04-01 — session fixes)
+
+### Finance Module — Auth fixes + Dialog folder browser
+
+**Commits trong session này (mới nhất trước):**
+- `7068d1d` — thêm `apikey` header vào tất cả 8 edge function calls trong FinanceControl.tsx
+- `702c42c` — getFreshSession luôn gọi refreshSession() + browseFolder retry on 401
+- `53e1748` — hiển thị lỗi browse folder inline + folder ID đang dùng + nút Tải lại
+- `ad34c09` — fix validate Google Drive URL để accept dạng `/u/0/folders/`
+- `11a1555` — fix test-drive button thiếu apikey + thêm folder browser vào dialog chốt ngày
+- `2ef6d0c` — getFreshSession helper, thay thế getSession() ở 5 chỗ trong FinanceControl.tsx
+
+**GoogleDriveSettings.tsx:**
+- `handleTestConnection` đã thêm `apikey` + `Authorization: Bearer` headers
+- Validate URL mở rộng: accept cả `drive.google.com/drive/u/0/folders/`
+
+**FinanceControl.tsx — Dialog "Duyệt & Chốt ngày":**
+- Folder browser: breadcrumb navigation, list subfolder con, badge image/subfolder count
+- Hiển thị folder ID đang browse để user verify
+- Nút ↻ Tải lại để retry
+- Inline error display (không chỉ toast)
+- State mới: `browsingPath`, `childFolders`, `browsingLoading`, `browseError`, `browsedFolderUrl`
+
+**Cần deploy sau khi fix Option A:**
+```bash
+supabase functions deploy scan-drive-folder
+```
+
+---
+
 
 ## Latest update (2026-04-01 — v0.0.33)
 ### Finance Module — OCR Bug Fix + Reconciliation Overhaul
