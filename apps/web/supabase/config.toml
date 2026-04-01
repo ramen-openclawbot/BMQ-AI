@@ -5,10 +5,14 @@ project_id = "cxntbdvfsikwmitapony"
 # ──────────────────────────────────────────────────────────
 
 [functions.scan-invoice]
-verify_jwt = true
+# verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
+# Auth handled inside function via requireAuth().
+verify_jwt = false
 
 [functions.scan-purchase-order]
-verify_jwt = true
+# verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
+# Auth handled inside function via getUser(token).
+verify_jwt = false
 
 # verify_jwt disabled: proxy/gateway JWT verification can reject valid ES256 user tokens
 # before the function runs. scan-drive-folder now relies on frontend apikey + Bearer
@@ -17,40 +21,50 @@ verify_jwt = true
 verify_jwt = false
 
 [functions.sync-drive-index]
-verify_jwt = true
+# verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
+verify_jwt = false
 
 [functions.create-invoice-from-pr]
-verify_jwt = true
+# verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
+verify_jwt = false
 
 [functions.match-delivery-note]
-verify_jwt = true
+# verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
+verify_jwt = false
 
 [functions.create-warehouse-receipt]
-verify_jwt = true
+# verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
+verify_jwt = false
 
 [functions.scan-bank-slip]
-verify_jwt = true
+# verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
+# Auth handled inside function via getUser(token).
+verify_jwt = false
 
 [functions.scan-sku-cost-sheet]
-verify_jwt = true
+# verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
+# Auth handled inside function via requireAuth().
+verify_jwt = false
 
 [functions.user-invite-member]
-verify_jwt = true
+verify_jwt = false
 
 [functions.user-delete-member]
-verify_jwt = true
+verify_jwt = false
 
 [functions.finance-extract-slip-amount]
-verify_jwt = true
+# verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
+# Auth handled inside function via requireAuth() → supabaseAdmin.auth.getUser(token).
+verify_jwt = false
 
 [functions.po-gmail-sync]
-verify_jwt = true
+verify_jwt = false
 
 [functions.get-ai-credit-balance]
-verify_jwt = true
+verify_jwt = false
 
 [functions.migration-storage-summary]
-verify_jwt = true
+verify_jwt = false
 
 [functions.kb-suggest-po-rules]
 # verify_jwt disabled: proxy uses HS256 but project now issues ES256 user tokens
