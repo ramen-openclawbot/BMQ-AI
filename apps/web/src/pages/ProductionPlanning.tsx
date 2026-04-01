@@ -733,10 +733,16 @@ export default function ProductionPlanning() {
                             <p className="font-medium">
                               {item.planned_qty} {item.unit}
                             </p>
-                            {item.completed_qty > 0 && (
+                            {item.actual_qty > 0 && (
                               <p className="text-xs text-green-600">
-                                {isVi ? "Hoàn thành" : "Completed"}:{" "}
-                                {item.completed_qty}
+                                ✓ Thực tế: {item.actual_qty} {item.unit}
+                              </p>
+                            )}
+                            {/* Deficit indicator */}
+                            {item.actual_qty < item.planned_qty && item.planned_qty > 0 && (
+                              <p className="text-xs text-red-600 font-medium flex items-center gap-1 justify-end mt-0.5">
+                                <AlertCircle className="h-3 w-3" />
+                                Thiếu {(item.planned_qty - item.actual_qty).toLocaleString("vi-VN")} {item.unit}
                               </p>
                             )}
                           </div>

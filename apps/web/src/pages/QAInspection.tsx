@@ -29,6 +29,9 @@ import {
   XCircle,
   Loader2,
   Image,
+  RefreshCw,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -96,6 +99,11 @@ export default function QAInspection() {
   const [detailForm, setDetailForm] = useState({
     rejection_reason: "",
   });
+
+  // Disposition state: per rejected item, track action chosen
+  type DispositionAction = "repro" | "scrap" | null;
+  const [disposition, setDisposition] = useState<Record<string, DispositionAction>>({});
+  const [dispositionApplied, setDispositionApplied] = useState(false);
 
   // Fetch QA inspections
   const { data: inspections = [], isLoading: inspectionsLoading } = useQuery({
@@ -378,8 +386,91 @@ export default function QAInspection() {
     },
   });
 
+  // Apply disposition: scrap waste record + re-production shift
+  const applyDispositionMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedInspection) throw new Error("Chưa chọn phiếu QA");
+      const rejectedItems = selectedItems.filter((i) => i.rejected_qty > 0);
+
+      for (const item of rejectedItems) {
+        const action = disposition[item.id];
+        if (!action) continue;
+
+        if (action === "scrap") {
+          // Record as waste — note: rejected goods never entered inventory,
+          // so this is just an audit trail movement with negative qty
+          await (supabase as any).from("inventory_movements").insert({
+            movement_type: "adjustment",
+            quantity: -item.rejected_qty,
+            unit: item.unit,
+            reference_type: "qa_inspection",
+            reference_id: selectedInspection.id,
+            movement_date: format(new Date(), "yyyy-MM-dd"),
+            notes: `Phế phẩm QA từ chối — ${item.product_name}`,
+          });
+        }
+
+        if (action === "repro") {
+          // Create a new production shift for the deficit quantity
+          const dateStr = format(new Date(), "yyyyMMdd");
+          const { data: existingShifts } = await (supabase as any)
+            .from("production_shifts")
+            .select("id")
+            .ilike("shift_code", `CA-${dateStr}-%`);
+          const seq = String((existingShifts?.length ?? 0) + 1).padStart(3, "0");
+          const shiftCode = `CA-${dateStr}-${seq}`;
+
+          const { data: newShift, error: shiftErr } = await (supabase as any)
+            .from("production_shifts")
+            .insert({
+              shift_code: shiftCode,
+              production_order_id: selectedInspection.production_order_id,
+              shift_date: format(new Date(), "yyyy-MM-dd"),
+              shift_type: "morning",
+              status: "scheduled",
+              notes: `Tái sản xuất do QA từ chối — ${item.product_name} (${item.rejected_qty} ${item.unit})`,
+            })
+            .select()
+            .single();
+          if (shiftErr) throw shiftErr;
+
+          // Find the production_order_item to link
+          const { data: poItems } = await (supabase as any)
+            .from("production_order_items")
+            .select("id")
+            .eq("production_order_id", selectedInspection.production_order_id)
+            .ilike("product_name", `%${item.product_name}%`)
+            .maybeSingle();
+
+          await (supabase as any).from("production_shift_items").insert({
+            production_shift_id: newShift.id,
+            production_order_item_id: poItems?.id ?? null,
+            planned_qty: item.rejected_qty,
+            actual_qty: 0,
+            unit: item.unit,
+            notes: `Tái SX từ lô QA bị từ chối`,
+          });
+        }
+      }
+      setDispositionApplied(true);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["production_shifts"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory_movements"] });
+      toast({
+        title: "Đã xử lý lô lỗi",
+        description: "Phế phẩm đã ghi nhận. Ca tái sản xuất đã được tạo nếu có.",
+      });
+    },
+    onError: (e: any) => {
+      toast({ title: "Lỗi xử lý", description: e?.message, variant: "destructive" });
+    },
+  });
+
   const handleOpenDetail = async (inspection: QAInspection) => {
     setSelectedInspection(inspection);
+    setDisposition({});
+    setDispositionApplied(false);
     const { data: items } = await (supabase as any)
       .from("qa_inspection_items")
       .select("*")
@@ -943,6 +1034,80 @@ export default function QAInspection() {
                   </p>
                 </div>
               )}
+
+              {/* ── Xử lý lô lỗi (sau khi QA từ chối hoặc partial pass) ── */}
+              {(() => {
+                const rejectedItems = selectedItems.filter((i) => i.rejected_qty > 0);
+                const hasRejected = rejectedItems.length > 0;
+                const isSettled = selectedInspection.status === "rejected" || selectedInspection.status === "approved";
+                if (!hasRejected || !isSettled) return null;
+                return (
+                  <div className="border border-amber-200 rounded-lg overflow-hidden">
+                    <div className="bg-amber-50 px-4 py-2.5 flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0" />
+                      <p className="text-sm font-semibold text-amber-800">
+                        Xử lý lô bị từ chối ({rejectedItems.reduce((s, i) => s + i.rejected_qty, 0)} đơn vị)
+                      </p>
+                    </div>
+                    <div className="p-4 space-y-3 bg-white">
+                      <p className="text-xs text-muted-foreground">
+                        Chọn hướng xử lý cho từng sản phẩm bị từ chối:
+                      </p>
+                      {rejectedItems.map((item) => (
+                        <div key={item.id} className="flex items-center justify-between gap-3 py-2 border-b last:border-0">
+                          <div className="flex-1">
+                            <p className="text-sm font-medium">{item.product_name}</p>
+                            <p className="text-xs text-muted-foreground">Từ chối: <strong>{item.rejected_qty} {item.unit}</strong></p>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setDisposition((d) => ({ ...d, [item.id]: "repro" }))}
+                              disabled={dispositionApplied}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors
+                                ${disposition[item.id] === "repro"
+                                  ? "bg-blue-600 text-white border-blue-600"
+                                  : "bg-white text-blue-700 border-blue-300 hover:bg-blue-50"}`}
+                            >
+                              <RefreshCw className="h-3 w-3" />
+                              Tái sản xuất
+                            </button>
+                            <button
+                              onClick={() => setDisposition((d) => ({ ...d, [item.id]: "scrap" }))}
+                              disabled={dispositionApplied}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors
+                                ${disposition[item.id] === "scrap"
+                                  ? "bg-red-600 text-white border-red-600"
+                                  : "bg-white text-red-700 border-red-300 hover:bg-red-50"}`}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                              Ghi phế phẩm
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                      {dispositionApplied ? (
+                        <p className="text-xs text-green-700 bg-green-50 rounded px-3 py-2 flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Đã xử lý xong lô lỗi.
+                        </p>
+                      ) : (
+                        <div className="flex justify-end pt-1">
+                          <button
+                            onClick={() => applyDispositionMutation.mutate()}
+                            disabled={
+                              applyDispositionMutation.isPending ||
+                              rejectedItems.some((i) => !disposition[i.id])
+                            }
+                            className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm font-medium rounded-md transition-colors"
+                          >
+                            {applyDispositionMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                            Xác nhận xử lý lô lỗi
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Rejection Reason Input - pending only */}
               {selectedInspection.status === "pending" && (
