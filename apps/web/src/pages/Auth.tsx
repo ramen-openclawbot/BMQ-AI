@@ -71,26 +71,19 @@ export default function Auth() {
         }
 
         if (code) {
-          // Supabase client đã bật detectSessionInUrl=true, tránh exchange code thủ công để không bị race/duplicate exchange.
-          // Chờ ngắn để SDK kịp xử lý callback rồi đọc session.
-          let hasSession = false;
-          for (let i = 0; i < 5; i++) {
+          // With PKCE/code flow, let Supabase SDK detect + exchange from URL.
+          // Poll briefly for the resulting session, then navigate.
+          for (let i = 0; i < 12; i++) {
             const { data: { session } } = await supabase.auth.getSession();
             if (session?.user) {
-              hasSession = true;
-              break;
+              window.history.replaceState(null, "", "/");
+              await new Promise(resolve => setTimeout(resolve, 150));
+              navigate("/", { replace: true });
+              return;
             }
             await new Promise(resolve => setTimeout(resolve, 250));
           }
 
-          if (hasSession) {
-            window.history.replaceState(null, "", "/");
-            await new Promise(resolve => setTimeout(resolve, 200));
-            navigate("/", { replace: true });
-            return;
-          }
-
-          // Dọn URL để tránh retry lại cùng auth code khi refresh
           window.history.replaceState(null, "", "/auth");
           setError("Đăng nhập Google chưa hoàn tất. Vui lòng bấm Đăng nhập bằng Google và thử lại.");
           setProcessingCallback(false);
@@ -162,6 +155,7 @@ export default function Auth() {
         redirectTo: `${window.location.origin}/auth`,
         queryParams: {
           hd: "bmq.vn",
+          prompt: "select_account",
         },
       },
     });
