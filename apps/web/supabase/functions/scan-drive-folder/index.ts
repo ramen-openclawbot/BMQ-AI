@@ -141,6 +141,53 @@ async function countChildFolders(folderId: string, accessToken: string): Promise
   return data.files?.length || 0;
 }
 
+async function listImagesInFolder(folderId: string, accessToken: string): Promise<DriveFile[]> {
+  const imageQuery = encodeURIComponent(`'${folderId}' in parents and (mimeType contains 'image/') and trashed = false`);
+  const filesUrl = `https://www.googleapis.com/drive/v3/files?q=${imageQuery}&fields=files(id,name,mimeType)&supportsAllDrives=true&includeItemsFromAllDrives=true&pageSize=1000`;
+  const filesResponse = await fetchWithTimeout(filesUrl, {
+    headers: { 'Authorization': `Bearer ${accessToken}` },
+  }, 12000);
+  if (!filesResponse.ok) {
+    throw new Error(`Failed to list files in folder: ${await filesResponse.text()}`);
+  }
+  const filesData: DriveListResponse = await filesResponse.json();
+  return Array.isArray(filesData.files) ? filesData.files : [];
+}
+
+async function listImagesRecursiveOneLevel(folderId: string, accessToken: string): Promise<{ files: DriveFile[]; directCount: number; childFolderCount: number; recursiveChildFileCount: number; recursiveUsed: boolean }> {
+  const directFiles = await listImagesInFolder(folderId, accessToken);
+  if (directFiles.length > 0) {
+    return {
+      files: directFiles,
+      directCount: directFiles.length,
+      childFolderCount: 0,
+      recursiveChildFileCount: 0,
+      recursiveUsed: false,
+    };
+  }
+
+  const childFolders = await listChildFolders(folderId, accessToken);
+  if (!childFolders.length) {
+    return {
+      files: directFiles,
+      directCount: 0,
+      childFolderCount: 0,
+      recursiveChildFileCount: 0,
+      recursiveUsed: false,
+    };
+  }
+
+  const nestedLists = await Promise.all(childFolders.map((child) => listImagesInFolder(child.id, accessToken).catch(() => [])));
+  const nestedFiles = nestedLists.flat();
+  return {
+    files: nestedFiles,
+    directCount: 0,
+    childFolderCount: childFolders.length,
+    recursiveChildFileCount: nestedFiles.length,
+    recursiveUsed: nestedFiles.length > 0,
+  };
+}
+
 serve(async (req) => {
   const startTime = Date.now();
   console.log("[scan-drive-folder] Request started");
@@ -400,28 +447,29 @@ serve(async (req) => {
       targetFolderId = resolvedFolderId;
     }
 
-    // List image files in the target folder
-    const imageQuery = encodeURIComponent(`'${targetFolderId}' in parents and (mimeType contains 'image/') and trashed = false`);
-    const filesUrl = `https://www.googleapis.com/drive/v3/files?q=${imageQuery}&fields=files(id,name,mimeType)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
-    
-    const filesResponse = await fetchWithTimeout(filesUrl, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-      },
-    }, 12000);
-
-    if (!filesResponse.ok) {
-      const errorText = await filesResponse.text();
+    // List image files in the target folder. If none are found directly,
+    // fallback to scan one nested folder level because some UNC/QTM days store
+    // slips inside child folders under the day folder.
+    let fileScanMeta = { directCount: 0, childFolderCount: 0, recursiveChildFileCount: 0, recursiveUsed: false };
+    let allImageFiles: DriveFile[] = [];
+    try {
+      const fileScan = await listImagesRecursiveOneLevel(targetFolderId, accessToken);
+      fileScanMeta = {
+        directCount: fileScan.directCount,
+        childFolderCount: fileScan.childFolderCount,
+        recursiveChildFileCount: fileScan.recursiveChildFileCount,
+        recursiveUsed: fileScan.recursiveUsed,
+      };
+      allImageFiles = fileScan.files;
+    } catch (err) {
+      const errorText = err instanceof Error ? err.message : String(err);
       console.error('[scan-drive-folder] Google Drive API error (files):', errorText);
-      return new Response(JSON.stringify({ error: 'Failed to list files in folder' }), {
+      return new Response(JSON.stringify({ error: 'Failed to list files in folder', details: errorText }), {
         status: 400,
         headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }
-
-    const filesData: DriveListResponse = await filesResponse.json();
-    const allImageFiles = Array.isArray(filesData.files) ? filesData.files : [];
-    console.log(`[scan-drive-folder] Found ${allImageFiles.length} image files`);
+    console.log(`[scan-drive-folder] Found ${allImageFiles.length} image files (direct=${fileScanMeta.directCount}, childFolders=${fileScanMeta.childFolderCount}, nested=${fileScanMeta.recursiveChildFileCount}, recursiveUsed=${fileScanMeta.recursiveUsed})`);
 
     let targetFiles = allImageFiles;
     let skippedProcessedCount = 0;
@@ -458,6 +506,10 @@ serve(async (req) => {
         folderDate: subfolderDate || null,
         skippedProcessedCount,
         totalFilesFound: allImageFiles.length,
+        directFilesFound: fileScanMeta.directCount,
+        childFoldersFound: fileScanMeta.childFolderCount,
+        recursiveFilesFound: fileScanMeta.recursiveChildFileCount,
+        recursiveUsed: fileScanMeta.recursiveUsed,
       }), {
         status: 200,
         headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
@@ -528,6 +580,10 @@ serve(async (req) => {
       folderDate: subfolderDate || null,
       skippedProcessedCount,
       totalFilesFound: allImageFiles.length,
+      directFilesFound: fileScanMeta.directCount,
+      childFoldersFound: fileScanMeta.childFolderCount,
+      recursiveFilesFound: fileScanMeta.recursiveChildFileCount,
+      recursiveUsed: fileScanMeta.recursiveUsed,
       targetFilesCount: targetFiles.length,
     }), {
       status: 200,
