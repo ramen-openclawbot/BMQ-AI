@@ -188,6 +188,8 @@ Rules:
 
     return jsonResponse({ success: true, data }, 200, getCorsHeaders(req));
   } catch (e) {
+    // requireAuth throws Response objects for 401 — re-throw them directly
+    if (e instanceof Response) return e;
     const detail = e instanceof Error ? `${e.name}: ${e.message}` : "Unknown error";
     console.error("[finance-extract-slip-amount] Unhandled error:", detail);
     return jsonResponse({ error: e instanceof Error ? e.message : "Unknown error", detail }, 500, getCorsHeaders(req));

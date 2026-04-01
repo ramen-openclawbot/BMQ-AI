@@ -412,6 +412,8 @@ ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slic
       { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
     );
   } catch (error) {
+    // requireAuth throws Response objects for 401 — pass them through
+    if (error instanceof Response) return error;
     console.error("[scan-invoice] Error:", error);
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),

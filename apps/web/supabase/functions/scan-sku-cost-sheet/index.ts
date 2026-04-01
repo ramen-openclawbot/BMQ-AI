@@ -131,6 +131,7 @@ Quy tắc bắt buộc:
 
     return new Response(JSON.stringify({ success: true, data: extracted }), { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } });
   } catch (error) {
+    if (error instanceof Response) return error;
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } });
   }
 });
