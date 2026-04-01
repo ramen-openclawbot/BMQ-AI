@@ -333,7 +333,7 @@ export default function FinanceControl() {
   };
 
   const extractSlipAmountFromBase64 = async (imageBase64: string, mimeType: string, slipType: "qtm" | "unc") => {
-    const { data: { session } } = await supabase.auth.getSession();
+    const session = await getFreshSession();
 
     const callExtract = async (aggressive: boolean) => {
       const optimized = await optimizeSlipImageForOcr(imageBase64, mimeType, aggressive);
@@ -393,6 +393,16 @@ export default function FinanceControl() {
     return String(data.value);
   };
 
+  // Returns a fresh, non-expired session — refreshes automatically if token expires within 60s
+  const getFreshSession = async () => {
+    const { data } = await supabase.auth.getSession();
+    if (data.session?.expires_at && Date.now() / 1000 > data.session.expires_at - 60) {
+      const { data: refreshed, error } = await supabase.auth.refreshSession();
+      if (!error && refreshed.session) return refreshed.session;
+    }
+    return data.session;
+  };
+
 
 
   const runFolderReconciliation = async () => {
@@ -402,7 +412,7 @@ export default function FinanceControl() {
     setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Đang quét danh sách file UNC/QTM..." : "Scanning UNC/QTM file lists..." });
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const session = await getFreshSession();
       const folderUrl = await getUncRootFolderUrl();
 
       const scanOnce = async (subfolderDate: string) => {
@@ -424,7 +434,9 @@ export default function FinanceControl() {
           }, 45000);
           if (!resp.ok) {
             const err = await resp.json().catch(() => ({}));
-            const detail = err?.details || err?.error || `HTTP ${resp.status}`;
+            const detail = resp.status === 401
+              ? "Phiên đăng nhập hết hạn — vui lòng đăng nhập lại"
+              : err?.details || err?.error || `HTTP ${resp.status}`;
             throw new Error(`Scan "${subfolderDate}" thất bại: ${detail}`);
           }
           const data = await resp.json();
@@ -695,7 +707,7 @@ export default function FinanceControl() {
   const runQtmReconciliation = async () => {
     setQtmReconciling(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const session = await getFreshSession();
       const folderUrl = await getUncRootFolderUrl();
       const qtmPath = `${autoDayFolderPath}/QTM`;
 
@@ -749,7 +761,7 @@ export default function FinanceControl() {
 
   const extractSlipAmount = async (file: File, slipType: "qtm" | "unc") => {
     const imageBase64 = await fileToBase64(file);
-    const { data: { session } } = await supabase.auth.getSession();
+    const session = await getFreshSession();
 
     const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/finance-extract-slip-amount`, {
       method: "POST",
@@ -1005,7 +1017,7 @@ export default function FinanceControl() {
     // Quick preview: scan file list (no OCR, no download)
     setPreviewLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const session = await getFreshSession();
       const folderUrl = customFolderUrl || savedFolderUrl || await getUncRootFolderUrl();
       const uncPath = `${autoDayFolderPath}/UNC`;
       const qtmPath = `${autoDayFolderPath}/QTM`;
@@ -1021,7 +1033,10 @@ export default function FinanceControl() {
         }, 20000);
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
-          return { files: [], error: err?.details || err?.error || `HTTP ${resp.status}` };
+          const detail = resp.status === 401
+            ? "Phiên đăng nhập hết hạn — vui lòng đăng nhập lại"
+            : err?.details || err?.error || `HTTP ${resp.status}`;
+          return { files: [], error: detail };
         }
         return await resp.json();
       };
