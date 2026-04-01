@@ -22,6 +22,7 @@ interface PoInbox {
   from_name: string | null;
   delivery_date: string | null;
   matched_customer_id: string | null;
+  customer_address?: string | null;
   production_items: Array<{
     product_name: string;
     qty: number;
@@ -142,14 +143,21 @@ export default function WarehouseDispatch() {
 
       const { data, error } = await (supabase as any)
         .from("customer_po_inbox")
-        .select("id, po_number, from_name, delivery_date, matched_customer_id, production_items")
+        .select(`
+          id, po_number, from_name, delivery_date, matched_customer_id, production_items,
+          mini_crm_customers!matched_customer_id ( address )
+        `)
         .eq("match_status", "approved")
         .not("production_items", "is", null)
         .gte("delivery_date", fromDate)
         .lte("delivery_date", toDate)
         .order("delivery_date", { ascending: true });
       if (error) throw error;
-      return data || [];
+      // Flatten joined customer address
+      return (data || []).map((row: any) => ({
+        ...row,
+        customer_address: row.mini_crm_customers?.address ?? null,
+      }));
     },
     enabled: createOpen,
   });
@@ -208,6 +216,8 @@ export default function WarehouseDispatch() {
     setFormItems(mapped);
     // Pre-fill delivery date from PO
     if (po.delivery_date) setDispatchDate(po.delivery_date);
+    // Auto-fill delivery address from CRM customer profile (only if not already filled)
+    if (po.customer_address) setDeliveryAddress(po.customer_address);
   };
 
   const handleDispatchQtyChange = (idx: number, val: string) => {
@@ -599,11 +609,16 @@ export default function WarehouseDispatch() {
 
             {/* Address + Notes */}
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Địa chỉ giao hàng</label>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Địa chỉ giao hàng</label>
+                {deliveryAddress && selectedPoId && (
+                  <span className="text-xs text-muted-foreground">Tự động điền từ hồ sơ khách hàng</span>
+                )}
+              </div>
               <Input
                 value={deliveryAddress}
                 onChange={(e) => setDeliveryAddress(e.target.value)}
-                placeholder="Địa chỉ giao..."
+                placeholder="Địa chỉ giao (tự động điền nếu CRM có địa chỉ)..."
               />
             </div>
             <div className="space-y-1.5">

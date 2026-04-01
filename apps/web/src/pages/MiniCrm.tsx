@@ -277,6 +277,7 @@ export default function MiniCrm() {
   const [editCustomerGroup, setEditCustomerGroup] = useState("banhmi_point");
   const [editProductGroup, setEditProductGroup] = useState("banhmi");
   const [editIsActive, setEditIsActive] = useState(true);
+  const [editAddress, setEditAddress] = useState("");
   const [editEmailsInput, setEditEmailsInput] = useState("");
   const [editOriginalEmailsInput, setEditOriginalEmailsInput] = useState("");
   const [editFeedback, setEditFeedback] = useState<string>("");
@@ -508,6 +509,7 @@ export default function MiniCrm() {
     setEditCustomerGroup(c.customer_group || "banhmi_point");
     setEditProductGroup(c.product_group || "banhmi");
     setEditIsActive(Boolean(c.is_active));
+    setEditAddress(c.address || "");
     setEditIsNpp(Boolean(c.is_npp));
     setEditUsesNpp(Boolean(c.supplied_by_npp_customer_id));
     setEditSuppliedByNppCustomerId(String(c.supplied_by_npp_customer_id || ""));
@@ -545,6 +547,7 @@ export default function MiniCrm() {
     setEditCustomerGroup("banhmi_point");
     setEditProductGroup("banhmi");
     setEditIsActive(true);
+    setEditAddress("");
     setEditIsNpp(false);
     setEditUsesNpp(false);
     setEditSuppliedByNppCustomerId("");
@@ -1126,6 +1129,7 @@ export default function MiniCrm() {
         customer_group: editCustomerGroup,
         product_group: editProductGroup,
         is_active: editIsActive,
+        address: editAddress.trim() || null,
         is_npp: editIsNpp,
         supplied_by_npp_customer_id: editIsNpp ? null : (editUsesNpp ? (editSuppliedByNppCustomerId || null) : null),
       };
@@ -3396,6 +3400,15 @@ export default function MiniCrm() {
             <div className="space-y-2 md:col-span-2">
               <Label>Email nhận diện</Label>
               <Input value={editEmailsInput} onChange={(e) => setEditEmailsInput(e.target.value)} />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Địa chỉ giao hàng</Label>
+              <Input
+                value={editAddress}
+                onChange={(e) => setEditAddress(e.target.value)}
+                placeholder="VD: 123 Nguyễn Huệ, Q.1, TP.HCM"
+              />
+              <p className="text-xs text-muted-foreground">Tự động điền vào phiếu xuất kho khi chọn đơn hàng của khách này.</p>
             </div>
             <div className="space-y-2 md:col-span-2">
               <Label>Trạng thái</Label>
