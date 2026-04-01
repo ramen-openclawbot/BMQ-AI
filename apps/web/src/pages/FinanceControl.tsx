@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth, subDays } from "date-fns";
 import { vi } from "date-fns/locale";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,7 +51,6 @@ async function fileToBase64(file: File): Promise<string> {
 export default function FinanceControl() {
   const { toast } = useToast();
   const { language } = useLanguage();
-  const queryClient = useQueryClient();
   const isVi = language === "vi";
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [debouncedSelectedDate, setDebouncedSelectedDate] = useState<Date>(new Date());
@@ -248,32 +246,6 @@ export default function FinanceControl() {
   }, [declarationImages]);
 
   const dateKey = format(selectedDate, "yyyy-MM-dd");
-
-  useEffect(() => {
-    const candidates = [subDays(debouncedSelectedDate, 1), subDays(debouncedSelectedDate, -1)];
-
-    for (const d of candidates) {
-      const date = format(d, "yyyy-MM-dd");
-
-      queryClient.prefetchQuery({
-        queryKey: ["finance-daily-snapshot", date],
-        queryFn: async () => {
-          const { data, error } = await (supabase as any).rpc("finance_daily_snapshot", {
-            p_date: date,
-          });
-
-          if (error) throw error;
-          return {
-            declaration: data?.declaration || null,
-            dailyReconciliation: data?.dailyReconciliation || null,
-            uncDetailAmount: Number(data?.uncDetailAmount || 0),
-            qtmOpeningBalance: Number(data?.qtmOpeningBalance || 0),
-          };
-        },
-        staleTime: 5 * 60_000,
-      });
-    }
-  }, [debouncedSelectedDate, queryClient]);
 
   const persistedFolderTotal = Number(dailyDeclaration?.extraction_meta?.unc_folder_total || 0);
   const persistedFolderStatus = dailyDeclaration?.extraction_meta?.unc_folder_status as ("match" | "mismatch" | undefined);
@@ -1177,12 +1149,12 @@ export default function FinanceControl() {
       await saveReconciliationWorkflowMeta("approve", true);
 
       setReconcileProgress({ done: 0, total: 0, currentFile: "" });
-      setCloseResultSnapshot({
-        uncDrive: Number(folderScanResult.uncFolderTotal || 0),
-        uncCEO: Number(uncTotalDeclared || 0),
-        qtmDrive: Number(folderScanResult.qtmFolderTotal || 0),
+      setCloseResultSnapshot((prev) => prev || {
+        uncDrive: Number(resolvedUncDetail || 0),
+        uncCEO: Number(resolvedUncDeclared || 0),
+        qtmDrive: Number(resolvedQtmDrive || 0),
         qtmCEO: Number(cashFundTopupAmount || 0),
-        status: result.status,
+        status: "mismatch",
       });
       setCloseDialogStep("done");
       toast({
