@@ -75,7 +75,8 @@ export default function FinanceControl() {
   const [qtmLowConfidenceCount, setQtmLowConfidenceCount] = useState(0);
   // Close dialog state
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
-  const [closeDialogStep, setCloseDialogStep] = useState<"preview" | "running" | "done">("preview");
+  const [closeDialogStep, setCloseDialogStep] = useState<"preview" | "running" | "mismatch" | "done">("preview");
+  const [mismatchResult, setMismatchResult] = useState<any>(null);
   const [previewUncFiles, setPreviewUncFiles] = useState<number>(0);
   const [previewQtmFiles, setPreviewQtmFiles] = useState<number>(0);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -1065,6 +1066,7 @@ export default function FinanceControl() {
     }
     setCloseDialogOpen(true);
     setCloseDialogStep("preview");
+    setMismatchResult(null);
     setReconcileError(null);
     setPreviewUncFiles(0);
     setPreviewQtmFiles(0);
@@ -1156,9 +1158,10 @@ export default function FinanceControl() {
         throw new Error(isVi ? "Không thể hoàn tất đối soát UNC/QTM" : "Failed to complete reconciliation");
       }
       if (result.status !== "match" || Number(result.uncVariance || 0) !== 0 || Number(result.qtmVariance || 0) > 0) {
-        throw new Error(isVi
-          ? "Không thể chốt ngày vì UNC/QTM còn chênh lệch. Vui lòng xử lý xong mismatch trước khi chốt."
-          : "Cannot close day while UNC/QTM reconciliation is mismatched.");
+        // Show mismatch warning — let CEO decide whether to override
+        setMismatchResult(result);
+        setCloseDialogStep("mismatch");
+        return; // finally block will call setCloseActing(false)
       }
 
       // Step 4: Lock & close
@@ -1179,6 +1182,29 @@ export default function FinanceControl() {
     } catch (e: any) {
       setReconcileError(e?.message || (isVi ? "Lỗi khi chốt ngày" : "Failed closing day"));
       setCloseDialogStep("preview"); // Go back to preview so user can retry or change settings
+    } finally {
+      setCloseActing(false);
+    }
+  };
+
+  const handleConfirmMismatchClose = async () => {
+    setCloseActing(true);
+    setCloseDialogStep("running");
+    try {
+      setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 4/4: Khoá & chốt ngày..." : "Step 4/4: Locking & closing..." });
+      setCloseDecision("approve");
+      await saveReconciliationWorkflowMeta("approve", true);
+      setReconcileProgress({ done: 0, total: 0, currentFile: "" });
+      setCloseDialogStep("done");
+      toast({
+        title: isVi ? "Đã chốt ngày (có chênh lệch)" : "Day closed (with variance)",
+        description: isVi ? "CEO đã xác nhận chốt dù có chênh lệch UNC/QTM. Vui lòng kiểm tra lại sau." : "CEO confirmed close despite UNC/QTM variance. Please review later.",
+        variant: "destructive",
+      });
+      await refetchDeclaration();
+    } catch (e: any) {
+      setReconcileError(e?.message || (isVi ? "Lỗi khi chốt ngày" : "Failed closing day"));
+      setCloseDialogStep("mismatch");
     } finally {
       setCloseActing(false);
     }
@@ -1515,6 +1541,39 @@ export default function FinanceControl() {
             </div>
           )}
 
+          {closeDialogStep === "mismatch" && (
+            <div className="space-y-4 py-2">
+              <div className="flex items-center gap-2 text-amber-600">
+                <span className="text-xl">⚠️</span>
+                <span className="text-base font-semibold">{isVi ? "Phát hiện chênh lệch UNC/QTM" : "UNC/QTM Variance Detected"}</span>
+              </div>
+              <div className="rounded border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-3 space-y-2 text-sm">
+                {Number(mismatchResult?.uncVariance || 0) !== 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">{isVi ? "UNC chênh lệch:" : "UNC variance:"}</span>
+                    <span className="font-semibold text-amber-700">{vnd(Math.abs(Number(mismatchResult?.uncVariance || 0)))}</span>
+                  </div>
+                )}
+                {Number(mismatchResult?.qtmVariance || 0) > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">{isVi ? "QTM chênh lệch:" : "QTM variance:"}</span>
+                    <span className="font-semibold text-amber-700">{vnd(Number(mismatchResult?.qtmVariance || 0))}</span>
+                  </div>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {isVi
+                  ? "Anh có thể chốt ngày dù có chênh lệch. Trạng thái sẽ được ghi là 'mismatch' để xem lại sau."
+                  : "You can close the day despite the variance. Status will be recorded as 'mismatch' for later review."}
+              </p>
+              {reconcileError && (
+                <div className="rounded border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                  {reconcileError}
+                </div>
+              )}
+            </div>
+          )}
+
           <DialogFooter>
             {closeDialogStep === "preview" && (
               <div className="flex gap-2 w-full justify-end">
@@ -1534,6 +1593,21 @@ export default function FinanceControl() {
             )}
             {closeDialogStep === "running" && (
               <div className="text-xs text-muted-foreground">{isVi ? "Vui lòng không đóng cửa sổ..." : "Please don't close this window..."}</div>
+            )}
+            {closeDialogStep === "mismatch" && (
+              <div className="flex gap-2 w-full justify-end">
+                <Button variant="outline" onClick={() => { setCloseDialogStep("preview"); setMismatchResult(null); setReconcileError(null); }}>
+                  {isVi ? "Quay lại" : "Back"}
+                </Button>
+                <Button
+                  className="bg-amber-600 hover:bg-amber-700 text-white"
+                  disabled={closeActing}
+                  onClick={handleConfirmMismatchClose}
+                >
+                  <Lock className="h-4 w-4 mr-2" />
+                  {isVi ? "Chốt ngày dù có chênh lệch" : "Close day with variance"}
+                </Button>
+              </div>
             )}
             {closeDialogStep === "done" && (
               <Button onClick={() => setCloseDialogOpen(false)}>{isVi ? "Đóng" : "Close"}</Button>
