@@ -368,7 +368,7 @@ export default function FinanceControl() {
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
-        throw new Error(err?.error || "Failed extracting amount from slip image");
+        throw new Error(err?.detail || err?.error || "Failed extracting amount from slip image");
       }
 
       const result = await response.json();

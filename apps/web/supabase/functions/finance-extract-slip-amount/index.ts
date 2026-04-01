@@ -76,7 +76,7 @@ Rules:
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4.1",
+        model: "gpt-4o-mini",
         messages: [
           { role: "system", content: system },
           {
@@ -114,6 +114,7 @@ Rules:
 
     if (!ai.ok) {
       const errText = await ai.text().catch(() => "");
+      console.error("[finance-extract-slip-amount] OpenAI request failed:", errText || `HTTP ${ai.status}`);
       return jsonResponse({ error: "OpenAI request failed", detail: errText || `HTTP ${ai.status}` }, 502, getCorsHeaders(req));
     }
 
@@ -127,20 +128,24 @@ Rules:
     }
 
     if (!data || !data.amount) {
-      return jsonResponse({ error: "Unable to extract amount", raw }, 422, getCorsHeaders(req));
+      console.error("[finance-extract-slip-amount] Unable to extract amount", JSON.stringify(raw)?.slice(0, 2000));
+      return jsonResponse({ error: "Unable to extract amount", detail: "Model did not return amount field", raw }, 422, getCorsHeaders(req));
     }
 
     // Parse Vietnamese-formatted amount string → number
     const rawAmount = data.amount;
     const parsedAmount = parseAmountVN(rawAmount);
     if (!parsedAmount) {
-      return jsonResponse({ error: "Failed to parse amount string", rawAmount, raw }, 422, getCorsHeaders(req));
+      console.error("[finance-extract-slip-amount] Failed to parse amount string", rawAmount);
+      return jsonResponse({ error: "Failed to parse amount string", detail: `rawAmount=${rawAmount}`, rawAmount, raw }, 422, getCorsHeaders(req));
     }
     data.amount = parsedAmount;
     data.amount_raw = rawAmount; // Keep original string for audit
 
     return jsonResponse({ success: true, data }, 200, getCorsHeaders(req));
   } catch (e) {
-    return jsonResponse({ error: e instanceof Error ? e.message : "Unknown error" }, 500, getCorsHeaders(req));
+    const detail = e instanceof Error ? `${e.name}: ${e.message}` : "Unknown error";
+    console.error("[finance-extract-slip-amount] Unhandled error:", detail);
+    return jsonResponse({ error: e instanceof Error ? e.message : "Unknown error", detail }, 500, getCorsHeaders(req));
   }
 });
