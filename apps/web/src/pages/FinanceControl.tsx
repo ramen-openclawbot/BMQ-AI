@@ -399,13 +399,14 @@ export default function FinanceControl() {
     return String(data.value);
   };
 
-  // Returns a fresh, non-expired session — refreshes automatically if token expires within 60s
+  // Returns a valid session — always attempts refreshSession() first (most reliable),
+  // falls back to current session if refresh fails.
   const getFreshSession = async () => {
+    // Always try refresh first: ensures token is valid even after long idle
+    const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+    if (!refreshError && refreshed.session) return refreshed.session;
+    // Fallback: return whatever session is cached
     const { data } = await supabase.auth.getSession();
-    if (data.session?.expires_at && Date.now() / 1000 > data.session.expires_at - 60) {
-      const { data: refreshed, error } = await supabase.auth.refreshSession();
-      if (!error && refreshed.session) return refreshed.session;
-    }
     return data.session;
   };
 
@@ -1090,22 +1091,36 @@ export default function FinanceControl() {
     setChildFolders([]);
     try {
       const session = await getFreshSession();
+      if (!session?.access_token) {
+        setBrowseError(isVi ? "Chưa đăng nhập — vui lòng tải lại trang và đăng nhập lại" : "Not logged in — please reload and sign in again");
+        return;
+      }
       const folderUrl = customFolderUrl || savedFolderUrl || await getUncRootFolderUrl();
       setBrowsedFolderUrl(folderUrl || "");
       if (!folderUrl) throw new Error("Chưa cấu hình thư mục gốc Google Drive");
       const parentPath = pathSegments.join("/");
-      const resp = await fetchWithTimeout(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-        },
-        body: JSON.stringify({ folderUrl, mode: "list_children", parentPath }),
-      }, 20000);
+
+      const callScan = async (token: string) =>
+        fetchWithTimeout(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ folderUrl, mode: "list_children", parentPath }),
+        }, 20000);
+
+      let resp = await callScan(session.access_token);
+
+      // Auto-retry once with hard refresh if 401
+      if (resp.status === 401) {
+        const { data: retrySession } = await supabase.auth.refreshSession();
+        if (retrySession.session?.access_token) {
+          resp = await callScan(retrySession.session.access_token);
+        }
+      }
+
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
         const detail = resp.status === 401
-          ? "Phiên đăng nhập hết hạn — vui lòng đăng nhập lại"
+          ? "Phiên đăng nhập đã hết hạn hoàn toàn — vui lòng tải lại trang (F5) và đăng nhập lại"
           : err?.error || err?.details || `HTTP ${resp.status}`;
         throw new Error(detail);
       }
@@ -1113,7 +1128,7 @@ export default function FinanceControl() {
       const folders = data.folders || [];
       setChildFolders(folders);
       if (folders.length === 0) {
-        setBrowseError(isVi ? `Không tìm thấy thư mục con trong "${parentPath || "root"}"` : `No subfolders found in "${parentPath || "root"}"`);
+        setBrowseError(isVi ? `Không tìm thấy thư mục con tại "${parentPath || "root"}"` : `No subfolders found at "${parentPath || "root"}"`);
       }
     } catch (e: any) {
       setBrowseError(e?.message || (isVi ? "Không thể duyệt thư mục" : "Cannot browse folder"));
