@@ -535,18 +535,6 @@ export default function FinanceControl() {
       let uncFiles = normalizeImageFiles(uncRawFiles);
       let qtmFiles = normalizeImageFiles(qtmRawFiles);
 
-      // fallback legacy: some old days store UNC files directly under YYYY/MM/DD
-      if (!uncFiles.length) {
-        const dayScanData = await scanWithRetry(autoDayFolderPath);
-        const dayFiles = normalizeImageFiles(Array.isArray(dayScanData?.files) ? dayScanData.files : []);
-        const isQtmPath = (f: any) => {
-          const haystack = `${String(f?.name || "")} ${String(f?.path || "")} ${String(f?.folderPath || "")} ${String(f?.parentPath || "")}`.toLowerCase();
-          return /(^|\W)qtm($|\W)/i.test(haystack);
-        };
-        uncFiles = dayFiles.filter((f: any) => !isQtmPath(f));
-        if (!qtmFiles.length) qtmFiles = dayFiles.filter((f: any) => isQtmPath(f));
-      }
-
       const uncTotalScannedCount = Number(uncScanData?.totalFilesFound ?? uncFiles.length);
       const qtmTotalScannedCount = Number(qtmScanData?.totalFilesFound ?? qtmFiles.length);
 
