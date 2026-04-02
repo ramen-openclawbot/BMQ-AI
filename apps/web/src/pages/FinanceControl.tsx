@@ -100,6 +100,7 @@ export default function FinanceControl() {
   const [saving, setSaving] = useState(false);
   const [reconciling, setReconciling] = useState(false);
   const [extracting, setExtracting] = useState(false);
+  const [declarationSaveMessage, setDeclarationSaveMessage] = useState<string | null>(null);
 
   const [uncSkipProcessed, setUncSkipProcessed] = useState(true);
   const [uncScanImagesOnly, setUncScanImagesOnly] = useState(true);
@@ -901,6 +902,7 @@ export default function FinanceControl() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
       },
       body: JSON.stringify({ imageBase64: normalized.imageBase64, mimeType: normalized.mimeType, slipType }),
@@ -917,6 +919,7 @@ export default function FinanceControl() {
 
   const processSlipUpload = async (slipType: "qtm" | "unc", files: File[]) => {
     if (!files.length) return;
+    setDeclarationSaveMessage(null);
     setExtracting(true);
     try {
       const batchResults: Array<{ imageBase64: string; extracted: any; file: File }> = [];
@@ -945,10 +948,10 @@ export default function FinanceControl() {
         description: `${slipType === "qtm" ? "QTM" : "UNC"}: +${vnd(batchSum)} (${batchResults.length} ảnh)`,
       });
 
-      // Auto-save declaration after OCR (no separate "Save" button needed)
-      // Use setTimeout to let state updates settle before saving
+      // Auto-save declaration after OCR, but keep a manual save fallback for mobile.
       setTimeout(() => { saveDeclaration(true); }, 100);
     } catch (e: any) {
+      setDeclarationSaveMessage(e?.message || (isVi ? "Ảnh đã tải lên nhưng OCR chưa đọc được số tiền. Anh có thể chỉnh tay số tiền rồi bấm Lưu khai báo." : "Image uploaded but OCR could not extract amount. You can adjust the number manually and press Save declaration."));
       toast({ title: "Lỗi OCR slip", description: e?.message || "Không thể trích xuất số tiền từ ảnh upload. Nếu ảnh chụp từ iPhone, vui lòng thử lại sau khi chụp rõ hơn hoặc dùng ảnh/JPEG ít nén hơn.", variant: "destructive" });
     } finally {
       setExtracting(false);
@@ -995,6 +998,7 @@ export default function FinanceControl() {
 
   const saveDeclaration = async (silent = false): Promise<boolean> => {
     setSaving(true);
+    setDeclarationSaveMessage(null);
     try {
       const { data: latestDecl } = await (supabase as any)
         .from("ceo_daily_closing_declarations")
@@ -1052,6 +1056,7 @@ export default function FinanceControl() {
 
       if (error) throw error;
       if (!silent) {
+        setDeclarationSaveMessage(isVi ? "Đã lưu khai báo CEO" : "CEO declaration saved");
         toast({ title: "Saved", description: "CEO daily declaration has been updated." });
       }
       setPendingQtmImagesBase64([]);
@@ -1061,6 +1066,7 @@ export default function FinanceControl() {
       await refetchDeclaration();
       return true;
     } catch (e: any) {
+      setDeclarationSaveMessage(e?.message || (isVi ? "Không thể lưu khai báo" : "Failed to save declaration"));
       if (!silent) {
         toast({ title: "Error", description: e?.message || "Failed to save declaration", variant: "destructive" });
       }
@@ -1424,6 +1430,16 @@ export default function FinanceControl() {
               </div>
 
               {extracting && <div className="text-sm text-muted-foreground animate-pulse">{isVi ? "Đang scan slip..." : "Scanning slips..."}</div>}
+              {declarationSaveMessage && (
+                <div className={`text-sm ${declarationSaveMessage.includes("Đã lưu") || declarationSaveMessage.includes("saved") ? "text-green-600" : "text-amber-600"}`}>
+                  {declarationSaveMessage}
+                </div>
+              )}
+              <div className="flex justify-end">
+                <Button type="button" variant="outline" disabled={extracting || saving || ceoDeclarationLocked || closeApprovalLocked} onClick={() => saveDeclaration(false)}>
+                  {saving ? (isVi ? "Đang lưu..." : "Saving...") : (isVi ? "Lưu khai báo" : "Save declaration")}
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
