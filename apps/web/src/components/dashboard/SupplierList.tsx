@@ -51,8 +51,16 @@ export function SupplierList() {
         </div>
         <div className="p-6 space-y-3">
           <p className="font-medium text-foreground">Couldn't load suppliers</p>
-          <p className="text-sm text-muted-foreground break-words">
-            {error instanceof Error ? error.message : "Unknown error"}
+          <p className="text-sm text-muted-foreground break-words whitespace-pre-wrap">
+            {(() => {
+              if (error instanceof Error) return error.message;
+              if (typeof error === "string") return error;
+              try {
+                return JSON.stringify(error, null, 2);
+              } catch {
+                return "Unknown error";
+              }
+            })()}
           </p>
           <Button variant="outline" onClick={() => refetch()}>
             Retry
