@@ -936,17 +936,32 @@ export default function FinanceControl() {
 
       const batchSum = batchResults.reduce((sum, r) => sum + Number(r.extracted?.amount || 0), 0);
       const previews = batchResults.map((r) => `data:${r.file.type || "image/jpeg"};base64,${r.imageBase64}`);
+      const batchImageBase64 = batchResults.map((r) => r.imageBase64);
+      const batchExtractedList = batchResults.map((r) => r.extracted);
+
+      let nextUncTotalDeclared = Number(uncTotalDeclared || 0);
+      let nextCashFundTopupAmount = Number(cashFundTopupAmount || 0);
+      let nextPendingQtmImagesBase64 = pendingQtmImagesBase64;
+      let nextPendingUncImagesBase64 = pendingUncImagesBase64;
+      let nextPendingQtmExtractedList = pendingQtmExtractedList;
+      let nextPendingUncExtractedList = pendingUncExtractedList;
 
       if (slipType === "qtm") {
-        setCashFundTopupAmount((prev) => Number(prev || 0) + batchSum);
+        nextCashFundTopupAmount = Number(cashFundTopupAmount || 0) + batchSum;
+        nextPendingQtmImagesBase64 = [...pendingQtmImagesBase64, ...batchImageBase64];
+        nextPendingQtmExtractedList = [...pendingQtmExtractedList, ...batchExtractedList];
+        setCashFundTopupAmount(nextCashFundTopupAmount);
         setQtmSlipPreviews((prev) => [...prev, ...previews]);
-        setPendingQtmImagesBase64((prev) => [...prev, ...batchResults.map((r) => r.imageBase64)]);
-        setPendingQtmExtractedList((prev) => [...prev, ...batchResults.map((r) => r.extracted)]);
+        setPendingQtmImagesBase64(nextPendingQtmImagesBase64);
+        setPendingQtmExtractedList(nextPendingQtmExtractedList);
       } else {
-        setUncTotalDeclared((prev) => Number(prev || 0) + batchSum);
+        nextUncTotalDeclared = Number(uncTotalDeclared || 0) + batchSum;
+        nextPendingUncImagesBase64 = [...pendingUncImagesBase64, ...batchImageBase64];
+        nextPendingUncExtractedList = [...pendingUncExtractedList, ...batchExtractedList];
+        setUncTotalDeclared(nextUncTotalDeclared);
         setUncSlipPreviews((prev) => [...prev, ...previews]);
-        setPendingUncImagesBase64((prev) => [...prev, ...batchResults.map((r) => r.imageBase64)]);
-        setPendingUncExtractedList((prev) => [...prev, ...batchResults.map((r) => r.extracted)]);
+        setPendingUncImagesBase64(nextPendingUncImagesBase64);
+        setPendingUncExtractedList(nextPendingUncExtractedList);
       }
 
       toast({
@@ -954,8 +969,16 @@ export default function FinanceControl() {
         description: `${slipType === "qtm" ? "QTM" : "UNC"}: +${vnd(batchSum)} (${batchResults.length} ảnh)`,
       });
 
-      // Auto-save declaration after OCR, but keep a manual save fallback for mobile.
-      setTimeout(() => { saveDeclaration(true); }, 100);
+      // Auto-save declaration after OCR using the freshly computed values,
+      // avoiding stale React state during rapid UNC/QTM consecutive uploads.
+      await saveDeclaration(true, {
+        uncTotalDeclared: nextUncTotalDeclared,
+        cashFundTopupAmount: nextCashFundTopupAmount,
+        pendingQtmImagesBase64: nextPendingQtmImagesBase64,
+        pendingUncImagesBase64: nextPendingUncImagesBase64,
+        pendingQtmExtractedList: nextPendingQtmExtractedList,
+        pendingUncExtractedList: nextPendingUncExtractedList,
+      });
     } catch (e: any) {
       setDeclarationSaveMessage(e?.message || (isVi ? "Ảnh đã tải lên nhưng OCR chưa đọc được số tiền. Anh có thể chỉnh tay số tiền rồi bấm Lưu khai báo." : "Image uploaded but OCR could not extract amount. You can adjust the number manually and press Save declaration."));
       toast({ title: "Lỗi OCR slip", description: e?.message || "Không thể trích xuất số tiền từ ảnh upload. Nếu ảnh chụp từ iPhone, vui lòng thử lại sau khi chụp rõ hơn hoặc dùng ảnh/JPEG ít nén hơn.", variant: "destructive" });
@@ -1002,7 +1025,17 @@ export default function FinanceControl() {
     setCloseApprovalLocked(lockOverride ?? (decision === "approve" ? true : closeApprovalLocked));
   };
 
-  const saveDeclaration = async (silent = false): Promise<boolean> => {
+  const saveDeclaration = async (
+    silent = false,
+    overrides?: {
+      uncTotalDeclared?: number;
+      cashFundTopupAmount?: number;
+      pendingQtmImagesBase64?: string[];
+      pendingUncImagesBase64?: string[];
+      pendingQtmExtractedList?: any[];
+      pendingUncExtractedList?: any[];
+    },
+  ): Promise<boolean> => {
     setSaving(true);
     setDeclarationSaveMessage(null);
     try {
@@ -1019,15 +1052,23 @@ export default function FinanceControl() {
       const existingUncImages = Array.isArray(sourceDecl?.extraction_meta?.unc_images)
         ? sourceDecl.extraction_meta.unc_images
         : (sourceDecl?.unc_slip_image_base64 ? [sourceDecl.unc_slip_image_base64] : []);
-      const finalQtmImages = [...existingQtmImages, ...pendingQtmImagesBase64];
-      const finalUncImages = [...existingUncImages, ...pendingUncImagesBase64];
+
+      const nextUncTotalDeclared = Number(overrides?.uncTotalDeclared ?? uncTotalDeclared || 0);
+      const nextCashFundTopupAmount = Number(overrides?.cashFundTopupAmount ?? cashFundTopupAmount || 0);
+      const nextPendingQtmImagesBase64 = overrides?.pendingQtmImagesBase64 ?? pendingQtmImagesBase64;
+      const nextPendingUncImagesBase64 = overrides?.pendingUncImagesBase64 ?? pendingUncImagesBase64;
+      const nextPendingQtmExtractedList = overrides?.pendingQtmExtractedList ?? pendingQtmExtractedList;
+      const nextPendingUncExtractedList = overrides?.pendingUncExtractedList ?? pendingUncExtractedList;
+
+      const finalQtmImages = [...existingQtmImages, ...nextPendingQtmImagesBase64];
+      const finalUncImages = [...existingUncImages, ...nextPendingUncImagesBase64];
 
       const payload = {
         closing_date: dateKey,
-        unc_total_declared: Number(uncTotalDeclared || 0),
-        cash_fund_topup_amount: Number(cashFundTopupAmount || 0),
-        qtm_extracted_amount: Number(cashFundTopupAmount || 0),
-        unc_extracted_amount: Number(uncTotalDeclared || 0),
+        unc_total_declared: nextUncTotalDeclared,
+        cash_fund_topup_amount: nextCashFundTopupAmount,
+        qtm_extracted_amount: nextCashFundTopupAmount,
+        unc_extracted_amount: nextUncTotalDeclared,
         // giữ cột cũ để backward-compatible (preview nhanh ảnh đầu)
         qtm_slip_image_base64: finalQtmImages[0] || null,
         unc_slip_image_base64: finalUncImages[0] || null,
@@ -1037,11 +1078,11 @@ export default function FinanceControl() {
           unc_images: finalUncImages,
           qtm_items: [
             ...((sourceDecl?.extraction_meta?.qtm_items as any[]) || []),
-            ...pendingQtmExtractedList,
+            ...nextPendingQtmExtractedList,
           ],
           unc_items: [
             ...((sourceDecl?.extraction_meta?.unc_items as any[]) || []),
-            ...pendingUncExtractedList,
+            ...nextPendingUncExtractedList,
           ],
           ceo_declaration_locked: ceoDeclarationLocked,
           close_decision: closeDecision,
@@ -1050,7 +1091,7 @@ export default function FinanceControl() {
           reconciliation_audit_logs: reconciliationAuditLogs,
           qtm_opening_balance: Number(qtmOpeningBalance || 0),
           qtm_spent_from_folder: Number(qtmSpentFromFolder || 0),
-          qtm_closing_balance: Number(qtmClosingBalance || 0),
+          qtm_closing_balance: Number(qtmOpeningBalance || 0) + nextCashFundTopupAmount - Number(qtmSpentFromFolder || 0),
           qtm_low_confidence_count: Number(qtmLowConfidenceCount || 0),
         },
         notes: notes || null,
