@@ -1381,7 +1381,12 @@ export default function FinanceControl() {
         </CardContent></Card>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+      <Tabs value={activeTab} onValueChange={(value) => {
+        setActiveTab(value);
+        if (value === "monthly") {
+          setSelectedMonth(startOfMonth(selectedDate));
+        }
+      }} className="space-y-4">
         <TabsList>
           <TabsTrigger value="daily">{isVi ? "Chốt ngày" : "Daily Close"}</TabsTrigger>
           <TabsTrigger value="monthly">{isVi ? "Chốt tháng" : "Monthly Close"}</TabsTrigger>
