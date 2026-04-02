@@ -48,6 +48,46 @@ async function fileToBase64(file: File): Promise<string> {
   });
 }
 
+async function normalizeUploadImage(file: File): Promise<{ imageBase64: string; mimeType: string }> {
+  const originalBase64 = await fileToBase64(file);
+  const originalMime = file.type || "image/jpeg";
+
+  try {
+    if (typeof window === "undefined" || !originalMime.startsWith("image/")) {
+      return { imageBase64: originalBase64, mimeType: originalMime };
+    }
+
+    const src = `data:${originalMime};base64,${originalBase64}`;
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("Load image failed"));
+      el.src = src;
+    });
+
+    const maxW = 2000;
+    const maxH = 2000;
+    const scale = Math.min(1, maxW / Math.max(1, img.width), maxH / Math.max(1, img.height));
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return { imageBase64: originalBase64, mimeType: originalMime };
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+
+    const normalizedMime = "image/jpeg";
+    const normalizedBase64 = canvas.toDataURL(normalizedMime, 0.9).split(",")[1] || originalBase64;
+    return { imageBase64: normalizedBase64, mimeType: normalizedMime };
+  } catch {
+    return { imageBase64: originalBase64, mimeType: originalMime };
+  }
+}
+
 export default function FinanceControl() {
   const { toast } = useToast();
   const { language } = useLanguage();
@@ -854,7 +894,7 @@ export default function FinanceControl() {
   };
 
   const extractSlipAmount = async (file: File, slipType: "qtm" | "unc") => {
-    const imageBase64 = await fileToBase64(file);
+    const normalized = await normalizeUploadImage(file);
     const session = await getFreshSession();
 
     const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/finance-extract-slip-amount`, {
@@ -863,16 +903,16 @@ export default function FinanceControl() {
         "Content-Type": "application/json",
         ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
       },
-      body: JSON.stringify({ imageBase64, mimeType: file.type, slipType }),
+      body: JSON.stringify({ imageBase64: normalized.imageBase64, mimeType: normalized.mimeType, slipType }),
     });
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
-      throw new Error(err?.error || `Failed extracting ${slipType} amount`);
+      throw new Error(err?.detail || err?.error || `Failed extracting ${slipType} amount`);
     }
 
     const result = await response.json();
-    return { imageBase64, extracted: result.data as { amount: number; confidence?: number; transfer_date?: string; reference?: string } };
+    return { imageBase64: normalized.imageBase64, extracted: result.data as { amount: number; confidence?: number; transfer_date?: string; reference?: string } };
   };
 
   const processSlipUpload = async (slipType: "qtm" | "unc", files: File[]) => {
@@ -909,7 +949,7 @@ export default function FinanceControl() {
       // Use setTimeout to let state updates settle before saving
       setTimeout(() => { saveDeclaration(true); }, 100);
     } catch (e: any) {
-      toast({ title: "Lỗi OCR slip", description: e?.message || "Không thể trích xuất số tiền", variant: "destructive" });
+      toast({ title: "Lỗi OCR slip", description: e?.message || "Không thể trích xuất số tiền từ ảnh upload. Nếu ảnh chụp từ iPhone, vui lòng thử lại sau khi chụp rõ hơn hoặc dùng ảnh/JPEG ít nén hơn.", variant: "destructive" });
     } finally {
       setExtracting(false);
     }
