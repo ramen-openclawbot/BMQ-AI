@@ -1268,12 +1268,12 @@ export default function FinanceControl() {
       await saveReconciliationWorkflowMeta("approve", true);
 
       setReconcileProgress({ done: 0, total: 0, currentFile: "" });
-      setCloseResultSnapshot((prev) => prev || {
-        uncDrive: Number(resolvedUncDetail || 0),
-        uncCEO: Number(resolvedUncDeclared || 0),
-        qtmDrive: Number(resolvedQtmDrive || 0),
+      setCloseResultSnapshot({
+        uncDrive: Number(folderScanResult.uncFolderTotal || 0),
+        uncCEO: Number(uncTotalDeclared || 0),
+        qtmDrive: Number(folderScanResult.qtmFolderTotal || 0),
         qtmCEO: Number(cashFundTopupAmount || 0),
-        status: "mismatch",
+        status: result.status,
       });
       setCloseDialogStep("done");
       toast({
@@ -1300,12 +1300,12 @@ export default function FinanceControl() {
       setCloseDecision("approve");
       await saveReconciliationWorkflowMeta("approve", true);
       setReconcileProgress({ done: 0, total: 0, currentFile: "" });
-      setCloseResultSnapshot({
-        uncDrive: Number(folderScanResult.uncFolderTotal || 0),
-        uncCEO: Number(uncTotalDeclared || 0),
-        qtmDrive: Number(folderScanResult.qtmFolderTotal || 0),
+      setCloseResultSnapshot((prev) => prev || {
+        uncDrive: Number(resolvedUncDetail || 0),
+        uncCEO: Number(resolvedUncDeclared || 0),
+        qtmDrive: Number(resolvedQtmDrive || 0),
         qtmCEO: Number(cashFundTopupAmount || 0),
-        status: result.status,
+        status: "mismatch",
       });
       setCloseDialogStep("done");
       toast({
