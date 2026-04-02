@@ -142,6 +142,12 @@ export default function FinanceControl() {
     return () => clearTimeout(t);
   }, [selectedDate]);
 
+  useEffect(() => {
+    if (activeTab !== "monthly") {
+      setSelectedMonth(startOfMonth(selectedDate));
+    }
+  }, [selectedDate, activeTab]);
+
   // Root folder is configured in Google Drive Integration and resolved on demand.
 
   useEffect(() => {
