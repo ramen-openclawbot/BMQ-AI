@@ -264,6 +264,17 @@ export default function FinanceControl() {
     // otherwise local form can be reset to zeros and accidentally overwrite DB on save.
     if (dailyDeclaration === undefined || declarationLoading || declarationFetching) return;
 
+    const hasPendingLocalDeclarationChanges = saving
+      || extracting
+      || pendingQtmImagesBase64.length > 0
+      || pendingUncImagesBase64.length > 0
+      || pendingQtmExtractedList.length > 0
+      || pendingUncExtractedList.length > 0;
+
+    // While OCR/save is in-flight, preserve the local optimistic values instead of
+    // hydrating stale DB data back into the form.
+    if (hasPendingLocalDeclarationChanges) return;
+
     setUncTotalDeclared(Number(dailyDeclaration?.unc_extracted_amount || dailyDeclaration?.unc_total_declared || 0));
     setCashFundTopupAmount(Number(dailyDeclaration?.qtm_extracted_amount || dailyDeclaration?.cash_fund_topup_amount || 0));
     setNotes(String(dailyDeclaration?.notes || ""));
@@ -283,7 +294,17 @@ export default function FinanceControl() {
     setPendingUncImagesBase64([]);
     setPendingQtmExtractedList([]);
     setPendingUncExtractedList([]);
-  }, [dailyDeclaration, declarationLoading, declarationFetching]);
+  }, [
+    dailyDeclaration,
+    declarationLoading,
+    declarationFetching,
+    saving,
+    extracting,
+    pendingQtmImagesBase64.length,
+    pendingUncImagesBase64.length,
+    pendingQtmExtractedList.length,
+    pendingUncExtractedList.length,
+  ]);
 
   // Populate slip previews from the lazy image hook when it arrives
   useEffect(() => {
