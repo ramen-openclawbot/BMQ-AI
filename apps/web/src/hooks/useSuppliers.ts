@@ -21,7 +21,7 @@ export function useSuppliers() {
     queryFn: async () => {
       const { data, error } = await db
         .from("suppliers")
-        .select("id,name,contact_info,address,phone,email,notes,created_at,updated_at")
+        .select("id,name,category,description,phone,email,rating,order_count,default_payment_method,contract_url,payment_terms_days,created_at")
         .order("created_at", { ascending: false })
         .limit(200);
       if (error) throw error;
