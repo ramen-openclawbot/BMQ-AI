@@ -7,12 +7,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Phone, Mail, Package, Pencil, Save, X, FileText, CreditCard, Banknote, Clock, FileUp, ExternalLink } from "lucide-react";
+import { Phone, Mail, Package, Pencil, Save, X, FileText, CreditCard, Banknote, Clock, FileUp, ExternalLink, Trash2 } from "lucide-react";
 import { Supplier } from "@/hooks/useSuppliers";
 import { db } from "@/lib/supabase-helpers";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { SupplierAliasManager } from "@/components/settings/SupplierAliasManager";
+import { useAuth } from "@/contexts/AuthContext";
 
 const categories = ["Flour", "Sugar", "Dairy", "Chocolate", "Nuts", "Yeast", "Eggs", "Packaging", "General"];
 
@@ -36,6 +37,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
   const [contractFile, setContractFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const queryClient = useQueryClient();
+  const { isOwner } = useAuth();
 
   // Reset form when supplier changes or dialog opens
   useEffect(() => {
@@ -140,6 +142,30 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
     setContractUrl(supplier.contract_url || null);
     setContractFile(null);
     setIsEditing(false);
+  };
+
+  const handleDelete = async () => {
+    if (!isOwner) return;
+    const confirmed = window.confirm(`Xóa nhà cung cấp \"${supplier.name}\"? Hành động này không thể hoàn tác.`);
+    if (!confirmed) return;
+
+    setLoading(true);
+    try {
+      const { error } = await db
+        .from("suppliers")
+        .delete()
+        .eq("id", supplier.id);
+
+      if (error) throw error;
+
+      queryClient.invalidateQueries({ queryKey: ["suppliers"] });
+      onOpenChange(false);
+    } catch (error: any) {
+      console.error("Error deleting supplier:", error.message);
+      alert(error?.message || "Không thể xóa nhà cung cấp");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -450,10 +476,18 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
                 </Button>
               </>
             ) : (
-              <Button variant="outline" onClick={() => setIsEditing(true)} className="w-full">
-                <Pencil className="h-4 w-4 mr-2" />
-                Edit Supplier
-              </Button>
+              <>
+                <Button variant="outline" onClick={() => setIsEditing(true)} className={isOwner ? "flex-1" : "w-full"}>
+                  <Pencil className="h-4 w-4 mr-2" />
+                  Edit Supplier
+                </Button>
+                {isOwner && (
+                  <Button variant="destructive" onClick={handleDelete} disabled={loading}>
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete
+                  </Button>
+                )}
+              </>
             )}
           </div>
         </div>
