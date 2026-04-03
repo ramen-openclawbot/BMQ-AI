@@ -118,6 +118,8 @@ Batch 4:
 - `profiles`
 - `user_roles`
 - `user_module_permissions`
+- Migration drafted: `apps/web/supabase/migrations/20260403154500_rls_merge_batch4_identity_tables.sql`
+- Strategy used: preserve self-access/owner-access semantics while splitting owner `FOR ALL` policies into explicit INSERT/UPDATE/DELETE policies so SELECT remains single-path
 
 ### P4 — Find the real load drivers
 Advisor warnings alone do not explain all spikes. Still need:
