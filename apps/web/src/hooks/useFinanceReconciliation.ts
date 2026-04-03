@@ -349,8 +349,9 @@ export function useQtmOpeningBalance(closingDate: Date, currentDeclExtractionMet
 
       const deriveClosingFromRow = (row: any): number | null => {
         if (!row) return null;
+        const isLocked = Boolean(row?.extraction_meta?.close_approval_locked);
         const explicitClosing = toNumberOrNull(row?.extraction_meta?.qtm_closing_balance);
-        if (explicitClosing !== null) return explicitClosing;
+        if (isLocked && explicitClosing !== null) return explicitClosing;
 
         const opening = toNumberOrNull(row?.extraction_meta?.qtm_opening_balance);
         const spent = toNumberOrNull(row?.extraction_meta?.qtm_spent_from_folder);
@@ -400,6 +401,5 @@ export function useQtmOpeningBalance(closingDate: Date, currentDeclExtractionMet
     },
     staleTime: DAILY_STALE_MS,
     gcTime: GC_TIME_MS,
-    placeholderData: (previous) => previous,
   });
 }

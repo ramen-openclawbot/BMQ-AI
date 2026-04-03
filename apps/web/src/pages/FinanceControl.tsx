@@ -263,7 +263,7 @@ export default function FinanceControl() {
   const [closeApprovalLocked, setCloseApprovalLocked] = useState(false);
   const [closeReason, setCloseReason] = useState("");
   const [closeActing, setCloseActing] = useState(false);
-  const [reconciliationAuditLogs, setReconciliationAuditLogs] = useState<Array<{ at: string; actor: string; action: string; detail?: string }>>([]);
+  const [reconciliationAuditLogs, setReconciliationAuditLogs] = useState<Array<{ at: string; actor: string; action: string; detail?: string; snapshot?: any }>>([]);
 
   useEffect(() => {
     // Guard against transient empty state while query is still loading/refetching,
@@ -330,19 +330,37 @@ export default function FinanceControl() {
   const hasDeclaredUnc = Number(uncTotalDeclared || 0) > 0;
   const hasDeclaredQtm = Number(cashFundTopupAmount || 0) > 0;
   const missingRequiredPreview = (hasDeclaredUnc && previewUncFiles === 0) || (hasDeclaredQtm && previewQtmFiles === 0);
-  const resolvedQtmDrive = Number((closeResultSnapshot?.qtmDrive ?? dailyDeclaration?.extraction_meta?.qtm_spent_from_folder ?? qtmSpentFromFolder) || 0);
-  const qtmClosingBalance = Number(qtmOpeningBalance || 0) + Number(cashFundTopupAmount || 0) - resolvedQtmDrive;
+
+  const persistedQtmOpening = Number(dailyDeclaration?.extraction_meta?.qtm_opening_balance || 0);
+  const persistedQtmDeclared = Number((dailyDeclaration?.qtm_extracted_amount ?? dailyDeclaration?.cash_fund_topup_amount) || 0);
+  const persistedQtmDrive = Number(dailyDeclaration?.extraction_meta?.qtm_spent_from_folder || 0);
+  const persistedQtmClosing = Number(dailyDeclaration?.extraction_meta?.qtm_closing_balance || 0);
+  const isClosedDay = Boolean(dailyDeclaration?.extraction_meta?.close_approval_locked);
+
+  const liveQtmOpening = Number(qtmOpeningBalance || 0);
+  const liveQtmDeclared = Number(cashFundTopupAmount || 0);
+  const liveQtmDrive = Number((closeResultSnapshot?.qtmDrive ?? qtmSpentFromFolder ?? 0) || 0);
+  const liveQtmClosing = liveQtmOpening + liveQtmDeclared - liveQtmDrive;
+
+  const resolvedQtmOpening = isClosedDay ? persistedQtmOpening : liveQtmOpening;
+  const resolvedQtmDeclared = isClosedDay ? persistedQtmDeclared : liveQtmDeclared;
+  const resolvedQtmDrive = isClosedDay ? persistedQtmDrive : liveQtmDrive;
+  const qtmClosingBalance = isClosedDay ? persistedQtmClosing : liveQtmClosing;
   const qtmNegative = qtmClosingBalance < 0;
 
   useEffect(() => {
-    // Prevent stale slip previews when switching date while query is refetching
+    // Prevent stale per-day state from bleeding into the next selected day.
     setQtmSlipPreviews([]);
     setUncSlipPreviews([]);
     setPendingQtmImagesBase64([]);
     setPendingUncImagesBase64([]);
     setPendingQtmExtractedList([]);
     setPendingUncExtractedList([]);
-    // Reset lazy image loading for new date – will re-trigger on hover
+    setCloseResultSnapshot(null);
+    setDeclarationSaveMessage(null);
+    setOcrDebugMessage(null);
+    setQtmSpentFromFolder(0);
+    setQtmOpeningBalance(0);
     setImagesRequested(false);
   }, [dateKey]);
 
@@ -1608,7 +1626,7 @@ export default function FinanceControl() {
         </CardContent></Card>
         <Card><CardContent className="p-4">
           <div className="text-xs text-muted-foreground">{isVi ? "QTM khai báo" : "QTM declared"}</div>
-          <div className="text-xl font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div>
+          <div className="text-xl font-semibold">{vnd(Number(resolvedQtmDeclared || 0))}</div>
         </CardContent></Card>
         <Card><CardContent className="p-4">
           <div className="text-xs text-muted-foreground">{isVi ? "Số dư QTM" : "QTM balance"}</div>
@@ -1776,7 +1794,7 @@ export default function FinanceControl() {
                   <div className="rounded border p-2"><span className="text-xs text-muted-foreground">UNC Drive</span><div className="font-semibold">{vnd(resolvedUncDetail)}</div></div>
                   <div className="rounded border p-2"><span className="text-xs text-muted-foreground">UNC CEO</span><div className="font-semibold">{vnd(resolvedUncDeclared)}</div></div>
                   <div className="rounded border p-2"><span className="text-xs text-muted-foreground">QTM Drive</span><div className="font-semibold">{vnd(resolvedQtmDrive)}</div></div>
-                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">QTM CEO</span><div className="font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div></div>
+                  <div className="rounded border p-2"><span className="text-xs text-muted-foreground">QTM CEO</span><div className="font-semibold">{vnd(Number(resolvedQtmDeclared || 0))}</div></div>
                 </div>
               )}
 
@@ -1933,7 +1951,7 @@ export default function FinanceControl() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">QTM:</span>
-                  <span className="font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</span>
+                  <span className="font-semibold">{vnd(Number(resolvedQtmDeclared || 0))}</span>
                 </div>
               </div>
 
