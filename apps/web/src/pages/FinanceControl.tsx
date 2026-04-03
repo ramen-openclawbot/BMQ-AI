@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { format, startOfMonth, endOfMonth, subDays } from "date-fns";
 import { vi } from "date-fns/locale";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -331,21 +331,40 @@ export default function FinanceControl() {
   const hasDeclaredQtm = Number(cashFundTopupAmount || 0) > 0;
   const missingRequiredPreview = (hasDeclaredUnc && previewUncFiles === 0) || (hasDeclaredQtm && previewQtmFiles === 0);
 
-  const persistedQtmOpening = Number(dailyDeclaration?.extraction_meta?.qtm_opening_balance || 0);
-  const persistedQtmDeclared = Number((dailyDeclaration?.qtm_extracted_amount ?? dailyDeclaration?.cash_fund_topup_amount) || 0);
-  const persistedQtmDrive = Number(dailyDeclaration?.extraction_meta?.qtm_spent_from_folder || 0);
-  const persistedQtmClosing = Number(dailyDeclaration?.extraction_meta?.qtm_closing_balance || 0);
-  const isClosedDay = Boolean(dailyDeclaration?.extraction_meta?.close_approval_locked);
+  const qtmResolved = useMemo(() => {
+    const persistedOpening = Number(dailyDeclaration?.extraction_meta?.qtm_opening_balance || 0);
+    const persistedDeclared = Number((dailyDeclaration?.qtm_extracted_amount ?? dailyDeclaration?.cash_fund_topup_amount) || 0);
+    const persistedDrive = Number(dailyDeclaration?.extraction_meta?.qtm_spent_from_folder || 0);
+    const persistedClosing = Number(dailyDeclaration?.extraction_meta?.qtm_closing_balance || 0);
+    const closed = Boolean(dailyDeclaration?.extraction_meta?.close_approval_locked);
 
-  const liveQtmOpening = Number(qtmOpeningBalance || 0);
-  const liveQtmDeclared = Number(cashFundTopupAmount || 0);
-  const liveQtmDrive = Number((closeResultSnapshot?.qtmDrive ?? qtmSpentFromFolder ?? 0) || 0);
-  const liveQtmClosing = liveQtmOpening + liveQtmDeclared - liveQtmDrive;
+    const liveOpening = Number(qtmOpeningBalance || 0);
+    const liveDeclared = Number(cashFundTopupAmount || 0);
+    const liveDrive = Number((closeResultSnapshot?.qtmDrive ?? qtmSpentFromFolder ?? 0) || 0);
+    const liveClosing = liveOpening + liveDeclared - liveDrive;
 
-  const resolvedQtmOpening = isClosedDay ? persistedQtmOpening : liveQtmOpening;
-  const resolvedQtmDeclared = isClosedDay ? persistedQtmDeclared : liveQtmDeclared;
-  const resolvedQtmDrive = isClosedDay ? persistedQtmDrive : liveQtmDrive;
-  const qtmClosingBalance = isClosedDay ? persistedQtmClosing : liveQtmClosing;
+    return {
+      isClosedDay: closed,
+      opening: closed ? persistedOpening : liveOpening,
+      declared: closed ? persistedDeclared : liveDeclared,
+      drive: closed ? persistedDrive : liveDrive,
+      closing: closed ? persistedClosing : liveClosing,
+    };
+  }, [
+    dailyDeclaration?.extraction_meta,
+    dailyDeclaration?.qtm_extracted_amount,
+    dailyDeclaration?.cash_fund_topup_amount,
+    qtmOpeningBalance,
+    cashFundTopupAmount,
+    closeResultSnapshot?.qtmDrive,
+    qtmSpentFromFolder,
+  ]);
+
+  const isClosedDay = qtmResolved.isClosedDay;
+  const resolvedQtmOpening = qtmResolved.opening;
+  const resolvedQtmDeclared = qtmResolved.declared;
+  const resolvedQtmDrive = qtmResolved.drive;
+  const qtmClosingBalance = qtmResolved.closing;
   const qtmNegative = qtmClosingBalance < 0;
 
   useEffect(() => {
@@ -371,6 +390,27 @@ export default function FinanceControl() {
       setQtmOpeningBalance(Number(qtmOpeningBalanceFromHook || 0));
     }
   }, [qtmOpeningBalanceFromHook]);
+
+  useEffect(() => {
+    const refetchFinanceData = async () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      await Promise.allSettled([
+        refetchDeclaration(),
+        refetchDailyReconciliation(),
+        refetchUncDetail(),
+      ]);
+    };
+
+    const onVisibilityChange = () => { void refetchFinanceData(); };
+    const onWindowFocus = () => { void refetchFinanceData(); };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", onWindowFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", onWindowFocus);
+    };
+  }, [refetchDeclaration, refetchDailyReconciliation, refetchUncDetail]);
 
   const expectedFolderFromDate = format(selectedDate, "ddMMyyyy");
   const applyDatePathTemplate = (template: string) => {
