@@ -101,6 +101,7 @@ export default function FinanceControl() {
   const [reconciling, setReconciling] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [declarationSaveMessage, setDeclarationSaveMessage] = useState<string | null>(null);
+  const [ocrDebugMessage, setOcrDebugMessage] = useState<string | null>(null);
 
   const [uncSkipProcessed, setUncSkipProcessed] = useState(true);
   const [uncScanImagesOnly, setUncScanImagesOnly] = useState(true);
@@ -947,11 +948,22 @@ export default function FinanceControl() {
   const processSlipUpload = async (slipType: "qtm" | "unc", files: File[]) => {
     if (!files.length) return;
     setDeclarationSaveMessage(null);
+    setOcrDebugMessage(null);
     setExtracting(true);
     try {
       const batchResults: Array<{ imageBase64: string; extracted: any; file: File }> = [];
       for (const file of files) {
         const result = await extractSlipAmount(file, slipType);
+        const amount = Number(result?.extracted?.amount || 0);
+        const confidence = Number(result?.extracted?.confidence || 0);
+        console.log(`[finance][slip-ocr] ${slipType}`, {
+          fileName: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+          amount,
+          confidence,
+          extracted: result?.extracted,
+        });
         batchResults.push({ ...result, file });
       }
 
@@ -985,10 +997,21 @@ export default function FinanceControl() {
         setPendingUncExtractedList(nextPendingUncExtractedList);
       }
 
-      toast({
-        title: isVi ? "Đã scan slip — tự động lưu" : "Slip scanned — auto-saving",
-        description: `${slipType === "qtm" ? "QTM" : "UNC"}: +${vnd(batchSum)} (${batchResults.length} ảnh)`,
-      });
+      const zeroAmountFiles = batchResults.filter((r) => Number(r.extracted?.amount || 0) <= 0);
+      if (zeroAmountFiles.length > 0) {
+        const debugText = `${slipType.toUpperCase()} OCR zero amount: ${zeroAmountFiles.map((r) => `${r.file.name} (confidence ${Number(r.extracted?.confidence || 0).toFixed(2)})`).join(", ")}`;
+        setOcrDebugMessage(debugText);
+        toast({
+          title: isVi ? "OCR chưa đọc ra số tiền" : "OCR did not extract amount",
+          description: debugText,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: isVi ? "Đã scan slip — tự động lưu" : "Slip scanned — auto-saving",
+          description: `${slipType === "qtm" ? "QTM" : "UNC"}: +${vnd(batchSum)} (${batchResults.length} ảnh)`,
+        });
+      }
 
       // Auto-save declaration after OCR using the freshly computed values,
       // avoiding stale React state during rapid UNC/QTM consecutive uploads.
@@ -1491,6 +1514,11 @@ export default function FinanceControl() {
                     if (files.length) await processSlipUpload("qtm", files);
                     e.currentTarget.value = "";
                   }} />
+                  {ocrDebugMessage && (
+                    <div className="text-xs rounded border border-destructive/30 bg-destructive/5 px-2 py-1 text-destructive">
+                      {ocrDebugMessage}
+                    </div>
+                  )}
                   {!!qtmSlipPreviews.length && (
                     <div className="flex flex-wrap gap-2">
                       {qtmSlipPreviews.map((src, idx) => (
