@@ -298,8 +298,9 @@ export function useMonthlyReconciliation(month: Date, enabled = true) {
 
           const resolvedUncDetail = folderTotal > 0 ? folderTotal : Number(r?.unc_detail_amount || 0);
           const resolvedVariance = resolvedUncDetail - declared;
-          const resolvedStatus = r?.status
-            || (decl ? (Math.abs(resolvedVariance) === 0 ? "match" : "pending") : "pending");
+          const uncStatus: "match" | "mismatch" | "pending" = decl
+            ? (Math.abs(resolvedVariance) === 0 ? "match" : "mismatch")
+            : "pending";
 
           const qtmOpening = Number(decl?.extraction_meta?.qtm_opening_balance || 0);
           const qtmDeclared = Number((decl?.qtm_extracted_amount ?? decl?.cash_fund_topup_amount) || r?.cash_fund_topup_amount || 0);
@@ -309,6 +310,12 @@ export function useMonthlyReconciliation(month: Date, enabled = true) {
               ? decl?.extraction_meta?.qtm_closing_balance
               : (qtmOpening + qtmDeclared - qtmSpent)
           );
+          const qtmStatus: "match" | "mismatch" | "pending" = decl
+            ? (qtmClosing >= 0 ? "match" : "mismatch")
+            : "pending";
+          const overallStatus: "match" | "mismatch" | "pending" = uncStatus === "pending" && qtmStatus === "pending"
+            ? "pending"
+            : (uncStatus === "match" && qtmStatus === "match" ? "match" : "mismatch");
 
           return {
             ...(r || { closing_date: closingDate }),
@@ -316,7 +323,9 @@ export function useMonthlyReconciliation(month: Date, enabled = true) {
             unc_detail_amount: resolvedUncDetail,
             unc_declared_amount: declared,
             variance_amount: resolvedVariance,
-            status: resolvedStatus,
+            unc_status: uncStatus,
+            qtm_status: qtmStatus,
+            status: overallStatus,
             qtm_opening_balance: qtmOpening,
             qtm_declared_amount: qtmDeclared,
             qtm_spent_from_folder: qtmSpent,
@@ -327,7 +336,7 @@ export function useMonthlyReconciliation(month: Date, enabled = true) {
       const totalUncDetail = rows.reduce((s: number, r: any) => s + Number(r.unc_detail_amount || 0), 0);
       const totalUncDeclared = rows.reduce((s: number, r: any) => s + Number(r.unc_declared_amount || 0), 0);
       const netVariance = rows.reduce((s: number, r: any) => s + Number(r.variance_amount || 0), 0);
-      const matchDays = rows.filter((r: any) => r.status === "match").length;
+      const matchDays = rows.filter((r: any) => r.unc_status === "match").length;
       const monthOpeningQtm = rows.length ? Number(rows[0]?.qtm_opening_balance || 0) : 0;
       const totalQtmDeclared = rows.reduce((s: number, r: any) => s + Number(r.qtm_declared_amount || 0), 0);
       const totalQtmSpent = rows.reduce((s: number, r: any) => s + Number(r.qtm_spent_from_folder || 0), 0);

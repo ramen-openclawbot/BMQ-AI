@@ -1915,7 +1915,9 @@ export default function FinanceControl() {
                       <TableHead className="whitespace-nowrap text-right">{isVi ? "QTM nộp" : "QTM declared"}</TableHead>
                       <TableHead className="whitespace-nowrap text-right">{isVi ? "QTM chi" : "QTM spent"}</TableHead>
                       <TableHead className="whitespace-nowrap text-right">{isVi ? "QTM cuối ngày" : "QTM closing"}</TableHead>
-                      <TableHead className="whitespace-nowrap">{isVi ? "Trạng thái" : "Status"}</TableHead>
+                      <TableHead className="whitespace-nowrap">{isVi ? "UNC" : "UNC"}</TableHead>
+                      <TableHead className="whitespace-nowrap">{isVi ? "QTM" : "QTM"}</TableHead>
+                      <TableHead className="whitespace-nowrap">{isVi ? "Tổng" : "Overall"}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1929,6 +1931,8 @@ export default function FinanceControl() {
                         <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.qtm_declared_amount || 0))}</TableCell>
                         <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.qtm_spent_from_folder || 0))}</TableCell>
                         <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.qtm_closing_balance || 0))}</TableCell>
+                        <TableCell className="whitespace-nowrap">{r.unc_status === "match" ? <Badge className="bg-green-600">MATCH</Badge> : r.unc_status === "mismatch" ? <Badge variant="destructive">MISMATCH</Badge> : <Badge variant="secondary">—</Badge>}</TableCell>
+                        <TableCell className="whitespace-nowrap">{r.qtm_status === "match" ? <Badge className="bg-green-600">MATCH</Badge> : r.qtm_status === "mismatch" ? <Badge variant="destructive">MISMATCH</Badge> : <Badge variant="secondary">—</Badge>}</TableCell>
                         <TableCell className="whitespace-nowrap">{r.status === "match" ? <Badge className="bg-green-600">MATCH</Badge> : r.status === "mismatch" ? <Badge variant="destructive">MISMATCH</Badge> : <Badge variant="secondary">—</Badge>}</TableCell>
                       </TableRow>
                     ))}
