@@ -1610,41 +1610,48 @@ export default function FinanceControl() {
         <TabsContent value="monthly" className="space-y-4">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>{isVi ? "Chốt tháng" : "Monthly Closing"}</CardTitle>
-                <Input type="month" className="w-40" value={format(selectedMonth, "yyyy-MM")} onChange={(e) => setSelectedMonth(new Date(`${e.target.value}-01`))} />
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <CardTitle className="text-xl sm:text-2xl">{isVi ? "Chốt tháng" : "Monthly Closing"}</CardTitle>
+                <Input
+                  type="month"
+                  className="w-full sm:w-40"
+                  value={format(selectedMonth, "yyyy-MM")}
+                  onChange={(e) => setSelectedMonth(new Date(`${e.target.value}-01`))}
+                />
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tổng UNC thực" : "Total UNC actual"}</div><div className="text-xl font-semibold">{vnd(Number(monthlySummary?.totalUncDetail || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tổng UNC khai báo" : "Total UNC declared"}</div><div className="text-xl font-semibold">{vnd(Number(monthlySummary?.totalUncDeclared || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch" : "Variance"}</div><div className="text-xl font-semibold">{vnd(Number(monthlySummary?.netVariance || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tỷ lệ khớp" : "Match rate"}</div><div className="text-xl font-semibold">{monthlySummary?.totalDays ? `${monthlySummary.matchDays}/${monthlySummary.totalDays}` : "—"}</div></CardContent></Card>
+            <CardContent className="space-y-4 overflow-hidden">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tổng UNC thực" : "Total UNC actual"}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.totalUncDetail || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tổng UNC khai báo" : "Total UNC declared"}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.totalUncDeclared || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch" : "Variance"}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.netVariance || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tỷ lệ khớp" : "Match rate"}</div><div className="break-words text-lg font-semibold sm:text-xl">{monthlySummary?.totalDays ? `${monthlySummary.matchDays}/${monthlySummary.totalDays}` : "—"}</div></CardContent></Card>
               </div>
 
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{isVi ? "Ngày" : "Date"}</TableHead>
-                    <TableHead className="text-right">{isVi ? "UNC thực" : "UNC actual"}</TableHead>
-                    <TableHead className="text-right">{isVi ? "UNC khai báo" : "UNC declared"}</TableHead>
-                    <TableHead className="text-right">{isVi ? "Chênh lệch" : "Variance"}</TableHead>
-                    <TableHead>{isVi ? "Trạng thái" : "Status"}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {monthlySummary?.rows?.map((r: any) => (
-                    <TableRow key={r.id}>
-                      <TableCell>{format(new Date(r.closing_date), "dd/MM/yyyy", { locale: vi })}</TableCell>
-                      <TableCell className="text-right">{vnd(Number(r.unc_detail_amount || 0))}</TableCell>
-                      <TableCell className="text-right">{vnd(Number(r.unc_declared_amount || 0))}</TableCell>
-                      <TableCell className="text-right">{vnd(Number(r.variance_amount || 0))}</TableCell>
-                      <TableCell>{r.status === "match" ? <Badge className="bg-green-600">MATCH</Badge> : r.status === "mismatch" ? <Badge variant="destructive">MISMATCH</Badge> : <Badge variant="secondary">—</Badge>}</TableCell>
+              <div className="overflow-x-auto rounded-md border">
+                <Table className="min-w-[720px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="whitespace-nowrap">{isVi ? "Ngày" : "Date"}</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">{isVi ? "UNC thực" : "UNC actual"}</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">{isVi ? "UNC khai báo" : "UNC declared"}</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">{isVi ? "Chênh lệch" : "Variance"}</TableHead>
+                      <TableHead className="whitespace-nowrap">{isVi ? "Trạng thái" : "Status"}</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {monthlySummary?.rows?.map((r: any) => (
+                      <TableRow key={r.id}>
+                        <TableCell className="whitespace-nowrap">{format(new Date(r.closing_date), "dd/MM/yyyy", { locale: vi })}</TableCell>
+                        <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.unc_detail_amount || 0))}</TableCell>
+                        <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.unc_declared_amount || 0))}</TableCell>
+                        <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.variance_amount || 0))}</TableCell>
+                        <TableCell className="whitespace-nowrap">{r.status === "match" ? <Badge className="bg-green-600">MATCH</Badge> : r.status === "mismatch" ? <Badge variant="destructive">MISMATCH</Badge> : <Badge variant="secondary">—</Badge>}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
 
               {!monthlySummary?.rows?.length && (
                 <div className="text-sm text-muted-foreground text-center py-4">{isVi ? "Chưa có dữ liệu" : "No data yet"}</div>
