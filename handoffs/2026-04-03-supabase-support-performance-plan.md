@@ -111,6 +111,8 @@ Batch 3:
 - `orders`
 - `order_items`
 - `suppliers`
+- Migration drafted: `apps/web/supabase/migrations/20260403154000_rls_merge_batch3_ops_tables.sql`
+- Strategy used: split `ops_write_*` FOR ALL policies into one SELECT policy plus explicit INSERT/UPDATE/DELETE policies for owner/staff/warehouse
 
 Batch 4:
 - `profiles`
