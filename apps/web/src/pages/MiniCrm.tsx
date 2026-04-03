@@ -17,6 +17,7 @@ import ExcelJS from "exceljs";
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { SalesPoQuickViewEditor } from "@/components/mini-crm/SalesPoQuickViewEditor";
 import { KnowledgeBaseProfileEditor } from "@/components/mini-crm/KnowledgeBaseProfileEditor";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   buildManualSummaryMessage,
   buildPoDraftSignature,
@@ -266,7 +267,12 @@ export default function MiniCrm() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const location = useLocation();
+  const { isOwner, roles, canEditModule } = useAuth();
   const isSalesPoPage = location.pathname === "/sales-po-inbox";
+  const canApproveKb = isOwner || roles.includes("staff") || canEditModule("crm") || canEditModule("sales_po_inbox");
+  const approveKbDisabledReason = canApproveKb
+    ? ""
+    : "Bạn không có quyền duyệt & áp dụng KB. Cần role Owner/Staff hoặc quyền edit module CRM / PO (Bán hàng).";
 
   const [customerName, setCustomerName] = useState("");
   const [customerGroup, setCustomerGroup] = useState("banhmi_point");
@@ -1330,6 +1336,7 @@ export default function MiniCrm() {
   const approveKbLatestRequestMutation = useMutation({
     mutationFn: async () => {
       if (!editingCustomerId) throw new Error("Chưa chọn khách hàng");
+      if (!canApproveKb) throw new Error("Bạn không có quyền duyệt & áp dụng KB.");
       const pending = knowledgeChangeRequests.find((r: any) => r.customer_id === editingCustomerId && r.request_status === "pending");
 
       // If no pending request exists, apply current form state directly (e.g. after AI Tính Toán)
@@ -1402,7 +1409,10 @@ export default function MiniCrm() {
       toast({ title: "Đã duyệt & áp dụng KB", description: "Rule KB đã active theo version mới." });
     },
     onError: (e: any) => {
-      toast({ title: "Duyệt KB thất bại", description: e?.message || "Không thể duyệt KB", variant: "destructive" });
+      const message = e?.code === "42501"
+        ? "Bạn không có quyền duyệt & áp dụng KB. Cần role Owner/Staff hoặc quyền edit module CRM / PO (Bán hàng)."
+        : (e?.message || "Không thể duyệt KB");
+      toast({ title: "Duyệt KB thất bại", description: message, variant: "destructive" });
     },
   });
 
@@ -3462,6 +3472,8 @@ export default function MiniCrm() {
               submitPending={submitKbChangeRequestMutation.isPending}
               approvePending={approveKbLatestRequestMutation.isPending}
               pendingCount={knowledgeChangeRequests.filter((r: any) => r.customer_id === editingCustomerId && r.request_status === "pending").length}
+              canApproveLatest={canApproveKb}
+              approveDisabledReason={approveKbDisabledReason}
               onKbProfileNameChange={setEditKbProfileName}
               onKbPoModeChange={setEditKbPoMode}
               onKbPoSourceChange={setEditKbPoSource}

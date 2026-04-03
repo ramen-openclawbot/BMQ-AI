@@ -20,6 +20,8 @@ type Props = {
   submitPending: boolean;
   approvePending: boolean;
   pendingCount: number;
+  canApproveLatest: boolean;
+  approveDisabledReason?: string;
   onKbProfileNameChange: (v: string) => void;
   onKbPoModeChange: (v: string) => void;
   onKbPoSourceChange: (v: string) => void;
@@ -52,6 +54,8 @@ export function KnowledgeBaseProfileEditor(props: Props) {
     submitPending,
     approvePending,
     pendingCount,
+    canApproveLatest,
+    approveDisabledReason,
     onKbProfileNameChange,
     onKbPoModeChange,
     onKbPoSourceChange,
@@ -233,11 +237,16 @@ export function KnowledgeBaseProfileEditor(props: Props) {
             <Button type="button" variant="outline" onClick={onSubmitApproval} disabled={submitPending || !kbChangeNote.trim()}>
               Gửi duyệt KB
             </Button>
-            <Button type="button" variant="secondary" onClick={onApproveLatest} disabled={approvePending}>
+            <Button type="button" variant="secondary" onClick={onApproveLatest} disabled={approvePending || !canApproveLatest}>
               Duyệt & áp dụng KB
             </Button>
           </div>
         </div>
+        {!!approveDisabledReason && (
+          <div className="mt-2 text-xs text-muted-foreground">
+            {approveDisabledReason}
+          </div>
+        )}
       </div>
     </div>
   );
