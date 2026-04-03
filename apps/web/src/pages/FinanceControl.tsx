@@ -1538,10 +1538,10 @@ export default function FinanceControl() {
         uncCEO: Number(closeResultSnapshot?.uncCEO ?? resolvedUncDeclared || 0),
         uncVariance: Number((closeResultSnapshot?.uncDrive ?? resolvedUncDetail || 0) - (closeResultSnapshot?.uncCEO ?? resolvedUncDeclared || 0)),
         qtmOpening: Number(qtmOpeningBalance || 0),
-        qtmCEO: Number(closeResultSnapshot?.qtmCEO ?? cashFundTopupAmount || 0),
-        qtmDrive: Number(closeResultSnapshot?.qtmDrive ?? resolvedQtmDrive || 0),
-        qtmClosing: Number(qtmOpeningBalance || 0) + Number(closeResultSnapshot?.qtmCEO ?? cashFundTopupAmount || 0) - Number(closeResultSnapshot?.qtmDrive ?? resolvedQtmDrive || 0),
-        qtmVariance: Number(closeResultSnapshot?.qtmDrive ?? resolvedQtmDrive || 0) - Number(closeResultSnapshot?.qtmCEO ?? cashFundTopupAmount || 0),
+        qtmCEO: Number((closeResultSnapshot?.qtmCEO ?? cashFundTopupAmount) || 0),
+        qtmDrive: Number((closeResultSnapshot?.qtmDrive ?? resolvedQtmDrive) || 0),
+        qtmClosing: Number(qtmOpeningBalance || 0) + Number((closeResultSnapshot?.qtmCEO ?? cashFundTopupAmount) || 0) - Number((closeResultSnapshot?.qtmDrive ?? resolvedQtmDrive) || 0),
+        qtmVariance: Number((closeResultSnapshot?.qtmDrive ?? resolvedQtmDrive) || 0) - Number((closeResultSnapshot?.qtmCEO ?? cashFundTopupAmount) || 0),
         status: "mismatch",
       });
       setReconcileProgress({ done: 0, total: 0, currentFile: "" });
