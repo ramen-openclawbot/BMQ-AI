@@ -329,6 +329,7 @@ export default function FinanceControl() {
   const resolvedStatus = (uncReconSummary?.status || persistedFolderStatus || dailyReconciliation?.status) as ("match" | "mismatch" | undefined);
   const hasDeclaredUnc = Number(uncTotalDeclared || 0) > 0;
   const hasDeclaredQtm = Number(cashFundTopupAmount || 0) > 0;
+  const canCloseWithoutBankSlips = !hasDeclaredUnc && !hasDeclaredQtm;
   const missingRequiredPreview = (hasDeclaredUnc && previewUncFiles === 0) || (hasDeclaredQtm && previewQtmFiles === 0);
 
   const qtmResolved = useMemo(() => {
@@ -1473,7 +1474,11 @@ export default function FinanceControl() {
 
       if (uncData?.error || qtmData?.error) {
         const errors = [uncData?.error && `UNC: ${uncData.error}`, qtmData?.error && `QTM: ${qtmData.error}`].filter(Boolean).join(" | ");
-        setReconcileError(errors);
+        if (canCloseWithoutBankSlips) {
+          setReconcileError(null);
+        } else {
+          setReconcileError(errors);
+        }
       }
     } catch (e: any) {
       setReconcileError(e?.message || (isVi ? "Không thể kết nối Drive" : "Cannot connect to Drive"));
@@ -1497,7 +1502,16 @@ export default function FinanceControl() {
 
       // Step 2: Scan Drive folders (UNC + QTM)
       setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 2/4: Quét & OCR bank slip..." : "Step 2/4: Scanning & OCR bank slips..." });
-      const folderScanResult = await runFolderReconciliation();
+      const folderScanResult = canCloseWithoutBankSlips
+        ? {
+            uncPath: uncPathForDate,
+            qtmPath: qtmPathForDate,
+            uncTotalScannedCount: 0,
+            qtmTotalScannedCount: 0,
+            uncFolderTotal: 0,
+            qtmFolderTotal: 0,
+          }
+        : await runFolderReconciliation();
       if (!folderScanResult) {
         throw new Error(isVi ? "Không nhận được kết quả quét thư mục Drive" : "Missing Drive scan result");
       }
@@ -2083,7 +2097,7 @@ export default function FinanceControl() {
                 </Button>
                 <Button
                   className="bg-green-600 hover:bg-green-700 text-white"
-                  disabled={previewLoading || closeActing || missingRequiredPreview || !!reconcileError}
+                  disabled={previewLoading || closeActing || missingRequiredPreview || (!!reconcileError && !canCloseWithoutBankSlips)}
                   onClick={executeClose}
                 >
                   <Lock className="h-4 w-4 mr-2" />
