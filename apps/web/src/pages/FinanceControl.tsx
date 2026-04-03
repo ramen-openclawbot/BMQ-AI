@@ -1097,8 +1097,8 @@ export default function FinanceControl() {
         ? sourceDecl.extraction_meta.unc_images
         : (sourceDecl?.unc_slip_image_base64 ? [sourceDecl.unc_slip_image_base64] : []);
 
-      const nextUncTotalDeclared = Number(overrides?.uncTotalDeclared ?? uncTotalDeclared || 0);
-      const nextCashFundTopupAmount = Number(overrides?.cashFundTopupAmount ?? cashFundTopupAmount || 0);
+      const nextUncTotalDeclared = Number((overrides?.uncTotalDeclared ?? uncTotalDeclared) || 0);
+      const nextCashFundTopupAmount = Number((overrides?.cashFundTopupAmount ?? cashFundTopupAmount) || 0);
       const nextPendingQtmImagesBase64 = overrides?.pendingQtmImagesBase64 ?? pendingQtmImagesBase64;
       const nextPendingUncImagesBase64 = overrides?.pendingUncImagesBase64 ?? pendingUncImagesBase64;
       const nextPendingQtmExtractedList = overrides?.pendingQtmExtractedList ?? pendingQtmExtractedList;
