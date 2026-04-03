@@ -104,6 +104,8 @@ Batch 2:
 - `payment_request_items`
 - `invoices`
 - `invoice_items`
+- Migration drafted: `apps/web/supabase/migrations/20260403153000_rls_merge_batch2_finance_tables.sql`
+- Strategy used: split `finance_write_*` FOR ALL policies into one SELECT policy plus explicit INSERT/UPDATE/DELETE policies for owner/staff only
 
 Batch 3:
 - `orders`
