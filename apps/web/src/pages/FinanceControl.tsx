@@ -1534,9 +1534,9 @@ export default function FinanceControl() {
       setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 4/4: Khoá & chốt ngày..." : "Step 4/4: Locking & closing..." });
       setCloseDecision("approve");
       await saveReconciliationWorkflowMeta("approve", true, undefined, {
-        uncDrive: Number(closeResultSnapshot?.uncDrive ?? resolvedUncDetail || 0),
-        uncCEO: Number(closeResultSnapshot?.uncCEO ?? resolvedUncDeclared || 0),
-        uncVariance: Number((closeResultSnapshot?.uncDrive ?? resolvedUncDetail || 0) - (closeResultSnapshot?.uncCEO ?? resolvedUncDeclared || 0)),
+        uncDrive: Number((closeResultSnapshot?.uncDrive ?? resolvedUncDetail) || 0),
+        uncCEO: Number((closeResultSnapshot?.uncCEO ?? resolvedUncDeclared) || 0),
+        uncVariance: Number(Number((closeResultSnapshot?.uncDrive ?? resolvedUncDetail) || 0) - Number((closeResultSnapshot?.uncCEO ?? resolvedUncDeclared) || 0)),
         qtmOpening: Number(qtmOpeningBalance || 0),
         qtmCEO: Number((closeResultSnapshot?.qtmCEO ?? cashFundTopupAmount) || 0),
         qtmDrive: Number((closeResultSnapshot?.qtmDrive ?? resolvedQtmDrive) || 0),
