@@ -1040,13 +1040,36 @@ export default function FinanceControl() {
     decisionOverride?: "reject" | "conditional" | "approve",
     lockOverride?: boolean,
     actionOverride?: string,
+    snapshotOverride?: {
+      uncDrive?: number;
+      uncCEO?: number;
+      uncVariance?: number;
+      qtmOpening?: number;
+      qtmCEO?: number;
+      qtmDrive?: number;
+      qtmClosing?: number;
+      qtmVariance?: number;
+      status?: "match" | "mismatch";
+    },
   ) => {
     const decision = decisionOverride || closeDecision;
+    const snapshot = {
+      uncDrive: Number(snapshotOverride?.uncDrive ?? resolvedUncDetail ?? 0),
+      uncCEO: Number(snapshotOverride?.uncCEO ?? resolvedUncDeclared ?? 0),
+      uncVariance: Number(snapshotOverride?.uncVariance ?? resolvedVariance ?? 0),
+      qtmOpening: Number(snapshotOverride?.qtmOpening ?? qtmOpeningBalance ?? 0),
+      qtmCEO: Number(snapshotOverride?.qtmCEO ?? cashFundTopupAmount ?? 0),
+      qtmDrive: Number(snapshotOverride?.qtmDrive ?? resolvedQtmDrive ?? 0),
+      qtmClosing: Number(snapshotOverride?.qtmClosing ?? qtmClosingBalance ?? 0),
+      qtmVariance: Number(snapshotOverride?.qtmVariance ?? (resolvedQtmDrive - Number(cashFundTopupAmount || 0)) ?? 0),
+      status: (snapshotOverride?.status ?? resolvedStatus ?? "mismatch") as "match" | "mismatch",
+    };
     const nextLog = {
       at: new Date().toISOString(),
       actor: "CEO",
       action: actionOverride || (decision === "reject" ? "reject_close" : decision === "conditional" ? "conditional_close" : "approve_close"),
       detail: closeReason || null,
+      snapshot,
     };
 
     const mergedLogs = [...reconciliationAuditLogs, nextLog];
@@ -1062,9 +1085,9 @@ export default function FinanceControl() {
           close_reason: closeReason || null,
           reconciliation_audit_logs: mergedLogs,
           ceo_declaration_locked: ceoDeclarationLocked,
-          qtm_opening_balance: Number(qtmOpeningBalance || 0),
-          qtm_spent_from_folder: Number(qtmSpentFromFolder || 0),
-          qtm_closing_balance: Number(qtmClosingBalance || 0),
+          qtm_opening_balance: snapshot.qtmOpening,
+          qtm_spent_from_folder: snapshot.qtmDrive,
+          qtm_closing_balance: snapshot.qtmClosing,
           qtm_low_confidence_count: Number(qtmLowConfidenceCount || 0),
         },
       }, { onConflict: "closing_date" });
@@ -1072,6 +1095,7 @@ export default function FinanceControl() {
     if (error) throw error;
     setReconciliationAuditLogs(mergedLogs);
     setCloseApprovalLocked(lockOverride ?? (decision === "approve" ? true : closeApprovalLocked));
+    setQtmSpentFromFolder(snapshot.qtmDrive);
   };
 
   const openSlipPreview = (src: string, title: string) => {
@@ -1323,7 +1347,17 @@ export default function FinanceControl() {
       });
 
       await Promise.all([refetchDailyReconciliation(), refetchMonthly()]);
-      return { status, uncVariance, qtmVariance };
+      return {
+        status,
+        uncVariance,
+        qtmVariance,
+        uncDetail,
+        uncDeclared,
+        qtmDeclared,
+        qtmSpent,
+        qtmOpening: effectiveOpeningBalance,
+        qtmClosingBalance: qtmClosingBalanceFresh,
+      };
     } catch (e: any) {
       toast({ title: "Error", description: e?.message || "Reconciliation failed", variant: "destructive" });
       return null;
@@ -1456,7 +1490,17 @@ export default function FinanceControl() {
       // Step 4: Lock & close
       setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 4/4: Khoá & chốt ngày..." : "Step 4/4: Locking & closing..." });
       setCloseDecision("approve");
-      await saveReconciliationWorkflowMeta("approve", true);
+      await saveReconciliationWorkflowMeta("approve", true, undefined, {
+        uncDrive: Number(folderScanResult.uncFolderTotal || 0),
+        uncCEO: Number(uncTotalDeclared || 0),
+        uncVariance: Number(result.uncVariance || 0),
+        qtmOpening: Number(result.qtmOpening || qtmOpeningBalance || 0),
+        qtmCEO: Number(cashFundTopupAmount || 0),
+        qtmDrive: Number(folderScanResult.qtmFolderTotal || 0),
+        qtmClosing: Number(result.qtmClosingBalance || 0),
+        qtmVariance: Number(result.qtmVariance || 0),
+        status: result.status,
+      });
 
       setReconcileProgress({ done: 0, total: 0, currentFile: "" });
       setCloseResultSnapshot({
@@ -1489,7 +1533,17 @@ export default function FinanceControl() {
     try {
       setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 4/4: Khoá & chốt ngày..." : "Step 4/4: Locking & closing..." });
       setCloseDecision("approve");
-      await saveReconciliationWorkflowMeta("approve", true);
+      await saveReconciliationWorkflowMeta("approve", true, undefined, {
+        uncDrive: Number(closeResultSnapshot?.uncDrive ?? resolvedUncDetail || 0),
+        uncCEO: Number(closeResultSnapshot?.uncCEO ?? resolvedUncDeclared || 0),
+        uncVariance: Number((closeResultSnapshot?.uncDrive ?? resolvedUncDetail || 0) - (closeResultSnapshot?.uncCEO ?? resolvedUncDeclared || 0)),
+        qtmOpening: Number(qtmOpeningBalance || 0),
+        qtmCEO: Number(closeResultSnapshot?.qtmCEO ?? cashFundTopupAmount || 0),
+        qtmDrive: Number(closeResultSnapshot?.qtmDrive ?? resolvedQtmDrive || 0),
+        qtmClosing: Number(qtmOpeningBalance || 0) + Number(closeResultSnapshot?.qtmCEO ?? cashFundTopupAmount || 0) - Number(closeResultSnapshot?.qtmDrive ?? resolvedQtmDrive || 0),
+        qtmVariance: Number(closeResultSnapshot?.qtmDrive ?? resolvedQtmDrive || 0) - Number(closeResultSnapshot?.qtmCEO ?? cashFundTopupAmount || 0),
+        status: "mismatch",
+      });
       setReconcileProgress({ done: 0, total: 0, currentFile: "" });
       setCloseResultSnapshot((prev) => prev || {
         uncDrive: Number(resolvedUncDetail || 0),
