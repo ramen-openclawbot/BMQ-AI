@@ -28,7 +28,8 @@ import {
 } from "@/hooks/useFinanceReconciliation";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Lock, Unlock } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { Lock, Trash2, Unlock } from "lucide-react";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 
 const vnd = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value || 0);
@@ -91,6 +92,7 @@ async function normalizeUploadImage(file: File): Promise<{ imageBase64: string; 
 export default function FinanceControl() {
   const { toast } = useToast();
   const { language } = useLanguage();
+  const { isOwner } = useAuth();
   const isVi = language === "vi";
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [debouncedSelectedDate, setDebouncedSelectedDate] = useState<Date>(new Date());
@@ -102,6 +104,9 @@ export default function FinanceControl() {
   const [extracting, setExtracting] = useState(false);
   const [declarationSaveMessage, setDeclarationSaveMessage] = useState<string | null>(null);
   const [ocrDebugMessage, setOcrDebugMessage] = useState<string | null>(null);
+  const [slipPreviewOpen, setSlipPreviewOpen] = useState(false);
+  const [slipPreviewSrc, setSlipPreviewSrc] = useState<string | null>(null);
+  const [slipPreviewTitle, setSlipPreviewTitle] = useState<string>("");
 
   const [uncSkipProcessed, setUncSkipProcessed] = useState(true);
   const [uncScanImagesOnly, setUncScanImagesOnly] = useState(true);
@@ -1069,6 +1074,101 @@ export default function FinanceControl() {
     setCloseApprovalLocked(lockOverride ?? (decision === "approve" ? true : closeApprovalLocked));
   };
 
+  const openSlipPreview = (src: string, title: string) => {
+    setSlipPreviewSrc(src);
+    setSlipPreviewTitle(title);
+    setSlipPreviewOpen(true);
+  };
+
+  const deleteDeclaredSlip = async (slipType: "qtm" | "unc", index: number) => {
+    if (!isOwner) {
+      toast({
+        title: isVi ? "Không có quyền xoá slip" : "No permission to delete slip",
+        description: isVi ? "Chỉ owner mới được xoá slip đã khai báo." : "Only owners can delete declared slips.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSaving(true);
+    setDeclarationSaveMessage(null);
+    try {
+      const { data: latestDecl, error: latestError } = await (supabase as any)
+        .from("ceo_daily_closing_declarations")
+        .select("closing_date,unc_total_declared,unc_extracted_amount,cash_fund_topup_amount,qtm_extracted_amount,notes,extraction_meta")
+        .eq("closing_date", dateKey)
+        .maybeSingle();
+      if (latestError) throw latestError;
+      if (!latestDecl) throw new Error(isVi ? "Không tìm thấy khai báo CEO để xoá slip." : "CEO declaration not found.");
+
+      const meta = latestDecl.extraction_meta || {};
+      const currentQtmImages = Array.isArray(meta.qtm_images)
+        ? meta.qtm_images
+        : (latestDecl.qtm_slip_image_base64 ? [latestDecl.qtm_slip_image_base64] : []);
+      const currentUncImages = Array.isArray(meta.unc_images)
+        ? meta.unc_images
+        : (latestDecl.unc_slip_image_base64 ? [latestDecl.unc_slip_image_base64] : []);
+      const currentQtmItems = Array.isArray(meta.qtm_items) ? meta.qtm_items : [];
+      const currentUncItems = Array.isArray(meta.unc_items) ? meta.unc_items : [];
+
+      const nextQtmImages = slipType === "qtm" ? currentQtmImages.filter((_: any, i: number) => i !== index) : currentQtmImages;
+      const nextUncImages = slipType === "unc" ? currentUncImages.filter((_: any, i: number) => i !== index) : currentUncImages;
+      const nextQtmItems = slipType === "qtm" ? currentQtmItems.filter((_: any, i: number) => i !== index) : currentQtmItems;
+      const nextUncItems = slipType === "unc" ? currentUncItems.filter((_: any, i: number) => i !== index) : currentUncItems;
+
+      const nextQtmAmount = nextQtmItems.reduce((sum: number, item: any) => sum + Number(item?.amount || 0), 0);
+      const nextUncAmount = nextUncItems.reduce((sum: number, item: any) => sum + Number(item?.amount || 0), 0);
+
+      const nextMeta = {
+        ...meta,
+        qtm_images: nextQtmImages,
+        unc_images: nextUncImages,
+        qtm_items: nextQtmItems,
+        unc_items: nextUncItems,
+      };
+
+      const payload = {
+        closing_date: dateKey,
+        unc_total_declared: nextUncAmount,
+        unc_extracted_amount: nextUncAmount,
+        cash_fund_topup_amount: nextQtmAmount,
+        qtm_extracted_amount: nextQtmAmount,
+        qtm_slip_image_base64: nextQtmImages[0] || null,
+        unc_slip_image_base64: nextUncImages[0] || null,
+        extraction_meta: nextMeta,
+        notes: latestDecl.notes || null,
+      };
+
+      const { error } = await (supabase as any)
+        .from("ceo_daily_closing_declarations")
+        .upsert(payload, { onConflict: "closing_date" });
+      if (error) throw error;
+
+      setQtmSlipPreviews(nextQtmImages.map((b64: string) => `data:image/jpeg;base64,${b64}`));
+      setUncSlipPreviews(nextUncImages.map((b64: string) => `data:image/jpeg;base64,${b64}`));
+      setPendingQtmImagesBase64([]);
+      setPendingUncImagesBase64([]);
+      setPendingQtmExtractedList([]);
+      setPendingUncExtractedList([]);
+      setCashFundTopupAmount(nextQtmAmount);
+      setUncTotalDeclared(nextUncAmount);
+      setDeclarationSaveMessage(isVi ? "Đã xoá slip và lưu lại khai báo CEO" : "Slip deleted and CEO declaration updated");
+      await refetchDeclaration();
+      toast({
+        title: isVi ? "Đã xoá slip" : "Slip deleted",
+        description: isVi ? "Khai báo CEO đã được cập nhật theo danh sách slip còn lại." : "CEO declaration has been recalculated from the remaining slips.",
+      });
+    } catch (e: any) {
+      toast({
+        title: isVi ? "Xoá slip thất bại" : "Failed to delete slip",
+        description: e?.message || (isVi ? "Không thể xoá slip" : "Unable to delete slip"),
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const saveDeclaration = async (
     silent = false,
     overrides?: {
@@ -1501,7 +1601,28 @@ export default function FinanceControl() {
                   {!!uncSlipPreviews.length && (
                     <div className="flex flex-wrap gap-2">
                       {uncSlipPreviews.map((src, idx) => (
-                        <img key={`unc-${idx}`} src={src} alt={`UNC slip ${idx + 1}`} className="h-20 rounded border object-contain" />
+                        <div key={`unc-${idx}`} className="group relative">
+                          <button
+                            type="button"
+                            className="overflow-hidden rounded border bg-background"
+                            onClick={() => openSlipPreview(src, `UNC slip ${idx + 1}`)}
+                          >
+                            <img src={src} alt={`UNC slip ${idx + 1}`} className="h-20 rounded object-contain transition-transform group-hover:scale-[1.02]" />
+                          </button>
+                          {isOwner && (
+                            <button
+                              type="button"
+                              className="absolute right-1 top-1 rounded bg-destructive p-1 text-destructive-foreground shadow-sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteDeclaredSlip("unc", idx);
+                              }}
+                              aria-label={`Delete UNC slip ${idx + 1}`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
                       ))}
                     </div>
                   )}
@@ -1522,7 +1643,28 @@ export default function FinanceControl() {
                   {!!qtmSlipPreviews.length && (
                     <div className="flex flex-wrap gap-2">
                       {qtmSlipPreviews.map((src, idx) => (
-                        <img key={`qtm-${idx}`} src={src} alt={`QTM slip ${idx + 1}`} className="h-20 rounded border object-contain" />
+                        <div key={`qtm-${idx}`} className="group relative">
+                          <button
+                            type="button"
+                            className="overflow-hidden rounded border bg-background"
+                            onClick={() => openSlipPreview(src, `QTM slip ${idx + 1}`)}
+                          >
+                            <img src={src} alt={`QTM slip ${idx + 1}`} className="h-20 rounded object-contain transition-transform group-hover:scale-[1.02]" />
+                          </button>
+                          {isOwner && (
+                            <button
+                              type="button"
+                              className="absolute right-1 top-1 rounded bg-destructive p-1 text-destructive-foreground shadow-sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteDeclaredSlip("qtm", idx);
+                              }}
+                              aria-label={`Delete QTM slip ${idx + 1}`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
                       ))}
                     </div>
                   )}
@@ -1660,6 +1802,22 @@ export default function FinanceControl() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={slipPreviewOpen} onOpenChange={setSlipPreviewOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>{slipPreviewTitle || (isVi ? "Xem slip" : "Slip preview")}</DialogTitle>
+            <DialogDescription>
+              {isVi ? "Xem phóng to slip đã khai báo." : "Zoomed preview of the declared slip."}
+            </DialogDescription>
+          </DialogHeader>
+          {slipPreviewSrc && (
+            <div className="max-h-[75vh] overflow-auto rounded-lg border bg-muted/20 p-2">
+              <img src={slipPreviewSrc} alt={slipPreviewTitle || "Slip preview"} className="mx-auto h-auto max-w-full rounded" />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Close Dialog: preview → folder picker → execute */}
       <Dialog open={closeDialogOpen} onOpenChange={(open) => { if (!closeActing) setCloseDialogOpen(open); }}>
