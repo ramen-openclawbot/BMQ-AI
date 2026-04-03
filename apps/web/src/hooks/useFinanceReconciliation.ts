@@ -293,10 +293,15 @@ export function useMonthlyReconciliation(month: Date, enabled = true) {
         .map((closingDate) => {
           const r = reconMap.get(closingDate) || null;
           const decl = declarationMap.get(closingDate) || null;
-          const folderTotal = Number(decl?.extraction_meta?.unc_folder_total || 0);
-          const declared = Number(decl?.unc_extracted_amount || decl?.unc_total_declared || r?.unc_declared_amount || 0);
+          const reconUncDetail = Number(r?.unc_detail_amount || 0);
+          const reconUncDeclared = Number(r?.unc_declared_amount || 0);
+          const declUncDetail = Number(decl?.extraction_meta?.unc_folder_total || 0);
+          const declUncDeclared = Number(decl?.unc_extracted_amount || decl?.unc_total_declared || 0);
 
-          const resolvedUncDetail = folderTotal > 0 ? folderTotal : Number(r?.unc_detail_amount || 0);
+          // Monthly view must trust persisted reconciliation first.
+          // Declaration/extraction_meta is only fallback when reconciliation row is missing.
+          const resolvedUncDetail = r ? reconUncDetail : declUncDetail;
+          const declared = r ? reconUncDeclared : declUncDeclared;
           const resolvedVariance = resolvedUncDetail - declared;
           const uncStatus: "match" | "mismatch" | "pending" = decl
             ? (Math.abs(resolvedVariance) === 0 ? "match" : "mismatch")
