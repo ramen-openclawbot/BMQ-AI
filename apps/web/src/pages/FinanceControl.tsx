@@ -1892,18 +1892,29 @@ export default function FinanceControl() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tổng UNC thực" : "Total UNC actual"}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.totalUncDetail || 0))}</div></CardContent></Card>
                 <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tổng UNC khai báo" : "Total UNC declared"}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.totalUncDeclared || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch" : "Variance"}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.netVariance || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch UNC" : "UNC variance"}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.netVariance || 0))}</div></CardContent></Card>
                 <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tỷ lệ khớp" : "Match rate"}</div><div className="break-words text-lg font-semibold sm:text-xl">{monthlySummary?.totalDays ? `${monthlySummary.matchDays}/${monthlySummary.totalDays}` : "—"}</div></CardContent></Card>
               </div>
 
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Số dư đầu tháng" : "Opening QTM balance"}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.monthOpeningQtm || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tổng nộp QTM" : "Total QTM declared"}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.totalQtmDeclared || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tổng chi QTM" : "Total QTM spent"}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.totalQtmSpent || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Số dư cuối tháng" : "Closing QTM balance"}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.monthClosingQtm || 0))}</div></CardContent></Card>
+              </div>
+
               <div className="overflow-x-auto rounded-md border">
-                <Table className="min-w-[720px]">
+                <Table className="min-w-[1180px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead className="whitespace-nowrap">{isVi ? "Ngày" : "Date"}</TableHead>
                       <TableHead className="whitespace-nowrap text-right">{isVi ? "UNC thực" : "UNC actual"}</TableHead>
                       <TableHead className="whitespace-nowrap text-right">{isVi ? "UNC khai báo" : "UNC declared"}</TableHead>
                       <TableHead className="whitespace-nowrap text-right">{isVi ? "Chênh lệch" : "Variance"}</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">{isVi ? "QTM đầu ngày" : "QTM opening"}</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">{isVi ? "QTM nộp" : "QTM declared"}</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">{isVi ? "QTM chi" : "QTM spent"}</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">{isVi ? "QTM cuối ngày" : "QTM closing"}</TableHead>
                       <TableHead className="whitespace-nowrap">{isVi ? "Trạng thái" : "Status"}</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1914,6 +1925,10 @@ export default function FinanceControl() {
                         <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.unc_detail_amount || 0))}</TableCell>
                         <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.unc_declared_amount || 0))}</TableCell>
                         <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.variance_amount || 0))}</TableCell>
+                        <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.qtm_opening_balance || 0))}</TableCell>
+                        <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.qtm_declared_amount || 0))}</TableCell>
+                        <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.qtm_spent_from_folder || 0))}</TableCell>
+                        <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.qtm_closing_balance || 0))}</TableCell>
                         <TableCell className="whitespace-nowrap">{r.status === "match" ? <Badge className="bg-green-600">MATCH</Badge> : r.status === "mismatch" ? <Badge variant="destructive">MISMATCH</Badge> : <Badge variant="secondary">—</Badge>}</TableCell>
                       </TableRow>
                     ))}

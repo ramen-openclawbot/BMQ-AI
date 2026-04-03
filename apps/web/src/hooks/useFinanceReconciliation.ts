@@ -254,7 +254,7 @@ export function useMonthlyReconciliation(month: Date, enabled = true) {
     enabled,
     queryFn: async () => {
       // For monthly declarations we only need lightweight columns (no images)
-      const MONTHLY_DECL_COLS = "closing_date,unc_total_declared,unc_extracted_amount,extraction_meta";
+      const MONTHLY_DECL_COLS = "closing_date,unc_total_declared,unc_extracted_amount,cash_fund_topup_amount,qtm_extracted_amount,extraction_meta";
 
       const [reconRes, declarationRes] = await Promise.all([
         (supabase as any)
@@ -301,6 +301,15 @@ export function useMonthlyReconciliation(month: Date, enabled = true) {
           const resolvedStatus = r?.status
             || (decl ? (Math.abs(resolvedVariance) === 0 ? "match" : "pending") : "pending");
 
+          const qtmOpening = Number(decl?.extraction_meta?.qtm_opening_balance || 0);
+          const qtmDeclared = Number((decl?.qtm_extracted_amount ?? decl?.cash_fund_topup_amount) || r?.cash_fund_topup_amount || 0);
+          const qtmSpent = Number(decl?.extraction_meta?.qtm_spent_from_folder || r?.qtm_spent_from_folder || 0);
+          const qtmClosing = Number(
+            (decl?.extraction_meta?.close_approval_locked && decl?.extraction_meta?.qtm_closing_balance !== undefined)
+              ? decl?.extraction_meta?.qtm_closing_balance
+              : (qtmOpening + qtmDeclared - qtmSpent)
+          );
+
           return {
             ...(r || { closing_date: closingDate }),
             closing_date: closingDate,
@@ -308,6 +317,10 @@ export function useMonthlyReconciliation(month: Date, enabled = true) {
             unc_declared_amount: declared,
             variance_amount: resolvedVariance,
             status: resolvedStatus,
+            qtm_opening_balance: qtmOpening,
+            qtm_declared_amount: qtmDeclared,
+            qtm_spent_from_folder: qtmSpent,
+            qtm_closing_balance: qtmClosing,
           };
         });
 
@@ -315,6 +328,10 @@ export function useMonthlyReconciliation(month: Date, enabled = true) {
       const totalUncDeclared = rows.reduce((s: number, r: any) => s + Number(r.unc_declared_amount || 0), 0);
       const netVariance = rows.reduce((s: number, r: any) => s + Number(r.variance_amount || 0), 0);
       const matchDays = rows.filter((r: any) => r.status === "match").length;
+      const monthOpeningQtm = rows.length ? Number(rows[0]?.qtm_opening_balance || 0) : 0;
+      const totalQtmDeclared = rows.reduce((s: number, r: any) => s + Number(r.qtm_declared_amount || 0), 0);
+      const totalQtmSpent = rows.reduce((s: number, r: any) => s + Number(r.qtm_spent_from_folder || 0), 0);
+      const monthClosingQtm = rows.length ? Number(rows[rows.length - 1]?.qtm_closing_balance || 0) : monthOpeningQtm + totalQtmDeclared - totalQtmSpent;
 
       return {
         rows,
@@ -323,6 +340,10 @@ export function useMonthlyReconciliation(month: Date, enabled = true) {
         netVariance,
         matchDays,
         totalDays: rows.length,
+        monthOpeningQtm,
+        totalQtmDeclared,
+        totalQtmSpent,
+        monthClosingQtm,
       };
     },
     staleTime: MONTHLY_STALE_MS,
