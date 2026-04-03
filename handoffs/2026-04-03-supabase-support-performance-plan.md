@@ -96,6 +96,8 @@ Batch 1:
 - `drive_file_index`
 - `drive_import_logs`
 - `drive_sync_config`
+- Migration drafted: `apps/web/supabase/migrations/20260403123000_rls_merge_batch1_config_tables.sql`
+- Strategy used: split broad `FOR ALL` policies into one `FOR SELECT` policy plus dedicated `INSERT/UPDATE/DELETE` policies so SELECT no longer evaluates overlapping permissive rules
 
 Batch 2:
 - `payment_requests`
