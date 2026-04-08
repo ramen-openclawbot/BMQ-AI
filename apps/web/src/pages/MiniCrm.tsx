@@ -3477,6 +3477,9 @@ export default function MiniCrm() {
               pendingCount={knowledgeChangeRequests.filter((r: any) => r.customer_id === editingCustomerId && r.request_status === "pending").length}
               canApproveLatest={canApproveKb}
               approveDisabledReason={approveKbDisabledReason}
+              activeKnowledgeProfile={customerKnowledgeProfiles.find((x: any) => x.customer_id === editingCustomerId) || null}
+              knowledgeVersionHistory={knowledgeProfileVersions.filter((v: any) => v.customer_id === editingCustomerId)}
+              latestPendingRequest={knowledgeChangeRequests.find((r: any) => r.customer_id === editingCustomerId && r.request_status === "pending") || null}
               onKbProfileNameChange={setEditKbProfileName}
               onKbPoModeChange={setEditKbPoMode}
               onKbPoSourceChange={setEditKbPoSource}
