@@ -235,10 +235,12 @@ export function KnowledgeBaseProfileEditor(props: Props) {
           </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={onSubmitApproval} disabled={submitPending || !kbChangeNote.trim()}>
-              Gửi duyệt KB
+              {submitPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+              {submitPending ? "Đang gửi duyệt..." : "Gửi duyệt KB"}
             </Button>
             <Button type="button" variant="secondary" onClick={onApproveLatest} disabled={approvePending || !canApproveLatest}>
-              Duyệt & áp dụng KB
+              {approvePending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+              {approvePending ? "Đang duyệt & áp dụng..." : "Duyệt & áp dụng KB"}
             </Button>
           </div>
         </div>

@@ -1337,6 +1337,7 @@ export default function MiniCrm() {
     mutationFn: async () => {
       if (!editingCustomerId) throw new Error("Chưa chọn khách hàng");
       if (!canApproveKb) throw new Error("Bạn không có quyền duyệt & áp dụng KB.");
+      setKbAiStatus("Đang duyệt và áp dụng KB...");
       const pending = knowledgeChangeRequests.find((r: any) => r.customer_id === editingCustomerId && r.request_status === "pending");
 
       // If no pending request exists, apply current form state directly (e.g. after AI Tính Toán)
@@ -1406,12 +1407,14 @@ export default function MiniCrm() {
         queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profile-versions"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-change-requests"] }),
       ]);
+      setKbAiStatus("Đã duyệt và áp dụng KB thành công.");
       toast({ title: "Đã duyệt & áp dụng KB", description: "Rule KB đã active theo version mới." });
     },
     onError: (e: any) => {
       const message = e?.code === "42501"
         ? "Bạn không có quyền duyệt & áp dụng KB. Cần role Owner/Staff hoặc quyền edit module CRM / PO (Bán hàng)."
         : (e?.message || "Không thể duyệt KB");
+      setKbAiStatus(`Duyệt & áp dụng KB thất bại: ${message}`);
       toast({ title: "Duyệt KB thất bại", description: message, variant: "destructive" });
     },
   });
