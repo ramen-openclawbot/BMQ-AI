@@ -339,17 +339,35 @@ export default function FinanceControl() {
     const persistedClosing = Number(dailyDeclaration?.extraction_meta?.qtm_closing_balance || 0);
     const closed = Boolean(dailyDeclaration?.extraction_meta?.close_approval_locked);
 
+    // Opening balance must always come from previous-day closing logic.
+    // Refreshing the browser should never fall back to today's persisted opening
+    // unless the hook itself already derived it that way.
     const liveOpening = Number(qtmOpeningBalance || 0);
-    const liveDeclared = Number(cashFundTopupAmount || 0);
-    const liveDrive = Number((closeResultSnapshot?.qtmDrive ?? qtmSpentFromFolder ?? 0) || 0);
-    const liveClosing = liveOpening + liveDeclared - liveDrive;
+
+    // CEO declaration is step 2: once declared/saved today, show persisted declared amount.
+    const declared = Number(
+      cashFundTopupAmount ||
+      dailyDeclaration?.qtm_extracted_amount ||
+      dailyDeclaration?.cash_fund_topup_amount ||
+      0,
+    );
+
+    // Folder-spent amount is step 3: only reflect spent-from-folder after reconciliation/chốt.
+    // Before that, keep it at 0 on refresh even if stale extraction_meta exists.
+    const drive = closed
+      ? persistedDrive
+      : Number((closeResultSnapshot?.qtmDrive ?? qtmSpentFromFolder ?? 0) || 0);
+
+    const closing = closed
+      ? persistedClosing
+      : (liveOpening + declared - drive);
 
     return {
       isClosedDay: closed,
-      opening: closed ? persistedOpening : liveOpening,
-      declared: closed ? persistedDeclared : liveDeclared,
-      drive: closed ? persistedDrive : liveDrive,
-      closing: closed ? persistedClosing : liveClosing,
+      opening: liveOpening,
+      declared,
+      drive,
+      closing,
     };
   }, [
     dailyDeclaration?.extraction_meta,
