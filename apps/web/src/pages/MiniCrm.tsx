@@ -151,6 +151,16 @@ const getLatestActivePriceRows = (rows: any[], customerId?: string | null) => {
   return Array.from(bySku.values());
 };
 
+const buildSkuPriceMap = (rows: any[], customerId?: string | null) => {
+  const map = new Map<string, string>();
+  for (const row of getLatestActivePriceRows(rows, customerId)) {
+    const skuId = String(row?.sku_id || "").trim();
+    if (!skuId) continue;
+    map.set(skuId, String(Number(row?.price_vnd_per_unit || 0)));
+  }
+  return map;
+};
+
 const getReadableError = (e: any) => {
   if (!e) return "Không rõ nguyên nhân";
   const parts = [e?.message, e?.details, e?.hint].filter(Boolean);
@@ -402,6 +412,7 @@ export default function MiniCrm() {
   const [setupSuppliedByNppCustomerId, setSetupSuppliedByNppCustomerId] = useState("");
   const [editContractFile, setEditContractFile] = useState<File | null>(null);
   const [editPriceRows, setEditPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
+  const [editSkuPriceMap, setEditSkuPriceMap] = useState<Map<string, string>>(new Map());
   const [editKbProfileName, setEditKbProfileName] = useState("Default Customer Knowledge");
   const [editKbPoMode, setEditKbPoMode] = useState("daily_new_po");
   const [editKbPoSource, setEditKbPoSource] = useState("attachment_first");
@@ -600,6 +611,7 @@ export default function MiniCrm() {
     setTemplateConfirmOpen(false);
     setEditContractFile(null);
     const currentPrices = getLatestActivePriceRows(customerPriceList, c.id);
+    setEditSkuPriceMap(buildSkuPriceMap(customerPriceList, c.id));
     setEditPriceRows(currentPrices.length ? currentPrices.map((p: any) => ({ skuId: p.sku_id, price: String(Number(p.price_vnd_per_unit || 0)) })) : [{ skuId: "", price: "" }]);
 
     const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === c.id);
@@ -640,6 +652,7 @@ export default function MiniCrm() {
     setTemplateReviewDraft(null);
     setEditContractFile(null);
     setEditPriceRows([{ skuId: "", price: "" }]);
+    setEditSkuPriceMap(new Map());
     setEditKbProfileName("Default Customer Knowledge");
     setEditKbPoMode("daily_new_po");
     setEditKbPoSource("attachment_first");
@@ -3492,13 +3505,13 @@ export default function MiniCrm() {
                 <div key={idx} className="grid grid-cols-12 gap-2 mb-2">
                   <select className="col-span-7 h-10 rounded-md border border-input bg-background px-3 text-sm" value={row.skuId} onChange={(e) => {
                     const nextSkuId = e.target.value;
-                    const existingPrice = getLatestActivePriceRows(customerPriceList, editingCustomerId).find((p: any) => p.sku_id === nextSkuId);
-                    setEditPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, skuId: nextSkuId, price: existingPrice ? String(Number(existingPrice.price_vnd_per_unit || 0)) : "" } : r));
+                    const existingPrice = editSkuPriceMap.get(nextSkuId) || "";
+                    setEditPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, skuId: nextSkuId, price: existingPrice } : r));
                   }}>
                     <option value="">-- Chọn SKU --</option>
                     {finishedSkus.map((s: any) => <option key={s.id} value={s.id}>{s.sku_code} - {s.product_name}</option>)}
                   </select>
-                  <Input className="col-span-4" value={row.price} onChange={(e) => setEditPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, price: e.target.value } : r))} placeholder="VND/cái" />
+                  <Input className="col-span-4" value={row.price} onChange={(e) => setEditPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, price: e.target.value } : r))} placeholder={row.skuId && !editSkuPriceMap.get(row.skuId) ? "SKU này chưa có giá active" : "VND/cái"} />
                   <Button type="button" variant="outline" className="col-span-1" onClick={() => setEditPriceRows((prev) => prev.filter((_, i) => i !== idx))} disabled={editPriceRows.length === 1}>-</Button>
                 </div>
               ))}
