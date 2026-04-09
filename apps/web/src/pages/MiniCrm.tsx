@@ -159,40 +159,59 @@ const normalizeVietnameseText = (value?: string | null) =>
 GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.mjs", import.meta.url).toString();
 
 const parseEmailBodyToProductionItems = (subject?: string, body?: string, aiConfig?: KbAiParseSuggestion | null) => {
-  const text = String(body || "").replace(/\r/g, "\n");
-  const chunks = text
-    .split(/\n+/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .flatMap((line) => line.split(/\s{2,}|(?=\d+\.)/g).map((x) => x.trim()).filter(Boolean));
+  const rawText = String(body || "").replace(/\r/g, " ");
+  const text = rawText.replace(/\s+/g, " ").trim();
 
   const aiExchangeKeywords = Array.isArray(aiConfig?.exchange_keywords) && aiConfig?.exchange_keywords.length > 0
     ? aiConfig.exchange_keywords.map((x) => normalizeVietnameseText(String(x || "")).replace(/\s+/g, "\\s*"))
     : ["doi", "đổi"].map((x) => normalizeVietnameseText(x).replace(/\s+/g, "\\s*"));
   const exchangeRegex = new RegExp(`(?:\\+\\s*)?(?:${aiExchangeKeywords.join("|")})\\s*[:=]?\\s*([0-9]+)`, "i");
-  const prefersCommaSegments = String(aiConfig?.item_split_rule || "").toLowerCase().includes("comma") || String(aiConfig?.item_split_rule || "").toLowerCase().includes("segment");
+  const formula = String(aiConfig?.quantity_formula?.expression || "qty_total = qty_base + qty_exchange").toLowerCase();
+
   const normalize = (s: string) => s
     .replace(/^[-•]+\s*/, "")
     .replace(/^\d+[.)]?\s*/, "")
     .replace(/Ð/g, "Đ")
     .replace(/\bdoi\b/gi, "đổi")
+    .replace(/[;]+$/g, "")
     .trim();
-  const cleanNote = (s: string) => String(s || "").trim().replace(/^[-,;.]\s*/, "");
+
+  const cleanNote = (s: string) => String(s || "")
+    .trim()
+    .replace(/^[-,;.]\s*/, "")
+    .replace(/[.]+$/g, "")
+    .trim();
+
   const extractExchangeQty = (s: string) => {
     const m = String(s || "").match(exchangeRegex);
     return Number(m?.[1] || 0);
   };
-  const pushParsedItem = (locationRaw: string, qtyBaseRaw: any, noteRaw = "") => {
+
+  const splitSegments = (() => {
+    const matches = Array.from(text.matchAll(/(?:^|\s)(\d+)\.\s*/g));
+    if (!matches.length) return [text];
+    const segments: string[] = [];
+    for (let i = 0; i < matches.length; i += 1) {
+      const start = matches[i].index ?? 0;
+      const nextStart = i + 1 < matches.length ? (matches[i + 1].index ?? text.length) : text.length;
+      const chunk = text.slice(start, nextStart).replace(/^\s*\d+\.\s*/, "").trim();
+      if (chunk) segments.push(chunk);
+    }
+    return segments.length ? segments : [text];
+  })();
+
+  const items: any[] = [];
+  const debugSegments: any[] = [];
+  const pushParsedItem = (locationRaw: string, qtyBaseRaw: any, noteRaw = "", rawSegment = "") => {
     const location = normalize(String(locationRaw || "").replace(/:$/, "")).trim();
     const qtyBase = Number(qtyBaseRaw || 0);
     const note = cleanNote(String(noteRaw || ""));
     const qtyExchange = extractExchangeQty(note);
-    const formula = String(aiConfig?.quantity_formula?.expression || "qty_total = qty_base + qty_exchange").toLowerCase();
     const qtyTotal = formula.includes("-")
       ? (Number.isFinite(qtyBase) ? qtyBase : 0) - (Number.isFinite(qtyExchange) ? qtyExchange : 0)
       : (Number.isFinite(qtyBase) ? qtyBase : 0) + (Number.isFinite(qtyExchange) ? qtyExchange : 0);
     if (!location) return false;
-    items.push({
+    const parsedItem = {
       sku: "",
       product_name: location,
       unit: "cái",
@@ -204,62 +223,56 @@ const parseEmailBodyToProductionItems = (subject?: string, body?: string, aiConf
       line_total: 0,
       parse_source: aiConfig ? "email_body_ai_rule" : "email_body",
       note,
+      raw_segment: rawSegment || `${location} ${qtyBase}${note ? `: ${note}` : ""}`,
+    };
+    items.push(parsedItem);
+    debugSegments.push({
+      raw_segment: rawSegment || line,
+      product_name: location,
+      qty_base: qtyBase,
+      qty_exchange: qtyExchange,
+      qty_total: qtyTotal,
+      note,
+      matched: true,
     });
     return true;
   };
 
-  const items: any[] = [];
-  for (const raw of chunks) {
+  for (const raw of splitSegments) {
     const line = normalize(raw);
     if (!line) continue;
 
-    const compactSegments = line.split(/\s*,\s*/).map((seg) => normalize(seg)).filter(Boolean);
-    if ((prefersCommaSegments || compactSegments.length > 1) && compactSegments.some((seg) => seg.includes(":"))) {
-      let parsedCompact = 0;
-      for (const seg of compactSegments) {
-        let mCompact = seg.match(/^(.+?)\s*:\s*\(([^)]*?)\)$/i);
-        if (mCompact) {
-          const inside = String(mCompact[2] || "");
-          const qtyBase = Number((inside.match(/\d+/)?.[0] || "0"));
-          if (pushParsedItem(mCompact[1], qtyBase, inside)) parsedCompact += 1;
-          continue;
-        }
-
-        mCompact = seg.match(/^(.+?)\s*:\s*([0-9]+)\s*(.*)$/i);
-        if (mCompact) {
-          if (pushParsedItem(mCompact[1], mCompact[2], mCompact[3])) parsedCompact += 1;
-          continue;
-        }
-
-        mCompact = seg.match(/^(.+?)\s+([0-9]+)\s*:\s*(.*)$/i);
-        if (mCompact) {
-          if (pushParsedItem(mCompact[1], mCompact[2], mCompact[3])) parsedCompact += 1;
-          continue;
-        }
-      }
-      if (parsedCompact > 0) continue;
+    let m = line.match(/^(.+?)\s+([0-9]+)\s*:\s*(.*)$/i);
+    if (m) {
+      if (pushParsedItem(m[1], m[2], m[3], raw)) continue;
     }
 
-    let m = line.match(/^(.+?)\s*:\s*([0-9]+)(.*)$/i);
+    m = line.match(/^(.+?)\s*:\s*([0-9]+)\s*(.*)$/i);
     if (m) {
-      if (pushParsedItem(m[1], m[2], m[3])) continue;
-    }
-
-    m = line.match(/^(.+?)\s+([0-9]+)\s*:\s*(.*)$/i);
-    if (m) {
-      if (pushParsedItem(m[1], m[2], m[3])) continue;
+      if (pushParsedItem(m[1], m[2], m[3], raw)) continue;
     }
 
     m = line.match(/^(.+?)\s*:\s*\(([^)]*?)\)$/i);
     if (m) {
       const inside = String(m[2] || "");
       const qtyBase = Number((inside.match(/\d+/)?.[0] || "0"));
-      if (pushParsedItem(m[1], qtyBase, inside)) continue;
+      if (pushParsedItem(m[1], qtyBase, inside, raw)) continue;
     }
+
+    debugSegments.push({
+      raw_segment: raw,
+      product_name: "",
+      qty_base: 0,
+      qty_exchange: 0,
+      qty_total: 0,
+      note: "",
+      matched: false,
+    });
   }
 
   const deliveryDate = extractDeliveryDateFromSubject(subject) || null;
-  return { items, deliveryDate, aiApplied: Boolean(aiConfig) };
+  const confidence = splitSegments.length > 0 ? items.length / splitSegments.length : 0;
+  return { items, deliveryDate, aiApplied: Boolean(aiConfig), debugSegments, confidence };
 };
 
 
@@ -303,6 +316,7 @@ export default function MiniCrm() {
   const poDraftHydrationKeyRef = useRef<string>("");
   const [savePoStatus, setSavePoStatus] = useState<string>("");
   const [postRevenueStatus, setPostRevenueStatus] = useState<string>("");
+  const [poParseDebug, setPoParseDebug] = useState<any | null>(null);
   const [poDateFrom, setPoDateFrom] = useState<string>("");
   const [poDateTo, setPoDateTo] = useState<string>("");
   const [poNeedsDeltaReviewOnly, setPoNeedsDeltaReviewOnly] = useState<boolean>(false);
@@ -343,6 +357,8 @@ export default function MiniCrm() {
   const [editKbBusinessDescription, setEditKbBusinessDescription] = useState("");
   const [kbAiSuggestion, setKbAiSuggestion] = useState<KbAiParseSuggestion | null>(null);
   const [kbAiStatus, setKbAiStatus] = useState("");
+  const [parserPreviewInput, setParserPreviewInput] = useState("");
+  const [parserPreviewResult, setParserPreviewResult] = useState<any | null>(null);
   const [editIsNpp, setEditIsNpp] = useState(false);
   const [editUsesNpp, setEditUsesNpp] = useState(false);
   const [editSuppliedByNppCustomerId, setEditSuppliedByNppCustomerId] = useState("");
@@ -544,6 +560,8 @@ export default function MiniCrm() {
     setTemplateAiContext(String(kb?.template_context || ""));
     setKbAiStatus("");
     setKbChangeNote("");
+    setParserPreviewInput("");
+    setParserPreviewResult(null);
   };
 
   const cancelEditCustomer = () => {
@@ -578,6 +596,8 @@ export default function MiniCrm() {
     setKbAiSuggestion(null);
     setKbAiStatus("");
     setKbChangeNote("");
+    setParserPreviewInput("");
+    setParserPreviewResult(null);
   };
 
   const getNextTemplateVersion = async (customerId: string) => {
@@ -1112,9 +1132,16 @@ export default function MiniCrm() {
       setKbAiStatus("AI đang phân tích mô tả business + template để đề xuất rule...");
     },
     onSuccess: (suggestion) => {
-      setKbAiSuggestion(suggestion);
-      setKbAiStatus(`Đã tạo đề xuất AI • confidence ${Math.round(Number(suggestion?.confidence || 0) * 100)}%`);
-      toast({ title: "AI đã đề xuất rule KB", description: suggestion?.human_summary || "" });
+      const normalizedSuggestion = {
+        ...suggestion,
+        exchange_rule: suggestion?.exchange_rule || {
+          keywords: Array.isArray(suggestion?.exchange_keywords) ? suggestion.exchange_keywords : [],
+          pattern: Array.isArray(suggestion?.exchange_keywords) ? suggestion.exchange_keywords.join(", ") : "",
+        },
+      };
+      setKbAiSuggestion(normalizedSuggestion);
+      setKbAiStatus(`Đã tạo đề xuất AI • confidence ${Math.round(Number(normalizedSuggestion?.confidence || 0) * 100)}%`);
+      toast({ title: "AI đã đề xuất rule KB", description: normalizedSuggestion?.human_summary || "" });
     },
     onError: (e: any) => {
       const message = e?.message || "Không thể tạo rule KB";
@@ -2020,6 +2047,7 @@ export default function MiniCrm() {
     if (currentItems.length > 0 || isPoDraftDirty) return;
 
     const parsed = parseEmailBodyToProductionItems(selectedPo?.email_subject, selectedPo?.body_preview || selectedPo?.raw_payload?.snippet || "", selectedPoAiConfig);
+    setPoParseDebug(parsed);
     if (!Array.isArray(parsed.items) || parsed.items.length === 0) return;
 
     setPoSummaryDraft((s: any) => ({
@@ -2182,6 +2210,7 @@ export default function MiniCrm() {
 
   const applyParseFromEmailBody = () => {
     const parsed = parseEmailBodyToProductionItems(selectedPo?.email_subject, selectedPo?.body_preview || selectedPo?.raw_payload?.snippet || "", selectedPoAiConfig);
+    setPoParseDebug(parsed);
     const nextItems = normalizePoDraftItems(Array.isArray(parsed.items) ? parsed.items : []);
     replacePoDraftItems(nextItems, {
       delivery_date: poSummaryDraft?.delivery_date || parsed.deliveryDate || "",
@@ -3242,6 +3271,7 @@ export default function MiniCrm() {
                     onRemoveLineItem={removePoDraftItem}
                     onParseAttachment={requestParseAttachment}
                     onParseEmailBody={requestParseFromEmailBody}
+                    poParseDebug={poParseDebug}
                     onSave={() => savePoSummaryMutation.mutate()}
                     onPostRevenue={handlePostRevenue}
                   />
@@ -3406,7 +3436,11 @@ export default function MiniCrm() {
               <Label>Giá bán SKU</Label>
               {editPriceRows.map((row, idx) => (
                 <div key={idx} className="grid grid-cols-12 gap-2 mb-2">
-                  <select className="col-span-7 h-10 rounded-md border border-input bg-background px-3 text-sm" value={row.skuId} onChange={(e) => setEditPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, skuId: e.target.value } : r))}>
+                  <select className="col-span-7 h-10 rounded-md border border-input bg-background px-3 text-sm" value={row.skuId} onChange={(e) => {
+                    const nextSkuId = e.target.value;
+                    const existingPrice = customerPriceList.find((p: any) => p.customer_id === editingCustomerId && p.sku_id === nextSkuId && p.is_active);
+                    setEditPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, skuId: nextSkuId, price: existingPrice ? String(Number(existingPrice.price_vnd_per_unit || 0)) : r.price } : r));
+                  }}>
                     <option value="">-- Chọn SKU --</option>
                     {finishedSkus.map((s: any) => <option key={s.id} value={s.id}>{s.sku_code} - {s.product_name}</option>)}
                   </select>
@@ -3438,6 +3472,13 @@ export default function MiniCrm() {
               activeKnowledgeProfile={customerKnowledgeProfiles.find((x: any) => x.customer_id === editingCustomerId) || null}
               knowledgeVersionHistory={knowledgeProfileVersions.filter((v: any) => v.customer_id === editingCustomerId).sort((a: any, b: any) => Number(b.version_no || 0) - Number(a.version_no || 0))}
               latestPendingRequest={null}
+              parserPreviewInput={parserPreviewInput}
+              parserPreviewResult={parserPreviewResult}
+              onParserPreviewInputChange={setParserPreviewInput}
+              onRunParserPreview={() => {
+                const result = parseEmailBodyToProductionItems("", parserPreviewInput, kbAiSuggestion);
+                setParserPreviewResult(result);
+              }}
               onKbProfileNameChange={setEditKbProfileName}
               onKbPoModeChange={setEditKbPoMode}
               onKbPoSourceChange={setEditKbPoSource}

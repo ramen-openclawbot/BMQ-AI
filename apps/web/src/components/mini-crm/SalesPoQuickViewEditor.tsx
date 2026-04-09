@@ -101,6 +101,7 @@ type Props = {
   parseAttachmentPending: boolean;
   savePending: boolean;
   postRevenuePending: boolean;
+  poParseDebug?: any | null;
   onDraftFieldChange: (field: string, value: any) => void;
   onAddLineItem: () => void;
   onPatchLineItem: (_rowId: string, patch: Record<string, any>) => void;
@@ -128,6 +129,7 @@ export function SalesPoQuickViewEditor(props: Props) {
     parseAttachmentPending,
     savePending,
     postRevenuePending,
+    poParseDebug,
     onDraftFieldChange,
     onAddLineItem,
     onPatchLineItem,
@@ -226,6 +228,53 @@ export function SalesPoQuickViewEditor(props: Props) {
               </Button>
             </div>
           </div>
+
+          {poParseDebug && (
+            <div className="rounded-md border bg-muted/20 p-3 space-y-3">
+              <div className="flex flex-wrap items-center gap-2 justify-between">
+                <div className="text-sm font-medium">Parse debug từ nội dung email</div>
+                <div className="flex items-center gap-2">
+                  <Badge variant={Number(poParseDebug?.confidence || 0) < 0.8 ? "destructive" : "secondary"}>
+                    Confidence: {Math.round(Number(poParseDebug?.confidence || 0) * 100)}%
+                  </Badge>
+                  {Number(poParseDebug?.confidence || 0) < 0.8 && (
+                    <Badge variant="outline" className="border-amber-500 text-amber-600">Cần kiểm tra lại parse</Badge>
+                  )}
+                </div>
+              </div>
+              <div className="rounded-md border overflow-x-auto bg-background">
+                <Table className="min-w-[980px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="min-w-[280px]">Raw segment</TableHead>
+                      <TableHead className="min-w-[180px]">Tên điểm parse ra</TableHead>
+                      <TableHead className="w-[90px] text-right">qty_base</TableHead>
+                      <TableHead className="w-[110px] text-right">qty_exchange</TableHead>
+                      <TableHead className="w-[90px] text-right">qty_total</TableHead>
+                      <TableHead className="min-w-[180px]">Ghi chú</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(poParseDebug?.debugSegments || []).map((seg: any, idx: number) => (
+                      <TableRow key={idx} className={!seg?.matched ? "bg-amber-500/5" : ""}>
+                        <TableCell className="align-top text-xs leading-5">{seg?.raw_segment || "-"}</TableCell>
+                        <TableCell className="align-top">{seg?.product_name || <span className="text-muted-foreground">Không parse được</span>}</TableCell>
+                        <TableCell className="align-top text-right">{Number(seg?.qty_base || 0).toLocaleString("vi-VN")}</TableCell>
+                        <TableCell className="align-top text-right">{Number(seg?.qty_exchange || 0).toLocaleString("vi-VN")}</TableCell>
+                        <TableCell className="align-top text-right">{Number(seg?.qty_total || 0).toLocaleString("vi-VN")}</TableCell>
+                        <TableCell className="align-top text-xs leading-5 text-muted-foreground">{seg?.note || "-"}</TableCell>
+                      </TableRow>
+                    ))}
+                    {!(poParseDebug?.debugSegments || []).length && (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center text-muted-foreground py-4">Chưa có dữ liệu parse debug.</TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
 
           <div className="rounded-md border overflow-x-auto">
             <Table className="min-w-[1080px]">

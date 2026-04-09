@@ -3,6 +3,10 @@ export type KbAiParseSuggestion = {
   item_split_rule: string;
   location_quantity_patterns: string[];
   exchange_keywords: string[];
+  exchange_rule?: {
+    keywords: string[];
+    pattern?: string;
+  };
   quantity_formula: {
     base_field: string;
     exchange_field: string;
@@ -30,7 +34,13 @@ export const extractKbAiConfig = (note?: string | null): KbAiParseSuggestion | n
   try {
     const parsed = JSON.parse(String(m[1] || "{}"));
     if (!parsed || typeof parsed !== "object") return null;
-    return parsed as KbAiParseSuggestion;
+    const normalized = {
+      ...parsed,
+      exchange_rule: parsed.exchange_rule || {
+        keywords: Array.isArray(parsed.exchange_keywords) ? parsed.exchange_keywords : [],
+      },
+    };
+    return normalized as KbAiParseSuggestion;
   } catch {
     return null;
   }

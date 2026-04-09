@@ -26,6 +26,10 @@ type Props = {
   activeKnowledgeProfile?: any | null;
   knowledgeVersionHistory?: any[];
   latestPendingRequest?: any | null;
+  parserPreviewInput?: string;
+  parserPreviewResult?: any | null;
+  onParserPreviewInputChange: (v: string) => void;
+  onRunParserPreview: () => void;
   onKbProfileNameChange: (v: string) => void;
   onKbPoModeChange: (v: string) => void;
   onKbPoSourceChange: (v: string) => void;
@@ -63,6 +67,10 @@ export function KnowledgeBaseProfileEditor(props: Props) {
     activeKnowledgeProfile,
     knowledgeVersionHistory = [],
     latestPendingRequest,
+    parserPreviewInput,
+    parserPreviewResult,
+    onParserPreviewInputChange,
+    onRunParserPreview,
     onKbProfileNameChange,
     onKbPoModeChange,
     onKbPoSourceChange,
@@ -293,9 +301,9 @@ export function KnowledgeBaseProfileEditor(props: Props) {
                     <div className="grid gap-3 md:grid-cols-2">
                       <InfoTile label="Parse strategy" value={kbAiSuggestion.parse_strategy} />
                       <InfoTile label="Split rule" value={kbAiSuggestion.item_split_rule} />
-                      <InfoTile label="Exchange keywords" value={(kbAiSuggestion.exchange_keywords || []).join(", ") || "-"} wide />
+                      <InfoTile label="Location qty pattern" value={(kbAiSuggestion.location_quantity_patterns || []).join(" • ") || "-"} wide />
+                      <InfoTile label="Exchange rule" value={(kbAiSuggestion.exchange_rule?.pattern || (kbAiSuggestion.exchange_rule?.keywords || kbAiSuggestion.exchange_keywords || []).join(", ")) || "-"} wide />
                       <InfoTile label="Formula" value={kbAiSuggestion.quantity_formula?.expression || "-"} wide />
-                      <InfoTile label="Patterns" value={(kbAiSuggestion.location_quantity_patterns || []).join(" • ") || "-"} wide />
                       <InfoTile label="Normalization" value={(kbAiSuggestion.normalization_rules || []).join(" • ") || "-"} wide />
                     </div>
                   </div>
@@ -304,6 +312,44 @@ export function KnowledgeBaseProfileEditor(props: Props) {
                     Chưa có đề xuất AI. Anh/chị nhập mô tả business hoặc template PO rồi bấm <b>AI Tính Toán</b>.
                   </div>
                 )}
+              </div>
+
+              <div className={sectionClass}>
+                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  Preview parser
+                </div>
+                <div className="space-y-3">
+                  <textarea
+                    className={inputClass}
+                    value={parserPreviewInput || ""}
+                    onChange={(e) => onParserPreviewInputChange(e.target.value)}
+                    placeholder="Dán 1 email mẫu vào đây, ví dụ: 1. Rạch Giá 200: đổi 7 2. ĐVC: 100"
+                  />
+                  <div className="flex justify-end">
+                    <Button type="button" variant="outline" onClick={onRunParserPreview}>
+                      Chạy preview parse
+                    </Button>
+                  </div>
+                  {parserPreviewResult ? (
+                    <div className="rounded-xl border border-border/70 bg-background p-4">
+                      <div className="mb-2 text-sm font-medium text-foreground">Kết quả preview</div>
+                      <div className="space-y-2 text-sm">
+                        {(parserPreviewResult.items || []).length ? (parserPreviewResult.items || []).map((item: any, idx: number) => (
+                          <div key={idx} className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+                            <div><b>{item.product_name || "-"}</b></div>
+                            <div className="text-muted-foreground">base: {Number(item.qty_base || 0)} | đổi: {Number(item.qty_exchange || 0)} | total: {Number(item.qty_total || item.qty || 0)}</div>
+                            <div className="text-muted-foreground">note: {item.note || "-"}</div>
+                          </div>
+                        )) : <div className="text-muted-foreground">Không parse ra dòng nào.</div>}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-border/70 bg-background/70 px-4 py-6 text-sm text-muted-foreground">
+                      Dán email mẫu rồi bấm <b>Chạy preview parse</b> để xem kết quả trước khi lưu & áp dụng KB.
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
