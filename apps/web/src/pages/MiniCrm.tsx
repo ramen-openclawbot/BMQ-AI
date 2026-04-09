@@ -135,6 +135,22 @@ const buildItemsSignature = (items: any[]) => {
     .join(";");
 };
 
+const getLatestActivePriceRows = (rows: any[], customerId?: string | null) => {
+  const scoped = Array.isArray(rows)
+    ? rows.filter((x: any) => x?.is_active && (!customerId || x?.customer_id === customerId))
+    : [];
+  const bySku = new Map<string, any>();
+  for (const row of scoped) {
+    const skuId = String(row?.sku_id || "").trim();
+    if (!skuId) continue;
+    const current = bySku.get(skuId);
+    const rowTime = new Date(row?.updated_at || row?.created_at || 0).getTime();
+    const currentTime = current ? new Date(current?.updated_at || current?.created_at || 0).getTime() : -1;
+    if (!current || rowTime >= currentTime) bySku.set(skuId, row);
+  }
+  return Array.from(bySku.values());
+};
+
 const getReadableError = (e: any) => {
   if (!e) return "Không rõ nguyên nhân";
   const parts = [e?.message, e?.details, e?.hint].filter(Boolean);
@@ -583,7 +599,7 @@ export default function MiniCrm() {
     setPendingTemplatePreview(null);
     setTemplateConfirmOpen(false);
     setEditContractFile(null);
-    const currentPrices = customerPriceList.filter((x: any) => x.customer_id === c.id);
+    const currentPrices = getLatestActivePriceRows(customerPriceList, c.id);
     setEditPriceRows(currentPrices.length ? currentPrices.map((p: any) => ({ skuId: p.sku_id, price: String(Number(p.price_vnd_per_unit || 0)) })) : [{ skuId: "", price: "" }]);
 
     const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === c.id);
@@ -3476,8 +3492,8 @@ export default function MiniCrm() {
                 <div key={idx} className="grid grid-cols-12 gap-2 mb-2">
                   <select className="col-span-7 h-10 rounded-md border border-input bg-background px-3 text-sm" value={row.skuId} onChange={(e) => {
                     const nextSkuId = e.target.value;
-                    const existingPrice = customerPriceList.find((p: any) => p.customer_id === editingCustomerId && p.sku_id === nextSkuId && p.is_active);
-                    setEditPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, skuId: nextSkuId, price: existingPrice ? String(Number(existingPrice.price_vnd_per_unit || 0)) : r.price } : r));
+                    const existingPrice = getLatestActivePriceRows(customerPriceList, editingCustomerId).find((p: any) => p.sku_id === nextSkuId);
+                    setEditPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, skuId: nextSkuId, price: existingPrice ? String(Number(existingPrice.price_vnd_per_unit || 0)) : "" } : r));
                   }}>
                     <option value="">-- Chọn SKU --</option>
                     {finishedSkus.map((s: any) => <option key={s.id} value={s.id}>{s.sku_code} - {s.product_name}</option>)}
