@@ -332,12 +332,22 @@ export function KnowledgeBaseProfileEditor(props: Props) {
                     </Button>
                   </div>
                   {parserPreviewResult ? (
-                    <div className="rounded-xl border border-border/70 bg-background p-4">
-                      <div className="mb-2 text-sm font-medium text-foreground">Kết quả preview</div>
+                    <div className="rounded-xl border border-border/70 bg-background p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-sm font-medium text-foreground">Kết quả preview</div>
+                        <div className="text-xs text-muted-foreground">Confidence: {Math.round(Number(parserPreviewResult.confidence || 0) * 100)}%</div>
+                      </div>
+                      {(parserPreviewResult.splitSegments || []).length > 0 && (
+                        <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs leading-6 text-muted-foreground">
+                          <div className="mb-1 font-medium text-foreground">Segments sau khi split</div>
+                          {(parserPreviewResult.splitSegments || []).map((seg: string, idx: number) => <div key={idx}>{idx + 1}. {seg}</div>)}
+                        </div>
+                      )}
                       <div className="space-y-2 text-sm">
                         {(parserPreviewResult.items || []).length ? (parserPreviewResult.items || []).map((item: any, idx: number) => (
                           <div key={idx} className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
                             <div><b>{item.product_name || "-"}</b></div>
+                            <div className="text-muted-foreground">raw: {item.raw_segment || "-"}</div>
                             <div className="text-muted-foreground">base: {Number(item.qty_base || 0)} | đổi: {Number(item.qty_exchange || 0)} | total: {Number(item.qty_total || item.qty || 0)}</div>
                             <div className="text-muted-foreground">note: {item.note || "-"}</div>
                           </div>

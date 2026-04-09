@@ -162,10 +162,15 @@ const parseEmailBodyToProductionItems = (subject?: string, body?: string, aiConf
   const rawText = String(body || "").replace(/\r/g, " ");
   const text = rawText.replace(/\s+/g, " ").trim();
 
-  const aiExchangeKeywords = Array.isArray(aiConfig?.exchange_keywords) && aiConfig?.exchange_keywords.length > 0
-    ? aiConfig.exchange_keywords.map((x) => normalizeVietnameseText(String(x || "")).replace(/\s+/g, "\\s*"))
-    : ["doi", "đổi"].map((x) => normalizeVietnameseText(x).replace(/\s+/g, "\\s*"));
-  const exchangeRegex = new RegExp(`(?:\\+\\s*)?(?:${aiExchangeKeywords.join("|")})\\s*[:=]?\\s*([0-9]+)`, "i");
+  const aiExchangeKeywords = Array.isArray(aiConfig?.exchange_rule?.keywords) && aiConfig?.exchange_rule?.keywords.length > 0
+    ? aiConfig.exchange_rule.keywords.map((x) => normalizeVietnameseText(String(x || "")).replace(/\s+/g, "\\s*"))
+    : Array.isArray(aiConfig?.exchange_keywords) && aiConfig?.exchange_keywords.length > 0
+      ? aiConfig.exchange_keywords.map((x) => normalizeVietnameseText(String(x || "")).replace(/\s+/g, "\\s*"))
+      : ["doi", "đổi"].map((x) => normalizeVietnameseText(x).replace(/\s+/g, "\\s*"));
+  const exchangePattern = String(aiConfig?.exchange_rule?.pattern || "").trim();
+  const exchangeRegex = exchangePattern
+    ? new RegExp(exchangePattern, "i")
+    : new RegExp(`(?:\\+\\s*)?(?:${aiExchangeKeywords.join("|")})\\s*[:=]?\\s*([0-9]+)`, "i");
   const formula = String(aiConfig?.quantity_formula?.expression || "qty_total = qty_base + qty_exchange").toLowerCase();
 
   const normalize = (s: string) => s
@@ -188,6 +193,13 @@ const parseEmailBodyToProductionItems = (subject?: string, body?: string, aiConf
   };
 
   const splitSegments = (() => {
+    const splitRule = String(aiConfig?.item_split_rule || "").trim();
+    if (splitRule === ",") {
+      return text.split(/\s*,\s*/).map((seg) => seg.trim()).filter(Boolean);
+    }
+    if (/comma/i.test(splitRule)) {
+      return text.split(/\s*,\s*/).map((seg) => seg.trim()).filter(Boolean);
+    }
     const matches = Array.from(text.matchAll(/(?:^|\s)(\d+)\.\s*/g));
     if (!matches.length) return [text];
     const segments: string[] = [];
@@ -200,13 +212,23 @@ const parseEmailBodyToProductionItems = (subject?: string, body?: string, aiConf
     return segments.length ? segments : [text];
   })();
 
+  const compiledPatterns = Array.isArray(aiConfig?.location_quantity_patterns) && aiConfig.location_quantity_patterns.length > 0
+    ? aiConfig.location_quantity_patterns.map((pattern) => {
+        try {
+          return new RegExp(pattern, "i");
+        } catch {
+          return null;
+        }
+      }).filter(Boolean) as RegExp[]
+    : [];
+
   const items: any[] = [];
   const debugSegments: any[] = [];
   const pushParsedItem = (locationRaw: string, qtyBaseRaw: any, noteRaw = "", rawSegment = "") => {
     const location = normalize(String(locationRaw || "").replace(/:$/, "")).trim();
     const qtyBase = Number(qtyBaseRaw || 0);
     const note = cleanNote(String(noteRaw || ""));
-    const qtyExchange = extractExchangeQty(note);
+    const qtyExchange = extractExchangeQty(note || rawSegment);
     const qtyTotal = formula.includes("-")
       ? (Number.isFinite(qtyBase) ? qtyBase : 0) - (Number.isFinite(qtyExchange) ? qtyExchange : 0)
       : (Number.isFinite(qtyBase) ? qtyBase : 0) + (Number.isFinite(qtyExchange) ? qtyExchange : 0);
@@ -227,7 +249,7 @@ const parseEmailBodyToProductionItems = (subject?: string, body?: string, aiConf
     };
     items.push(parsedItem);
     debugSegments.push({
-      raw_segment: rawSegment || line,
+      raw_segment: rawSegment,
       product_name: location,
       qty_base: qtyBase,
       qty_exchange: qtyExchange,
@@ -241,6 +263,21 @@ const parseEmailBodyToProductionItems = (subject?: string, body?: string, aiConf
   for (const raw of splitSegments) {
     const line = normalize(raw);
     if (!line) continue;
+
+    let parsed = false;
+    for (const regex of compiledPatterns) {
+      const m = line.match(regex);
+      if (m) {
+        const location = m[1] || m.groups?.location || "";
+        const qtyBase = m[2] || m.groups?.qty || m.groups?.base || "0";
+        const note = m[3] || m.groups?.note || raw;
+        if (pushParsedItem(location, qtyBase, note, raw)) {
+          parsed = true;
+          break;
+        }
+      }
+    }
+    if (parsed) continue;
 
     let m = line.match(/^(.+?)\s+([0-9]+)\s*:\s*(.*)$/i);
     if (m) {
@@ -271,8 +308,9 @@ const parseEmailBodyToProductionItems = (subject?: string, body?: string, aiConf
   }
 
   const deliveryDate = extractDeliveryDateFromSubject(subject) || null;
-  const confidence = splitSegments.length > 0 ? items.length / splitSegments.length : 0;
-  return { items, deliveryDate, aiApplied: Boolean(aiConfig), debugSegments, confidence };
+  const matchedCount = debugSegments.filter((x) => x.matched).length;
+  const confidence = splitSegments.length > 0 ? matchedCount / splitSegments.length : 0;
+  return { items, deliveryDate, aiApplied: Boolean(aiConfig), debugSegments, confidence, splitSegments };
 };
 
 
