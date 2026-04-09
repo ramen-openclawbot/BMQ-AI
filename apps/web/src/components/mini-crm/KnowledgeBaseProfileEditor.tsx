@@ -145,39 +145,25 @@ export function KnowledgeBaseProfileEditor(props: Props) {
         </div>
       </div>
 
-      {(latestPendingRequest || visibleHistory.length > 0) && (
-        <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 shadow-sm">
-            <div className="mb-2 text-sm font-semibold text-foreground">KB chờ duyệt</div>
-            {latestPendingRequest ? (
-              <div className="space-y-2 text-sm">
-                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 font-medium text-amber-700 dark:text-amber-300">PENDING</span>
-                  <span>{latestPendingRequest.change_note || "KB update request"}</span>
-                </div>
-                <div className="text-foreground/90">{latestPendingRequest.profile_name || "KB draft"}</div>
-              </div>
-            ) : (
-              <div className="text-sm text-muted-foreground">Hiện không có KB nào chờ duyệt.</div>
-            )}
+      {visibleHistory.length > 0 && (
+        <div className="rounded-xl border border-border/70 bg-background/80 p-4 shadow-sm">
+          <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+            <History className="h-4 w-4 text-primary" />
+            Lịch sử KB gần đây
           </div>
-
-          <div className="rounded-xl border border-border/70 bg-background/80 p-4 shadow-sm">
-            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-              <History className="h-4 w-4 text-primary" />
-              Lịch sử KB gần đây
-            </div>
-            <div className="space-y-2">
-              {visibleHistory.length ? visibleHistory.map((item: any) => (
+          <div className="space-y-2">
+            {visibleHistory.map((item: any, idx: number) => {
+              const isCurrent = idx === 0;
+              return (
                 <div key={item.id || `${item.customer_id}-${item.version_no}`} className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium text-foreground">KB v{item.version_no}</span>
-                    <span className="text-xs text-muted-foreground">{item.profile_status || (item.is_active ? "active" : "old")}</span>
+                    <span className={`text-xs ${isCurrent ? "text-emerald-700 dark:text-emerald-300" : "text-muted-foreground"}`}>{isCurrent ? "CURRENT" : "OLD"}</span>
                   </div>
                   <div className="text-xs text-muted-foreground">{item.change_note || item.profile_name || "-"}</div>
                 </div>
-              )) : <div className="text-sm text-muted-foreground">Chưa có version history.</div>}
-            </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -329,13 +315,9 @@ export function KnowledgeBaseProfileEditor(props: Props) {
                 <Input value={kbChangeNote} onChange={(e) => onKbChangeNoteChange(e.target.value)} placeholder="Mô tả thay đổi KB để gửi duyệt hoặc lưu version" />
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" onClick={onSubmitApproval} disabled={submitPending || !kbChangeNote.trim()}>
-                  {submitPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
-                  {submitPending ? "Đang gửi duyệt..." : "Gửi duyệt KB"}
-                </Button>
                 <Button type="button" variant="secondary" onClick={onApproveLatest} disabled={approvePending || !canApproveLatest}>
                   {approvePending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
-                  {approvePending ? "Đang duyệt & áp dụng..." : "Duyệt & áp dụng KB"}
+                  {approvePending ? "Đang lưu & áp dụng..." : "Lưu & áp dụng KB"}
                 </Button>
               </div>
             </div>

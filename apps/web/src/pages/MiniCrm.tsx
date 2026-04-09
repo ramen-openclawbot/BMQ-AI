@@ -505,7 +505,7 @@ export default function MiniCrm() {
       if (error) throw error;
       return data || [];
     },
-    enabled: !isSalesPoPage,
+    enabled: false,
   });
 
   const startEditCustomer = (c: any) => {
@@ -1306,71 +1306,34 @@ export default function MiniCrm() {
   const submitKbChangeRequestMutation = useMutation({
     mutationFn: async () => {
       if (!editingCustomerId) throw new Error("Chưa chọn khách hàng");
-      const payload = {
+      if (!canApproveKb) throw new Error("Bạn không có quyền lưu & áp dụng KB.");
+      setKbAiStatus("Đang lưu và áp dụng KB...");
+
+      const kbPayload = {
         customer_id: editingCustomerId,
         profile_name: editKbProfileName.trim() || `${editCustomerName.trim() || "Customer"} Knowledge`,
         po_mode: editKbPoMode,
-        profile_status: "pending_approval",
         calculation_notes: editKbCalcNotes.trim() || null,
         business_description: editKbBusinessDescription.trim() || null,
         ai_parse_config: kbAiSuggestion || null,
         template_context: templateAiContext || null,
         operational_notes: composeOperationalNotes(editKbOperationalNotes.trim(), editKbPoSource, editEmailBodyTemplate, editKbBusinessDescription, kbAiSuggestion),
-        change_note: kbChangeNote.trim() || "KB update request",
-        request_status: "pending",
-        requested_by: "mini-crm-ui",
+        profile_status: "active",
       };
-      const { error } = await (supabase as any).from("mini_crm_knowledge_change_requests").insert(payload);
-      if (error) throw error;
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-change-requests"] });
-      toast({ title: "Đã gửi yêu cầu duyệt KB", description: "Yêu cầu đã vào hàng chờ phê duyệt." });
-      setKbChangeNote("");
-    },
-    onError: (e: any) => {
-      toast({ title: "Gửi yêu cầu KB thất bại", description: e?.message || "Không thể gửi yêu cầu", variant: "destructive" });
-    },
-  });
-
-  const approveKbLatestRequestMutation = useMutation({
-    mutationFn: async () => {
-      if (!editingCustomerId) throw new Error("Chưa chọn khách hàng");
-      if (!canApproveKb) throw new Error("Bạn không có quyền duyệt & áp dụng KB.");
-      setKbAiStatus("Đang duyệt và áp dụng KB...");
-      const pending = knowledgeChangeRequests.find((r: any) => r.customer_id === editingCustomerId && r.request_status === "pending");
-
-      // If no pending request exists, apply current form state directly (e.g. after AI Tính Toán)
-      const kbPayload = pending
-        ? {
-            customer_id: editingCustomerId,
-            profile_name: pending.profile_name,
-            po_mode: pending.po_mode,
-            calculation_notes: pending.calculation_notes,
-            business_description: pending.business_description || null,
-            ai_parse_config: pending.ai_parse_config || null,
-            template_context: pending.template_context || null,
-            operational_notes: pending.operational_notes,
-            profile_status: "active",
-          }
-        : {
-            customer_id: editingCustomerId,
-            profile_name: editKbProfileName.trim() || `${editCustomerName.trim() || "Customer"} Knowledge`,
-            po_mode: editKbPoMode,
-            calculation_notes: editKbCalcNotes.trim() || null,
-            business_description: editKbBusinessDescription.trim() || null,
-            ai_parse_config: kbAiSuggestion || null,
-            template_context: templateAiContext || null,
-            operational_notes: composeOperationalNotes(editKbOperationalNotes.trim(), editKbPoSource, editEmailBodyTemplate, editKbBusinessDescription, kbAiSuggestion),
-            profile_status: "active",
-          };
 
       const { data: kbSaved, error: kbError } = await (supabase as any)
         .from("mini_crm_knowledge_profiles")
         .upsert(kbPayload, { onConflict: "customer_id" })
-        .select("id,customer_id,profile_name,po_mode,profile_status,calculation_notes,operational_notes")
+        .select("id,customer_id,profile_name,po_mode,profile_status,calculation_notes,business_description,ai_parse_config,template_context,operational_notes")
         .single();
       if (kbError) throw kbError;
+
+      const { error: deactivateErr } = await (supabase as any)
+        .from("mini_crm_knowledge_profile_versions")
+        .update({ is_active: false, profile_status: "inactive" })
+        .eq("customer_id", editingCustomerId)
+        .eq("is_active", true);
+      if (deactivateErr) throw deactivateErr;
 
       const versionNo = await getNextKnowledgeProfileVersion(editingCustomerId);
       const { error: verErr } = await (supabase as any).from("mini_crm_knowledge_profile_versions").insert({
@@ -1385,39 +1348,34 @@ export default function MiniCrm() {
         ai_parse_config: kbSaved?.ai_parse_config || kbPayload.ai_parse_config || null,
         template_context: kbSaved?.template_context || kbPayload.template_context || null,
         operational_notes: kbSaved?.operational_notes || null,
-        changed_by: "mini-crm-approver",
-        change_note: pending?.change_note || kbChangeNote.trim() || "Direct KB apply",
+        changed_by: "mini-crm-ui",
+        change_note: kbChangeNote.trim() || "Apply KB directly",
         is_active: true,
         effective_from: new Date().toISOString(),
       });
       if (verErr) throw verErr;
 
-      // Update pending request status only if one was found
-      if (pending) {
-        const { error: reqErr } = await (supabase as any)
-          .from("mini_crm_knowledge_change_requests")
-          .update({ request_status: "approved", approved_by: "mini-crm-approver", approved_at: new Date().toISOString(), applied_version_no: versionNo })
-          .eq("id", pending.id);
-        if (reqErr) throw reqErr;
-      }
+      return { versionNo };
     },
-    onSuccess: async () => {
+    onSuccess: async (result: any) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profiles"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profile-versions"] }),
-        queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-change-requests"] }),
       ]);
-      setKbAiStatus("Đã duyệt và áp dụng KB thành công.");
-      toast({ title: "Đã duyệt & áp dụng KB", description: "Rule KB đã active theo version mới." });
+      setKbAiStatus(`Đã lưu và áp dụng KB thành công (KB v${result?.versionNo || "mới"}).`);
+      toast({ title: "Đã lưu & áp dụng KB", description: `KB v${result?.versionNo || "mới"} đang active cho khách hàng này.` });
+      setKbChangeNote("");
     },
     onError: (e: any) => {
       const message = e?.code === "42501"
-        ? "Bạn không có quyền duyệt & áp dụng KB. Cần role Owner/Staff hoặc quyền edit module CRM / PO (Bán hàng)."
-        : (e?.message || "Không thể duyệt KB");
-      setKbAiStatus(`Duyệt & áp dụng KB thất bại: ${message}`);
-      toast({ title: "Duyệt KB thất bại", description: message, variant: "destructive" });
+        ? "Bạn không có quyền lưu & áp dụng KB. Cần role Owner/Staff hoặc quyền edit module CRM / PO (Bán hàng)."
+        : (e?.message || "Không thể lưu KB");
+      setKbAiStatus(`Lưu & áp dụng KB thất bại: ${message}`);
+      toast({ title: "Lưu KB thất bại", description: message, variant: "destructive" });
     },
   });
+
+  const approveKbLatestRequestMutation = submitKbChangeRequestMutation;
 
   const deleteCustomerMutation = useMutation({
     mutationFn: async ({ customerId }: { customerId: string; customerName?: string }) => {
@@ -3474,12 +3432,12 @@ export default function MiniCrm() {
               kbAiSuggestPending={kbAiSuggestMutation.isPending}
               submitPending={submitKbChangeRequestMutation.isPending}
               approvePending={approveKbLatestRequestMutation.isPending}
-              pendingCount={knowledgeChangeRequests.filter((r: any) => r.customer_id === editingCustomerId && r.request_status === "pending").length}
+              pendingCount={0}
               canApproveLatest={canApproveKb}
               approveDisabledReason={approveKbDisabledReason}
               activeKnowledgeProfile={customerKnowledgeProfiles.find((x: any) => x.customer_id === editingCustomerId) || null}
-              knowledgeVersionHistory={knowledgeProfileVersions.filter((v: any) => v.customer_id === editingCustomerId)}
-              latestPendingRequest={knowledgeChangeRequests.find((r: any) => r.customer_id === editingCustomerId && r.request_status === "pending") || null}
+              knowledgeVersionHistory={knowledgeProfileVersions.filter((v: any) => v.customer_id === editingCustomerId).sort((a: any, b: any) => Number(b.version_no || 0) - Number(a.version_no || 0))}
+              latestPendingRequest={null}
               onKbProfileNameChange={setEditKbProfileName}
               onKbPoModeChange={setEditKbPoMode}
               onKbPoSourceChange={setEditKbPoSource}
