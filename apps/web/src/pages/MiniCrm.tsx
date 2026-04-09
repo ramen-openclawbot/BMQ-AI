@@ -151,8 +151,22 @@ const getLatestActivePriceRows = (rows: any[], customerId?: string | null) => {
   return Array.from(bySku.values());
 };
 
-const buildSkuPriceMap = (rows: any[], customerId?: string | null) => {
+const buildSkuPriceMap = (rows: any[], customerId?: string | null, skuRows: any[] = []) => {
   const map = new Map<string, string>();
+  for (const sku of Array.isArray(skuRows) ? skuRows : []) {
+    const skuId = String(sku?.id || "").trim();
+    if (!skuId) continue;
+    let costValues: any = sku?.cost_values;
+    if (typeof costValues === "string") {
+      try {
+        costValues = JSON.parse(costValues);
+      } catch {
+        costValues = {};
+      }
+    }
+    const sellingPrice = Number(costValues?.selling_price || sku?.unit_price || 0);
+    if (sellingPrice > 0) map.set(skuId, String(sellingPrice));
+  }
   for (const row of getLatestActivePriceRows(rows, customerId)) {
     const skuId = String(row?.sku_id || "").trim();
     if (!skuId) continue;
@@ -160,7 +174,6 @@ const buildSkuPriceMap = (rows: any[], customerId?: string | null) => {
   }
   return map;
 };
-
 const getReadableError = (e: any) => {
   if (!e) return "Không rõ nguyên nhân";
   const parts = [e?.message, e?.details, e?.hint].filter(Boolean);
@@ -472,7 +485,7 @@ export default function MiniCrm() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("product_skus")
-        .select("id, sku_code, product_name, sku_type, category")
+        .select("id, sku_code, product_name, sku_type, category, cost_values, unit_price")
         .order("updated_at", { ascending: false });
       if (error) throw error;
       return (data || []).filter((s: any) => String(s.sku_type || "").toLowerCase() === "finished_good" || String(s.category || "").toLowerCase().includes("thành phẩm"));
@@ -611,7 +624,7 @@ export default function MiniCrm() {
     setTemplateConfirmOpen(false);
     setEditContractFile(null);
     const currentPrices = getLatestActivePriceRows(customerPriceList, c.id);
-    setEditSkuPriceMap(buildSkuPriceMap(customerPriceList, c.id));
+    setEditSkuPriceMap(buildSkuPriceMap(customerPriceList, c.id, finishedSkus));
     setEditPriceRows(currentPrices.length ? currentPrices.map((p: any) => ({ skuId: p.sku_id, price: String(Number(p.price_vnd_per_unit || 0)) })) : [{ skuId: "", price: "" }]);
 
     const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === c.id);
