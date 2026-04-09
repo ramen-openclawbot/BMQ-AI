@@ -28,11 +28,13 @@ import {
   calcTotalFromRawPayload,
   createDraftFromPoRow,
   createEmptyPoDraftItem,
+  detectPoEmailParseMode,
   extractDeliveryDateFromSubject,
   extractPoNumberFromSubject,
   formatVnd,
   getPoDraftItemsFromRow,
   hasManualPoDraft,
+  mergePoDraftItems,
   normalizePoDraftItems,
   parseDraftItemsForSave,
 } from "@/components/mini-crm/poDraftUtils";
@@ -1855,7 +1857,9 @@ export default function MiniCrm() {
       setSyncStatus("import_success");
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
       await queryClient.refetchQueries({ queryKey: ["customer-po-inbox"], type: "active" });
-      toast({ title: "Đã nhập PO vào hệ thống", description: `Đã nhập ${result?.synced || 0} PO.` });
+      await mergeImportedPoRows();
+      await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
+      toast({ title: "Đã nhập PO vào hệ thống", description: `Đã nhập ${result?.synced || 0} PO và chạy merge cùng ngày.` });
       setSyncModalOpen(false);
     },
     onError: (e: any) => {
@@ -2097,6 +2101,71 @@ export default function MiniCrm() {
     if (!selectedPoResolvedCustomerId) return null;
     return customerKnowledgeProfiles.find((x: any) => x.customer_id === selectedPoResolvedCustomerId) || null;
   }, [customerKnowledgeProfiles, selectedPoResolvedCustomerId]);
+
+  const resolveCustomerIdFromInboxRow = (row: any) => {
+    if (row?.customer_id) return row.customer_id;
+    const fromEmail = String(row?.from_email || "").trim().toLowerCase();
+    if (!fromEmail) return null;
+    const matched = customers.filter((c: any) =>
+      Array.isArray(c?.mini_crm_customer_emails)
+      && c.mini_crm_customer_emails.some((e: any) => String(e?.email || "").trim().toLowerCase() === fromEmail)
+    );
+    const nonNppDependent = matched.filter((c: any) => !c?.supplied_by_npp_customer_id);
+    const preferredNpp = nonNppDependent.filter((c: any) => Boolean(c?.is_npp));
+    if (preferredNpp.length === 1) return preferredNpp[0].id;
+    if (preferredNpp.length > 1) return null;
+    if (nonNppDependent.length === 1) return nonNppDependent[0].id;
+    return null;
+  };
+
+  const mergeImportedPoRows = async () => {
+    const rows = Array.isArray(poInbox) ? [...poInbox] : [];
+    const sorted = rows.sort((a: any, b: any) => new Date(a?.received_at || 0).getTime() - new Date(b?.received_at || 0).getTime());
+    const grouped = new Map<string, any[]>();
+
+    for (const row of sorted) {
+      const customerId = resolveCustomerIdFromInboxRow(row);
+      const deliveryDate = row?.delivery_date || extractDeliveryDateFromSubject(row?.email_subject) || "";
+      if (!customerId || !deliveryDate) continue;
+      const key = `${customerId}::${deliveryDate}`;
+      const bucket = grouped.get(key) || [];
+      bucket.push({ ...row, _resolvedCustomerId: customerId, _resolvedDeliveryDate: deliveryDate });
+      grouped.set(key, bucket);
+    }
+
+    for (const [, bucket] of grouped.entries()) {
+      if (bucket.length <= 1) continue;
+      let workingItems: any[] = [];
+      for (const row of bucket) {
+        const customerId = row._resolvedCustomerId;
+        const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === customerId) || null;
+        const source = getKbPoSource(kb);
+        if (source !== "email_body_only") continue;
+        const aiConfig = extractKbAiConfig(String(kb?.operational_notes || ""));
+        const emailText = row?.body_preview || row?.raw_payload?.snippet || "";
+        const parsed = parseEmailBodyToProductionItems(row?.email_subject, emailText, aiConfig);
+        const mode = detectPoEmailParseMode(row?.email_subject, emailText);
+        const incomingItems = normalizePoDraftItems(Array.isArray(parsed.items) ? parsed.items : []);
+        workingItems = mergePoDraftItems(workingItems, incomingItems, mode);
+        await (supabase as any)
+          .from("customer_po_inbox")
+          .update({
+            customer_id: customerId,
+            delivery_date: row._resolvedDeliveryDate,
+            production_items: parseDraftItemsForSave(workingItems),
+            raw_payload: {
+              ...(row?.raw_payload || {}),
+              auto_merge: {
+                merged_at: new Date().toISOString(),
+                merge_mode: mode,
+                merge_group_key: `${customerId}::${row._resolvedDeliveryDate}`,
+              },
+            },
+          })
+          .eq("id", row.id);
+      }
+    }
+  };
   const selectedPoAiConfig = useMemo(() => extractKbAiConfig(String(selectedPoKnowledgeProfile?.operational_notes || "")), [selectedPoKnowledgeProfile]);
   const selectedPreview = useMemo(() => previewItems.find((r: any) => r.messageId === selectedPreviewId) || null, [previewItems, selectedPreviewId]);
   const nppCustomers = useMemo(() => customers.filter((c: any) => Boolean(c?.is_npp)), [customers]);
@@ -2289,21 +2358,28 @@ export default function MiniCrm() {
   };
 
   const applyParseFromEmailBody = () => {
-    const parsed = parseEmailBodyToProductionItems(selectedPo?.email_subject, selectedPo?.body_preview || selectedPo?.raw_payload?.snippet || "", selectedPoAiConfig);
+    const emailText = selectedPo?.body_preview || selectedPo?.raw_payload?.snippet || "";
+    const parsed = parseEmailBodyToProductionItems(selectedPo?.email_subject, emailText, selectedPoAiConfig);
     setPoParseDebug(parsed);
-    const nextItems = normalizePoDraftItems(Array.isArray(parsed.items) ? parsed.items : []);
+    const incomingItems = normalizePoDraftItems(Array.isArray(parsed.items) ? parsed.items : []);
+    const mode = detectPoEmailParseMode(selectedPo?.email_subject, emailText);
+    const baseItems = Array.isArray(poSummaryDraft?.production_items) ? poSummaryDraft.production_items : [];
+    const nextItems = mergePoDraftItems(baseItems, incomingItems, mode);
     replacePoDraftItems(nextItems, {
       delivery_date: poSummaryDraft?.delivery_date || parsed.deliveryDate || "",
       subtotal_amount: 0,
       vat_amount: 0,
       total_amount: 0,
+      notes: [String(poSummaryDraft?.notes || "").trim(), `Auto parse mode: ${mode}`].filter(Boolean).join("\n"),
     });
-    setSavePoStatus(parsed.aiApplied ? "Đã cập nhật draft từ nội dung email theo AI rule đã duyệt. Nhớ lưu trước khi đẩy doanh thu." : "Đã cập nhật draft từ nội dung email. Nhớ lưu trước khi đẩy doanh thu.");
-    if (!nextItems.length) {
+    setSavePoStatus(parsed.aiApplied
+      ? `Đã cập nhật draft từ nội dung email theo AI rule đã duyệt (${mode}). Nhớ lưu trước khi đẩy doanh thu.`
+      : `Đã cập nhật draft từ nội dung email (${mode}). Nhớ lưu trước khi đẩy doanh thu.`);
+    if (!incomingItems.length) {
       toast({ title: "Không parse được từ nội dung email", description: "Email có thể bị cắt ngắn. Vui lòng mở mail gốc hoặc bổ sung thủ công.", variant: "destructive" });
       return;
     }
-    toast({ title: "Đã parse từ nội dung email", description: `${nextItems.length} dòng sản phẩm` });
+    toast({ title: "Đã parse từ nội dung email", description: `${incomingItems.length} dòng mới • mode ${mode}` });
   };
 
   // Revenue posting must always use persisted DB data; unsaved draft state is intentionally blocked.

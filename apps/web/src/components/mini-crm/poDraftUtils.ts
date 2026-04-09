@@ -174,3 +174,58 @@ export const parseDraftItemsForSave = (items: any[]) =>
       line_source: sanitizePoLineSource(item?.source),
     }))
     .filter((item: any) => item.product_name || item.sku || item.qty || item.unit_price || item.line_total || item.note);
+
+export const detectPoEmailParseMode = (subject?: string, body?: string) => {
+  const hay = `${String(subject || "")} ${String(body || "")}`.toLowerCase();
+  if (/(bổ sung|bo sung|đặt thêm|dat them|thêm|them|update|cap nhat)/i.test(hay)) return "delta_add" as const;
+  if (/(giảm|giam|bớt|bot|hủy|huy|trừ|tru)/i.test(hay)) return "delta_reduce" as const;
+  return "snapshot" as const;
+};
+
+const normalizeItemKey = (item: any) => {
+  const sku = String(item?.sku || "").trim().toLowerCase();
+  const name = String(item?.product_name || item?.name || "").trim().toLowerCase();
+  return sku || name;
+};
+
+export const mergePoDraftItems = (existingItems: any[], incomingItems: any[], mode: "snapshot" | "delta_add" | "delta_reduce" = "snapshot") => {
+  const normalizedIncoming = normalizePoDraftItems(incomingItems || []);
+  if (mode === "snapshot") return normalizedIncoming;
+
+  const merged = normalizePoDraftItems(existingItems || []).map((item: any) => ({ ...item }));
+  const indexMap = new Map<string, number>();
+  merged.forEach((item: any, idx: number) => {
+    const key = normalizeItemKey(item);
+    if (key) indexMap.set(key, idx);
+  });
+
+  for (const incoming of normalizedIncoming) {
+    const key = normalizeItemKey(incoming);
+    if (!key) {
+      merged.push(incoming);
+      continue;
+    }
+    const foundIdx = indexMap.get(key);
+    if (foundIdx === undefined) {
+      const nextQty = mode === "delta_reduce" ? -Math.abs(Number(incoming?.qty || 0) || 0) : Number(incoming?.qty || 0) || 0;
+      merged.push(createPoDraftItem({ ...incoming, qty: nextQty, source: "parsed" }));
+      indexMap.set(key, merged.length - 1);
+      continue;
+    }
+    const current = merged[foundIdx];
+    const incomingQty = Number(incoming?.qty || 0) || 0;
+    const signQty = mode === "delta_reduce" ? -Math.abs(incomingQty) : incomingQty;
+    const nextQty = (Number(current?.qty || 0) || 0) + signQty;
+    const unitPrice = Number(current?.unit_price || incoming?.unit_price || 0) || 0;
+    merged[foundIdx] = createPoDraftItem({
+      ...current,
+      qty: nextQty,
+      unit_price: unitPrice,
+      line_total: unitPrice > 0 ? nextQty * unitPrice : Number(current?.line_total || 0) || 0,
+      note: [String(current?.note || "").trim(), String(incoming?.note || "").trim()].filter(Boolean).join(" | "),
+      source: "parsed",
+    });
+  }
+
+  return merged.filter((item: any) => Number(item?.qty || 0) !== 0 || item?.product_name || item?.sku);
+};
