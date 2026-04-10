@@ -398,7 +398,7 @@ export default function MiniCrm() {
   const [poParseDebug, setPoParseDebug] = useState<any | null>(null);
   const [poDateFrom, setPoDateFrom] = useState<string>("");
   const [poDateTo, setPoDateTo] = useState<string>("");
-  const [poNeedsDeltaReviewOnly, setPoNeedsDeltaReviewOnly] = useState<boolean>(false);
+  const [poNeedsAttentionOnly, setPoNeedsAttentionOnly] = useState<boolean>(false);
   const [customerSearch, setCustomerSearch] = useState<string>("");
   const [poCustomerFilter, setPoCustomerFilter] = useState<string>("all");
   const [poModeFilter, setPoModeFilter] = useState<string>("all");
@@ -476,11 +476,6 @@ export default function MiniCrm() {
       return data || [];
     },
   });
-
-  const vietjetCustomerId = useMemo(() => {
-    const hit = customers.find((c: any) => String(c?.customer_name || "").toLowerCase().includes("vietjet"));
-    return hit?.id || null;
-  }, [customers]);
 
   const { data: finishedSkus = [] } = useQuery({
     queryKey: ["finished-skus"],
@@ -1868,45 +1863,6 @@ export default function MiniCrm() {
     },
   });
 
-  const reviewMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: "approved" | "rejected" }) => {
-      const { data: row, error: rowErr } = await (supabase as any)
-        .from("customer_po_inbox")
-        .select("id,customer_id,raw_payload")
-        .eq("id", id)
-        .single();
-      if (rowErr || !row) throw rowErr || new Error("Không tìm thấy PO");
-
-      const { error } = await (supabase as any)
-        .from("customer_po_inbox")
-        .update({ match_status: status, reviewed_at: new Date().toISOString(), review_note: status === "approved" ? "Manual approved" : "Manual rejected" })
-        .eq("id", id);
-      if (error) throw error;
-
-      await (supabase as any).from("po_revenue_post_audit").insert({
-        po_inbox_id: id,
-        customer_id: row.customer_id,
-        action: "manual_match_review",
-        amount: Number(row?.raw_payload?.revenue_post?.total || row?.raw_payload?.revenue_post?.amount || 0),
-        full_snapshot_total: Number(row?.raw_payload?.revenue_post?.full_snapshot_total || 0),
-        base_amount: Number(row?.raw_payload?.revenue_post?.base_amount || 0),
-        delta_amount: Number(row?.raw_payload?.revenue_post?.delta_amount || 0),
-        decision: status,
-        note: status === "approved" ? "Manual approved" : "Manual rejected",
-        actor: "mini-crm-ui",
-        raw_payload: row?.raw_payload?.revenue_post || {},
-      });
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
-      await queryClient.invalidateQueries({ queryKey: ["po-revenue-post-audit"] });
-      toast({ title: "Đã cập nhật duyệt", description: "Trạng thái PO inbox đã đổi." });
-    },
-    onError: (e: any) => {
-      toast({ title: "Lỗi", description: e?.message || "Không thể cập nhật trạng thái", variant: "destructive" });
-    },
-  });
-
   const reviewDeltaMutation = useMutation({
     mutationFn: async ({ id, action }: { id: string; action: "approve_zero" | "reject" }) => {
       const { data: row, error: rowErr } = await (supabase as any)
@@ -1976,7 +1932,7 @@ export default function MiniCrm() {
       if (!Number.isFinite(t)) return false;
       if (fromMs && t < fromMs) return false;
       if (toMs && t > toMs) return false;
-      if (poNeedsDeltaReviewOnly && !row?.raw_payload?.revenue_post?.requires_review) return false;
+      if (poNeedsAttentionOnly && !row?.raw_payload?.revenue_post?.requires_review) return false;
       if (poCustomerFilter !== "all" && String(row?.customer_id || "") !== poCustomerFilter) return false;
       if (poModeFilter !== "all") {
         const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === row?.customer_id);
@@ -1985,18 +1941,7 @@ export default function MiniCrm() {
       }
       return true;
     });
-  }, [poInbox, poDateFrom, poDateTo, poNeedsDeltaReviewOnly, poCustomerFilter, poModeFilter, customerKnowledgeProfiles]);
-
-  const statusCounts = useMemo(() => {
-    return filteredPoInbox.reduce(
-      (acc: Record<string, number>, row: any) => {
-        const key = row.match_status || "unknown";
-        acc[key] = (acc[key] || 0) + 1;
-        return acc;
-      },
-      {}
-    );
-  }, [filteredPoInbox]);
+  }, [poInbox, poDateFrom, poDateTo, poNeedsAttentionOnly, poCustomerFilter, poModeFilter, customerKnowledgeProfiles]);
 
   const filteredCustomers = useMemo(() => {
     const keyword = normalizeVietnameseText(customerSearch);
@@ -3081,25 +3026,25 @@ export default function MiniCrm() {
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <CardTitle className="text-2xl">PO Inbox (manual approval bắt buộc)</CardTitle>
-              <CardDescription className="mt-1">PO đọc từ email po@bmq.vn sẽ nằm ở đây trước khi duyệt tay.</CardDescription>
+              <CardTitle className="text-2xl">PO Inbox tự động</CardTitle>
+              <CardDescription className="mt-1">Email PO được parse tự động, merge theo khách hàng và ngày giao. Chỉ mở PO khi cần chỉnh sửa hoặc xử lý exception.</CardDescription>
             </div>
             <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
               <div className="rounded-lg border bg-background/80 px-3 py-2">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Đang lọc</div>
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Đang hiển thị</div>
                 <div className="text-xl font-semibold leading-tight">{filteredPoInbox.length}</div>
               </div>
               <div className="rounded-lg border bg-background/80 px-3 py-2">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Pending</div>
-                <div className="text-xl font-semibold leading-tight">{statusCounts.pending_approval || 0}</div>
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Đã auto parse</div>
+                <div className="text-xl font-semibold leading-tight">{filteredPoInbox.filter((x: any) => x?.raw_payload?.auto_merge || x?.raw_payload?.parsed_items_preview?.length).length}</div>
               </div>
               <div className="rounded-lg border bg-background/80 px-3 py-2">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Approved</div>
-                <div className="text-xl font-semibold leading-tight">{statusCounts.approved || 0}</div>
-              </div>
-              <div className="rounded-lg border bg-background/80 px-3 py-2">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Needs review</div>
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Cần xử lý</div>
                 <div className="text-xl font-semibold leading-tight text-amber-600">{pendingDeltaReviewCount}</div>
+              </div>
+              <div className="rounded-lg border bg-background/80 px-3 py-2">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Exception</div>
+                <div className="text-xl font-semibold leading-tight">{exceptionQueue.length}</div>
               </div>
             </div>
           </div>
@@ -3136,10 +3081,10 @@ export default function MiniCrm() {
                 <label className="flex items-center gap-2 text-sm rounded-md border bg-background px-3 h-10 w-full">
                   <input
                     type="checkbox"
-                    checked={poNeedsDeltaReviewOnly}
-                    onChange={(e) => setPoNeedsDeltaReviewOnly(e.target.checked)}
+                    checked={poNeedsAttentionOnly}
+                    onChange={(e) => setPoNeedsAttentionOnly(e.target.checked)}
                   />
-                  Chỉ hiện Needs delta review
+                  Chỉ hiện mục cần xử lý
                 </label>
               </div>
             </div>
@@ -3151,7 +3096,7 @@ export default function MiniCrm() {
                 onClick={() => {
                   setPoDateFrom("");
                   setPoDateTo("");
-                  setPoNeedsDeltaReviewOnly(false);
+                  setPoNeedsAttentionOnly(false);
                   setPoCustomerFilter("all");
                   setPoModeFilter("all");
                 }}
@@ -3159,36 +3104,7 @@ export default function MiniCrm() {
                 Reset bộ lọc
               </Button>
               <Button type="button" variant="secondary" onClick={exportDeltaReconciliationCsv}>
-                Xuất CSV đối soát delta
-              </Button>
-              <Button
-                type="button"
-                onClick={() => {
-                  if (!vietjetCustomerId) {
-                    toast({ title: "Chưa tìm thấy khách Vietjet", description: "Vui lòng kiểm tra tên customer trong CRM." });
-                    return;
-                  }
-                  setPoCustomerFilter(vietjetCustomerId);
-                  setPoModeFilter("cumulative_snapshot");
-                  setPoNeedsDeltaReviewOnly(true);
-                }}
-              >
-                Preset Vietjet review
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  if (!vietjetCustomerId) {
-                    toast({ title: "Chưa tìm thấy khách Vietjet", description: "Vui lòng kiểm tra tên customer trong CRM." });
-                    return;
-                  }
-                  setPoCustomerFilter(vietjetCustomerId);
-                  setPoModeFilter("cumulative_snapshot");
-                  setPoNeedsDeltaReviewOnly(false);
-                }}
-              >
-                Preset Vietjet all cumulative
+                Xuất CSV đối soát
               </Button>
               <Button
                 type="button"
@@ -3196,7 +3112,7 @@ export default function MiniCrm() {
                 onClick={() => autoPostSafeMutation.mutate()}
                 disabled={autoPostSafeMutation.isPending}
               >
-                {autoPostSafeMutation.isPending ? "Đang auto-post..." : "Auto-post an toàn (daily)"}
+                {autoPostSafeMutation.isPending ? "Đang auto-post..." : "Chạy auto-post cuối ngày"}
               </Button>
             </div>
           </div>
@@ -3211,8 +3127,8 @@ export default function MiniCrm() {
                   <TableHead className="min-w-[220px]">Subject</TableHead>
                   <TableHead className="whitespace-nowrap">Matched Customer</TableHead>
                   <TableHead className="whitespace-nowrap hidden md:table-cell">PO mode</TableHead>
-                  <TableHead className="whitespace-nowrap">Status</TableHead>
-                  <TableHead className="whitespace-nowrap sticky right-0 z-10 bg-background">Action</TableHead>
+                  <TableHead className="whitespace-nowrap">Trạng thái</TableHead>
+                  <TableHead className="whitespace-nowrap sticky right-0 z-10 bg-background">Thao tác</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -3234,14 +3150,22 @@ export default function MiniCrm() {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-1">
-                        <Badge variant={row.match_status === "approved" ? "default" : "secondary"} className="w-fit">{row.match_status}</Badge>
+                        {row?.raw_payload?.manual_summary?.edited_at ? (
+                          <Badge variant="default" className="w-fit">Đã chỉnh tay</Badge>
+                        ) : row?.raw_payload?.auto_merge ? (
+                          <Badge variant="secondary" className="w-fit">Đã auto merge</Badge>
+                        ) : row?.raw_payload?.parsed_items_preview?.length ? (
+                          <Badge variant="secondary" className="w-fit">Đã auto parse</Badge>
+                        ) : (
+                          <Badge variant="outline" className="w-fit">Mới nhập</Badge>
+                        )}
                         {row?.raw_payload?.revenue_post?.requires_review && (
-                          <Badge variant="destructive" className="w-fit">Needs delta review</Badge>
+                          <Badge variant="destructive" className="w-fit">Cần xử lý</Badge>
                         )}
                       </div>
                     </TableCell>
                     <TableCell className="sticky right-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-                      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 min-w-[220px]">
+                      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 min-w-[160px]">
                         <Button
                           size="sm"
                           variant="secondary"
@@ -3261,13 +3185,8 @@ export default function MiniCrm() {
                         >
                           Xem nhanh
                         </Button>
-                        <Button size="sm" onClick={() => reviewMutation.mutate({ id: row.id, status: "approved" })} disabled={reviewMutation.isPending || row.match_status === "approved"}>Approve</Button>
-                        <Button size="sm" variant="outline" onClick={() => reviewMutation.mutate({ id: row.id, status: "rejected" })} disabled={reviewMutation.isPending || row.match_status === "rejected"}>Reject</Button>
                         {row?.raw_payload?.revenue_post?.requires_review && (
-                          <>
-                            <Button size="sm" variant="secondary" onClick={() => reviewDeltaMutation.mutate({ id: row.id, action: "approve_zero" })} disabled={reviewDeltaMutation.isPending}>Duyệt delta=0</Button>
-                            <Button size="sm" variant="destructive" onClick={() => reviewDeltaMutation.mutate({ id: row.id, action: "reject" })} disabled={reviewDeltaMutation.isPending}>Reject delta</Button>
-                          </>
+                          <Button size="sm" variant="outline" onClick={() => setSelectedPoId(row.id)}>Mở xử lý</Button>
                         )}
                       </div>
                     </TableCell>
