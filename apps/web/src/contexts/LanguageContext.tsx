@@ -507,6 +507,28 @@ const translations: Record<Language, Translations> = {
     filter: "Lọc",
     export: "Xuất",
     addItem: "Thêm",
+
+    // Dashboard page
+    dashboardTitle: "Tổng quan",
+    dashboardDescription: "Xem nhanh tình hình",
+    dashboardTotalItems: "Tổng mặt hàng",
+    dashboardTotalItemsDesc: "Hiện có trong kho",
+    dashboardActiveSuppliers: "Nhà cung cấp hoạt động",
+    dashboardActiveSuppliersDesc: "Đang quản lý nguồn cung",
+    dashboardPendingApprovals: "Chờ duyệt",
+    dashboardPendingApprovalsDesc: "Đang đợi xem xét",
+    dashboardLowStockItems: "Mặt hàng sắp hết",
+    dashboardLowStockItemsDesc: "Cần chú ý",
+    dashboardQuickActions: "Thao tác nhanh",
+    dashboardNewRequest: "Tạo đề nghị mới",
+    dashboardNewRequestDesc: "Tạo đề nghị thanh toán",
+    dashboardGenerateReport: "Tạo báo cáo",
+    dashboardGenerateReportDesc: "Xuất dữ liệu tồn kho",
+    dashboardViewAnalytics: "Xem phân tích",
+    dashboardViewAnalyticsDesc: "Thông tin chi tiêu",
+    dashboardSyncInventory: "Đồng bộ kho",
+    dashboardSyncInventoryDesc: "Cập nhật mức tồn",
+    dashboardTrendFromLastMonth: "so với tháng trước",
     
     // Common
     loading: "Đang tải...",
