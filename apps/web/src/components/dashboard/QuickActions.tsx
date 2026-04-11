@@ -28,12 +28,12 @@ export function QuickActions() {
           <Button
             key={action.label}
             variant="outline"
-            className="h-auto flex-col items-start gap-2 p-4 hover:bg-primary/5 hover:border-primary/30 transition-all text-left text-foreground [&_p]:text-inherit [&_svg]:text-primary"
+            className="h-auto flex-col items-start gap-2 p-4 hover:bg-primary/5 hover:border-primary/30 transition-all"
             onClick={() => handleClick(action.path)}
           >
-            <action.icon className="h-5 w-5" />
+            <action.icon className="h-5 w-5 text-primary" />
             <div className="text-left">
-              <p className="font-medium">{action.label}</p>
+              <p className="font-medium text-foreground">{action.label}</p>
               <p className="text-xs text-muted-foreground font-normal">{action.description}</p>
             </div>
           </Button>
