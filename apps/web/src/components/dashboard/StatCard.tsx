@@ -25,15 +25,15 @@ export function StatCard({
   const { t } = useLanguage();
 
   return (
-    <div className="stat-card animate-fade-in">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-card-foreground/80">{title}</p>
-          <p className="mt-2 text-3xl font-display font-bold text-card-foreground">
+    <div className="stat-card animate-fade-in text-foreground">
+      <div className="flex items-start justify-between">
+        <div className="text-foreground">
+          <p className="text-sm font-medium text-foreground/80">{title}</p>
+          <p className="mt-2 text-3xl font-display font-bold text-foreground">
             {value}
           </p>
           {subtitle && (
-            <p className="mt-1 text-sm text-card-foreground/70">{subtitle}</p>
+            <p className="mt-1 text-sm text-foreground/70">{subtitle}</p>
           )}
           {trend && (
             <p className={cn(
