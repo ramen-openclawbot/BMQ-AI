@@ -141,6 +141,28 @@ interface Translations {
   filter: string;
   export: string;
   addItem: string;
+
+  // Dashboard page
+  dashboardTitle: string;
+  dashboardDescription: string;
+  dashboardTotalItems: string;
+  dashboardTotalItemsDesc: string;
+  dashboardActiveSuppliers: string;
+  dashboardActiveSuppliersDesc: string;
+  dashboardPendingApprovals: string;
+  dashboardPendingApprovalsDesc: string;
+  dashboardLowStockItems: string;
+  dashboardLowStockItemsDesc: string;
+  dashboardQuickActions: string;
+  dashboardNewRequest: string;
+  dashboardNewRequestDesc: string;
+  dashboardGenerateReport: string;
+  dashboardGenerateReportDesc: string;
+  dashboardViewAnalytics: string;
+  dashboardViewAnalyticsDesc: string;
+  dashboardSyncInventory: string;
+  dashboardSyncInventoryDesc: string;
+  dashboardTrendFromLastMonth: string;
   
   // Common
   loading: string;
@@ -303,6 +325,28 @@ const translations: Record<Language, Translations> = {
     filter: "Filter",
     export: "Export",
     addItem: "Add Item",
+
+    // Dashboard page
+    dashboardTitle: "Dashboard",
+    dashboardDescription: "Quick overview",
+    dashboardTotalItems: "Total Items",
+    dashboardTotalItemsDesc: "In your inventory",
+    dashboardActiveSuppliers: "Active Suppliers",
+    dashboardActiveSuppliersDesc: "Managing your supply",
+    dashboardPendingApprovals: "Pending Approvals",
+    dashboardPendingApprovalsDesc: "Awaiting review",
+    dashboardLowStockItems: "Low Stock Items",
+    dashboardLowStockItemsDesc: "Needs attention",
+    dashboardQuickActions: "Quick Actions",
+    dashboardNewRequest: "New Request",
+    dashboardNewRequestDesc: "Create payment request",
+    dashboardGenerateReport: "Generate Report",
+    dashboardGenerateReportDesc: "Export inventory data",
+    dashboardViewAnalytics: "View Analytics",
+    dashboardViewAnalyticsDesc: "Spending insights",
+    dashboardSyncInventory: "Sync Inventory",
+    dashboardSyncInventoryDesc: "Update stock levels",
+    dashboardTrendFromLastMonth: "from last month",
     
     // Common
     loading: "Loading...",

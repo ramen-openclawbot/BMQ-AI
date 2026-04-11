@@ -1,16 +1,18 @@
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Plus, FileText, TrendingUp, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 
-const actions = [
-  { icon: Plus, label: "New Request", description: "Create payment request", path: "/payment-requests" },
-  { icon: FileText, label: "Generate Report", description: "Export inventory data", path: null },
-  { icon: TrendingUp, label: "View Analytics", description: "Spending insights", path: null },
-  { icon: RefreshCw, label: "Sync Inventory", description: "Update stock levels", path: null },
-];
-
 export function QuickActions() {
   const navigate = useNavigate();
+  const { t } = useLanguage();
+
+  const actions = [
+    { icon: Plus, label: t.dashboardNewRequest, description: t.dashboardNewRequestDesc, path: "/payment-requests" },
+    { icon: FileText, label: t.dashboardGenerateReport, description: t.dashboardGenerateReportDesc, path: null },
+    { icon: TrendingUp, label: t.dashboardViewAnalytics, description: t.dashboardViewAnalyticsDesc, path: null },
+    { icon: RefreshCw, label: t.dashboardSyncInventory, description: t.dashboardSyncInventoryDesc, path: null },
+  ];
 
   const handleClick = (path: string | null) => {
     if (path) {
@@ -20,7 +22,7 @@ export function QuickActions() {
 
   return (
     <div className="card-elevated rounded-xl border border-border p-6">
-      <h3 className="font-display text-lg font-semibold mb-4">Quick Actions</h3>
+      <h3 className="font-display text-lg font-semibold mb-4">{t.dashboardQuickActions}</h3>
       <div className="grid grid-cols-2 gap-3">
         {actions.map((action) => (
           <Button

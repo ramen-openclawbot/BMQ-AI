@@ -1,5 +1,6 @@
 import { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface StatCardProps {
   title: string;
@@ -21,6 +22,8 @@ export function StatCard({
   trend,
   variant = "default" 
 }: StatCardProps) {
+  const { t } = useLanguage();
+
   return (
     <div className="stat-card animate-fade-in">
       <div className="flex items-start justify-between">
@@ -37,7 +40,7 @@ export function StatCard({
               "mt-2 text-sm font-medium",
               trend.isPositive ? "text-success" : "text-destructive"
             )}>
-              {trend.isPositive ? "↑" : "↓"} {Math.abs(trend.value)}% from last month
+              {trend.isPositive ? "↑" : "↓"} {Math.abs(trend.value)}% {t.dashboardTrendFromLastMonth}
             </p>
           )}
         </div>
