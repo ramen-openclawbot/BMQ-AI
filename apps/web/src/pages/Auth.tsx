@@ -71,21 +71,10 @@ export default function Auth() {
         }
 
         if (code) {
-          // With PKCE/code flow, let Supabase SDK detect + exchange from URL.
-          // Poll briefly for the resulting session, then navigate.
-          for (let i = 0; i < 12; i++) {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session?.user) {
-              window.history.replaceState(null, "", "/");
-              await new Promise(resolve => setTimeout(resolve, 150));
-              navigate("/", { replace: true });
-              return;
-            }
-            await new Promise(resolve => setTimeout(resolve, 250));
-          }
-
-          window.history.replaceState(null, "", "/auth");
-          setError("Đăng nhập Google chưa hoàn tất. Vui lòng bấm Đăng nhập bằng Google và thử lại.");
+          // PKCE/code flow: avoid competing with AuthContext/Supabase auto-detect.
+          // Keep the callback URL briefly so the SDK can finish exchange, then let
+          // AuthContext redirect after session becomes available.
+          await new Promise(resolve => setTimeout(resolve, 1200));
           setProcessingCallback(false);
           return;
         }
