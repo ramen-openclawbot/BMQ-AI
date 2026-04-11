@@ -1,4 +1,3 @@
-import { useLanguage } from "@/contexts/LanguageContext";
 import { Package, Users, FileCheck, AlertTriangle } from "lucide-react";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { QuickActions } from "@/components/dashboard/QuickActions";
@@ -8,7 +7,6 @@ import { useSuppliers } from "@/hooks/useSuppliers";
 import { usePaymentRequests } from "@/hooks/usePaymentRequests";
 
 const Index = () => {
-  const { t } = useLanguage();
   const { data: inventory, isLoading: inventoryLoading } = useInventory();
   const { data: suppliers, isLoading: suppliersLoading } = useSuppliers();
   const { data: lowStockItems, isLoading: lowStockLoading } = useLowStockItems();
@@ -21,35 +19,35 @@ const Index = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-display font-bold text-foreground">{t.dashboardTitle}</h1>
-          <p className="text-muted-foreground mt-1">{t.dashboardDescription}</p>
+          <h1 className="text-3xl font-display font-bold text-foreground">Dashboard</h1>
+          <p className="text-muted-foreground mt-1">Tổng quan nhanh</p>
         </div>
         <AddPaymentRequestDialog />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          title={t.dashboardTotalItems}
+          title="Total Items"
           value={isLoading ? "..." : String(inventory?.length || 0)}
-          subtitle={t.dashboardTotalItemsDesc}
+          subtitle="In your inventory"
           icon={Package}
         />
         <StatCard
-          title={t.dashboardActiveSuppliers}
+          title="Active Suppliers"
           value={isLoading ? "..." : String(suppliers?.length || 0)}
-          subtitle={t.dashboardActiveSuppliersDesc}
+          subtitle="Managing your supply"
           icon={Users}
         />
         <StatCard
-          title={t.dashboardPendingApprovals}
+          title="Pending Approvals"
           value={isLoading ? "..." : String(pendingPaymentRequests)}
-          subtitle={t.dashboardPendingApprovalsDesc}
+          subtitle="Awaiting review"
           icon={FileCheck}
         />
         <StatCard
-          title={t.dashboardLowStockItems}
+          title="Low Stock Items"
           value={isLoading ? "..." : String(lowStockItems?.length || 0)}
-          subtitle={t.dashboardLowStockItemsDesc}
+          subtitle="Needs attention"
           icon={AlertTriangle}
           variant={lowStockItems?.length ? "warning" : undefined}
         />
