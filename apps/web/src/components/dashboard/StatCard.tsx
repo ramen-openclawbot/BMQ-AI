@@ -1,7 +1,7 @@
 import { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Card, CardContent, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 
 interface StatCardProps {
   title: string;
@@ -30,12 +30,12 @@ export function StatCard({
       <CardContent className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <CardDescription className="flex items-center gap-1 text-sm">{title}</CardDescription>
-            <div className="mt-2 text-2xl font-bold text-card-foreground">
+            <p className="text-sm font-medium text-card-foreground/80">{title}</p>
+            <p className="mt-2 text-3xl font-display font-bold text-card-foreground">
               {value}
-            </div>
+            </p>
             {subtitle && (
-              <CardDescription className="mt-1">{subtitle}</CardDescription>
+              <p className="mt-1 text-sm text-card-foreground/70">{subtitle}</p>
             )}
             {trend && (
               <p className={cn(
