@@ -197,6 +197,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    const isAuthRoute = window.location.pathname === "/auth";
+    const isOAuthCallback = isAuthRoute && (window.location.search.includes("code=") || window.location.hash.includes("access_token") || window.location.search.includes("error=") || window.location.hash.includes("error="));
 
     // Watchdog: if loading takes too long, stop spinner and allow recovery UI
     const timeoutId = setTimeout(async () => {
@@ -324,7 +326,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    initializeAuth();
+    if (isOAuthCallback) {
+      // Avoid racing Auth.tsx / Supabase URL session detection during OAuth callback.
+      // Let the callback page finish first, then auth state listener will update session.
+      setLoading(false);
+      initialLoadCompleteRef.current = true;
+    } else {
+      initializeAuth();
+    }
 
     return () => {
       mounted = false;
