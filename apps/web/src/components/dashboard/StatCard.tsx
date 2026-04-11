@@ -1,6 +1,7 @@
 import { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { Card, CardContent } from "@/components/ui/card";
 
 interface StatCardProps {
   title: string;
@@ -25,37 +26,39 @@ export function StatCard({
   const { t } = useLanguage();
 
   return (
-    <div className="stat-card animate-fade-in">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-card-foreground/80">{title}</p>
-          <p className="mt-2 text-3xl font-display font-bold text-card-foreground">
-            {value}
-          </p>
-          {subtitle && (
-            <p className="mt-1 text-sm text-card-foreground/70">{subtitle}</p>
-          )}
-          {trend && (
-            <p className={cn(
-              "mt-2 text-sm font-medium",
-              trend.isPositive ? "text-success" : "text-destructive"
-            )}>
-              {trend.isPositive ? "↑" : "↓"} {Math.abs(trend.value)}% {t.dashboardTrendFromLastMonth}
+    <Card className="animate-fade-in border-border bg-card text-card-foreground shadow-sm">
+      <CardContent className="p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-card-foreground/80">{title}</p>
+            <p className="mt-2 text-3xl font-display font-bold text-card-foreground">
+              {value}
             </p>
-          )}
+            {subtitle && (
+              <p className="mt-1 text-sm text-card-foreground/70">{subtitle}</p>
+            )}
+            {trend && (
+              <p className={cn(
+                "mt-2 text-sm font-medium",
+                trend.isPositive ? "text-success" : "text-destructive"
+              )}>
+                {trend.isPositive ? "↑" : "↓"} {Math.abs(trend.value)}% {t.dashboardTrendFromLastMonth}
+              </p>
+            )}
+          </div>
+          <div className={cn(
+            "flex h-12 w-12 items-center justify-center rounded-xl",
+            variant === "warning" ? "bg-warning/10" : 
+            variant === "success" ? "bg-success/10" : "bg-primary/10"
+          )}>
+            <Icon className={cn(
+              "h-6 w-6",
+              variant === "warning" ? "text-warning" : 
+              variant === "success" ? "text-success" : "text-primary"
+            )} />
+          </div>
         </div>
-        <div className={cn(
-          "flex h-12 w-12 items-center justify-center rounded-xl",
-          variant === "warning" ? "bg-warning/10" : 
-          variant === "success" ? "bg-success/10" : "bg-primary/10"
-        )}>
-          <Icon className={cn(
-            "h-6 w-6",
-            variant === "warning" ? "text-warning" : 
-            variant === "success" ? "text-success" : "text-primary"
-          )} />
-        </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }

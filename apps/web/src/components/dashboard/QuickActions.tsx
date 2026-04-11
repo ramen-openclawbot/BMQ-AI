@@ -1,6 +1,7 @@
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Plus, FileText, TrendingUp, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useNavigate } from "react-router-dom";
 
 export function QuickActions() {
@@ -21,11 +22,11 @@ export function QuickActions() {
   };
 
   return (
-    <div className="card-elevated rounded-xl border border-border overflow-hidden">
-      <div className="px-6 py-4 border-b border-border">
-        <h3 className="font-display text-lg font-semibold text-card-foreground">{t.dashboardQuickActions}</h3>
-      </div>
-      <div className="grid grid-cols-2 gap-3 p-6">
+    <Card>
+      <CardHeader>
+        <CardTitle className="font-display text-lg">{t.dashboardQuickActions}</CardTitle>
+      </CardHeader>
+      <CardContent className="grid grid-cols-2 gap-3 pt-0">
         {actions.map((action) => (
           <Button
             key={action.label}
@@ -40,7 +41,7 @@ export function QuickActions() {
             </div>
           </Button>
         ))}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
