@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { getFreshAccessToken } from "@/lib/supabase-helpers";
+import { useLanguage } from "@/contexts/LanguageContext";
 import ExcelJS from "exceljs";
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { SalesPoQuickViewEditor } from "@/components/mini-crm/SalesPoQuickViewEditor";
@@ -358,6 +359,8 @@ const parseEmailBodyToProductionItems = (subject?: string, body?: string, aiConf
 export default function MiniCrm() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { language } = useLanguage();
+  const isVi = language === "vi";
   const location = useLocation();
   const { isOwner, roles, canEditModule } = useAuth();
   const isSalesPoPage = location.pathname === "/sales-po-inbox";
@@ -365,6 +368,24 @@ export default function MiniCrm() {
   const approveKbDisabledReason = canApproveKb
     ? ""
     : "Bạn không có quyền duyệt & áp dụng KB. Cần role Owner/Staff hoặc quyền edit module CRM / PO (Bán hàng).";
+  const ui = {
+    pageTitle: isSalesPoPage ? (isVi ? "PO (Bán hàng)" : "Sales PO") : "CRM",
+    pageDesc: isSalesPoPage
+      ? (isVi ? "Duyệt tay PO từ hộp thư po@bmq.vn và đẩy doanh thu." : "Manually review POs from po@bmq.vn and post revenue.")
+      : (isVi ? "Quản lý thông tin khách hàng và map email nhận diện." : "Manage customer information and email mapping."),
+    gmailHint: isVi ? "Kết nối Gmail PO được cấu hình trong Settings." : "PO Gmail connection is configured in Settings.",
+    gmailNotConnected: isVi ? "Chưa kết nối Gmail PO" : "PO Gmail not connected",
+    syncPo: isVi ? "Sync PO" : "Sync PO",
+    syncTitle: isVi ? "Sync PO từ Gmail" : "Sync PO from Gmail",
+    syncDesc: isVi ? "Đồng bộ để xem trước, chỉ nhập vào hệ thống khi bấm \"Nhập PO vào hệ thống\"." : "Sync for preview, and only import into the system when you click \"Import PO into system\".",
+    customersSetup: isVi ? "Thiết lập khách hàng" : "Customer setup",
+    customersList: isVi ? "Danh sách khách hàng" : "Customer list",
+    customerSearch: isVi ? "Tìm khách hàng (hỗ trợ tiếng Việt: ví dụ 'my tho', 'mỹ thọ', email...)" : "Search customers (name, email...)",
+    clear: isVi ? "Xoá" : "Clear",
+    noCustomers: isVi ? "Không tìm thấy khách hàng phù hợp." : "No matching customers found.",
+    poInbox: isVi ? "PO Inbox tự động" : "Automatic PO inbox",
+    poInboxDesc: isVi ? "Email PO được parse tự động, merge theo khách hàng và ngày giao. Chỉ mở PO khi cần chỉnh sửa hoặc xử lý exception." : "PO emails are auto-parsed and merged by customer and delivery date. Open a PO only when edits or exceptions are needed.",
+  };
 
   const [customerName, setCustomerName] = useState("");
   const [customerGroup, setCustomerGroup] = useState("banhmi_point");
@@ -2617,17 +2638,15 @@ export default function MiniCrm() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-display font-bold">{isSalesPoPage ? "PO (Bán hàng)" : "CRM"}</h1>
+          <h1 className="text-3xl font-display font-bold">{ui.pageTitle}</h1>
           <p className="text-muted-foreground">
-            {isSalesPoPage
-              ? "Duyệt tay PO từ hộp thư po@bmq.vn và đẩy doanh thu."
-              : "Quản lý thông tin khách hàng và map email nhận diện."}
+            {ui.pageDesc}
           </p>
-          {isSalesPoPage && <p className="text-xs text-muted-foreground mt-1">Kết nối Gmail PO được cấu hình trong Settings.</p>}
+          {isSalesPoPage && <p className="text-xs text-muted-foreground mt-1">{ui.gmailHint}</p>}
         </div>
         {isSalesPoPage && (
           <div className="flex flex-col gap-2 items-end">
-            {gmailConnectedEmail ? <Badge>{gmailConnectedEmail}</Badge> : <Badge variant="secondary">Chưa kết nối Gmail PO</Badge>}
+            {gmailConnectedEmail ? <Badge>{gmailConnectedEmail}</Badge> : <Badge variant="secondary">{ui.gmailNotConnected}</Badge>}
             <div className="flex items-center gap-2">
               <Input type="date" value={syncDate} onChange={(e) => setSyncDate(e.target.value)} className="w-[150px] h-9" />
               <Button onClick={() => { setSyncModalOpen(true); syncGmailMutation.mutate(); }} disabled={syncGmailMutation.isPending || !gmailConnectedEmail}>
@@ -2644,8 +2663,8 @@ export default function MiniCrm() {
         <Dialog open={syncModalOpen} onOpenChange={setSyncModalOpen}>
           <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Sync PO từ Gmail</DialogTitle>
-              <DialogDescription>Đồng bộ để xem trước, chỉ nhập vào hệ thống khi bấm "Nhập PO vào hệ thống".</DialogDescription>
+              <DialogTitle>{ui.syncTitle}</DialogTitle>
+              <DialogDescription>{ui.syncDesc}</DialogDescription>
             </DialogHeader>
 
             <div className="text-xs rounded-md border bg-muted/30 p-3 space-y-1">
@@ -2781,13 +2800,13 @@ export default function MiniCrm() {
       {!isSalesPoPage && (
       <> 
       <div className="flex justify-end">
-        <Button onClick={() => setSetupModalOpen(true)}>Thiết lập khách hàng</Button>
+        <Button onClick={() => setSetupModalOpen(true)}>{ui.customersSetup}</Button>
       </div>
 
       <Dialog open={setupModalOpen} onOpenChange={setSetupModalOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Thiết lập khách hàng</DialogTitle>
+            <DialogTitle>{ui.customersSetup}</DialogTitle>
             <DialogDescription>Tạo mới khách hàng, upload hợp đồng, thiết lập giá bán SKU và mẫu PO.</DialogDescription>
           </DialogHeader>
 
@@ -2917,18 +2936,18 @@ export default function MiniCrm() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Danh sách khách hàng</CardTitle>
+          <CardTitle>{ui.customersList}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="mb-3 flex items-center gap-2">
             <Input
               value={customerSearch}
               onChange={(e) => setCustomerSearch(e.target.value)}
-              placeholder="Tìm khách hàng (hỗ trợ tiếng Việt: ví dụ 'my tho', 'mỹ thọ', email...)"
+              placeholder={ui.customerSearch}
               className="max-w-md"
             />
             {customerSearch && (
-              <Button type="button" variant="ghost" size="sm" onClick={() => setCustomerSearch("")}>Xoá</Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setCustomerSearch("")}>{ui.clear}</Button>
             )}
           </div>
           {editFeedback && (
@@ -3009,7 +3028,7 @@ export default function MiniCrm() {
               })}
               {filteredCustomers.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-muted-foreground py-6">Không tìm thấy khách hàng phù hợp.</TableCell>
+                  <TableCell colSpan={9} className="text-center text-muted-foreground py-6">{ui.noCustomers}</TableCell>
                 </TableRow>
               )}
             </TableBody>
@@ -3026,8 +3045,8 @@ export default function MiniCrm() {
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <CardTitle className="text-2xl">PO Inbox tự động</CardTitle>
-              <CardDescription className="mt-1">Email PO được parse tự động, merge theo khách hàng và ngày giao. Chỉ mở PO khi cần chỉnh sửa hoặc xử lý exception.</CardDescription>
+              <CardTitle className="text-2xl">{ui.poInbox}</CardTitle>
+              <CardDescription className="mt-1">{ui.poInboxDesc}</CardDescription>
             </div>
             <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
               <div className="rounded-lg border bg-background/80 px-3 py-2">

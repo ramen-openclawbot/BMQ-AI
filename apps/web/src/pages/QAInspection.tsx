@@ -34,6 +34,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { format } from "date-fns";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface QAInspection {
   id: string;
@@ -71,6 +72,38 @@ interface ProductionOrder {
 }
 
 export default function QAInspection() {
+  const { language } = useLanguage();
+  const isVi = language === "vi";
+  const copy = {
+    success: isVi ? "Thành công" : "Success",
+    error: isVi ? "Lỗi" : "Error",
+    created: isVi ? "Đã tạo phiếu QA" : "QA record created",
+    createFailed: isVi ? "Không thể tạo phiếu QA" : "Unable to create QA record",
+    approved: isVi ? "Đã duyệt QA & nhập kho thành phẩm" : "QA approved and finished goods stocked",
+    approveFailed: isVi ? "Không thể duyệt QA" : "Unable to approve QA",
+    rejected: isVi ? "Đã từ chối QA" : "QA rejected",
+    rejectFailed: isVi ? "Không thể từ chối QA" : "Unable to reject QA",
+    pending: isVi ? "Chờ kiểm tra" : "Pending",
+    approvedLabel: isVi ? "Đã duyệt" : "Approved",
+    rejectedLabel: isVi ? "Từ chối" : "Rejected",
+    title: isVi ? "Kiểm Tra Chất Lượng" : "Quality Inspection",
+    createTitle: isVi ? "Tạo phiếu QA" : "Create QA record",
+    all: isVi ? "Tất cả" : "All",
+    qaCode: isVi ? "Mã QA" : "QA ID",
+    productionOrder: isVi ? "Lệnh SX" : "Production order",
+    productionShift: isVi ? "Ca SX" : "Shift",
+    status: isVi ? "Trạng thái" : "Status",
+    inspector: isVi ? "Người kiểm tra" : "Inspector",
+    inspectionDate: isVi ? "Ngày kiểm tra" : "Inspection date",
+    photos: isVi ? "Ảnh" : "Photos",
+    actions: isVi ? "Hành động" : "Actions",
+    noData: isVi ? "Không có dữ liệu" : "No data",
+    details: isVi ? "Chi tiết" : "Details",
+    cancel: isVi ? "Hủy" : "Cancel",
+    create: isVi ? "Tạo phiếu" : "Create record",
+    close: isVi ? "Đóng" : "Close",
+    approve: isVi ? "Duyệt" : "Approve",
+  };
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [filterStatus, setFilterStatus] = useState<"all" | "pending" | "approved" | "rejected">("all");
@@ -222,8 +255,8 @@ export default function QAInspection() {
     },
     onSuccess: () => {
       toast({
-        title: "Thành công",
-        description: "Đã tạo phiếu QA",
+        title: copy.success,
+        description: copy.created,
       });
       queryClient.invalidateQueries({ queryKey: ["qa_inspections"] });
       setCreateOpen(false);
@@ -238,8 +271,8 @@ export default function QAInspection() {
     },
     onError: (error) => {
       toast({
-        title: "Lỗi",
-        description: "Không thể tạo phiếu QA",
+        title: copy.error,
+        description: copy.createFailed,
         variant: "destructive",
       });
       console.error(error);
@@ -334,8 +367,8 @@ export default function QAInspection() {
     },
     onSuccess: () => {
       toast({
-        title: "Thành công",
-        description: "Đã duyệt QA & nhập kho thành phẩm",
+        title: copy.success,
+        description: copy.approved,
       });
       queryClient.invalidateQueries({ queryKey: ["qa_inspections"] });
       queryClient.invalidateQueries({ queryKey: ["inventory_items"] });
@@ -344,8 +377,8 @@ export default function QAInspection() {
     },
     onError: (error) => {
       toast({
-        title: "Lỗi",
-        description: "Không thể duyệt QA",
+        title: copy.error,
+        description: copy.approveFailed,
         variant: "destructive",
       });
       console.error(error);
@@ -368,8 +401,8 @@ export default function QAInspection() {
     },
     onSuccess: () => {
       toast({
-        title: "Thành công",
-        description: "Đã từ chối QA",
+        title: copy.success,
+        description: copy.rejected,
       });
       queryClient.invalidateQueries({ queryKey: ["qa_inspections"] });
       setDetailOpen(false);
@@ -378,8 +411,8 @@ export default function QAInspection() {
     },
     onError: (error) => {
       toast({
-        title: "Lỗi",
-        description: "Không thể từ chối QA",
+        title: copy.error,
+        description: copy.rejectFailed,
         variant: "destructive",
       });
       console.error(error);
@@ -495,11 +528,11 @@ export default function QAInspection() {
   const getStatusLabel = (status: string) => {
     switch (status) {
       case "pending":
-        return "Chờ kiểm tra";
+        return copy.pending;
       case "approved":
-        return "Đã duyệt";
+        return copy.approvedLabel;
       case "rejected":
-        return "Từ chối";
+        return copy.rejectedLabel;
       default:
         return status;
     }
@@ -511,11 +544,11 @@ export default function QAInspection() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <ClipboardCheck className="h-8 w-8 text-blue-600" />
-          <h1 className="text-3xl font-bold">Kiểm Tra Chất Lượng</h1>
+          <h1 className="text-3xl font-bold">{copy.title}</h1>
         </div>
         <Button onClick={() => setCreateOpen(true)} className="gap-2">
           <Plus className="h-4 w-4" />
-          Tạo phiếu QA
+          {copy.createTitle}
         </Button>
       </div>
 
@@ -524,7 +557,7 @@ export default function QAInspection() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-gray-600">
-              Chờ kiểm tra
+              {copy.pending}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -534,7 +567,7 @@ export default function QAInspection() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-gray-600">
-              Đã duyệt
+              {copy.approvedLabel}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -544,7 +577,7 @@ export default function QAInspection() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-gray-600">
-              Từ chối
+              {copy.rejectedLabel}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -556,10 +589,10 @@ export default function QAInspection() {
       {/* Tabs */}
       <div className="flex gap-2 border-b">
         {[
-          { value: "all", label: "Tất cả" },
-          { value: "pending", label: "Chờ kiểm tra" },
-          { value: "approved", label: "Đã duyệt" },
-          { value: "rejected", label: "Từ chối" },
+          { value: "all", label: copy.all },
+          { value: "pending", label: copy.pending },
+          { value: "approved", label: copy.approvedLabel },
+          { value: "rejected", label: copy.rejectedLabel },
         ].map((tab) => (
           <button
             key={tab.value}
@@ -582,14 +615,14 @@ export default function QAInspection() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Mã QA</TableHead>
-              <TableHead>Lệnh SX</TableHead>
-              <TableHead>Ca SX</TableHead>
-              <TableHead>Trạng thái</TableHead>
-              <TableHead>Người kiểm tra</TableHead>
-              <TableHead>Ngày kiểm tra</TableHead>
-              <TableHead>Ảnh</TableHead>
-              <TableHead>Hành động</TableHead>
+              <TableHead>{copy.qaCode}</TableHead>
+              <TableHead>{copy.productionOrder}</TableHead>
+              <TableHead>{copy.productionShift}</TableHead>
+              <TableHead>{copy.status}</TableHead>
+              <TableHead>{copy.inspector}</TableHead>
+              <TableHead>{copy.inspectionDate}</TableHead>
+              <TableHead>{copy.photos}</TableHead>
+              <TableHead>{copy.actions}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -602,7 +635,7 @@ export default function QAInspection() {
             ) : inspections.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} className="text-center py-8 text-gray-500">
-                  Không có dữ liệu
+                  {copy.noData}
                 </TableCell>
               </TableRow>
             ) : (
@@ -654,7 +687,7 @@ export default function QAInspection() {
                       size="sm"
                       onClick={() => handleOpenDetail(inspection)}
                     >
-                      Chi tiết
+                      {copy.details}
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -668,13 +701,13 @@ export default function QAInspection() {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Tạo phiếu QA</DialogTitle>
+            <DialogTitle>{copy.createTitle}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4">
             {/* Production Order Select */}
             <div>
-              <label className="text-sm font-medium">Lệnh SX</label>
+              <label className="text-sm font-medium">{copy.productionOrder}</label>
               <select
                 className="w-full mt-2 px-3 py-2 border rounded-md"
                 value={createForm.production_order_id}
@@ -685,7 +718,7 @@ export default function QAInspection() {
                   })
                 }
               >
-                <option value="">-- Chọn lệnh SX --</option>
+                <option value="">{isVi ? "-- Chọn lệnh SX --" : "-- Select production order --"}</option>
                 {productionOrders.map((order: ProductionOrder) => (
                   <option key={order.id} value={order.id}>
                     {order.production_number}
@@ -696,7 +729,7 @@ export default function QAInspection() {
 
             {/* Production Shift Select */}
             <div>
-              <label className="text-sm font-medium">Ca SX (tùy chọn)</label>
+              <label className="text-sm font-medium">{isVi ? "Ca SX (tùy chọn)" : "Shift (optional)"}</label>
               <select
                 className="w-full mt-2 px-3 py-2 border rounded-md"
                 value={createForm.production_shift_id}
@@ -707,7 +740,7 @@ export default function QAInspection() {
                   })
                 }
               >
-                <option value="">-- Chọn ca SX --</option>
+                <option value="">{isVi ? "-- Chọn ca SX --" : "-- Select shift --"}</option>
                 {productionShifts.map((shift: any) => (
                   <option key={shift.id} value={shift.id}>
                     {shift.shift_name} ({format(new Date(shift.shift_date), "dd/MM/yyyy")})
@@ -718,10 +751,10 @@ export default function QAInspection() {
 
             {/* Inspected By */}
             <div>
-              <label className="text-sm font-medium">Người kiểm tra</label>
+              <label className="text-sm font-medium">{copy.inspector}</label>
               <Input
                 className="mt-2"
-                placeholder="Nhập tên người kiểm tra"
+                placeholder={isVi ? "Nhập tên người kiểm tra" : "Enter inspector name"}
                 value={createForm.inspected_by}
                 onChange={(e) =>
                   setCreateForm({ ...createForm, inspected_by: e.target.value })
@@ -897,7 +930,7 @@ export default function QAInspection() {
 
           <div className="flex gap-2 justify-end mt-6">
             <Button variant="outline" onClick={() => setCreateOpen(false)}>
-              Hủy
+              {copy.cancel}
             </Button>
             <Button
               onClick={() => createMutation.mutate(createForm)}
@@ -906,7 +939,7 @@ export default function QAInspection() {
               {createMutation.isPending && (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               )}
-              Tạo phiếu
+              {copy.create}
             </Button>
           </div>
         </DialogContent>
@@ -916,7 +949,7 @@ export default function QAInspection() {
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Chi tiết phiếu QA</DialogTitle>
+            <DialogTitle>{isVi ? "Chi tiết phiếu QA" : "QA record details"}</DialogTitle>
           </DialogHeader>
 
           {selectedInspection && (
@@ -1145,7 +1178,7 @@ export default function QAInspection() {
                     {rejectMutation.isPending && (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     )}
-                    Từ chối
+                    {copy.rejectedLabel}
                   </Button>
                   <Button
                     onClick={() => {
@@ -1160,7 +1193,7 @@ export default function QAInspection() {
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     )}
                     <CheckCircle2 className="h-4 w-4 mr-2" />
-                    Duyệt
+                    {copy.approve}
                   </Button>
                 </div>
               )}
@@ -1171,7 +1204,7 @@ export default function QAInspection() {
                   onClick={() => setDetailOpen(false)}
                   className="w-full"
                 >
-                  Đóng
+                  {copy.close}
                 </Button>
               )}
             </div>

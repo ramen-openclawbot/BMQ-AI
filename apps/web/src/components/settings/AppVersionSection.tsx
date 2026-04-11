@@ -2,6 +2,7 @@ import { Info } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useAppVersion } from "@/hooks/useAppVersion";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 // Declare the global build version injected by Vite
 declare const __APP_VERSION__: string;
@@ -24,6 +25,8 @@ function formatBuildTime(timestamp: string): string {
 }
 
 export function AppVersionSection() {
+  const { language } = useLanguage();
+  const isVi = language === "vi";
   const { version, isLoading } = useAppVersion();
   const buildTime = formatBuildTime(__APP_VERSION__);
 
@@ -31,14 +34,14 @@ export function AppVersionSection() {
     <div className="card-elevated rounded-xl border border-border p-6 space-y-4">
       <div className="flex items-center gap-3">
         <Info className="h-5 w-5 text-primary" />
-        <h2 className="font-display font-semibold text-lg">Thông tin ứng dụng</h2>
+        <h2 className="font-display font-semibold text-lg">{isVi ? "Thông tin ứng dụng" : "Application Info"}</h2>
       </div>
       <Separator />
       <div className="flex items-center justify-between">
         <div>
-          <p className="font-medium">Phiên bản</p>
+          <p className="font-medium">{isVi ? "Phiên bản" : "Version"}</p>
           <p className="text-sm text-muted-foreground">
-            Phiên bản hiện tại của ứng dụng
+            {isVi ? "Phiên bản hiện tại của ứng dụng" : "Current application version"}
           </p>
         </div>
         {isLoading ? (
@@ -53,7 +56,7 @@ export function AppVersionSection() {
         <div>
           <p className="font-medium">Build time</p>
           <p className="text-sm text-muted-foreground">
-            Thời điểm build ứng dụng
+            {isVi ? "Thời điểm build ứng dụng" : "Application build time"}
           </p>
         </div>
         <span className="text-sm font-mono bg-muted px-3 py-1.5 rounded-md">

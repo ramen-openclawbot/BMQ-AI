@@ -83,7 +83,7 @@ export default function PurchaseOrders() {
       case "sent":
         return <Badge className="bg-blue-500 hover:bg-blue-600 gap-1"><Send className="h-3 w-3" />{isVi ? "Đã gửi" : "Sent"}</Badge>;
       case "in_transit":
-        return <Badge className="bg-orange-500 hover:bg-orange-600 gap-1"><Package className="h-3 w-3" />Đang vận chuyển</Badge>;
+        return <Badge className="bg-orange-500 hover:bg-orange-600 gap-1"><Package className="h-3 w-3" />{isVi ? "Đang vận chuyển" : "In transit"}</Badge>;
       case "completed":
         return <Badge className="bg-green-500 hover:bg-green-600 gap-1"><CheckCircle className="h-3 w-3" />{isVi ? "Hoàn thành" : "Completed"}</Badge>;
       case "cancelled":
@@ -118,10 +118,10 @@ export default function PurchaseOrders() {
     if (!deleteOrderId) return;
     try {
       await deletePO.mutateAsync(deleteOrderId);
-      toast.success("Đã xóa đơn đặt hàng");
+      toast.success(isVi ? "Đã xóa đơn đặt hàng" : "Purchase order deleted");
       setDeleteOrderId(null);
     } catch (error) {
-      toast.error("Lỗi khi xóa đơn đặt hàng");
+      toast.error(isVi ? "Lỗi khi xóa đơn đặt hàng" : "Failed to delete purchase order");
     }
   };
 
@@ -231,7 +231,7 @@ export default function PurchaseOrders() {
           <AlertDialogFooter>
             <AlertDialogCancel>{isVi ? "Hủy" : "Cancel"}</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} disabled={deletePO.isPending} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              {deletePO.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}Xóa
+              {deletePO.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}{isVi ? "Xóa" : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

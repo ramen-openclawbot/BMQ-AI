@@ -25,7 +25,8 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { format, addDays, startOfWeek, eachDayOfInterval, parseISO } from "date-fns";
-import { vi } from "date-fns/locale";
+import { vi, enUS } from "date-fns/locale";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface ProductionOrder {
   id: string;
@@ -67,9 +68,16 @@ interface ProductionShift {
 }
 
 const shiftTypeLabels = {
-  morning: "Sáng",
-  afternoon: "Chiều",
-  night: "Đêm",
+  vi: {
+    morning: "Sáng",
+    afternoon: "Chiều",
+    night: "Đêm",
+  },
+  en: {
+    morning: "Morning",
+    afternoon: "Afternoon",
+    night: "Night",
+  },
 };
 
 const shiftTypeColors = {
@@ -86,10 +94,18 @@ const statusBadgeColors = {
 };
 
 const statusLabels = {
-  scheduled: "Dự kiến",
-  in_progress: "Đang chạy",
-  completed: "Hoàn thành",
-  cancelled: "Hủy",
+  vi: {
+    scheduled: "Dự kiến",
+    in_progress: "Đang chạy",
+    completed: "Hoàn thành",
+    cancelled: "Hủy",
+  },
+  en: {
+    scheduled: "Scheduled",
+    in_progress: "In progress",
+    completed: "Completed",
+    cancelled: "Cancelled",
+  },
 };
 
 function CreateShiftDialog({
@@ -99,6 +115,25 @@ function CreateShiftDialog({
   isOpen: boolean;
   onClose: () => void;
 }) {
+  const { language } = useLanguage();
+  const isVi = language === "vi";
+  const copy = {
+    fillAll: isVi ? "Vui lòng điền đầy đủ thông tin" : "Please fill in all required information",
+    success: isVi ? "Thành công" : "Success",
+    created: isVi ? "Ca sản xuất đã được tạo" : "Production shift created",
+    error: isVi ? "Lỗi" : "Error",
+    createFailed: isVi ? "Không thể tạo ca" : "Unable to create shift",
+    title: isVi ? "Tạo ca sản xuất" : "Create production shift",
+    order: isVi ? "Đơn hàng sản xuất" : "Production order",
+    selectOrder: isVi ? "Chọn đơn hàng" : "Select order",
+    shiftDate: isVi ? "Ngày ca" : "Shift date",
+    shiftType: isVi ? "Loại ca" : "Shift type",
+    assignee: isVi ? "Người phụ trách" : "Assignee",
+    assigneePlaceholder: isVi ? "Nhập tên người phụ trách" : "Enter assignee name",
+    products: isVi ? "Sản phẩm" : "Products",
+    cancel: isVi ? "Hủy" : "Cancel",
+    create: isVi ? "Tạo ca" : "Create shift",
+  };
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [selectedOrder, setSelectedOrder] = useState<string>("");
@@ -152,7 +187,7 @@ function CreateShiftDialog({
   const createShiftMutation = useMutation({
     mutationFn: async () => {
       if (!selectedOrder || !shiftDate || !assignedTo) {
-        throw new Error("Vui lòng điền đầy đủ thông tin");
+        throw new Error(copy.fillAll);
       }
 
       // Generate shift code: CA-YYYYMMDD-S/C/T
@@ -197,8 +232,8 @@ function CreateShiftDialog({
     },
     onSuccess: () => {
       toast({
-        title: "Thành công",
-        description: "Ca sản xuất đã được tạo",
+        title: copy.success,
+        description: copy.created,
       });
       queryClient.invalidateQueries({ queryKey: ["production-shifts"] });
       onClose();
@@ -209,8 +244,8 @@ function CreateShiftDialog({
     },
     onError: (error) => {
       toast({
-        title: "Lỗi",
-        description: error instanceof Error ? error.message : "Không thể tạo ca",
+        title: copy.error,
+        description: error instanceof Error ? error.message : copy.createFailed,
         variant: "destructive",
       });
     },
@@ -220,16 +255,16 @@ function CreateShiftDialog({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Tạo ca sản xuất</DialogTitle>
+          <DialogTitle>{copy.title}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           {/* Production Order Select */}
           <div>
-            <label className="text-sm font-medium">Đơn hàng sản xuất</label>
+            <label className="text-sm font-medium">{copy.order}</label>
             <Select value={selectedOrder} onValueChange={setSelectedOrder}>
               <SelectTrigger>
-                <SelectValue placeholder="Chọn đơn hàng" />
+                <SelectValue placeholder={copy.selectOrder} />
               </SelectTrigger>
               <SelectContent>
                 {orders.map((order) => (
@@ -243,7 +278,7 @@ function CreateShiftDialog({
 
           {/* Date Picker */}
           <div>
-            <label className="text-sm font-medium">Ngày ca</label>
+            <label className="text-sm font-medium">{copy.shiftDate}</label>
             <Input
               type="date"
               value={shiftDate}
@@ -253,7 +288,7 @@ function CreateShiftDialog({
 
           {/* Shift Type Select */}
           <div>
-            <label className="text-sm font-medium">Loại ca</label>
+            <label className="text-sm font-medium">{copy.shiftType}</label>
             <Select
               value={shiftType}
               onValueChange={(value) =>
@@ -264,18 +299,18 @@ function CreateShiftDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="morning">Sáng</SelectItem>
-                <SelectItem value="afternoon">Chiều</SelectItem>
-                <SelectItem value="night">Đêm</SelectItem>
+                <SelectItem value="morning">{shiftTypeLabels[language].morning}</SelectItem>
+                <SelectItem value="afternoon">{shiftTypeLabels[language].afternoon}</SelectItem>
+                <SelectItem value="night">{shiftTypeLabels[language].night}</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           {/* Assigned To */}
           <div>
-            <label className="text-sm font-medium">Người phụ trách</label>
+            <label className="text-sm font-medium">{copy.assignee}</label>
             <Input
-              placeholder="Nhập tên người phụ trách"
+              placeholder={copy.assigneePlaceholder}
               value={assignedTo}
               onChange={(e) => setAssignedTo(e.target.value)}
             />
@@ -284,7 +319,7 @@ function CreateShiftDialog({
           {/* Items */}
           {selectedOrder && orderItems.length > 0 && (
             <div>
-              <label className="text-sm font-medium">Sản phẩm</label>
+              <label className="text-sm font-medium">{copy.products}</label>
               <div className="space-y-2 max-h-48 overflow-y-auto border rounded p-2">
                 {orderItems.map((item) => (
                   <div key={item.id} className="flex gap-2 items-center">
@@ -315,7 +350,7 @@ function CreateShiftDialog({
           {/* Buttons */}
           <div className="flex gap-2 justify-end">
             <Button variant="outline" onClick={onClose}>
-              Hủy
+              {copy.cancel}
             </Button>
             <Button
               onClick={() => createShiftMutation.mutate()}
@@ -329,7 +364,7 @@ function CreateShiftDialog({
               {createShiftMutation.isPending && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
-              Tạo ca
+              {copy.create}
             </Button>
           </div>
         </div>
@@ -347,6 +382,28 @@ function ShiftDetailDialog({
   isOpen: boolean;
   onClose: () => void;
 }) {
+  const { language } = useLanguage();
+  const isVi = language === "vi";
+  const copy = {
+    success: isVi ? "Thành công" : "Success",
+    started: isVi ? "Ca đã bắt đầu" : "Shift started",
+    completed: isVi ? "Ca đã hoàn thành" : "Shift completed",
+    error: isVi ? "Lỗi" : "Error",
+    startFailed: isVi ? "Không thể bắt đầu ca" : "Unable to start shift",
+    completeFailed: isVi ? "Không thể hoàn thành ca" : "Unable to complete shift",
+    detail: isVi ? "Chi tiết ca" : "Shift details",
+    order: isVi ? "Đơn hàng:" : "Order:",
+    date: isVi ? "Ngày ca:" : "Shift date:",
+    type: isVi ? "Loại ca:" : "Shift type:",
+    assignee: isVi ? "Người phụ trách:" : "Assignee:",
+    products: isVi ? "Sản phẩm" : "Products",
+    unit: isVi ? "Đơn vị" : "Unit",
+    planned: isVi ? "Kế hoạch" : "Planned",
+    actual: isVi ? "Thực tế" : "Actual",
+    close: isVi ? "Đóng" : "Close",
+    start: isVi ? "Bắt đầu ca" : "Start shift",
+    finish: isVi ? "Hoàn thành ca" : "Complete shift",
+  };
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [actualQtys, setActualQtys] = useState<Record<string, number>>({});
@@ -406,16 +463,16 @@ function ShiftDetailDialog({
     },
     onSuccess: () => {
       toast({
-        title: "Thành công",
-        description: "Ca đã bắt đầu",
+        title: copy.success,
+        description: copy.started,
       });
       queryClient.invalidateQueries({ queryKey: ["production-shifts"] });
       queryClient.invalidateQueries({ queryKey: ["production-shift"] });
     },
     onError: (error) => {
       toast({
-        title: "Lỗi",
-        description: error instanceof Error ? error.message : "Không thể bắt đầu ca",
+        title: copy.error,
+        description: error instanceof Error ? error.message : copy.startFailed,
         variant: "destructive",
       });
     },
@@ -458,16 +515,16 @@ function ShiftDetailDialog({
     },
     onSuccess: () => {
       toast({
-        title: "Thành công",
-        description: "Ca đã hoàn thành",
+        title: copy.success,
+        description: copy.completed,
       });
       queryClient.invalidateQueries({ queryKey: ["production-shifts"] });
       onClose();
     },
     onError: (error) => {
       toast({
-        title: "Lỗi",
-        description: error instanceof Error ? error.message : "Không thể hoàn thành ca",
+        title: copy.error,
+        description: error instanceof Error ? error.message : copy.completeFailed,
         variant: "destructive",
       });
     },
@@ -479,43 +536,43 @@ function ShiftDetailDialog({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Chi tiết ca: {fullShift.shift_code}</DialogTitle>
+          <DialogTitle>{copy.detail}: {fullShift.shift_code}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           {/* Shift Info */}
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <span className="text-gray-600">Đơn hàng:</span>
+              <span className="text-gray-600">{copy.order}</span>
               <p className="font-medium">{fullShift.production_orders?.production_number}</p>
             </div>
             <div>
-              <span className="text-gray-600">Ngày ca:</span>
+              <span className="text-gray-600">{copy.date}</span>
               <p className="font-medium">
                 {format(parseISO(fullShift.shift_date), "dd/MM/yyyy")}
               </p>
             </div>
             <div>
-              <span className="text-gray-600">Loại ca:</span>
+              <span className="text-gray-600">{copy.type}</span>
               <p className="font-medium">
-                {shiftTypeLabels[fullShift.shift_type as keyof typeof shiftTypeLabels]}
+                {shiftTypeLabels[language][fullShift.shift_type]}
               </p>
             </div>
             <div>
-              <span className="text-gray-600">Người phụ trách:</span>
+              <span className="text-gray-600">{copy.assignee}</span>
               <p className="font-medium">{fullShift.assigned_to}</p>
             </div>
           </div>
 
           {/* Items Table */}
           <div>
-            <label className="text-sm font-medium">Sản phẩm</label>
+            <label className="text-sm font-medium">{copy.products}</label>
             <div className="border rounded overflow-hidden text-sm">
               <div className="bg-gray-100 grid grid-cols-4 gap-2 p-2 font-medium">
-                <span>Sản phẩm</span>
-                <span className="text-center">Đơn vị</span>
-                <span className="text-center">Kế hoạch</span>
-                <span className="text-center">Thực tế</span>
+                <span>{copy.products}</span>
+                <span className="text-center">{copy.unit}</span>
+                <span className="text-center">{copy.planned}</span>
+                <span className="text-center">{copy.actual}</span>
               </div>
               <div className="divide-y max-h-48 overflow-y-auto">
                 {fullShift.items?.map((item: any) => (
@@ -548,7 +605,7 @@ function ShiftDetailDialog({
           {/* Action Buttons */}
           <div className="flex gap-2 justify-end pt-4">
             <Button variant="outline" onClick={onClose}>
-              Đóng
+              {copy.close}
             </Button>
             {fullShift.status === "scheduled" && (
               <Button
@@ -560,7 +617,7 @@ function ShiftDetailDialog({
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
                 <Play className="mr-2 h-4 w-4" />
-                Bắt đầu ca
+                {copy.start}
               </Button>
             )}
             {fullShift.status === "in_progress" && (
@@ -573,7 +630,7 @@ function ShiftDetailDialog({
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
                 <CheckCircle2 className="mr-2 h-4 w-4" />
-                Hoàn thành ca
+                {copy.finish}
               </Button>
             )}
           </div>
@@ -590,6 +647,8 @@ function ShiftCard({
   shift: ProductionShift;
   onOpen: (shift: ProductionShift) => void;
 }) {
+  const { language } = useLanguage();
+  const isVi = language === "vi";
   return (
     <Card
       className={`border ${shiftTypeColors[shift.shift_type]} cursor-pointer hover:shadow-md transition-shadow`}
@@ -606,20 +665,20 @@ function ShiftCard({
               variant="secondary"
               className={statusBadgeColors[shift.status]}
             >
-              {statusLabels[shift.status]}
+              {statusLabels[language][shift.status]}
             </Badge>
           </div>
 
           <div className="text-xs space-y-1">
             <p>
-              <span className="font-medium">Loại:</span> {shiftTypeLabels[shift.shift_type]}
+              <span className="font-medium">{isVi ? "Loại:" : "Type:"}</span> {shiftTypeLabels[language][shift.shift_type]}
             </p>
             <p>
-              <span className="font-medium">Người:</span> {shift.assigned_to}
+              <span className="font-medium">{isVi ? "Người:" : "Assignee:"}</span> {shift.assigned_to}
             </p>
             {shift.items && shift.items.length > 0 && (
               <p>
-                <span className="font-medium">Sản phẩm:</span> {shift.items.length} mục
+                <span className="font-medium">{isVi ? "Sản phẩm:" : "Products:"}</span> {shift.items.length} {isVi ? "mục" : "items"}
               </p>
             )}
           </div>
@@ -630,6 +689,8 @@ function ShiftCard({
 }
 
 export default function ProductionShifts() {
+  const { language } = useLanguage();
+  const isVi = language === "vi";
   const { toast } = useToast();
   const [currentWeekStart, setCurrentWeekStart] = useState(
     startOfWeek(new Date(), { weekStartsOn: 1 })
@@ -714,7 +775,7 @@ export default function ProductionShifts() {
           </Button>
 
           <div className="text-lg font-semibold min-w-48 text-center">
-            Tuần {weekStartStr} - {weekEndStr}
+            {isVi ? "Tuần" : "Week"} {weekStartStr} - {weekEndStr}
           </div>
 
           <Button
@@ -731,7 +792,7 @@ export default function ProductionShifts() {
           className="bg-blue-600 hover:bg-blue-700"
         >
           <Plus className="mr-2 h-4 w-4" />
-          Tạo ca sản xuất
+          {isVi ? "Tạo ca sản xuất" : "Create production shift"}
         </Button>
       </div>
 
@@ -740,9 +801,9 @@ export default function ProductionShifts() {
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex gap-3">
           <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
           <div>
-            <p className="font-medium text-red-900">Lỗi tải dữ liệu</p>
+            <p className="font-medium text-red-900">{isVi ? "Lỗi tải dữ liệu" : "Failed to load data"}</p>
             <p className="text-sm text-red-700">
-              {error instanceof Error ? error.message : "Không thể tải các ca sản xuất"}
+              {error instanceof Error ? error.message : isVi ? "Không thể tải các ca sản xuất" : "Unable to load production shifts"}
             </p>
           </div>
         </div>
@@ -760,7 +821,7 @@ export default function ProductionShifts() {
         <div className="grid grid-cols-7 gap-4">
           {weekDates.map((date) => {
             const dateStr = format(date, "yyyy-MM-dd");
-            const dayName = format(date, "EEEE", { locale: vi });
+            const dayName = format(date, "EEEE", { locale: isVi ? vi : enUS });
             const dayLabel = dayName.charAt(0).toUpperCase() + dayName.slice(1);
             const shifts = shiftsByDate[dateStr] || [];
 
@@ -770,7 +831,7 @@ export default function ProductionShifts() {
                 <div className="bg-gray-50 border border-gray-200 rounded-t-lg p-3 mb-2">
                   <p className="font-semibold text-sm">{dayLabel}</p>
                   <p className="text-sm text-gray-600">
-                    {format(date, "dd/MM", { locale: vi })}
+                    {format(date, "dd/MM", { locale: isVi ? vi : enUS })}
                   </p>
                 </div>
 
@@ -786,7 +847,7 @@ export default function ProductionShifts() {
                     ))
                   ) : (
                     <div className="h-full flex items-center justify-center text-center p-2">
-                      <p className="text-sm text-gray-400">Chưa có ca</p>
+                      <p className="text-sm text-gray-400">{isVi ? "Chưa có ca" : "No shifts"}</p>
                     </div>
                   )}
                 </div>
@@ -801,17 +862,17 @@ export default function ProductionShifts() {
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <CalendarClock className="h-12 w-12 text-gray-300 mb-4" />
           <p className="text-lg font-medium text-gray-600 mb-2">
-            Chưa có ca sản xuất
+            {isVi ? "Chưa có ca sản xuất" : "No production shifts yet"}
           </p>
           <p className="text-sm text-gray-500 mb-6">
-            Tạo ca sản xuất mới để bắt đầu quản lý sản xuất
+            {isVi ? "Tạo ca sản xuất mới để bắt đầu quản lý sản xuất" : "Create a new production shift to start managing production"}
           </p>
           <Button
             onClick={() => setCreateDialogOpen(true)}
             className="bg-blue-600 hover:bg-blue-700"
           >
             <Plus className="mr-2 h-4 w-4" />
-            Tạo ca sản xuất
+            {isVi ? "Tạo ca sản xuất" : "Create production shift"}
           </Button>
         </div>
       )}
