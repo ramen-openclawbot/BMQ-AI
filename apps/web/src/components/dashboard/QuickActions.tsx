@@ -21,19 +21,19 @@ export function QuickActions() {
   };
 
   return (
-    <div className="card-elevated rounded-xl border border-border p-6">
-      <h3 className="font-display text-lg font-semibold mb-4">{t.dashboardQuickActions}</h3>
+    <div className="card-elevated rounded-xl border border-border p-6 text-foreground">
+      <h3 className="font-display text-lg font-semibold mb-4 text-foreground">{t.dashboardQuickActions}</h3>
       <div className="grid grid-cols-2 gap-3">
         {actions.map((action) => (
           <Button
             key={action.label}
             variant="outline"
-            className="h-auto flex-col items-start gap-2 p-4 hover:bg-primary/5 hover:border-primary/30 transition-all text-left text-foreground [&_p]:text-inherit [&_svg]:text-primary"
+            className="h-auto flex-col items-start gap-2 p-4 hover:bg-primary/5 hover:border-primary/30 transition-all text-left !text-foreground [&_svg]:text-primary"
             onClick={() => handleClick(action.path)}
           >
             <action.icon className="h-5 w-5" />
-            <div className="text-left">
-              <p className="font-medium">{action.label}</p>
+            <div className="text-left text-foreground">
+              <p className="font-medium text-foreground">{action.label}</p>
               <p className="text-xs text-muted-foreground font-normal">{action.description}</p>
             </div>
           </Button>
