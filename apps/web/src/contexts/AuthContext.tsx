@@ -3,7 +3,7 @@ import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
 // Safety timeout: if auth bootstrap takes longer than this, allow fallback UI
-const AUTH_BOOTSTRAP_TIMEOUT_MS = 20000;
+const AUTH_BOOTSTRAP_TIMEOUT_MS = 6000;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -315,7 +315,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await fetchProfile(initialSession.user.id, initialSession.user.email ?? null);
         }
       } catch (err) {
-        console.error("[AuthContext] Error during initial auth:", err);
+        const isAbortError = err instanceof Error && err.name === "AbortError";
+        if (isAbortError) {
+          console.warn("[AuthContext] Initial auth aborted, continuing without blocking UI");
+        } else {
+          console.error("[AuthContext] Error during initial auth:", err);
+        }
       } finally {
         if (mounted && !initialLoadCompleteRef.current) {
           clearTimeout(timeoutId);
