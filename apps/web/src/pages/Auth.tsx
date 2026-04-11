@@ -71,11 +71,18 @@ export default function Auth() {
         }
 
         if (code) {
-          // PKCE/code flow: avoid competing with AuthContext/Supabase auto-detect.
-          // Keep the callback URL briefly so the SDK can finish exchange, then let
-          // AuthContext redirect after session becomes available.
-          await new Promise(resolve => setTimeout(resolve, 1200));
-          setProcessingCallback(false);
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) {
+            console.error("OAuth code exchange error:", error);
+            window.history.replaceState(null, "", "/auth");
+            setError(mapOAuthErrorMessage(error.message || "Đăng nhập thất bại"));
+            setProcessingCallback(false);
+            return;
+          }
+
+          window.history.replaceState(null, "", "/");
+          await new Promise(resolve => setTimeout(resolve, 150));
+          navigate("/", { replace: true });
           return;
         }
 
