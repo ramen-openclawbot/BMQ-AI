@@ -303,6 +303,28 @@ const translations: Record<Language, Translations> = {
     filter: "Filter",
     export: "Export",
     addItem: "Add Item",
+
+    // Dashboard page
+    dashboardTitle: "Dashboard",
+    dashboardDescription: "Quick overview",
+    dashboardTotalItems: "Total Items",
+    dashboardTotalItemsDesc: "In your inventory",
+    dashboardActiveSuppliers: "Active Suppliers",
+    dashboardActiveSuppliersDesc: "Managing your supply",
+    dashboardPendingApprovals: "Pending Approvals",
+    dashboardPendingApprovalsDesc: "Awaiting review",
+    dashboardLowStockItems: "Low Stock Items",
+    dashboardLowStockItemsDesc: "Needs attention",
+    dashboardQuickActions: "Quick Actions",
+    dashboardNewRequest: "New Request",
+    dashboardNewRequestDesc: "Create payment request",
+    dashboardGenerateReport: "Generate Report",
+    dashboardGenerateReportDesc: "Export inventory data",
+    dashboardViewAnalytics: "View Analytics",
+    dashboardViewAnalyticsDesc: "Spending insights",
+    dashboardSyncInventory: "Sync Inventory",
+    dashboardSyncInventoryDesc: "Update stock levels",
+    dashboardTrendFromLastMonth: "from last month",
     
     // Common
     loading: "Loading...",
