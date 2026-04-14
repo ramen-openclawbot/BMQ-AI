@@ -64,7 +64,7 @@ export default function Auth() {
             ? decodeURIComponent(oauthErrorDescription.replace(/\+/g, " "))
             : oauthError;
 
-          console.error("OAuth callback error:", { oauthError, oauthErrorDescription });
+          console.warn("[Auth] OAuth callback returned error params");
           setError(mapOAuthErrorMessage(rawMessage));
           setProcessingCallback(false);
           return;
@@ -73,7 +73,7 @@ export default function Auth() {
         if (code) {
           const { error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) {
-            console.error("OAuth code exchange error:", error);
+            console.warn("[Auth] OAuth code exchange failed:", error.message);
             window.history.replaceState(null, "", "/auth");
             setError(mapOAuthErrorMessage(error.message || "Đăng nhập thất bại"));
             setProcessingCallback(false);
@@ -95,7 +95,7 @@ export default function Auth() {
             ? decodeURIComponent(hashErrorDescription.replace(/\+/g, " "))
             : hashError || "Đăng nhập thất bại";
 
-          console.error("OAuth hash error:", { hashError, hashErrorDescription });
+          console.warn("[Auth] OAuth hash returned error params");
           setError(mapOAuthErrorMessage(rawMessage));
           setProcessingCallback(false);
           return;
@@ -112,7 +112,7 @@ export default function Auth() {
           }
           const { error } = await supabase.auth.setSession({ access_token, refresh_token });
           if (error) {
-            console.error("OAuth session error:", error);
+            console.warn("[Auth] OAuth session setup failed:", error.message);
             setError("Đăng nhập thất bại. Vui lòng thử lại.");
             setProcessingCallback(false);
             return;
@@ -125,7 +125,7 @@ export default function Auth() {
 
         setProcessingCallback(false);
       } catch (e) {
-        console.error("OAuth callback error:", e);
+        console.warn("[Auth] OAuth callback threw unexpected error", e);
         setError("Đăng nhập thất bại. Vui lòng thử lại.");
         setProcessingCallback(false);
       }
@@ -157,7 +157,7 @@ export default function Auth() {
     });
     
     if (error) {
-      console.error("Google OAuth error:", error);
+      console.warn("[Auth] Google OAuth sign-in failed:", error.message);
       setError("Đã xảy ra lỗi. Vui lòng thử lại.");
       setLoading(false);
     }

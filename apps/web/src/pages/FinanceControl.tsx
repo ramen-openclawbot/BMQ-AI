@@ -1049,6 +1049,21 @@ export default function FinanceControl() {
         batchResults.push({ ...result, file });
       }
 
+      const zeroAmountFiles = batchResults.filter((r) => Number(r.extracted?.amount || 0) <= 0);
+      if (zeroAmountFiles.length > 0) {
+        const debugText = `${slipType.toUpperCase()} OCR zero amount: ${zeroAmountFiles.map((r) => `${r.file.name} (confidence ${Number(r.extracted?.confidence || 0).toFixed(2)})`).join(", ")}`;
+        setOcrDebugMessage(debugText);
+        setDeclarationSaveMessage(isVi
+          ? "OCR chưa đọc ra số tiền từ ảnh vừa tải lên. Hệ thống không lưu ảnh và không cập nhật giao diện."
+          : "OCR could not extract an amount from the uploaded image. The system did not keep the image or update the UI.");
+        toast({
+          title: isVi ? "OCR chưa đọc ra số tiền" : "OCR did not extract amount",
+          description: debugText,
+          variant: "destructive",
+        });
+        return;
+      }
+
       const batchSum = batchResults.reduce((sum, r) => sum + Number(r.extracted?.amount || 0), 0);
       const previews = batchResults.map((r) => `data:${r.file.type || "image/jpeg"};base64,${r.imageBase64}`);
       const batchImageBase64 = batchResults.map((r) => r.imageBase64);
@@ -1079,21 +1094,10 @@ export default function FinanceControl() {
         setPendingUncExtractedList(nextPendingUncExtractedList);
       }
 
-      const zeroAmountFiles = batchResults.filter((r) => Number(r.extracted?.amount || 0) <= 0);
-      if (zeroAmountFiles.length > 0) {
-        const debugText = `${slipType.toUpperCase()} OCR zero amount: ${zeroAmountFiles.map((r) => `${r.file.name} (confidence ${Number(r.extracted?.confidence || 0).toFixed(2)})`).join(", ")}`;
-        setOcrDebugMessage(debugText);
-        toast({
-          title: isVi ? "OCR chưa đọc ra số tiền" : "OCR did not extract amount",
-          description: debugText,
-          variant: "destructive",
-        });
-      } else {
-        toast({
-          title: isVi ? "Đã scan slip — tự động lưu" : "Slip scanned — auto-saving",
-          description: `${slipType === "qtm" ? "QTM" : "UNC"}: +${vnd(batchSum)} (${batchResults.length} ảnh)`,
-        });
-      }
+      toast({
+        title: isVi ? "Đã scan slip — tự động lưu" : "Slip scanned — auto-saving",
+        description: `${slipType === "qtm" ? "QTM" : "UNC"}: +${vnd(batchSum)} (${batchResults.length} ảnh)`,
+      });
 
       // Auto-save declaration after OCR using the freshly computed values,
       // avoiding stale React state during rapid UNC/QTM consecutive uploads.
