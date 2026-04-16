@@ -383,8 +383,10 @@ export function useQtmOpeningBalance(closingDate: Date, currentDeclExtractionMet
       const deriveClosingFromRow = (row: any): number | null => {
         if (!row) return null;
         const isLocked = Boolean(row?.extraction_meta?.close_approval_locked);
+        if (!isLocked) return null;
+
         const explicitClosing = toNumberOrNull(row?.extraction_meta?.qtm_closing_balance);
-        if (isLocked && explicitClosing !== null) return explicitClosing;
+        if (explicitClosing !== null) return explicitClosing;
 
         const opening = toNumberOrNull(row?.extraction_meta?.qtm_opening_balance);
         const spent = toNumberOrNull(row?.extraction_meta?.qtm_spent_from_folder);
