@@ -56,7 +56,6 @@ export function useFinanceDailySnapshot(closingDate: Date) {
     },
     staleTime: DAILY_STALE_MS,
     gcTime: GC_TIME_MS,
-    placeholderData: (previous) => previous,
   });
 }
 
@@ -81,7 +80,6 @@ export function useDailyDeclaration(closingDate: Date, enabled = true) {
     },
     staleTime: DAILY_STALE_MS,
     gcTime: GC_TIME_MS,
-    placeholderData: (previous) => previous,
   });
 }
 

@@ -1705,8 +1705,8 @@ export default function FinanceControl() {
           <div className="text-xl font-semibold">{vnd(Number(resolvedQtmDeclared || 0))}</div>
         </CardContent></Card>
         <Card><CardContent className="p-4">
-          <div className="text-xs text-muted-foreground">{isVi ? "Số dư QTM" : "QTM balance"}</div>
-          <div className={`text-xl font-semibold ${qtmNegative ? "text-red-600" : ""}`}>{vnd(qtmClosingBalance)}</div>
+          <div className="text-xs text-muted-foreground">{isVi ? "Tồn quỹ đầu ngày" : "Opening cash balance"}</div>
+          <div className="text-xl font-semibold">{vnd(Number(resolvedQtmOpening || 0))}</div>
         </CardContent></Card>
         <Card><CardContent className="p-4">
           <div className="text-xs text-muted-foreground">{isVi ? "Trạng thái" : "Status"}</div>
