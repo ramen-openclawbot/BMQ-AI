@@ -762,10 +762,10 @@ export default function ProductionShifts() {
   const weekEndStr = format(addDays(currentWeekStart, 6), "dd/MM");
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-4 p-4 md:space-y-6 md:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -774,8 +774,8 @@ export default function ProductionShifts() {
             <ChevronLeft className="h-4 w-4" />
           </Button>
 
-          <div className="text-lg font-semibold min-w-48 text-center">
-            {isVi ? "Tuần" : "Week"} {weekStartStr} - {weekEndStr}
+          <div className="text-base font-semibold min-w-36 text-center">
+            {isVi ? "Tuần" : "Week"} {weekStartStr} – {weekEndStr}
           </div>
 
           <Button
@@ -789,10 +789,11 @@ export default function ProductionShifts() {
 
         <Button
           onClick={() => setCreateDialogOpen(true)}
-          className="bg-blue-600 hover:bg-blue-700"
+          className="bg-blue-600 hover:bg-blue-700 ml-auto"
         >
           <Plus className="mr-2 h-4 w-4" />
-          {isVi ? "Tạo ca sản xuất" : "Create production shift"}
+          <span className="sm:hidden">{isVi ? "Tạo ca" : "New shift"}</span>
+          <span className="hidden sm:inline">{isVi ? "Tạo ca sản xuất" : "Create production shift"}</span>
         </Button>
       </div>
 
@@ -818,43 +819,80 @@ export default function ProductionShifts() {
 
       {/* Board View */}
       {!isLoading && !error && (
-        <div className="grid grid-cols-7 gap-4">
-          {weekDates.map((date) => {
-            const dateStr = format(date, "yyyy-MM-dd");
-            const dayName = format(date, "EEEE", { locale: isVi ? vi : enUS });
-            const dayLabel = dayName.charAt(0).toUpperCase() + dayName.slice(1);
-            const shifts = shiftsByDate[dateStr] || [];
+        <>
+          {/* Desktop: 7-column grid */}
+          <div className="hidden md:grid md:grid-cols-7 gap-4">
+            {weekDates.map((date) => {
+              const dateStr = format(date, "yyyy-MM-dd");
+              const dayName = format(date, "EEEE", { locale: isVi ? vi : enUS });
+              const dayLabel = dayName.charAt(0).toUpperCase() + dayName.slice(1);
+              const shifts = shiftsByDate[dateStr] || [];
 
-            return (
-              <div key={dateStr} className="flex flex-col">
-                {/* Column Header */}
-                <div className="bg-gray-50 border border-gray-200 rounded-t-lg p-3 mb-2">
-                  <p className="font-semibold text-sm">{dayLabel}</p>
-                  <p className="text-sm text-gray-600">
-                    {format(date, "dd/MM", { locale: isVi ? vi : enUS })}
-                  </p>
-                </div>
+              return (
+                <div key={dateStr} className="flex flex-col">
+                  {/* Column Header */}
+                  <div className="bg-gray-50 border border-gray-200 rounded-t-lg p-3 mb-2">
+                    <p className="font-semibold text-sm">{dayLabel}</p>
+                    <p className="text-sm text-gray-600">
+                      {format(date, "dd/MM", { locale: isVi ? vi : enUS })}
+                    </p>
+                  </div>
 
-                {/* Shifts Column */}
-                <div className="flex-1 space-y-2 min-h-96">
-                  {shifts.length > 0 ? (
-                    shifts.map((shift) => (
-                      <ShiftCard
-                        key={shift.id}
-                        shift={shift}
-                        onOpen={handleOpenDetail}
-                      />
-                    ))
-                  ) : (
-                    <div className="h-full flex items-center justify-center text-center p-2">
-                      <p className="text-sm text-gray-400">{isVi ? "Chưa có ca" : "No shifts"}</p>
-                    </div>
-                  )}
+                  {/* Shifts Column */}
+                  <div className="flex-1 space-y-2 min-h-96">
+                    {shifts.length > 0 ? (
+                      shifts.map((shift) => (
+                        <ShiftCard
+                          key={shift.id}
+                          shift={shift}
+                          onOpen={handleOpenDetail}
+                        />
+                      ))
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-center p-2">
+                        <p className="text-sm text-gray-400">{isVi ? "Chưa có ca" : "No shifts"}</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+
+          {/* Mobile: stacked day list */}
+          <div className="md:hidden space-y-3">
+            {weekDates.map((date) => {
+              const dateStr = format(date, "yyyy-MM-dd");
+              const dayName = format(date, "EEEE", { locale: isVi ? vi : enUS });
+              const dayLabel = dayName.charAt(0).toUpperCase() + dayName.slice(1);
+              const shifts = shiftsByDate[dateStr] || [];
+
+              return (
+                <div key={dateStr} className="border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="bg-gray-50 px-4 py-2 flex items-baseline gap-2 border-b border-gray-200">
+                    <p className="font-semibold text-sm">{dayLabel}</p>
+                    <p className="text-xs text-gray-500">
+                      {format(date, "dd/MM", { locale: isVi ? vi : enUS })}
+                    </p>
+                  </div>
+                  <div className="p-3 space-y-2">
+                    {shifts.length > 0 ? (
+                      shifts.map((shift) => (
+                        <ShiftCard
+                          key={shift.id}
+                          shift={shift}
+                          onOpen={handleOpenDetail}
+                        />
+                      ))
+                    ) : (
+                      <p className="text-sm text-gray-400 py-1">{isVi ? "Chưa có ca" : "No shifts"}</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {/* Empty State */}
