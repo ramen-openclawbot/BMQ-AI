@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { CalendarClock, QrCode, Loader2, ShieldAlert, Users, PencilLine, Lock, LockOpen, CircleCheckBig, CalendarRange } from "lucide-react";
+import { CalendarClock, QrCode, Loader2, Users, PencilLine, Lock, LockOpen, CircleCheckBig, CalendarRange } from "lucide-react";
 import ShiftPlannerGrid from "@/components/attendance/ShiftPlannerGrid";
 
 interface AttendanceRecordRow {
@@ -88,8 +88,8 @@ export default function AttendanceManagement() {
   const copy = useMemo(() => ({
     title: isVi ? "Chấm công" : "Attendance",
     description: isVi
-      ? "Phase 1: QR/event capture, trạng thái công cơ bản, và console vận hành cho HR"
-      : "Phase 1: QR/event capture, basic attendance status, and HR operations console",
+      ? "Ghi nhận chấm công và console vận hành cho HR"
+      : "Attendance capture and HR operations console",
     capture: isVi ? "Ghi nhận check-in/out" : "Capture check-in/out",
     records: isVi ? "Bảng công theo ngày" : "Daily attendance records",
     events: isVi ? "Nhật ký sự kiện" : "Attendance events",
@@ -734,18 +734,6 @@ export default function AttendanceManagement() {
           <ShiftPlannerGrid />
         </TabsContent>
       </Tabs>
-
-      <Card className="border-dashed">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base"><ShieldAlert className="h-4 w-4" /> {isVi ? "Các phần sẽ làm tiếp" : "Next slices"}</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground space-y-1">
-          <p>1. QR public screen + signed checkpoint flow</p>
-          <p>2. Shift-aware computation from events → records</p>
-          <p>3. HR adjustment drawer with audit details</p>
-          <p>4. Dashboard widgets for HR / manager</p>
-        </CardContent>
-      </Card>
     </div>
   );
 }
