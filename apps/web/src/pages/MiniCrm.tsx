@@ -1988,6 +1988,13 @@ export default function MiniCrm() {
     });
   }, [poInbox]);
 
+  const recentCustomerPosForKbTest = useMemo(() => {
+    if (!editingCustomerId) return [];
+    return poInbox
+      .filter((row: any) => String(row?.customer_id || "") === String(editingCustomerId))
+      .slice(0, 10);
+  }, [poInbox, editingCustomerId]);
+
   const recentRevenueAudit = useMemo(() => revenueAuditRows.slice(0, 20), [revenueAuditRows]);
 
   const selectedPo = useMemo(() => poInbox.find((r: any) => r.id === selectedPoId) || null, [poInbox, selectedPoId]);
@@ -3547,6 +3554,7 @@ export default function MiniCrm() {
 
             <KnowledgeBaseProfileEditor
               poTemplates={poTemplates}
+              customerPos={recentCustomerPosForKbTest}
               editingCustomerId={editingCustomerId}
               editKbProfileName={editKbProfileName}
               editKbPoMode={editKbPoMode}

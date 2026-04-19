@@ -4,9 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { KbAiParseSuggestion } from "./kbAiUtils";
+import { ParseTestWorkbench } from "./ParseTestWorkbench";
 
 type Props = {
   poTemplates: any[];
+  customerPos: any[];
   editingCustomerId: string | null;
   editKbProfileName: string;
   editKbPoMode: string;
@@ -48,6 +50,7 @@ const inputClass = "min-h-[88px] w-full rounded-lg border border-input bg-backgr
 export function KnowledgeBaseProfileEditor(props: Props) {
   const {
     poTemplates,
+    customerPos,
     editingCustomerId,
     editKbProfileName,
     editKbPoMode,
@@ -383,6 +386,8 @@ export function KnowledgeBaseProfileEditor(props: Props) {
               </div>
             )}
           </div>
+
+          <ParseTestWorkbench customerPos={customerPos} kbAiSuggestion={kbAiSuggestion} />
         </div>
       )}
     </div>
