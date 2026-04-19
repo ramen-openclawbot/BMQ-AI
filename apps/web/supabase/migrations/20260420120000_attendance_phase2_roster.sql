@@ -56,7 +56,7 @@ DECLARE
   v_skipped integer := 0;
   v_row record;
   v_target_date date;
-  v_period_status text;
+  period_status_value text;
 BEGIN
   -- Guard: only owners or attendance editors can run this
   IF NOT (
@@ -77,13 +77,13 @@ BEGIN
     v_target_date := _target_from + (v_row.work_date - _source_from);
 
     -- Check if target date is inside a locked/closed period
-    SELECT status INTO v_period_status
+    SELECT status INTO period_status_value
     FROM public.attendance_periods
     WHERE v_target_date BETWEEN date_from AND date_to
     ORDER BY date_from DESC
     LIMIT 1;
 
-    IF v_period_status IN ('locked', 'closed') THEN
+    IF period_status_value IN ('locked', 'closed') THEN
       v_skipped := v_skipped + 1;
       CONTINUE;
     END IF;
@@ -130,7 +130,7 @@ DECLARE
   v_shift_code text;
   v_shift_id uuid;
   v_department text;
-  v_period_status text;
+  period_status_value text;
 BEGIN
   IF NOT (
     public.has_role(auth.uid(), 'owner')
@@ -161,13 +161,13 @@ BEGIN
         CONTINUE;
       END IF;
 
-      SELECT status INTO v_period_status
+      SELECT status INTO period_status_value
       FROM public.attendance_periods
       WHERE v_work_date BETWEEN date_from AND date_to
       ORDER BY date_from DESC
       LIMIT 1;
 
-      IF v_period_status IN ('locked', 'closed') THEN
+      IF period_status_value IN ('locked', 'closed') THEN
         v_skipped := v_skipped + 1;
         v_errors  := array_append(v_errors, format('locked period for %s / %s', v_employee_code, v_work_date));
         CONTINUE;
