@@ -38,6 +38,8 @@ interface Translations {
   productionPlanning: string;
   productionShifts: string;
   qaInspection: string;
+  attendance: string;
+  payroll: string;
   warehouseDispatch: string;
   stockReport: string;
   team: string;
@@ -200,6 +202,8 @@ const translations: Record<Language, Translations> = {
     productionPlanning: "Production Planning",
     productionShifts: "Production Shifts",
     qaInspection: "QA Inspection",
+    attendance: "Attendance",
+    payroll: "Payroll",
     warehouseDispatch: "Dispatch",
     stockReport: "Stock Report",
     team: "Team",
@@ -381,6 +385,8 @@ const translations: Record<Language, Translations> = {
     productionPlanning: "Kế hoạch SX",
     productionShifts: "Ca sản xuất",
     qaInspection: "QA & Nhập kho TP",
+    attendance: "Chấm công",
+    payroll: "Bảng lương",
     warehouseDispatch: "Xuất kho",
     stockReport: "Báo cáo tồn kho",
     systemManagement: "Quản lý hệ thống",

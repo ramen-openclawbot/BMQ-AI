@@ -30,6 +30,7 @@ import {
   Truck,
   BarChart4,
   ScanLine,
+  Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -71,6 +72,7 @@ const navItems: NavItem[] = [
   { icon: ClipboardCheck, labelKey: "qaInspection", path: "/production/qa", section: "production", moduleKey: "production" },
 
   { icon: ScanLine, labelKey: "attendance", path: "/attendance", section: "operations", moduleKey: "attendance" },
+  { icon: Wallet, labelKey: "payroll", path: "/payroll", section: "operations", moduleKey: "payroll" },
   { icon: Package, labelKey: "inventory", path: "/inventory", section: "operations", moduleKey: "inventory" },
   { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts", section: "operations", moduleKey: "goods_receipts" },
   { icon: Truck, labelKey: "warehouseDispatch", path: "/warehouse/dispatch", section: "operations", moduleKey: "inventory" },
