@@ -23,7 +23,9 @@ import {
   PlusCircle,
   ShieldAlert,
   UserCog,
+  BookOpenCheck,
 } from "lucide-react";
+import { PayrollExportPanel } from "@/components/payroll/PayrollExportPanel";
 
 type WageType = "monthly" | "hourly" | "per_shift";
 type RunStatus = "draft" | "calculated" | "approved" | "locked";
@@ -127,6 +129,7 @@ export default function PayrollManagement() {
         : "Compute payroll from attendance: monthly / hourly / per-shift. Phase 2.",
       tabRuns: isVi ? "Kỳ lương" : "Payroll runs",
       tabProfiles: isVi ? "Hợp đồng lương" : "Wage profiles",
+      tabExport: isVi ? "Xuất kế toán" : "Accounting export",
       createRun: isVi ? "Tạo kỳ lương" : "Create run",
       runCode: isVi ? "Mã kỳ" : "Period code",
       runName: isVi ? "Tên kỳ" : "Period name",
@@ -382,6 +385,10 @@ export default function PayrollManagement() {
           <TabsTrigger value="profiles" className="gap-2">
             <UserCog className="h-4 w-4" />
             {copy.tabProfiles}
+          </TabsTrigger>
+          <TabsTrigger value="export" className="gap-2">
+            <BookOpenCheck className="h-4 w-4" />
+            {copy.tabExport}
           </TabsTrigger>
         </TabsList>
 
@@ -676,6 +683,10 @@ export default function PayrollManagement() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="export" className="space-y-4">
+          <PayrollExportPanel />
         </TabsContent>
       </Tabs>
 
