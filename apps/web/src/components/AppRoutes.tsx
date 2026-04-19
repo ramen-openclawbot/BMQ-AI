@@ -42,6 +42,7 @@ const ProductionShifts = lazy(() => import("@/pages/ProductionShifts"));
 const QAInspection = lazy(() => import("@/pages/QAInspection"));
 const WarehouseDispatch = lazy(() => import("@/pages/WarehouseDispatch"));
 const StockReport = lazy(() => import("@/pages/StockReport"));
+const AttendanceManagement = lazy(() => import("@/pages/AttendanceManagement"));
 
 function AppLoadingFallback() {
   return (
@@ -154,6 +155,7 @@ export function AppRoutes() {
         <Route path="/production/planning" element={<Suspense fallback={<AppLoadingFallback />}><ProductionPlanning /></Suspense>} />
         <Route path="/production/shifts" element={<Suspense fallback={<AppLoadingFallback />}><ProductionShifts /></Suspense>} />
         <Route path="/production/qa" element={<Suspense fallback={<AppLoadingFallback />}><QAInspection /></Suspense>} />
+        <Route path="/attendance" element={<Suspense fallback={<AppLoadingFallback />}><AttendanceManagement /></Suspense>} />
         {/* Warehouse extension routes */}
         <Route path="/warehouse/dispatch" element={<Suspense fallback={<AppLoadingFallback />}><WarehouseDispatch /></Suspense>} />
         <Route path="/warehouse/stock-report" element={<Suspense fallback={<AppLoadingFallback />}><StockReport /></Suspense>} />
