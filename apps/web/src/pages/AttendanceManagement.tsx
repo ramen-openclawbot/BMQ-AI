@@ -11,7 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { CalendarClock, QrCode, Loader2, ShieldAlert, Users, PencilLine, Lock, LockOpen, CircleCheckBig } from "lucide-react";
+import { CalendarClock, QrCode, Loader2, ShieldAlert, Users, PencilLine, Lock, LockOpen, CircleCheckBig, CalendarRange } from "lucide-react";
+import ShiftPlannerGrid from "@/components/attendance/ShiftPlannerGrid";
 
 interface AttendanceRecordRow {
   id: string;
@@ -92,6 +93,7 @@ export default function AttendanceManagement() {
     capture: isVi ? "Ghi nhận check-in/out" : "Capture check-in/out",
     records: isVi ? "Bảng công theo ngày" : "Daily attendance records",
     events: isVi ? "Nhật ký sự kiện" : "Attendance events",
+    planner: isVi ? "Xếp ca" : "Shift planner",
     employeeCode: isVi ? "Mã nhân viên" : "Employee code",
     employeeName: isVi ? "Tên nhân viên" : "Employee name",
     workDate: isVi ? "Ngày làm việc" : "Work date",
@@ -644,6 +646,7 @@ export default function AttendanceManagement() {
         <TabsList>
           <TabsTrigger value="records" className="gap-2"><Users className="h-4 w-4" />{copy.records}</TabsTrigger>
           <TabsTrigger value="events" className="gap-2"><CalendarClock className="h-4 w-4" />{copy.events}</TabsTrigger>
+          <TabsTrigger value="planner" className="gap-2"><CalendarRange className="h-4 w-4" />{copy.planner}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="records">
@@ -725,6 +728,10 @@ export default function AttendanceManagement() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="planner">
+          <ShiftPlannerGrid />
         </TabsContent>
       </Tabs>
 
