@@ -6,17 +6,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell } from "recharts";
 import { useSkuCostBridge } from "@/hooks/useSkuCostBridge";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { ActualLaborCostPanel } from "@/components/sku-costs/ActualLaborCostPanel";
 
 const tabItems = [
   { key: "sku", label: "Giá vốn thành phẩm" },
   { key: "trends", label: "Xu hướng giá vốn" },
   { key: "overhead", label: "Phân bổ chi phí chung" },
+  { key: "actual-labor", label: "Nhân công thực tế" },
 ];
 
 const COLORS = ["#16a34a", "#0ea5e9", "#f59e0b", "#ef4444", "#8b5cf6"];
 const money = (v: number) => new Intl.NumberFormat("vi-VN").format(Number(v || 0));
 
 export default function SkuCostsAnalysis() {
+  const { language } = useLanguage();
   const [tab, setTab] = useState("sku");
   const [search, setSearch] = useState("");
   const { data, isLoading } = useSkuCostBridge();
@@ -63,15 +67,15 @@ export default function SkuCostsAnalysis() {
       {tab === "sku" && (
         <div className="space-y-6">
           <Card>
-            <CardHeader><CardTitle>Bộ lọc</CardTitle></CardHeader>
-            <CardContent><Input placeholder="Tìm kiếm SKU hoặc sản phẩm" value={search} onChange={(e) => setSearch(e.target.value)} /></CardContent>
+            <CardHeader><CardTitle>{copy.filter}</CardTitle></CardHeader>
+            <CardContent><Input placeholder={copy.search} value={search} onChange={(e) => setSearch(e.target.value)} /></CardContent>
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>Tính chi phí giá vốn hàng bán (SKU thành phẩm)</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{copy.title}</CardTitle></CardHeader>
             <CardContent>
               {!filtered.length ? (
-                <div className="text-sm text-muted-foreground">{isLoading ? "Đang tải dữ liệu..." : "Chưa có dữ liệu."}</div>
+                <div className="text-sm text-muted-foreground">{isLoading ? copy.loading : copy.empty}</div>
               ) : (
                 <Table>
                   <TableHeader>
@@ -118,7 +122,7 @@ export default function SkuCostsAnalysis() {
       {tab === "trends" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Card>
-            <CardHeader><CardTitle>Cost Trend theo dữ liệu mua hàng</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{copy.trendTitle}</CardTitle></CardHeader>
             <CardContent className="h-64">
               {trendRows.length ? (
                 <ResponsiveContainer width="100%" height="100%">
@@ -133,13 +137,13 @@ export default function SkuCostsAnalysis() {
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="text-sm text-muted-foreground">Chưa có dữ liệu mua hàng để dựng trend.</div>
+                <div className="text-sm text-muted-foreground">{copy.trendEmpty}</div>
               )}
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>Tỷ trọng nhóm chi phí</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{copy.breakdownTitle}</CardTitle></CardHeader>
             <CardContent className="h-64">
               {breakdown.length ? (
                 <ResponsiveContainer width="100%" height="100%">
@@ -151,7 +155,7 @@ export default function SkuCostsAnalysis() {
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="text-sm text-muted-foreground">Chưa có dữ liệu.</div>
+                <div className="text-sm text-muted-foreground">{copy.empty}</div>
               )}
             </CardContent>
           </Card>
@@ -160,12 +164,26 @@ export default function SkuCostsAnalysis() {
 
       {tab === "overhead" && (
         <Card>
-          <CardHeader><CardTitle>Phân bổ chi phí chung</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{copy.overheadTitle}</CardTitle></CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            Delivery + Other Production + BH&QL đang được gom vào nhóm chi phí chung trong phân tích tổng quan.
+            {copy.overheadDesc}
           </CardContent>
         </Card>
       )}
+
+      {tab === "actual-labor" && <ActualLaborCostPanel />}
     </div>
   );
 }
+  const copy = {
+    filter: language === "vi" ? "Bộ lọc" : "Filters",
+    search: language === "vi" ? "Tìm kiếm SKU hoặc sản phẩm" : "Search SKU or product",
+    title: language === "vi" ? "Tính chi phí giá vốn hàng bán (SKU thành phẩm)" : "COGS calculation (finished SKUs)",
+    loading: language === "vi" ? "Đang tải dữ liệu..." : "Loading data...",
+    empty: language === "vi" ? "Chưa có dữ liệu." : "No data yet.",
+    trendTitle: language === "vi" ? "Cost Trend theo dữ liệu mua hàng" : "Cost trend from purchasing data",
+    trendEmpty: language === "vi" ? "Chưa có dữ liệu mua hàng để dựng trend." : "No purchasing data to build the trend yet.",
+    breakdownTitle: language === "vi" ? "Tỷ trọng nhóm chi phí" : "Cost mix",
+    overheadTitle: language === "vi" ? "Phân bổ chi phí chung" : "Shared overhead allocation",
+    overheadDesc: language === "vi" ? "Delivery + Other Production + BH&QL đang được gom vào nhóm chi phí chung trong phân tích tổng quan." : "Delivery, other production, and SG&A are grouped into shared overhead in the overview analysis.",
+  };

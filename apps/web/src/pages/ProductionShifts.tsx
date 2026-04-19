@@ -27,6 +27,7 @@ import {
 import { format, addDays, startOfWeek, eachDayOfInterval, parseISO } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { ShiftWorkersPanel } from "@/components/production/ShiftWorkersPanel";
 
 interface ProductionOrder {
   id: string;
@@ -534,7 +535,7 @@ function ShiftDetailDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{copy.detail}: {fullShift.shift_code}</DialogTitle>
         </DialogHeader>
@@ -601,6 +602,13 @@ function ShiftDetailDialog({
               </div>
             </div>
           </div>
+
+          {/* Workers panel (Phase 2C — cost-to-SKU attribution) */}
+          <ShiftWorkersPanel
+            shiftId={fullShift.id}
+            shiftDate={fullShift.shift_date}
+            disabled={fullShift.status === "completed" || fullShift.status === "cancelled"}
+          />
 
           {/* Action Buttons */}
           <div className="flex gap-2 justify-end pt-4">
