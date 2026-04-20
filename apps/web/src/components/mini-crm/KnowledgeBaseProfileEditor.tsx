@@ -13,7 +13,6 @@ type Props = {
   editingCustomerId: string | null;
   editKbProfileName: string;
   editKbPoMode: string;
-  editKbPoSource: string;
   editKbBusinessDescription: string;
   kbAiSuggestion: KbAiParseSuggestion | null;
   kbAiStatus: string;
@@ -23,11 +22,8 @@ type Props = {
   kbAiSuggestPending: boolean;
   submitPending: boolean;
   approvePending: boolean;
-  bulkRunPending?: boolean;
   pendingCount: number;
   canApproveLatest: boolean;
-  canBulkRun?: boolean;
-  bulkRunDisabledReason?: string;
   approveDisabledReason?: string;
   activeKnowledgeProfile?: any | null;
   knowledgeVersionHistory?: any[];
@@ -36,7 +32,6 @@ type Props = {
   currentUserLabel?: string;
   onKbProfileNameChange: (v: string) => void;
   onKbPoModeChange: (v: string) => void;
-  onKbPoSourceChange: (v: string) => void;
   onKbBusinessDescriptionChange: (v: string) => void;
   onKbChangeNoteChange: (v: string) => void;
   onTemplateFileChange: (file: File | null) => void | Promise<void>;
@@ -44,7 +39,6 @@ type Props = {
   onAiSuggest: () => void;
   onSubmitApproval: () => void;
   onApproveLatest: () => void;
-  onBulkRunLockedContract?: () => void;
   onParseContractChange?: (c: CustomerParseContract) => void;
 };
 
@@ -58,7 +52,6 @@ export function KnowledgeBaseProfileEditor(props: Props) {
     editingCustomerId,
     editKbProfileName,
     editKbPoMode,
-    editKbPoSource,
     editKbBusinessDescription,
     kbAiSuggestion,
     kbAiStatus,
@@ -67,11 +60,8 @@ export function KnowledgeBaseProfileEditor(props: Props) {
     templateAiContext,
     kbAiSuggestPending,
     approvePending,
-    bulkRunPending,
     pendingCount,
     canApproveLatest,
-    canBulkRun,
-    bulkRunDisabledReason,
     approveDisabledReason,
     activeKnowledgeProfile,
     knowledgeVersionHistory = [],
@@ -79,14 +69,12 @@ export function KnowledgeBaseProfileEditor(props: Props) {
     currentUserLabel,
     onKbProfileNameChange,
     onKbPoModeChange,
-    onKbPoSourceChange,
     onKbBusinessDescriptionChange,
     onKbChangeNoteChange,
     onTemplateFileChange,
     onClearTemplate,
     onAiSuggest,
     onApproveLatest,
-    onBulkRunLockedContract,
     onParseContractChange,
   } = props;
 
@@ -138,7 +126,7 @@ export function KnowledgeBaseProfileEditor(props: Props) {
             Cấu hình parse PO
           </div>
           <p className="max-w-3xl text-sm text-muted-foreground">
-            Mục tiêu: test trên PO thật, lưu evidence, khóa contract rồi mới bulk-run.
+            Mục tiêu: test trên PO thật, lưu evidence, khóa contract và tạo version KB thật trước khi đưa sang flow sync → doanh thu.
           </p>
         </div>
         <div className="rounded-full border border-border/70 bg-background px-3 py-1.5 text-xs text-muted-foreground">
@@ -176,7 +164,6 @@ export function KnowledgeBaseProfileEditor(props: Props) {
                 <div className="text-lg font-semibold text-foreground">{activeKnowledgeProfile.profile_name || "KB hiện tại"}</div>
                 <div className="grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
                   <div>PO mode: <span className="font-medium text-foreground">{activeKnowledgeProfile.po_mode || "-"}</span></div>
-                  <div>Nguồn: <span className="font-medium text-foreground">{editKbPoSource || "-"}</span></div>
                   <div>Template: <span className="font-medium text-foreground">{activeTemplateName}</span></div>
                   <div>Evidence: <span className="font-medium text-foreground">{parseContract?.test_evidence?.length || 0}</span></div>
                 </div>
@@ -227,7 +214,7 @@ export function KnowledgeBaseProfileEditor(props: Props) {
         <div className="space-y-4 rounded-xl border border-border/70 bg-muted/10 p-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <FileText className="h-4 w-4 text-primary" />
-            Draft KB / tạo version mới
+            Tạo version mới
           </div>
 
           <div className={sectionClass}>
@@ -249,19 +236,12 @@ export function KnowledgeBaseProfileEditor(props: Props) {
                 </div>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-3 md:grid-cols-1">
                 <div className="space-y-2">
                   <Label className="text-xs uppercase tracking-wide text-muted-foreground">PO mode</Label>
                   <select className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed" value={editKbPoMode} onChange={(e) => onKbPoModeChange(e.target.value)} disabled={isContractLocked}>
                     <option value="daily_new_po">PO mới theo ngày</option>
                     <option value="cumulative_snapshot">PO cộng dồn (delta)</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">Nguồn PO</Label>
-                  <select className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed" value={editKbPoSource} onChange={(e) => onKbPoSourceChange(e.target.value)} disabled={isContractLocked}>
-                    <option value="attachment_first">Ưu tiên file đính kèm</option>
-                    <option value="email_body_only">PO từ nội dung email</option>
                   </select>
                 </div>
               </div>
@@ -364,11 +344,11 @@ export function KnowledgeBaseProfileEditor(props: Props) {
           <div className="rounded-xl border border-border/70 bg-muted/20 p-4 space-y-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-foreground">Bước 3 · Review & hành động</div>
+                <div className="text-sm font-semibold text-foreground">Bước 3 · Review & tạo version</div>
                 <div className="mt-1 text-xs text-muted-foreground">
                   {isContractLocked
-                    ? `Contract đã khóa${parseContract?.locked_at ? ` • ${new Date(parseContract.locked_at).toLocaleString("vi-VN")}` : ""}`
-                    : "Contract đang ở draft. Cần ít nhất 1 evidence pass trước khi khóa và chạy bulk-run."}
+                    ? `Contract đã khóa${parseContract?.locked_at ? ` • ${new Date(parseContract.locked_at).toLocaleString("vi-VN")}` : ""}. Sau khi tạo version thành công, hãy dùng flow sync → doanh thu để chạy hàng loạt.`
+                    : "Contract đang ở draft. Cần ít nhất 1 evidence pass trước khi khóa contract và tạo version KB mới."}
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -381,29 +361,22 @@ export function KnowledgeBaseProfileEditor(props: Props) {
                     <Lock className="mr-1 h-4 w-4" /> Khóa contract
                   </Button>
                 )}
-                <Button type="button" variant="secondary" onClick={onBulkRunLockedContract} disabled={bulkRunPending || !canBulkRun}>
-                  {bulkRunPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
-                  {bulkRunPending ? "Đang bulk-run..." : "Bulk-run locked contract"}
-                </Button>
               </div>
             </div>
 
             {!canLock && !isContractLocked && (
               <div className="text-xs text-muted-foreground">{lockDisabledReason}</div>
             )}
-            {!!bulkRunDisabledReason && (
-              <div className="text-xs text-muted-foreground">{bulkRunDisabledReason}</div>
-            )}
 
             <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
               <div className="space-y-2">
                 <Label className="text-xs uppercase tracking-wide text-muted-foreground">Change note</Label>
-                <Input value={kbChangeNote} onChange={(e) => onKbChangeNoteChange(e.target.value)} placeholder="Mô tả thay đổi KB để lưu version" />
+                <Input value={kbChangeNote} onChange={(e) => onKbChangeNoteChange(e.target.value)} placeholder="Mô tả thay đổi để tạo version KB mới" />
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="secondary" onClick={onApproveLatest} disabled={approvePending || !canApproveLatest}>
                   {approvePending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
-                  {approvePending ? "Đang lưu..." : "Lưu cấu hình"}
+                  {approvePending ? "Đang tạo version..." : "Tạo version mới"}
                 </Button>
               </div>
             </div>

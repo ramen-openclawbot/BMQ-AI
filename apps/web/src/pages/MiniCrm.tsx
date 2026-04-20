@@ -739,6 +739,14 @@ export default function MiniCrm() {
     return "auto";
   };
 
+  const deriveParseContractSourceForSave = (): ParseContractSource => {
+    if (parseContract?.source) return parseContract.source;
+    const strategy = String(kbAiSuggestion?.parse_strategy || "").trim();
+    if (strategy === "email_body_only") return "email_body";
+    if (strategy === "attachment_first") return "attachment";
+    return mapPoSourceToParseContractSource(editKbPoSource);
+  };
+
   const buildParseContractForSave = () => {
     const base = parseContract
       || (kbAiSuggestion ? aiSuggestionToParseContract(kbAiSuggestion, { po_mode: editKbPoMode as any }) : null);
@@ -746,7 +754,7 @@ export default function MiniCrm() {
     return {
       ...base,
       po_mode: editKbPoMode as any,
-      source: mapPoSourceToParseContractSource(editKbPoSource),
+      source: deriveParseContractSourceForSave(),
       updated_at: new Date().toISOString(),
     } satisfies CustomerParseContract;
   };
@@ -1475,8 +1483,8 @@ export default function MiniCrm() {
   const submitKbChangeRequestMutation = useMutation({
     mutationFn: async () => {
       if (!editingCustomerId) throw new Error("Chưa chọn khách hàng");
-      if (!canApproveKb) throw new Error("Bạn không có quyền lưu & áp dụng KB.");
-      setKbAiStatus("Đang lưu và áp dụng KB...");
+      if (!canApproveKb) throw new Error("Bạn không có quyền tạo version KB.");
+      setKbAiStatus("Đang tạo version KB mới...");
 
       const parseContractToSave = buildParseContractForSave();
       const kbPayload = {
@@ -1534,16 +1542,16 @@ export default function MiniCrm() {
         queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profiles"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profile-versions"] }),
       ]);
-      setKbAiStatus(`Đã lưu và áp dụng KB thành công (KB v${result?.versionNo || "mới"}).`);
-      toast({ title: "Đã lưu & áp dụng KB", description: `KB v${result?.versionNo || "mới"} đang active cho khách hàng này.` });
+      setKbAiStatus(`Tạo version KB thành công (KB v${result?.versionNo || "mới"}).`);
+      toast({ title: "Tạo version KB thành công", description: `KB v${result?.versionNo || "mới"} đã được tạo và đang active cho khách hàng này.` });
       setKbChangeNote("");
     },
     onError: (e: any) => {
       const message = e?.code === "42501"
-        ? "Bạn không có quyền lưu & áp dụng KB. Cần role Owner/Staff hoặc quyền edit module CRM / PO (Bán hàng)."
-        : (e?.message || "Không thể lưu KB");
-      setKbAiStatus(`Lưu & áp dụng KB thất bại: ${message}`);
-      toast({ title: "Lưu KB thất bại", description: message, variant: "destructive" });
+        ? "Bạn không có quyền tạo version KB. Cần role Owner/Staff hoặc quyền edit module CRM / PO (Bán hàng)."
+        : (e?.message || "Không thể tạo version KB");
+      setKbAiStatus(`Tạo version KB thất bại: ${message}`);
+      toast({ title: "Tạo version KB thất bại", description: message, variant: "destructive" });
     },
   });
 
@@ -2078,9 +2086,21 @@ export default function MiniCrm() {
 
   const recentCustomerPosForKbTest = useMemo(() => {
     if (!editingCustomerId) return [];
+    const targetCustomerId = String(editingCustomerId);
+    const editingCustomer = customers.find((c: any) => String(c?.id || "") === targetCustomerId) || null;
+    const recognizedEmails = new Set(
+      (editingCustomer?.mini_crm_customer_emails || [])
+        .map((e: any) => String(e?.email || "").trim().toLowerCase())
+        .filter(Boolean),
+    );
+
     return poInbox
-      .filter((row: any) => String(resolveCustomerIdFromInboxRow(row) || "") === String(editingCustomerId))
-      .slice(0, 10);
+      .filter((row: any) => {
+        const resolvedCustomerId = String(resolveCustomerIdFromInboxRow(row) || "");
+        const fromEmail = String(row?.from_email || "").trim().toLowerCase();
+        return resolvedCustomerId === targetCustomerId || (fromEmail && recognizedEmails.has(fromEmail));
+      })
+      .sort((a: any, b: any) => new Date(b?.received_at || 0).getTime() - new Date(a?.received_at || 0).getTime());
   }, [poInbox, editingCustomerId, customers]);
 
   const recentRevenueAudit = useMemo(() => revenueAuditRows.slice(0, 20), [revenueAuditRows]);
@@ -3749,7 +3769,6 @@ export default function MiniCrm() {
               editingCustomerId={editingCustomerId}
               editKbProfileName={editKbProfileName}
               editKbPoMode={editKbPoMode}
-              editKbPoSource={editKbPoSource}
               editKbBusinessDescription={editKbBusinessDescription}
               kbAiSuggestion={kbAiSuggestion}
               kbAiStatus={kbAiStatus}
@@ -3761,9 +3780,6 @@ export default function MiniCrm() {
               approvePending={approveKbLatestRequestMutation.isPending}
               pendingCount={0}
               canApproveLatest={canApproveKb}
-              canBulkRun={Boolean(parseContract?.status === "locked") && !bulkRunLockedContractMutation.isPending}
-              bulkRunPending={bulkRunLockedContractMutation.isPending}
-              bulkRunDisabledReason={parseContract?.status === "locked" ? "" : "Bulk-run chỉ chạy khi contract đã locked và được lưu/applied."}
               approveDisabledReason={approveKbDisabledReason}
               activeKnowledgeProfile={customerKnowledgeProfiles.find((x: any) => x.customer_id === editingCustomerId) || null}
               knowledgeVersionHistory={knowledgeProfileVersions.filter((v: any) => v.customer_id === editingCustomerId).sort((a: any, b: any) => Number(b.version_no || 0) - Number(a.version_no || 0))}
@@ -3772,7 +3788,6 @@ export default function MiniCrm() {
               currentUserLabel={user?.email || user?.id || "mini-crm-ui"}
               onKbProfileNameChange={setEditKbProfileName}
               onKbPoModeChange={setEditKbPoMode}
-              onKbPoSourceChange={setEditKbPoSource}
               onKbBusinessDescriptionChange={setEditKbBusinessDescription}
               onKbChangeNoteChange={setKbChangeNote}
               onTemplateFileChange={async (f) => {
@@ -3810,7 +3825,6 @@ export default function MiniCrm() {
               onAiSuggest={() => kbAiSuggestMutation.mutate()}
               onSubmitApproval={() => submitKbChangeRequestMutation.mutate()}
               onApproveLatest={() => approveKbLatestRequestMutation.mutate()}
-              onBulkRunLockedContract={() => bulkRunLockedContractMutation.mutate()}
               onParseContractChange={setParseContract}
             />
           </div>

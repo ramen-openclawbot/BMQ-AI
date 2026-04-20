@@ -194,10 +194,10 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
       <div className="rounded-xl border border-dashed border-border/70 bg-background/60 px-4 py-5 text-sm">
         <div className="flex items-center gap-2 font-semibold text-foreground mb-1.5">
           <FlaskConical className="h-4 w-4 text-primary" />
-          Workbench kiểm tra parse
+          Workbench test parse
         </div>
         <p className="text-muted-foreground">
-          Chưa thấy PO đã sync nào map vào khách hàng này. Hãy kiểm tra email nhận diện của khách hàng hoặc chạy sync/import lại PO để test parse tại đây.
+          Chưa có PO nào của khách hàng này trong hệ thống. Sau khi nhận PO thực tế, anh/chị có thể chọn và test parse tại đây.
         </p>
       </div>
     );
@@ -207,7 +207,7 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
     <div className="rounded-xl border border-border/70 bg-background/80 p-4 shadow-sm space-y-4">
       <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
         <FlaskConical className="h-4 w-4 text-primary" />
-        Workbench kiểm tra parse — PO đã sync của khách
+        Workbench test parse
       </div>
       <p className="text-xs text-muted-foreground -mt-2">
         Chọn một PO đã sync bên dưới để chạy parse thử với KB/AI config đang draft. Kết quả không ảnh hưởng dữ liệu.
@@ -246,10 +246,10 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
       {/* PO selector */}
       <div className="space-y-1.5">
         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Chọn PO để test ({customerPos.length} PO gần nhất)
+          Chọn PO để test ({customerPos.length} PO đã sync)
         </div>
         <div className="space-y-1.5 max-h-56 overflow-y-auto pr-0.5">
-          {customerPos.slice(0, 10).map((po) => {
+          {customerPos.map((po) => {
             const isSelected = po.id === selectedPoId;
             return (
               <button
