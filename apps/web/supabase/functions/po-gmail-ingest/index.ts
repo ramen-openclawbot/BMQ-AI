@@ -43,6 +43,68 @@ const revenueChannelFromCustomerGroup = (group: string | null | undefined) => {
   }
 };
 
+type EmailCandidate = {
+  customerId: string;
+  customerName: string | null;
+  revenueChannel: string | null;
+  isNpp: boolean;
+  suppliedByNppCustomerId: string | null;
+};
+
+const dedupeCandidates = (candidates: EmailCandidate[]) => {
+  const byId = new Map<string, EmailCandidate>();
+  for (const candidate of candidates) {
+    if (!candidate?.customerId) continue;
+    byId.set(candidate.customerId, candidate);
+  }
+  return Array.from(byId.values());
+};
+
+const resolveEmailCandidates = (candidates: EmailCandidate[]) => {
+  const deduped = dedupeCandidates(candidates);
+  const activeRoots = deduped.filter((candidate) => !candidate.suppliedByNppCustomerId);
+  const rootNpps = activeRoots.filter((candidate) => candidate.isNpp);
+
+  if (rootNpps.length === 1) {
+    const rootNpp = rootNpps[0];
+    const sameNppDependents = deduped.filter(
+      (candidate) => candidate.suppliedByNppCustomerId && candidate.suppliedByNppCustomerId === rootNpp.customerId,
+    );
+    const outsideRootGroup = deduped.filter(
+      (candidate) => candidate.customerId !== rootNpp.customerId && candidate.suppliedByNppCustomerId !== rootNpp.customerId,
+    );
+    if (sameNppDependents.length > 0 && outsideRootGroup.length === 0) {
+      return {
+        match: rootNpp,
+        candidates: deduped,
+        resolution: "npp_parent",
+      } as const;
+    }
+  }
+
+  if (activeRoots.length === 1) {
+    return {
+      match: activeRoots[0],
+      candidates: deduped,
+      resolution: "single_root",
+    } as const;
+  }
+
+  if (deduped.length === 1) {
+    return {
+      match: deduped[0],
+      candidates: deduped,
+      resolution: "single_candidate",
+    } as const;
+  }
+
+  return {
+    match: null,
+    candidates: deduped,
+    resolution: deduped.length > 1 ? "ambiguous" : "unmatched",
+  } as const;
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflightResponse(req);
 
@@ -66,21 +128,29 @@ serve(async (req) => {
 
     const { data: crmEmails, error: crmError } = await supabase
       .from("mini_crm_customer_emails")
-      .select("email, customer_id, mini_crm_customers(customer_group,is_active)")
+      .select("email, customer_id, mini_crm_customers(customer_name,customer_group,is_active,is_npp,supplied_by_npp_customer_id)")
       .order("created_at", { ascending: true });
 
     if (crmError) throw crmError;
 
-    const emailMap = new Map<string, { customerId: string; revenueChannel: string | null }>();
+    const emailMap = new Map<string, EmailCandidate[]>();
     for (const row of crmEmails || []) {
-      const isActive = Boolean((row as any).mini_crm_customers?.is_active);
+      const customer = (row as any).mini_crm_customers || {};
+      const isActive = Boolean(customer?.is_active);
       if (!isActive) continue;
       const expanded = explodeEmails(String((row as any).email || ""));
+      const candidate: EmailCandidate = {
+        customerId: String((row as any).customer_id || ""),
+        customerName: customer?.customer_name ? String(customer.customer_name) : null,
+        revenueChannel: revenueChannelFromCustomerGroup(customer?.customer_group || null),
+        isNpp: Boolean(customer?.is_npp),
+        suppliedByNppCustomerId: customer?.supplied_by_npp_customer_id ? String(customer.supplied_by_npp_customer_id) : null,
+      };
+      if (!candidate.customerId) continue;
       for (const key of expanded) {
-        emailMap.set(key, {
-          customerId: (row as any).customer_id,
-          revenueChannel: revenueChannelFromCustomerGroup((row as any).mini_crm_customers?.customer_group || null),
-        });
+        const existing = emailMap.get(key) || [];
+        existing.push(candidate);
+        emailMap.set(key, existing);
       }
     }
 
@@ -89,7 +159,9 @@ serve(async (req) => {
       const fromEmail = normalizeEmail(String(item.fromEmail || ""));
       if (!fromEmail) continue;
 
-      const match = emailMap.get(fromEmail);
+      const candidateMatches = emailMap.get(fromEmail) || [];
+      const resolvedMatch = resolveEmailCandidates(candidateMatches);
+      const match = resolvedMatch.match;
       const matchStatus = match ? "pending_approval" : "unmatched";
 
       const payload = {
@@ -105,7 +177,16 @@ serve(async (req) => {
         matched_customer_id: match?.customerId || null,
         match_status: matchStatus,
         revenue_channel: match?.revenueChannel || null,
-        raw_payload: item.rawPayload || item,
+        raw_payload: {
+          ...(item.rawPayload || item),
+          customer_match_resolution: resolvedMatch.resolution,
+          customer_match_candidates: resolvedMatch.candidates.map((candidate) => ({
+            customer_id: candidate.customerId,
+            customer_name: candidate.customerName,
+            is_npp: candidate.isNpp,
+            supplied_by_npp_customer_id: candidate.suppliedByNppCustomerId,
+          })),
+        },
       };
 
       const query = supabase.from("customer_po_inbox").upsert(payload, {
