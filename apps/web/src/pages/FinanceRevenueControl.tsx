@@ -264,7 +264,7 @@ export default function FinanceRevenueControl() {
         .lte("received_at", `${syncDateTo}T23:59:59.999Z`)
         .order("received_at", { ascending: false })
         .limit(200);
-      if (syncCustomerId !== "all") q = q.eq("customer_id", syncCustomerId);
+      if (syncCustomerId !== "all") q = q.eq("matched_customer_id", syncCustomerId);
       const { data: inboxRows, error: inboxErr } = await q;
       if (inboxErr) throw inboxErr;
       const rows: any[] = inboxRows || [];
@@ -279,7 +279,7 @@ export default function FinanceRevenueControl() {
       const existingSet = new Set<string>((existingDocs || []).map((d: any) => d.inbox_row_id as string));
 
       // 4. Prefetch KB profiles for customers in this batch
-      const customerIds = [...new Set<string>(rows.map((r: any) => r.customer_id).filter(Boolean) as string[])];
+      const customerIds = [...new Set<string>(rows.map((r: any) => r.matched_customer_id).filter(Boolean) as string[])];
       const safeCustomerIds = customerIds.length ? customerIds : ["00000000-0000-0000-0000-000000000000"];
       const { data: kbProfiles } = await (supabase as any)
         .from("mini_crm_knowledge_profiles")
@@ -301,7 +301,8 @@ export default function FinanceRevenueControl() {
         const isTier1 = Boolean(row.mini_crm_customers?.is_tier1);
         const amount = calcAmountFromRow(row);
         const productGroup = String(row.mini_crm_customers?.product_group || inferProductGroupFromRow(row));
-        const kbProfileId: string | null = kbByCustomer.get(row.customer_id) ?? null;
+        const resolvedCustomerId: string | null = row.matched_customer_id || null;
+        const kbProfileId: string | null = resolvedCustomerId ? (kbByCustomer.get(resolvedCustomerId) ?? null) : null;
 
         try {
           // Create parse run
@@ -310,7 +311,7 @@ export default function FinanceRevenueControl() {
             .insert({
               sync_job_id: job.id,
               inbox_row_id: row.id,
-              customer_id: row.customer_id || null,
+              customer_id: resolvedCustomerId,
               status: isTier1 ? "ok" : "exception",
               outcome: isTier1 ? "draft_created" : "exception_non_tier1",
               kb_profile_id: kbProfileId,
@@ -325,7 +326,7 @@ export default function FinanceRevenueControl() {
             .from("sales_po_documents")
             .insert({
               inbox_row_id: row.id,
-              customer_id: row.customer_id || null,
+              customer_id: resolvedCustomerId,
               sync_job_id: job.id,
               parse_run_id: parseRun?.id || null,
               po_number: row.po_number || extractPoNumberFromSubject(row.email_subject) || null,
@@ -349,7 +350,7 @@ export default function FinanceRevenueControl() {
             .from("revenue_drafts")
             .insert({
               sales_po_doc_id: doc.id,
-              customer_id: row.customer_id || null,
+              customer_id: resolvedCustomerId,
               sync_job_id: job.id,
               po_number: row.po_number || extractPoNumberFromSubject(row.email_subject) || null,
               po_order_date: row.raw_payload?.parse_meta?.po_order_date || null,

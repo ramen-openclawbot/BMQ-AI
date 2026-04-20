@@ -2617,8 +2617,8 @@ export default function MiniCrm() {
 
       const { data: rows, error } = await (supabase as any)
         .from("customer_po_inbox")
-        .select("id,customer_id,po_number,delivery_date,email_subject,body_preview,total_amount,subtotal_amount,vat_amount,revenue_channel,production_items,match_status,posted_to_revenue,raw_payload,received_at")
-        .eq("customer_id", editingCustomerId)
+        .select("id,matched_customer_id,po_number,delivery_date,email_subject,body_preview,total_amount,subtotal_amount,vat_amount,revenue_channel,production_items,match_status,posted_to_revenue,raw_payload,received_at")
+        .eq("matched_customer_id", editingCustomerId)
         .order("received_at", { ascending: false })
         .limit(100);
       if (error) throw error;
