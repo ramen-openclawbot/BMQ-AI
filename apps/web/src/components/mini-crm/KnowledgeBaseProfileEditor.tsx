@@ -32,12 +32,8 @@ type Props = {
   activeKnowledgeProfile?: any | null;
   knowledgeVersionHistory?: any[];
   latestPendingRequest?: any | null;
-  parserPreviewInput?: string;
-  parserPreviewResult?: any | null;
   parseContract?: CustomerParseContract | null;
   currentUserLabel?: string;
-  onParserPreviewInputChange: (v: string) => void;
-  onRunParserPreview: () => void;
   onKbProfileNameChange: (v: string) => void;
   onKbPoModeChange: (v: string) => void;
   onKbPoSourceChange: (v: string) => void;
@@ -70,7 +66,6 @@ export function KnowledgeBaseProfileEditor(props: Props) {
     templateFileName,
     templateAiContext,
     kbAiSuggestPending,
-    submitPending,
     approvePending,
     bulkRunPending,
     pendingCount,
@@ -80,13 +75,8 @@ export function KnowledgeBaseProfileEditor(props: Props) {
     approveDisabledReason,
     activeKnowledgeProfile,
     knowledgeVersionHistory = [],
-    latestPendingRequest,
-    parserPreviewInput,
-    parserPreviewResult,
     parseContract,
     currentUserLabel,
-    onParserPreviewInputChange,
-    onRunParserPreview,
     onKbProfileNameChange,
     onKbPoModeChange,
     onKbPoSourceChange,
@@ -95,13 +85,15 @@ export function KnowledgeBaseProfileEditor(props: Props) {
     onTemplateFileChange,
     onClearTemplate,
     onAiSuggest,
-    onSubmitApproval,
     onApproveLatest,
     onBulkRunLockedContract,
     onParseContractChange,
   } = props;
 
   const [editorOpen, setEditorOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+
   const activeTemplateName = poTemplates.find((t: any) => t.customer_id === editingCustomerId)?.file_name || "Chưa có";
   const canRunAi = Boolean(editKbBusinessDescription.trim() || templateAiContext.trim());
   const latestVersion = knowledgeVersionHistory[0] || null;
@@ -128,7 +120,13 @@ export function KnowledgeBaseProfileEditor(props: Props) {
 
   const handleUnlockContract = () => {
     if (!parseContract || !onParseContractChange) return;
-    onParseContractChange({ ...parseContract, status: "draft", locked_at: undefined, locked_by: undefined, updated_at: new Date().toISOString() });
+    onParseContractChange({
+      ...parseContract,
+      status: "draft",
+      locked_at: undefined,
+      locked_by: undefined,
+      updated_at: new Date().toISOString(),
+    });
   };
 
   return (
@@ -137,14 +135,14 @@ export function KnowledgeBaseProfileEditor(props: Props) {
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <Brain className="h-4 w-4 text-primary" />
-            Knowledge Base cho PO bán hàng
+            Cấu hình parse PO
           </div>
           <p className="max-w-3xl text-sm text-muted-foreground">
-            Mặc định hiển thị KB đang áp dụng cho khách hàng. Chỉ mở form khi cần tạo version mới hoặc chỉnh sửa.
+            Mục tiêu: test trên PO thật, lưu evidence, khóa contract rồi mới bulk-run.
           </p>
         </div>
         <div className="rounded-full border border-border/70 bg-background px-3 py-1.5 text-xs text-muted-foreground">
-          Pending requests: <span className="font-semibold text-foreground">{pendingCount}</span>
+          Pending: <span className="font-semibold text-foreground">{pendingCount}</span>
         </div>
       </div>
 
@@ -168,40 +166,41 @@ export function KnowledgeBaseProfileEditor(props: Props) {
                   {latestVersion ? <span className="rounded-full border border-border/70 bg-muted/30 px-2.5 py-1">KB v{latestVersion.version_no}</span> : null}
                   {contractStatus === "locked" && (
                     <span className="flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 py-1 font-medium text-blue-700 dark:text-blue-300">
-                      <Lock className="h-3 w-3" /> Contract locked
+                      <Lock className="h-3 w-3" /> Locked
                     </span>
                   )}
                   {contractStatus === "draft" && (
-                    <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 font-medium text-amber-700 dark:text-amber-300">Contract draft</span>
+                    <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 font-medium text-amber-700 dark:text-amber-300">Draft</span>
                   )}
                 </div>
                 <div className="text-lg font-semibold text-foreground">{activeKnowledgeProfile.profile_name || "KB hiện tại"}</div>
                 <div className="grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
                   <div>PO mode: <span className="font-medium text-foreground">{activeKnowledgeProfile.po_mode || "-"}</span></div>
-                  <div>Nguồn PO: <span className="font-medium text-foreground">{editKbPoSource || "-"}</span></div>
+                  <div>Nguồn: <span className="font-medium text-foreground">{editKbPoSource || "-"}</span></div>
                   <div>Template: <span className="font-medium text-foreground">{activeTemplateName}</span></div>
-                  <div>Pending: <span className="font-medium text-foreground">{pendingCount}</span></div>
-                </div>
-                <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm text-foreground/90">
-                  {kbAiSuggestion?.human_summary || activeKnowledgeProfile.business_description || activeKnowledgeProfile.calculation_notes || "KB này đang active cho khách hàng. Có thể tạo version mới nếu cần chỉnh rule."}
+                  <div>Evidence: <span className="font-medium text-foreground">{parseContract?.test_evidence?.length || 0}</span></div>
                 </div>
               </>
             ) : (
               <div className="rounded-lg border border-dashed border-border/70 bg-background/70 px-4 py-5 text-sm text-muted-foreground">
-                Khách hàng này chưa có KB active. Anh/chị có thể mở form bên dưới để tạo KB đầu tiên.
+                Khách hàng này chưa có KB active. Mở form bên dưới để tạo KB đầu tiên.
               </div>
             )}
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={() => setHistoryOpen((v) => !v)}>
+              <History className="mr-1 h-4 w-4" />
+              {historyOpen ? "Ẩn lịch sử" : `Lịch sử KB${visibleHistory.length ? ` (${visibleHistory.length})` : ""}`}
+            </Button>
             <Button type="button" variant="outline" onClick={() => setEditorOpen((v) => !v)}>
               <ChevronDown className={`mr-1 h-4 w-4 transition-transform ${editorOpen ? "rotate-180" : ""}`} />
-              {editorOpen ? "Ẩn form KB" : activeKnowledgeProfile ? "Chỉnh sửa / tạo version mới" : "Tạo KB mới"}
+              {editorOpen ? "Ẩn cấu hình" : activeKnowledgeProfile ? "Chỉnh sửa cấu hình" : "Tạo cấu hình"}
             </Button>
           </div>
         </div>
       </div>
 
-      {visibleHistory.length > 0 && (
+      {historyOpen && visibleHistory.length > 0 && (
         <div className="rounded-xl border border-border/70 bg-background/80 p-4 shadow-sm">
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
             <History className="h-4 w-4 text-primary" />
@@ -231,193 +230,141 @@ export function KnowledgeBaseProfileEditor(props: Props) {
             Draft KB / tạo version mới
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-[1.05fr_1.35fr]">
-            <div className="space-y-4">
-              <div className={sectionClass}>
-                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
-                  <FileText className="h-4 w-4 text-primary" />
-                  Hồ sơ KB cơ bản
-                </div>
-                <div className="grid gap-3">
-                  <div className="space-y-2">
-                    <Label className="text-xs uppercase tracking-wide text-muted-foreground">Tên profile</Label>
-                    <Input value={editKbProfileName} onChange={(e) => onKbProfileNameChange(e.target.value)} placeholder="Ví dụ: NPP_EmailBody_CommaSegments" disabled={isContractLocked} />
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label className="text-xs uppercase tracking-wide text-muted-foreground">PO mode</Label>
-                      <select className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed" value={editKbPoMode} onChange={(e) => onKbPoModeChange(e.target.value)} disabled={isContractLocked}>
-                        <option value="daily_new_po">PO mới theo ngày</option>
-                        <option value="cumulative_snapshot">PO cộng dồn (delta)</option>
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-xs uppercase tracking-wide text-muted-foreground">Nguồn PO ưu tiên</Label>
-                      <select className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed" value={editKbPoSource} onChange={(e) => onKbPoSourceChange(e.target.value)} disabled={isContractLocked}>
-                        <option value="attachment_first">Ưu tiên file đính kèm</option>
-                        <option value="email_body_only">PO từ nội dung email</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                    Chọn <b>email body only</b> nếu khách thường đặt hàng ngay trong nội dung mail, không có file đính kèm chuẩn.
-                  </div>
-                </div>
-              </div>
-
-              <div className={sectionClass}>
-                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
-                  <FileText className="h-4 w-4 text-primary" />
-                  Template tham chiếu
-                </div>
-                <div className="space-y-3">
-                  <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                    Active template: <span className="font-medium text-foreground">{activeTemplateName}</span>
-                  </div>
-                  <div className="flex flex-col gap-2 lg:flex-row">
-                    <Input type="file" accept=".xlsx,.pdf,image/*" onChange={(e) => onTemplateFileChange(e.target.files?.[0] || null)} disabled={isContractLocked} />
-                    <Button type="button" variant="outline" className="shrink-0" onClick={onClearTemplate} disabled={isContractLocked}>Xoá mẫu</Button>
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    Hỗ trợ <b>.xlsx</b>, <b>.pdf</b> và <b>ảnh</b>. File này giúp AI hiểu cấu trúc PO và cách khách hàng thường trình bày dữ liệu.
-                  </div>
-                  {templateFileName && (
-                    <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
-                      Đã chọn mẫu mới: <b>{templateFileName}</b>
-                    </div>
-                  )}
-                  {templateAiContext && (
-                    <div className="rounded-lg border border-border/60 bg-background px-3 py-2">
-                      <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Template context cho AI</div>
-                      <div className="line-clamp-4 text-sm leading-6 text-foreground/90">{templateAiContext}</div>
-                    </div>
-                  )}
-                </div>
-              </div>
+          <div className={sectionClass}>
+            <div className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
+              <FileText className="h-4 w-4 text-primary" />
+              Bước 1 · Cấu hình parse
             </div>
-
             <div className="space-y-4">
-              <div className={sectionClass}>
-                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
-                  <Sparkles className="h-4 w-4 text-primary" />
-                  Ngữ cảnh business & dữ liệu mẫu
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">Tên profile</Label>
+                  <Input value={editKbProfileName} onChange={(e) => onKbProfileNameChange(e.target.value)} placeholder="Ví dụ: Đại lý cấp 1 - Anh Thanh Knowledge" disabled={isContractLocked} />
                 </div>
-                <div className="space-y-3">
-                  <div className="space-y-2">
-                    <Label className="text-xs uppercase tracking-wide text-muted-foreground">Mô tả business cho AI</Label>
-                    <textarea
-                      className={inputClass}
-                      value={editKbBusinessDescription}
-                      onChange={(e) => onKbBusinessDescriptionChange(e.target.value)}
-                      placeholder="Ví dụ: Khách gửi PO trong email body, mỗi đoạn ngăn bởi dấu phẩy là một điểm giao. Số 'đổi' phải cộng vào số lượng chính."
-                      disabled={isContractLocked}
-                    />
-                  </div>
-                  <div className="rounded-lg border border-primary/15 bg-primary/5 px-3 py-2 text-sm leading-6 text-foreground/85">
-                    AI sẽ suy ra parse rule và công thức tính từ <b>mô tả business</b> + <b>template context</b> mà anh/chị upload.
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">Template tham chiếu</Label>
+                  <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm text-foreground/90">
+                    {activeTemplateName}
                   </div>
                 </div>
               </div>
 
-              <div className="rounded-xl border border-primary/20 bg-gradient-to-br from-primary/5 via-background to-background p-4 shadow-sm">
-                <div className="mb-3 flex items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                      <Wand2 className="h-4 w-4 text-primary" />
-                      AI Tính Toán
-                    </div>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      AI chỉ đề xuất rule có cấu trúc để review. Chưa áp dụng thì chưa thành KB chính thức.
-                    </p>
-                  </div>
-                  <Button type="button" variant="default" onClick={onAiSuggest} disabled={kbAiSuggestPending || !canRunAi || isContractLocked}>
-                    {kbAiSuggestPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
-                    AI Tính Toán
-                  </Button>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">PO mode</Label>
+                  <select className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed" value={editKbPoMode} onChange={(e) => onKbPoModeChange(e.target.value)} disabled={isContractLocked}>
+                    <option value="daily_new_po">PO mới theo ngày</option>
+                    <option value="cumulative_snapshot">PO cộng dồn (delta)</option>
+                  </select>
                 </div>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">Nguồn PO</Label>
+                  <select className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed" value={editKbPoSource} onChange={(e) => onKbPoSourceChange(e.target.value)} disabled={isContractLocked}>
+                    <option value="attachment_first">Ưu tiên file đính kèm</option>
+                    <option value="email_body_only">PO từ nội dung email</option>
+                  </select>
+                </div>
+              </div>
 
-                {kbAiSuggestion ? (
-                  <div className="space-y-3 rounded-xl border border-border/70 bg-background p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="text-sm font-medium text-foreground">Đề xuất AI hiện tại</div>
-                      <div className="rounded-full border border-border/70 bg-muted/30 px-2.5 py-1 text-xs text-muted-foreground">
-                        Confidence: <span className="font-semibold text-foreground">{Math.round(Number(kbAiSuggestion.confidence || 0) * 100)}%</span>
-                      </div>
-                    </div>
-                    <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm leading-6 text-foreground/90">
-                      {kbAiSuggestion.human_summary}
-                    </div>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <InfoTile label="Parse strategy" value={kbAiSuggestion.parse_strategy} />
-                      <InfoTile label="Split rule" value={kbAiSuggestion.item_split_rule} />
-                      <InfoTile label="Location qty pattern" value={(kbAiSuggestion.location_quantity_patterns || []).join(" • ") || "-"} wide />
-                      <InfoTile label="Exchange rule" value={(kbAiSuggestion.exchange_rule?.pattern || (kbAiSuggestion.exchange_rule?.keywords || kbAiSuggestion.exchange_keywords || []).join(", ")) || "-"} wide />
-                      <InfoTile label="Formula" value={kbAiSuggestion.quantity_formula?.expression || "-"} wide />
-                      <InfoTile label="Normalization" value={(kbAiSuggestion.normalization_rules || []).join(" • ") || "-"} wide />
-                    </div>
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground">Mô tả business</Label>
+                <textarea
+                  className={inputClass}
+                  value={editKbBusinessDescription}
+                  onChange={(e) => onKbBusinessDescriptionChange(e.target.value)}
+                  placeholder="Ví dụ: mỗi dòng là một điểm bán, tên điểm nằm trước dấu :, ưu tiên qty_total để sản xuất"
+                  disabled={isContractLocked}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground">Template / mẫu PO</Label>
+                <div className="flex flex-col gap-2 lg:flex-row">
+                  <Input type="file" accept=".xlsx,.pdf,image/*" onChange={(e) => onTemplateFileChange(e.target.files?.[0] || null)} disabled={isContractLocked} />
+                  <Button type="button" variant="outline" className="shrink-0" onClick={onClearTemplate} disabled={isContractLocked}>Xoá mẫu</Button>
+                </div>
+                {templateFileName && (
+                  <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
+                    Đã chọn mẫu mới: <b>{templateFileName}</b>
                   </div>
-                ) : (
-                  <div className="rounded-xl border border-dashed border-border/70 bg-background/70 px-4 py-6 text-sm text-muted-foreground">
-                    Chưa có đề xuất AI. Anh/chị nhập mô tả business hoặc template PO rồi bấm <b>AI Tính Toán</b>.
+                )}
+                {templateAiContext && (
+                  <div className="rounded-lg border border-border/60 bg-background px-3 py-2 text-sm text-foreground/90 line-clamp-4">
+                    {templateAiContext}
                   </div>
                 )}
               </div>
 
-              <div className={sectionClass}>
-                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
-                  <Sparkles className="h-4 w-4 text-primary" />
-                  Preview parser
-                </div>
-                <div className="space-y-3">
-                  <textarea
-                    className={inputClass}
-                    value={parserPreviewInput || ""}
-                    onChange={(e) => onParserPreviewInputChange(e.target.value)}
-                    placeholder="Dán 1 email mẫu vào đây, ví dụ: 1. Rạch Giá 200: đổi 7 2. ĐVC: 100"
-                    disabled={isContractLocked}
-                  />
-                  <div className="flex justify-end">
-                    <Button type="button" variant="outline" onClick={onRunParserPreview} disabled={isContractLocked}>
-                      Chạy preview parse
+              <div className="rounded-xl border border-border/70 bg-background/80 p-4 space-y-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                      <Wand2 className="h-4 w-4 text-primary" />
+                      Gợi ý AI
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Chỉ dùng để tạo draft suggestion. Quyết định cuối phải dựa trên test PO thật.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" onClick={() => setAiOpen((v) => !v)}>
+                      {aiOpen ? "Ẩn gợi ý" : "Xem gợi ý"}
+                    </Button>
+                    <Button type="button" variant="default" onClick={onAiSuggest} disabled={kbAiSuggestPending || !canRunAi || isContractLocked}>
+                      {kbAiSuggestPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                      Gợi ý AI
                     </Button>
                   </div>
-                  {parserPreviewResult ? (
-                    <div className="rounded-xl border border-border/70 bg-background p-4 space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-sm font-medium text-foreground">Kết quả preview</div>
-                        <div className="text-xs text-muted-foreground">Confidence: {Math.round(Number(parserPreviewResult.confidence || 0) * 100)}%</div>
-                      </div>
-                      {(parserPreviewResult.splitSegments || []).length > 0 && (
-                        <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs leading-6 text-muted-foreground">
-                          <div className="mb-1 font-medium text-foreground">Segments sau khi split</div>
-                          {(parserPreviewResult.splitSegments || []).map((seg: string, idx: number) => <div key={idx}>{idx + 1}. {seg}</div>)}
+                </div>
+
+                {aiOpen && (
+                  kbAiSuggestion ? (
+                    <div className="space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-sm font-medium text-foreground">Đề xuất AI hiện tại</div>
+                        <div className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-xs text-muted-foreground">
+                          Confidence: <span className="font-semibold text-foreground">{Math.round(Number(kbAiSuggestion.confidence || 0) * 100)}%</span>
                         </div>
-                      )}
-                      <div className="space-y-2 text-sm">
-                        {(parserPreviewResult.items || []).length ? (parserPreviewResult.items || []).map((item: any, idx: number) => (
-                          <div key={idx} className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
-                            <div><b>{item.product_name || "-"}</b></div>
-                            <div className="text-muted-foreground">raw: {item.raw_segment || "-"}</div>
-                            <div className="text-muted-foreground">base: {Number(item.qty_base || 0)} | đổi: {Number(item.qty_exchange || 0)} | total: {Number(item.qty_total || item.qty || 0)}</div>
-                            <div className="text-muted-foreground">note: {item.note || "-"}</div>
-                          </div>
-                        )) : <div className="text-muted-foreground">Không parse ra dòng nào.</div>}
+                      </div>
+                      <div className="rounded-lg border border-border/60 bg-background px-3 py-2 text-sm leading-6 text-foreground/90">
+                        {kbAiSuggestion.human_summary}
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <InfoTile label="Parse strategy" value={kbAiSuggestion.parse_strategy} />
+                        <InfoTile label="Split rule" value={kbAiSuggestion.item_split_rule} />
+                        <InfoTile label="Location qty pattern" value={(kbAiSuggestion.location_quantity_patterns || []).join(" • ") || "-"} wide />
+                        <InfoTile label="Exchange rule" value={(kbAiSuggestion.exchange_rule?.pattern || (kbAiSuggestion.exchange_rule?.keywords || kbAiSuggestion.exchange_keywords || []).join(", ")) || "-"} wide />
+                        <InfoTile label="Formula" value={kbAiSuggestion.quantity_formula?.expression || "-"} wide />
                       </div>
                     </div>
                   ) : (
-                    <div className="rounded-xl border border-dashed border-border/70 bg-background/70 px-4 py-6 text-sm text-muted-foreground">
-                      Dán email mẫu rồi bấm <b>Chạy preview parse</b> để xem kết quả trước khi lưu & áp dụng KB.
+                    <div className="rounded-lg border border-dashed border-border/70 bg-background/70 px-4 py-4 text-sm text-muted-foreground">
+                      Chưa có gợi ý AI.
                     </div>
-                  )}
-                </div>
+                  )
+                )}
               </div>
             </div>
+          </div>
+
+          <div className={sectionClass}>
+            <div className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
+              <Sparkles className="h-4 w-4 text-primary" />
+              Bước 2 · Test parse trên PO thật
+            </div>
+            <ParseTestWorkbench
+              customerPos={customerPos}
+              kbAiSuggestion={kbAiSuggestion}
+              parseContract={parseContract}
+              onParseContractChange={onParseContractChange}
+              currentUserLabel={currentUserLabel}
+            />
           </div>
 
           <div className="rounded-xl border border-border/70 bg-muted/20 p-4 space-y-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-foreground">Trạng thái contract</div>
+                <div className="text-sm font-semibold text-foreground">Bước 3 · Review & hành động</div>
                 <div className="mt-1 text-xs text-muted-foreground">
                   {isContractLocked
                     ? `Contract đã khóa${parseContract?.locked_at ? ` • ${new Date(parseContract.locked_at).toLocaleString("vi-VN")}` : ""}`
@@ -440,41 +387,30 @@ export function KnowledgeBaseProfileEditor(props: Props) {
                 </Button>
               </div>
             </div>
+
             {!canLock && !isContractLocked && (
               <div className="text-xs text-muted-foreground">{lockDisabledReason}</div>
             )}
             {!!bulkRunDisabledReason && (
               <div className="text-xs text-muted-foreground">{bulkRunDisabledReason}</div>
             )}
-          </div>
 
-          <div className="rounded-xl border border-border/70 bg-muted/20 p-4">
             <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
               <div className="space-y-2">
                 <Label className="text-xs uppercase tracking-wide text-muted-foreground">Change note</Label>
-                <Input value={kbChangeNote} onChange={(e) => onKbChangeNoteChange(e.target.value)} placeholder="Mô tả thay đổi KB để gửi duyệt hoặc lưu version" />
+                <Input value={kbChangeNote} onChange={(e) => onKbChangeNoteChange(e.target.value)} placeholder="Mô tả thay đổi KB để lưu version" />
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="secondary" onClick={onApproveLatest} disabled={approvePending || !canApproveLatest}>
                   {approvePending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
-                  {approvePending ? "Đang lưu & áp dụng..." : "Lưu & áp dụng KB"}
+                  {approvePending ? "Đang lưu..." : "Lưu cấu hình"}
                 </Button>
               </div>
             </div>
             {!!approveDisabledReason && (
-              <div className="mt-2 text-xs text-muted-foreground">
-                {approveDisabledReason}
-              </div>
+              <div className="text-xs text-muted-foreground">{approveDisabledReason}</div>
             )}
           </div>
-
-          <ParseTestWorkbench
-            customerPos={customerPos}
-            kbAiSuggestion={kbAiSuggestion}
-            parseContract={parseContract}
-            onParseContractChange={onParseContractChange}
-            currentUserLabel={currentUserLabel}
-          />
         </div>
       )}
     </div>

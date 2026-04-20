@@ -465,8 +465,6 @@ export default function MiniCrm() {
   const [kbAiSuggestion, setKbAiSuggestion] = useState<KbAiParseSuggestion | null>(null);
   const [parseContract, setParseContract] = useState<CustomerParseContract | null>(null);
   const [kbAiStatus, setKbAiStatus] = useState("");
-  const [parserPreviewInput, setParserPreviewInput] = useState("");
-  const [parserPreviewResult, setParserPreviewResult] = useState<any | null>(null);
   const [editIsNpp, setEditIsNpp] = useState(false);
   const [editUsesNpp, setEditUsesNpp] = useState(false);
   const [editSuppliedByNppCustomerId, setEditSuppliedByNppCustomerId] = useState("");
@@ -670,8 +668,6 @@ export default function MiniCrm() {
     setTemplateAiContext(String(kb?.template_context || ""));
     setKbAiStatus("");
     setKbChangeNote("");
-    setParserPreviewInput("");
-    setParserPreviewResult(null);
   };
 
   const cancelEditCustomer = () => {
@@ -708,8 +704,6 @@ export default function MiniCrm() {
     setParseContract(null);
     setKbAiStatus("");
     setKbChangeNote("");
-    setParserPreviewInput("");
-    setParserPreviewResult(null);
   };
 
   const getNextTemplateVersion = async (customerId: string) => {
@@ -3726,15 +3720,8 @@ export default function MiniCrm() {
               activeKnowledgeProfile={customerKnowledgeProfiles.find((x: any) => x.customer_id === editingCustomerId) || null}
               knowledgeVersionHistory={knowledgeProfileVersions.filter((v: any) => v.customer_id === editingCustomerId).sort((a: any, b: any) => Number(b.version_no || 0) - Number(a.version_no || 0))}
               latestPendingRequest={null}
-              parserPreviewInput={parserPreviewInput}
-              parserPreviewResult={parserPreviewResult}
               parseContract={parseContract}
               currentUserLabel={user?.email || user?.id || "mini-crm-ui"}
-              onParserPreviewInputChange={setParserPreviewInput}
-              onRunParserPreview={() => {
-                const result = parseEmailBodyToProductionItems("", parserPreviewInput, kbAiSuggestion);
-                setParserPreviewResult(result);
-              }}
               onKbProfileNameChange={setEditKbProfileName}
               onKbPoModeChange={setEditKbPoMode}
               onKbPoSourceChange={setEditKbPoSource}
