@@ -40,12 +40,15 @@ import {
   parseDraftItemsForSave,
 } from "@/components/mini-crm/poDraftUtils";
 import {
+  aiSuggestionToParseContract,
   composeKbAiMarkers,
+  deriveParseContractFromProfile,
   extractKbAiConfig,
   extractKbBusinessDescription,
   stripKbAiMarkers,
   type KbAiParseSuggestion,
 } from "@/components/mini-crm/kbAiUtils";
+import type { CustomerParseContract, ParseContractSource } from "@/components/mini-crm/parseContractTypes";
 
 const GROUP_OPTIONS = [
   { value: "banhmi_point", label: "Bán lẻ" },
@@ -93,6 +96,9 @@ const extractEmailBodyTemplate = (note?: string | null) => {
 };
 
 const getKbPoSource = (kb?: any) => {
+  const contractSource = String(kb?.parse_contract?.source || "").toLowerCase();
+  if (contractSource === "email_body") return "email_body_only";
+  if (contractSource === "attachment") return "attachment_first";
   const hay = `${String(kb?.operational_notes || "")} ${String(kb?.calculation_notes || "")}`.toLowerCase();
   if (/\[po_source\s*:\s*email_body_only\]/i.test(hay) || /po_source\s*=\s*email_body_only/i.test(hay)) return "email_body_only";
   return "attachment_first";
@@ -362,7 +368,7 @@ export default function MiniCrm() {
   const { language } = useLanguage();
   const isVi = language === "vi";
   const location = useLocation();
-  const { isOwner, roles, canEditModule } = useAuth();
+  const { isOwner, roles, canEditModule, user } = useAuth();
   const isSalesPoPage = location.pathname === "/sales-po-inbox";
   const canApproveKb = isOwner || roles.includes("staff") || canEditModule("crm") || canEditModule("sales_po_inbox");
   const approveKbDisabledReason = canApproveKb
@@ -457,6 +463,7 @@ export default function MiniCrm() {
   const [editEmailBodyTemplate, setEditEmailBodyTemplate] = useState("");
   const [editKbBusinessDescription, setEditKbBusinessDescription] = useState("");
   const [kbAiSuggestion, setKbAiSuggestion] = useState<KbAiParseSuggestion | null>(null);
+  const [parseContract, setParseContract] = useState<CustomerParseContract | null>(null);
   const [kbAiStatus, setKbAiStatus] = useState("");
   const [parserPreviewInput, setParserPreviewInput] = useState("");
   const [parserPreviewResult, setParserPreviewResult] = useState<any | null>(null);
@@ -646,14 +653,20 @@ export default function MiniCrm() {
     setEditPriceRows(currentPrices.length ? currentPrices.map((p: any) => ({ skuId: p.sku_id, price: String(Number(p.price_vnd_per_unit || 0)) })) : [{ skuId: "", price: "" }]);
 
     const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === c.id);
+    const initialParseContract = deriveParseContractFromProfile(kb);
     setEditKbProfileName(String(kb?.profile_name || `${c.customer_name || "Customer"} Knowledge`));
-    setEditKbPoMode(String(kb?.po_mode || "daily_new_po"));
-    setEditKbPoSource(getKbPoSource(kb));
+    setEditKbPoMode(String(initialParseContract?.po_mode || kb?.po_mode || "daily_new_po"));
+    setEditKbPoSource(
+      initialParseContract?.source === "email_body"
+        ? "email_body_only"
+        : "attachment_first"
+    );
     setEditKbCalcNotes(String(kb?.calculation_notes || ""));
     setEditKbOperationalNotes(stripKbSystemMarkers(String(kb?.operational_notes || "")));
     setEditEmailBodyTemplate(extractEmailBodyTemplate(String(kb?.operational_notes || "")));
     setEditKbBusinessDescription(String(kb?.business_description || extractKbBusinessDescription(String(kb?.operational_notes || ""))));
     setKbAiSuggestion((kb?.ai_parse_config as KbAiParseSuggestion | null) || extractKbAiConfig(String(kb?.operational_notes || "")));
+    setParseContract(initialParseContract);
     setTemplateAiContext(String(kb?.template_context || ""));
     setKbAiStatus("");
     setKbChangeNote("");
@@ -692,6 +705,7 @@ export default function MiniCrm() {
     setEditEmailBodyTemplate("");
     setEditKbBusinessDescription("");
     setKbAiSuggestion(null);
+    setParseContract(null);
     setKbAiStatus("");
     setKbChangeNote("");
     setParserPreviewInput("");
@@ -720,6 +734,24 @@ export default function MiniCrm() {
       .maybeSingle();
     if (error) throw error;
     return Number(data?.version_no || 0) + 1;
+  };
+
+  const mapPoSourceToParseContractSource = (poSource: string): ParseContractSource => {
+    if (poSource === "email_body_only") return "email_body";
+    if (poSource === "attachment_first") return "attachment";
+    return "auto";
+  };
+
+  const buildParseContractForSave = () => {
+    const base = parseContract
+      || (kbAiSuggestion ? aiSuggestionToParseContract(kbAiSuggestion, { po_mode: editKbPoMode as any }) : null);
+    if (!base) return null;
+    return {
+      ...base,
+      po_mode: editKbPoMode as any,
+      source: mapPoSourceToParseContractSource(editKbPoSource),
+      updated_at: new Date().toISOString(),
+    } satisfies CustomerParseContract;
   };
 
   const parseAgentCreateCustomerCommand = (raw: string) => {
@@ -1238,6 +1270,18 @@ export default function MiniCrm() {
         },
       };
       setKbAiSuggestion(normalizedSuggestion);
+      setParseContract((current) => {
+        if (current?.status === "locked") return current;
+        const next = aiSuggestionToParseContract(normalizedSuggestion, { po_mode: editKbPoMode as any });
+        return current
+          ? {
+              ...next,
+              test_evidence: current.test_evidence || [],
+              locked_at: current.locked_at,
+              locked_by: current.locked_by,
+            }
+          : next;
+      });
       setKbAiStatus(`Đã tạo đề xuất AI • confidence ${Math.round(Number(normalizedSuggestion?.confidence || 0) * 100)}%`);
       toast({ title: "AI đã đề xuất rule KB", description: normalizedSuggestion?.human_summary || "" });
     },
@@ -1364,6 +1408,7 @@ export default function MiniCrm() {
           if (tplInsertError) throw tplInsertError;
         }
 
+        const parseContractToSave = buildParseContractForSave();
         const kbPayload = {
           customer_id: editingCustomerId,
           profile_name: editKbProfileName.trim() || `${trimmedName} Knowledge`,
@@ -1371,6 +1416,7 @@ export default function MiniCrm() {
           calculation_notes: editKbCalcNotes.trim() || null,
           business_description: editKbBusinessDescription.trim() || null,
           ai_parse_config: kbAiSuggestion || null,
+          parse_contract: parseContractToSave,
           template_context: templateAiContext || null,
           operational_notes: composeOperationalNotes(editKbOperationalNotes.trim(), editKbPoSource, editEmailBodyTemplate, editKbBusinessDescription, kbAiSuggestion),
           profile_status: "active",
@@ -1378,7 +1424,7 @@ export default function MiniCrm() {
         const { data: kbSaved, error: kbError } = await (supabase as any)
           .from("mini_crm_knowledge_profiles")
           .upsert(kbPayload, { onConflict: "customer_id" })
-          .select("id,customer_id,profile_name,po_mode,profile_status,calculation_notes,operational_notes")
+          .select("id,customer_id,profile_name,po_mode,profile_status,calculation_notes,operational_notes,parse_contract")
           .single();
         if (kbError) throw new Error(`Lỗi lưu Knowledge Base profile: ${kbError.message}`);
 
@@ -1394,6 +1440,7 @@ export default function MiniCrm() {
             profile_status: kbSaved?.profile_status || kbPayload.profile_status,
             calculation_notes: kbSaved?.calculation_notes || kbPayload.calculation_notes || null,
             operational_notes: kbSaved?.operational_notes || kbPayload.operational_notes || null,
+            parse_contract: kbSaved?.parse_contract || kbPayload.parse_contract || null,
             changed_by: "mini-crm-ui",
             change_note: "Profile updated from CRM",
             is_active: true,
@@ -1434,6 +1481,7 @@ export default function MiniCrm() {
       if (!canApproveKb) throw new Error("Bạn không có quyền lưu & áp dụng KB.");
       setKbAiStatus("Đang lưu và áp dụng KB...");
 
+      const parseContractToSave = buildParseContractForSave();
       const kbPayload = {
         customer_id: editingCustomerId,
         profile_name: editKbProfileName.trim() || `${editCustomerName.trim() || "Customer"} Knowledge`,
@@ -1441,6 +1489,7 @@ export default function MiniCrm() {
         calculation_notes: editKbCalcNotes.trim() || null,
         business_description: editKbBusinessDescription.trim() || null,
         ai_parse_config: kbAiSuggestion || null,
+        parse_contract: parseContractToSave,
         template_context: templateAiContext || null,
         operational_notes: composeOperationalNotes(editKbOperationalNotes.trim(), editKbPoSource, editEmailBodyTemplate, editKbBusinessDescription, kbAiSuggestion),
         profile_status: "active",
@@ -1449,7 +1498,7 @@ export default function MiniCrm() {
       const { data: kbSaved, error: kbError } = await (supabase as any)
         .from("mini_crm_knowledge_profiles")
         .upsert(kbPayload, { onConflict: "customer_id" })
-        .select("id,customer_id,profile_name,po_mode,profile_status,calculation_notes,business_description,ai_parse_config,template_context,operational_notes")
+        .select("id,customer_id,profile_name,po_mode,profile_status,calculation_notes,business_description,ai_parse_config,parse_contract,template_context,operational_notes")
         .single();
       if (kbError) throw kbError;
 
@@ -1471,6 +1520,7 @@ export default function MiniCrm() {
         calculation_notes: kbSaved?.calculation_notes || null,
         business_description: kbSaved?.business_description || kbPayload.business_description || null,
         ai_parse_config: kbSaved?.ai_parse_config || kbPayload.ai_parse_config || null,
+        parse_contract: kbSaved?.parse_contract || kbPayload.parse_contract || null,
         template_context: kbSaved?.template_context || kbPayload.template_context || null,
         operational_notes: kbSaved?.operational_notes || null,
         changed_by: "mini-crm-ui",
@@ -2182,21 +2232,25 @@ export default function MiniCrm() {
     }));
   }, [selectedPo, selectedPoKnowledgeProfile, selectedPoAiConfig, poSummaryDraft?.production_items, isPoDraftDirty]);
 
+  const fetchAttachmentParseResult = async (inboxId: string, accessToken?: string) => {
+    const token = accessToken || (await supabase.auth.getSession()).data.session?.access_token;
+    if (!token) throw new Error("Phiên đăng nhập hết hạn");
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-parse-inbox-order`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ inboxId }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result?.error || "Parse attachment thất bại");
+    return result;
+  };
+
   const parseAttachmentMutation = useMutation({
     mutationFn: async (inboxId: string) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Phiên đăng nhập hết hạn");
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-parse-inbox-order`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ inboxId }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result?.error || "Parse attachment thất bại");
-      return result;
+      return fetchAttachmentParseResult(inboxId);
     },
     onSuccess: async (result: any) => {
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
@@ -2467,7 +2521,7 @@ export default function MiniCrm() {
 
       const { data, error } = await (supabase as any)
         .from("customer_po_inbox")
-        .update({ raw_payload: nextRawPayload, match_status: requiresReview ? "draft" : "approved" })
+        .update({ raw_payload: nextRawPayload, match_status: requiresReview ? "draft" : "approved", posted_to_revenue: !requiresReview, posted_to_revenue_at: !requiresReview ? nowIso : null })
         .eq("id", id)
         .select("id,customer_id,email_subject,total_amount,revenue_channel,raw_payload")
         .single();
@@ -2516,6 +2570,101 @@ export default function MiniCrm() {
         description: errMsg,
         variant: "destructive",
       });
+    },
+  });
+
+  const bulkRunLockedContractMutation = useMutation({
+    mutationFn: async () => {
+      if (!editingCustomerId) throw new Error("Chưa chọn khách hàng");
+      const contract = buildParseContractForSave();
+      if (!contract || contract.status !== "locked") {
+        throw new Error("Contract phải ở trạng thái locked trước khi bulk-run.");
+      }
+      const { data: session } = await supabase.auth.getSession();
+      const accessToken = session?.session?.access_token;
+      if (!accessToken) throw new Error("Phiên đăng nhập hết hạn");
+
+      const { data: rows, error } = await (supabase as any)
+        .from("customer_po_inbox")
+        .select("id,customer_id,po_number,delivery_date,email_subject,body_preview,total_amount,subtotal_amount,vat_amount,revenue_channel,production_items,match_status,posted_to_revenue,raw_payload,received_at")
+        .eq("customer_id", editingCustomerId)
+        .order("received_at", { ascending: false })
+        .limit(100);
+      if (error) throw error;
+
+      const kbProfile = customerKnowledgeProfiles.find((x: any) => x.customer_id === editingCustomerId) || null;
+      const aiConfig = kbAiSuggestion || kbProfile?.ai_parse_config || null;
+      const candidates = (rows || []).filter((row: any) => {
+        if (row?.posted_to_revenue || row?.raw_payload?.revenue_post?.posted) return false;
+        if (["rejected", "unmatched"].includes(String(row?.match_status || ""))) return false;
+        return true;
+      });
+
+      const summary = { processed: 0, success: 0, failed: 0, skipped: 0, failures: [] as string[] };
+      for (const row of candidates) {
+        summary.processed += 1;
+        try {
+          let parsedItems: any[] = [];
+          let nextSubtotal = Number(row?.subtotal_amount || 0) || null;
+          let nextVat = Number(row?.vat_amount || 0) || null;
+          let nextTotal = Number(row?.total_amount || 0) || null;
+
+          if (contract.source === "email_body") {
+            const parsed = parseEmailBodyToProductionItems(row?.email_subject, row?.body_preview || row?.raw_payload?.snippet || "", aiConfig);
+            parsedItems = normalizePoDraftItems(Array.isArray(parsed.items) ? parsed.items : []);
+          } else {
+            const attachmentResult = await fetchAttachmentParseResult(row.id, accessToken);
+            parsedItems = normalizePoDraftItems(Array.isArray(attachmentResult?.parsed?.items) ? attachmentResult.parsed.items : []);
+            nextSubtotal = Number(attachmentResult?.parsed?.subtotal || calcSubtotalFromItems(parsedItems) || row?.subtotal_amount || 0) || null;
+            nextVat = Number(attachmentResult?.parsed?.vat ?? row?.vat_amount ?? 0) || null;
+            nextTotal = Number(calcSafeTotal(nextSubtotal, nextVat, attachmentResult?.parsed?.total || row?.total_amount) || 0) || null;
+          }
+
+          if (!parsedItems.length) {
+            summary.failed += 1;
+            summary.failures.push(`${row.id}: parse ra 0 item`);
+            continue;
+          }
+
+          const { error: updateErr } = await (supabase as any)
+            .from("customer_po_inbox")
+            .update({
+              production_items: parsedItems,
+              subtotal_amount: nextSubtotal,
+              vat_amount: nextVat,
+              total_amount: nextTotal,
+              raw_payload: {
+                ...(row?.raw_payload || {}),
+                bulk_run_contract: {
+                  profile_name: kbProfile?.profile_name || null,
+                  source: contract.source,
+                  ran_at: new Date().toISOString(),
+                },
+              },
+            })
+            .eq("id", row.id);
+          if (updateErr) throw updateErr;
+
+          await postRevenueMutation.mutateAsync(row.id);
+          summary.success += 1;
+        } catch (e: any) {
+          summary.failed += 1;
+          summary.failures.push(`${row.id}: ${e?.message || "unknown error"}`);
+        }
+      }
+      summary.skipped = Math.max((rows || []).length - candidates.length, 0);
+      return summary;
+    },
+    onSuccess: async (result: any) => {
+      await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
+      await queryClient.invalidateQueries({ queryKey: ["po-revenue-post-audit"] });
+      toast({
+        title: "Bulk-run contract hoàn tất",
+        description: `Success ${result?.success || 0} • Failed ${result?.failed || 0} • Skipped ${result?.skipped || 0}`,
+      });
+    },
+    onError: (e: any) => {
+      toast({ title: "Bulk-run contract thất bại", description: e?.message || "Không thể chạy bulk-run", variant: "destructive" });
     },
   });
 
@@ -3570,12 +3719,17 @@ export default function MiniCrm() {
               approvePending={approveKbLatestRequestMutation.isPending}
               pendingCount={0}
               canApproveLatest={canApproveKb}
+              canBulkRun={Boolean(parseContract?.status === "locked") && !bulkRunLockedContractMutation.isPending}
+              bulkRunPending={bulkRunLockedContractMutation.isPending}
+              bulkRunDisabledReason={parseContract?.status === "locked" ? "" : "Bulk-run chỉ chạy khi contract đã locked và được lưu/applied."}
               approveDisabledReason={approveKbDisabledReason}
               activeKnowledgeProfile={customerKnowledgeProfiles.find((x: any) => x.customer_id === editingCustomerId) || null}
               knowledgeVersionHistory={knowledgeProfileVersions.filter((v: any) => v.customer_id === editingCustomerId).sort((a: any, b: any) => Number(b.version_no || 0) - Number(a.version_no || 0))}
               latestPendingRequest={null}
               parserPreviewInput={parserPreviewInput}
               parserPreviewResult={parserPreviewResult}
+              parseContract={parseContract}
+              currentUserLabel={user?.email || user?.id || "mini-crm-ui"}
               onParserPreviewInputChange={setParserPreviewInput}
               onRunParserPreview={() => {
                 const result = parseEmailBodyToProductionItems("", parserPreviewInput, kbAiSuggestion);
@@ -3621,6 +3775,8 @@ export default function MiniCrm() {
               onAiSuggest={() => kbAiSuggestMutation.mutate()}
               onSubmitApproval={() => submitKbChangeRequestMutation.mutate()}
               onApproveLatest={() => approveKbLatestRequestMutation.mutate()}
+              onBulkRunLockedContract={() => bulkRunLockedContractMutation.mutate()}
+              onParseContractChange={setParseContract}
             />
           </div>
 

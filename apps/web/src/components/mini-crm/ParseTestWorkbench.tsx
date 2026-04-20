@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { FlaskConical, PlayCircle, Paperclip, FileText, AlertCircle } from "lucide-react";
+import { FlaskConical, PlayCircle, Paperclip, FileText, AlertCircle, CheckCircle2, XCircle, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import type { KbAiParseSuggestion } from "./kbAiUtils";
 import { parseEmailBodyToProductionItems } from "./emailBodyParseUtils";
+import type { CustomerParseContract, ParseContractEvidence } from "./parseContractTypes";
 
 type ParseMode = "email_body" | "attachment";
 
@@ -24,6 +25,9 @@ type WorkbenchResult = {
 type Props = {
   customerPos: any[];
   kbAiSuggestion: KbAiParseSuggestion | null;
+  parseContract?: CustomerParseContract | null;
+  onParseContractChange?: (c: CustomerParseContract) => void;
+  currentUserLabel?: string;
 };
 
 function deriveParseModeFromStrategy(strategy?: string | null): ParseMode {
@@ -31,7 +35,7 @@ function deriveParseModeFromStrategy(strategy?: string | null): ParseMode {
   return "email_body";
 }
 
-export function ParseTestWorkbench({ customerPos, kbAiSuggestion }: Props) {
+export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract, onParseContractChange, currentUserLabel }: Props) {
   const [selectedPoId, setSelectedPoId] = useState<string | null>(null);
   const [parseMode, setParseMode] = useState<ParseMode>(
     deriveParseModeFromStrategy(kbAiSuggestion?.parse_strategy),
@@ -39,12 +43,16 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion }: Props) {
   const [isRunning, setIsRunning] = useState(false);
   const [result, setResult] = useState<WorkbenchResult | null>(null);
   const [attachError, setAttachError] = useState<string | null>(null);
+  const [evidencePass, setEvidencePass] = useState<boolean>(true);
+  const [evidenceNote, setEvidenceNote] = useState<string>("");
+  const [evidenceSaved, setEvidenceSaved] = useState<boolean>(false);
 
   // Sync mode when kbAiSuggestion changes (e.g. user edits KB config)
   useEffect(() => {
     setParseMode(deriveParseModeFromStrategy(kbAiSuggestion?.parse_strategy));
     setResult(null);
     setAttachError(null);
+    setEvidenceSaved(false);
   }, [kbAiSuggestion?.parse_strategy]);
 
   const selectedPo = customerPos.find((p) => p.id === selectedPoId) ?? null;
@@ -62,14 +70,18 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion }: Props) {
       qty_total: Number(item.qty_total ?? item.qty ?? 0),
       note: item.note || undefined,
     }));
+    const conf = Number(parsed.confidence ?? 0);
     setResult({
       source: "email_body",
       sourceLabel: "Nội dung email",
       items,
-      confidence: Number(parsed.confidence ?? 0),
+      confidence: conf,
       deliveryDate: parsed.deliveryDate,
     });
     setAttachError(null);
+    setEvidencePass(conf >= 0.8);
+    setEvidenceNote("");
+    setEvidenceSaved(false);
   };
 
   const runAttachmentParse = async () => {
@@ -119,6 +131,9 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion }: Props) {
         confidence,
         deliveryDate: null,
       });
+      setEvidencePass(confidence >= 0.8);
+      setEvidenceNote("");
+      setEvidenceSaved(false);
     } catch (err: any) {
       setAttachError(err?.message || "Không parse được file đính kèm");
       setResult(null);
@@ -133,6 +148,35 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion }: Props) {
     } else {
       runEmailBodyParse();
     }
+  };
+
+  const handleSaveEvidence = () => {
+    if (!result || !selectedPo || !parseContract || !onParseContractChange) return;
+    const itemSummary = result.items
+      .slice(0, 10)
+      .map((it) => `${it.product_name}: ${it.qty_total}`)
+      .join(", ");
+    const body = selectedPo.body_preview || selectedPo.raw_payload?.snippet || "";
+    const evidence: ParseContractEvidence = {
+      po_id: String(selectedPo.id),
+      source: result.source === "attachment" ? "attachment" : "email_body",
+      source_label: result.sourceLabel,
+      label: String(selectedPo.email_subject || selectedPo.id || "").slice(0, 80),
+      input_snippet: result.source === "email_body" ? String(body).slice(0, 500) : `[attachment] ${result.sourceLabel}`,
+      expected_output: itemSummary || "(no items)",
+      confidence: result.confidence,
+      item_count: result.items.length,
+      pass: evidencePass,
+      review_note: evidenceNote.trim() || undefined,
+      tested_at: new Date().toISOString(),
+      tested_by: currentUserLabel || "mini-crm-ui",
+    };
+    onParseContractChange({
+      ...parseContract,
+      test_evidence: [...(parseContract.test_evidence ?? []), evidence],
+      updated_at: new Date().toISOString(),
+    });
+    setEvidenceSaved(true);
   };
 
   const confidence = result?.confidence ?? 0;
@@ -353,6 +397,86 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion }: Props) {
               <span className="font-medium text-foreground">{result.deliveryDate}</span>
             </div>
           )}
+
+          {/* Evidence save form — only shown when parseContract is available */}
+          {parseContract && onParseContractChange && !evidenceSaved && (
+            <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-3 space-y-2">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Lưu làm evidence cho contract</div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEvidencePass(true)}
+                  className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    evidencePass
+                      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                      : "border-border/60 bg-muted/20 text-muted-foreground hover:bg-muted/40"
+                  }`}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Pass
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEvidencePass(false)}
+                  className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    !evidencePass
+                      ? "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300"
+                      : "border-border/60 bg-muted/20 text-muted-foreground hover:bg-muted/40"
+                  }`}
+                >
+                  <XCircle className="h-3.5 w-3.5" /> Fail
+                </button>
+              </div>
+              <input
+                type="text"
+                value={evidenceNote}
+                onChange={(e) => setEvidenceNote(e.target.value)}
+                placeholder="Ghi chú review (tuỳ chọn)"
+                className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm"
+              />
+              <div className="flex justify-end">
+                <Button type="button" variant="outline" size="sm" onClick={handleSaveEvidence}>
+                  Lưu evidence
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {parseContract && onParseContractChange && evidenceSaved && (
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+              Evidence đã lưu vào contract (chưa persist — bấm Lưu &amp; áp dụng KB để lưu hẳn).
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Evidence history */}
+      {parseContract && (parseContract.test_evidence ?? []).length > 0 && (
+        <div className="rounded-xl border border-border/70 bg-background/80 p-4 space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <History className="h-4 w-4 text-primary" />
+            Evidence đã lưu ({parseContract.test_evidence.length})
+          </div>
+          <div className="space-y-2 max-h-56 overflow-y-auto pr-0.5">
+            {parseContract.test_evidence.slice().reverse().map((ev, idx) => (
+              <div key={idx} className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-foreground truncate max-w-[70%]">{ev.label || ev.po_id}</span>
+                  <span className={`flex items-center gap-1 font-medium ${ev.pass ? "text-emerald-700 dark:text-emerald-300" : "text-red-600 dark:text-red-400"}`}>
+                    {ev.pass ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+                    {ev.pass ? "Pass" : "Fail"}
+                  </span>
+                </div>
+                <div className="text-muted-foreground mt-0.5 flex flex-wrap gap-3">
+                  <span>{ev.source_label}</span>
+                  <span>Confidence: {Math.round(ev.confidence * 100)}%</span>
+                  <span>{ev.item_count} dòng</span>
+                  {ev.review_note && <span>Note: {ev.review_note}</span>}
+                </div>
+                <div className="text-muted-foreground/70 mt-0.5">{new Date(ev.tested_at).toLocaleString("vi-VN")}</div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

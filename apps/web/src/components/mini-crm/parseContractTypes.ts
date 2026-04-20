@@ -83,12 +83,30 @@ export type QuantityFields = {
 
 /** A single piece of evidence used to validate the contract. */
 export type ParseContractEvidence = {
-  /** Short label describing the test case. */
+  /** The PO inbox record id this evidence was derived from. */
+  po_id: string;
+  /** Which parse source was used for this evidence run. */
+  source: ParseContractSource;
+  /** Human-readable source label (e.g. "Nội dung email", "File đính kèm"). */
+  source_label: string;
+  /** Short label describing the test case (auto-generated from PO subject). */
   label: string;
-  /** Raw input snippet used as evidence. */
+  /** Raw input snippet used as evidence (first 500 chars of body or file note). */
   input_snippet: string;
-  /** Expected parsed output (free-form, for human review). */
+  /** Stringified list of parsed items for human review. */
   expected_output: string;
+  /** Parse confidence score from this run (0–1). */
+  confidence: number;
+  /** Number of line items parsed. */
+  item_count: number;
+  /** Whether this evidence is marked as passing by the reviewer. */
+  pass: boolean;
+  /** Optional human review note. */
+  review_note?: string;
+  /** ISO-8601 timestamp when the test was run. */
+  tested_at: string;
+  /** Identifier of who ran the test ("mini-crm-ui" or a user id). */
+  tested_by: string;
 };
 
 /** The top-level structured parse contract. */
@@ -107,6 +125,10 @@ export type CustomerParseContract = {
   test_evidence: ParseContractEvidence[];
   /** ISO-8601 timestamp of last modification. */
   updated_at: string;
+  /** ISO-8601 timestamp when the contract was locked. */
+  locked_at?: string;
+  /** Who locked the contract ("mini-crm-ui" or a user id). */
+  locked_by?: string;
   /** Optional human-readable notes about this contract version. */
   notes?: string;
 };

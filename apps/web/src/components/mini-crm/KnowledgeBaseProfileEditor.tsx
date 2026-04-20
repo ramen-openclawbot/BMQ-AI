@@ -1,10 +1,11 @@
-import { Brain, CheckCircle2, ChevronDown, FileText, History, Loader2, Sparkles, Wand2 } from "lucide-react";
+import { Brain, CheckCircle2, ChevronDown, FileText, History, Loader2, Lock, LockOpen, Sparkles, Wand2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { KbAiParseSuggestion } from "./kbAiUtils";
 import { ParseTestWorkbench } from "./ParseTestWorkbench";
+import type { CustomerParseContract } from "./parseContractTypes";
 
 type Props = {
   poTemplates: any[];
@@ -22,14 +23,19 @@ type Props = {
   kbAiSuggestPending: boolean;
   submitPending: boolean;
   approvePending: boolean;
+  bulkRunPending?: boolean;
   pendingCount: number;
   canApproveLatest: boolean;
+  canBulkRun?: boolean;
+  bulkRunDisabledReason?: string;
   approveDisabledReason?: string;
   activeKnowledgeProfile?: any | null;
   knowledgeVersionHistory?: any[];
   latestPendingRequest?: any | null;
   parserPreviewInput?: string;
   parserPreviewResult?: any | null;
+  parseContract?: CustomerParseContract | null;
+  currentUserLabel?: string;
   onParserPreviewInputChange: (v: string) => void;
   onRunParserPreview: () => void;
   onKbProfileNameChange: (v: string) => void;
@@ -42,6 +48,8 @@ type Props = {
   onAiSuggest: () => void;
   onSubmitApproval: () => void;
   onApproveLatest: () => void;
+  onBulkRunLockedContract?: () => void;
+  onParseContractChange?: (c: CustomerParseContract) => void;
 };
 
 const sectionClass = "rounded-xl border border-border/70 bg-background/70 p-4 shadow-sm";
@@ -64,14 +72,19 @@ export function KnowledgeBaseProfileEditor(props: Props) {
     kbAiSuggestPending,
     submitPending,
     approvePending,
+    bulkRunPending,
     pendingCount,
     canApproveLatest,
+    canBulkRun,
+    bulkRunDisabledReason,
     approveDisabledReason,
     activeKnowledgeProfile,
     knowledgeVersionHistory = [],
     latestPendingRequest,
     parserPreviewInput,
     parserPreviewResult,
+    parseContract,
+    currentUserLabel,
     onParserPreviewInputChange,
     onRunParserPreview,
     onKbProfileNameChange,
@@ -84,6 +97,8 @@ export function KnowledgeBaseProfileEditor(props: Props) {
     onAiSuggest,
     onSubmitApproval,
     onApproveLatest,
+    onBulkRunLockedContract,
+    onParseContractChange,
   } = props;
 
   const [editorOpen, setEditorOpen] = useState(false);
@@ -93,6 +108,28 @@ export function KnowledgeBaseProfileEditor(props: Props) {
   const visibleHistory = useMemo(() => knowledgeVersionHistory.slice(0, 3), [knowledgeVersionHistory]);
   const successTone = /thành công|đã duyệt|đã lưu/i.test(kbAiStatus || "");
   const errorTone = /thất bại|không thể|lỗi/i.test(kbAiStatus || "");
+
+  const contractStatus = parseContract?.status ?? null;
+  const isContractLocked = contractStatus === "locked";
+  const hasPassingEvidence = (parseContract?.test_evidence ?? []).some((e) => e.pass);
+  const canLock = hasPassingEvidence && contractStatus !== "locked";
+  const lockDisabledReason = !hasPassingEvidence ? "Cần ít nhất 1 evidence pass trước khi lock contract." : "";
+
+  const handleLockContract = () => {
+    if (!parseContract || !onParseContractChange) return;
+    onParseContractChange({
+      ...parseContract,
+      status: "locked",
+      locked_at: new Date().toISOString(),
+      locked_by: currentUserLabel || "mini-crm-ui",
+      updated_at: new Date().toISOString(),
+    });
+  };
+
+  const handleUnlockContract = () => {
+    if (!parseContract || !onParseContractChange) return;
+    onParseContractChange({ ...parseContract, status: "draft", locked_at: undefined, locked_by: undefined, updated_at: new Date().toISOString() });
+  };
 
   return (
     <div className="md:col-span-2 space-y-4 rounded-2xl border border-border/70 bg-gradient-to-br from-background via-background to-muted/30 p-4">
@@ -129,6 +166,14 @@ export function KnowledgeBaseProfileEditor(props: Props) {
                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 font-medium text-emerald-700 dark:text-emerald-300">ACTIVE</span>
                   {latestVersion ? <span className="rounded-full border border-border/70 bg-muted/30 px-2.5 py-1">KB v{latestVersion.version_no}</span> : null}
+                  {contractStatus === "locked" && (
+                    <span className="flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 py-1 font-medium text-blue-700 dark:text-blue-300">
+                      <Lock className="h-3 w-3" /> Contract locked
+                    </span>
+                  )}
+                  {contractStatus === "draft" && (
+                    <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 font-medium text-amber-700 dark:text-amber-300">Contract draft</span>
+                  )}
                 </div>
                 <div className="text-lg font-semibold text-foreground">{activeKnowledgeProfile.profile_name || "KB hiện tại"}</div>
                 <div className="grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
@@ -196,19 +241,19 @@ export function KnowledgeBaseProfileEditor(props: Props) {
                 <div className="grid gap-3">
                   <div className="space-y-2">
                     <Label className="text-xs uppercase tracking-wide text-muted-foreground">Tên profile</Label>
-                    <Input value={editKbProfileName} onChange={(e) => onKbProfileNameChange(e.target.value)} placeholder="Ví dụ: NPP_EmailBody_CommaSegments" />
+                    <Input value={editKbProfileName} onChange={(e) => onKbProfileNameChange(e.target.value)} placeholder="Ví dụ: NPP_EmailBody_CommaSegments" disabled={isContractLocked} />
                   </div>
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                     <div className="space-y-2">
                       <Label className="text-xs uppercase tracking-wide text-muted-foreground">PO mode</Label>
-                      <select className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm" value={editKbPoMode} onChange={(e) => onKbPoModeChange(e.target.value)}>
+                      <select className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed" value={editKbPoMode} onChange={(e) => onKbPoModeChange(e.target.value)} disabled={isContractLocked}>
                         <option value="daily_new_po">PO mới theo ngày</option>
                         <option value="cumulative_snapshot">PO cộng dồn (delta)</option>
                       </select>
                     </div>
                     <div className="space-y-2">
                       <Label className="text-xs uppercase tracking-wide text-muted-foreground">Nguồn PO ưu tiên</Label>
-                      <select className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm" value={editKbPoSource} onChange={(e) => onKbPoSourceChange(e.target.value)}>
+                      <select className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm disabled:opacity-50 disabled:cursor-not-allowed" value={editKbPoSource} onChange={(e) => onKbPoSourceChange(e.target.value)} disabled={isContractLocked}>
                         <option value="attachment_first">Ưu tiên file đính kèm</option>
                         <option value="email_body_only">PO từ nội dung email</option>
                       </select>
@@ -230,8 +275,8 @@ export function KnowledgeBaseProfileEditor(props: Props) {
                     Active template: <span className="font-medium text-foreground">{activeTemplateName}</span>
                   </div>
                   <div className="flex flex-col gap-2 lg:flex-row">
-                    <Input type="file" accept=".xlsx,.pdf,image/*" onChange={(e) => onTemplateFileChange(e.target.files?.[0] || null)} />
-                    <Button type="button" variant="outline" className="shrink-0" onClick={onClearTemplate}>Xoá mẫu</Button>
+                    <Input type="file" accept=".xlsx,.pdf,image/*" onChange={(e) => onTemplateFileChange(e.target.files?.[0] || null)} disabled={isContractLocked} />
+                    <Button type="button" variant="outline" className="shrink-0" onClick={onClearTemplate} disabled={isContractLocked}>Xoá mẫu</Button>
                   </div>
                   <div className="text-xs text-muted-foreground">
                     Hỗ trợ <b>.xlsx</b>, <b>.pdf</b> và <b>ảnh</b>. File này giúp AI hiểu cấu trúc PO và cách khách hàng thường trình bày dữ liệu.
@@ -265,6 +310,7 @@ export function KnowledgeBaseProfileEditor(props: Props) {
                       value={editKbBusinessDescription}
                       onChange={(e) => onKbBusinessDescriptionChange(e.target.value)}
                       placeholder="Ví dụ: Khách gửi PO trong email body, mỗi đoạn ngăn bởi dấu phẩy là một điểm giao. Số 'đổi' phải cộng vào số lượng chính."
+                      disabled={isContractLocked}
                     />
                   </div>
                   <div className="rounded-lg border border-primary/15 bg-primary/5 px-3 py-2 text-sm leading-6 text-foreground/85">
@@ -284,7 +330,7 @@ export function KnowledgeBaseProfileEditor(props: Props) {
                       AI chỉ đề xuất rule có cấu trúc để review. Chưa áp dụng thì chưa thành KB chính thức.
                     </p>
                   </div>
-                  <Button type="button" variant="default" onClick={onAiSuggest} disabled={kbAiSuggestPending || !canRunAi}>
+                  <Button type="button" variant="default" onClick={onAiSuggest} disabled={kbAiSuggestPending || !canRunAi || isContractLocked}>
                     {kbAiSuggestPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
                     AI Tính Toán
                   </Button>
@@ -328,9 +374,10 @@ export function KnowledgeBaseProfileEditor(props: Props) {
                     value={parserPreviewInput || ""}
                     onChange={(e) => onParserPreviewInputChange(e.target.value)}
                     placeholder="Dán 1 email mẫu vào đây, ví dụ: 1. Rạch Giá 200: đổi 7 2. ĐVC: 100"
+                    disabled={isContractLocked}
                   />
                   <div className="flex justify-end">
-                    <Button type="button" variant="outline" onClick={onRunParserPreview}>
+                    <Button type="button" variant="outline" onClick={onRunParserPreview} disabled={isContractLocked}>
                       Chạy preview parse
                     </Button>
                   </div>
@@ -367,6 +414,40 @@ export function KnowledgeBaseProfileEditor(props: Props) {
             </div>
           </div>
 
+          <div className="rounded-xl border border-border/70 bg-muted/20 p-4 space-y-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-foreground">Trạng thái contract</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {isContractLocked
+                    ? `Contract đã khóa${parseContract?.locked_at ? ` • ${new Date(parseContract.locked_at).toLocaleString("vi-VN")}` : ""}`
+                    : "Contract đang ở draft. Cần ít nhất 1 evidence pass trước khi khóa và chạy bulk-run."}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {isContractLocked ? (
+                  <Button type="button" variant="outline" onClick={handleUnlockContract}>
+                    <LockOpen className="mr-1 h-4 w-4" /> Mở khóa
+                  </Button>
+                ) : (
+                  <Button type="button" variant="outline" onClick={handleLockContract} disabled={!canLock}>
+                    <Lock className="mr-1 h-4 w-4" /> Khóa contract
+                  </Button>
+                )}
+                <Button type="button" variant="secondary" onClick={onBulkRunLockedContract} disabled={bulkRunPending || !canBulkRun}>
+                  {bulkRunPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                  {bulkRunPending ? "Đang bulk-run..." : "Bulk-run locked contract"}
+                </Button>
+              </div>
+            </div>
+            {!canLock && !isContractLocked && (
+              <div className="text-xs text-muted-foreground">{lockDisabledReason}</div>
+            )}
+            {!!bulkRunDisabledReason && (
+              <div className="text-xs text-muted-foreground">{bulkRunDisabledReason}</div>
+            )}
+          </div>
+
           <div className="rounded-xl border border-border/70 bg-muted/20 p-4">
             <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
               <div className="space-y-2">
@@ -387,7 +468,13 @@ export function KnowledgeBaseProfileEditor(props: Props) {
             )}
           </div>
 
-          <ParseTestWorkbench customerPos={customerPos} kbAiSuggestion={kbAiSuggestion} />
+          <ParseTestWorkbench
+            customerPos={customerPos}
+            kbAiSuggestion={kbAiSuggestion}
+            parseContract={parseContract}
+            onParseContractChange={onParseContractChange}
+            currentUserLabel={currentUserLabel}
+          />
         </div>
       )}
     </div>

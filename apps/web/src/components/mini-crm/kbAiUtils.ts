@@ -181,3 +181,13 @@ export const parseContractToAiSuggestion = (
   confidence: 0,
   human_summary: contract.notes ?? "",
 });
+
+export const deriveParseContractFromProfile = (
+  profile?: { parse_contract?: CustomerParseContract | null; ai_parse_config?: KbAiParseSuggestion | null; po_mode?: PoMode | null } | null,
+): CustomerParseContract | null => {
+  if (profile?.parse_contract) return profile.parse_contract;
+  if (!profile?.ai_parse_config) return null;
+  return aiSuggestionToParseContract(profile.ai_parse_config, {
+    po_mode: (profile.po_mode as PoMode | undefined) || "daily_new_po",
+  });
+};
