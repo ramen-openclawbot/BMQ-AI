@@ -7,6 +7,14 @@ type GmailMessage = {
   threadId: string;
 };
 
+type EmailCandidate = {
+  customerId: string;
+  customerName: string | null;
+  revenueChannel: string | null;
+  isNpp: boolean;
+  suppliedByNppCustomerId: string | null;
+};
+
 const extractPoNumber = (subject: string) => {
   const m = subject.match(/PO\s*([0-9]{6,})/i) || subject.match(/\b(PO[0-9]{6,})\b/i);
   if (!m) return null;
@@ -59,6 +67,60 @@ const revenueChannelFromCustomerGroup = (group: string | null | undefined) => {
     default:
       return "retail";
   }
+};
+
+const dedupeCandidates = (candidates: EmailCandidate[]) => {
+  const byId = new Map<string, EmailCandidate>();
+  for (const candidate of candidates) {
+    if (!candidate?.customerId) continue;
+    byId.set(candidate.customerId, candidate);
+  }
+  return Array.from(byId.values());
+};
+
+const resolveEmailCandidates = (candidates: EmailCandidate[]) => {
+  const deduped = dedupeCandidates(candidates);
+  const activeRoots = deduped.filter((candidate) => !candidate.suppliedByNppCustomerId);
+  const rootNpps = activeRoots.filter((candidate) => candidate.isNpp);
+
+  if (rootNpps.length === 1) {
+    const rootNpp = rootNpps[0];
+    const sameNppDependents = deduped.filter(
+      (candidate) => candidate.suppliedByNppCustomerId && candidate.suppliedByNppCustomerId === rootNpp.customerId,
+    );
+    const outsideRootGroup = deduped.filter(
+      (candidate) => candidate.customerId !== rootNpp.customerId && candidate.suppliedByNppCustomerId !== rootNpp.customerId,
+    );
+    if (sameNppDependents.length > 0 && outsideRootGroup.length === 0) {
+      return {
+        match: rootNpp,
+        candidates: deduped,
+        resolution: "npp_parent",
+      } as const;
+    }
+  }
+
+  if (activeRoots.length === 1) {
+    return {
+      match: activeRoots[0],
+      candidates: deduped,
+      resolution: "single_root",
+    } as const;
+  }
+
+  if (deduped.length === 1) {
+    return {
+      match: deduped[0],
+      candidates: deduped,
+      resolution: "single_candidate",
+    } as const;
+  }
+
+  return {
+    match: null,
+    candidates: deduped,
+    resolution: deduped.length > 1 ? "ambiguous" : "unmatched",
+  } as const;
 };
 
 async function getGoogleAccessToken(supabaseAdmin: any): Promise<string> {
@@ -158,23 +220,33 @@ serve(async (req) => {
 
     const { data: crmEmails } = await supabaseAdmin
       .from("mini_crm_customer_emails")
-      .select("email, customer_id, mini_crm_customers(customer_group,is_active)");
+      .select("email, customer_id, mini_crm_customers(customer_name,customer_group,is_active,is_npp,supplied_by_npp_customer_id)");
 
-    const emailMap = new Map<string, { customerId: string; revenueChannel: string | null }>();
+    const emailMap = new Map<string, EmailCandidate[]>();
     for (const row of crmEmails || []) {
       const rawEmail = String((row as any).email || "");
       const expanded = explodeEmails(rawEmail);
-      const isActive = Boolean((row as any).mini_crm_customers?.is_active);
+      const customer = (row as any).mini_crm_customers || {};
+      const isActive = Boolean(customer?.is_active);
       if (!isActive) continue;
+      const candidate: EmailCandidate = {
+        customerId: String((row as any).customer_id || ""),
+        customerName: customer?.customer_name ? String(customer.customer_name) : null,
+        revenueChannel: revenueChannelFromCustomerGroup(customer?.customer_group || null),
+        isNpp: Boolean(customer?.is_npp),
+        suppliedByNppCustomerId: customer?.supplied_by_npp_customer_id ? String(customer.supplied_by_npp_customer_id) : null,
+      };
+      if (!candidate.customerId) continue;
       for (const key of expanded) {
-        emailMap.set(key, {
-          customerId: (row as any).customer_id,
-          revenueChannel: revenueChannelFromCustomerGroup((row as any).mini_crm_customers?.customer_group || null),
-        });
+        const existing = emailMap.get(key) || [];
+        existing.push(candidate);
+        emailMap.set(key, existing);
       }
     }
 
-    const activeCustomerIds = Array.from(new Set(Array.from(emailMap.values()).map((v) => v.customerId)));
+    const activeCustomerIds = Array.from(
+      new Set(Array.from(emailMap.values()).flat().map((v) => v.customerId).filter(Boolean)),
+    );
     const { data: activeTemplates } = await supabaseAdmin
       .from("mini_crm_po_templates")
       .select("id, customer_id, template_name, file_name, parser_config, sample_preview, is_active, updated_at")
@@ -189,6 +261,8 @@ serve(async (req) => {
     let synced = 0;
     let matchedCount = 0;
     let unmatchedCount = 0;
+    let ambiguousCount = 0;
+    let nppResolvedCount = 0;
     let skippedInvalidFrom = 0;
     let upsertErrorCount = 0;
     let skippedNotInCrm = 0;
@@ -223,9 +297,16 @@ serve(async (req) => {
       };
       walkParts(detail?.payload?.parts || []);
 
-      const match = emailMap.get(fromEmail);
-      if (match) matchedCount += 1;
-      else unmatchedCount += 1;
+      const candidateMatches = emailMap.get(fromEmail) || [];
+      const resolvedMatch = resolveEmailCandidates(candidateMatches);
+      const match = resolvedMatch.match;
+      if (match) {
+        matchedCount += 1;
+        if (resolvedMatch.resolution === "npp_parent") nppResolvedCount += 1;
+      } else {
+        unmatchedCount += 1;
+        if (resolvedMatch.resolution === "ambiguous") ambiguousCount += 1;
+      }
 
       if (includeOnlyCrm && !match) {
         skippedNotInCrm += 1;
@@ -258,6 +339,13 @@ serve(async (req) => {
           from,
           template_id: template?.id || null,
           template_name: template?.template_name || null,
+          customer_match_resolution: resolvedMatch.resolution,
+          customer_match_candidates: resolvedMatch.candidates.map((candidate) => ({
+            customer_id: candidate.customerId,
+            customer_name: candidate.customerName,
+            is_npp: candidate.isNpp,
+            supplied_by_npp_customer_id: candidate.suppliedByNppCustomerId,
+          })),
         },
       };
 
@@ -272,6 +360,13 @@ serve(async (req) => {
         attachmentNames,
         matchedCustomerId: match?.customerId || null,
         matchStatus: payload.match_status,
+        matchResolution: resolvedMatch.resolution,
+        matchCandidates: resolvedMatch.candidates.map((candidate) => ({
+          customerId: candidate.customerId,
+          customerName: candidate.customerName,
+          isNpp: candidate.isNpp,
+          suppliedByNppCustomerId: candidate.suppliedByNppCustomerId,
+        })),
         template: template
           ? {
               id: template.id,
@@ -315,6 +410,8 @@ serve(async (req) => {
       debug: {
         matchedCount,
         unmatchedCount,
+        ambiguousCount,
+        nppResolvedCount,
         skippedInvalidFrom,
         skippedNotInCrm,
         skippedNotInCrmSamples,
