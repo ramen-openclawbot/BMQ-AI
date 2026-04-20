@@ -78,8 +78,10 @@ const KB_PO_MODE_LABEL: Record<string, string> = {
 
 const KB_PO_SOURCE_LABEL: Record<string, string> = {
   attachment_first: "Ưu tiên parse file đính kèm",
-  email_body_only: "PO từ nội dung email",
+  email_body_only: "Chỉ parse nội dung email",
 };
+
+const PO_PAGE_SIZE = 20;
 
 const stripKbSystemMarkers = (note?: string | null) =>
   stripKbAiMarkers(
@@ -426,6 +428,7 @@ export default function MiniCrm() {
   const [poDateFrom, setPoDateFrom] = useState<string>("");
   const [poDateTo, setPoDateTo] = useState<string>("");
   const [poNeedsAttentionOnly, setPoNeedsAttentionOnly] = useState<boolean>(false);
+  const [poPage, setPoPage] = useState(1);
   const [customerSearch, setCustomerSearch] = useState<string>("");
   const [poCustomerFilter, setPoCustomerFilter] = useState<string>("all");
   const [poModeFilter, setPoModeFilter] = useState<string>("all");
@@ -565,7 +568,7 @@ export default function MiniCrm() {
         .from("customer_po_inbox")
         .select("*, mini_crm_customers(customer_name)")
         .order("received_at", { ascending: false })
-        .limit(100);
+        .limit(500);
       if (error) throw error;
       return data || [];
     },
@@ -1603,8 +1606,11 @@ export default function MiniCrm() {
     if (error) throw error;
     const items = Array.isArray(data?.items) ? data.items : [];
     const supplier = String(data?.supplier_name || "").trim();
-    const lines = items.slice(0, 20).map((it: any) => `${String(it?.product_name || "").trim()} | qty=${Number(it?.quantity || 0) || 0} | unit=${String(it?.unit || "").trim()}`);
-    return [`supplier=${supplier}`, ...lines].filter(Boolean).join("\n").slice(0, 8000);
+    const lines = items
+      .slice(0, 20)
+      .map((it: any) => `${String(it?.product_name || "").trim()} | qty=${Number(it?.quantity || 0) || 0} | unit=${String(it?.unit || "").trim()}`)
+      .filter((line) => line.split("|")[0]?.trim());
+    return [supplier ? `supplier=${supplier}` : "", ...lines].filter(Boolean).join("\n").slice(0, 8000);
   };
 
   const handleAnalyzeTemplateFile = async (file?: File | null) => {
@@ -1932,7 +1938,7 @@ export default function MiniCrm() {
     mutationFn: async ({ id, action }: { id: string; action: "approve_zero" | "reject" }) => {
       const { data: row, error: rowErr } = await (supabase as any)
         .from("customer_po_inbox")
-        .select("id,customer_id,raw_payload")
+        .select("id,matched_customer_id,raw_payload")
         .eq("id", id)
         .single();
       if (rowErr || !row) throw rowErr || new Error("Không tìm thấy PO");
@@ -1967,7 +1973,7 @@ export default function MiniCrm() {
 
       await (supabase as any).from("po_revenue_post_audit").insert({
         po_inbox_id: id,
-        customer_id: row.customer_id,
+        customer_id: row.matched_customer_id,
         action: "review",
         amount: Number(nextRevenuePost?.total || nextRevenuePost?.amount || 0),
         full_snapshot_total: Number(nextRevenuePost?.full_snapshot_total || 0),
@@ -1989,24 +1995,62 @@ export default function MiniCrm() {
     },
   });
 
+  const getInboxRowCustomerId = (row: any) => String(row?.customer_id || row?.matched_customer_id || "").trim() || null;
+
+  const resolveCustomerIdFromInboxRow = (row: any) => {
+    const directCustomerId = getInboxRowCustomerId(row);
+    if (directCustomerId) return directCustomerId;
+    const fromEmail = String(row?.from_email || "").trim().toLowerCase();
+    if (!fromEmail) return null;
+    const matched = customers.filter((c: any) =>
+      Array.isArray(c?.mini_crm_customer_emails)
+      && c.mini_crm_customer_emails.some((e: any) => String(e?.email || "").trim().toLowerCase() === fromEmail)
+    );
+    const nonNppDependent = matched.filter((c: any) => !c?.supplied_by_npp_customer_id);
+    const preferredNpp = nonNppDependent.filter((c: any) => Boolean(c?.is_npp));
+    if (preferredNpp.length === 1) return preferredNpp[0].id;
+    if (preferredNpp.length > 1) return null;
+    if (nonNppDependent.length === 1) return nonNppDependent[0].id;
+    return null;
+  };
+
   const filteredPoInbox = useMemo(() => {
     const fromMs = poDateFrom ? new Date(`${poDateFrom}T00:00:00`).getTime() : null;
     const toMs = poDateTo ? new Date(`${poDateTo}T23:59:59`).getTime() : null;
     return poInbox.filter((row: any) => {
       const t = new Date(row?.received_at || 0).getTime();
+      const resolvedCustomerId = resolveCustomerIdFromInboxRow(row);
       if (!Number.isFinite(t)) return false;
       if (fromMs && t < fromMs) return false;
       if (toMs && t > toMs) return false;
       if (poNeedsAttentionOnly && !row?.raw_payload?.revenue_post?.requires_review) return false;
-      if (poCustomerFilter !== "all" && String(row?.customer_id || "") !== poCustomerFilter) return false;
+      if (poCustomerFilter !== "all" && String(resolvedCustomerId || "") !== poCustomerFilter) return false;
       if (poModeFilter !== "all") {
-        const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === row?.customer_id);
+        const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === resolvedCustomerId);
         const mode = String(kb?.po_mode || "daily_new_po");
         if (mode !== poModeFilter) return false;
       }
       return true;
     });
-  }, [poInbox, poDateFrom, poDateTo, poNeedsAttentionOnly, poCustomerFilter, poModeFilter, customerKnowledgeProfiles]);
+  }, [poInbox, poDateFrom, poDateTo, poNeedsAttentionOnly, poCustomerFilter, poModeFilter, customerKnowledgeProfiles, customers]);
+
+  const totalPoPages = Math.max(1, Math.ceil(filteredPoInbox.length / PO_PAGE_SIZE));
+  const paginatedPoInbox = useMemo(() => {
+    const startIndex = (poPage - 1) * PO_PAGE_SIZE;
+    return filteredPoInbox.slice(startIndex, startIndex + PO_PAGE_SIZE);
+  }, [filteredPoInbox, poPage]);
+
+  const currentPoPage = Math.min(poPage, totalPoPages);
+
+  useEffect(() => {
+    setPoPage(1);
+  }, [poDateFrom, poDateTo, poNeedsAttentionOnly, poCustomerFilter, poModeFilter]);
+
+  useEffect(() => {
+    if (poPage > totalPoPages) {
+      setPoPage(totalPoPages);
+    }
+  }, [poPage, totalPoPages]);
 
   const filteredCustomers = useMemo(() => {
     const keyword = normalizeVietnameseText(customerSearch);
@@ -2035,9 +2079,9 @@ export default function MiniCrm() {
   const recentCustomerPosForKbTest = useMemo(() => {
     if (!editingCustomerId) return [];
     return poInbox
-      .filter((row: any) => String(row?.customer_id || "") === String(editingCustomerId))
+      .filter((row: any) => String(resolveCustomerIdFromInboxRow(row) || "") === String(editingCustomerId))
       .slice(0, 10);
-  }, [poInbox, editingCustomerId]);
+  }, [poInbox, editingCustomerId, customers]);
 
   const recentRevenueAudit = useMemo(() => revenueAuditRows.slice(0, 20), [revenueAuditRows]);
 
@@ -2100,40 +2144,12 @@ export default function MiniCrm() {
 
   const selectedPoResolvedCustomerId = useMemo(() => {
     if (!selectedPo) return null;
-    if (selectedPo.customer_id) return selectedPo.customer_id;
-    const fromEmail = String(selectedPo.from_email || "").trim().toLowerCase();
-    if (!fromEmail) return null;
-    const matched = customers.filter((c: any) =>
-      Array.isArray(c?.mini_crm_customer_emails)
-      && c.mini_crm_customer_emails.some((e: any) => String(e?.email || "").trim().toLowerCase() === fromEmail)
-    );
-    const nonNppDependent = matched.filter((c: any) => !c?.supplied_by_npp_customer_id);
-    const preferredNpp = nonNppDependent.filter((c: any) => Boolean(c?.is_npp));
-    if (preferredNpp.length === 1) return preferredNpp[0].id;
-    if (preferredNpp.length > 1) return null;
-    if (nonNppDependent.length === 1) return nonNppDependent[0].id;
-    return null;
+    return resolveCustomerIdFromInboxRow(selectedPo);
   }, [selectedPo, customers]);
   const selectedPoKnowledgeProfile = useMemo(() => {
     if (!selectedPoResolvedCustomerId) return null;
     return customerKnowledgeProfiles.find((x: any) => x.customer_id === selectedPoResolvedCustomerId) || null;
   }, [customerKnowledgeProfiles, selectedPoResolvedCustomerId]);
-
-  const resolveCustomerIdFromInboxRow = (row: any) => {
-    if (row?.customer_id) return row.customer_id;
-    const fromEmail = String(row?.from_email || "").trim().toLowerCase();
-    if (!fromEmail) return null;
-    const matched = customers.filter((c: any) =>
-      Array.isArray(c?.mini_crm_customer_emails)
-      && c.mini_crm_customer_emails.some((e: any) => String(e?.email || "").trim().toLowerCase() === fromEmail)
-    );
-    const nonNppDependent = matched.filter((c: any) => !c?.supplied_by_npp_customer_id);
-    const preferredNpp = nonNppDependent.filter((c: any) => Boolean(c?.is_npp));
-    if (preferredNpp.length === 1) return preferredNpp[0].id;
-    if (preferredNpp.length > 1) return null;
-    if (nonNppDependent.length === 1) return nonNppDependent[0].id;
-    return null;
-  };
 
   const mergeImportedPoRows = async () => {
     const rows = Array.isArray(poInbox) ? [...poInbox] : [];
@@ -2167,7 +2183,7 @@ export default function MiniCrm() {
         await (supabase as any)
           .from("customer_po_inbox")
           .update({
-            customer_id: customerId,
+            matched_customer_id: customerId,
             delivery_date: row._resolvedDeliveryDate,
             production_items: parseDraftItemsForSave(workingItems),
             raw_payload: {
@@ -2285,14 +2301,14 @@ export default function MiniCrm() {
 
       const { data: latestRow, error: latestRowError } = await (supabase as any)
         .from("customer_po_inbox")
-        .select("id, customer_id, email_subject, raw_payload, updated_at")
+        .select("id, matched_customer_id, email_subject, raw_payload, updated_at")
         .eq("id", selectedPoId)
         .single();
       if (latestRowError || !latestRow) throw latestRowError || new Error("Không tải được dữ liệu PO mới nhất trước khi lưu");
 
       const safeTotal = calcSafeTotal(poSummaryDraft.subtotal_amount, poSummaryDraft.vat_amount, poSummaryDraft.total_amount);
       const poNumber = poSummaryDraft.po_number || extractPoNumberFromSubject(latestRow?.email_subject || selectedPo?.email_subject) || null;
-      const customerId = String(poSummaryDraft.customer_id || latestRow?.customer_id || selectedPoResolvedCustomerId || "").trim() || null;
+      const customerId = String(poSummaryDraft.customer_id || latestRow?.matched_customer_id || selectedPoResolvedCustomerId || "").trim() || null;
       const latestItems = normalizePoDraftItems(getPoDraftItemsFromRow(latestRow));
       const latestItemKeys = new Set(latestItems.map((item: any) => `${String(item?.sku || "").trim()}|${String(item?.product_name || "").trim()}|${Number(item?.qty || 0) || 0}|${Number(calcDraftItemLineTotal(item) || 0) || 0}`));
       const nextItemKeys = new Set(normalizedItems.map((item: any) => `${String(item?.sku || "").trim()}|${String(item?.product_name || "").trim()}|${Number(item?.qty || 0) || 0}|${Number(item?.line_total || 0) || 0}`));
@@ -2308,7 +2324,7 @@ export default function MiniCrm() {
         subtotal_mismatch_warning: Math.abs((Number(poSummaryDraft.subtotal_amount || 0) || 0) - calcDraftItemsAmount(normalizedItems)) >= 1,
       };
       const payload = {
-        customer_id: customerId,
+        matched_customer_id: customerId,
         po_number: poNumber,
         delivery_date: poSummaryDraft.delivery_date || null,
         subtotal_amount: Number(poSummaryDraft.subtotal_amount || 0) || null,
@@ -2327,7 +2343,7 @@ export default function MiniCrm() {
         .eq("id", selectedPoId);
       if (latestRow?.updated_at) updateQuery = updateQuery.eq("updated_at", latestRow.updated_at);
       const { data, error } = await updateQuery
-        .select("id,po_number,customer_id,raw_payload,updated_at")
+        .select("id,po_number,matched_customer_id,raw_payload,updated_at")
         .single();
       if (error) throw error;
       if (!data) throw new Error("Lưu thất bại vì dữ liệu PO vừa thay đổi ở nơi khác. Vui lòng tải lại và thử lại.");
@@ -2424,7 +2440,7 @@ export default function MiniCrm() {
       const nowIso = new Date().toISOString();
       const { data: row, error: rowErr } = await (supabase as any)
         .from("customer_po_inbox")
-        .select("id,customer_id,po_number,delivery_date,email_subject,total_amount,subtotal_amount,vat_amount,revenue_channel,production_items,raw_payload")
+        .select("id,matched_customer_id,po_number,delivery_date,email_subject,total_amount,subtotal_amount,vat_amount,revenue_channel,production_items,raw_payload")
         .eq("id", id)
         .single();
       if (rowErr || !row) throw rowErr || new Error("Không tìm thấy PO để đẩy doanh thu");
@@ -2432,10 +2448,11 @@ export default function MiniCrm() {
         throw new Error("PO này đã được đẩy doanh thu trước đó. Hệ thống đã chặn double-post.");
       }
 
+      const resolvedCustomerId = row?.matched_customer_id || null;
       const { data: kbProfile } = await (supabase as any)
         .from("mini_crm_knowledge_profiles")
         .select("po_mode,profile_name")
-        .eq("customer_id", row.customer_id)
+        .eq("customer_id", resolvedCustomerId)
         .maybeSingle();
       const poMode = String(kbProfile?.po_mode || "daily_new_po");
 
@@ -2458,7 +2475,7 @@ export default function MiniCrm() {
         const { data: previousRows, error: prevErr } = await (supabase as any)
           .from("customer_po_inbox")
           .select("id,po_number,delivery_date,received_at,production_items,raw_payload")
-          .eq("customer_id", row.customer_id)
+          .eq("matched_customer_id", resolvedCustomerId)
           .neq("id", row.id)
           .eq("match_status", "approved")
           .order("received_at", { ascending: false })
@@ -2517,13 +2534,13 @@ export default function MiniCrm() {
         .from("customer_po_inbox")
         .update({ raw_payload: nextRawPayload, match_status: requiresReview ? "draft" : "approved", posted_to_revenue: !requiresReview, posted_to_revenue_at: !requiresReview ? nowIso : null })
         .eq("id", id)
-        .select("id,customer_id,email_subject,total_amount,revenue_channel,raw_payload")
+        .select("id,matched_customer_id,email_subject,total_amount,revenue_channel,raw_payload")
         .single();
       if (error) throw error;
 
       await (supabase as any).from("po_revenue_post_audit").insert({
         po_inbox_id: id,
-        customer_id: row.customer_id,
+        customer_id: resolvedCustomerId,
         action: requiresReview ? "flag_review" : "post",
         amount: Number(finalAmount || 0),
         full_snapshot_total: Number(fullTotal || 0),
@@ -2665,7 +2682,8 @@ export default function MiniCrm() {
   const autoPostSafeMutation = useMutation({
     mutationFn: async () => {
       const safeRows = (poInbox || []).filter((row: any) => {
-        const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === row.customer_id);
+        const resolvedCustomerId = resolveCustomerIdFromInboxRow(row);
+        const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === resolvedCustomerId);
         const mode = String(kb?.po_mode || "daily_new_po");
         const rp = row?.raw_payload?.revenue_post || {};
         const total = Number(row?.total_amount || calcTotalFromRawPayload(row?.raw_payload || {}) || 0);
@@ -2709,7 +2727,7 @@ export default function MiniCrm() {
 
         await (supabase as any).from("po_revenue_post_audit").insert({
           po_inbox_id: row.id,
-          customer_id: row.customer_id,
+          customer_id: resolveCustomerIdFromInboxRow(row),
           action: "auto_post_safe",
           amount: total,
           full_snapshot_total: total,
@@ -2743,7 +2761,8 @@ export default function MiniCrm() {
       })
       .map((row: any) => {
         const revenuePost = row?.raw_payload?.revenue_post || {};
-        const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === row.customer_id);
+        const resolvedCustomerId = resolveCustomerIdFromInboxRow(row);
+        const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === resolvedCustomerId);
         return {
           received_at: row?.received_at || "",
           customer_name: row?.mini_crm_customers?.customer_name || "",
@@ -2873,6 +2892,24 @@ export default function MiniCrm() {
                     <div><b>Subject:</b> {selectedPreview.subject}</div>
                     <div><b>Snippet:</b> {selectedPreview.snippet || "(trống)"}</div>
                     <div><b>Attachments:</b> {(selectedPreview.attachmentNames || []).join(", ") || "Không có"}</div>
+                    <div className="pt-2 border-t mt-2 space-y-1">
+                      <div><b>Match:</b> {selectedPreview.matchedCustomerId || "Chưa match"}</div>
+                      <div><b>Resolution:</b> {selectedPreview.matchResolution || "unmatched"}</div>
+                      {Array.isArray(selectedPreview.matchCandidates) && selectedPreview.matchCandidates.length > 0 && (
+                        <div>
+                          <b>Candidates:</b>
+                          <ul className="mt-1 list-disc pl-5 text-xs text-muted-foreground space-y-1">
+                            {selectedPreview.matchCandidates.map((candidate: any) => (
+                              <li key={candidate.customerId}>
+                                {candidate.customerName || candidate.customerId}
+                                {candidate.isNpp ? " · NPP" : " · Đại lý"}
+                                {candidate.suppliedByNppCustomerId ? ` · lấy qua NPP ${candidate.suppliedByNppCustomerId}` : ""}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
                     <div className="pt-2 border-t mt-2 space-y-1">
                       <div><b>Mẫu PO:</b> {selectedPreview?.template?.name || "Chưa có mẫu riêng"}</div>
                       {selectedPreview?.template?.fileName && <div><b>File mẫu:</b> {selectedPreview.template.fileName}</div>}
@@ -3201,7 +3238,8 @@ export default function MiniCrm() {
             <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
               <div className="rounded-lg border bg-background/80 px-3 py-2">
                 <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Đang hiển thị</div>
-                <div className="text-xl font-semibold leading-tight">{filteredPoInbox.length}</div>
+                <div className="text-xl font-semibold leading-tight">{paginatedPoInbox.length}</div>
+                <div className="text-[11px] text-muted-foreground">/ {filteredPoInbox.length} PO sau lọc</div>
               </div>
               <div className="rounded-lg border bg-background/80 px-3 py-2">
                 <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Đã auto parse</div>
@@ -3268,6 +3306,7 @@ export default function MiniCrm() {
                   setPoNeedsAttentionOnly(false);
                   setPoCustomerFilter("all");
                   setPoModeFilter("all");
+                  setPoPage(1);
                 }}
               >
                 Reset bộ lọc
@@ -3288,20 +3327,19 @@ export default function MiniCrm() {
 
           <div className="text-xs text-muted-foreground">Màn hình nhỏ có thể vuốt ngang để xem đủ cột.</div>
           <div className="rounded-xl border bg-background/70 overflow-x-auto">
-            <Table className="min-w-[980px]">
+            <Table className="min-w-[900px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="whitespace-nowrap">Received</TableHead>
                   <TableHead className="whitespace-nowrap hidden lg:table-cell">From</TableHead>
                   <TableHead className="min-w-[220px]">Subject</TableHead>
                   <TableHead className="whitespace-nowrap">Matched Customer</TableHead>
-                  <TableHead className="whitespace-nowrap hidden md:table-cell">PO mode</TableHead>
                   <TableHead className="whitespace-nowrap">Trạng thái</TableHead>
                   <TableHead className="whitespace-nowrap sticky right-0 z-10 bg-background">Thao tác</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredPoInbox.map((row: any) => (
+                {paginatedPoInbox.map((row: any) => (
                   <TableRow key={row.id} className="align-top hover:bg-muted/40">
                     <TableCell className="whitespace-nowrap">{new Date(row.received_at).toLocaleString("vi-VN")}</TableCell>
                     <TableCell className="min-w-[200px] break-all hidden lg:table-cell">{row.from_email}</TableCell>
@@ -3310,13 +3348,6 @@ export default function MiniCrm() {
                       <div className="text-xs text-muted-foreground mt-1 lg:hidden break-all">{row.from_email}</div>
                     </TableCell>
                     <TableCell className="whitespace-nowrap">{row.mini_crm_customers?.customer_name || "Chưa match"}</TableCell>
-                    <TableCell className="hidden md:table-cell">
-                      {(() => {
-                        const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === row.customer_id);
-                        if (!kb) return <span className="text-xs text-muted-foreground">Mặc định</span>;
-                        return <Badge variant="outline">{KB_PO_MODE_LABEL[String(kb.po_mode || "")] || String(kb.po_mode || "-")}</Badge>;
-                      })()}
-                    </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-1">
                         {row?.raw_payload?.manual_summary?.edited_at ? (
@@ -3341,7 +3372,7 @@ export default function MiniCrm() {
                           onClick={() => {
                             setSelectedPoId(row.id);
                             setPoSummaryDraft({
-                              customer_id: row.customer_id || "",
+                              customer_id: resolveCustomerIdFromInboxRow(row) || "",
                               po_number: row.po_number || "",
                               delivery_date: row.delivery_date || "",
                               subtotal_amount: row.subtotal_amount || "",
@@ -3363,11 +3394,28 @@ export default function MiniCrm() {
                 ))}
                 {filteredPoInbox.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Không có PO phù hợp bộ lọc hiện tại.</TableCell>
+                    <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">Không có PO phù hợp bộ lọc hiện tại.</TableCell>
                   </TableRow>
                 )}
               </TableBody>
             </Table>
+          </div>
+          <div className="flex flex-col gap-2 pt-3 text-sm md:flex-row md:items-center md:justify-between">
+            <div className="text-muted-foreground">
+              Hiển thị {filteredPoInbox.length === 0 ? 0 : (currentPoPage - 1) * PO_PAGE_SIZE + 1}
+              -{Math.min(currentPoPage * PO_PAGE_SIZE, filteredPoInbox.length)} trên tổng {filteredPoInbox.length} PO
+            </div>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setPoPage((p) => Math.max(1, p - 1))} disabled={currentPoPage <= 1}>
+                Trang trước
+              </Button>
+              <div className="min-w-[88px] text-center text-muted-foreground">
+                Trang {currentPoPage} / {totalPoPages}
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={() => setPoPage((p) => Math.min(totalPoPages, p + 1))} disabled={currentPoPage >= totalPoPages}>
+                Trang sau
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

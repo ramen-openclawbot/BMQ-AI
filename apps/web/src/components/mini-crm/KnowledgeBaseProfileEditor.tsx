@@ -350,7 +350,7 @@ export function KnowledgeBaseProfileEditor(props: Props) {
           <div className={sectionClass}>
             <div className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
               <Sparkles className="h-4 w-4 text-primary" />
-              Bước 2 · Test parse trên PO thật
+              Bước 2 · Kiểm tra parse trên PO đã sync
             </div>
             <ParseTestWorkbench
               customerPos={customerPos}
