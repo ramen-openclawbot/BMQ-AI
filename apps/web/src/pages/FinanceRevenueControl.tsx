@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RefreshCw, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
+import { Loader2, RefreshCw, CheckCircle, XCircle, AlertTriangle, Eye, TrendingUp, CircleAlert } from "lucide-react";
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -8,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { supabase } from "@/integrations/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -62,6 +65,10 @@ const DRAFT_STATUS_CONFIG: Record<string, { label: string; variant: "default" | 
 };
 
 const PRODUCT_GROUP_LABEL: Record<string, string> = { banhmi: "Bánh mì", banhngot: "Bánh ngọt" };
+const chartConfig = {
+  banhmi: { label: "Bánh mì", color: "hsl(var(--chart-1))" },
+  banhngot: { label: "Bánh ngọt", color: "hsl(var(--chart-2))" },
+} as const;
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -100,6 +107,9 @@ export default function FinanceRevenueControl() {
 
   // draft queue state
   const [draftStatusFilter, setDraftStatusFilter] = useState<string>("pending");
+  const [draftCustomerFilter, setDraftCustomerFilter] = useState<string>("all");
+  const [trendGranularity, setTrendGranularity] = useState<"day" | "month">("day");
+  const [selectedDraft, setSelectedDraft] = useState<any | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
 
@@ -137,6 +147,32 @@ export default function FinanceRevenueControl() {
     },
   });
 
+  const { data: salesPoDocs = [] } = useQuery<any[]>({
+    queryKey: ["sales-po-documents"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("sales_po_documents")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(300);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const { data: inboxEvidenceRows = [] } = useQuery<any[]>({
+    queryKey: ["finance-po-inbox-evidence"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("customer_po_inbox")
+        .select("id, matched_customer_id, email_subject, from_email, body_preview, received_at, raw_payload, po_number, delivery_date")
+        .order("received_at", { ascending: false })
+        .limit(500);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
   const { data: postedPoRows = [] } = useQuery<any[]>({
     queryKey: ["finance-posted-po"],
     queryFn: async () => {
@@ -166,9 +202,58 @@ export default function FinanceRevenueControl() {
   }, [revenueDrafts]);
 
   const filteredDrafts = useMemo(
-    () => draftStatusFilter === "all" ? revenueDrafts : revenueDrafts.filter((d: any) => d.status === draftStatusFilter),
-    [revenueDrafts, draftStatusFilter]
+    () => revenueDrafts.filter((d: any) => {
+      if (draftStatusFilter !== "all" && d.status !== draftStatusFilter) return false;
+      if (draftCustomerFilter !== "all" && d.customer_id !== draftCustomerFilter) return false;
+      return true;
+    }),
+    [revenueDrafts, draftStatusFilter, draftCustomerFilter]
   );
+
+  const exceptionDrafts = useMemo(
+    () => revenueDrafts.filter((d: any) => d.status === "exception"),
+    [revenueDrafts]
+  );
+
+  const approvedDrafts = useMemo(
+    () => revenueDrafts.filter((d: any) => d.status === "approved"),
+    [revenueDrafts]
+  );
+
+  const trendSeries = useMemo(() => {
+    const grouped = new Map<string, { date: string; banhmi: number; banhngot: number }>();
+    for (const row of approvedDrafts) {
+      const rawKey = dateOnly(row.po_order_date || row.delivery_date || row.created_at);
+      if (!rawKey) continue;
+      const key = trendGranularity === "month" ? rawKey.slice(0, 7) : rawKey;
+      const current = grouped.get(key) || { date: key, banhmi: 0, banhngot: 0 };
+      const productKey = row.product_group === "banhngot" ? "banhngot" : "banhmi";
+      current[productKey] += Number(row.total_amount || 0);
+      grouped.set(key, current);
+    }
+    return Array.from(grouped.values()).sort((a, b) => a.date.localeCompare(b.date));
+  }, [approvedDrafts, trendGranularity]);
+
+  const customerBreakdown = useMemo(() => {
+    const totals = new Map<string, { customerName: string; total: number }>();
+    let grandTotal = 0;
+    for (const row of approvedDrafts) {
+      const key = row.customer_id || "unknown";
+      const amount = Number(row.total_amount || 0);
+      grandTotal += amount;
+      const current = totals.get(key) || { customerName: row.mini_crm_customers?.customer_name || "Chưa rõ khách hàng", total: 0 };
+      current.total += amount;
+      totals.set(key, current);
+    }
+    return Array.from(totals.values())
+      .map((row) => ({ ...row, pct: grandTotal > 0 ? (row.total / grandTotal) * 100 : 0 }))
+      .sort((a, b) => b.total - a.total);
+  }, [approvedDrafts]);
+
+  const salesDocById = useMemo(() => new Map(salesPoDocs.map((row: any) => [row.id, row])), [salesPoDocs]);
+  const inboxById = useMemo(() => new Map(inboxEvidenceRows.map((row: any) => [row.id, row])), [inboxEvidenceRows]);
+  const selectedSalesDoc = selectedDraft ? salesDocById.get(selectedDraft.sales_po_doc_id) : null;
+  const selectedInboxEvidence = selectedSalesDoc ? inboxById.get(selectedSalesDoc.inbox_row_id) : null;
 
   // legacy summary derived
   const postedRows = useMemo(
@@ -211,6 +296,8 @@ export default function FinanceRevenueControl() {
     setApprovingId(null);
     if (error) { toast({ title: "Lỗi", description: getReadableError(error), variant: "destructive" }); return; }
     queryClient.invalidateQueries({ queryKey: ["revenue-drafts"] });
+    queryClient.invalidateQueries({ queryKey: ["sales-po-documents"] });
+    queryClient.invalidateQueries({ queryKey: ["finance-po-inbox-evidence"] });
   };
 
   const rejectDraft = async (draftId: string) => {
@@ -223,6 +310,8 @@ export default function FinanceRevenueControl() {
     setRejectingId(null);
     if (error) { toast({ title: "Lỗi", description: getReadableError(error), variant: "destructive" }); return; }
     queryClient.invalidateQueries({ queryKey: ["revenue-drafts"] });
+    queryClient.invalidateQueries({ queryKey: ["sales-po-documents"] });
+    queryClient.invalidateQueries({ queryKey: ["finance-po-inbox-evidence"] });
   };
 
   const toggleTier1 = async (customerId: string, current: boolean) => {
@@ -386,6 +475,8 @@ export default function FinanceRevenueControl() {
       const result: SyncResult = { rowsFound: rows.length, rowsProcessed: processed, draftsCreated, exceptionsCreated, skipped };
       setSyncResult(result);
       queryClient.invalidateQueries({ queryKey: ["revenue-drafts"] });
+    queryClient.invalidateQueries({ queryKey: ["sales-po-documents"] });
+    queryClient.invalidateQueries({ queryKey: ["finance-po-inbox-evidence"] });
       toast({
         title: "Đồng bộ hoàn tất",
         description: `${draftsCreated} draft Tier-1 • ${exceptionsCreated} ngoại lệ • ${skipped} đã bỏ qua`,
@@ -415,7 +506,9 @@ export default function FinanceRevenueControl() {
 
       <Tabs defaultValue="queue">
         <TabsList>
-          <TabsTrigger value="queue">{isVi ? "Hàng đợi doanh thu" : "Revenue queue"}</TabsTrigger>
+          <TabsTrigger value="queue">{isVi ? "Hàng đợi draft" : "Draft queue"}</TabsTrigger>
+          <TabsTrigger value="exceptions">{isVi ? "Hàng đợi ngoại lệ" : "Exception queue"}</TabsTrigger>
+          <TabsTrigger value="analytics">{isVi ? "Dashboard & graph" : "Dashboard & graph"}</TabsTrigger>
           <TabsTrigger value="summary">{isVi ? "Tóm tắt" : "Summary"}</TabsTrigger>
           <TabsTrigger value="tier">{isVi ? "Cài đặt Tier" : "Tier settings"}</TabsTrigger>
         </TabsList>
@@ -482,23 +575,26 @@ export default function FinanceRevenueControl() {
             </CardContent>
           </Card>
 
-          {/* Summary stats — clickable to filter table */}
+          {/* Dashboard cards cho queue */}
           <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
             {(
               [
-                { key: "pending",   label: isVi ? "Chờ duyệt" : "Pending",    amtKey: "pendingAmt",  color: "text-blue-600" },
-                { key: "approved",  label: isVi ? "Đã duyệt" : "Approved",    amtKey: "approvedAmt", color: "text-green-600" },
-                { key: "rejected",  label: isVi ? "Từ chối" : "Rejected",     amtKey: null,          color: "text-red-600" },
-                { key: "exception", label: isVi ? "Ngoại lệ" : "Exceptions",  amtKey: null,          color: "text-amber-600" },
+                { key: "pending", label: isVi ? "Chờ duyệt" : "Pending", amtKey: "pendingAmt", color: "text-blue-600", icon: Loader2 },
+                { key: "approved", label: isVi ? "Đã duyệt" : "Approved", amtKey: "approvedAmt", color: "text-green-600", icon: CheckCircle },
+                { key: "rejected", label: isVi ? "Từ chối" : "Rejected", amtKey: null, color: "text-red-600", icon: XCircle },
+                { key: "exception", label: isVi ? "Ngoại lệ" : "Exceptions", amtKey: null, color: "text-amber-600", icon: CircleAlert },
               ] as const
-            ).map(({ key, label, amtKey, color }) => (
+            ).map(({ key, label, amtKey, color, icon: Icon }) => (
               <Card
                 key={key}
                 className={`cursor-pointer transition-colors hover:bg-muted/50 ${draftStatusFilter === key ? "ring-2 ring-primary" : ""}`}
                 onClick={() => setDraftStatusFilter(key)}
               >
-                <CardContent className="p-4">
-                  <div className={`text-xs font-medium ${color}`}>{label}</div>
+                <CardContent className="p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className={`text-xs font-medium ${color}`}>{label}</div>
+                    <Icon className={`h-4 w-4 ${color}`} />
+                  </div>
                   <div className="text-2xl font-bold">{draftStats[key] || 0}</div>
                   {amtKey && draftStats[amtKey] > 0 && (
                     <div className="text-xs text-muted-foreground">{vnd(draftStats[amtKey])}</div>
@@ -512,18 +608,35 @@ export default function FinanceRevenueControl() {
           <Card>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between flex-wrap gap-2">
-                <CardTitle>{isVi ? "Danh sách draft" : "Draft list"}</CardTitle>
-                <select
-                  className="h-8 rounded-md border bg-background px-2 text-sm"
-                  value={draftStatusFilter}
-                  onChange={(e) => setDraftStatusFilter(e.target.value)}
-                >
-                  <option value="all">{isVi ? "Tất cả" : "All"} ({revenueDrafts.length})</option>
-                  <option value="pending">{isVi ? "Chờ duyệt" : "Pending"} ({draftStats.pending || 0})</option>
-                  <option value="approved">{isVi ? "Đã duyệt" : "Approved"} ({draftStats.approved || 0})</option>
-                  <option value="rejected">{isVi ? "Từ chối" : "Rejected"} ({draftStats.rejected || 0})</option>
-                  <option value="exception">{isVi ? "Ngoại lệ" : "Exception"} ({draftStats.exception || 0})</option>
-                </select>
+                <div>
+                  <CardTitle>{isVi ? "Danh sách draft doanh thu" : "Revenue drafts"}</CardTitle>
+                  <CardDescription>
+                    {isVi ? "Ưu tiên xử lý draft pending, dùng bộ lọc customer/status và xem chi tiết provenance trước khi approve." : "Operate pending drafts using status/customer filters and provenance detail before approval."}
+                  </CardDescription>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <select
+                    className="h-8 rounded-md border bg-background px-2 text-sm"
+                    value={draftStatusFilter}
+                    onChange={(e) => setDraftStatusFilter(e.target.value)}
+                  >
+                    <option value="all">{isVi ? "Tất cả trạng thái" : "All statuses"}</option>
+                    <option value="pending">{isVi ? "Chờ duyệt" : "Pending"} ({draftStats.pending || 0})</option>
+                    <option value="approved">{isVi ? "Đã duyệt" : "Approved"} ({draftStats.approved || 0})</option>
+                    <option value="rejected">{isVi ? "Từ chối" : "Rejected"} ({draftStats.rejected || 0})</option>
+                    <option value="exception">{isVi ? "Ngoại lệ" : "Exception"} ({draftStats.exception || 0})</option>
+                  </select>
+                  <select
+                    className="h-8 rounded-md border bg-background px-2 text-sm"
+                    value={draftCustomerFilter}
+                    onChange={(e) => setDraftCustomerFilter(e.target.value)}
+                  >
+                    <option value="all">{isVi ? "Tất cả khách hàng" : "All customers"}</option>
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>{c.customer_name}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="p-0">
@@ -538,11 +651,11 @@ export default function FinanceRevenueControl() {
                       <TableHead>{isVi ? "Khách hàng" : "Customer"}</TableHead>
                       <TableHead>{isVi ? "PO số" : "PO #"}</TableHead>
                       <TableHead>{isVi ? "Ngày PO" : "PO date"}</TableHead>
-                      <TableHead>{isVi ? "Giao hàng" : "Delivery"}</TableHead>
                       <TableHead>{isVi ? "Nhóm SP" : "Group"}</TableHead>
                       <TableHead>{isVi ? "Kênh" : "Channel"}</TableHead>
                       <TableHead className="text-right">{isVi ? "Doanh thu" : "Amount"}</TableHead>
                       <TableHead>{isVi ? "Trạng thái" : "Status"}</TableHead>
+                      <TableHead>{isVi ? "Chi tiết" : "Detail"}</TableHead>
                       <TableHead>{isVi ? "Hành động" : "Action"}</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -552,60 +665,35 @@ export default function FinanceRevenueControl() {
                       const isActing = approvingId === d.id || rejectingId === d.id;
                       return (
                         <TableRow key={d.id}>
-                          <TableCell className="font-medium">
-                            {d.mini_crm_customers?.customer_name || "—"}
-                          </TableCell>
+                          <TableCell className="font-medium">{d.mini_crm_customers?.customer_name || "—"}</TableCell>
                           <TableCell className="text-xs font-mono">{d.po_number || "—"}</TableCell>
-                          <TableCell className="text-xs">{dateOnly(d.po_order_date) || "—"}</TableCell>
-                          <TableCell className="text-xs">{dateOnly(d.delivery_date) || "—"}</TableCell>
-                          <TableCell className="text-sm">
-                            {PRODUCT_GROUP_LABEL[d.product_group] || d.product_group || "—"}
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {d.revenue_channel || "—"}
-                          </TableCell>
-                          <TableCell className="text-right font-medium">
-                            {vnd(Number(d.total_amount || 0))}
-                          </TableCell>
+                          <TableCell className="text-xs">{dateOnly(d.po_order_date) || dateOnly(d.delivery_date) || "—"}</TableCell>
+                          <TableCell>{PRODUCT_GROUP_LABEL[d.product_group] || d.product_group || "—"}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{d.revenue_channel || "—"}</TableCell>
+                          <TableCell className="text-right font-medium">{vnd(Number(d.total_amount || 0))}</TableCell>
                           <TableCell>
                             <Badge variant={cfg.variant}>{cfg.label}</Badge>
-                            {d.exception_reason && (
-                              <div className="text-xs text-muted-foreground mt-0.5 max-w-[160px] truncate" title={d.exception_reason}>
-                                {d.exception_reason}
-                              </div>
-                            )}
+                            {d.exception_reason && <div className="text-xs text-muted-foreground mt-1 max-w-[180px] truncate" title={d.exception_reason}>{d.exception_reason}</div>}
                           </TableCell>
                           <TableCell>
-                            {d.status === "pending" && (
+                            <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setSelectedDraft(d)}>
+                              <Eye className="h-3.5 w-3.5 mr-1" />{isVi ? "Xem" : "View"}
+                            </Button>
+                          </TableCell>
+                          <TableCell>
+                            {d.status === "pending" ? (
                               <div className="flex gap-1">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 w-7 p-0 text-green-700 border-green-300 hover:bg-green-50"
-                                  disabled={isActing}
-                                  title={isVi ? "Duyệt" : "Approve"}
-                                  onClick={() => approveDraft(d.id)}
-                                >
-                                  {approvingId === d.id
-                                    ? <Loader2 className="h-3 w-3 animate-spin" />
-                                    : <CheckCircle className="h-3 w-3" />}
+                                <Button size="sm" variant="outline" className="h-7 w-7 p-0 text-green-700 border-green-300 hover:bg-green-50" disabled={isActing} title={isVi ? "Duyệt" : "Approve"} onClick={() => approveDraft(d.id)}>
+                                  {approvingId === d.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
                                 </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 w-7 p-0 text-red-700 border-red-300 hover:bg-red-50"
-                                  disabled={isActing}
-                                  title={isVi ? "Từ chối" : "Reject"}
-                                  onClick={() => rejectDraft(d.id)}
-                                >
-                                  {rejectingId === d.id
-                                    ? <Loader2 className="h-3 w-3 animate-spin" />
-                                    : <XCircle className="h-3 w-3" />}
+                                <Button size="sm" variant="outline" className="h-7 w-7 p-0 text-red-700 border-red-300 hover:bg-red-50" disabled={isActing} title={isVi ? "Từ chối" : "Reject"} onClick={() => rejectDraft(d.id)}>
+                                  {rejectingId === d.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <XCircle className="h-3 w-3" />}
                                 </Button>
                               </div>
-                            )}
-                            {d.status === "exception" && (
+                            ) : d.status === "exception" ? (
                               <AlertTriangle className="h-4 w-4 text-amber-500" />
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
                             )}
                           </TableCell>
                         </TableRow>
@@ -625,7 +713,121 @@ export default function FinanceRevenueControl() {
           </Card>
         </TabsContent>
 
-        {/* ── TAB 2: Legacy Revenue Summary (preserved) ────────────────────────── */}
+        {/* ── TAB 2: Exception Queue ────────────────────────────────────────────── */}
+        <TabsContent value="exceptions" className="space-y-4 mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>{isVi ? "Hàng đợi ngoại lệ" : "Exception queue"}</CardTitle>
+              <CardDescription>
+                {isVi ? "Tập trung các draft chưa đủ điều kiện tự động: non-Tier-1, thiếu mapping, hoặc cần soát lại trước khi accounting quyết định." : "Centralized queue for non-Tier-1 and other exception cases requiring manual review."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{isVi ? "Khách hàng" : "Customer"}</TableHead>
+                    <TableHead>{isVi ? "PO số" : "PO #"}</TableHead>
+                    <TableHead>{isVi ? "Ngày nhận" : "Received"}</TableHead>
+                    <TableHead>{isVi ? "Lý do" : "Reason"}</TableHead>
+                    <TableHead className="text-right">{isVi ? "Giá trị" : "Amount"}</TableHead>
+                    <TableHead>{isVi ? "Chi tiết" : "Detail"}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {exceptionDrafts.map((d: any) => {
+                    const doc = salesDocById.get(d.sales_po_doc_id);
+                    const inbox = doc ? inboxById.get(doc.inbox_row_id) : null;
+                    return (
+                      <TableRow key={d.id}>
+                        <TableCell className="font-medium">{d.mini_crm_customers?.customer_name || "—"}</TableCell>
+                        <TableCell className="text-xs font-mono">{d.po_number || "—"}</TableCell>
+                        <TableCell className="text-xs">{dateOnly(inbox?.received_at || d.created_at) || "—"}</TableCell>
+                        <TableCell>
+                          <div className="max-w-[280px] text-sm">{d.exception_reason || doc?.exception_reason || (isVi ? "Chưa có lý do chi tiết" : "No detailed reason")}</div>
+                        </TableCell>
+                        <TableCell className="text-right font-medium">{vnd(Number(d.total_amount || 0))}</TableCell>
+                        <TableCell>
+                          <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setSelectedDraft(d)}>
+                            <Eye className="h-3.5 w-3.5 mr-1" />{isVi ? "Xem" : "View"}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {exceptionDrafts.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                        {isVi ? "Chưa có ngoại lệ nào." : "No exception rows yet."}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── TAB 3: Analytics ──────────────────────────────────────────────────── */}
+        <TabsContent value="analytics" className="space-y-4 mt-4">
+          <div className="grid gap-4 lg:grid-cols-[1.4fr_0.8fr]">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div>
+                    <CardTitle>{isVi ? "Xu hướng doanh thu đã duyệt" : "Approved revenue trend"}</CardTitle>
+                    <CardDescription>{isVi ? "Theo ngày hoặc theo tháng, tách theo nhóm sản phẩm." : "Daily or monthly approved revenue by product group."}</CardDescription>
+                  </div>
+                  <select className="h-8 rounded-md border bg-background px-2 text-sm" value={trendGranularity} onChange={(e) => setTrendGranularity(e.target.value as "day" | "month")}>
+                    <option value="day">{isVi ? "Theo ngày" : "By day"}</option>
+                    <option value="month">{isVi ? "Theo tháng" : "By month"}</option>
+                  </select>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <ChartContainer config={chartConfig} className="h-[320px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={trendSeries}>
+                      <CartesianGrid vertical={false} />
+                      <XAxis dataKey="date" tickLine={false} axisLine={false} />
+                      <YAxis tickFormatter={(value) => `${Math.round(Number(value) / 1000000)}M`} tickLine={false} axisLine={false} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Legend />
+                      <Bar dataKey="banhmi" stackId="approved" fill="var(--color-banhmi)" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="banhngot" stackId="approved" fill="var(--color-banhngot)" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>{isVi ? "Top khách hàng đã duyệt" : "Top approved customers"}</CardTitle>
+                <CardDescription>{isVi ? "Xếp hạng theo tổng approved revenue hiện có trong queue phase 2/3." : "Ranked by approved revenue from current draft records."}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {customerBreakdown.slice(0, 8).map((row) => (
+                  <div key={row.customerName} className="space-y-1">
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="truncate">{row.customerName}</span>
+                      <span className="font-medium">{vnd(row.total)}</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-muted overflow-hidden">
+                      <div className="h-full bg-primary" style={{ width: `${Math.min(row.pct, 100)}%` }} />
+                    </div>
+                    <div className="text-xs text-muted-foreground">{row.pct.toFixed(1)}%</div>
+                  </div>
+                ))}
+                {customerBreakdown.length === 0 && (
+                  <div className="text-sm text-muted-foreground py-8 text-center">{isVi ? "Chưa có approved draft để vẽ breakdown." : "No approved drafts yet."}</div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* ── TAB 4: Legacy Revenue Summary (preserved) ────────────────────────── */}
         <TabsContent value="summary" className="space-y-4 mt-4">
           <Card>
             <CardHeader>
@@ -790,6 +992,74 @@ export default function FinanceRevenueControl() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={Boolean(selectedDraft)} onOpenChange={(open) => !open && setSelectedDraft(null)}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{isVi ? "Chi tiết draft / ngoại lệ" : "Draft / exception detail"}</DialogTitle>
+          </DialogHeader>
+          {selectedDraft && (
+            <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Khách hàng" : "Customer"}</div><div className="font-medium mt-1">{selectedDraft.mini_crm_customers?.customer_name || "—"}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">PO</div><div className="font-mono mt-1">{selectedDraft.po_number || "—"}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Trạng thái" : "Status"}</div><div className="mt-1"><Badge variant={(DRAFT_STATUS_CONFIG[selectedDraft.status] ?? DRAFT_STATUS_CONFIG.pending).variant}>{(DRAFT_STATUS_CONFIG[selectedDraft.status] ?? DRAFT_STATUS_CONFIG.pending).label}</Badge></div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Doanh thu" : "Amount"}</div><div className="font-semibold mt-1">{vnd(Number(selectedDraft.total_amount || 0))}</div></CardContent></Card>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Card>
+                  <CardHeader><CardTitle className="text-base">{isVi ? "Provenance / hệ thống" : "Provenance / system"}</CardTitle></CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    <div><span className="text-muted-foreground">Draft ID:</span> <span className="font-mono break-all">{selectedDraft.id}</span></div>
+                    <div><span className="text-muted-foreground">Sales PO Doc ID:</span> <span className="font-mono break-all">{selectedDraft.sales_po_doc_id || "—"}</span></div>
+                    <div><span className="text-muted-foreground">Sync Job ID:</span> <span className="font-mono break-all">{selectedDraft.sync_job_id || "—"}</span></div>
+                    <div><span className="text-muted-foreground">Inbox Row ID:</span> <span className="font-mono break-all">{selectedSalesDoc?.inbox_row_id || "—"}</span></div>
+                    <div><span className="text-muted-foreground">KB Profile:</span> <span className="font-mono break-all">{selectedSalesDoc?.kb_profile_id || "—"}</span></div>
+                    <div><span className="text-muted-foreground">KB Version:</span> <span className="font-mono break-all">{selectedSalesDoc?.kb_version_id || "—"}</span></div>
+                    <div><span className="text-muted-foreground">Parse source:</span> {selectedSalesDoc?.parse_source || "—"}</div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader><CardTitle className="text-base">{isVi ? "Accounting snapshot" : "Accounting snapshot"}</CardTitle></CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    <div className="flex justify-between gap-3"><span className="text-muted-foreground">Subtotal</span><span>{vnd(Number(selectedDraft.subtotal_amount || 0))}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-muted-foreground">VAT</span><span>{vnd(Number(selectedDraft.vat_amount || 0))}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-muted-foreground">Total</span><span className="font-semibold">{vnd(Number(selectedDraft.total_amount || 0))}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-muted-foreground">{isVi ? "Kênh" : "Channel"}</span><span>{selectedDraft.revenue_channel || "—"}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-muted-foreground">{isVi ? "Nhóm SP" : "Product group"}</span><span>{PRODUCT_GROUP_LABEL[selectedDraft.product_group] || selectedDraft.product_group || "—"}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-muted-foreground">{isVi ? "Approved at" : "Approved at"}</span><span>{dateOnly(selectedDraft.approved_at) || "—"}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-muted-foreground">{isVi ? "Rejected at" : "Rejected at"}</span><span>{dateOnly(selectedDraft.rejected_at) || "—"}</span></div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Card>
+                  <CardHeader><CardTitle className="text-base">{isVi ? "Inbox evidence" : "Inbox evidence"}</CardTitle></CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    <div><span className="text-muted-foreground">Subject:</span> {selectedInboxEvidence?.email_subject || "—"}</div>
+                    <div><span className="text-muted-foreground">From:</span> {selectedInboxEvidence?.from_email || "—"}</div>
+                    <div><span className="text-muted-foreground">Received:</span> {selectedInboxEvidence?.received_at || "—"}</div>
+                    <div><span className="text-muted-foreground">Preview:</span></div>
+                    <div className="rounded-md bg-muted p-3 text-xs whitespace-pre-wrap break-words">{selectedInboxEvidence?.body_preview || selectedInboxEvidence?.raw_payload?.snippet || "—"}</div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader><CardTitle className="text-base">{isVi ? "Parsed PO snapshot / lý do" : "Parsed PO snapshot / reason"}</CardTitle></CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    <div><span className="text-muted-foreground">{isVi ? "Lý do ngoại lệ" : "Exception reason"}:</span> {selectedDraft.exception_reason || selectedSalesDoc?.exception_reason || "—"}</div>
+                    <div><span className="text-muted-foreground">Items:</span></div>
+                    <pre className="rounded-md bg-muted p-3 text-[11px] leading-relaxed overflow-x-auto">{JSON.stringify(selectedSalesDoc?.items || [], null, 2)}</pre>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
