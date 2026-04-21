@@ -138,7 +138,7 @@ interface SyncJobRow {
 export default function FinanceRevenueControl() {
   const { language } = useLanguage();
   const isVi = language === "vi";
-  const { user } = useAuth();
+  const { user, isOwner, canEditModule } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -156,6 +156,8 @@ export default function FinanceRevenueControl() {
   const [scheduleLookbackDays, setScheduleLookbackDays] = useState<string>("1");
   const [scheduleNotes, setScheduleNotes] = useState<string>("");
   const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [automationRunning, setAutomationRunning] = useState(false);
+  const [automationRunMessage, setAutomationRunMessage] = useState<string | null>(null);
 
   // draft queue state
   const [draftStatusFilter, setDraftStatusFilter] = useState<string>("pending");
@@ -364,6 +366,8 @@ export default function FinanceRevenueControl() {
     return isVi ? "Chỉ nhóm Tier-1" : "Tier-1 only";
   }, [customers, isVi, scheduleCustomerId, scheduleScopeMode]);
 
+  const canRunAutomation = isOwner || canEditModule("finance_revenue") || canEditModule("sales_po_inbox");
+
   const latestSyncJob = recentSyncJobs[0] || null;
 
   const automationStats = useMemo(() => {
@@ -571,16 +575,16 @@ export default function FinanceRevenueControl() {
     queryClient.invalidateQueries({ queryKey: ["mini-crm-customers-tier"] });
   };
 
-  const saveAutomationSchedule = async () => {
+  const persistAutomationSchedule = async (showToast = true) => {
     if (scheduleScopeMode === "single_customer" && scheduleCustomerId === "all") {
       toast({ title: isVi ? "Thiếu khách hàng" : "Missing customer", description: isVi ? "Vui lòng chọn một NPP / khách hàng gốc cụ thể." : "Please choose a specific root customer / distributor.", variant: "destructive" });
-      return;
+      return false;
     }
 
     const parsedLookback = Number(scheduleLookbackDays || 1);
     if (!Number.isFinite(parsedLookback)) {
       toast({ title: isVi ? "Lookback không hợp lệ" : "Invalid lookback", description: isVi ? "Vui lòng nhập số ngày hợp lệ từ 1 đến 30." : "Please enter a valid lookback day count between 1 and 30.", variant: "destructive" });
-      return;
+      return false;
     }
 
     const lookback = Math.max(1, Math.min(30, parsedLookback));
@@ -608,16 +612,93 @@ export default function FinanceRevenueControl() {
 
       await queryClient.invalidateQueries({ queryKey: ["po-sync-schedule-foundation"] });
       await queryClient.invalidateQueries({ queryKey: ["po-sync-jobs-recent"] });
-      toast({
-        title: isVi ? "Đã lưu cấu hình automation" : "Automation settings saved",
-        description: isVi
-          ? "Đã lưu foundation cho Phase 5A. Cron thực tế sẽ nối ở slice tiếp theo."
-          : "Phase 5A foundation saved. Actual cron execution will be wired in the next slice.",
-      });
+      if (showToast) {
+        toast({
+          title: isVi ? "Đã lưu cấu hình automation" : "Automation settings saved",
+          description: isVi
+            ? "Đã lưu config Phase 5B. Anh có thể bấm Chạy ngay để test pipeline trước khi bật cron thật."
+            : "Phase 5B config saved. You can use Run now to test the pipeline before enabling real cron.",
+        });
+      }
+      return true;
     } catch (err) {
       toast({ title: isVi ? "Lỗi lưu cấu hình" : "Failed to save schedule", description: getReadableError(err), variant: "destructive" });
+      return false;
     } finally {
       setScheduleSaving(false);
+    }
+  };
+
+  const saveAutomationSchedule = async () => {
+    await persistAutomationSchedule(true);
+  };
+
+  const runAutomationNow = async () => {
+    if (!canRunAutomation) {
+      toast({
+        title: isVi ? "Không có quyền chạy automation" : "No permission to run automation",
+        description: isVi ? "Cần quyền owner hoặc quyền edit module Finance Revenue / Sales PO Inbox." : "Owner role or edit permission for Finance Revenue / Sales PO Inbox is required.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setAutomationRunMessage(null);
+    const saved = await persistAutomationSchedule(false);
+    if (!saved) return;
+
+    setAutomationRunning(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error(isVi ? "Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại." : "Your session has expired. Please sign in again.");
+      }
+
+      const { error: userError } = await supabase.auth.getUser();
+      if (userError) {
+        throw new Error(isVi ? `Phiên đăng nhập không hợp lệ (${userError.message}).` : `Invalid session (${userError.message}).`);
+      }
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-sync-scheduler-run`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ mode: "run_now", ignoreDisabled: true }),
+      });
+
+      const rawText = await response.text();
+      let result: any = {};
+      try {
+        result = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        result = { raw: rawText };
+      }
+
+      if (!response.ok) {
+        throw new Error(result?.error || result?.message || result?.raw || rawText || "Automation run failed");
+      }
+
+      const stats = result?.result || {};
+      setAutomationRunMessage(
+        `${stats.rowsFound ?? 0} PO • ${stats.draftsCreated ?? 0} draft • ${stats.exceptionsCreated ?? 0} ngoại lệ • ${stats.skippedRows ?? 0} bỏ qua`
+      );
+      await queryClient.invalidateQueries({ queryKey: ["po-sync-jobs-recent"] });
+      await queryClient.invalidateQueries({ queryKey: ["po-sync-schedule-foundation"] });
+      await queryClient.invalidateQueries({ queryKey: ["revenue-drafts"] });
+      await queryClient.invalidateQueries({ queryKey: ["sales-po-documents"] });
+      await queryClient.invalidateQueries({ queryKey: ["finance-po-inbox-evidence"] });
+      toast({
+        title: isVi ? "Đã chạy automation" : "Automation run completed",
+        description: isVi
+          ? `${stats.draftsCreated ?? 0} draft • ${stats.exceptionsCreated ?? 0} ngoại lệ • ${stats.skippedRows ?? 0} bỏ qua`
+          : `${stats.draftsCreated ?? 0} drafts • ${stats.exceptionsCreated ?? 0} exceptions • ${stats.skippedRows ?? 0} skipped`,
+      });
+    } catch (err) {
+      toast({ title: isVi ? "Lỗi chạy automation" : "Automation run failed", description: getReadableError(err), variant: "destructive" });
+    } finally {
+      setAutomationRunning(false);
     }
   };
 
@@ -850,8 +931,8 @@ export default function FinanceRevenueControl() {
                 <CardTitle>{isVi ? "Cấu hình sync tự động" : "Automation sync configuration"}</CardTitle>
                 <CardDescription>
                   {isVi
-                    ? "Phase 5A chỉ lưu foundation cấu hình + monitoring. Chưa nối cron thật trong slice này."
-                    : "Phase 5A stores configuration and monitoring only. Actual cron execution is intentionally deferred."}
+                    ? "Phase 5B slice 1: lưu config, chạy thử pipeline ngay trong app, và theo dõi recent jobs trước khi bật cron thật."
+                    : "Phase 5B slice 1: save config, run the sync pipeline on demand from the app, and monitor recent jobs before enabling real cron execution."}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -916,12 +997,25 @@ export default function FinanceRevenueControl() {
                     <div className="font-medium">{isVi ? "Snapshot hiện tại" : "Current snapshot"}</div>
                     <div className="text-muted-foreground">{automationSchedule?.updated_at ? `${isVi ? "Lưu lần cuối" : "Last saved"}: ${dateTime(automationSchedule.updated_at)}` : (isVi ? "Chưa có cấu hình nào được lưu." : "No saved schedule yet.")}</div>
                   </div>
-                  <Button onClick={saveAutomationSchedule} disabled={scheduleSaving || scheduleLoading}>
-                    {scheduleSaving
-                      ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{isVi ? "Đang lưu..." : "Saving..."}</>
-                      : isVi ? "Lưu foundation" : "Save foundation"}
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" onClick={runAutomationNow} disabled={!canRunAutomation || automationRunning || scheduleSaving || scheduleLoading}>
+                      {automationRunning
+                        ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{isVi ? "Đang chạy..." : "Running..."}</>
+                        : <><RefreshCw className="mr-2 h-4 w-4" />{isVi ? "Chạy ngay" : "Run now"}</>}
+                    </Button>
+                    <Button onClick={saveAutomationSchedule} disabled={scheduleSaving || scheduleLoading || automationRunning}>
+                      {scheduleSaving
+                        ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{isVi ? "Đang lưu..." : "Saving..."}</>
+                        : isVi ? "Lưu foundation" : "Save foundation"}
+                    </Button>
+                  </div>
                 </div>
+
+                {automationRunMessage && (
+                  <div className="rounded-md border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800 dark:border-green-900/40 dark:bg-green-950/30 dark:text-green-200">
+                    {automationRunMessage}
+                  </div>
+                )}
               </CardContent>
             </Card>
 

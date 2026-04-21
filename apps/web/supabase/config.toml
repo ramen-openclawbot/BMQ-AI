@@ -121,3 +121,8 @@ verify_jwt = false
 [functions.migration-storage-archive]
 verify_jwt = false
 
+[functions.po-sync-scheduler-run]
+# verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
+# Auth is enforced inside the function via requireAuth().
+verify_jwt = false
+
