@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, RefreshCw, CheckCircle, XCircle, AlertTriangle, Eye, TrendingUp, CircleAlert, Factory } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, XAxis, YAxis } from "recharts";
@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -23,6 +24,13 @@ const vnd = (v: number) =>
   new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(v || 0);
 
 const dateOnly = (v?: string | null) => String(v || "").slice(0, 10);
+
+const dateTime = (v?: string | null) => {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return String(v);
+  return d.toLocaleString("vi-VN");
+};
 
 const todayLocal = () => {
   const d = new Date();
@@ -91,6 +99,40 @@ interface SyncResult {
   skipped: number;
 }
 
+type ScheduleScopeMode = "all_root_customers" | "single_customer" | "tier1_only";
+
+interface ScheduleRow {
+  id: string;
+  config_key?: string;
+  customer_id: string | null;
+  is_enabled: boolean;
+  scope_mode: ScheduleScopeMode;
+  schedule_mode: "daily";
+  run_hour_local: string;
+  timezone: string;
+  lookback_days: number;
+  notes: string | null;
+  last_job_id: string | null;
+  last_run_at: string | null;
+  created_at: string;
+  updated_at: string;
+  mini_crm_customers?: { customer_name?: string | null } | null;
+}
+
+interface SyncJobRow {
+  id: string;
+  customer_id: string | null;
+  status: "pending" | "running" | "done" | "failed";
+  date_from: string;
+  date_to: string;
+  inbox_rows_found: number;
+  inbox_rows_processed: number;
+  error_message: string | null;
+  created_at: string;
+  completed_at: string | null;
+  mini_crm_customers?: { customer_name?: string | null } | null;
+}
+
 // ── component ──────────────────────────────────────────────────────────────────
 
 export default function FinanceRevenueControl() {
@@ -106,6 +148,14 @@ export default function FinanceRevenueControl() {
   const [syncDateTo, setSyncDateTo] = useState<string>(todayLocal());
   const [syncRunning, setSyncRunning] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduleScopeMode, setScheduleScopeMode] = useState<ScheduleScopeMode>("tier1_only");
+  const [scheduleCustomerId, setScheduleCustomerId] = useState<string>("all");
+  const [scheduleHourLocal, setScheduleHourLocal] = useState<string>("06:00");
+  const [scheduleTimezone, setScheduleTimezone] = useState<string>("Asia/Ho_Chi_Minh");
+  const [scheduleLookbackDays, setScheduleLookbackDays] = useState<string>("1");
+  const [scheduleNotes, setScheduleNotes] = useState<string>("");
+  const [scheduleSaving, setScheduleSaving] = useState(false);
 
   // draft queue state
   const [draftStatusFilter, setDraftStatusFilter] = useState<string>("pending");
@@ -202,6 +252,43 @@ export default function FinanceRevenueControl() {
     },
   });
 
+  const { data: automationSchedule, isLoading: scheduleLoading } = useQuery<ScheduleRow | null>({
+    queryKey: ["po-sync-schedule-foundation"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("po_sync_schedules")
+        .select("*, mini_crm_customers(customer_name)")
+        .eq("config_key", "default")
+        .maybeSingle();
+      if (error) throw error;
+      return (data || null) as ScheduleRow | null;
+    },
+  });
+
+  const { data: recentSyncJobs = [] } = useQuery<SyncJobRow[]>({
+    queryKey: ["po-sync-jobs-recent"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("po_sync_jobs")
+        .select("*, mini_crm_customers(customer_name)")
+        .order("created_at", { ascending: false })
+        .limit(12);
+      if (error) throw error;
+      return (data || []) as SyncJobRow[];
+    },
+  });
+
+  useEffect(() => {
+    if (!automationSchedule) return;
+    setScheduleEnabled(Boolean(automationSchedule.is_enabled));
+    setScheduleScopeMode((automationSchedule.scope_mode || "tier1_only") as ScheduleScopeMode);
+    setScheduleCustomerId(automationSchedule.customer_id || "all");
+    setScheduleHourLocal(automationSchedule.run_hour_local || "06:00");
+    setScheduleTimezone(automationSchedule.timezone || "Asia/Ho_Chi_Minh");
+    setScheduleLookbackDays(String(automationSchedule.lookback_days || 1));
+    setScheduleNotes(automationSchedule.notes || "");
+  }, [automationSchedule]);
+
   // ── derived ────────────────────────────────────────────────────────────────
 
   const draftStats = useMemo(() => {
@@ -265,6 +352,32 @@ export default function FinanceRevenueControl() {
       .map((row) => ({ ...row, pct: grandTotal > 0 ? (row.total / grandTotal) * 100 : 0 }))
       .sort((a, b) => b.total - a.total);
   }, [approvedDrafts]);
+
+  const automationScopeSummary = useMemo(() => {
+    if (scheduleScopeMode === "all_root_customers") {
+      return isVi ? "Tất cả NPP / khách hàng gốc" : "All root customers / distributors";
+    }
+    if (scheduleScopeMode === "single_customer") {
+      const customer = customers.find((c) => c.id === scheduleCustomerId);
+      return customer?.customer_name || (isVi ? "Chưa chọn khách hàng" : "No customer selected");
+    }
+    return isVi ? "Chỉ nhóm Tier-1" : "Tier-1 only";
+  }, [customers, isVi, scheduleCustomerId, scheduleScopeMode]);
+
+  const latestSyncJob = recentSyncJobs[0] || null;
+
+  const automationStats = useMemo(() => {
+    const doneJobs = recentSyncJobs.filter((job) => job.status === "done");
+    const runningJobs = recentSyncJobs.filter((job) => job.status === "running").length;
+    const failedJobs = recentSyncJobs.filter((job) => job.status === "failed").length;
+    const processedRows = recentSyncJobs.reduce((sum, job) => sum + Number(job.inbox_rows_processed || 0), 0);
+    return {
+      doneJobs: doneJobs.length,
+      runningJobs,
+      failedJobs,
+      processedRows,
+    };
+  }, [recentSyncJobs]);
 
   const productionByDraftId = useMemo(
     () => new Map(linkedProductionOrders.map((po: any) => [po.revenue_draft_id as string, po])),
@@ -458,6 +571,56 @@ export default function FinanceRevenueControl() {
     queryClient.invalidateQueries({ queryKey: ["mini-crm-customers-tier"] });
   };
 
+  const saveAutomationSchedule = async () => {
+    if (scheduleScopeMode === "single_customer" && scheduleCustomerId === "all") {
+      toast({ title: isVi ? "Thiếu khách hàng" : "Missing customer", description: isVi ? "Vui lòng chọn một NPP / khách hàng gốc cụ thể." : "Please choose a specific root customer / distributor.", variant: "destructive" });
+      return;
+    }
+
+    const parsedLookback = Number(scheduleLookbackDays || 1);
+    if (!Number.isFinite(parsedLookback)) {
+      toast({ title: isVi ? "Lookback không hợp lệ" : "Invalid lookback", description: isVi ? "Vui lòng nhập số ngày hợp lệ từ 1 đến 30." : "Please enter a valid lookback day count between 1 and 30.", variant: "destructive" });
+      return;
+    }
+
+    const lookback = Math.max(1, Math.min(30, parsedLookback));
+    setScheduleSaving(true);
+    try {
+      const payload = {
+        config_key: "default",
+        customer_id: scheduleScopeMode === "single_customer" ? scheduleCustomerId : null,
+        is_enabled: scheduleEnabled,
+        scope_mode: scheduleScopeMode,
+        schedule_mode: "daily",
+        run_hour_local: scheduleHourLocal || "06:00",
+        timezone: scheduleTimezone || "Asia/Ho_Chi_Minh",
+        lookback_days: lookback,
+        notes: scheduleNotes.trim() || null,
+        updated_by: user?.id || "manual",
+        created_by: automationSchedule ? undefined : (user?.id || "manual"),
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error } = await (supabase as any)
+        .from("po_sync_schedules")
+        .upsert(payload, { onConflict: "config_key" });
+      if (error) throw error;
+
+      await queryClient.invalidateQueries({ queryKey: ["po-sync-schedule-foundation"] });
+      await queryClient.invalidateQueries({ queryKey: ["po-sync-jobs-recent"] });
+      toast({
+        title: isVi ? "Đã lưu cấu hình automation" : "Automation settings saved",
+        description: isVi
+          ? "Đã lưu foundation cho Phase 5A. Cron thực tế sẽ nối ở slice tiếp theo."
+          : "Phase 5A foundation saved. Actual cron execution will be wired in the next slice.",
+      });
+    } catch (err) {
+      toast({ title: isVi ? "Lỗi lưu cấu hình" : "Failed to save schedule", description: getReadableError(err), variant: "destructive" });
+    } finally {
+      setScheduleSaving(false);
+    }
+  };
+
   const runManualSync = async () => {
     if (!syncDateFrom || !syncDateTo) {
       toast({ title: "Thiếu thông tin", description: "Vui lòng chọn khoảng ngày.", variant: "destructive" });
@@ -639,14 +802,163 @@ export default function FinanceRevenueControl() {
         </p>
       </div>
 
-      <Tabs defaultValue="queue">
+      <Tabs defaultValue="automation">
         <TabsList>
+          <TabsTrigger value="automation">{isVi ? "Automation" : "Automation"}</TabsTrigger>
           <TabsTrigger value="queue">{isVi ? "Hàng đợi draft" : "Draft queue"}</TabsTrigger>
           <TabsTrigger value="exceptions">{isVi ? "Hàng đợi ngoại lệ" : "Exception queue"}</TabsTrigger>
           <TabsTrigger value="analytics">{isVi ? "Dashboard & graph" : "Dashboard & graph"}</TabsTrigger>
           <TabsTrigger value="summary">{isVi ? "Tóm tắt" : "Summary"}</TabsTrigger>
           <TabsTrigger value="tier">{isVi ? "Cài đặt Tier" : "Tier settings"}</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="automation" className="space-y-4 mt-4">
+          <div className="grid gap-3 grid-cols-2 xl:grid-cols-4">
+            <Card>
+              <CardContent className="p-4 space-y-1">
+                <div className="text-xs text-muted-foreground">{isVi ? "Automation" : "Automation"}</div>
+                <div className="text-xl font-semibold">{scheduleEnabled ? (isVi ? "Đang bật" : "Enabled") : (isVi ? "Đang tắt" : "Disabled")}</div>
+                <div className="text-xs text-muted-foreground">{automationScopeSummary}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 space-y-1">
+                <div className="text-xs text-muted-foreground">{isVi ? "Lần chạy gần nhất" : "Last run"}</div>
+                <div className="text-xl font-semibold">{automationSchedule?.last_run_at ? dateTime(automationSchedule.last_run_at) : "—"}</div>
+                <div className="text-xs text-muted-foreground">{latestSyncJob ? `${isVi ? "Job gần nhất" : "Latest job"}: ${latestSyncJob.status}` : (isVi ? "Chưa có job nào" : "No jobs yet")}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 space-y-1">
+                <div className="text-xs text-muted-foreground">{isVi ? "Recent jobs" : "Recent jobs"}</div>
+                <div className="text-xl font-semibold">{automationStats.doneJobs}</div>
+                <div className="text-xs text-muted-foreground">{automationStats.runningJobs} {isVi ? "đang chạy" : "running"} • {automationStats.failedJobs} {isVi ? "thất bại" : "failed"}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 space-y-1">
+                <div className="text-xs text-muted-foreground">{isVi ? "PO đã xử lý gần đây" : "Recently processed PO rows"}</div>
+                <div className="text-xl font-semibold">{automationStats.processedRows}</div>
+                <div className="text-xs text-muted-foreground">{isVi ? `Lookback ${scheduleLookbackDays || 1} ngày` : `${scheduleLookbackDays || 1}-day lookback`}</div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+            <Card>
+              <CardHeader>
+                <CardTitle>{isVi ? "Cấu hình sync tự động" : "Automation sync configuration"}</CardTitle>
+                <CardDescription>
+                  {isVi
+                    ? "Phase 5A chỉ lưu foundation cấu hình + monitoring. Chưa nối cron thật trong slice này."
+                    : "Phase 5A stores configuration and monitoring only. Actual cron execution is intentionally deferred."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-1">
+                    <div className="font-medium">{isVi ? "Bật automation" : "Enable automation"}</div>
+                    <div className="text-sm text-muted-foreground">{isVi ? "Cho phép hệ thống dùng cấu hình này ở slice cron tiếp theo." : "Allows the next cron slice to use this saved configuration."}</div>
+                  </div>
+                  <Switch checked={scheduleEnabled} onCheckedChange={setScheduleEnabled} />
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <Label>{isVi ? "Phạm vi chạy" : "Scope"}</Label>
+                    <select className="mt-1 w-full h-10 rounded-md border bg-background px-3 text-sm" value={scheduleScopeMode} onChange={(e) => setScheduleScopeMode(e.target.value as ScheduleScopeMode)}>
+                      <option value="tier1_only">{isVi ? "Chỉ Tier-1" : "Tier-1 only"}</option>
+                      <option value="all_root_customers">{isVi ? "Tất cả NPP / khách hàng gốc" : "All root customers / distributors"}</option>
+                      <option value="single_customer">{isVi ? "Một NPP / khách hàng gốc cụ thể" : "Single root customer / distributor"}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label>{isVi ? "Giờ chạy mỗi ngày" : "Run time"}</Label>
+                    <Input type="time" value={scheduleHourLocal} onChange={(e) => setScheduleHourLocal(e.target.value)} />
+                  </div>
+                </div>
+
+                {scheduleScopeMode === "single_customer" && (
+                  <div>
+                    <Label>{isVi ? "NPP / Khách hàng gốc" : "Root customer / distributor"}</Label>
+                    <select className="mt-1 w-full h-10 rounded-md border bg-background px-3 text-sm" value={scheduleCustomerId} onChange={(e) => setScheduleCustomerId(e.target.value)}>
+                      <option value="all">{isVi ? "Chọn một NPP / khách hàng gốc" : "Choose one root customer / distributor"}</option>
+                      {customers.map((c) => (
+                        <option key={c.id} value={c.id}>{c.customer_name}{c.is_tier1 ? " ★" : ""}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <Label>{isVi ? "Timezone" : "Timezone"}</Label>
+                    <Input value={scheduleTimezone} onChange={(e) => setScheduleTimezone(e.target.value)} placeholder="Asia/Ho_Chi_Minh" />
+                  </div>
+                  <div>
+                    <Label>{isVi ? "Lookback (ngày)" : "Lookback (days)"}</Label>
+                    <Input type="number" min={1} max={30} value={scheduleLookbackDays} onChange={(e) => setScheduleLookbackDays(e.target.value)} />
+                  </div>
+                </div>
+
+                <div>
+                  <Label>{isVi ? "Ghi chú vận hành" : "Ops notes"}</Label>
+                  <textarea
+                    className="mt-1 min-h-[96px] w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    value={scheduleNotes}
+                    onChange={(e) => setScheduleNotes(e.target.value)}
+                    placeholder={isVi ? "Ví dụ: chạy backlog sáng sớm cho nhóm Tier-1, accountant review lúc 8h." : "Example: early-morning backlog sync for Tier-1 before accounting review."}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/50 p-3 text-sm">
+                  <div>
+                    <div className="font-medium">{isVi ? "Snapshot hiện tại" : "Current snapshot"}</div>
+                    <div className="text-muted-foreground">{automationSchedule?.updated_at ? `${isVi ? "Lưu lần cuối" : "Last saved"}: ${dateTime(automationSchedule.updated_at)}` : (isVi ? "Chưa có cấu hình nào được lưu." : "No saved schedule yet.")}</div>
+                  </div>
+                  <Button onClick={saveAutomationSchedule} disabled={scheduleSaving || scheduleLoading}>
+                    {scheduleSaving
+                      ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{isVi ? "Đang lưu..." : "Saving..."}</>
+                      : isVi ? "Lưu foundation" : "Save foundation"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>{isVi ? "Recent sync jobs" : "Recent sync jobs"}</CardTitle>
+                <CardDescription>{isVi ? "Dùng po_sync_jobs hiện có để theo dõi sức khỏe pipeline trước khi nối cron thật." : "Uses existing po_sync_jobs as the monitoring surface before wiring real cron execution."}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {recentSyncJobs.length === 0 ? (
+                  <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground text-center">
+                    {isVi ? "Chưa có sync job nào để theo dõi." : "No sync jobs available yet."}
+                  </div>
+                ) : (
+                  recentSyncJobs.map((job) => (
+                    <div key={job.id} className="rounded-lg border p-3 space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-medium">{job.mini_crm_customers?.customer_name || (isVi ? "Tất cả phạm vi" : "All scope")}</div>
+                          <div className="text-xs text-muted-foreground">{dateOnly(job.date_from)} → {dateOnly(job.date_to)}</div>
+                        </div>
+                        <Badge variant={job.status === "failed" ? "destructive" : job.status === "running" ? "default" : job.status === "done" ? "secondary" : "outline"}>{job.status}</Badge>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                        <div>{isVi ? "Tìm thấy" : "Found"}: <span className="font-medium text-foreground">{job.inbox_rows_found || 0}</span></div>
+                        <div>{isVi ? "Đã xử lý" : "Processed"}: <span className="font-medium text-foreground">{job.inbox_rows_processed || 0}</span></div>
+                        <div>{isVi ? "Tạo lúc" : "Created"}: <span className="text-foreground">{dateTime(job.created_at)}</span></div>
+                        <div>{isVi ? "Hoàn tất" : "Completed"}: <span className="text-foreground">{dateTime(job.completed_at)}</span></div>
+                      </div>
+                      {job.error_message && <div className="text-xs text-red-600 break-words">{job.error_message}</div>}
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
 
         {/* ── TAB 1: Draft Queue ─────────────────────────────────────────────── */}
         <TabsContent value="queue" className="space-y-4 mt-4">
