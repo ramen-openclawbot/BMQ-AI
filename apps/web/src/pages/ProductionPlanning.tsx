@@ -80,6 +80,8 @@ interface ProductionOrder {
   notes: string | null;
   created_at: string;
   items_count?: number;
+  revenue_draft_id?: string | null;
+  sales_po_doc_id?: string | null;
 }
 
 interface ProductionOrderItem {
@@ -660,7 +662,14 @@ export default function ProductionPlanning() {
                   {productionOrders.map((order) => (
                     <TableRow key={order.id}>
                       <TableCell className="font-mono font-medium">
-                        {order.production_number}
+                        <div className="flex items-center gap-2">
+                          {order.production_number}
+                          {order.revenue_draft_id && (
+                            <Badge variant="outline" className="text-[10px] font-sans text-blue-600 border-blue-300 px-1 py-0">
+                              Duyệt DT
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="font-mono text-sm">
                         {order.po_number || "-"}

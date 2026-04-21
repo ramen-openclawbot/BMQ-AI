@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RefreshCw, CheckCircle, XCircle, AlertTriangle, Eye, TrendingUp, CircleAlert } from "lucide-react";
+import { Loader2, RefreshCw, CheckCircle, XCircle, AlertTriangle, Eye, TrendingUp, CircleAlert, Factory } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -173,6 +173,19 @@ export default function FinanceRevenueControl() {
     },
   });
 
+  const { data: linkedProductionOrders = [] } = useQuery<any[]>({
+    queryKey: ["linked-production-orders"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("production_orders")
+        .select("id, production_number, status, revenue_draft_id")
+        .not("revenue_draft_id", "is", null)
+        .limit(500);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
   const { data: postedPoRows = [] } = useQuery<any[]>({
     queryKey: ["finance-posted-po"],
     queryFn: async () => {
@@ -250,6 +263,11 @@ export default function FinanceRevenueControl() {
       .sort((a, b) => b.total - a.total);
   }, [approvedDrafts]);
 
+  const productionByDraftId = useMemo(
+    () => new Map(linkedProductionOrders.map((po: any) => [po.revenue_draft_id as string, po])),
+    [linkedProductionOrders]
+  );
+
   const salesDocById = useMemo(() => new Map(salesPoDocs.map((row: any) => [row.id, row])), [salesPoDocs]);
   const inboxById = useMemo(() => new Map(inboxEvidenceRows.map((row: any) => [row.id, row])), [inboxEvidenceRows]);
   const selectedSalesDoc = selectedDraft ? salesDocById.get(selectedDraft.sales_po_doc_id) : null;
@@ -289,15 +307,129 @@ export default function FinanceRevenueControl() {
   const approveDraft = async (draftId: string) => {
     setApprovingId(draftId);
     const now = new Date().toISOString();
-    const { error } = await (supabase as any)
+
+    // Step 1: Mark draft approved
+    const { data: approvedData, error: approveError } = await (supabase as any)
       .from("revenue_drafts")
       .update({ status: "approved", approved_by: user?.id || "manual", approved_at: now, updated_at: now })
-      .eq("id", draftId);
+      .eq("id", draftId)
+      .select("id, sales_po_doc_id, customer_id, delivery_date")
+      .single();
+
+    if (approveError) {
+      setApprovingId(null);
+      toast({ title: "Lỗi", description: getReadableError(approveError), variant: "destructive" });
+      return;
+    }
+
+    // Step 2: Generate or link production order
+    type ProdStatus = "created" | "linked" | "error" | "no_doc";
+    let prodStatus: ProdStatus = "no_doc";
+    let prodNumber = "";
+
+    try {
+      if (!approvedData?.sales_po_doc_id) throw new Error("Không có sales_po_doc_id");
+
+      // Fetch sales doc to get inbox_row_id and parsed items
+      const { data: salesDoc, error: docErr } = await (supabase as any)
+        .from("sales_po_documents")
+        .select("id, inbox_row_id, items")
+        .eq("id", approvedData.sales_po_doc_id)
+        .maybeSingle();
+
+      if (docErr || !salesDoc?.inbox_row_id) throw new Error("Không tìm thấy inbox row từ sales doc");
+
+      const inboxRowId: string = salesDoc.inbox_row_id;
+
+      // Idempotency check: production order already exists for this inbox row?
+      const { data: existing } = await (supabase as any)
+        .from("production_orders")
+        .select("id, production_number, revenue_draft_id, sales_po_doc_id")
+        .eq("source_po_inbox_id", inboxRowId)
+        .maybeSingle();
+
+      if (existing) {
+        // Backfill revenue linkage columns if missing (idempotent)
+        const patch: Record<string, string> = {};
+        if (!existing.revenue_draft_id) patch.revenue_draft_id = draftId;
+        if (!existing.sales_po_doc_id) patch.sales_po_doc_id = approvedData.sales_po_doc_id;
+        if (Object.keys(patch).length > 0) {
+          await (supabase as any).from("production_orders").update(patch).eq("id", existing.id);
+        }
+        // Link draft → production order
+        await (supabase as any)
+          .from("revenue_drafts")
+          .update({ production_order_id: existing.id })
+          .eq("id", draftId);
+        prodStatus = "linked";
+        prodNumber = existing.production_number;
+      } else {
+        // Generate sequential production number via DB function
+        const { data: genNum, error: numErr } = await (supabase as any)
+          .rpc("generate_production_number", { prefix: "SX" });
+        if (numErr) throw numErr;
+
+        const { data: newOrder, error: createErr } = await (supabase as any)
+          .from("production_orders")
+          .insert({
+            production_number: genNum,
+            source_po_inbox_id: inboxRowId,
+            customer_id: approvedData.customer_id || null,
+            status: "draft",
+            revenue_draft_id: draftId,
+            sales_po_doc_id: approvedData.sales_po_doc_id,
+            notes: null,
+          })
+          .select("id, production_number")
+          .single();
+        if (createErr) throw createErr;
+
+        // Create production order items from parsed PO items
+        const rawItems: any[] = Array.isArray(salesDoc.items) ? salesDoc.items : [];
+        if (rawItems.length > 0) {
+          const itemRows = rawItems.map((item: any) => ({
+            production_order_id: newOrder.id,
+            product_name: String(item.product_name || item.name || "Sản phẩm"),
+            ordered_qty: Number(item.qty || item.quantity || item.ordered_qty || 0),
+            planned_qty: Number(item.qty || item.quantity || item.ordered_qty || 0),
+            actual_qty: 0,
+            unit: String(item.unit || "kg"),
+            delivery_date: approvedData.delivery_date || null,
+          }));
+          await (supabase as any).from("production_order_items").insert(itemRows);
+        }
+
+        // Link draft → production order
+        await (supabase as any)
+          .from("revenue_drafts")
+          .update({ production_order_id: newOrder.id })
+          .eq("id", draftId);
+
+        prodStatus = "created";
+        prodNumber = newOrder.production_number;
+      }
+    } catch (err: any) {
+      console.error("[Phase4] production order error", err);
+      prodStatus = "error";
+    }
+
     setApprovingId(null);
-    if (error) { toast({ title: "Lỗi", description: getReadableError(error), variant: "destructive" }); return; }
     queryClient.invalidateQueries({ queryKey: ["revenue-drafts"] });
     queryClient.invalidateQueries({ queryKey: ["sales-po-documents"] });
     queryClient.invalidateQueries({ queryKey: ["finance-po-inbox-evidence"] });
+    queryClient.invalidateQueries({ queryKey: ["linked-production-orders"] });
+    queryClient.invalidateQueries({ queryKey: ["production-orders"] });
+    queryClient.invalidateQueries({ queryKey: ["pending-pos"] });
+
+    if (prodStatus === "created") {
+      toast({ title: "Đã duyệt — Tạo lệnh SX thành công", description: `Lệnh sản xuất ${prodNumber} đã được tạo tự động.` });
+    } else if (prodStatus === "linked") {
+      toast({ title: "Đã duyệt — Liên kết lệnh SX hiện có", description: `Đã liên kết với lệnh sản xuất ${prodNumber}.` });
+    } else if (prodStatus === "error") {
+      toast({ title: "Đã duyệt — Lỗi tạo lệnh SX", description: "Draft đã duyệt nhưng không tạo được lệnh sản xuất. Vui lòng tạo thủ công trên trang Sản xuất.", variant: "destructive" });
+    } else {
+      toast({ title: "Đã duyệt", description: "Không tìm thấy sales doc để tạo lệnh sản xuất." });
+    }
   };
 
   const rejectDraft = async (draftId: string) => {
@@ -683,7 +815,7 @@ export default function FinanceRevenueControl() {
                           <TableCell>
                             {d.status === "pending" ? (
                               <div className="flex gap-1">
-                                <Button size="sm" variant="outline" className="h-7 w-7 p-0 text-green-700 border-green-300 hover:bg-green-50" disabled={isActing} title={isVi ? "Duyệt" : "Approve"} onClick={() => approveDraft(d.id)}>
+                                <Button size="sm" variant="outline" className="h-7 w-7 p-0 text-green-700 border-green-300 hover:bg-green-50" disabled={isActing} title={isVi ? "Duyệt → tạo lệnh SX" : "Approve → create production order"} onClick={() => approveDraft(d.id)}>
                                   {approvingId === d.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
                                 </Button>
                                 <Button size="sm" variant="outline" className="h-7 w-7 p-0 text-red-700 border-red-300 hover:bg-red-50" disabled={isActing} title={isVi ? "Từ chối" : "Reject"} onClick={() => rejectDraft(d.id)}>
@@ -692,6 +824,18 @@ export default function FinanceRevenueControl() {
                               </div>
                             ) : d.status === "exception" ? (
                               <AlertTriangle className="h-4 w-4 text-amber-500" />
+                            ) : d.status === "approved" ? (
+                              (() => {
+                                const linked = productionByDraftId.get(d.id);
+                                if (linked) {
+                                  return (
+                                    <Badge variant="secondary" className="text-xs font-mono gap-1 whitespace-nowrap">
+                                      <Factory className="h-3 w-3" />{linked.production_number}
+                                    </Badge>
+                                  );
+                                }
+                                return <span className="text-xs text-muted-foreground">—</span>;
+                              })()
                             ) : (
                               <span className="text-xs text-muted-foreground">—</span>
                             )}
@@ -1013,8 +1157,20 @@ export default function FinanceRevenueControl() {
                   <CardContent className="space-y-2 text-sm">
                     <div><span className="text-muted-foreground">Draft ID:</span> <span className="font-mono break-all">{selectedDraft.id}</span></div>
                     <div><span className="text-muted-foreground">Sales PO Doc ID:</span> <span className="font-mono break-all">{selectedDraft.sales_po_doc_id || "—"}</span></div>
-                    <div><span className="text-muted-foreground">Sync Job ID:</span> <span className="font-mono break-all">{selectedDraft.sync_job_id || "—"}</span></div>
                     <div><span className="text-muted-foreground">Inbox Row ID:</span> <span className="font-mono break-all">{selectedSalesDoc?.inbox_row_id || "—"}</span></div>
+                    <div>
+                      <span className="text-muted-foreground">Lệnh SX:</span>{" "}
+                      {(() => {
+                        const linked = productionByDraftId.get(selectedDraft.id);
+                        if (linked) return (
+                          <Badge variant="secondary" className="text-xs font-mono gap-1">
+                            <Factory className="h-3 w-3" />{linked.production_number}
+                          </Badge>
+                        );
+                        return <span className="font-mono">—</span>;
+                      })()}
+                    </div>
+                    <div><span className="text-muted-foreground">Sync Job ID:</span> <span className="font-mono break-all">{selectedDraft.sync_job_id || "—"}</span></div>
                     <div><span className="text-muted-foreground">KB Profile:</span> <span className="font-mono break-all">{selectedSalesDoc?.kb_profile_id || "—"}</span></div>
                     <div><span className="text-muted-foreground">KB Version:</span> <span className="font-mono break-all">{selectedSalesDoc?.kb_version_id || "—"}</span></div>
                     <div><span className="text-muted-foreground">Parse source:</span> {selectedSalesDoc?.parse_source || "—"}</div>
