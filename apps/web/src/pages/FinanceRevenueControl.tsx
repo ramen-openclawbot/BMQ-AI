@@ -79,6 +79,8 @@ interface CustomerRow {
   product_group: string;
   is_tier1: boolean;
   is_active: boolean;
+  is_npp: boolean;
+  supplied_by_npp_customer_id: string | null;
 }
 
 interface SyncResult {
@@ -126,8 +128,9 @@ export default function FinanceRevenueControl() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("mini_crm_customers")
-        .select("id, customer_name, customer_group, product_group, is_tier1, is_active")
+        .select("id, customer_name, customer_group, product_group, is_tier1, is_active, is_npp, supplied_by_npp_customer_id")
         .eq("is_active", true)
+        .is("supplied_by_npp_customer_id", null)
         .order("customer_name", { ascending: true });
       if (error) throw error;
       return (data || []) as CustomerRow[];
@@ -651,23 +654,23 @@ export default function FinanceRevenueControl() {
           {/* Manual Sync Card */}
           <Card>
             <CardHeader>
-              <CardTitle>{isVi ? "Đồng bộ thủ công" : "Manual sync"}</CardTitle>
+              <CardTitle>{isVi ? "Đồng bộ doanh thu NPP" : "NPP revenue sync"}</CardTitle>
               <CardDescription>
                 {isVi
-                  ? "Tạo draft doanh thu từ PO inbox trong khoảng ngày đã chọn. Chỉ khách hàng Tier-1 (★) tạo draft — còn lại tạo bản ghi ngoại lệ."
-                  : "Generate revenue drafts from PO inbox rows. Tier-1 customers (★) create pending drafts; others create exception records."}
+                  ? "Chọn NPP hoặc khách hàng gốc để đồng bộ PO và KB đã chốt. Hệ thống tự tạo draft doanh thu cho nhóm ưu tiên (★); các khách hàng gốc còn lại sẽ vào hàng đợi duyệt thủ công."
+                  : "Choose the root customer or distributor to sync finalized PO + KB. Priority customers (★) create revenue drafts automatically; other root customers go to manual review."}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
                 <div>
-                  <Label>{isVi ? "Khách hàng" : "Customer"}</Label>
+                  <Label>{isVi ? "NPP / Khách hàng gốc" : "Root customer / distributor"}</Label>
                   <select
                     className="mt-1 w-full h-10 rounded-md border bg-background px-3 text-sm"
                     value={syncCustomerId}
                     onChange={(e) => setSyncCustomerId(e.target.value)}
                   >
-                    <option value="all">{isVi ? "Tất cả khách hàng" : "All customers"}</option>
+                    <option value="all">{isVi ? "Tất cả NPP / khách hàng gốc" : "All root customers / distributors"}</option>
                     {customers.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.customer_name}{c.is_tier1 ? " ★" : ""}
