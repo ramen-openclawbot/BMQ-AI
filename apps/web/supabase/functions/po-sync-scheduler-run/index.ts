@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
-import { requireAuth } from "../_shared/auth.ts";
+import { requireAuth, requireCronSecret } from "../_shared/auth.ts";
 
 type ScheduleScopeMode = "all_root_customers" | "single_customer" | "tier1_only";
 
@@ -77,6 +77,50 @@ const extractPoNumberFromSubject = (subject?: string | null) => {
 
 const isoDate = (date: Date) => date.toISOString().slice(0, 10);
 
+const getDatePartsInTimeZone = (date: Date, timeZone: string) => {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  const parts = formatter.formatToParts(date);
+  const map = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return {
+    date: `${map.year}-${map.month}-${map.day}`,
+    hour: Number(map.hour || 0),
+    minute: Number(map.minute || 0),
+  };
+};
+
+const isCronRunDue = (schedule: ScheduleRow, now = new Date()) => {
+  const timeZone = schedule.timezone || "Asia/Ho_Chi_Minh";
+  const scheduledHour = Number(String(schedule.run_hour_local || "00:00").slice(0, 2));
+  const current = getDatePartsInTimeZone(now, timeZone);
+  if (current.hour !== scheduledHour) {
+    return {
+      due: false,
+      reason: `Outside scheduled hour (${schedule.run_hour_local} ${timeZone})`,
+    };
+  }
+
+  if (schedule.last_run_at) {
+    const lastRun = getDatePartsInTimeZone(new Date(schedule.last_run_at), timeZone);
+    if (lastRun.date === current.date) {
+      return {
+        due: false,
+        reason: `Already ran for ${current.date} (${timeZone})`,
+      };
+    }
+  }
+
+  return { due: true };
+};
+
 const buildDateRange = (lookbackDays: number) => {
   const end = new Date();
   const start = new Date();
@@ -111,6 +155,33 @@ async function ensureAuthorized(supabaseAdmin: any, userId: string) {
 }
 
 const AUTOMATION_LOCK_KEY = "po_sync_scheduler_default";
+const CRON_TRIGGERED_BY = "vercel-cron";
+const CRON_SECRET_ENV_KEY = "PO_SYNC_CRON_SECRET";
+
+type RequestContext = {
+  triggeredBy: string;
+  ignoreDisabled: boolean;
+};
+
+async function resolveRequestContext(req: Request): Promise<RequestContext> {
+  const corsHeaders = getCorsHeaders(req);
+  const body = await req.json().catch(() => ({}));
+  const hasCronSecret = Boolean(req.headers.get("x-cron-secret"));
+
+  if (hasCronSecret) {
+    requireCronSecret(req, CRON_SECRET_ENV_KEY, corsHeaders);
+    return {
+      triggeredBy: CRON_TRIGGERED_BY,
+      ignoreDisabled: false,
+    };
+  }
+
+  const { user } = await requireAuth(req, corsHeaders);
+  return {
+    triggeredBy: user?.id || "manual",
+    ignoreDisabled: Boolean(body?.ignoreDisabled),
+  };
+}
 
 async function acquireAutomationLock(supabaseAdmin: any, triggeredBy: string) {
   const { data, error } = await supabaseAdmin
@@ -208,6 +279,16 @@ async function runScheduledSync(args: {
       skipped: true,
       reason: "Automation schedule is disabled",
     };
+  }
+
+  if (triggeredBy === CRON_TRIGGERED_BY) {
+    const dueCheck = isCronRunDue(schedule);
+    if (!dueCheck.due) {
+      return {
+        skipped: true,
+        reason: dueCheck.reason,
+      };
+    }
   }
 
   const { dateFrom, dateTo } = buildDateRange(Number(schedule.lookback_days || 1));
@@ -415,9 +496,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflightResponse(req);
 
   try {
-    const { user } = await requireAuth(req, getCorsHeaders(req));
-    const body = await req.json().catch(() => ({}));
-    const ignoreDisabled = Boolean(body?.ignoreDisabled);
+    const { triggeredBy, ignoreDisabled } = await resolveRequestContext(req);
 
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL") || "",
@@ -425,27 +504,30 @@ serve(async (req) => {
       { auth: { persistSession: false, autoRefreshToken: false } }
     );
 
-    await ensureAuthorized(supabaseAdmin, user?.id || "");
-    const lockAcquired = await acquireAutomationLock(supabaseAdmin, user?.id || "manual");
+    if (triggeredBy !== CRON_TRIGGERED_BY) {
+      await ensureAuthorized(supabaseAdmin, triggeredBy);
+    }
+
+    const lockAcquired = await acquireAutomationLock(supabaseAdmin, triggeredBy);
     if (!lockAcquired) {
       return jsonResponse(req, { error: "Automation is already running. Please wait for the current run to finish." }, 409);
     }
 
     try {
       const { data: schedule, error: scheduleErr } = await supabaseAdmin
-      .from("po_sync_schedules")
-      .select("*")
-      .eq("config_key", "default")
-      .maybeSingle();
-    if (scheduleErr) throw scheduleErr;
-    if (!schedule) {
-      return jsonResponse(req, { error: "Automation schedule not found. Save configuration first." }, 404);
-    }
+        .from("po_sync_schedules")
+        .select("*")
+        .eq("config_key", "default")
+        .maybeSingle();
+      if (scheduleErr) throw scheduleErr;
+      if (!schedule) {
+        return jsonResponse(req, { error: "Automation schedule not found. Save configuration first." }, 404);
+      }
 
       const result = await runScheduledSync({
         supabaseAdmin,
         schedule: schedule as ScheduleRow,
-        triggeredBy: user?.id || "manual",
+        triggeredBy,
         ignoreDisabled,
       });
 

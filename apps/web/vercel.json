@@ -1,4 +1,7 @@
 {
+  "crons": [
+    { "path": "/api/po-sync-cron", "schedule": "0 * * * *" }
+  ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
