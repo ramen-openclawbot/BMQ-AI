@@ -133,6 +133,23 @@ interface SyncJobRow {
   mini_crm_customers?: { customer_name?: string | null } | null;
 }
 
+interface SnapshotRow {
+  id: string;
+  sync_job_id: string;
+  customer_id: string | null;
+  triggered_by: string | null;
+  snapshot_date: string;
+  total_drafts_count: number;
+  pending_drafts_count: number;
+  approved_drafts_count: number;
+  rejected_drafts_count: number;
+  exception_drafts_count: number;
+  cumulative_total_amount: number;
+  cumulative_pending_amount: number;
+  cumulative_approved_amount: number;
+  created_at: string;
+}
+
 // ── component ──────────────────────────────────────────────────────────────────
 
 export default function FinanceRevenueControl() {
@@ -280,6 +297,19 @@ export default function FinanceRevenueControl() {
     },
   });
 
+  const { data: cumulativeSnapshots = [] } = useQuery<SnapshotRow[]>({
+    queryKey: ["po-sync-snapshots"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("po_sync_snapshots")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(12);
+      if (error) throw error;
+      return (data || []) as SnapshotRow[];
+    },
+  });
+
   useEffect(() => {
     if (!automationSchedule) return;
     setScheduleEnabled(Boolean(automationSchedule.is_enabled));
@@ -369,6 +399,7 @@ export default function FinanceRevenueControl() {
   const canRunAutomation = isOwner || canEditModule("finance_revenue") || canEditModule("sales_po_inbox");
 
   const latestSyncJob = recentSyncJobs[0] || null;
+  const latestSnapshot = cumulativeSnapshots[0] || null;
 
   const automationStats = useMemo(() => {
     const doneJobs = recentSyncJobs.filter((job) => job.status === "done");
@@ -380,8 +411,10 @@ export default function FinanceRevenueControl() {
       runningJobs,
       failedJobs,
       processedRows,
+      latestSnapshotTotal: Number(latestSnapshot?.cumulative_total_amount || 0),
+      latestSnapshotPending: Number(latestSnapshot?.cumulative_pending_amount || 0),
     };
-  }, [recentSyncJobs]);
+  }, [latestSnapshot, recentSyncJobs]);
 
   const productionByDraftId = useMemo(
     () => new Map(linkedProductionOrders.map((po: any) => [po.revenue_draft_id as string, po])),
@@ -392,6 +425,58 @@ export default function FinanceRevenueControl() {
   const inboxById = useMemo(() => new Map(inboxEvidenceRows.map((row: any) => [row.id, row])), [inboxEvidenceRows]);
   const selectedSalesDoc = selectedDraft ? salesDocById.get(selectedDraft.sales_po_doc_id) : null;
   const selectedInboxEvidence = selectedSalesDoc ? inboxById.get(selectedSalesDoc.inbox_row_id) : null;
+
+  const createSyncSnapshot = async (syncJobId: string, customerId: string | null, triggeredBy: string) => {
+    const { data: snapshotDrafts, error: snapshotErr } = await (supabase as any)
+      .from("revenue_drafts")
+      .select("status, total_amount");
+    if (snapshotErr) throw snapshotErr;
+
+    let pendingCount = 0;
+    let approvedCount = 0;
+    let rejectedCount = 0;
+    let exceptionCount = 0;
+    let totalAmount = 0;
+    let pendingAmount = 0;
+    let approvedAmount = 0;
+
+    for (const row of snapshotDrafts || []) {
+      const status = String(row.status || "");
+      const amount = Number(row.total_amount || 0);
+      totalAmount += amount;
+      if (status === "pending") {
+        pendingCount += 1;
+        pendingAmount += amount;
+      } else if (status === "approved") {
+        approvedCount += 1;
+        approvedAmount += amount;
+      } else if (status === "rejected") {
+        rejectedCount += 1;
+      } else if (status === "exception") {
+        exceptionCount += 1;
+      }
+    }
+
+    const { error } = await (supabase as any)
+      .from("po_sync_snapshots")
+      .upsert({
+        sync_job_id: syncJobId,
+        customer_id: customerId,
+        triggered_by: triggeredBy,
+        snapshot_kind: "post_sync",
+        snapshot_date: todayLocal(),
+        total_drafts_count: (snapshotDrafts || []).length,
+        pending_drafts_count: pendingCount,
+        approved_drafts_count: approvedCount,
+        rejected_drafts_count: rejectedCount,
+        exception_drafts_count: exceptionCount,
+        cumulative_total_amount: totalAmount,
+        cumulative_pending_amount: pendingAmount,
+        cumulative_approved_amount: approvedAmount,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "sync_job_id" });
+    if (error) throw error;
+  };
 
   // legacy summary derived
   const postedRows = useMemo(
@@ -685,6 +770,7 @@ export default function FinanceRevenueControl() {
         `${stats.rowsFound ?? 0} PO • ${stats.draftsCreated ?? 0} draft • ${stats.exceptionsCreated ?? 0} ngoại lệ • ${stats.skippedRows ?? 0} bỏ qua`
       );
       await queryClient.invalidateQueries({ queryKey: ["po-sync-jobs-recent"] });
+      await queryClient.invalidateQueries({ queryKey: ["po-sync-snapshots"] });
       await queryClient.invalidateQueries({ queryKey: ["po-sync-schedule-foundation"] });
       await queryClient.invalidateQueries({ queryKey: ["revenue-drafts"] });
       await queryClient.invalidateQueries({ queryKey: ["sales-po-documents"] });
@@ -851,11 +937,15 @@ export default function FinanceRevenueControl() {
         })
         .eq("id", job.id);
 
+      await createSyncSnapshot(job.id, syncCustomerId === "all" ? null : syncCustomerId, user?.id || "manual");
+
       const result: SyncResult = { rowsFound: rows.length, rowsProcessed: processed, draftsCreated, exceptionsCreated, skipped };
       setSyncResult(result);
       queryClient.invalidateQueries({ queryKey: ["revenue-drafts"] });
-    queryClient.invalidateQueries({ queryKey: ["sales-po-documents"] });
-    queryClient.invalidateQueries({ queryKey: ["finance-po-inbox-evidence"] });
+      queryClient.invalidateQueries({ queryKey: ["sales-po-documents"] });
+      queryClient.invalidateQueries({ queryKey: ["finance-po-inbox-evidence"] });
+      queryClient.invalidateQueries({ queryKey: ["po-sync-jobs-recent"] });
+      queryClient.invalidateQueries({ queryKey: ["po-sync-snapshots"] });
       toast({
         title: "Đồng bộ hoàn tất",
         description: `${draftsCreated} draft Tier-1 • ${exceptionsCreated} ngoại lệ • ${skipped} đã bỏ qua`,
@@ -894,7 +984,7 @@ export default function FinanceRevenueControl() {
         </TabsList>
 
         <TabsContent value="automation" className="space-y-4 mt-4">
-          <div className="grid gap-3 grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 grid-cols-2 xl:grid-cols-6">
             <Card>
               <CardContent className="p-4 space-y-1">
                 <div className="text-xs text-muted-foreground">{isVi ? "Automation" : "Automation"}</div>
@@ -921,6 +1011,20 @@ export default function FinanceRevenueControl() {
                 <div className="text-xs text-muted-foreground">{isVi ? "PO đã xử lý gần đây" : "Recently processed PO rows"}</div>
                 <div className="text-xl font-semibold">{automationStats.processedRows}</div>
                 <div className="text-xs text-muted-foreground">{isVi ? `Lookback ${scheduleLookbackDays || 1} ngày` : `${scheduleLookbackDays || 1}-day lookback`}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 space-y-1">
+                <div className="text-xs text-muted-foreground">{isVi ? "Snapshot tích lũy" : "Cumulative snapshot"}</div>
+                <div className="text-xl font-semibold">{latestSnapshot ? vnd(automationStats.latestSnapshotTotal) : "—"}</div>
+                <div className="text-xs text-muted-foreground">{latestSnapshot ? `${isVi ? "Draft cộng dồn" : "Cumulative drafts"}: ${latestSnapshot.total_drafts_count || 0}` : (isVi ? "Chưa có snapshot" : "No snapshots yet")}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 space-y-1">
+                <div className="text-xs text-muted-foreground">{isVi ? "Pending tích lũy" : "Cumulative pending"}</div>
+                <div className="text-xl font-semibold">{latestSnapshot ? vnd(automationStats.latestSnapshotPending) : "—"}</div>
+                <div className="text-xs text-muted-foreground">{latestSnapshot ? `${latestSnapshot.pending_drafts_count || 0} ${isVi ? "draft chờ duyệt" : "pending drafts"}` : (isVi ? "Chưa có snapshot" : "No snapshots yet")}</div>
               </CardContent>
             </Card>
           </div>
@@ -1019,38 +1123,74 @@ export default function FinanceRevenueControl() {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>{isVi ? "Recent sync jobs" : "Recent sync jobs"}</CardTitle>
-                <CardDescription>{isVi ? "Dùng po_sync_jobs hiện có để theo dõi sức khỏe pipeline trước khi nối cron thật." : "Uses existing po_sync_jobs as the monitoring surface before wiring real cron execution."}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {recentSyncJobs.length === 0 ? (
-                  <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground text-center">
-                    {isVi ? "Chưa có sync job nào để theo dõi." : "No sync jobs available yet."}
-                  </div>
-                ) : (
-                  recentSyncJobs.map((job) => (
-                    <div key={job.id} className="rounded-lg border p-3 space-y-2">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="font-medium">{job.mini_crm_customers?.customer_name || (isVi ? "Tất cả phạm vi" : "All scope")}</div>
-                          <div className="text-xs text-muted-foreground">{dateOnly(job.date_from)} → {dateOnly(job.date_to)}</div>
-                        </div>
-                        <Badge variant={job.status === "failed" ? "destructive" : job.status === "running" ? "default" : job.status === "done" ? "secondary" : "outline"}>{job.status}</Badge>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                        <div>{isVi ? "Tìm thấy" : "Found"}: <span className="font-medium text-foreground">{job.inbox_rows_found || 0}</span></div>
-                        <div>{isVi ? "Đã xử lý" : "Processed"}: <span className="font-medium text-foreground">{job.inbox_rows_processed || 0}</span></div>
-                        <div>{isVi ? "Tạo lúc" : "Created"}: <span className="text-foreground">{dateTime(job.created_at)}</span></div>
-                        <div>{isVi ? "Hoàn tất" : "Completed"}: <span className="text-foreground">{dateTime(job.completed_at)}</span></div>
-                      </div>
-                      {job.error_message && <div className="text-xs text-red-600 break-words">{job.error_message}</div>}
+            <div className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>{isVi ? "Recent sync jobs" : "Recent sync jobs"}</CardTitle>
+                  <CardDescription>{isVi ? "Dùng po_sync_jobs hiện có để theo dõi sức khỏe pipeline trước khi nối cron thật." : "Uses existing po_sync_jobs as the monitoring surface before wiring real cron execution."}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {recentSyncJobs.length === 0 ? (
+                    <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground text-center">
+                      {isVi ? "Chưa có sync job nào để theo dõi." : "No sync jobs available yet."}
                     </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
+                  ) : (
+                    recentSyncJobs.map((job) => (
+                      <div key={job.id} className="rounded-lg border p-3 space-y-2">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="font-medium">{job.mini_crm_customers?.customer_name || (isVi ? "Tất cả phạm vi" : "All scope")}</div>
+                            <div className="text-xs text-muted-foreground">{dateOnly(job.date_from)} → {dateOnly(job.date_to)}</div>
+                          </div>
+                          <Badge variant={job.status === "failed" ? "destructive" : job.status === "running" ? "default" : job.status === "done" ? "secondary" : "outline"}>{job.status}</Badge>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                          <div>{isVi ? "Tìm thấy" : "Found"}: <span className="font-medium text-foreground">{job.inbox_rows_found || 0}</span></div>
+                          <div>{isVi ? "Đã xử lý" : "Processed"}: <span className="font-medium text-foreground">{job.inbox_rows_processed || 0}</span></div>
+                          <div>{isVi ? "Tạo lúc" : "Created"}: <span className="text-foreground">{dateTime(job.created_at)}</span></div>
+                          <div>{isVi ? "Hoàn tất" : "Completed"}: <span className="text-foreground">{dateTime(job.completed_at)}</span></div>
+                        </div>
+                        {job.error_message && <div className="text-xs text-red-600 break-words">{job.error_message}</div>}
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>{isVi ? "Cumulative snapshots" : "Cumulative snapshots"}</CardTitle>
+                  <CardDescription>{isVi ? "Ảnh chụp tích lũy sau mỗi lần sync để finance đối soát nhanh backlog và pending/approved amount." : "Cumulative post-sync snapshots for quick finance reconciliation of backlog and pending/approved amounts."}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {cumulativeSnapshots.length === 0 ? (
+                    <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground text-center">
+                      {isVi ? "Chưa có snapshot tích lũy nào." : "No cumulative snapshots yet."}
+                    </div>
+                  ) : (
+                    cumulativeSnapshots.map((snapshot) => (
+                      <div key={snapshot.id} className="rounded-lg border p-3 space-y-2">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="font-medium">{dateTime(snapshot.created_at)}</div>
+                            <div className="text-xs text-muted-foreground">{isVi ? "Nguồn" : "Triggered by"}: {snapshot.triggered_by || "—"}</div>
+                          </div>
+                          <Badge variant="outline">{vnd(Number(snapshot.cumulative_total_amount || 0))}</Badge>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                          <div>{isVi ? "Tổng draft" : "Total drafts"}: <span className="font-medium text-foreground">{snapshot.total_drafts_count || 0}</span></div>
+                          <div>{isVi ? "Pending" : "Pending"}: <span className="font-medium text-foreground">{snapshot.pending_drafts_count || 0}</span></div>
+                          <div>{isVi ? "Approved" : "Approved"}: <span className="font-medium text-foreground">{snapshot.approved_drafts_count || 0}</span></div>
+                          <div>{isVi ? "Exception" : "Exception"}: <span className="font-medium text-foreground">{snapshot.exception_drafts_count || 0}</span></div>
+                          <div>{isVi ? "Pending amount" : "Pending amount"}: <span className="text-foreground">{vnd(Number(snapshot.cumulative_pending_amount || 0))}</span></div>
+                          <div>{isVi ? "Approved amount" : "Approved amount"}: <span className="text-foreground">{vnd(Number(snapshot.cumulative_approved_amount || 0))}</span></div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </TabsContent>
 

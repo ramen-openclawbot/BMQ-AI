@@ -266,6 +266,66 @@ async function fetchInboxRows(supabaseAdmin: any, dateFrom: string, dateTo: stri
   return rows;
 }
 
+async function createSyncSnapshot(args: {
+  supabaseAdmin: any;
+  syncJobId: string;
+  triggeredBy: string;
+  customerId: string | null;
+}) {
+  const { supabaseAdmin, syncJobId, triggeredBy, customerId } = args;
+  const { data: draftRows, error: draftErr } = await supabaseAdmin
+    .from("revenue_drafts")
+    .select("status, total_amount");
+  if (draftErr) throw draftErr;
+
+  const totals = {
+    total: 0,
+    pendingCount: 0,
+    approvedCount: 0,
+    rejectedCount: 0,
+    exceptionCount: 0,
+    pendingAmount: 0,
+    approvedAmount: 0,
+  };
+
+  for (const row of draftRows || []) {
+    const status = String(row.status || "");
+    const amount = Number(row.total_amount || 0);
+    totals.total += amount;
+    if (status === "pending") {
+      totals.pendingCount += 1;
+      totals.pendingAmount += amount;
+    } else if (status === "approved") {
+      totals.approvedCount += 1;
+      totals.approvedAmount += amount;
+    } else if (status === "rejected") {
+      totals.rejectedCount += 1;
+    } else if (status === "exception") {
+      totals.exceptionCount += 1;
+    }
+  }
+
+  const { error: snapshotErr } = await supabaseAdmin
+    .from("po_sync_snapshots")
+    .upsert({
+      sync_job_id: syncJobId,
+      customer_id: customerId,
+      triggered_by: triggeredBy,
+      snapshot_kind: "post_sync",
+      snapshot_date: new Date().toISOString().slice(0, 10),
+      total_drafts_count: (draftRows || []).length,
+      pending_drafts_count: totals.pendingCount,
+      approved_drafts_count: totals.approvedCount,
+      rejected_drafts_count: totals.rejectedCount,
+      exception_drafts_count: totals.exceptionCount,
+      cumulative_total_amount: totals.total,
+      cumulative_pending_amount: totals.pendingAmount,
+      cumulative_approved_amount: totals.approvedAmount,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "sync_job_id" });
+  if (snapshotErr) throw snapshotErr;
+}
+
 async function runScheduledSync(args: {
   supabaseAdmin: any;
   schedule: ScheduleRow;
@@ -452,6 +512,13 @@ async function runScheduledSync(args: {
       inbox_rows_processed: processed,
       error_message: errorMessage,
       completed_at: new Date().toISOString(),
+    });
+
+    await createSyncSnapshot({
+      supabaseAdmin,
+      syncJobId: job.id,
+      triggeredBy,
+      customerId: schedule.scope_mode === "single_customer" ? schedule.customer_id : null,
     });
 
     await finishSchedule({
