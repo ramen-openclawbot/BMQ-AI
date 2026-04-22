@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RefreshCw, CheckCircle, XCircle, AlertTriangle, Eye, TrendingUp, CircleAlert, Factory } from "lucide-react";
+import { Loader2, RefreshCw, CheckCircle, XCircle, AlertTriangle, Eye, TrendingUp, CircleAlert, Factory, Plus, Trash2, Pencil, Copy, Save } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -66,6 +66,7 @@ const getReadableError = (e: any): string => {
 };
 
 const DRAFT_STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+  draft:     { label: "Lưu nháp", variant: "outline" },
   pending:   { label: "Chờ duyệt", variant: "default" },
   approved:  { label: "Đã duyệt",  variant: "secondary" },
   rejected:  { label: "Từ chối",   variant: "destructive" },
@@ -150,6 +151,34 @@ interface SnapshotRow {
   created_at: string;
 }
 
+interface ProductSkuRow {
+  id: string;
+  sku_code: string;
+  product_name: string;
+  unit: string | null;
+  unit_price: number | null;
+}
+
+interface ManualLineItem {
+  row_id: string;
+  sku_id: string;
+  sku_code: string;
+  product_name: string;
+  quantity: string;
+  unit_price: string;
+  unit: string;
+}
+
+const createEmptyManualLineItem = (): ManualLineItem => ({
+  row_id: crypto.randomUUID(),
+  sku_id: "",
+  sku_code: "",
+  product_name: "",
+  quantity: "1",
+  unit_price: "",
+  unit: "cái",
+});
+
 // ── component ──────────────────────────────────────────────────────────────────
 
 export default function FinanceRevenueControl() {
@@ -183,6 +212,17 @@ export default function FinanceRevenueControl() {
   const [selectedDraft, setSelectedDraft] = useState<any | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [revenueEntryMode, setRevenueEntryMode] = useState<"auto" | "manual">("auto");
+  const [manualTab, setManualTab] = useState<"entry" | "saved">("entry");
+  const [manualEditingDraftId, setManualEditingDraftId] = useState<string | null>(null);
+  const [manualCustomerId, setManualCustomerId] = useState<string>("all");
+  const [manualPoNumber, setManualPoNumber] = useState<string>("");
+  const [manualOrderDate, setManualOrderDate] = useState<string>(todayLocal());
+  const [manualDeliveryDate, setManualDeliveryDate] = useState<string>(todayLocal());
+  const [manualNotes, setManualNotes] = useState<string>("");
+  const [manualLineItems, setManualLineItems] = useState<ManualLineItem[]>([createEmptyManualLineItem()]);
+  const [manualSaving, setManualSaving] = useState(false);
+  const [manualConfirmOpen, setManualConfirmOpen] = useState(false);
 
   // legacy summary state
   const [filterMode, setFilterMode] = useState<"range" | "month">("range");
@@ -203,6 +243,20 @@ export default function FinanceRevenueControl() {
         .order("customer_name", { ascending: true });
       if (error) throw error;
       return (data || []) as CustomerRow[];
+    },
+  });
+
+  const { data: productSkus = [] } = useQuery<ProductSkuRow[]>({
+    queryKey: ["finance-manual-product-skus"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("product_skus")
+        .select("id, sku_code, product_name, unit, unit_price")
+        .eq("sku_type", "finished_good")
+        .order("product_name", { ascending: true })
+        .limit(500);
+      if (error) throw error;
+      return (data || []) as ProductSkuRow[];
     },
   });
 
@@ -338,6 +392,7 @@ export default function FinanceRevenueControl() {
 
   const filteredDrafts = useMemo(
     () => revenueDrafts.filter((d: any) => {
+      if (d.status === "draft") return false;
       if (draftStatusFilter !== "all" && d.status !== draftStatusFilter) return false;
       if (draftCustomerFilter !== "all" && d.customer_id !== draftCustomerFilter) return false;
       return true;
@@ -425,6 +480,106 @@ export default function FinanceRevenueControl() {
   const inboxById = useMemo(() => new Map(inboxEvidenceRows.map((row: any) => [row.id, row])), [inboxEvidenceRows]);
   const selectedSalesDoc = selectedDraft ? salesDocById.get(selectedDraft.sales_po_doc_id) : null;
   const selectedInboxEvidence = selectedSalesDoc ? inboxById.get(selectedSalesDoc.inbox_row_id) : null;
+  const manualDraftRows = useMemo(
+    () => revenueDrafts.filter((draft: any) => draft.source === "manual"),
+    [revenueDrafts]
+  );
+  const activeManualCustomer = useMemo(
+    () => customers.find((customer) => customer.id === manualCustomerId) || null,
+    [customers, manualCustomerId]
+  );
+  const manualSkuHistoryById = useMemo(() => {
+    const stats = new Map<string, { totalQty: number; sampleCount: number }>();
+    for (const doc of salesPoDocs) {
+      const items = Array.isArray((doc as any)?.items) ? (doc as any).items : [];
+      for (const item of items) {
+        const skuId = String(item?.sku_id || "").trim();
+        const qty = Number(item?.qty || item?.quantity || item?.ordered_qty || 0);
+        if (!skuId || !Number.isFinite(qty) || qty <= 0) continue;
+        const current = stats.get(skuId) || { totalQty: 0, sampleCount: 0 };
+        current.totalQty += qty;
+        current.sampleCount += 1;
+        stats.set(skuId, current);
+      }
+    }
+    return stats;
+  }, [salesPoDocs]);
+  const manualLineItemPreview = useMemo(
+    () => manualLineItems.map((item) => {
+      const qty = Number(item.quantity || 0);
+      const unitPrice = Number(item.unit_price || 0);
+      const baselineSku = productSkus.find((sku) => sku.id === item.sku_id) || null;
+      const baselinePrice = Number(baselineSku?.unit_price || 0);
+      const priceDeviation = baselinePrice > 0 ? Math.abs(unitPrice - baselinePrice) / baselinePrice : 0;
+      const priceWarning = baselinePrice > 0 && unitPrice > 0 && priceDeviation >= 0.2;
+      const history = item.sku_id ? manualSkuHistoryById.get(item.sku_id) : null;
+      const avgHistoricalQty = history && history.sampleCount > 0 ? history.totalQty / history.sampleCount : 0;
+      const qtyThreshold = avgHistoricalQty > 0 ? Math.max(avgHistoricalQty * 3, 200) : 500;
+      const qtyWarning = qty > 0 && qty >= qtyThreshold;
+      return {
+        ...item,
+        quantity_number: qty,
+        unit_price_number: unitPrice,
+        baseline_price: baselinePrice,
+        price_warning: priceWarning,
+        price_warning_pct: Math.round(priceDeviation * 100),
+        historical_avg_qty: avgHistoricalQty,
+        qty_warning: qtyWarning,
+        qty_warning_threshold: qtyThreshold,
+        line_total: qty * unitPrice,
+      };
+    }),
+    [manualLineItems, manualSkuHistoryById, productSkus]
+  );
+  const manualComputedItems = useMemo(
+    () => manualLineItemPreview.filter((item) => item.sku_id && item.quantity_number > 0 && item.unit_price_number >= 0),
+    [manualLineItemPreview]
+  );
+  const manualSubtotal = useMemo(
+    () => manualComputedItems.reduce((sum, item) => sum + item.line_total, 0),
+    [manualComputedItems]
+  );
+  const manualDuplicateDrafts = useMemo(
+    () => manualDraftRows.filter((draft: any) => {
+      if (!manualCustomerId || manualCustomerId === "all") return false;
+      if (!manualOrderDate) return false;
+      if (manualEditingDraftId && draft.id === manualEditingDraftId) return false;
+      return draft.customer_id === manualCustomerId && dateOnly(draft.po_order_date) === manualOrderDate;
+    }),
+    [manualCustomerId, manualDraftRows, manualEditingDraftId, manualOrderDate]
+  );
+  const manualHasUnsavedChanges = useMemo(() => {
+    const hasBaseFields = Boolean(
+      manualEditingDraftId ||
+      manualCustomerId !== "all" ||
+      manualPoNumber.trim() ||
+      manualNotes.trim() ||
+      manualOrderDate !== todayLocal() ||
+      manualDeliveryDate !== todayLocal()
+    );
+    const hasLineContent = manualLineItems.some((item) =>
+      item.sku_id || item.product_name || Number(item.quantity || 0) > 1 || Number(item.unit_price || 0) > 0 || item.unit !== "cái"
+    );
+    return hasBaseFields || hasLineContent;
+  }, [manualCustomerId, manualDeliveryDate, manualEditingDraftId, manualLineItems, manualNotes, manualOrderDate, manualPoNumber]);
+  const manualPriceWarnings = useMemo(
+    () => manualLineItemPreview.filter((item) => item.price_warning),
+    [manualLineItemPreview]
+  );
+  const manualQtyWarnings = useMemo(
+    () => manualLineItemPreview.filter((item) => item.qty_warning),
+    [manualLineItemPreview]
+  );
+
+  useEffect(() => {
+    if (!manualHasUnsavedChanges) return;
+    const beforeUnloadHandler = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", beforeUnloadHandler);
+    return () => window.removeEventListener("beforeunload", beforeUnloadHandler);
+  }, [manualHasUnsavedChanges]);
 
   const createSyncSnapshot = async (syncJobId: string, customerId: string | null, triggeredBy: string) => {
     const { data: snapshotDrafts, error: snapshotErr } = await (supabase as any)
@@ -958,6 +1113,197 @@ export default function FinanceRevenueControl() {
     }
   };
 
+  const resetManualForm = () => {
+    setManualEditingDraftId(null);
+    setManualConfirmOpen(false);
+    setManualCustomerId("all");
+    setManualPoNumber("");
+    setManualOrderDate(todayLocal());
+    setManualDeliveryDate(todayLocal());
+    setManualNotes("");
+    setManualLineItems([createEmptyManualLineItem()]);
+  };
+
+  const upsertManualLineItem = (rowId: string, field: keyof ManualLineItem, value: string) => {
+    setManualLineItems((current) => current.map((item) => {
+      if (item.row_id !== rowId) return item;
+      if (field === "sku_id") {
+        const sku = productSkus.find((candidate) => candidate.id === value);
+        return {
+          ...item,
+          sku_id: value,
+          sku_code: sku?.sku_code || "",
+          product_name: sku?.product_name || "",
+          unit: sku?.unit || item.unit || "cái",
+          unit_price: sku?.unit_price != null ? String(sku.unit_price) : item.unit_price,
+        };
+      }
+      return { ...item, [field]: value };
+    }));
+  };
+
+  const beginManualDraftEdit = (draft: any, clone = false) => {
+    const salesDoc = salesDocById.get(draft.sales_po_doc_id);
+    const items = Array.isArray(salesDoc?.items) ? salesDoc.items : [];
+    setRevenueEntryMode("manual");
+    setManualTab("entry");
+    setManualConfirmOpen(false);
+    setManualEditingDraftId(clone ? null : draft.id);
+    setManualCustomerId(draft.customer_id || "all");
+    setManualPoNumber(draft.po_number || "");
+    setManualOrderDate(dateOnly(draft.po_order_date) || todayLocal());
+    setManualDeliveryDate(dateOnly(draft.delivery_date) || dateOnly(draft.po_order_date) || todayLocal());
+    setManualNotes(String(draft.notes || ""));
+    setManualLineItems(items.length > 0
+      ? items.map((item: any) => ({
+          row_id: crypto.randomUUID(),
+          sku_id: String(item.sku_id || ""),
+          sku_code: String(item.sku_code || ""),
+          product_name: String(item.product_name || item.name || ""),
+          quantity: String(item.qty || item.quantity || item.ordered_qty || 1),
+          unit_price: String(item.unit_price || 0),
+          unit: String(item.unit || "cái"),
+        }))
+      : [createEmptyManualLineItem()]);
+  };
+
+  const persistManualDraft = async (targetStatus: "draft" | "pending") => {
+    if (manualCustomerId === "all") {
+      toast({ title: "Thiếu khách hàng", description: "Vui lòng chọn khách hàng / NPP trước khi lưu đơn.", variant: "destructive" });
+      return;
+    }
+
+    if (manualComputedItems.length === 0) {
+      toast({ title: "Thiếu dòng hàng", description: "Cần ít nhất một dòng hàng hợp lệ để lưu đơn doanh thu thủ công.", variant: "destructive" });
+      return;
+    }
+
+    if (targetStatus === "pending") {
+      setManualConfirmOpen(false);
+    }
+
+    setManualSaving(true);
+    const now = new Date().toISOString();
+
+    try {
+      const baseDocPayload = {
+        customer_id: manualCustomerId,
+        sync_job_id: null,
+        parse_run_id: null,
+        po_number: manualPoNumber || null,
+        po_order_date: manualOrderDate || null,
+        delivery_date: manualDeliveryDate || null,
+        subtotal_amount: manualSubtotal,
+        vat_amount: 0,
+        total_amount: manualSubtotal,
+        revenue_channel: "manual_entry",
+        parse_source: "manual_entry",
+        items: manualComputedItems.map((item) => ({
+          sku_id: item.sku_id,
+          sku_code: item.sku_code,
+          product_name: item.product_name,
+          qty: item.quantity_number,
+          unit: item.unit,
+          unit_price: item.unit_price_number,
+          line_total: item.line_total,
+        })),
+        kb_profile_id: null,
+        kb_version_id: null,
+        status: "pending_review",
+        exception_reason: null,
+        updated_at: now,
+      };
+
+      let salesPoDocId: string | null = null;
+      const editingDraft = manualEditingDraftId ? manualDraftRows.find((draft: any) => draft.id === manualEditingDraftId) : null;
+
+      if (editingDraft?.sales_po_doc_id) {
+        salesPoDocId = editingDraft.sales_po_doc_id;
+        const { error: updateDocError } = await (supabase as any)
+          .from("sales_po_documents")
+          .update(baseDocPayload)
+          .eq("id", salesPoDocId);
+        if (updateDocError) throw updateDocError;
+      } else {
+        const { data: createdDoc, error: createDocError } = await (supabase as any)
+          .from("sales_po_documents")
+          .insert({
+            inbox_row_id: crypto.randomUUID(),
+            ...baseDocPayload,
+          })
+          .select("id")
+          .single();
+        if (createDocError) throw createDocError;
+        salesPoDocId = createdDoc.id;
+      }
+
+      const draftPayload = {
+        sales_po_doc_id: salesPoDocId,
+        customer_id: manualCustomerId,
+        sync_job_id: null,
+        po_number: manualPoNumber || null,
+        po_order_date: manualOrderDate || null,
+        delivery_date: manualDeliveryDate || null,
+        subtotal_amount: manualSubtotal,
+        vat_amount: 0,
+        total_amount: manualSubtotal,
+        revenue_channel: "manual_entry",
+        product_group: activeManualCustomer?.product_group || "banhmi",
+        status: targetStatus,
+        exception_reason: null,
+        source: "manual",
+        notes: manualNotes || null,
+        entered_by: user?.id || "manual-ui",
+        updated_at: now,
+      };
+
+      if (manualEditingDraftId) {
+        const { error: updateDraftError } = await (supabase as any)
+          .from("revenue_drafts")
+          .update(draftPayload)
+          .eq("id", manualEditingDraftId);
+        if (updateDraftError) throw updateDraftError;
+      } else {
+        const { data: createdDraft, error: createDraftError } = await (supabase as any)
+          .from("revenue_drafts")
+          .insert(draftPayload)
+          .select("id")
+          .single();
+        if (createDraftError) throw createDraftError;
+        setManualEditingDraftId(createdDraft.id);
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["revenue-drafts"] });
+      queryClient.invalidateQueries({ queryKey: ["sales-po-documents"] });
+
+      toast({
+        title: targetStatus === "draft" ? "Đã lưu nháp đơn thủ công" : "Đã gửi duyệt đơn thủ công",
+        description: targetStatus === "draft"
+          ? "Bạn có thể tiếp tục edit tại tab Đơn đã lưu."
+          : "Đơn đã vào luồng chờ duyệt doanh thu hiện có.",
+      });
+
+      resetManualForm();
+      setManualTab("saved");
+    } catch (error) {
+      toast({ title: "Không thể lưu đơn thủ công", description: getReadableError(error), variant: "destructive" });
+    } finally {
+      setManualSaving(false);
+    }
+  };
+
+  const requestManualSubmit = () => {
+    if (manualCustomerId === "all") {
+      toast({ title: "Thiếu khách hàng", description: "Vui lòng chọn khách hàng / NPP trước khi gửi duyệt.", variant: "destructive" });
+      return;
+    }
+    if (manualComputedItems.length === 0) {
+      toast({ title: "Thiếu dòng hàng", description: "Cần ít nhất một dòng hàng hợp lệ trước khi gửi duyệt.", variant: "destructive" });
+      return;
+    }
+    setManualConfirmOpen(true);
+  };
+
   // ── render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -973,9 +1319,46 @@ export default function FinanceRevenueControl() {
         </p>
       </div>
 
+      <div className="space-y-3">
+        <div className="flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1">
+            <div className="text-sm font-medium">
+              {isVi ? "Chọn luồng nhập doanh thu" : "Choose revenue entry flow"}
+            </div>
+            <div className="text-sm text-muted-foreground">
+              {revenueEntryMode === "auto"
+                ? (isVi
+                    ? "Toàn bộ sync, hàng đợi duyệt, ngoại lệ và báo cáo hiện có được gom vào luồng nhập doanh thu bán hàng tự động."
+                    : "All existing sync, review queue, exceptions, and analytics stay inside the automatic sales revenue flow.")
+                : (isVi
+                    ? "Luồng thủ công sẽ tối ưu cho thao tác nhập nhanh, chính xác và lưu đơn. Phase này mới dựng IA và placeholder để chốt UX trước khi code form nhập."
+                    : "The manual flow will optimize for quick, accurate order entry and save behavior. This phase adds IA and a placeholder before implementing the form.")}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 rounded-lg bg-muted p-1">
+            <Button
+              type="button"
+              variant={revenueEntryMode === "auto" ? "default" : "ghost"}
+              onClick={() => setRevenueEntryMode("auto")}
+              className="min-w-[220px]"
+            >
+              {isVi ? "Nhập doanh thu bán hàng tự động" : "Automatic sales revenue entry"}
+            </Button>
+            <Button
+              type="button"
+              variant={revenueEntryMode === "manual" ? "default" : "ghost"}
+              onClick={() => setRevenueEntryMode("manual")}
+              className="min-w-[220px]"
+            >
+              {isVi ? "Nhập doanh thu bán hàng thủ công" : "Manual sales revenue entry"}
+            </Button>
+          </div>
+        </div>
+
+        {revenueEntryMode === "auto" ? (
       <Tabs defaultValue="automation">
         <TabsList>
-          <TabsTrigger value="automation">{isVi ? "Automation" : "Automation"}</TabsTrigger>
+          <TabsTrigger value="automation">{isVi ? "Tự động hóa" : "Automation"}</TabsTrigger>
           <TabsTrigger value="queue">{isVi ? "Hàng đợi draft" : "Draft queue"}</TabsTrigger>
           <TabsTrigger value="exceptions">{isVi ? "Hàng đợi ngoại lệ" : "Exception queue"}</TabsTrigger>
           <TabsTrigger value="analytics">{isVi ? "Dashboard & graph" : "Dashboard & graph"}</TabsTrigger>
@@ -1685,6 +2068,329 @@ export default function FinanceRevenueControl() {
           </Card>
         </TabsContent>
       </Tabs>
+        ) : (
+          <Tabs value={manualTab} onValueChange={(value) => setManualTab(value as "entry" | "saved")} className="space-y-4">
+            <TabsList>
+              <TabsTrigger value="entry">{isVi ? "Nhập đơn" : "Order entry"}</TabsTrigger>
+              <TabsTrigger value="saved">{isVi ? "Đơn đã lưu" : "Saved orders"}</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="entry" className="space-y-4 mt-4">
+              <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div>
+                        <CardTitle>{manualEditingDraftId ? (isVi ? "Chỉnh sửa đơn thủ công" : "Edit manual order") : (isVi ? "Nhập doanh thu bán hàng thủ công" : "Manual sales revenue entry")}</CardTitle>
+                        <CardDescription>
+                          {isVi
+                            ? "Nhập nhanh theo 1 màn hình: chọn khách hàng, nhập dòng hàng, lưu nháp hoặc gửi duyệt vào cùng pipeline doanh thu."
+                            : "Single-screen manual order entry: choose customer, add line items, save draft, or submit into the same revenue approval pipeline."}
+                        </CardDescription>
+                      </div>
+                      <div className="flex gap-2 flex-wrap">
+                        {manualEditingDraftId && (
+                          <Badge variant="outline">{isVi ? "Đang edit draft thủ công" : "Editing manual draft"}</Badge>
+                        )}
+                        <Button type="button" variant="outline" onClick={resetManualForm} disabled={manualSaving}>
+                          {isVi ? "Làm mới form" : "Reset form"}
+                        </Button>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <div className="xl:col-span-2">
+                        <Label>{isVi ? "Khách hàng / NPP" : "Customer / distributor"}</Label>
+                        <select className="mt-1 w-full h-10 rounded-md border bg-background px-3 text-sm" value={manualCustomerId} onChange={(e) => setManualCustomerId(e.target.value)}>
+                          <option value="all">{isVi ? "Chọn khách hàng / NPP" : "Choose customer / distributor"}</option>
+                          {customers.map((customer) => (
+                            <option key={customer.id} value={customer.id}>{customer.customer_name}{customer.is_tier1 ? " ★" : ""}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <Label>{isVi ? "Ngày đơn" : "Order date"}</Label>
+                        <Input type="date" value={manualOrderDate} onChange={(e) => setManualOrderDate(e.target.value)} />
+                      </div>
+                      <div>
+                        <Label>{isVi ? "Ngày giao dự kiến" : "Delivery date"}</Label>
+                        <Input type="date" value={manualDeliveryDate} onChange={(e) => setManualDeliveryDate(e.target.value)} />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <Label>{isVi ? "Số PO / mã tham chiếu" : "PO / reference number"}</Label>
+                        <Input value={manualPoNumber} onChange={(e) => setManualPoNumber(e.target.value)} placeholder={isVi ? "Ví dụ: PO-NPP-0422" : "Example: PO-NPP-0422"} />
+                      </div>
+                      <div>
+                        <Label>{isVi ? "Ghi chú" : "Notes"}</Label>
+                        <Input value={manualNotes} onChange={(e) => setManualNotes(e.target.value)} placeholder={isVi ? "Ghi chú thêm cho kế toán / approver" : "Optional note for finance / approver"} />
+                      </div>
+                    </div>
+
+                    {manualDuplicateDrafts.length > 0 && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                          <div>
+                            <div className="font-medium">{isVi ? "Cảnh báo trùng ngày / khách hàng" : "Same customer/date warning"}</div>
+                            <div className="mt-1 text-xs opacity-90">
+                              {isVi
+                                ? `Đã có ${manualDuplicateDrafts.length} đơn thủ công cho khách hàng này vào ngày ${manualOrderDate}. Bạn vẫn có thể gửi duyệt sau khi xác nhận.`
+                                : `${manualDuplicateDrafts.length} manual order(s) already exist for this customer on ${manualOrderDate}. You can still proceed after confirmation.`}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="rounded-lg border">
+                      <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+                        <div>
+                          <div className="font-medium">{isVi ? "Dòng hàng doanh thu" : "Revenue line items"}</div>
+                          <div className="text-sm text-muted-foreground">{isVi ? "Chọn thành phẩm, nhập số lượng và đơn giá. Hệ thống tự tính tổng tiền từng dòng." : "Choose finished goods, enter quantity and price, and let the system calculate line totals."}</div>
+                        </div>
+                        <Button type="button" variant="outline" size="sm" onClick={() => setManualLineItems((current) => [...current, createEmptyManualLineItem()])}>
+                          <Plus className="mr-2 h-4 w-4" />{isVi ? "Thêm dòng" : "Add row"}
+                        </Button>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>{isVi ? "Sản phẩm / SKU" : "Product / SKU"}</TableHead>
+                              <TableHead>{isVi ? "Số lượng" : "Quantity"}</TableHead>
+                              <TableHead>{isVi ? "Đơn giá" : "Unit price"}</TableHead>
+                              <TableHead>{isVi ? "Đơn vị" : "Unit"}</TableHead>
+                              <TableHead className="text-right">{isVi ? "Thành tiền" : "Line total"}</TableHead>
+                              <TableHead>{isVi ? "Hành động" : "Action"}</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {manualLineItemPreview.map((item) => (
+                              <TableRow key={item.row_id}>
+                                <TableCell className="min-w-[280px]">
+                                  <select className="w-full h-10 rounded-md border bg-background px-3 text-sm" value={item.sku_id} onChange={(e) => upsertManualLineItem(item.row_id, "sku_id", e.target.value)}>
+                                    <option value="">{isVi ? "Chọn SKU thành phẩm" : "Choose finished-good SKU"}</option>
+                                    {productSkus.map((sku) => (
+                                      <option key={sku.id} value={sku.id}>{sku.sku_code} — {sku.product_name}</option>
+                                    ))}
+                                  </select>
+                                  {item.product_name && <div className="mt-1 text-xs text-muted-foreground">{item.product_name}</div>}
+                                </TableCell>
+                                <TableCell className="min-w-[120px]">
+                                  <Input type="number" min={0} step="1" value={item.quantity} onChange={(e) => upsertManualLineItem(item.row_id, "quantity", e.target.value)} />
+                                  {item.qty_warning && (
+                                    <div className="mt-1 text-[11px] text-amber-700 dark:text-amber-300">
+                                      {isVi
+                                        ? `Qty cao bất thường (ngưỡng cảnh báo ≈ ${Math.round(item.qty_warning_threshold)})`
+                                        : `Unusually high qty (warning threshold ≈ ${Math.round(item.qty_warning_threshold)})`}
+                                    </div>
+                                  )}
+                                </TableCell>
+                                <TableCell className="min-w-[140px]">
+                                  <Input type="number" min={0} step="1000" value={item.unit_price} onChange={(e) => upsertManualLineItem(item.row_id, "unit_price", e.target.value)} />
+                                  {item.price_warning && (
+                                    <div className="mt-1 text-[11px] text-amber-700 dark:text-amber-300">
+                                      {isVi
+                                        ? `Lệch ${item.price_warning_pct}% so với giá chuẩn ${vnd(item.baseline_price)}`
+                                        : `${item.price_warning_pct}% away from baseline ${vnd(item.baseline_price)}`}
+                                    </div>
+                                  )}
+                                </TableCell>
+                                <TableCell className="min-w-[120px]"><Input value={item.unit} onChange={(e) => upsertManualLineItem(item.row_id, "unit", e.target.value)} /></TableCell>
+                                <TableCell className="text-right font-medium">{vnd(item.line_total || 0)}</TableCell>
+                                <TableCell>
+                                  <Button type="button" variant="ghost" size="sm" disabled={manualLineItems.length === 1} onClick={() => setManualLineItems((current) => current.filter((line) => line.row_id !== item.row_id))}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <div className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>{isVi ? "Tóm tắt đơn" : "Order summary"}</CardTitle>
+                      <CardDescription>{isVi ? "Kiểm tra nhanh trước khi lưu nháp hoặc gửi duyệt." : "Quick review before saving draft or submitting."}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3 text-sm">
+                      <div className="flex justify-between gap-3"><span className="text-muted-foreground">{isVi ? "Khách hàng" : "Customer"}</span><span className="font-medium">{activeManualCustomer?.customer_name || "—"}</span></div>
+                      <div className="flex justify-between gap-3"><span className="text-muted-foreground">{isVi ? "Số dòng hợp lệ" : "Valid rows"}</span><span className="font-medium">{manualComputedItems.length}</span></div>
+                      <div className="flex justify-between gap-3"><span className="text-muted-foreground">{isVi ? "Tổng tiền" : "Grand total"}</span><span className="font-semibold">{vnd(manualSubtotal)}</span></div>
+                      {(manualPriceWarnings.length > 0 || manualQtyWarnings.length > 0) && (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100 space-y-1">
+                          {manualPriceWarnings.length > 0 && (
+                            <div>{isVi ? `${manualPriceWarnings.length} dòng có đơn giá lệch đáng kể so với giá chuẩn SKU.` : `${manualPriceWarnings.length} line(s) have unit prices materially away from SKU baseline.`}</div>
+                          )}
+                          {manualQtyWarnings.length > 0 && (
+                            <div>{isVi ? `${manualQtyWarnings.length} dòng có số lượng cao bất thường so với ngưỡng lịch sử/MVP.` : `${manualQtyWarnings.length} line(s) have unusually high quantity versus historical/MVP threshold.`}</div>
+                          )}
+                        </div>
+                      )}
+                      <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+                        {isVi
+                          ? "Luồng này sẽ tạo sales_po_document nội bộ + revenue_draft nguồn manual để tái dùng approval flow hiện có."
+                          : "This flow creates an internal sales_po_document plus a manual-source revenue_draft so the existing approval flow can be reused."}
+                      </div>
+                      {manualHasUnsavedChanges && (
+                        <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                          {isVi
+                            ? "Form đang có thay đổi chưa lưu. Nếu reload hoặc đóng tab, trình duyệt sẽ cảnh báo để tránh mất dữ liệu."
+                            : "This form has unsaved changes. If you reload or close the tab, the browser will warn to avoid data loss."}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>{isVi ? "Hành động" : "Actions"}</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <Button type="button" variant="outline" className="w-full" disabled={manualSaving} onClick={() => persistManualDraft("draft")}>
+                        {manualSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                        {isVi ? "Lưu nháp" : "Save draft"}
+                      </Button>
+                      <Button type="button" className="w-full" disabled={manualSaving} onClick={requestManualSubmit}>
+                        {manualSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+                        {isVi ? "Gửi duyệt" : "Submit for approval"}
+                      </Button>
+                      <div className="text-xs text-muted-foreground">
+                        {isVi
+                          ? "MVP hiện hỗ trợ lưu nháp, edit lại và đưa đơn thủ công vào cùng hàng đợi chờ duyệt doanh thu."
+                          : "This MVP supports save draft, edit later, and sending manual orders into the shared revenue approval queue."}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="saved" className="space-y-4 mt-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>{isVi ? "Đơn thủ công đã lưu" : "Saved manual orders"}</CardTitle>
+                  <CardDescription>{isVi ? "Edit draft, view chi tiết hoặc clone đơn lặp lại." : "Edit drafts, view details, or clone recurring orders."}</CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{isVi ? "Khách hàng" : "Customer"}</TableHead>
+                        <TableHead>{isVi ? "PO / tham chiếu" : "PO / reference"}</TableHead>
+                        <TableHead>{isVi ? "Ngày đơn" : "Order date"}</TableHead>
+                        <TableHead className="text-right">{isVi ? "Tổng tiền" : "Amount"}</TableHead>
+                        <TableHead>{isVi ? "Trạng thái" : "Status"}</TableHead>
+                        <TableHead>{isVi ? "Hành động" : "Actions"}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {manualDraftRows.map((draft: any) => (
+                        <TableRow key={draft.id}>
+                          <TableCell className="font-medium">{draft.mini_crm_customers?.customer_name || "—"}</TableCell>
+                          <TableCell className="font-mono text-xs">{draft.po_number || "—"}</TableCell>
+                          <TableCell>{dateOnly(draft.po_order_date) || "—"}</TableCell>
+                          <TableCell className="text-right font-medium">{vnd(Number(draft.total_amount || 0))}</TableCell>
+                          <TableCell><Badge variant={(DRAFT_STATUS_CONFIG[draft.status] ?? DRAFT_STATUS_CONFIG.pending).variant}>{(DRAFT_STATUS_CONFIG[draft.status] ?? DRAFT_STATUS_CONFIG.pending).label}</Badge></TableCell>
+                          <TableCell>
+                            <div className="flex gap-1 flex-wrap">
+                              <Button type="button" size="sm" variant="ghost" className="h-8 px-2" onClick={() => setSelectedDraft(draft)}>
+                                <Eye className="mr-1 h-3.5 w-3.5" />{isVi ? "Xem" : "View"}
+                              </Button>
+                              {draft.status === "draft" && (
+                                <Button type="button" size="sm" variant="ghost" className="h-8 px-2" onClick={() => beginManualDraftEdit(draft)}>
+                                  <Pencil className="mr-1 h-3.5 w-3.5" />{isVi ? "Sửa" : "Edit"}
+                                </Button>
+                              )}
+                              <Button type="button" size="sm" variant="ghost" className="h-8 px-2" onClick={() => beginManualDraftEdit(draft, true)}>
+                                <Copy className="mr-1 h-3.5 w-3.5" />{isVi ? "Clone" : "Clone"}
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {manualDraftRows.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                            {isVi ? "Chưa có đơn thủ công nào. Hãy tạo đơn đầu tiên ở tab Nhập đơn." : "No manual orders yet. Create the first one in the entry tab."}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+        )}
+      </div>
+
+      <Dialog open={manualConfirmOpen} onOpenChange={setManualConfirmOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{isVi ? "Xác nhận gửi duyệt đơn thủ công" : "Confirm manual order submission"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 text-sm">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-lg border p-3">
+                <div className="text-xs text-muted-foreground">{isVi ? "Khách hàng" : "Customer"}</div>
+                <div className="mt-1 font-medium">{activeManualCustomer?.customer_name || "—"}</div>
+              </div>
+              <div className="rounded-lg border p-3">
+                <div className="text-xs text-muted-foreground">{isVi ? "Ngày đơn" : "Order date"}</div>
+                <div className="mt-1 font-medium">{manualOrderDate || "—"}</div>
+              </div>
+              <div className="rounded-lg border p-3">
+                <div className="text-xs text-muted-foreground">{isVi ? "Số dòng hợp lệ" : "Valid lines"}</div>
+                <div className="mt-1 font-medium">{manualComputedItems.length}</div>
+              </div>
+              <div className="rounded-lg border p-3">
+                <div className="text-xs text-muted-foreground">{isVi ? "Tổng tiền" : "Grand total"}</div>
+                <div className="mt-1 font-semibold">{vnd(manualSubtotal)}</div>
+              </div>
+            </div>
+            {manualDuplicateDrafts.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+                <div className="font-medium">{isVi ? "Cần chú ý: khả năng đơn trùng" : "Attention: possible duplicate order"}</div>
+                <div className="mt-1 text-xs">
+                  {isVi
+                    ? `Đã có ${manualDuplicateDrafts.length} đơn cùng khách hàng và ngày đơn. Nếu vẫn đúng nghiệp vụ, bấm xác nhận để tiếp tục.`
+                    : `${manualDuplicateDrafts.length} order(s) already exist for the same customer and date. If this is expected, confirm to continue.`}
+                </div>
+              </div>
+            )}
+            {(manualPriceWarnings.length > 0 || manualQtyWarnings.length > 0) && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100 space-y-1">
+                <div className="font-medium">{isVi ? "Cần rà lại trước khi gửi duyệt" : "Please review before submitting"}</div>
+                {manualPriceWarnings.length > 0 && (
+                  <div className="text-xs">{isVi ? `${manualPriceWarnings.length} dòng có đơn giá lệch đáng kể so với giá chuẩn SKU.` : `${manualPriceWarnings.length} line(s) have unit prices materially away from SKU baseline.`}</div>
+                )}
+                {manualQtyWarnings.length > 0 && (
+                  <div className="text-xs">{isVi ? `${manualQtyWarnings.length} dòng có số lượng cao bất thường so với ngưỡng lịch sử/MVP.` : `${manualQtyWarnings.length} line(s) have unusually high quantity versus historical/MVP threshold.`}</div>
+                )}
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setManualConfirmOpen(false)} disabled={manualSaving}>
+                {isVi ? "Quay lại sửa" : "Back to edit"}
+              </Button>
+              <Button type="button" onClick={() => persistManualDraft("pending")} disabled={manualSaving}>
+                {manualSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+                {isVi ? "Xác nhận gửi duyệt" : "Confirm submit"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(selectedDraft)} onOpenChange={(open) => !open && setSelectedDraft(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
