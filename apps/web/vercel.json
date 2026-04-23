@@ -5,7 +5,7 @@
   "rewrites": [
     {
       "source": "/ocr/:path*",
-      "destination": "https://pharmaceutical-corporation-development-solved.trycloudflare.com/api/ocr/:path*"
+      "destination": "/api/ocr/:path*"
     },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
