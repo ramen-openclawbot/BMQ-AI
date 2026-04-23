@@ -6,7 +6,8 @@ export const config = {
   },
 };
 
-const TARGET_URL = 'https://pharmaceutical-corporation-development-solved.trycloudflare.com/api/ocr/bank-slip/extract-amount/';
+const TARGET_URL = process.env.PADDLE_OCR_BACKEND_URL || 'https://pharmaceutical-corporation-development-solved.trycloudflare.com/api/ocr/bank-slip/extract-amount/';
+const OCR_API_KEY = process.env.PADDLE_OCR_API_KEY || '';
 
 export default async function handler(req, res) {
   try {
@@ -14,6 +15,7 @@ export default async function handler(req, res) {
       method: req.method,
       headers: {
         'Content-Type': 'application/json',
+        ...(OCR_API_KEY ? { 'X-OCR-Api-Key': OCR_API_KEY } : {}),
       },
       body: req.method === 'GET' || req.method === 'HEAD' ? undefined : JSON.stringify(req.body || {}),
     });
