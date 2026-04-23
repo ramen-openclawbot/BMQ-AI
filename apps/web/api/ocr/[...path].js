@@ -25,8 +25,10 @@ function buildTargetUrl(pathSegments = [], query = {}) {
 }
 
 export default async function handler(req, res) {
-  const targetUrl = buildTargetUrl(req.query.path, req.query);
-  delete req.query.path;
+  const query = { ...(req.query || {}) };
+  const path = query.path;
+  delete query.path;
+  const targetUrl = buildTargetUrl(path, query);
 
   try {
     const upstream = await fetch(targetUrl, {
