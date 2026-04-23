@@ -4,8 +4,8 @@
   ],
   "rewrites": [
     {
-      "source": "/ocr/:path*",
-      "destination": "/api/ocr/:path*"
+      "source": "/ocr/bank-slip/extract-amount/",
+      "destination": "/api/ocr-bank-slip-extract-amount"
     },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
