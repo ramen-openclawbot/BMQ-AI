@@ -78,11 +78,11 @@ const parseBackendAmount = (data: any) => {
 };
 
 const callBackendGpuOcr = async (imageBase64: string, mimeType: string, slipType?: string) => {
-  const backendUrl = Deno.env.get("BACKEND_GPU_OCR_URL")?.trim();
+  const backendUrl = (Deno.env.get("BACKEND_PADDLE_OCR_URL") || Deno.env.get("BACKEND_GPU_OCR_URL") || "").trim();
   if (!backendUrl) return null;
 
-  const backendApiKey = Deno.env.get("BACKEND_GPU_OCR_API_KEY")?.trim();
-  const timeoutMs = Number(Deno.env.get("BACKEND_GPU_OCR_TIMEOUT_MS") || "45000");
+  const backendApiKey = (Deno.env.get("BACKEND_PADDLE_OCR_API_KEY") || Deno.env.get("BACKEND_GPU_OCR_API_KEY") || "").trim();
+  const timeoutMs = Number(Deno.env.get("BACKEND_PADDLE_OCR_TIMEOUT_MS") || Deno.env.get("BACKEND_GPU_OCR_TIMEOUT_MS") || "45000");
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
