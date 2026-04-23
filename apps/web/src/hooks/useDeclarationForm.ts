@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import { getFinanceOcrBackendErrorMessage, getFinanceOcrBackendWarningMessage } from "@/lib/finance-ocr.js";
 import { normalizeUploadImage, optimizeSlipImageForOcr } from "@/lib/slip-image";
 
 /**
@@ -255,12 +256,16 @@ export function useDeclarationForm(closingDate: Date | string) {
         45000
       );
 
+      const result = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err?.error || `Failed to extract ${slipType} amount`);
+        throw new Error(getFinanceOcrBackendErrorMessage(result, true));
       }
 
-      const result = await response.json();
+      const warning = getFinanceOcrBackendWarningMessage(result?.meta, true);
+      if (warning) {
+        setExtractionError(warning);
+      }
+
       return result.data as ExtractResult;
     };
 
@@ -286,7 +291,7 @@ export function useDeclarationForm(closingDate: Date | string) {
           retryMsg.toLowerCase().includes("timeout");
 
         if (stillTimeout) {
-          throw new Error(`OCR slip ${slipType.toUpperCase()} request timed out`);
+          throw new Error(getFinanceOcrBackendErrorMessage({ code: "OCR_BACKEND_TIMEOUT" }, true));
         }
 
         throw retryError;

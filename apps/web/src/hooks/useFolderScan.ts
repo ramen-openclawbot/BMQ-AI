@@ -1,6 +1,10 @@
 import { useCallback, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import {
+  getFinanceOcrBackendErrorMessage,
+  getFinanceOcrBackendWarningMessage,
+} from "@/lib/finance-ocr.js";
 import { optimizeSlipImageForOcr } from "@/lib/slip-image";
 
 // ========== Type Definitions ==========
@@ -35,7 +39,7 @@ const extractSlipAmountFromBase64 = async (
   imageBase64: string,
   mimeType: string,
   slipType: "qtm" | "unc"
-): Promise<{ amount: number; confidence?: number }> => {
+): Promise<{ amount: number; confidence?: number; warningMessage?: string | null }> => {
   const { data: { session } } = await supabase.auth.getSession();
 
   const optimized = await optimizeSlipImageForOcr(imageBase64, mimeType, false);
@@ -57,13 +61,15 @@ const extractSlipAmountFromBase64 = async (
     TIMEOUT_MS
   );
 
+  const result = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err?.error || "Failed to extract slip amount");
+    throw new Error(getFinanceOcrBackendErrorMessage(result, false));
   }
 
-  const result = await response.json();
-  return result.data as { amount: number; confidence?: number };
+  return {
+    ...(result.data as { amount: number; confidence?: number }),
+    warningMessage: getFinanceOcrBackendWarningMessage(result?.meta, false),
+  };
 };
 
 const downloadBase64File = async (
@@ -136,7 +142,8 @@ export const useFolderScan = () => {
       files: any[],
       folderUrl: string,
       session: any,
-      signal: AbortSignal
+      signal: AbortSignal,
+      warnings: string[]
     ): Promise<{ successCount: number; skippedCount: number; results: (any | null)[] }> => {
       const results: (any | null)[] = [];
       let successCount = 0;
@@ -165,6 +172,9 @@ export const useFolderScan = () => {
 
           // Extract amount from image
           const extracted = await extractSlipAmountFromBase64(base64, file.mimeType || "image/jpeg", slipType);
+          if (extracted.warningMessage && !warnings.includes(extracted.warningMessage)) {
+            warnings.push(extracted.warningMessage);
+          }
 
           // Prepare record for database
           const record = {
@@ -219,6 +229,7 @@ export const useFolderScan = () => {
       const signal = abortControllerRef.current.signal;
 
       const errors: string[] = [];
+      const warnings: string[] = [];
       let processedCount = 0;
       let successCount = 0;
       let skippedCount = 0;
@@ -293,7 +304,8 @@ export const useFolderScan = () => {
             batch,
             folderUrl,
             session,
-            signal
+            signal,
+            warnings,
           );
 
           successCount += batchSuccess;
@@ -314,13 +326,16 @@ export const useFolderScan = () => {
           }
         }
 
+        const warningSummary = warnings.length > 0
+          ? ` Warning: ${warnings.join(" | ")}`
+          : "";
         return {
           success: errors.length === 0,
           processedCount,
           successCount,
           skippedCount,
           errors,
-          summary: `Processed ${processedCount} files: ${successCount} successful, ${skippedCount} skipped`,
+          summary: `Processed ${processedCount} files: ${successCount} successful, ${skippedCount} skipped${warningSummary}`,
         };
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : "Unknown error";

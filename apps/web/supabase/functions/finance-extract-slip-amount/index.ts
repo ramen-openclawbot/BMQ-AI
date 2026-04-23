@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/auth.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
+import { classifyFinanceOcrBackendFailure } from "../../../src/lib/finance-ocr.js";
 
 const jsonResponse = (body: unknown, status = 200, corsHeaders?: Record<string, string>) =>
   new Response(JSON.stringify(body), {
@@ -228,17 +229,53 @@ serve(async (req) => {
       return jsonResponse({ error: "No image provided" }, 400, getCorsHeaders(req));
     }
 
+    let backendFailure: ReturnType<typeof classifyFinanceOcrBackendFailure> | null = null;
+
     try {
       const backendData = await callBackendGpuOcr(imageBase64, mimeType || "image/jpeg", slipType);
       if (backendData) {
-        return jsonResponse({ success: true, data: backendData }, 200, getCorsHeaders(req));
+        return jsonResponse({
+          success: true,
+          data: backendData,
+          meta: {
+            provider: backendData.provider || "paddleocr",
+            backendStatus: "ok",
+            fallbackUsed: false,
+          },
+        }, 200, getCorsHeaders(req));
       }
     } catch (backendError) {
-      console.error("[finance-extract-slip-amount] GPU OCR backend failed, fallback to OpenAI:", backendError instanceof Error ? backendError.message : backendError);
+      backendFailure = classifyFinanceOcrBackendFailure(backendError);
+      console.error(
+        "[finance-extract-slip-amount] PaddleOCR backend failed, fallback to OpenAI:",
+        backendFailure.detail,
+      );
     }
 
-    const fallbackData = await callOpenAiFallback(imageBase64, mimeType || "image/jpeg", slipType);
-    return jsonResponse({ success: true, data: fallbackData }, 200, getCorsHeaders(req));
+    try {
+      const fallbackData = await callOpenAiFallback(imageBase64, mimeType || "image/jpeg", slipType);
+      return jsonResponse({
+        success: true,
+        data: fallbackData,
+        meta: {
+          provider: fallbackData.provider || "openai-fallback",
+          backendStatus: backendFailure?.backendStatus || (fallbackData.provider ? "ok" : undefined),
+          fallbackUsed: !!backendFailure,
+          warningCode: backendFailure?.warningCode,
+          warningMessage: null,
+        },
+      }, 200, getCorsHeaders(req));
+    } catch (fallbackError) {
+      if (backendFailure) {
+        const fallbackDetail = fallbackError instanceof Error ? `${fallbackError.name}: ${fallbackError.message}` : String(fallbackError || "Unknown fallback error");
+        return jsonResponse({
+          error: backendFailure.warningMessage,
+          code: backendFailure.warningCode,
+          detail: `PaddleOCR backend failed: ${backendFailure.detail}. OpenAI fallback failed: ${fallbackDetail}`,
+        }, 503, getCorsHeaders(req));
+      }
+      throw fallbackError;
+    }
   } catch (e) {
     if (e instanceof Response) return e;
     const detail = e instanceof Error ? `${e.name}: ${e.message}` : "Unknown error";

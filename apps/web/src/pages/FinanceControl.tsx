@@ -31,6 +31,11 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Lock, Trash2, Unlock } from "lucide-react";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import {
+  getFinanceOcrBackendErrorMessage,
+  getFinanceOcrBackendWarningMessage,
+  isFinanceOcrBackendIssue,
+} from "@/lib/finance-ocr.js";
 import { normalizeUploadImage, optimizeSlipImageForOcr } from "@/lib/slip-image";
 
 const vnd = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value || 0);
@@ -430,14 +435,17 @@ export default function FinanceControl() {
         body: JSON.stringify({ imageBase64: optimized.imageBase64, mimeType: optimized.mimeType, slipType }),
       }, 45000);
 
+      const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        const msg = err?.detail || err?.error || `HTTP ${response.status}`;
-        throw new Error(`OCR lỗi (${response.status}): ${msg}`);
+        const error = new Error(getFinanceOcrBackendErrorMessage(payload, isVi));
+        Object.assign(error, { code: payload?.code, detail: payload?.detail, rawMessage: payload?.error });
+        throw error;
       }
 
-      const result = await response.json();
-      return result.data as { amount: number; confidence?: number; transfer_date?: string; reference?: string };
+      return {
+        extracted: payload.data as { amount: number; confidence?: number; transfer_date?: string; reference?: string },
+        meta: payload.meta,
+      };
     };
 
     try {
@@ -447,14 +455,13 @@ export default function FinanceControl() {
       const isTimeout = msg.includes("AbortError") || msg.toLowerCase().includes("aborted") || msg.toLowerCase().includes("timeout");
       if (!isTimeout) throw error;
 
-      // Retry once with stronger compression to reduce payload/latency.
       try {
         return await callExtract(true);
       } catch (retryError) {
         const retryMsg = retryError instanceof Error ? retryError.message : String(retryError || "");
         const stillTimeout = retryMsg.includes("AbortError") || retryMsg.toLowerCase().includes("aborted") || retryMsg.toLowerCase().includes("timeout");
         if (stillTimeout) {
-          throw new Error(`OCR slip ${slipType.toUpperCase()} quá thời gian chờ`);
+          throw new Error(getFinanceOcrBackendErrorMessage({ code: "OCR_BACKEND_TIMEOUT" }, isVi));
         }
         throw retryError;
       }
@@ -650,6 +657,7 @@ export default function FinanceControl() {
 
       const uncItems: Array<{ fileId: string; fileName: string; amount: number; confidence: number; status: "matched" | "mismatch" | "needs_review" }> = [];
       const ocrErrors: string[] = [];
+      const ocrWarnings: string[] = [];
       let progressDone = 0;
 
       // ── Parallel batch processing (3 files at a time to reduce concurrent load) ──
@@ -667,9 +675,15 @@ export default function FinanceControl() {
             batch.map(async (file) => {
               const downloaded = await downloadBase64File(file);
               if (!downloaded?.base64) throw new Error(`Không tải được file ${String(file?.name || file?.id || "")}`);
-              const extracted = await extractSlipAmountFromBase64(downloaded.base64, downloaded.mimeType || file.mimeType || "image/jpeg", slipType);
-              const amount = Number(extracted?.amount || 0);
-              const confidence = Number(extracted?.confidence || 0);
+              const result = await extractSlipAmountFromBase64(downloaded.base64, downloaded.mimeType || file.mimeType || "image/jpeg", slipType);
+              const amount = Number(result?.extracted?.amount || 0);
+              const confidence = Number(result?.extracted?.confidence || 0);
+              if (isFinanceOcrBackendIssue(result?.meta)) {
+                const backendWarning = getFinanceOcrBackendWarningMessage(result.meta, isVi);
+                if (backendWarning && !ocrWarnings.includes(backendWarning)) {
+                  ocrWarnings.push(backendWarning);
+                }
+              }
               if (!(amount > 0)) {
                 throw new Error(`OCR trả về số tiền = 0 cho file ${String(file?.name || file?.id || "")}`);
               }
@@ -854,11 +868,16 @@ export default function FinanceControl() {
         });
       }
 
+      const reconcileWarningSuffix = ocrWarnings.length
+        ? (isVi
+            ? `. Cảnh báo PaddleOCR: ${ocrWarnings[0]}`
+            : `. PaddleOCR warning: ${ocrWarnings[0]}`)
+        : "";
       toast({
         title: isVi ? "Đã đối soát trong ngày" : "Daily reconciliation completed",
         description: isVi
-          ? `Đã quét UNC (${uncTotalScannedCount} file) + QTM (${qtmTotalScannedCount} file) theo ngày ${format(selectedDate, "dd/MM/yyyy")}${ocrErrors.length ? `. OCR lỗi: ${ocrErrors.length} file` : ""}`
-          : `Scanned UNC (${uncTotalScannedCount} files) + QTM (${qtmTotalScannedCount} files) for ${format(selectedDate, "dd/MM/yyyy")}${ocrErrors.length ? `. OCR failed on ${ocrErrors.length} file(s)` : ""}`,
+          ? `Đã quét UNC (${uncTotalScannedCount} file) + QTM (${qtmTotalScannedCount} file) theo ngày ${format(selectedDate, "dd/MM/yyyy")}${ocrErrors.length ? `. OCR lỗi: ${ocrErrors.length} file` : ""}${reconcileWarningSuffix}`
+          : `Scanned UNC (${uncTotalScannedCount} files) + QTM (${qtmTotalScannedCount} files) for ${format(selectedDate, "dd/MM/yyyy")}${ocrErrors.length ? `. OCR failed on ${ocrErrors.length} file(s)` : ""}${reconcileWarningSuffix}`,
       });
 
       return {
@@ -918,16 +937,23 @@ export default function FinanceControl() {
 
       let total = 0;
       let lowConfidence = 0;
+      let qtmBackendWarning: string | null = null;
       for (const f of files) {
-        const extracted = await extractSlipAmountFromBase64(f.base64, f.mimeType || "image/jpeg", "qtm");
-        const amount = Number(extracted?.amount || 0);
-        const confidence = Number(extracted?.confidence || 0);
+        const result = await extractSlipAmountFromBase64(f.base64, f.mimeType || "image/jpeg", "qtm");
+        const amount = Number(result?.extracted?.amount || 0);
+        const confidence = Number(result?.extracted?.confidence || 0);
+        if (!qtmBackendWarning && isFinanceOcrBackendIssue(result?.meta)) {
+          qtmBackendWarning = getFinanceOcrBackendWarningMessage(result.meta, isVi);
+        }
         total += amount;
         if (confidence < uncLowConfidenceThreshold) lowConfidence += 1;
       }
 
       setQtmSpentFromFolder(total);
       setQtmLowConfidenceCount(lowConfidence);
+      if (qtmBackendWarning) {
+        setOcrDebugMessage(qtmBackendWarning);
+      }
       toast({
         title: isVi ? "Đã quét chi QTM" : "QTM scanned",
         description: `${isVi ? "Tổng chi" : "Spent"}: ${vnd(total)} • ${isVi ? "thiếu chứng từ/độ tin cậy thấp" : "low confidence"}: ${lowConfidence}`,
@@ -943,7 +969,7 @@ export default function FinanceControl() {
     const normalized = await normalizeUploadImage(file);
     const session = await getFreshSession();
 
-    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/finance-extract-slip-amount`, {
+    const response = await fetchWithTimeout(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/finance-extract-slip-amount`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -951,15 +977,20 @@ export default function FinanceControl() {
         ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
       },
       body: JSON.stringify({ imageBase64: normalized.imageBase64, mimeType: normalized.mimeType, slipType }),
-    });
+    }, 45000);
 
+    const result = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err?.detail || err?.error || `Failed extracting ${slipType} amount`);
+      const error = new Error(getFinanceOcrBackendErrorMessage(result, isVi));
+      Object.assign(error, { code: result?.code, detail: result?.detail, rawMessage: result?.error });
+      throw error;
     }
 
-    const result = await response.json();
-    return { imageBase64: normalized.imageBase64, extracted: result.data as { amount: number; confidence?: number; transfer_date?: string; reference?: string } };
+    return {
+      imageBase64: normalized.imageBase64,
+      extracted: result.data as { amount: number; confidence?: number; transfer_date?: string; reference?: string },
+      meta: result.meta,
+    };
   };
 
   const processSlipUpload = async (slipType: "qtm" | "unc", files: File[]) => {
@@ -969,7 +1000,7 @@ export default function FinanceControl() {
     setSlipUploadStatus((prev) => ({ ...prev, [slipType]: null }));
     setExtracting(true);
     try {
-      const batchResults: Array<{ imageBase64: string; extracted: any; file: File }> = [];
+      const batchResults: Array<{ imageBase64: string; extracted: any; meta?: any; file: File }> = [];
       for (const file of files) {
         const result = await extractSlipAmount(file, slipType);
         const amount = Number(result?.extracted?.amount || 0);
@@ -1008,6 +1039,13 @@ export default function FinanceControl() {
       const previews = batchResults.map((r) => `data:${r.file.type || "image/jpeg"};base64,${r.imageBase64}`);
       const batchImageBase64 = batchResults.map((r) => r.imageBase64);
       const batchExtractedList = batchResults.map((r) => r.extracted);
+      const backendWarnings = Array.from(
+        new Set(
+          batchResults
+            .map((r) => getFinanceOcrBackendWarningMessage(r.meta, isVi))
+            .filter((value): value is string => !!value),
+        ),
+      );
 
       let nextUncTotalDeclared = Number(uncTotalDeclared || 0);
       let nextCashFundTopupAmount = Number(cashFundTopupAmount || 0);
@@ -1034,7 +1072,15 @@ export default function FinanceControl() {
         setPendingUncExtractedList(nextPendingUncExtractedList);
       }
 
-      setSlipUploadStatus((prev) => ({ ...prev, [slipType]: null }));
+      const successWarning = backendWarnings[0] || null;
+      setSlipUploadStatus((prev) => ({ ...prev, [slipType]: successWarning }));
+      if (successWarning) {
+        setDeclarationSaveMessage(successWarning);
+        toast({
+          title: isVi ? "Đã scan nhưng cần kiểm tra Mac mini OCR" : "Scan completed but check Mac mini OCR",
+          description: successWarning,
+        });
+      }
 
       toast({
         title: isVi ? "Đã scan slip — tự động lưu" : "Slip scanned — auto-saving",
