@@ -3,6 +3,10 @@
     { "path": "/api/po-sync-cron", "schedule": "0 0 * * *" }
   ],
   "rewrites": [
+    {
+      "source": "/ocr/:path*",
+      "destination": "https://pharmaceutical-corporation-development-solved.trycloudflare.com/api/ocr/:path*"
+    },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
