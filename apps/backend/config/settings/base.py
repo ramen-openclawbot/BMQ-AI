@@ -35,7 +35,13 @@ INSTALLED_APPS = [
     'apps.overhead',
     'apps.costs',
     'apps.dashboard',
+    'apps.ocr',
 ]
+
+BACKEND_OCR_API_KEY = env('BACKEND_OCR_API_KEY', default='')
+PADDLEOCR_USE_GPU = env.bool('PADDLEOCR_USE_GPU', default=False)
+PADDLEOCR_LANG = env('PADDLEOCR_LANG', default='en')
+PADDLEOCR_MAX_SIDE = env.int('PADDLEOCR_MAX_SIDE', default=2200)
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import { normalizeUploadImage, optimizeSlipImageForOcr } from "@/lib/slip-image";
 
 /**
  * Extract result shape from finance-extract-slip-amount edge function.
@@ -226,70 +227,6 @@ export function useDeclarationForm(closingDate: Date | string) {
   };
 
   // ─────────────────────────────────────────────────────────────────────────
-  // File → Base64 conversion
-  // ─────────────────────────────────────────────────────────────────────────
-  const fileToBase64 = async (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = String(reader.result || "");
-        const base64 = result.split(",")[1] || "";
-        resolve(base64);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  };
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Image optimization for OCR (resize + compress)
-  // ─────────────────────────────────────────────────────────────────────────
-  const optimizeSlipImageForOcr = async (
-    imageBase64: string,
-    mimeType: string,
-    aggressive = false
-  ): Promise<{ imageBase64: string; mimeType: string }> => {
-    try {
-      if (typeof window === "undefined") return { imageBase64, mimeType };
-
-      const src = `data:${mimeType || "image/jpeg"};base64,${imageBase64}`;
-      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const el = new Image();
-        el.onload = () => resolve(el);
-        el.onerror = () => reject(new Error("Failed to load image"));
-        el.src = src;
-      });
-
-      const maxW = aggressive ? 1200 : 1600;
-      const quality = aggressive ? 0.62 : 0.78;
-      const scale = Math.min(1, maxW / Math.max(1, img.width));
-      const w = Math.max(1, Math.round(img.width * scale));
-      const h = Math.max(1, Math.round(img.height * scale));
-
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return { imageBase64, mimeType };
-
-      ctx.drawImage(img, 0, 0, w, h);
-
-      const outMime = "image/jpeg";
-      const outDataUrl = canvas.toDataURL(outMime, quality);
-      const outBase64 = outDataUrl.split(",")[1] || imageBase64;
-
-      // Only use compressed version if materially smaller
-      if (outBase64.length < imageBase64.length * (aggressive ? 0.85 : 0.95)) {
-        return { imageBase64: outBase64, mimeType: outMime };
-      }
-
-      return { imageBase64, mimeType };
-    } catch {
-      return { imageBase64, mimeType };
-    }
-  };
-
-  // ─────────────────────────────────────────────────────────────────────────
   // Extract amount from slip image via edge function
   // ─────────────────────────────────────────────────────────────────────────
   const extractSlipAmountFromBase64 = async (
@@ -376,13 +313,13 @@ export function useDeclarationForm(closingDate: Date | string) {
       }> = [];
 
       for (const file of files) {
-        const imageBase64 = await fileToBase64(file);
+        const normalized = await normalizeUploadImage(file);
         const extracted = await extractSlipAmountFromBase64(
-          imageBase64,
-          file.type || "image/jpeg",
+          normalized.imageBase64,
+          normalized.mimeType,
           slipType
         );
-        batchResults.push({ imageBase64, extracted, file });
+        batchResults.push({ imageBase64: normalized.imageBase64, extracted, file });
       }
 
       const batchSum = batchResults.reduce((sum, r) => sum + Number(r.extracted?.amount || 0), 0);

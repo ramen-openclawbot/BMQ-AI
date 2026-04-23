@@ -22,6 +22,7 @@ urlpatterns = [
     path('api/labor/', include('apps.labor.urls', namespace='labor-api')),
     path('api/overhead/', include('apps.overhead.urls', namespace='overhead-api')),
     path('api/costs/', include('apps.costs.urls', namespace='costs-api')),
+    path('api/ocr/', include('apps.ocr.urls', namespace='ocr-api')),
 
     path('dashboard/', include('apps.dashboard.urls', namespace='dashboard')),
     path('health', health),

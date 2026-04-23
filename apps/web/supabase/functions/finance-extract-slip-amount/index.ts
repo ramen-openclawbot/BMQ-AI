@@ -41,10 +41,8 @@ const parseAmountVN = (v: unknown): number | null => {
     const parts = cleaned.split(",");
     const tail = parts[parts.length - 1] || "";
     if (parts.length > 2 || (parts.length > 1 && tail.length === 3)) {
-      // 2,700,000 or 47,361,940
       normalized = cleaned.replace(/,/g, "");
     } else if (tail.length === 2) {
-      // 123,45 decimal comma
       normalized = cleaned.replace(/,/g, ".");
     } else {
       normalized = cleaned.replace(/,/g, "");
@@ -65,30 +63,60 @@ const parseAmountVN = (v: unknown): number | null => {
   return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
 };
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") return corsPreflightResponse(req);
+const parseBackendAmount = (data: any) => {
+  const rawAmount = data?.amount_raw ?? data?.amount;
+  const parsedAmount = parseAmountVN(rawAmount);
+  if (!parsedAmount) {
+    return null;
+  }
 
-  try {
-    // Require authentication (was previously open to anyone)
-    const { user } = await requireAuth(req, getCorsHeaders(req));
+  return {
+    ...data,
+    amount: parsedAmount,
+    amount_raw: rawAmount,
+  };
+};
 
-    // Rate limit: 200 calls/day per user
-    const rateLimit = await checkAndRecordRateLimit(user.id, "finance-extract-slip-amount", 200);
-    if (!rateLimit.allowed) {
-      return jsonResponse({ error: "Bạn đã vượt quá giới hạn scan hôm nay. Vui lòng thử lại vào ngày mai.", code: "RATE_LIMIT_EXCEEDED" }, 429, { ...getCorsHeaders(req), ...getRateLimitHeaders(rateLimit) });
-    }
+const callBackendGpuOcr = async (imageBase64: string, mimeType: string, slipType?: string) => {
+  const backendUrl = Deno.env.get("BACKEND_GPU_OCR_URL")?.trim();
+  if (!backendUrl) return null;
 
-    const { imageBase64, mimeType, slipType } = await req.json();
-    if (!imageBase64) {
-      return jsonResponse({ error: "No image provided" }, 400, getCorsHeaders(req));
-    }
+  const backendApiKey = Deno.env.get("BACKEND_GPU_OCR_API_KEY")?.trim();
+  const timeoutMs = Number(Deno.env.get("BACKEND_GPU_OCR_TIMEOUT_MS") || "45000");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) {
-      return jsonResponse({ error: "OPENAI_API_KEY missing" }, 503, getCorsHeaders(req));
-    }
+  const response = await fetch(backendUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(backendApiKey ? { "X-OCR-Api-Key": backendApiKey } : {}),
+    },
+    body: JSON.stringify({ imageBase64, mimeType, slipType }),
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timeout));
 
-    const system = `You extract transfer amount from Vietnamese bank slips.
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = payload?.error || payload?.detail || `HTTP ${response.status}`;
+    throw new Error(`GPU OCR backend failed: ${detail}`);
+  }
+
+  const data = parseBackendAmount(payload?.data);
+  if (!data) {
+    throw new Error("GPU OCR backend returned invalid amount");
+  }
+
+  return data;
+};
+
+const callOpenAiFallback = async (imageBase64: string, mimeType: string, slipType?: string) => {
+  const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+  if (!OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY missing");
+  }
+
+  const system = `You extract transfer amount from Vietnamese bank slips.
 Return only JSON via tool with fields:
 - amount: STRING — the exact amount as shown on the slip, preserving dots and commas. Example: "41.006.300,00" or "41.006.300". Do NOT convert to a plain number. In Vietnamese format, dots (.) are thousands separators and commas (,) are decimal separators.
 - transfer_date: string | null (YYYY-MM-DD if found)
@@ -106,86 +134,112 @@ Rules:
 - If there are multiple numbers, choose the payment amount from the debit/credit amount field, not identifiers elsewhere on the slip.
 - If uncertain, still return best guess and lower confidence with notes.`;
 
-    const userText = `Slip type: ${slipType || "unknown"}. Extract the transferred amount from this Vietnamese bank slip. Focus on the actual payment value. If the slip is a Vietcombank/VCB debit advice, prefer the number next to Debit Amount / Credit Amount and cross-check with the In Words line.`;
+  const userText = `Slip type: ${slipType || "unknown"}. Extract the transferred amount from this Vietnamese bank slip. Focus on the actual payment value. If the slip is a Vietcombank/VCB debit advice, prefer the number next to Debit Amount / Credit Amount and cross-check with the In Words line.`;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 45000);
-    const ai = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: system },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: userText },
-              { type: "image_url", image_url: { url: `data:${mimeType || "image/jpeg"};base64,${imageBase64}` } },
-            ],
-          },
-        ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "extract_slip",
-              description: "Extract amount and key metadata from bank slip",
-              parameters: {
-                type: "object",
-                properties: {
-                  amount: { type: "string", description: "Exact amount string as shown on slip, preserving dots and commas. E.g. '41.006.300,00'" },
-                  transfer_date: { type: ["string", "null"] },
-                  reference: { type: ["string", "null"] },
-                  confidence: { type: "number" },
-                  notes: { type: ["string", "null"] },
-                },
-                required: ["amount", "confidence"],
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45000);
+  const ai = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: userText },
+            { type: "image_url", image_url: { url: `data:${mimeType || "image/jpeg"};base64,${imageBase64}` } },
+          ],
+        },
+      ],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "extract_slip",
+            description: "Extract amount and key metadata from bank slip",
+            parameters: {
+              type: "object",
+              properties: {
+                amount: { type: "string", description: "Exact amount string as shown on slip, preserving dots and commas. E.g. '41.006.300,00'" },
+                transfer_date: { type: ["string", "null"] },
+                reference: { type: ["string", "null"] },
+                confidence: { type: "number" },
+                notes: { type: ["string", "null"] },
               },
+              required: ["amount", "confidence"],
             },
           },
-        ],
-        tool_choice: { type: "function", function: { name: "extract_slip" } },
-      }),
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timeout));
+        },
+      ],
+      tool_choice: { type: "function", function: { name: "extract_slip" } },
+    }),
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timeout));
 
-    if (!ai.ok) {
-      const errText = await ai.text().catch(() => "");
-      console.error("[finance-extract-slip-amount] OpenAI request failed:", errText || `HTTP ${ai.status}`);
-      return jsonResponse({ error: "OpenAI request failed", detail: errText || `HTTP ${ai.status}` }, 502, getCorsHeaders(req));
+  if (!ai.ok) {
+    const errText = await ai.text().catch(() => "");
+    throw new Error(`OpenAI request failed: ${errText || `HTTP ${ai.status}`}`);
+  }
+
+  const raw = await ai.json();
+  const args = raw?.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
+  let data: any = null;
+  try {
+    data = args ? JSON.parse(args) : null;
+  } catch {
+    data = null;
+  }
+
+  if (!data || !data.amount) {
+    throw new Error("Model did not return amount field");
+  }
+
+  const parsedAmount = parseAmountVN(data.amount);
+  if (!parsedAmount) {
+    throw new Error(`Failed to parse amount string: ${data.amount}`);
+  }
+
+  return {
+    ...data,
+    amount: parsedAmount,
+    amount_raw: data.amount,
+    provider: "openai-fallback",
+  };
+};
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return corsPreflightResponse(req);
+
+  try {
+    const { user } = await requireAuth(req, getCorsHeaders(req));
+
+    const rateLimit = await checkAndRecordRateLimit(user.id, "finance-extract-slip-amount", 200);
+    if (!rateLimit.allowed) {
+      return jsonResponse({ error: "Bạn đã vượt quá giới hạn scan hôm nay. Vui lòng thử lại vào ngày mai.", code: "RATE_LIMIT_EXCEEDED" }, 429, { ...getCorsHeaders(req), ...getRateLimitHeaders(rateLimit) });
     }
 
-    const raw = await ai.json();
-    const args = raw?.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
-    let data: any = null;
+    const { imageBase64, mimeType, slipType } = await req.json();
+    if (!imageBase64) {
+      return jsonResponse({ error: "No image provided" }, 400, getCorsHeaders(req));
+    }
+
     try {
-      data = args ? JSON.parse(args) : null;
-    } catch {
-      data = null;
+      const backendData = await callBackendGpuOcr(imageBase64, mimeType || "image/jpeg", slipType);
+      if (backendData) {
+        return jsonResponse({ success: true, data: backendData }, 200, getCorsHeaders(req));
+      }
+    } catch (backendError) {
+      console.error("[finance-extract-slip-amount] GPU OCR backend failed, fallback to OpenAI:", backendError instanceof Error ? backendError.message : backendError);
     }
 
-    if (!data || !data.amount) {
-      console.error("[finance-extract-slip-amount] Unable to extract amount", JSON.stringify(raw)?.slice(0, 2000));
-      return jsonResponse({ error: "Unable to extract amount", detail: "Model did not return amount field", raw }, 422, getCorsHeaders(req));
-    }
-
-    // Parse Vietnamese-formatted amount string → number
-    const rawAmount = data.amount;
-    const parsedAmount = parseAmountVN(rawAmount);
-    if (!parsedAmount) {
-      console.error("[finance-extract-slip-amount] Failed to parse amount string", rawAmount);
-      return jsonResponse({ error: "Failed to parse amount string", detail: `rawAmount=${rawAmount}`, rawAmount, raw }, 422, getCorsHeaders(req));
-    }
-    data.amount = parsedAmount;
-    data.amount_raw = rawAmount; // Keep original string for audit
-
-    return jsonResponse({ success: true, data }, 200, getCorsHeaders(req));
+    const fallbackData = await callOpenAiFallback(imageBase64, mimeType || "image/jpeg", slipType);
+    return jsonResponse({ success: true, data: fallbackData }, 200, getCorsHeaders(req));
   } catch (e) {
-    // requireAuth throws Response objects for 401 — re-throw them directly
     if (e instanceof Response) return e;
     const detail = e instanceof Error ? `${e.name}: ${e.message}` : "Unknown error";
     console.error("[finance-extract-slip-amount] Unhandled error:", detail);

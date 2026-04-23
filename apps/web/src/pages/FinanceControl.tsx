@@ -31,6 +31,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Lock, Trash2, Unlock } from "lucide-react";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import { normalizeUploadImage, optimizeSlipImageForOcr } from "@/lib/slip-image";
 
 const vnd = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value || 0);
 
@@ -39,55 +40,6 @@ const parseDateInputValue = (value: string) => {
   const [y, m, day] = value.split("-").map(Number);
   return new Date(y, (m || 1) - 1, day || 1);
 };
-
-async function fileToBase64(file: File): Promise<string> {
-  return await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-async function normalizeUploadImage(file: File): Promise<{ imageBase64: string; mimeType: string }> {
-  const originalBase64 = await fileToBase64(file);
-  const originalMime = file.type || "image/jpeg";
-
-  try {
-    if (typeof window === "undefined" || !originalMime.startsWith("image/")) {
-      return { imageBase64: originalBase64, mimeType: originalMime };
-    }
-
-    const src = `data:${originalMime};base64,${originalBase64}`;
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error("Load image failed"));
-      el.src = src;
-    });
-
-    const maxW = 2000;
-    const maxH = 2000;
-    const scale = Math.min(1, maxW / Math.max(1, img.width), maxH / Math.max(1, img.height));
-    const w = Math.max(1, Math.round(img.width * scale));
-    const h = Math.max(1, Math.round(img.height * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return { imageBase64: originalBase64, mimeType: originalMime };
-
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, w, h);
-    ctx.drawImage(img, 0, 0, w, h);
-
-    const normalizedMime = "image/jpeg";
-    const normalizedBase64 = canvas.toDataURL(normalizedMime, 0.9).split(",")[1] || originalBase64;
-    return { imageBase64: normalizedBase64, mimeType: normalizedMime };
-  } catch {
-    return { imageBase64: originalBase64, mimeType: originalMime };
-  }
-}
 
 export default function FinanceControl() {
   const { toast } = useToast();
@@ -442,43 +394,6 @@ export default function FinanceControl() {
   const uncPathForDate = applyDatePathTemplate(uncPathTemplate);
   const qtmPathForDate = applyDatePathTemplate(qtmPathTemplate);
   const autoDayFolderPath = format(selectedDate, "yyyy/MM/dd");
-
-  const optimizeSlipImageForOcr = async (imageBase64: string, mimeType: string, aggressive = false) => {
-    try {
-      if (typeof window === "undefined") return { imageBase64, mimeType };
-      const src = `data:${mimeType || "image/jpeg"};base64,${imageBase64}`;
-      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const el = new Image();
-        el.onload = () => resolve(el);
-        el.onerror = () => reject(new Error("Load image failed"));
-        el.src = src;
-      });
-
-      const maxW = aggressive ? 1200 : 1600;
-      const quality = aggressive ? 0.62 : 0.78;
-      const scale = Math.min(1, maxW / Math.max(1, img.width));
-      const w = Math.max(1, Math.round(img.width * scale));
-      const h = Math.max(1, Math.round(img.height * scale));
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return { imageBase64, mimeType };
-      ctx.drawImage(img, 0, 0, w, h);
-
-      const outMime = "image/jpeg";
-      const outDataUrl = canvas.toDataURL(outMime, quality);
-      const outBase64 = outDataUrl.split(",")[1] || imageBase64;
-
-      // Only use compressed version if it is materially smaller.
-      if (outBase64.length < imageBase64.length * (aggressive ? 0.85 : 0.95)) {
-        return { imageBase64: outBase64, mimeType: outMime };
-      }
-      return { imageBase64, mimeType };
-    } catch {
-      return { imageBase64, mimeType };
-    }
-  };
 
   const extractSlipAmountFromBase64 = async (imageBase64: string, mimeType: string, slipType: "qtm" | "unc") => {
     const session = await getFreshSession();

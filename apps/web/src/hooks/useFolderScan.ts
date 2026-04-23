@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import { optimizeSlipImageForOcr } from "@/lib/slip-image";
 
 // ========== Type Definitions ==========
 
@@ -29,47 +30,6 @@ const TIMEOUT_MS = 45000;
 // ========== Utility Functions ==========
 
 // fetchWithTimeout is imported from @/lib/fetch-with-timeout
-
-const optimizeSlipImageForOcr = async (
-  imageBase64: string,
-  mimeType: string,
-  aggressive: boolean = false
-): Promise<{ imageBase64: string; mimeType: string }> => {
-  try {
-    if (typeof window === "undefined") return { imageBase64, mimeType };
-    const src = `data:${mimeType || "image/jpeg"};base64,${imageBase64}`;
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error("Load image failed"));
-      el.src = src;
-    });
-
-    const maxW = aggressive ? 800 : 1200;
-    const quality = aggressive ? 0.55 : 0.65;
-    const scale = Math.min(1, maxW / Math.max(1, img.width));
-    const w = Math.max(1, Math.round(img.width * scale));
-    const h = Math.max(1, Math.round(img.height * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return { imageBase64, mimeType };
-    ctx.drawImage(img, 0, 0, w, h);
-
-    const outMime = "image/jpeg";
-    const outDataUrl = canvas.toDataURL(outMime, quality);
-    const outBase64 = outDataUrl.split(",")[1] || imageBase64;
-
-    // Only use compressed version if materially smaller
-    if (outBase64.length < imageBase64.length * 0.9) {
-      return { imageBase64: outBase64, mimeType: outMime };
-    }
-    return { imageBase64, mimeType };
-  } catch {
-    return { imageBase64, mimeType };
-  }
-};
 
 const extractSlipAmountFromBase64 = async (
   imageBase64: string,
