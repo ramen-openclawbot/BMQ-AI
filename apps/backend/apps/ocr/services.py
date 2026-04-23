@@ -47,6 +47,21 @@ _DISALLOWED_KEYWORDS = (
     "time",
     "date",
 )
+_APP_UI_DISALLOWED_KEYWORDS = (
+    "choose files",
+    "no files selected",
+    "lưu khai báo",
+    "luu khai bao",
+    "duyệt & chốt ngày",
+    "duyet & chot ngay",
+    "tồn quỹ đầu ngày",
+    "ton quy dau ngay",
+    "ceo khai báo",
+    "ceo khai bao",
+    "bánh mì quê pháp",
+    "banh mi que phap",
+)
+_CURRENCY_TOKEN_RE = re.compile(r"(?:\b(?:vnd|vnđ|dong)\b|(?<!\w)đ(?!\w))", re.IGNORECASE)
 
 _OCR_ENGINE = None
 
@@ -129,6 +144,17 @@ def _label_score(text: str) -> float:
     return 2.5 if any(keyword in lowered for keyword in _LABEL_KEYWORDS) else 0.0
 
 
+def _currency_score(text: str) -> float:
+    return 1.4 if _CURRENCY_TOKEN_RE.search(text or "") else 0.0
+
+
+def _looks_app_ui(text: str) -> bool:
+    lowered = text.lower()
+    if any(keyword in lowered for keyword in _APP_UI_DISALLOWED_KEYWORDS):
+        return True
+    return bool(re.search(r"\bimg[_-]?\d{3,}\b", lowered))
+
+
 def choose_amount_candidate(lines: Iterable[OCRLine]) -> dict[str, object] | None:
     normalized_lines = [OCRLine(text=_clean_text(line.text), confidence=float(line.confidence or 0)) for line in lines if _clean_text(line.text)]
     if not normalized_lines:
@@ -142,6 +168,8 @@ def choose_amount_candidate(lines: Iterable[OCRLine]) -> dict[str, object] | Non
         if index + 1 < len(normalized_lines):
             neighbor_texts.append(normalized_lines[index + 1].text)
         neighborhood = " ".join(neighbor_texts)
+        label_score = _label_score(neighborhood)
+        currency_score = _currency_score(neighborhood)
 
         for match in _AMOUNT_RE.finditer(line.text):
             raw_amount = match.group(1)
@@ -151,12 +179,20 @@ def choose_amount_candidate(lines: Iterable[OCRLine]) -> dict[str, object] | Non
 
             score = line.confidence
             score += _label_score(line.text)
-            score += _label_score(neighborhood) * 0.7
+            score += label_score * 0.7
+            score += _currency_score(line.text)
+            score += currency_score * 0.4
 
             if _looks_disallowed(line.text):
                 score -= 3.0
             if _looks_disallowed(neighborhood):
                 score -= 1.0
+            if _looks_app_ui(line.text):
+                score -= 3.0
+            if _looks_app_ui(neighborhood):
+                score -= 1.5
+            if label_score <= 0 and currency_score <= 0:
+                score -= 1.2
             if parsed_amount < 1000:
                 score -= 1.5
 
@@ -171,6 +207,8 @@ def choose_amount_candidate(lines: Iterable[OCRLine]) -> dict[str, object] | Non
                 best = candidate
 
     if best:
+        if float(best.get("confidence") or 0) < 0.3:
+            return None
         best.pop("score", None)
     return best
 

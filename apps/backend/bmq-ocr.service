@@ -1,0 +1,22 @@
+[Unit]
+Description=BMQ AI OCR backend (Gunicorn + PaddleOCR)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/projects/BMQ-AI/apps/backend
+EnvironmentFile=-/home/ubuntu/projects/BMQ-AI/apps/backend/.env
+Environment=DJANGO_SETTINGS_MODULE=config.settings.development
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHON_BIN=/home/ubuntu/.hermes/hermes-agent/venv/bin/python
+ExecStart=/home/ubuntu/projects/BMQ-AI/apps/backend/start_ocr_cpu.sh
+Restart=always
+RestartSec=5
+TimeoutStartSec=180
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

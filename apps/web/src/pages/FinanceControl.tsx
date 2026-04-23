@@ -56,6 +56,7 @@ export default function FinanceControl() {
   const [extracting, setExtracting] = useState(false);
   const [declarationSaveMessage, setDeclarationSaveMessage] = useState<string | null>(null);
   const [ocrDebugMessage, setOcrDebugMessage] = useState<string | null>(null);
+  const [slipUploadStatus, setSlipUploadStatus] = useState<{ unc: string | null; qtm: string | null }>({ unc: null, qtm: null });
   const [slipPreviewOpen, setSlipPreviewOpen] = useState(false);
   const [slipPreviewSrc, setSlipPreviewSrc] = useState<string | null>(null);
   const [slipPreviewTitle, setSlipPreviewTitle] = useState<string>("");
@@ -267,9 +268,27 @@ export default function FinanceControl() {
   // Populate slip previews from the lazy image hook when it arrives
   useEffect(() => {
     if (!declarationImages) return;
+
+    const hasPendingLocalDeclarationChanges = saving
+      || extracting
+      || pendingQtmImagesBase64.length > 0
+      || pendingUncImagesBase64.length > 0
+      || pendingQtmExtractedList.length > 0
+      || pendingUncExtractedList.length > 0;
+
+    if (hasPendingLocalDeclarationChanges) return;
+
     setQtmSlipPreviews(declarationImages.qtmImages.map((b64: string) => `data:image/jpeg;base64,${b64}`));
     setUncSlipPreviews(declarationImages.uncImages.map((b64: string) => `data:image/jpeg;base64,${b64}`));
-  }, [declarationImages]);
+  }, [
+    declarationImages,
+    saving,
+    extracting,
+    pendingQtmImagesBase64.length,
+    pendingUncImagesBase64.length,
+    pendingQtmExtractedList.length,
+    pendingUncExtractedList.length,
+  ]);
 
   const dateKey = format(selectedDate, "yyyy-MM-dd");
 
@@ -349,6 +368,7 @@ export default function FinanceControl() {
     setCloseResultSnapshot(null);
     setDeclarationSaveMessage(null);
     setOcrDebugMessage(null);
+    setSlipUploadStatus({ unc: null, qtm: null });
     setQtmSpentFromFolder(0);
     setQtmOpeningBalance(0);
     setImagesRequested(false);
@@ -946,6 +966,7 @@ export default function FinanceControl() {
     if (!files.length) return;
     setDeclarationSaveMessage(null);
     setOcrDebugMessage(null);
+    setSlipUploadStatus((prev) => ({ ...prev, [slipType]: null }));
     setExtracting(true);
     try {
       const batchResults: Array<{ imageBase64: string; extracted: any; file: File }> = [];
@@ -968,6 +989,10 @@ export default function FinanceControl() {
       if (zeroAmountFiles.length > 0) {
         const debugText = `${slipType.toUpperCase()} OCR zero amount: ${zeroAmountFiles.map((r) => `${r.file.name} (confidence ${Number(r.extracted?.confidence || 0).toFixed(2)})`).join(", ")}`;
         setOcrDebugMessage(debugText);
+        const statusText = isVi
+          ? `Ảnh mới chưa được áp dụng cho ${slipType.toUpperCase()}. OCR không đọc ra số tiền từ file vừa chọn, nên số/preview đang hiển thị bên dưới vẫn là dữ liệu đã lưu trước đó.`
+          : `The new ${slipType.toUpperCase()} image was not applied. OCR could not read an amount from the selected file, so the amount/preview shown below still reflects previously saved data.`;
+        setSlipUploadStatus((prev) => ({ ...prev, [slipType]: statusText }));
         setDeclarationSaveMessage(isVi
           ? "OCR chưa đọc ra số tiền từ ảnh vừa tải lên. Hệ thống không lưu ảnh và không cập nhật giao diện."
           : "OCR could not extract an amount from the uploaded image. The system did not keep the image or update the UI.");
@@ -1009,6 +1034,8 @@ export default function FinanceControl() {
         setPendingUncExtractedList(nextPendingUncExtractedList);
       }
 
+      setSlipUploadStatus((prev) => ({ ...prev, [slipType]: null }));
+
       toast({
         title: isVi ? "Đã scan slip — tự động lưu" : "Slip scanned — auto-saving",
         description: `${slipType === "qtm" ? "QTM" : "UNC"}: +${vnd(batchSum)} (${batchResults.length} ảnh)`,
@@ -1025,6 +1052,12 @@ export default function FinanceControl() {
         pendingUncExtractedList: nextPendingUncExtractedList,
       });
     } catch (e: any) {
+      const statusText = e?.message
+        ? `${isVi ? "Ảnh mới chưa được áp dụng:" : "New image not applied:"} ${e.message}`
+        : (isVi
+          ? `Ảnh mới chưa được áp dụng cho ${slipType.toUpperCase()}. Hệ thống vẫn đang giữ số/preview đã lưu trước đó.`
+          : `The new ${slipType.toUpperCase()} image was not applied. The UI is still showing previously saved amount/preview.`);
+      setSlipUploadStatus((prev) => ({ ...prev, [slipType]: statusText }));
       setDeclarationSaveMessage(e?.message || (isVi ? "Ảnh đã tải lên nhưng OCR chưa đọc được số tiền. Anh có thể chỉnh tay số tiền rồi bấm Lưu khai báo." : "Image uploaded but OCR could not extract amount. You can adjust the number manually and press Save declaration."));
       toast({ title: "Lỗi OCR slip", description: e?.message || "Không thể trích xuất số tiền từ ảnh upload. Nếu ảnh chụp từ iPhone, vui lòng thử lại sau khi chụp rõ hơn hoặc dùng ảnh/JPEG ít nén hơn.", variant: "destructive" });
     } finally {
@@ -1661,6 +1694,11 @@ export default function FinanceControl() {
                     if (files.length) await processSlipUpload("unc", files);
                     e.currentTarget.value = "";
                   }} />
+                  {slipUploadStatus.unc && (
+                    <div className="text-xs rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-amber-700 dark:text-amber-300">
+                      {slipUploadStatus.unc}
+                    </div>
+                  )}
                   {!!uncSlipPreviews.length && (
                     <div className="flex flex-wrap gap-2">
                       {uncSlipPreviews.map((src, idx) => (
@@ -1698,6 +1736,11 @@ export default function FinanceControl() {
                     if (files.length) await processSlipUpload("qtm", files);
                     e.currentTarget.value = "";
                   }} />
+                  {slipUploadStatus.qtm && (
+                    <div className="text-xs rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-amber-700 dark:text-amber-300">
+                      {slipUploadStatus.qtm}
+                    </div>
+                  )}
                   {ocrDebugMessage && (
                     <div className="text-xs rounded border border-destructive/30 bg-destructive/5 px-2 py-1 text-destructive">
                       {ocrDebugMessage}

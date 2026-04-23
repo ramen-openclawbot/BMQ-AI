@@ -45,6 +45,43 @@ class ChooseAmountCandidateTests(SimpleTestCase):
         self.assertEqual(chosen["amount_raw"], "18.450.000")
         self.assertEqual(chosen["amount"], 18450000)
 
+    def test_accepts_currency_only_amount_without_explicit_label(self):
+        lines = [
+            OCRLine(text="VCB DigiBiz", confidence=0.96),
+            OCRLine(text="24,320,000 VND", confidence=0.94),
+            OCRLine(text="Duyet lenh thanh cong", confidence=0.91),
+        ]
+
+        chosen = choose_amount_candidate(lines)
+
+        self.assertIsNotNone(chosen)
+        self.assertEqual(chosen["amount_raw"], "24,320,000")
+        self.assertEqual(chosen["amount"], 24320000)
+
+    def test_keeps_valid_bank_status_line_from_rejecting_amount(self):
+        lines = [
+            OCRLine(text="VCB DigiBiz", confidence=0.96),
+            OCRLine(text="24,320,000 VND", confidence=0.94),
+            OCRLine(text="Trang thai thanh cong", confidence=0.91),
+        ]
+
+        chosen = choose_amount_candidate(lines)
+
+        self.assertIsNotNone(chosen)
+        self.assertEqual(chosen["amount"], 24320000)
+
+    def test_rejects_ui_screenshot_false_positive_from_filename(self):
+        lines = [
+            OCRLine(text="BANH MI QUE PHAP", confidence=0.95),
+            OCRLine(text="Choose Files", confidence=0.95),
+            OCRLine(text="IMG_7321.png", confidence=0.98),
+            OCRLine(text="Trang thai", confidence=0.9),
+        ]
+
+        chosen = choose_amount_candidate(lines)
+
+        self.assertIsNone(chosen)
+
 
 @override_settings(BACKEND_OCR_API_KEY="secret-test-key")
 class ExtractBankSlipAmountViewTests(SimpleTestCase):
