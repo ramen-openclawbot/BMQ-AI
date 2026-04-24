@@ -31,38 +31,38 @@ const includesAny = (text, parts) => parts.some((part) => text.includes(part));
 
 const VI_WARNING_MESSAGES = {
   OCR_BACKEND_TIMEOUT:
-    "PaddleOCR trên Mac mini đang phản hồi chậm hoặc bị timeout. Hệ thống đang dùng OCR dự phòng tạm thời. Vui lòng kiểm tra tình trạng Mac mini.",
+    "Backend PaddleOCR CPU đang phản hồi chậm hoặc bị timeout. Hệ thống đang dùng OCR dự phòng tạm thời. Vui lòng kiểm tra server OCR.",
   OCR_BACKEND_UNREACHABLE:
-    "PaddleOCR trên Mac mini đang không kết nối được. Hệ thống đang dùng OCR dự phòng tạm thời. Vui lòng kiểm tra tình trạng Mac mini.",
+    "Backend PaddleOCR CPU đang không kết nối được. Hệ thống đang dùng OCR dự phòng tạm thời. Vui lòng kiểm tra server OCR.",
   OCR_BACKEND_BAD_RESPONSE:
-    "PaddleOCR trên Mac mini có phản hồi bất thường. Hệ thống đang dùng OCR dự phòng tạm thời. Vui lòng kiểm tra tình trạng Mac mini.",
+    "Backend PaddleOCR CPU có phản hồi bất thường. Hệ thống đang dùng OCR dự phòng tạm thời. Vui lòng kiểm tra server OCR.",
 };
 
 const EN_WARNING_MESSAGES = {
   OCR_BACKEND_TIMEOUT:
-    "PaddleOCR on the Mac mini is timing out. The system is temporarily using fallback OCR. Please check the Mac mini status.",
+    "The PaddleOCR CPU backend is timing out. The system is temporarily using fallback OCR. Please check the OCR server.",
   OCR_BACKEND_UNREACHABLE:
-    "PaddleOCR on the Mac mini is unreachable. The system is temporarily using fallback OCR. Please check the Mac mini status.",
+    "The PaddleOCR CPU backend is unreachable. The system is temporarily using fallback OCR. Please check the OCR server.",
   OCR_BACKEND_BAD_RESPONSE:
-    "PaddleOCR on the Mac mini returned an unexpected response. The system is temporarily using fallback OCR. Please check the Mac mini status.",
+    "The PaddleOCR CPU backend returned an unexpected response. The system is temporarily using fallback OCR. Please check the OCR server.",
 };
 
 const VI_ERROR_MESSAGES = {
   OCR_BACKEND_TIMEOUT:
-    "Không thể scan vì OCR trên Mac mini đang timeout. Vui lòng kiểm tra Mac mini, service OCR, hoặc kết nối mạng.",
+    "Không thể scan vì backend PaddleOCR CPU đang timeout. Vui lòng kiểm tra server OCR hoặc kết nối mạng.",
   OCR_BACKEND_UNREACHABLE:
-    "Không thể scan vì OCR trên Mac mini không phản hồi. Vui lòng kiểm tra Mac mini, service OCR, hoặc kết nối mạng.",
+    "Không thể scan vì backend PaddleOCR CPU không phản hồi. Vui lòng kiểm tra server OCR hoặc kết nối mạng.",
   OCR_BACKEND_BAD_RESPONSE:
-    "Không thể scan vì OCR trên Mac mini trả về phản hồi bất thường. Vui lòng kiểm tra service OCR trên Mac mini.",
+    "Không thể scan vì backend PaddleOCR CPU trả về phản hồi bất thường. Vui lòng kiểm tra server OCR.",
 };
 
 const EN_ERROR_MESSAGES = {
   OCR_BACKEND_TIMEOUT:
-    "Scan failed because the Mac mini OCR backend timed out. Please check the Mac mini, OCR service, or network.",
+    "Scan failed because the PaddleOCR CPU backend timed out. Please check the OCR server or network.",
   OCR_BACKEND_UNREACHABLE:
-    "Scan failed because the Mac mini OCR backend is unreachable. Please check the Mac mini, OCR service, or network.",
+    "Scan failed because the PaddleOCR CPU backend is unreachable. Please check the OCR server or network.",
   OCR_BACKEND_BAD_RESPONSE:
-    "Scan failed because the Mac mini OCR backend returned an invalid response. Please check the OCR service on the Mac mini.",
+    "Scan failed because the PaddleOCR CPU backend returned an invalid response. Please check the OCR server.",
 };
 
 /**

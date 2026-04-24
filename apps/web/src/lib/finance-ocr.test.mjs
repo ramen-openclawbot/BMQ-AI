@@ -13,7 +13,7 @@ test('classifyFinanceOcrBackendFailure marks AbortError as timeout', () => {
 
   assert.equal(failure.backendStatus, 'timeout');
   assert.equal(failure.warningCode, 'OCR_BACKEND_TIMEOUT');
-  assert.match(failure.warningMessage, /Mac mini/);
+  assert.match(failure.warningMessage, /PaddleOCR CPU/);
 });
 
 test('classifyFinanceOcrBackendFailure marks network failure as unreachable', () => {
@@ -33,7 +33,7 @@ test('getFinanceOcrBackendWarningMessage describes fallback warning in Vietnames
     true,
   );
 
-  assert.match(message ?? '', /Mac mini/);
+  assert.match(message ?? '', /PaddleOCR CPU/);
   assert.match(message ?? '', /dự phòng/);
 });
 
@@ -61,7 +61,7 @@ test('getFinanceOcrBackendErrorMessage describes hard failure in Vietnamese', ()
     true,
   );
 
-  assert.match(message, /Mac mini/);
+  assert.match(message, /PaddleOCR CPU/);
   assert.match(message, /không phản hồi/);
 });
 

@@ -1077,7 +1077,7 @@ export default function FinanceControl() {
       if (successWarning) {
         setDeclarationSaveMessage(successWarning);
         toast({
-          title: isVi ? "Đã scan nhưng cần kiểm tra Mac mini OCR" : "Scan completed but check Mac mini OCR",
+          title: isVi ? "Đã scan nhưng cần kiểm tra backend PaddleOCR CPU" : "Scan completed but check the PaddleOCR CPU backend",
           description: successWarning,
         });
       }
