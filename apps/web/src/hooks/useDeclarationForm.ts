@@ -2,8 +2,14 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
-import { getFinanceOcrBackendErrorMessage, getFinanceOcrBackendWarningMessage } from "@/lib/finance-ocr.js";
 import { normalizeUploadImage, optimizeSlipImageForOcr } from "@/lib/slip-image";
+
+const getOcrErrorMessage = (errorLike: any, fallbackMessage: string) => {
+  if (typeof errorLike?.error === "string" && errorLike.error.trim()) return errorLike.error.trim();
+  if (typeof errorLike?.detail === "string" && errorLike.detail.trim()) return errorLike.detail.trim();
+  if (typeof errorLike?.message === "string" && errorLike.message.trim()) return errorLike.message.trim();
+  return fallbackMessage;
+};
 
 /**
  * Extract result shape from finance-extract-slip-amount edge function.
@@ -258,12 +264,7 @@ export function useDeclarationForm(closingDate: Date | string) {
 
       const result = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(getFinanceOcrBackendErrorMessage(result, true));
-      }
-
-      const warning = getFinanceOcrBackendWarningMessage(result?.meta, true);
-      if (warning) {
-        setExtractionError(warning);
+        throw new Error(getOcrErrorMessage(result, "Không thể scan slip. Vui lòng thử lại."));
       }
 
       return result.data as ExtractResult;
@@ -291,7 +292,7 @@ export function useDeclarationForm(closingDate: Date | string) {
           retryMsg.toLowerCase().includes("timeout");
 
         if (stillTimeout) {
-          throw new Error(getFinanceOcrBackendErrorMessage({ code: "OCR_BACKEND_TIMEOUT" }, true));
+          throw new Error("Quá thời gian chờ khi scan slip. Vui lòng thử lại.");
         }
 
         throw retryError;

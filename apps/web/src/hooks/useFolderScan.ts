@@ -1,11 +1,14 @@
 import { useCallback, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
-import {
-  getFinanceOcrBackendErrorMessage,
-  getFinanceOcrBackendWarningMessage,
-} from "@/lib/finance-ocr.js";
 import { optimizeSlipImageForOcr } from "@/lib/slip-image";
+
+const getOcrErrorMessage = (errorLike: any, fallbackMessage: string) => {
+  if (typeof errorLike?.error === "string" && errorLike.error.trim()) return errorLike.error.trim();
+  if (typeof errorLike?.detail === "string" && errorLike.detail.trim()) return errorLike.detail.trim();
+  if (typeof errorLike?.message === "string" && errorLike.message.trim()) return errorLike.message.trim();
+  return fallbackMessage;
+};
 
 // ========== Type Definitions ==========
 
@@ -39,7 +42,7 @@ const extractSlipAmountFromBase64 = async (
   imageBase64: string,
   mimeType: string,
   slipType: "qtm" | "unc"
-): Promise<{ amount: number; confidence?: number; warningMessage?: string | null }> => {
+): Promise<{ amount: number; confidence?: number }> => {
   const { data: { session } } = await supabase.auth.getSession();
 
   const optimized = await optimizeSlipImageForOcr(imageBase64, mimeType, false);
@@ -63,13 +66,10 @@ const extractSlipAmountFromBase64 = async (
 
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(getFinanceOcrBackendErrorMessage(result, false));
+    throw new Error(getOcrErrorMessage(result, "Failed to scan slip"));
   }
 
-  return {
-    ...(result.data as { amount: number; confidence?: number }),
-    warningMessage: getFinanceOcrBackendWarningMessage(result?.meta, false),
-  };
+  return result.data as { amount: number; confidence?: number };
 };
 
 const downloadBase64File = async (
@@ -142,8 +142,7 @@ export const useFolderScan = () => {
       files: any[],
       folderUrl: string,
       session: any,
-      signal: AbortSignal,
-      warnings: string[]
+      signal: AbortSignal
     ): Promise<{ successCount: number; skippedCount: number; results: (any | null)[] }> => {
       const results: (any | null)[] = [];
       let successCount = 0;
@@ -172,9 +171,6 @@ export const useFolderScan = () => {
 
           // Extract amount from image
           const extracted = await extractSlipAmountFromBase64(base64, file.mimeType || "image/jpeg", slipType);
-          if (extracted.warningMessage && !warnings.includes(extracted.warningMessage)) {
-            warnings.push(extracted.warningMessage);
-          }
 
           // Prepare record for database
           const record = {
@@ -229,7 +225,6 @@ export const useFolderScan = () => {
       const signal = abortControllerRef.current.signal;
 
       const errors: string[] = [];
-      const warnings: string[] = [];
       let processedCount = 0;
       let successCount = 0;
       let skippedCount = 0;
@@ -305,7 +300,6 @@ export const useFolderScan = () => {
             folderUrl,
             session,
             signal,
-            warnings,
           );
 
           successCount += batchSuccess;
@@ -326,16 +320,13 @@ export const useFolderScan = () => {
           }
         }
 
-        const warningSummary = warnings.length > 0
-          ? ` Warning: ${warnings.join(" | ")}`
-          : "";
         return {
           success: errors.length === 0,
           processedCount,
           successCount,
           skippedCount,
           errors,
-          summary: `Processed ${processedCount} files: ${successCount} successful, ${skippedCount} skipped${warningSummary}`,
+          summary: `Processed ${processedCount} files: ${successCount} successful, ${skippedCount} skipped`,
         };
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : "Unknown error";

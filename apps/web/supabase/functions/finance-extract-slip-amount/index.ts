@@ -2,7 +2,6 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/auth.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
-import { classifyFinanceOcrBackendFailure } from "../../../src/lib/finance-ocr.js";
 
 const jsonResponse = (body: unknown, status = 200, corsHeaders?: Record<string, string>) =>
   new Response(JSON.stringify(body), {
@@ -64,54 +63,7 @@ const parseAmountVN = (v: unknown): number | null => {
   return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
 };
 
-const parseBackendAmount = (data: any) => {
-  const rawAmount = data?.amount_raw ?? data?.amount;
-  const parsedAmount = parseAmountVN(rawAmount);
-  if (!parsedAmount) {
-    return null;
-  }
-
-  return {
-    ...data,
-    amount: parsedAmount,
-    amount_raw: rawAmount,
-  };
-};
-
-const callBackendGpuOcr = async (imageBase64: string, mimeType: string, slipType?: string) => {
-  const backendUrl = (Deno.env.get("BACKEND_PADDLE_OCR_URL") || Deno.env.get("BACKEND_GPU_OCR_URL") || "").trim();
-  if (!backendUrl) return null;
-
-  const backendApiKey = (Deno.env.get("BACKEND_PADDLE_OCR_API_KEY") || Deno.env.get("BACKEND_GPU_OCR_API_KEY") || "").trim();
-  const timeoutMs = Number(Deno.env.get("BACKEND_PADDLE_OCR_TIMEOUT_MS") || Deno.env.get("BACKEND_GPU_OCR_TIMEOUT_MS") || "45000");
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-  const response = await fetch(backendUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(backendApiKey ? { "X-OCR-Api-Key": backendApiKey } : {}),
-    },
-    body: JSON.stringify({ imageBase64, mimeType, slipType }),
-    signal: controller.signal,
-  }).finally(() => clearTimeout(timeout));
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const detail = payload?.error || payload?.detail || `HTTP ${response.status}`;
-    throw new Error(`GPU OCR backend failed: ${detail}`);
-  }
-
-  const data = parseBackendAmount(payload?.data);
-  if (!data) {
-    throw new Error("GPU OCR backend returned invalid amount");
-  }
-
-  return data;
-};
-
-const callOpenAiFallback = async (imageBase64: string, mimeType: string, slipType?: string) => {
+const callOpenAiVision = async (imageBase64: string, mimeType: string, slipType?: string) => {
   const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
   if (!OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY missing");
@@ -209,7 +161,7 @@ Rules:
     ...data,
     amount: parsedAmount,
     amount_raw: data.amount,
-    provider: "openai-fallback",
+    provider: "openai",
   };
 };
 
@@ -229,52 +181,17 @@ serve(async (req) => {
       return jsonResponse({ error: "No image provided" }, 400, getCorsHeaders(req));
     }
 
-    let backendFailure: ReturnType<typeof classifyFinanceOcrBackendFailure> | null = null;
-
     try {
-      const backendData = await callBackendGpuOcr(imageBase64, mimeType || "image/jpeg", slipType);
-      if (backendData) {
-        return jsonResponse({
-          success: true,
-          data: backendData,
-          meta: {
-            provider: backendData.provider || "paddleocr",
-            backendStatus: "ok",
-            fallbackUsed: false,
-          },
-        }, 200, getCorsHeaders(req));
-      }
-    } catch (backendError) {
-      backendFailure = classifyFinanceOcrBackendFailure(backendError);
-      console.error(
-        "[finance-extract-slip-amount] PaddleOCR backend failed, fallback to OpenAI:",
-        backendFailure.detail,
-      );
-    }
-
-    try {
-      const fallbackData = await callOpenAiFallback(imageBase64, mimeType || "image/jpeg", slipType);
+      const data = await callOpenAiVision(imageBase64, mimeType || "image/jpeg", slipType);
       return jsonResponse({
         success: true,
-        data: fallbackData,
+        data,
         meta: {
-          provider: fallbackData.provider || "openai-fallback",
-          backendStatus: backendFailure?.backendStatus || (fallbackData.provider ? "ok" : undefined),
-          fallbackUsed: !!backendFailure,
-          warningCode: backendFailure?.warningCode,
-          warningMessage: null,
+          provider: data.provider || "openai",
         },
       }, 200, getCorsHeaders(req));
-    } catch (fallbackError) {
-      if (backendFailure) {
-        const fallbackDetail = fallbackError instanceof Error ? `${fallbackError.name}: ${fallbackError.message}` : String(fallbackError || "Unknown fallback error");
-        return jsonResponse({
-          error: backendFailure.warningMessage,
-          code: backendFailure.warningCode,
-          detail: `PaddleOCR backend failed: ${backendFailure.detail}. OpenAI fallback failed: ${fallbackDetail}`,
-        }, 503, getCorsHeaders(req));
-      }
-      throw fallbackError;
+    } catch (openAiError) {
+      throw openAiError;
     }
   } catch (e) {
     if (e instanceof Response) return e;
