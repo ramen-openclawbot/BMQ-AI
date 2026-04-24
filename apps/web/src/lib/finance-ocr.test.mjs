@@ -23,6 +23,20 @@ test('classifyFinanceOcrBackendFailure marks network failure as unreachable', ()
   assert.equal(failure.warningCode, 'OCR_BACKEND_UNREACHABLE');
 });
 
+test('classifyFinanceOcrBackendFailure marks TLS EOF as unreachable', () => {
+  const failure = classifyFinanceOcrBackendFailure(new Error('SSLEOFError: unexpected eof while reading, no peer certificate available'));
+
+  assert.equal(failure.backendStatus, 'unreachable');
+  assert.equal(failure.warningCode, 'OCR_BACKEND_UNREACHABLE');
+});
+
+test('classifyFinanceOcrBackendFailure keeps generic certificate problems out of unreachable bucket', () => {
+  const failure = classifyFinanceOcrBackendFailure(new Error('certificate has expired'));
+
+  assert.equal(failure.backendStatus, 'bad_response');
+  assert.equal(failure.warningCode, 'OCR_BACKEND_BAD_RESPONSE');
+});
+
 test('getFinanceOcrBackendWarningMessage describes fallback warning in Vietnamese', () => {
   const message = getFinanceOcrBackendWarningMessage(
     {

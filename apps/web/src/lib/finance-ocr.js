@@ -95,6 +95,12 @@ export const classifyFinanceOcrBackendFailure = (errorLike) => {
       "unreachable",
       "dns",
       "socket",
+      "ssl eof",
+      "ssleoferror",
+      "no peer certificate",
+      "peer certificate available",
+      "eof while reading",
+      "tls handshake timeout",
       "mac mini",
     ])
   ) {
