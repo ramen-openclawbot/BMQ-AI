@@ -1,14 +1,19 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle2, Database, Filter, Search, Settings, TriangleAlert } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Database, Filter, Loader2, PencilLine, Search, Settings, TriangleAlert } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 
 const vnd = (v: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(v || 0);
 const numberFmt = (v: number) => new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(v || 0);
@@ -39,6 +44,35 @@ type RevenueLine = {
   raw_payload: unknown;
 };
 
+type RevenueEditForm = {
+  revenue_date: string;
+  invoice_no: string;
+  customer_name: string;
+  product_name: string;
+  item_note: string;
+  quantity: string;
+  unit_price: string;
+  gross_revenue: string;
+  audit_note: string;
+};
+
+type RevenueUpdatePayload = {
+  revenue_date: string;
+  invoice_no: string | null;
+  customer_name: string;
+  product_name: string | null;
+  item_note: string | null;
+  quantity: number;
+  unit_price: number;
+  gross_revenue: number;
+  approval_status: string;
+  audit_status: "adjusted";
+  confidence_status: "manual_review";
+  review_status: "resolved";
+  reconciliation_status: "manual_override";
+  raw_payload: Record<string, unknown>;
+};
+
 type RevenueQuery = PromiseLike<{ data: RevenueLine[] | null; error: { message?: string } | null }> & {
   eq: (column: string, value: string) => RevenueQuery;
   or: (filters: string) => RevenueQuery;
@@ -47,11 +81,51 @@ type RevenueQuery = PromiseLike<{ data: RevenueLine[] | null; error: { message?:
 };
 
 const db = supabase as unknown as {
-  from: (table: string) => { select: (columns: string) => RevenueQuery };
+  from: (table: string) => {
+    select: (columns: string) => RevenueQuery;
+  };
+  rpc: (fn: "edit_revenue_ledger_line", args: { _ledger_line_id: string; _patch: RevenueUpdatePayload; _note: string | null }) => PromiseLike<{ data: RevenueLine | null; error: { message?: string } | null }>;
 };
 
 const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+
+const toNumber = (value: string) => {
+  const normalized = value.replace(/,/g, "").trim();
+  if (!normalized) return 0;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) throw new Error("Invalid number");
+  return parsed;
+};
+
+const buildEditForm = (row: RevenueLine): RevenueEditForm => ({
+  revenue_date: row.revenue_date || "",
+  invoice_no: row.invoice_no || "",
+  customer_name: row.customer_name || "",
+  product_name: row.product_name || "",
+  item_note: row.item_note || "",
+  quantity: String(row.quantity ?? 0),
+  unit_price: String(row.unit_price ?? 0),
+  gross_revenue: String(row.gross_revenue ?? 0),
+  audit_note: "",
+});
+
+const ledgerSnapshot = (row: RevenueLine) => ({
+  revenue_date: row.revenue_date,
+  invoice_no: row.invoice_no,
+  customer_name: row.customer_name,
+  product_name: row.product_name,
+  item_note: row.item_note,
+  quantity: row.quantity,
+  unit_price: row.unit_price,
+  gross_revenue: row.gross_revenue,
+  approval_status: row.approval_status,
+  audit_status: row.audit_status,
+  confidence_status: row.confidence_status,
+  review_status: row.review_status,
+  reconciliation_status: row.reconciliation_status,
+  raw_payload: row.raw_payload,
+});
 
 async function fetchAllRevenueSourceLines(period: string, channel: string, review: string) {
   const pageSize = 1000;
@@ -88,7 +162,10 @@ function statusBadge(status: string) {
 
 export default function RevenueSourceDetail() {
   const { language } = useLanguage();
+  const { canEditModule } = useAuth();
+  const { toast } = useToast();
   const isVi = language === "vi";
+  const canEdit = canEditModule("finance_revenue");
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const period = params.get("period") || "2026-03";
@@ -96,8 +173,11 @@ export default function RevenueSourceDetail() {
   const customerKey = params.get("customer_key") || "";
   const review = params.get("review") || "";
   const [q, setQ] = useState("");
+  const [editingLine, setEditingLine] = useState<RevenueLine | null>(null);
+  const [editForm, setEditForm] = useState<RevenueEditForm | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  const { data: lines = [], isLoading, error } = useQuery<RevenueLine[]>({
+  const { data: lines = [], isLoading, error, refetch } = useQuery<RevenueLine[]>({
     queryKey: ["revenue-source-detail", period, channel, customerKey, review],
     queryFn: async () => {
       return fetchAllRevenueSourceLines(period, channel, review);
@@ -133,6 +213,91 @@ export default function RevenueSourceDetail() {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value); else next.delete(key);
     setParams(next);
+  };
+
+  const openEdit = (row: RevenueLine) => {
+    setEditingLine(row);
+    setEditForm(buildEditForm(row));
+  };
+
+  const closeEdit = () => {
+    if (saving) return;
+    setEditingLine(null);
+    setEditForm(null);
+  };
+
+  const updateEditField = (key: keyof RevenueEditForm, value: string) => {
+    setEditForm((current) => current ? { ...current, [key]: value } : current);
+  };
+
+  const saveEdit = async () => {
+    if (!editingLine || !editForm) return;
+    if (!canEdit) {
+      toast({ title: "Không có quyền sửa doanh thu", variant: "destructive" });
+      return;
+    }
+
+    const customerName = editForm.customer_name.trim();
+    const revenueDate = editForm.revenue_date.trim();
+    if (!customerName || !revenueDate) {
+      toast({ title: "Thiếu ngày doanh thu hoặc tên khách", variant: "destructive" });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const quantity = toNumber(editForm.quantity);
+      const unitPrice = toNumber(editForm.unit_price);
+      const grossRevenue = toNumber(editForm.gross_revenue);
+      const note = editForm.audit_note.trim();
+      const { data: authData } = await supabase.auth.getUser();
+      const actorId = authData?.user?.id || null;
+      const previousRaw = asRecord(editingLine.raw_payload);
+      const auditDecision = {
+        action: "edit",
+        note: note || null,
+        edited_at: new Date().toISOString(),
+        edited_by: actorId,
+        before: ledgerSnapshot(editingLine),
+      };
+      const payload: RevenueUpdatePayload = {
+        revenue_date: revenueDate,
+        invoice_no: editForm.invoice_no.trim() || null,
+        customer_name: customerName,
+        product_name: editForm.product_name.trim() || null,
+        item_note: editForm.item_note.trim() || null,
+        quantity,
+        unit_price: unitPrice,
+        gross_revenue: grossRevenue,
+        approval_status: editingLine.approval_status,
+        audit_status: "adjusted",
+        confidence_status: "manual_review",
+        review_status: "resolved",
+        reconciliation_status: "manual_override",
+        raw_payload: {
+          ...previousRaw,
+          audit_decision: auditDecision,
+          audit_decisions: [...(Array.isArray(previousRaw.audit_decisions) ? previousRaw.audit_decisions : []), auditDecision],
+        },
+      };
+
+      const { error: saveError } = await db.rpc("edit_revenue_ledger_line", {
+        _ledger_line_id: editingLine.id,
+        _patch: payload,
+        _note: note || null,
+      });
+      if (saveError) throw saveError;
+
+      toast({ title: "Đã lưu chỉnh sửa và ghi log" });
+      setEditingLine(null);
+      setEditForm(null);
+      await refetch();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Không lưu được chỉnh sửa";
+      toast({ title: "Không lưu được chỉnh sửa", description: message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -179,7 +344,7 @@ export default function RevenueSourceDetail() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <CardTitle>Ledger source lines</CardTitle>
-              <CardDescription>Search invoice/customer/product/review flag. Edit/approve actions sẽ được nối vào workflow ở slice tiếp theo.</CardDescription>
+              <CardDescription>Search invoice/customer/product/review flag. Staff sửa dòng sai tại đây; mỗi lần lưu sẽ ghi audit log.</CardDescription>
             </div>
             <div className="relative w-full lg:w-[360px]">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -202,6 +367,7 @@ export default function RevenueSourceDetail() {
                     <TableHead className="text-right">Revenue</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Audit note</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -231,6 +397,11 @@ export default function RevenueSourceDetail() {
                           )}
                           {po.po_qty != null ? <div className="mt-1 text-xs text-muted-foreground">PO qty: {String(po.po_qty)}; delta: {String(po.delta_qty)}</div> : null}
                         </TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="outline" size="sm" disabled={!canEdit} onClick={() => openEdit(row)}>
+                            <PencilLine className="mr-2 h-3.5 w-3.5" />Edit
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     );
                   })}
@@ -240,6 +411,69 @@ export default function RevenueSourceDetail() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!editingLine} onOpenChange={(open) => { if (!open) closeEdit(); }}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Chỉnh dòng doanh thu</DialogTitle>
+            <DialogDescription>
+              Staff sửa khi phát hiện dòng sai. Khi lưu, hệ thống cập nhật ledger và ghi audit log.
+            </DialogDescription>
+          </DialogHeader>
+          {editForm ? (
+            <div className="grid gap-4 py-2">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="revenue-date">Ngày doanh thu</Label>
+                  <Input id="revenue-date" type="date" value={editForm.revenue_date} onChange={(e) => updateEditField("revenue_date", e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="invoice-no">Invoice no</Label>
+                  <Input id="invoice-no" value={editForm.invoice_no} onChange={(e) => updateEditField("invoice_no", e.target.value)} />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="customer-name">Khách hàng</Label>
+                  <Input id="customer-name" value={editForm.customer_name} onChange={(e) => updateEditField("customer_name", e.target.value)} />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="product-name">Sản phẩm</Label>
+                  <Input id="product-name" value={editForm.product_name} onChange={(e) => updateEditField("product_name", e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="quantity">Số lượng</Label>
+                  <Input id="quantity" inputMode="decimal" value={editForm.quantity} onChange={(e) => updateEditField("quantity", e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="unit-price">Đơn giá</Label>
+                  <Input id="unit-price" inputMode="decimal" value={editForm.unit_price} onChange={(e) => updateEditField("unit_price", e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="gross-revenue">Doanh thu</Label>
+                  <Input id="gross-revenue" inputMode="decimal" value={editForm.gross_revenue} onChange={(e) => updateEditField("gross_revenue", e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="item-note">Ghi chú dòng</Label>
+                  <Input id="item-note" value={editForm.item_note} onChange={(e) => updateEditField("item_note", e.target.value)} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="audit-note">Lý do sửa / audit note</Label>
+                <Textarea id="audit-note" value={editForm.audit_note} onChange={(e) => updateEditField("audit_note", e.target.value)} placeholder="VD: Sửa số lượng theo CSV audit / PO đối soát…" />
+              </div>
+              <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+                Sau khi lưu: audit_status = adjusted, review_status = resolved, confidence_status = manual_review, reconciliation_status = manual_override. Approval status được giữ nguyên, không có bước approve riêng.
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={closeEdit} disabled={saving}>Huỷ</Button>
+            <Button onClick={saveEdit} disabled={saving || !canEdit}>
+              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Lưu & ghi log
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
