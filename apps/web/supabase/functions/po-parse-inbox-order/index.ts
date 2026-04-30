@@ -131,6 +131,7 @@ const parseByTemplateConfig = (rowsFlat: any[][], template: any) => {
     const skuCol = Number(c?.skuColumnIndex || 0) - 1;
     const unitCol = Number(c?.unitColumnIndex || 0) - 1;
     const unitPriceCol = Number(c?.unitPriceColumnIndex || 0) - 1;
+    const lineTotalCol = Number(c?.lineTotalColumnIndex || 0) - 1;
     if (productCol >= 0 && qtyCol >= 0) {
       const items: any[] = [];
       const startIdx = Math.max(1, headerRow);
@@ -142,6 +143,8 @@ const parseByTemplateConfig = (rowsFlat: any[][], template: any) => {
         const qty = toNum(row?.[qtyCol]);
         if (!productRaw || qty <= 0) continue;
         const date = dateCol >= 0 ? (normalizeDate(row?.[dateCol]) || "") : "";
+        const unitPrice = unitPriceCol >= 0 ? toNum(row?.[unitPriceCol]) : 0;
+        const explicitLineTotal = lineTotalCol >= 0 ? toNum(row?.[lineTotalCol]) : 0;
         const sourceName = "row_item";
         items.push({
           date,
@@ -150,8 +153,8 @@ const parseByTemplateConfig = (rowsFlat: any[][], template: any) => {
           sku: skuCol >= 0 ? String(row?.[skuCol] || "").trim() : "",
           qty,
           unit: unitCol >= 0 ? String(row?.[unitCol] || "").trim() : "",
-          unit_price: unitPriceCol >= 0 ? toNum(row?.[unitPriceCol]) : 0,
-          line_total: 0,
+          unit_price: unitPrice,
+          line_total: explicitLineTotal || qty * unitPrice,
         });
       }
       return items;
