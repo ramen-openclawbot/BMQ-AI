@@ -63,6 +63,7 @@ const navItems: NavItem[] = [
 
   { icon: Scale, labelKey: "financeCostManagement", path: "/finance-control/cost", section: "finance", moduleKey: "finance_cost" },
   { icon: TrendingUp, labelKey: "financeRevenueManagement", path: "/finance-control/revenue", section: "finance", moduleKey: "finance_revenue" },
+  { icon: Settings, labelKey: "financeRevenueSetup", path: "/finance-control/revenue/setup", section: "finance", moduleKey: "finance_revenue" },
   { icon: UserRoundCog, labelKey: "crm", path: "/mini-crm", section: "finance", moduleKey: "crm" },
   { icon: Inbox, labelKey: "poSales", path: "/sales-po-inbox", section: "finance", moduleKey: "sales_po_inbox" },
   { icon: ShoppingCart, labelKey: "poPurchasing", path: "/purchase-orders", section: "finance", showPOBadge: true, moduleKey: "purchase_orders" },

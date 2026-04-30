@@ -1310,12 +1310,12 @@ export default function FinanceRevenueControl() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-display font-bold">
-          {isVi ? "Kiểm soát doanh thu" : "Revenue control"}
+          {isVi ? "Thiết lập doanh thu" : "Revenue setup"}
         </h1>
         <p className="text-muted-foreground">
           {isVi
-            ? "Xét duyệt hàng đợi doanh thu và tóm tắt theo nhóm sản phẩm."
-            : "Approve the revenue draft queue and view revenue summaries by product group."}
+            ? "Thiết lập nguồn doanh thu, sync PO, hàng đợi duyệt, ngoại lệ và rule đối soát. Dashboard production nằm ở trang Quản lý doanh thu."
+            : "Configure revenue sources, PO sync, approval queues, exceptions, and reconciliation rules. The production dashboard lives on Revenue Management."}
         </p>
       </div>
 

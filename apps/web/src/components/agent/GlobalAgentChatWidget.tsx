@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -42,7 +43,9 @@ function getRouteContext(pathname: string): ModuleContext {
   if (pathname.startsWith("/sku-costs")) return { key: "sku_costs", label: "SKU Costs", suggestions: ["Checklist cập nhật cost", "Tóm tắt cost anomalies", "Đề xuất kiểm tra tuần này"] };
   if (pathname.startsWith("/kho")) return { key: "warehouse", label: "Kho", suggestions: ["Checklist nhập kho", "Gợi ý kiểm tra tồn", "Tóm tắt thao tác theo ca"] };
   if (pathname === "/finance-control/cost") return { key: "finance_cost", label: "Finance / Cost", suggestions: ["Checklist cost", "KPI cost", "Cảnh báo bất thường"] };
-  if (pathname === "/finance-control/revenue") return { key: "finance_revenue", label: "Finance / Revenue", suggestions: ["Checklist posting", "Đối soát doanh thu", "Báo cáo ngày"] };
+  if (pathname === "/finance-control/revenue") return { key: "finance_revenue", label: "Quản lý doanh thu", suggestions: ["Doanh thu tháng này", "Dòng cần audit", "Top customer"] };
+  if (pathname.startsWith("/finance-control/revenue/sources")) return { key: "finance_revenue_sources", label: "Chi tiết nguồn doanh thu", suggestions: ["Dòng nào cần kiểm tra", "So sánh CSV và PO", "Gợi ý audit"] };
+  if (pathname === "/finance-control/revenue/setup") return { key: "finance_revenue_setup", label: "Thiết lập doanh thu", suggestions: ["Checklist posting", "Đối soát doanh thu", "Cấu hình parser"] };
   return moduleConfig.find((m) => m.test(pathname))!.context;
 }
 

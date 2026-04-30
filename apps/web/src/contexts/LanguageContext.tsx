@@ -25,6 +25,7 @@ interface Translations {
   investorDashboard: string;
   financeCostManagement: string;
   financeRevenueManagement: string;
+  financeRevenueSetup: string;
   crm: string;
   poPurchasing: string;
   poSales: string;
@@ -189,6 +190,7 @@ const translations: Record<Language, Translations> = {
     investorDashboard: "Investor Dashboard",
     financeCostManagement: "Cost Management (Procurement)",
     financeRevenueManagement: "Revenue Management",
+    financeRevenueSetup: "Revenue Setup",
     crm: "CRM",
     poPurchasing: "PO (Procurement)",
     poSales: "PO (Sales)",
@@ -373,6 +375,7 @@ const translations: Record<Language, Translations> = {
     investorDashboard: "Investor Dashboard",
     financeCostManagement: "Quản lý chi phí",
     financeRevenueManagement: "Quản lý doanh thu",
+    financeRevenueSetup: "Thiết lập doanh thu",
     crm: "CRM",
     poPurchasing: "PO (Mua hàng)",
     poSales: "PO (Bán hàng)",
