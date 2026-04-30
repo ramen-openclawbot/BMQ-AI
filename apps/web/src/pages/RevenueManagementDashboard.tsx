@@ -91,70 +91,48 @@ const metricCards = [
     label: "Doanh thu",
     helper: "ledger lines",
     icon: TrendingUp,
-    accent: "from-cyan-500/25 via-sky-500/10 to-transparent",
-    border: "border-cyan-300/35",
-    iconTone: "bg-cyan-400/[0.18] text-cyan-200 ring-cyan-300/25",
-    valueTone: "text-cyan-100",
+    valueTone: "text-amber-200",
   },
   {
     key: "approved",
     label: "Approved",
     helper: "Trusted / approved only",
     icon: CheckCircle2,
-    accent: "from-emerald-500/25 via-lime-500/10 to-transparent",
-    border: "border-emerald-300/35",
-    iconTone: "bg-emerald-400/[0.18] text-emerald-200 ring-emerald-300/25",
-    valueTone: "text-emerald-100",
+    valueTone: "text-emerald-200",
   },
   {
     key: "review",
     label: "Cần audit",
     helper: "Manual review queue",
     icon: AlertTriangle,
-    accent: "from-rose-500/25 via-fuchsia-500/10 to-transparent",
-    border: "border-rose-300/35",
-    iconTone: "bg-rose-400/[0.18] text-rose-200 ring-rose-300/25",
-    valueTone: "text-rose-100",
+    valueTone: "text-rose-200",
   },
   {
     key: "qty",
     label: "Sản lượng",
     helper: "Quantity from ledger",
     icon: CalendarDays,
-    accent: "from-violet-500/25 via-indigo-500/10 to-transparent",
-    border: "border-violet-300/35",
-    iconTone: "bg-violet-400/[0.18] text-violet-200 ring-violet-300/25",
-    valueTone: "text-violet-100",
+    valueTone: "text-stone-50",
   },
   {
     key: "customers",
     label: "Customer/NPP",
     helper: "Roll-up groups",
     icon: Users,
-    accent: "from-teal-500/25 via-emerald-500/10 to-transparent",
-    border: "border-teal-300/35",
-    iconTone: "bg-teal-400/[0.18] text-teal-200 ring-teal-300/25",
-    valueTone: "text-teal-100",
+    valueTone: "text-stone-50",
   },
 ] as const;
 
 const policyCards = [
-  { title: "1. Dashboard", copy: "đọc approved/trusted revenue ledger.", tone: "border-l-cyan-300 bg-cyan-400/[0.08] text-cyan-50" },
-  { title: "2. CSV audit", copy: "thắng PO parse khi có lệch.", tone: "border-l-emerald-300 bg-emerald-400/[0.08] text-emerald-50" },
-  { title: "3. Parsed PO", copy: "mặc định pending, dùng để trace/edit.", tone: "border-l-violet-300 bg-violet-400/[0.08] text-violet-50" },
-  { title: "4. Dòng lệch", copy: "đưa vào manual review, không tự net doanh thu.", tone: "border-l-rose-300 bg-rose-400/[0.08] text-rose-50" },
+  { title: "1. Dashboard", copy: "đọc approved/trusted revenue ledger.", rule: "border-l-amber-300" },
+  { title: "2. CSV audit", copy: "thắng PO parse khi có lệch.", rule: "border-l-emerald-400" },
+  { title: "3. Parsed PO", copy: "mặc định pending, dùng để trace/edit.", rule: "border-l-stone-400" },
+  { title: "4. Dòng lệch", copy: "đưa vào manual review, không tự net doanh thu.", rule: "border-l-rose-400" },
 ] as const;
 
-const channelDotClasses = [
-  "bg-cyan-300 text-cyan-300",
-  "bg-emerald-300 text-emerald-300",
-  "bg-violet-300 text-violet-300",
-  "bg-rose-300 text-rose-300",
-  "bg-teal-300 text-teal-300",
-  "bg-sky-300 text-sky-300",
-] as const;
+const CHANNEL_DOT = "bg-stone-400";
 
-const getChannelDotClass = (index: number) => channelDotClasses[index % channelDotClasses.length];
+const getChannelDotClass = (index: number) => (index === 0 ? "bg-amber-300" : CHANNEL_DOT);
 
 export default function RevenueManagementDashboard() {
   const { language } = useLanguage();
@@ -228,49 +206,46 @@ export default function RevenueManagementDashboard() {
   };
 
   return (
-    <div className="relative space-y-6 overflow-hidden rounded-3xl border border-cyan-300/10 bg-gradient-to-br from-cyan-500/[0.07] via-transparent to-violet-500/[0.07] p-4 shadow-2xl shadow-cyan-950/20 md:p-6">
-      <div className="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full bg-cyan-400/20 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-28 left-1/3 h-72 w-72 rounded-full bg-fuchsia-500/15 blur-3xl" />
-
-      <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <div className="relative space-y-6 rounded-lg border border-stone-700/50 bg-stone-950/40 p-4 md:p-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge className="gap-1 border-cyan-300/40 bg-cyan-400/15 text-cyan-100 shadow-sm shadow-cyan-950/20">
+            <Badge className="gap-1 border border-amber-300/40 bg-amber-400/10 text-amber-200">
               <Database className="h-3 w-3" />Trusted ledger
             </Badge>
-            <Badge className="border-emerald-300/40 bg-emerald-400/15 text-emerald-100">
+            <Badge className="border border-stone-600/60 bg-stone-900/40 text-stone-200">
               {basis === "trusted" ? "Approved only" : "All sources"}
             </Badge>
           </div>
-          <h1 className="bg-gradient-to-r from-cyan-100 via-emerald-100 to-violet-100 bg-clip-text text-3xl font-display font-bold text-transparent md:text-4xl">
+          <h1 className="font-display text-3xl font-semibold tracking-tight text-amber-50 md:text-4xl">
             {isVi ? "Quản lý doanh thu" : "Revenue Management"}
           </h1>
-          <p className="max-w-3xl text-sm leading-6 text-slate-200/80 md:text-base">
+          <p className="max-w-3xl text-sm leading-6 text-stone-300/80 md:text-base">
             {isVi
               ? "Dashboard production theo tháng, ngày, kênh và customer. Số chính lấy từ approved/trusted revenue ledger; PO/email parse chỉ là nguồn đối chiếu cho đến khi được duyệt."
               : "Production dashboard by month, day, channel, and customer. The main numbers come from the approved/trusted revenue ledger; parsed PO/email rows remain evidence until approved."}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-2 backdrop-blur">
-          <Input type="month" value={period} onChange={(e) => setPeriod(e.target.value || monthNow())} className="w-[160px] border-cyan-300/25 bg-cyan-950/20" />
-          <Button className={basis === "trusted" ? "bg-cyan-500 text-cyan-950 hover:bg-cyan-400" : "border-cyan-300/35 text-cyan-100 hover:bg-cyan-400/10"} variant={basis === "trusted" ? "default" : "outline"} onClick={() => setBasis("trusted")}>Trusted</Button>
-          <Button className={basis === "all" ? "bg-violet-500 text-white hover:bg-violet-400" : "border-violet-300/35 text-violet-100 hover:bg-violet-400/10"} variant={basis === "all" ? "default" : "outline"} onClick={() => setBasis("all")}>All</Button>
-          <Button className="border-emerald-300/35 text-emerald-100 hover:bg-emerald-400/10" variant="outline" onClick={() => refetch()}>Refresh</Button>
-          <Button className="border-rose-300/35 text-rose-100 hover:bg-rose-400/10" variant="outline" onClick={() => navigate("/finance-control/revenue/setup")}>
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-stone-700/50 bg-stone-900/40 p-2">
+          <Input type="month" value={period} onChange={(e) => setPeriod(e.target.value || monthNow())} className="w-[160px] border-stone-700/60 bg-stone-900/40 text-stone-100" />
+          <Button className={basis === "trusted" ? "border border-amber-300/60 bg-amber-400 text-stone-950 hover:bg-amber-300" : "border border-stone-600/60 bg-transparent text-stone-200 hover:bg-stone-100/[0.04]"} variant={basis === "trusted" ? "default" : "outline"} onClick={() => setBasis("trusted")}>Trusted</Button>
+          <Button className={basis === "all" ? "border border-amber-300/40 bg-transparent text-amber-200 hover:bg-stone-100/[0.04]" : "border border-stone-600/60 bg-transparent text-stone-200 hover:bg-stone-100/[0.04]"} variant="outline" onClick={() => setBasis("all")}>All</Button>
+          <Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:bg-stone-100/[0.04]" variant="outline" onClick={() => refetch()}>Refresh</Button>
+          <Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:bg-stone-100/[0.04]" variant="outline" onClick={() => navigate("/finance-control/revenue/setup")}>
             <Settings className="mr-2 h-4 w-4" />Thiết lập doanh thu
           </Button>
         </div>
       </div>
 
       {error ? (
-        <Card className="relative border-rose-300/40 bg-rose-500/10">
-          <CardContent className="flex items-center gap-3 p-4 text-sm text-rose-100">
+        <Card className="border border-rose-400/40 bg-rose-500/[0.06]">
+          <CardContent className="flex items-center gap-3 p-4 text-sm text-rose-200">
             <AlertTriangle className="h-5 w-5" />Không đọc được revenue ledger. Kiểm tra migration/database quyền truy cập.
           </CardContent>
         </Card>
       ) : null}
 
-      <div className="relative grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         {metricCards.map((card) => {
           const Icon = card.icon;
           const value = card.key === "total" || card.key === "approved" || card.key === "review"
@@ -281,16 +256,15 @@ export default function RevenueManagementDashboard() {
           const helper = card.key === "total" ? `${stats.rows} ${card.helper}` : card.helper;
 
           return (
-            <Card key={card.key} className={`group overflow-hidden border bg-card/80 shadow-lg shadow-black/10 transition hover:-translate-y-0.5 hover:shadow-xl ${card.border}`}>
-              <CardContent className="relative p-4">
-                <div className={`absolute inset-0 bg-gradient-to-br ${card.accent}`} />
-                <div className="relative flex items-start justify-between gap-3">
+            <Card key={card.key} className="rounded-md border border-stone-700/50 bg-stone-950/50">
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between gap-3">
                   <div className="space-y-2">
-                    <div className="text-sm font-medium text-slate-200/80">{card.label}</div>
-                    <div className={`text-2xl font-bold tracking-tight ${card.valueTone}`}>{isLoading ? "…" : value}</div>
-                    <div className="text-xs text-slate-300/70">{helper}</div>
+                    <div className="text-[11px] uppercase tracking-[0.18em] text-stone-400">{card.label}</div>
+                    <div className={`mt-2 text-2xl font-semibold tabular-nums tracking-tight ${card.valueTone}`}>{isLoading ? "…" : value}</div>
+                    <div className="mt-1 text-xs text-stone-400/80">{helper}</div>
                   </div>
-                  <div className={`rounded-2xl p-2 ring-1 ${card.iconTone}`}>
+                  <div className="rounded-md border border-stone-700/50 bg-stone-900/40 p-2 text-stone-300">
                     <Icon className="h-5 w-5" />
                   </div>
                 </div>
@@ -301,55 +275,48 @@ export default function RevenueManagementDashboard() {
       </div>
 
       {isLoading ? (
-        <div className="relative flex min-h-[240px] items-center justify-center rounded-xl border border-cyan-300/20 bg-cyan-400/5"><Loader2 className="h-8 w-8 animate-spin text-cyan-200" /></div>
+        <div className="flex min-h-[240px] items-center justify-center rounded-md border border-stone-700/50 bg-stone-900/40"><Loader2 className="h-8 w-8 animate-spin text-amber-300" /></div>
       ) : (
-        <Tabs defaultValue="overview" className="relative space-y-4">
-          <TabsList className="border border-white/10 bg-white/[0.04] p-1 backdrop-blur">
-            <TabsTrigger value="overview" className="data-[state=active]:bg-cyan-400/20 data-[state=active]:text-cyan-50">Tổng quan</TabsTrigger>
-            <TabsTrigger value="customers" className="data-[state=active]:bg-emerald-400/20 data-[state=active]:text-emerald-50">Theo customer</TabsTrigger>
-            <TabsTrigger value="channels" className="data-[state=active]:bg-violet-400/20 data-[state=active]:text-violet-50">Theo kênh</TabsTrigger>
+        <Tabs defaultValue="overview" className="space-y-4">
+          <TabsList className="inline-flex gap-6 border-b border-stone-700/50 bg-transparent p-0">
+            <TabsTrigger value="overview" className="rounded-none border-b-2 border-transparent bg-transparent px-1 pb-2 text-sm text-stone-300 data-[state=active]:border-amber-300 data-[state=active]:bg-transparent data-[state=active]:text-amber-100">Tổng quan</TabsTrigger>
+            <TabsTrigger value="customers" className="rounded-none border-b-2 border-transparent bg-transparent px-1 pb-2 text-sm text-stone-300 data-[state=active]:border-amber-300 data-[state=active]:bg-transparent data-[state=active]:text-amber-100">Theo customer</TabsTrigger>
+            <TabsTrigger value="channels" className="rounded-none border-b-2 border-transparent bg-transparent px-1 pb-2 text-sm text-stone-300 data-[state=active]:border-amber-300 data-[state=active]:bg-transparent data-[state=active]:text-amber-100">Theo kênh</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
-            <Card className="overflow-hidden border-cyan-300/25 bg-card/85 shadow-xl shadow-cyan-950/15">
-              <CardHeader className="border-b border-cyan-300/10 bg-gradient-to-r from-cyan-500/10 to-transparent">
-                <CardTitle className="text-cyan-50">Doanh thu theo ngày</CardTitle>
-                <CardDescription>Click bảng customer/kênh để mở chi tiết source/audit.</CardDescription>
+            <Card className="overflow-hidden border border-stone-700/50 bg-stone-950/50">
+              <CardHeader className="border-b border-stone-700/40">
+                <CardTitle className="text-stone-100">Doanh thu theo ngày</CardTitle>
+                <CardDescription className="text-stone-400">Click bảng customer/kênh để mở chi tiết source/audit.</CardDescription>
               </CardHeader>
               <CardContent className="h-[360px] pt-6">
-                <ChartContainer config={{ revenue: { label: "Revenue", color: "#22d3ee" }, review: { label: "Review", color: "#fb7185" } }} className="h-full">
+                <ChartContainer config={{ revenue: { label: "Revenue", color: "#D4A24C" }, review: { label: "Review", color: "#B45A5A" } }} className="h-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={byDay}>
-                      <defs>
-                        <linearGradient id="revenueGradient" x1="0" x2="0" y1="0" y2="1">
-                          <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.95} />
-                          <stop offset="55%" stopColor="#34d399" stopOpacity={0.85} />
-                          <stop offset="100%" stopColor="#a78bfa" stopOpacity={0.65} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid stroke="rgba(148, 163, 184, 0.18)" vertical={false} />
-                      <XAxis dataKey="date" tickLine={false} axisLine={false} fontSize={12} tick={{ fill: "rgba(226, 232, 240, 0.72)" }} />
-                      <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`} tickLine={false} axisLine={false} width={48} tick={{ fill: "rgba(226, 232, 240, 0.72)" }} />
+                      <CartesianGrid stroke="rgba(168,162,158,0.18)" vertical={false} />
+                      <XAxis dataKey="date" tickLine={false} axisLine={false} fontSize={12} tick={{ fill: "rgba(231,229,228,0.7)" }} />
+                      <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`} tickLine={false} axisLine={false} width={48} tick={{ fill: "rgba(231,229,228,0.7)" }} />
                       <ChartTooltip content={<ChartTooltipContent formatter={(value) => vnd(Number(value))} />} />
-                      <Bar dataKey="revenue" fill="url(#revenueGradient)" radius={[6, 6, 0, 0]} />
-                      <Bar dataKey="review" fill="var(--color-review)" radius={[6, 6, 0, 0]} />
+                      <Bar dataKey="revenue" fill="var(--color-revenue)" radius={[2, 2, 0, 0]} />
+                      <Bar dataKey="review" fill="var(--color-review)" radius={[2, 2, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </ChartContainer>
               </CardContent>
             </Card>
-            <Card className="overflow-hidden border-violet-300/25 bg-card/85 shadow-xl shadow-violet-950/15">
-              <CardHeader className="border-b border-violet-300/10 bg-gradient-to-r from-violet-500/10 to-transparent">
-                <CardTitle className="text-violet-50">Source policy</CardTitle>
-                <CardDescription>Rule production để tránh parser làm sai doanh thu.</CardDescription>
+            <Card className="overflow-hidden border border-stone-700/50 bg-stone-950/50">
+              <CardHeader className="border-b border-stone-700/40">
+                <CardTitle className="text-stone-100">Source policy</CardTitle>
+                <CardDescription className="text-stone-400">Rule production để tránh parser làm sai doanh thu.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 pt-6 text-sm">
                 {policyCards.map((item) => (
-                  <div key={item.title} className={`rounded-lg border border-white/10 border-l-4 p-3 shadow-sm ${item.tone}`}>
+                  <div key={item.title} className={`rounded-md border border-stone-700/50 border-l-2 bg-stone-900/40 p-3 text-sm text-stone-200 ${item.rule}`}>
                     <b>{item.title}</b> {item.copy}
                   </div>
                 ))}
-                <Button className="w-full border-rose-300/35 text-rose-100 hover:bg-rose-400/10" variant="outline" onClick={() => openSources({ review: "review_queue" })}>
+                <Button className="w-full border border-rose-400/40 text-rose-200 hover:bg-rose-500/[0.06]" variant="outline" onClick={() => openSources({ review: "review_queue" })}>
                   <Eye className="mr-2 h-4 w-4" />Mở dòng cần audit
                 </Button>
               </CardContent>
@@ -357,23 +324,23 @@ export default function RevenueManagementDashboard() {
           </TabsContent>
 
           <TabsContent value="customers">
-            <Card className="overflow-hidden border-emerald-300/25 bg-card/85 shadow-xl shadow-emerald-950/15">
-              <CardHeader className="border-b border-emerald-300/10 bg-gradient-to-r from-emerald-500/10 to-transparent">
-                <CardTitle className="text-emerald-50">Doanh thu theo customer / NPP</CardTitle>
-                <CardDescription>Click “Chi tiết” để xem source lines, PO trace và trạng thái audit.</CardDescription>
+            <Card className="overflow-hidden border border-stone-700/50 bg-stone-950/50">
+              <CardHeader className="border-b border-stone-700/40">
+                <CardTitle className="text-stone-100">Doanh thu theo customer / NPP</CardTitle>
+                <CardDescription className="text-stone-400">Click “Chi tiết” để xem source lines, PO trace và trạng thái audit.</CardDescription>
               </CardHeader>
               <CardContent className="pt-4">
                 <Table>
-                  <TableHeader><TableRow className="border-emerald-300/15"><TableHead>Customer / NPP</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Revenue</TableHead><TableHead className="text-right">Cần review</TableHead><TableHead>Source</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow className="border-b border-stone-700/50"><TableHead className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Customer / NPP</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Qty</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Revenue</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Cần review</TableHead><TableHead className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Source</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Action</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {byCustomer.map((row) => (
-                      <TableRow key={row.key} className="border-white/10 hover:bg-emerald-400/[0.06]">
-                        <TableCell className="font-medium text-slate-100">{row.name}<div className="text-xs text-emerald-100/60">{row.rows} lines</div></TableCell>
-                        <TableCell className="text-right">{numberFmt(row.qty)}</TableCell>
-                        <TableCell className="text-right font-semibold text-cyan-100">{vnd(row.revenue)}</TableCell>
-                        <TableCell className="text-right">{row.review > 0 ? <Badge className="border-rose-300/40 bg-rose-400/15 text-rose-100" variant="outline">{vnd(row.review)}</Badge> : "—"}</TableCell>
-                        <TableCell>{Array.from(row.sourceTypes).map((s) => <Badge key={s} className="mr-1 border-cyan-300/30 bg-cyan-400/10 text-cyan-100" variant="secondary">{s}</Badge>)}</TableCell>
-                        <TableCell className="text-right"><Button className="border-emerald-300/35 text-emerald-100 hover:bg-emerald-400/10" size="sm" variant="outline" onClick={() => openSources({ customer_key: row.key })}>Chi tiết</Button></TableCell>
+                      <TableRow key={row.key} className="border-b border-stone-800/60 hover:bg-stone-100/[0.03]">
+                        <TableCell className="font-medium text-stone-100">{row.name}<div className="text-xs text-stone-400/70">{row.rows} lines</div></TableCell>
+                        <TableCell className="text-right tabular-nums text-stone-100">{numberFmt(row.qty)}</TableCell>
+                        <TableCell className="text-right font-semibold tabular-nums text-amber-200">{vnd(row.revenue)}</TableCell>
+                        <TableCell className="text-right">{row.review > 0 ? <Badge className="border border-rose-400/40 bg-rose-500/10 text-rose-200" variant="outline">{vnd(row.review)}</Badge> : "—"}</TableCell>
+                        <TableCell>{Array.from(row.sourceTypes).map((s) => <Badge key={s} className="mr-1 border border-stone-600/60 bg-stone-900/40 text-stone-200" variant="secondary">{s}</Badge>)}</TableCell>
+                        <TableCell className="text-right"><Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:bg-stone-100/[0.04]" size="sm" variant="outline" onClick={() => openSources({ customer_key: row.key })}>Chi tiết</Button></TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -383,27 +350,27 @@ export default function RevenueManagementDashboard() {
           </TabsContent>
 
           <TabsContent value="channels">
-            <Card className="overflow-hidden border-violet-300/25 bg-card/85 shadow-xl shadow-violet-950/15">
-              <CardHeader className="border-b border-violet-300/10 bg-gradient-to-r from-violet-500/10 to-transparent"><CardTitle className="text-violet-50">Doanh thu theo kênh</CardTitle><CardDescription>Channel split theo trusted ledger.</CardDescription></CardHeader>
+            <Card className="overflow-hidden border border-stone-700/50 bg-stone-950/50">
+              <CardHeader className="border-b border-stone-700/40"><CardTitle className="text-stone-100">Doanh thu theo kênh</CardTitle><CardDescription className="text-stone-400">Channel split theo trusted ledger.</CardDescription></CardHeader>
               <CardContent className="pt-4">
                 <Table>
-                  <TableHeader><TableRow className="border-violet-300/15"><TableHead>Kênh</TableHead><TableHead className="text-right">Rows</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Revenue</TableHead><TableHead /></TableRow></TableHeader>
+                  <TableHeader><TableRow className="border-b border-stone-700/50"><TableHead className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Kênh</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Rows</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Qty</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Revenue</TableHead><TableHead /></TableRow></TableHeader>
                   <TableBody>
                     {byChannel.map((row, index) => {
                       const dotClass = getChannelDotClass(index);
                       return (
-                        <TableRow key={row.key} className="border-white/10 hover:bg-violet-400/[0.06]">
-                          <TableCell className="font-medium text-slate-100">
+                        <TableRow key={row.key} className="border-b border-stone-800/60 hover:bg-stone-100/[0.03]">
+                          <TableCell className="font-medium text-stone-100">
                             <div className="flex items-center gap-2">
-                              <span className={`h-2.5 w-2.5 rounded-full ${dotClass} shadow-[0_0_16px_currentColor]`} />
+                              <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
                               <span>{row.label}</span>
                             </div>
-                            <div className="text-xs text-violet-100/60">{row.key}</div>
+                            <div className="text-xs text-stone-400/70">{row.key}</div>
                           </TableCell>
-                          <TableCell className="text-right">{row.rows}</TableCell>
-                          <TableCell className="text-right">{numberFmt(row.qty)}</TableCell>
-                          <TableCell className="text-right font-semibold text-cyan-100">{vnd(row.revenue)}</TableCell>
-                          <TableCell className="text-right"><Button className="border-violet-300/35 text-violet-100 hover:bg-violet-400/10" size="sm" variant="outline" onClick={() => openSources({ channel: row.key })}>Chi tiết</Button></TableCell>
+                          <TableCell className="text-right tabular-nums text-stone-100">{row.rows}</TableCell>
+                          <TableCell className="text-right tabular-nums text-stone-100">{numberFmt(row.qty)}</TableCell>
+                          <TableCell className="text-right font-semibold tabular-nums text-amber-200">{vnd(row.revenue)}</TableCell>
+                          <TableCell className="text-right"><Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:bg-stone-100/[0.04]" size="sm" variant="outline" onClick={() => openSources({ channel: row.key })}>Chi tiết</Button></TableCell>
                         </TableRow>
                       );
                     })}
