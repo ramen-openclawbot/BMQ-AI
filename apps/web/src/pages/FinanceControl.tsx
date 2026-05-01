@@ -990,7 +990,8 @@ export default function FinanceControl() {
         const result = await extractSlipAmount(file, slipType);
         const amount = Number(result?.extracted?.amount || 0);
         const confidence = Number(result?.extracted?.confidence || 0);
-        console.log(`[finance][slip-ocr] ${slipType}`, {
+        console.log(`[finance][slip-vision] ${slipType}`, {
+          provider: result?.extracted?.provider || "openai",
           fileName: file.name,
           fileType: file.type,
           fileSize: file.size,
@@ -1003,17 +1004,17 @@ export default function FinanceControl() {
 
       const zeroAmountFiles = batchResults.filter((r) => Number(r.extracted?.amount || 0) <= 0);
       if (zeroAmountFiles.length > 0) {
-        const debugText = `${slipType.toUpperCase()} OCR zero amount: ${zeroAmountFiles.map((r) => `${r.file.name} (confidence ${Number(r.extracted?.confidence || 0).toFixed(2)})`).join(", ")}`;
+        const debugText = `${slipType.toUpperCase()} OpenAI Vision zero amount: ${zeroAmountFiles.map((r) => `${r.file.name} (confidence ${Number(r.extracted?.confidence || 0).toFixed(2)})`).join(", ")}`;
         setOcrDebugMessage(debugText);
         const statusText = isVi
-          ? `Ảnh mới chưa được áp dụng cho ${slipType.toUpperCase()}. OCR không đọc ra số tiền từ file vừa chọn, nên số/preview đang hiển thị bên dưới vẫn là dữ liệu đã lưu trước đó.`
-          : `The new ${slipType.toUpperCase()} image was not applied. OCR could not read an amount from the selected file, so the amount/preview shown below still reflects previously saved data.`;
+          ? `Ảnh mới chưa được áp dụng cho ${slipType.toUpperCase()}. OpenAI Vision không đọc ra số tiền từ file vừa chọn, nên số/preview đang hiển thị bên dưới vẫn là dữ liệu đã lưu trước đó.`
+          : `The new ${slipType.toUpperCase()} image was not applied. OpenAI Vision could not read an amount from the selected file, so the amount/preview shown below still reflects previously saved data.`;
         setSlipUploadStatus((prev) => ({ ...prev, [slipType]: statusText }));
         setDeclarationSaveMessage(isVi
-          ? "OCR chưa đọc ra số tiền từ ảnh vừa tải lên. Hệ thống không lưu ảnh và không cập nhật giao diện."
-          : "OCR could not extract an amount from the uploaded image. The system did not keep the image or update the UI.");
+          ? "OpenAI Vision chưa đọc ra số tiền từ ảnh vừa tải lên. Hệ thống không lưu ảnh và không cập nhật giao diện."
+          : "OpenAI Vision could not extract an amount from the uploaded image. The system did not keep the image or update the UI.");
         toast({
-          title: isVi ? "OCR chưa đọc ra số tiền" : "OCR did not extract amount",
+          title: isVi ? "OpenAI Vision chưa đọc ra số tiền" : "OpenAI Vision did not extract amount",
           description: debugText,
           variant: "destructive",
         });
@@ -1074,8 +1075,8 @@ export default function FinanceControl() {
           ? `Ảnh mới chưa được áp dụng cho ${slipType.toUpperCase()}. Hệ thống vẫn đang giữ số/preview đã lưu trước đó.`
           : `The new ${slipType.toUpperCase()} image was not applied. The UI is still showing previously saved amount/preview.`);
       setSlipUploadStatus((prev) => ({ ...prev, [slipType]: statusText }));
-      setDeclarationSaveMessage(e?.message || (isVi ? "Ảnh đã tải lên nhưng OCR chưa đọc được số tiền. Anh có thể chỉnh tay số tiền rồi bấm Lưu khai báo." : "Image uploaded but OCR could not extract amount. You can adjust the number manually and press Save declaration."));
-      toast({ title: "Lỗi OCR slip", description: e?.message || "Không thể trích xuất số tiền từ ảnh upload. Nếu ảnh chụp từ iPhone, vui lòng thử lại sau khi chụp rõ hơn hoặc dùng ảnh/JPEG ít nén hơn.", variant: "destructive" });
+      setDeclarationSaveMessage(e?.message || (isVi ? "Ảnh đã tải lên nhưng OpenAI Vision chưa đọc được số tiền. Anh có thể chỉnh tay số tiền rồi bấm Lưu khai báo." : "Image uploaded but OpenAI Vision could not extract amount. You can adjust the number manually and press Save declaration."));
+      toast({ title: "Lỗi OpenAI Vision slip", description: e?.message || "Không thể trích xuất số tiền từ ảnh upload. Nếu ảnh chụp từ iPhone, vui lòng thử lại sau khi chụp rõ hơn hoặc dùng ảnh/JPEG ít nén hơn.", variant: "destructive" });
     } finally {
       setExtracting(false);
     }
