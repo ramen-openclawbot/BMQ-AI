@@ -424,10 +424,17 @@ async function runScheduledSync(args: {
       }
 
       const isTier1 = Boolean(row.mini_crm_customers?.is_tier1);
+      const poAutomation = row.raw_payload?.po_automation || null;
+      const automationStatus = String(poAutomation?.automation_status || "");
+      const automationNeedsReview = ["cancel_signal", "pdf_only_needs_review", "parse_failed_needs_review", "parsed_needs_review", "needs_manual_review"].includes(automationStatus);
       const amount = calcAmountFromRow(row);
       const productGroup = String(row.mini_crm_customers?.product_group || inferProductGroupFromRow(row));
       const resolvedCustomerId = row.matched_customer_id || null;
       const kbProfileId = resolvedCustomerId ? kbByCustomer.get(resolvedCustomerId) ?? null : null;
+      const canCreatePendingDraft = isTier1 && !automationNeedsReview;
+      const reviewExceptionReason = automationNeedsReview
+        ? `Kingfood PO cần review: ${automationStatus || "unknown"} - ${poAutomation?.reason || "Không đủ điều kiện auto-parse"}`
+        : "Khách hàng chưa được phân loại Tier-1";
 
       try {
         const doc = existingDoc || await (async () => {
@@ -437,8 +444,8 @@ async function runScheduledSync(args: {
               sync_job_id: job.id,
               inbox_row_id: row.id,
               customer_id: resolvedCustomerId,
-              status: isTier1 ? "ok" : "exception",
-              outcome: isTier1 ? "draft_created" : "exception_non_tier1",
+              status: canCreatePendingDraft ? "ok" : "exception",
+              outcome: canCreatePendingDraft ? "draft_created" : (automationNeedsReview ? `exception_${automationStatus}` : "exception_non_tier1"),
               kb_profile_id: kbProfileId,
               parse_source: row.raw_payload?.parse_meta?.source || "auto",
               parsed_item_count: Array.isArray(row.production_items) ? row.production_items.length : 0,
@@ -464,8 +471,8 @@ async function runScheduledSync(args: {
               parse_source: row.raw_payload?.parse_meta?.source || "auto",
               items: row.production_items || row.raw_payload?.parsed_items_preview || [],
               kb_profile_id: kbProfileId,
-              status: isTier1 ? "pending_review" : "exception",
-              exception_reason: isTier1 ? null : "Khách hàng chưa được phân loại Tier-1",
+              status: canCreatePendingDraft ? "pending_review" : "exception",
+              exception_reason: canCreatePendingDraft ? null : reviewExceptionReason,
             })
             .select("id, inbox_row_id, customer_id, po_number, po_order_date, delivery_date, subtotal_amount, vat_amount, total_amount, revenue_channel, status, exception_reason")
             .single();
@@ -486,8 +493,8 @@ async function runScheduledSync(args: {
             total_amount: Number(doc.total_amount ?? amount),
             revenue_channel: doc.revenue_channel || row.revenue_channel || null,
             product_group: productGroup,
-            status: isTier1 ? "pending" : "exception",
-            exception_reason: isTier1 ? null : (doc.exception_reason || "Khách hàng chưa được phân loại Tier-1"),
+            status: canCreatePendingDraft ? "pending" : "exception",
+            exception_reason: canCreatePendingDraft ? null : (doc.exception_reason || reviewExceptionReason),
           };
           const { error: draftErr } = await supabaseAdmin
             .from("revenue_drafts")
@@ -495,7 +502,7 @@ async function runScheduledSync(args: {
           if (draftErr) throw draftErr;
         }
 
-        if (isTier1) draftsCreated += 1;
+        if (canCreatePendingDraft) draftsCreated += 1;
         else exceptionsCreated += 1;
         processed += 1;
       } catch (rowErr) {

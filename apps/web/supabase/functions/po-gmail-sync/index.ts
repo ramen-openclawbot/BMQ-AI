@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
+import * as XLSX from "npm:xlsx@0.18.5";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 
 type GmailMessage = {
@@ -179,6 +180,121 @@ async function gmailApi(accessToken: string, path: string) {
   return await res.json();
 }
 
+
+const KINGFOOD_AUTOMATION = {
+  sender: "dathang@kingfoodmart.com",
+  xlsxName: "Export-PO-Data.xlsx",
+} as const;
+
+const toNum = (v: any) => {
+  const raw = String(v ?? "").trim();
+  if (!raw) return 0;
+  const s = raw.replace(/[^\d,.-]/g, "");
+  const hasComma = s.includes(",");
+  const hasDot = s.includes(".");
+  const normalize = (input: string, decimalSep: "," | ".") => {
+    const parts = input.split(decimalSep);
+    if (parts.length === 1) return input.replace(/[,.]/g, "");
+    const decimal = parts.pop() || "";
+    const integer = parts.join("").replace(/[,.]/g, "");
+    return `${integer}.${decimal}`;
+  };
+  let normalized = s;
+  if (hasComma && hasDot) normalized = s.lastIndexOf(",") > s.lastIndexOf(".") ? normalize(s, ",") : normalize(s, ".");
+  else if (hasComma) normalized = /,\d{1,2}$/.test(s) ? normalize(s, ",") : s.replace(/,/g, "");
+  else if (hasDot) normalized = /\.\d{1,2}$/.test(s) ? normalize(s, ".") : s.replace(/\./g, "");
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const decodeBase64UrlToBytes = (input: string) => {
+  const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
+  const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
+  const raw = atob(normalized + padding);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
+  return bytes;
+};
+
+const sanitizeVat = (subtotal: number, vat: number) => {
+  const s = Number(subtotal || 0);
+  const v = Number(vat || 0);
+  if (s <= 0) return 0;
+  if (v <= 0 || v > s * 0.3) return Math.round(s * 0.08);
+  return v;
+};
+
+const sanitizeTotal = (subtotal: number, vat: number, total: number) => {
+  const expected = Number(subtotal || 0) + Number(vat || 0);
+  const t = Number(total || 0);
+  if (expected <= 0) return t > 0 ? t : 0;
+  if (t <= 0 || t > expected * 1.5 || t < expected * 0.5) return expected;
+  return t;
+};
+
+function parseKingfoodXlsx(bytes: Uint8Array) {
+  const workbook = XLSX.read(bytes, { type: "array" });
+  let best = { sheetName: null as string | null, items: [] as any[], subtotal: 0, vat: 0, total: 0, totalQty: 0, itemCount: 0 };
+
+  for (const sheetName of workbook.SheetNames || []) {
+    const rows = XLSX.utils.sheet_to_json<any[]>(workbook.Sheets[sheetName], { header: 1, raw: false, defval: "" });
+    const items = rows
+      .map((row) => {
+        const sku = String(row?.[14] || "").trim();
+        const productName = String(row?.[15] || "").trim();
+        const qty = toNum(row?.[17] ?? row?.[18] ?? 0);
+        const unitPrice = toNum(row?.[20]);
+        const explicitLineTotal = toNum(row?.[31]);
+        return {
+          date: String(row?.[11] || "").trim(),
+          product_name: productName,
+          source_column_name: "row_item",
+          sku,
+          qty,
+          unit: String(row?.[16] || "").trim(),
+          unit_price: unitPrice,
+          line_total: explicitLineTotal || qty * unitPrice,
+        };
+      })
+      .filter((item) => /^SP\d+/i.test(item.sku) && item.product_name && item.qty > 0);
+
+    const firstItemRow = rows.find((row) => /^SP\d+/i.test(String(row?.[14] || "").trim())) || [];
+    const subtotal = toNum(firstItemRow?.[33]);
+    const vat = toNum(firstItemRow?.[34]);
+    const total = toNum(firstItemRow?.[35]);
+    const totalQty = toNum(firstItemRow?.[37]);
+    const itemCount = toNum(firstItemRow?.[38]);
+
+    if (items.length > best.items.length) {
+      best = { sheetName, items, subtotal, vat, total, totalQty, itemCount };
+    }
+  }
+
+  const itemSubtotal = best.items.reduce((sum, item) => sum + Number(item.line_total || 0), 0);
+  const itemQty = best.items.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+  const subtotal = best.subtotal > 0 ? best.subtotal : itemSubtotal;
+  const vat = sanitizeVat(subtotal, best.vat);
+  const total = sanitizeTotal(subtotal, vat, best.total);
+  const subtotalDiff = Math.abs(itemSubtotal - subtotal);
+  const qtyDiff = best.totalQty > 0 ? Math.abs(itemQty - best.totalQty) : 0;
+  const itemCountDiff = best.itemCount > 0 ? Math.abs(best.items.length - best.itemCount) : 0;
+
+  return {
+    ...best,
+    subtotal,
+    vat,
+    total,
+    itemSubtotal,
+    itemQty,
+    subtotalDiff,
+    qtyDiff,
+    itemCountDiff,
+    isValid: best.items.length > 0 && subtotalDiff <= 1 && qtyDiff <= 1 && itemCountDiff <= 0,
+  };
+}
+
+const isKingfoodCancelSubject = (subject: string) => /THÔNG\s*BÁO\s*H[ỦUỶY]|HUY\s*DON|HỦY\s*ĐƠN|HUỶ\s*ĐƠN/i.test(subject || "");
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflightResponse(req);
 
@@ -287,11 +403,20 @@ serve(async (req) => {
       const fromName = from.includes("<") ? from.split("<")[0].trim().replace(/^"|"$/g, "") : null;
 
       const snippet = detail?.snippet || "";
+      const attachmentParts: Array<{ filename: string; mimeType: string; attachmentId: string | null }> = [];
       const attachmentNames: string[] = [];
 
       const walkParts = (parts: any[] = []) => {
         for (const p of parts) {
-          if (p?.filename) attachmentNames.push(String(p.filename));
+          if (p?.filename) {
+            const filename = String(p.filename);
+            attachmentNames.push(filename);
+            attachmentParts.push({
+              filename,
+              mimeType: String(p?.mimeType || ""),
+              attachmentId: p?.body?.attachmentId ? String(p.body.attachmentId) : null,
+            });
+          }
           if (Array.isArray(p?.parts)) walkParts(p.parts);
         }
       };
@@ -316,6 +441,72 @@ serve(async (req) => {
 
       const template = match?.customerId ? templateMap.get(match.customerId) : null;
 
+      const isKingfoodSender = fromEmail === KINGFOOD_AUTOMATION.sender;
+      const xlsxFile = attachmentParts.find((a) => a.filename === KINGFOOD_AUTOMATION.xlsxName && a.attachmentId);
+      const pdfFile = attachmentParts.find((a) => a.filename.toLowerCase().endsWith(".pdf"));
+      const isCancelSignal = isKingfoodSender && isKingfoodCancelSubject(subject || "");
+
+      let kingfoodAutomation: any = isKingfoodSender
+        ? {
+            rule: "kingfood_po_automation",
+            sender: KINGFOOD_AUTOMATION.sender,
+            automation_status: "needs_manual_review",
+            reason: "Kingfood email does not match a supported attachment pattern",
+            has_xlsx: Boolean(xlsxFile),
+            has_pdf: Boolean(pdfFile),
+            source_xlsx: xlsxFile?.filename || null,
+            source_pdf: pdfFile?.filename || null,
+          }
+        : null;
+      let parsedItems: any[] | null = null;
+      let parsedSubtotal: number | null = null;
+      let parsedVat: number | null = null;
+      let parsedTotal: number | null = null;
+
+      if (isCancelSignal && kingfoodAutomation) {
+        kingfoodAutomation = {
+          ...kingfoodAutomation,
+          automation_status: "cancel_signal",
+          reason: "Kingfood cancellation email; do not create a normal PO/revenue draft",
+        };
+      } else if (isKingfoodSender && xlsxFile?.attachmentId && kingfoodAutomation) {
+        try {
+          const attachment = await gmailApi(accessToken, `messages/${m.id}/attachments/${xlsxFile.attachmentId}`);
+          const parsed = parseKingfoodXlsx(decodeBase64UrlToBytes(String(attachment?.data || "")));
+          parsedItems = parsed.items;
+          parsedSubtotal = parsed.subtotal || null;
+          parsedVat = parsed.vat || 0;
+          parsedTotal = parsed.total || parsed.subtotal || null;
+          kingfoodAutomation = {
+            ...kingfoodAutomation,
+            automation_status: parsed.isValid ? "parsed_valid" : "parsed_needs_review",
+            reason: parsed.isValid ? "Kingfood Export-PO-Data.xlsx parsed and totals validated" : "Kingfood XLSX parsed but totals/item count need review",
+            source_sheet: parsed.sheetName,
+            item_count: parsed.items.length,
+            subtotal: parsed.subtotal,
+            vat_amount: parsed.vat,
+            total_amount: parsed.total,
+            item_subtotal: parsed.itemSubtotal,
+            item_qty: parsed.itemQty,
+            subtotal_diff: parsed.subtotalDiff,
+            qty_diff: parsed.qtyDiff,
+            item_count_diff: parsed.itemCountDiff,
+          };
+        } catch (parseError) {
+          kingfoodAutomation = {
+            ...kingfoodAutomation,
+            automation_status: "parse_failed_needs_review",
+            reason: parseError instanceof Error ? parseError.message : "Kingfood XLSX parse failed",
+          };
+        }
+      } else if (isKingfoodSender && pdfFile && kingfoodAutomation) {
+        kingfoodAutomation = {
+          ...kingfoodAutomation,
+          automation_status: "pdf_only_needs_review",
+          reason: "Kingfood email has PDF but no Export-PO-Data.xlsx; PDF parser/manual review required",
+        };
+      }
+
       const payload = {
         gmail_message_id: m.id,
         gmail_thread_id: m.threadId,
@@ -327,10 +518,14 @@ serve(async (req) => {
         attachment_names: attachmentNames,
         received_at: dateHeader ? new Date(dateHeader).toISOString() : new Date().toISOString(),
         matched_customer_id: match?.customerId || null,
-        match_status: match ? "pending_approval" : "unmatched",
+        match_status: match ? (kingfoodAutomation?.automation_status === "cancel_signal" ? "error" : "pending_approval") : "unmatched",
         revenue_channel: match?.revenueChannel || null,
         po_number: extractPoNumber(subject || ""),
         delivery_date: extractDeliveryDate(subject || ""),
+        production_items: parsedItems,
+        subtotal_amount: parsedSubtotal,
+        vat_amount: parsedVat,
+        total_amount: parsedTotal,
         raw_payload: {
           gmail_id: m.id,
           thread_id: m.threadId,
@@ -339,6 +534,24 @@ serve(async (req) => {
           from,
           template_id: template?.id || null,
           template_name: template?.template_name || null,
+          po_automation: kingfoodAutomation,
+          parse_meta: kingfoodAutomation?.automation_status === "parsed_valid"
+            ? {
+                source: "kingfood_gmail_sync_auto",
+                parser: "po-gmail-sync:kingfood:v1",
+                parsed_at: new Date().toISOString(),
+                source_xlsx: xlsxFile?.filename || null,
+                source_pdf: pdfFile?.filename || null,
+                item_count: parsedItems?.length || 0,
+                subtotal: parsedSubtotal,
+                vat_amount: parsedVat,
+                total_amount: parsedTotal,
+                subtotal_source: "kingfood_sheet_subtotal_col_33",
+                template_id: template?.id || null,
+                template_name: template?.template_name || null,
+                parse_mode: "kingfood_sender_rule",
+              }
+            : null,
           customer_match_resolution: resolvedMatch.resolution,
           customer_match_candidates: resolvedMatch.candidates.map((candidate) => ({
             customer_id: candidate.customerId,
