@@ -98,7 +98,18 @@ export function Sidebar() {
   const { data: draftPOCount } = useDraftPOCount();
 
   const [showDriveDialog, setShowDriveDialog] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(max-width: 767px)").matches : false
+  );
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px)");
+    const syncMobileState = () => setCollapsed(media.matches);
+
+    syncMobileState();
+    media.addEventListener("change", syncMobileState);
+    return () => media.removeEventListener("change", syncMobileState);
+  }, []);
 
   useEffect(() => {
     const width = collapsed ? "4rem" : "16rem";

@@ -37,7 +37,7 @@ export function AppLayout() {
         <Sidebar />
         <div className="flex flex-col h-dvh" style={{ paddingLeft: "var(--sidebar-width, 16rem)" }}>
           <Header />
-          <main className="p-6 flex-1 overflow-auto pb-[max(5rem,env(safe-area-inset-bottom))]">
+          <main className="flex-1 overflow-auto p-4 pb-[max(5rem,env(safe-area-inset-bottom))] sm:p-6">
             <Outlet />
           </main>
         </div>
