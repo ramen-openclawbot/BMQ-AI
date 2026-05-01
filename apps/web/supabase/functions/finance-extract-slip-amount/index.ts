@@ -100,9 +100,16 @@ const normalizeExtractedSlip = (data: any) => {
   };
 };
 
-const sanitizeAiErrorMessage = (status?: number) => {
-  if (status === 402) return "AI credits exhausted. Please add more credits.";
-  if (status === 429) return "AI service temporarily unavailable. Please try again later.";
+const isOpenAiInsufficientQuotaPayload = (raw: string) => {
+  const lower = String(raw || "").toLowerCase();
+  return lower.includes("insufficient_quota") || lower.includes("exceeded your current quota") || lower.includes("billing details");
+};
+
+const sanitizeAiErrorMessage = (status?: number, rawError = "") => {
+  if (status === 402 || isOpenAiInsufficientQuotaPayload(rawError)) {
+    return "OpenAI insufficient_quota: tài khoản/API key đã hết quota hoặc chưa bật billing.";
+  }
+  if (status === 429) return "OpenAI rate limit: hệ thống AI đang bị giới hạn tạm thời. Vui lòng thử lại sau ít phút.";
   return "AI Vision is temporarily unavailable. Please try again.";
 };
 
@@ -188,12 +195,16 @@ const callOpenAiVision = async (imageBase64: string, mimeType: string, slipType?
       bodyPreview: errText.slice(0, 240),
     });
 
+    if (isOpenAiInsufficientQuotaPayload(errText)) {
+      throw new Error(sanitizeAiErrorMessage(lastStatus, errText));
+    }
+
     if ((lastStatus === 429 || lastStatus >= 500) && attempt < 3) {
       await sleep(400 * attempt);
       continue;
     }
 
-    throw new Error(sanitizeAiErrorMessage(lastStatus));
+    throw new Error(sanitizeAiErrorMessage(lastStatus, errText));
   }
 
   if (!aiResponse?.ok) {
@@ -252,7 +263,7 @@ serve(async (req) => {
     if (error instanceof Response) return error;
     console.error("[finance-extract-slip-amount] Error:", error);
     const message = error instanceof Error ? error.message : "Unknown error";
-    const safeMessage = message.includes("OPENAI_API_KEY")
+    const safeMessage = message.includes("OPENAI_API_KEY") || message.includes("insufficient_quota")
       ? message
       : message.includes("quota") || message.includes("billing") || message.includes("OpenAI request failed")
         ? "AI Vision is temporarily unavailable. Please try again."

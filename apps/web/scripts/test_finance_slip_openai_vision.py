@@ -36,6 +36,8 @@ def main() -> None:
     assert_true("scan-bank-slip" not in finance_page, "CEO upload must not call legacy scan-bank-slip endpoint")
     assert_true("slipType" in finance_page and "slipType" in folder_scan, "both CEO and Drive flows must pass slipType")
     assert_true("OpenAI Vision" in finance_page, "CEO upload UI/errors should identify OpenAI Vision provider")
+    assert_true("insufficient_quota" in extract_fn, "edge function must preserve explicit OpenAI insufficient_quota errors")
+    assert_true("OpenAI rate limit" in extract_fn, "edge function must distinguish generic OpenAI 429 rate limits from insufficient_quota")
 
     print("PASS: CEO bank slip upload and UNC Drive slip flow use OpenAI Vision only")
 
