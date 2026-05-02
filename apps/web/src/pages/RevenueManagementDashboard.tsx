@@ -290,10 +290,13 @@ export default function RevenueManagementDashboard() {
                 <div className="flex min-w-0 items-start justify-between gap-4">
                   <div className="min-w-0 flex-1 space-y-2 pr-1">
                     <div className="text-[11px] uppercase tracking-[0.18em] text-stone-300/80">{card.label}</div>
-                    <div className={`mt-2 min-w-0 break-words text-xl font-semibold leading-tight tabular-nums tracking-tight sm:text-2xl 2xl:text-2xl ${card.valueTone}`}>
-                      {isLoading ? <span className="inline-block h-7 w-24 animate-pulse rounded bg-stone-700/70 align-middle" /> : value}
+                    <div
+                      className={`mt-2 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(1rem,3.8vw,1.35rem)] font-semibold leading-tight tabular-nums tracking-[-0.02em] sm:text-[clamp(1rem,2.4vw,1.35rem)] md:text-[clamp(0.95rem,1.7vw,1.25rem)] xl:text-[clamp(0.82rem,0.98vw,1.05rem)] 2xl:text-[clamp(0.98rem,0.9vw,1.18rem)] ${card.valueTone}`}
+                      title={value}
+                    >
+                      {isLoading ? <span className="inline-block h-6 w-24 animate-pulse rounded bg-stone-700/70 align-middle" /> : value}
                     </div>
-                    <div className="mt-1 truncate text-xs text-stone-300/70">{helper}</div>
+                    <div className="mt-1 truncate text-xs text-stone-300/70" title={helper}>{helper}</div>
                   </div>
                   <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border ${card.iconShell}`}>
                     <Icon className="h-5 w-5" />
