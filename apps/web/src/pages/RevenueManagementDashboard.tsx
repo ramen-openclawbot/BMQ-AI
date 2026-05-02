@@ -422,13 +422,15 @@ export default function RevenueManagementDashboard() {
                           <Tooltip
                             contentStyle={{
                               background: "#1c1917",
-                              border: "1px solid rgba(251,191,36,0.15)",
+                              border: "1px solid rgba(251,191,36,0.28)",
                               borderRadius: "6px",
+                              boxShadow: "0 12px 30px rgba(0,0,0,0.35)",
                               color: "#fef3c7",
                               fontSize: "12px",
                             }}
                             formatter={(value) => [vnd(Number(value)), "Revenue"]}
-                            labelStyle={{ color: "#fef3c7" }}
+                            itemStyle={{ color: "#fef3c7", fontWeight: 600 }}
+                            labelStyle={{ color: "#fef3c7", fontWeight: 600 }}
                           />
                         </PieChart>
                       </ResponsiveContainer>
