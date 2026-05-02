@@ -92,8 +92,8 @@ const metricCards = [
     helper: "ledger lines",
     icon: TrendingUp,
     valueTone: "text-amber-100",
-    iconShell: "border-amber-300/40 bg-amber-400/15 text-amber-200",
-    cardTone: "from-stone-900/90 via-stone-900/70 to-amber-950/25",
+    iconShell: "border-amber-300/30 bg-amber-400/10 text-amber-200",
+    cardTone: "from-amber-950/35 to-stone-950",
   },
   {
     key: "approved",
@@ -101,8 +101,8 @@ const metricCards = [
     helper: "Trusted / approved only",
     icon: CheckCircle2,
     valueTone: "text-emerald-200",
-    iconShell: "border-emerald-300/30 bg-emerald-400/10 text-emerald-200",
-    cardTone: "from-stone-900/90 via-stone-900/70 to-emerald-950/25",
+    iconShell: "border-emerald-300/25 bg-emerald-400/[0.08] text-emerald-200",
+    cardTone: "from-stone-900 to-stone-950",
   },
   {
     key: "review",
@@ -110,26 +110,26 @@ const metricCards = [
     helper: "Manual review queue",
     icon: AlertTriangle,
     valueTone: "text-rose-200",
-    iconShell: "border-rose-300/40 bg-rose-400/10 text-rose-200",
-    cardTone: "from-stone-900/90 via-stone-900/70 to-rose-950/25",
+    iconShell: "border-rose-300/30 bg-rose-400/[0.08] text-rose-200",
+    cardTone: "from-stone-900 to-stone-950",
   },
   {
     key: "qty",
     label: "Sản lượng",
     helper: "Quantity from ledger",
     icon: CalendarDays,
-    valueTone: "text-orange-100",
-    iconShell: "border-orange-300/30 bg-orange-400/10 text-orange-200",
-    cardTone: "from-stone-900/90 via-stone-900/70 to-orange-950/20",
+    valueTone: "text-amber-100/80",
+    iconShell: "border-amber-300/20 bg-amber-400/[0.08] text-amber-300/70",
+    cardTone: "from-stone-900 to-stone-950",
   },
   {
     key: "customers",
     label: "Customer/NPP",
     helper: "Roll-up groups",
     icon: Users,
-    valueTone: "text-stone-50",
-    iconShell: "border-stone-300/25 bg-stone-200/10 text-stone-200",
-    cardTone: "from-stone-900/90 via-stone-900/70 to-stone-800/40",
+    valueTone: "text-stone-100",
+    iconShell: "border-stone-500/30 bg-stone-400/[0.08] text-stone-300",
+    cardTone: "from-stone-900 to-stone-950",
   },
 ] as const;
 
@@ -255,7 +255,7 @@ export default function RevenueManagementDashboard() {
         </Card>
       ) : null}
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         {metricCards.map((card) => {
           const Icon = card.icon;
           const value = card.key === "total" || card.key === "approved" || card.key === "review"
@@ -266,15 +266,15 @@ export default function RevenueManagementDashboard() {
           const helper = card.key === "total" ? `${stats.rows} ${card.helper}` : card.helper;
 
           return (
-            <Card key={card.key} className={`rounded-md border border-amber-100/10 bg-gradient-to-br ${card.cardTone} ring-1 ring-stone-200/5`}>
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-2">
+            <Card key={card.key} className={`overflow-hidden rounded-xl border border-amber-100/10 bg-gradient-to-br ${card.cardTone} ring-1 ring-stone-200/5`}>
+              <CardContent className="p-4 pr-5">
+                <div className="flex min-w-0 items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1 space-y-2 pr-1">
                     <div className="text-[11px] uppercase tracking-[0.18em] text-stone-300/80">{card.label}</div>
-                    <div className={`mt-2 text-2xl font-semibold tabular-nums tracking-tight ${card.valueTone}`}>{isLoading ? "…" : value}</div>
-                    <div className="mt-1 text-xs text-stone-300/70">{helper}</div>
+                    <div className={`mt-2 min-w-0 break-words text-xl font-semibold leading-tight tabular-nums tracking-tight sm:text-2xl xl:text-xl 2xl:text-2xl ${card.valueTone}`}>{isLoading ? "…" : value}</div>
+                    <div className="mt-1 truncate text-xs text-stone-300/70">{helper}</div>
                   </div>
-                  <div className={`rounded-md border p-2 ${card.iconShell}`}>
+                  <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border ${card.iconShell}`}>
                     <Icon className="h-5 w-5" />
                   </div>
                 </div>
