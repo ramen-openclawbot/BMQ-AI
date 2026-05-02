@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, CalendarDays, CheckCircle2, Database, Eye, Loader2, Settings, TrendingUp, Users } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -152,9 +152,12 @@ const policyCards = [
   { title: "4. Dòng lệch", copy: "đưa vào manual review, không tự net doanh thu.", rule: "border-l-rose-400 bg-rose-400/[0.06]" },
 ] as const;
 
-const CHANNEL_DOT_CLASSES = ["bg-amber-300", "bg-amber-400", "bg-emerald-300", "bg-rose-300", "bg-stone-300"] as const;
+const CHANNEL_COLORS = ["#FCD34D", "#FBBF24", "#6EE7B7", "#FCA5A5", "#D6D3D1"] as const;
 
-const getChannelDotClass = (index: number) => CHANNEL_DOT_CLASSES[index % CHANNEL_DOT_CLASSES.length];
+const getChannelColor = (key: string, fallbackIndex: number) => {
+  const knownIndex = Object.keys(channelLabel).indexOf(key);
+  return CHANNEL_COLORS[(knownIndex >= 0 ? knownIndex : fallbackIndex) % CHANNEL_COLORS.length];
+};
 
 export default function RevenueManagementDashboard() {
   const { language } = useLanguage();
@@ -390,31 +393,75 @@ export default function RevenueManagementDashboard() {
 
           <TabsContent value="channels">
             <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/90 via-stone-950/75 to-amber-950/15 ring-1 ring-stone-200/5">
-              <CardHeader className="border-b border-amber-100/10 bg-stone-900/30"><CardTitle className="text-amber-50">Doanh thu theo kênh</CardTitle><CardDescription className="text-stone-300/75">Channel split theo trusted ledger.</CardDescription></CardHeader>
-              <CardContent className="overflow-x-auto pt-4">
-                <Table>
-                  <TableHeader><TableRow className="border-b border-stone-700/50"><TableHead className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Kênh</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Rows</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Qty</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Revenue</TableHead><TableHead /></TableRow></TableHeader>
-                  <TableBody>
-                    {byChannel.map((row, index) => {
-                      const dotClass = getChannelDotClass(index);
-                      return (
-                        <TableRow key={row.key} className="border-b border-stone-800/60 hover:bg-amber-400/[0.08]">
-                          <TableCell className="font-medium text-stone-100">
-                            <div className="flex items-center gap-2">
-                              <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
-                              <span>{row.label}</span>
+              <CardHeader className="border-b border-amber-100/10 bg-stone-900/30"><CardTitle className="text-amber-50">Doanh thu theo kênh</CardTitle><CardDescription className="text-stone-300/75">Circle chart theo tỷ trọng revenue của từng kênh trong trusted ledger.</CardDescription></CardHeader>
+              <CardContent className="pt-4">
+                {byChannel.length === 0 ? (
+                  <div className="flex min-h-[260px] items-center justify-center rounded-md border border-amber-100/10 bg-stone-950/40 text-sm text-stone-300/75">
+                    Chưa có dữ liệu kênh cho kỳ này.
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+                    <div className="shrink-0 lg:w-72">
+                      <ResponsiveContainer width="100%" height={260}>
+                        <PieChart>
+                          <Pie
+                            data={byChannel}
+                            dataKey="revenue"
+                            nameKey="label"
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={68}
+                            outerRadius={108}
+                            paddingAngle={2}
+                            strokeWidth={0}
+                          >
+                            {byChannel.map((row, index) => (
+                              <Cell key={row.key} fill={getChannelColor(row.key, index)} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            contentStyle={{
+                              background: "#1c1917",
+                              border: "1px solid rgba(251,191,36,0.15)",
+                              borderRadius: "6px",
+                              color: "#fef3c7",
+                              fontSize: "12px",
+                            }}
+                            formatter={(value) => [vnd(Number(value)), "Revenue"]}
+                            labelStyle={{ color: "#fef3c7" }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    <div className="min-w-0 flex-1 divide-y divide-stone-800/60">
+                      {byChannel.map((row, index) => {
+                        const pct = stats.total > 0 ? ((row.revenue / stats.total) * 100).toFixed(1) : "0.0";
+                        const color = getChannelColor(row.key, index);
+
+                        return (
+                          <div key={row.key} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center">
+                            <div className="flex min-w-0 flex-1 items-center gap-3">
+                              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-sm font-medium text-stone-100">{row.label}</div>
+                                <div className="truncate text-xs text-stone-400/70">{row.key}</div>
+                                <div className="text-xs text-stone-400/70">{row.rows} rows · {numberFmt(row.qty)} qty</div>
+                              </div>
                             </div>
-                            <div className="text-xs text-stone-400/70">{row.key}</div>
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums text-stone-100">{row.rows}</TableCell>
-                          <TableCell className="text-right tabular-nums text-stone-100">{numberFmt(row.qty)}</TableCell>
-                          <TableCell className="text-right font-semibold tabular-nums text-amber-100">{vnd(row.revenue)}</TableCell>
-                          <TableCell className="text-right"><Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100" size="sm" variant="outline" onClick={() => openSources({ channel: row.key })}>Chi tiết</Button></TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+                            <div className="flex shrink-0 items-center justify-between gap-3 sm:justify-end">
+                              <div className="text-right">
+                                <div className="text-sm font-semibold tabular-nums text-amber-100">{vnd(row.revenue)}</div>
+                                <div className="text-xs text-stone-400">{pct}%</div>
+                              </div>
+                              <Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100" size="sm" variant="outline" onClick={() => openSources({ channel: row.key })}>Chi tiết</Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
