@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, CalendarDays, CheckCircle2, Database, Eye, Loader2, Settings, TrendingUp, Users } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -85,6 +85,18 @@ const channelLabel: Record<string, string> = {
   "Retail kiosk": "Xe bán lẻ",
 };
 
+const sourceTypeLabel: Record<string, string> = {
+  manual_invoice: "Invoice",
+  po_parse: "PO parse",
+  email_parse: "Email parse",
+  csv_import: "CSV",
+  csv: "CSV",
+  email: "Email",
+  parsed_po: "Parsed PO",
+  po: "PO",
+  manual: "Manual",
+};
+
 const metricCards = [
   {
     key: "total",
@@ -102,7 +114,7 @@ const metricCards = [
     icon: CheckCircle2,
     valueTone: "text-emerald-200",
     iconShell: "border-emerald-300/25 bg-emerald-400/[0.08] text-emerald-200",
-    cardTone: "from-stone-900 to-stone-950",
+    cardTone: "from-stone-900/95 via-stone-950 to-stone-900/70",
   },
   {
     key: "review",
@@ -111,7 +123,7 @@ const metricCards = [
     icon: AlertTriangle,
     valueTone: "text-rose-200",
     iconShell: "border-rose-300/30 bg-rose-400/[0.08] text-rose-200",
-    cardTone: "from-stone-900 to-stone-950",
+    cardTone: "from-stone-900/95 via-stone-950 to-stone-900/70",
   },
   {
     key: "qty",
@@ -120,7 +132,7 @@ const metricCards = [
     icon: CalendarDays,
     valueTone: "text-amber-100/80",
     iconShell: "border-amber-300/20 bg-amber-400/[0.08] text-amber-300/70",
-    cardTone: "from-stone-900 to-stone-950",
+    cardTone: "from-stone-900/95 via-stone-950 to-stone-900/70",
   },
   {
     key: "customers",
@@ -129,18 +141,18 @@ const metricCards = [
     icon: Users,
     valueTone: "text-stone-100",
     iconShell: "border-stone-500/30 bg-stone-400/[0.08] text-stone-300",
-    cardTone: "from-stone-900 to-stone-950",
+    cardTone: "from-stone-900/95 via-stone-950 to-stone-900/70",
   },
 ] as const;
 
 const policyCards = [
   { title: "1. Dashboard", copy: "đọc approved/trusted revenue ledger.", rule: "border-l-amber-300 bg-amber-400/[0.06]" },
   { title: "2. CSV audit", copy: "thắng PO parse khi có lệch.", rule: "border-l-emerald-400 bg-emerald-400/[0.05]" },
-  { title: "3. Parsed PO", copy: "mặc định pending, dùng để trace/edit.", rule: "border-l-orange-300 bg-orange-400/[0.05]" },
+  { title: "3. Parsed PO", copy: "mặc định pending, dùng để trace/edit.", rule: "border-l-amber-300 bg-amber-400/[0.05]" },
   { title: "4. Dòng lệch", copy: "đưa vào manual review, không tự net doanh thu.", rule: "border-l-rose-400 bg-rose-400/[0.06]" },
 ] as const;
 
-const CHANNEL_DOT_CLASSES = ["bg-amber-300", "bg-orange-300", "bg-emerald-300", "bg-rose-300", "bg-stone-300"] as const;
+const CHANNEL_DOT_CLASSES = ["bg-amber-300", "bg-amber-400", "bg-emerald-300", "bg-rose-300", "bg-stone-300"] as const;
 
 const getChannelDotClass = (index: number) => CHANNEL_DOT_CLASSES[index % CHANNEL_DOT_CLASSES.length];
 
@@ -236,14 +248,18 @@ export default function RevenueManagementDashboard() {
               : "Production dashboard by month, day, channel, and customer. The main numbers come from the approved/trusted revenue ledger; parsed PO/email rows remain evidence until approved."}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200/10 bg-gradient-to-br from-stone-900/80 to-stone-950/60 p-2 ring-1 ring-stone-200/5">
-          <Input type="month" value={period} onChange={(e) => setPeriod(e.target.value || monthNow())} className="w-[160px] border-stone-600/70 bg-stone-950/50 text-stone-100 hover:border-amber-300/40 focus-visible:ring-amber-300/30" />
-          <Button className={basis === "trusted" ? "border border-amber-300/60 bg-amber-400 text-stone-950 hover:bg-amber-300" : "border border-stone-600/60 bg-transparent text-stone-200 hover:bg-stone-100/[0.04]"} variant={basis === "trusted" ? "default" : "outline"} onClick={() => setBasis("trusted")}>Trusted</Button>
-          <Button className={basis === "all" ? "border border-orange-300/40 bg-orange-400/10 text-orange-100 hover:bg-orange-400/15" : "border border-stone-600/60 bg-transparent text-stone-200 hover:border-orange-300/40 hover:bg-orange-400/[0.07] hover:text-orange-100"} variant="outline" onClick={() => setBasis("all")}>All</Button>
-          <Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100" variant="outline" onClick={() => refetch()}>Refresh</Button>
-          <Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100" variant="outline" onClick={() => navigate("/finance-control/revenue/setup")}>
-            <Settings className="mr-2 h-4 w-4" />Thiết lập doanh thu
-          </Button>
+        <div aria-label="Bộ lọc doanh thu" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200/10 bg-gradient-to-br from-stone-900/80 to-stone-950/60 p-2 ring-1 ring-stone-200/5">
+          <div className="flex flex-wrap items-center gap-2">
+            <Input type="month" value={period} onChange={(e) => setPeriod(e.target.value || monthNow())} className="w-[160px] border-stone-600/70 bg-stone-950/50 text-stone-100 hover:border-amber-300/40 focus-visible:ring-amber-300/30" />
+            <Button className={basis === "trusted" ? "border border-amber-300/60 bg-amber-400 text-stone-950 hover:bg-amber-300" : "border border-stone-600/60 bg-transparent text-stone-200 hover:bg-stone-100/[0.04]"} variant={basis === "trusted" ? "default" : "outline"} onClick={() => setBasis("trusted")}>Trusted</Button>
+            <Button className={basis === "all" ? "border border-amber-300/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/15" : "border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100"} variant="outline" onClick={() => setBasis("all")}>All</Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 border-t border-amber-100/10 pt-2 sm:border-l sm:border-t-0 sm:pl-2 sm:pt-0">
+            <Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100" variant="outline" onClick={() => refetch()}>Refresh</Button>
+            <Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100" variant="outline" onClick={() => navigate("/finance-control/revenue/setup")}>
+              <Settings className="mr-2 h-4 w-4" />Thiết lập doanh thu
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -255,7 +271,7 @@ export default function RevenueManagementDashboard() {
         </Card>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
         {metricCards.map((card) => {
           const Icon = card.icon;
           const value = card.key === "total" || card.key === "approved" || card.key === "review"
@@ -271,7 +287,9 @@ export default function RevenueManagementDashboard() {
                 <div className="flex min-w-0 items-start justify-between gap-4">
                   <div className="min-w-0 flex-1 space-y-2 pr-1">
                     <div className="text-[11px] uppercase tracking-[0.18em] text-stone-300/80">{card.label}</div>
-                    <div className={`mt-2 min-w-0 break-words text-xl font-semibold leading-tight tabular-nums tracking-tight sm:text-2xl xl:text-xl 2xl:text-2xl ${card.valueTone}`}>{isLoading ? "…" : value}</div>
+                    <div className={`mt-2 min-w-0 break-words text-xl font-semibold leading-tight tabular-nums tracking-tight sm:text-2xl 2xl:text-2xl ${card.valueTone}`}>
+                      {isLoading ? <span className="inline-block h-7 w-24 animate-pulse rounded bg-stone-700/70 align-middle" /> : value}
+                    </div>
                     <div className="mt-1 truncate text-xs text-stone-300/70">{helper}</div>
                   </div>
                   <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border ${card.iconShell}`}>
@@ -301,33 +319,44 @@ export default function RevenueManagementDashboard() {
                 <CardDescription className="text-stone-300/75">Click bảng customer/kênh để mở chi tiết source/audit.</CardDescription>
               </CardHeader>
               <CardContent className="h-[360px] pt-6">
-                <ChartContainer config={{ revenue: { label: "Revenue", color: "#F2C15C" }, review: { label: "Review", color: "#E97878" } }} className="h-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={byDay}>
-                      <CartesianGrid stroke="rgba(245,158,11,0.14)" vertical={false} />
-                      <XAxis dataKey="date" tickLine={false} axisLine={false} fontSize={12} tick={{ fill: "rgba(245,245,244,0.74)" }} />
-                      <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`} tickLine={false} axisLine={false} width={48} tick={{ fill: "rgba(245,245,244,0.74)" }} />
-                      <ChartTooltip content={<ChartTooltipContent formatter={(value) => vnd(Number(value))} />} />
-                      <Bar dataKey="revenue" fill="var(--color-revenue)" radius={[2, 2, 0, 0]} />
-                      <Bar dataKey="review" fill="var(--color-review)" radius={[2, 2, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </ChartContainer>
+                {byDay.length === 0 ? (
+                  <div className="flex h-full items-center justify-center rounded-md border border-amber-100/10 bg-stone-950/40 text-sm text-stone-300/75">
+                    Chưa có dữ liệu doanh thu cho kỳ này.
+                  </div>
+                ) : (
+                  <ChartContainer config={{ revenue: { label: "Revenue", color: "#F2C15C" }, review: { label: "Review", color: "#E97878" } }} className="h-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={byDay}>
+                        <CartesianGrid stroke="rgba(245,158,11,0.14)" vertical={false} />
+                        <XAxis dataKey="date" tickLine={false} axisLine={false} fontSize={12} tick={{ fill: "rgba(245,245,244,0.74)" }} />
+                        <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`} tickLine={false} axisLine={false} width={48} tick={{ fill: "rgba(245,245,244,0.74)" }} />
+                        <ChartTooltip content={<ChartTooltipContent formatter={(value) => vnd(Number(value))} />} />
+                        <Legend
+                          wrapperStyle={{ color: "rgba(245,245,244,0.74)", fontSize: 12 }}
+                          formatter={(value) => (value === "revenue" ? "Doanh thu" : "Cần review")}
+                        />
+                        <Bar dataKey="revenue" fill="var(--color-revenue)" radius={[2, 2, 0, 0]} />
+                        <Bar dataKey="review" fill="var(--color-review)" radius={[2, 2, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartContainer>
+                )}
               </CardContent>
             </Card>
-            <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/90 via-stone-950/75 to-orange-950/20 ring-1 ring-stone-200/5">
+            <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/90 via-stone-950/75 to-amber-950/20 ring-1 ring-stone-200/5">
               <CardHeader className="border-b border-amber-100/10 bg-stone-900/30">
                 <CardTitle className="text-amber-50">Source policy</CardTitle>
                 <CardDescription className="text-stone-300/75">Rule production để tránh parser làm sai doanh thu.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 pt-6 text-sm">
                 {policyCards.map((item) => (
-                  <div key={item.title} className={`rounded-md border border-stone-600/40 border-l-2 p-3 text-sm text-stone-100 ${item.rule}`}>
+                  <div key={item.title} className={`rounded-md border-l-4 p-3 text-sm text-stone-100 ${item.rule}`}>
                     <b>{item.title}</b> {item.copy}
                   </div>
                 ))}
                 <Button className="w-full border border-rose-300/40 bg-rose-400/[0.04] text-rose-100 hover:bg-rose-400/[0.09]" variant="outline" onClick={() => openSources({ review: "review_queue" })}>
                   <Eye className="mr-2 h-4 w-4" />Mở dòng cần audit
+                  {stats.review > 0 ? <Badge className="ml-2 border border-rose-200/40 bg-rose-300/10 text-rose-50" variant="outline">{vnd(stats.review)}</Badge> : null}
                 </Button>
               </CardContent>
             </Card>
@@ -339,17 +368,17 @@ export default function RevenueManagementDashboard() {
                 <CardTitle className="text-amber-50">Doanh thu theo customer / NPP</CardTitle>
                 <CardDescription className="text-stone-300/75">Click “Chi tiết” để xem source lines, PO trace và trạng thái audit.</CardDescription>
               </CardHeader>
-              <CardContent className="pt-4">
+              <CardContent className="overflow-x-auto pt-4">
                 <Table>
                   <TableHeader><TableRow className="border-b border-stone-700/50"><TableHead className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Customer / NPP</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Qty</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Revenue</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Cần review</TableHead><TableHead className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Source</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Action</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {byCustomer.map((row) => (
-                      <TableRow key={row.key} className="border-b border-stone-800/60 hover:bg-amber-400/[0.045]">
+                      <TableRow key={row.key} className="border-b border-stone-800/60 hover:bg-amber-400/[0.08]">
                         <TableCell className="font-medium text-stone-100">{row.name}<div className="text-xs text-stone-400/70">{row.rows} lines</div></TableCell>
                         <TableCell className="text-right tabular-nums text-stone-100">{numberFmt(row.qty)}</TableCell>
                         <TableCell className="text-right font-semibold tabular-nums text-amber-100">{vnd(row.revenue)}</TableCell>
                         <TableCell className="text-right">{row.review > 0 ? <Badge className="border border-rose-300/40 bg-rose-400/10 text-rose-100" variant="outline">{vnd(row.review)}</Badge> : <span className="text-stone-500">—</span>}</TableCell>
-                        <TableCell>{Array.from(row.sourceTypes).map((s) => <Badge key={s} className="mr-1 border border-orange-300/25 bg-orange-400/[0.07] text-orange-100" variant="secondary">{s}</Badge>)}</TableCell>
+                        <TableCell>{Array.from(row.sourceTypes).map((s) => <Badge key={s} className="mr-1 border border-amber-300/25 bg-amber-400/[0.07] text-amber-100" variant="secondary">{sourceTypeLabel[s] || s}</Badge>)}</TableCell>
                         <TableCell className="text-right"><Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100" size="sm" variant="outline" onClick={() => openSources({ customer_key: row.key })}>Chi tiết</Button></TableCell>
                       </TableRow>
                     ))}
@@ -360,16 +389,16 @@ export default function RevenueManagementDashboard() {
           </TabsContent>
 
           <TabsContent value="channels">
-            <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/90 via-stone-950/75 to-orange-950/15 ring-1 ring-stone-200/5">
+            <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/90 via-stone-950/75 to-amber-950/15 ring-1 ring-stone-200/5">
               <CardHeader className="border-b border-amber-100/10 bg-stone-900/30"><CardTitle className="text-amber-50">Doanh thu theo kênh</CardTitle><CardDescription className="text-stone-300/75">Channel split theo trusted ledger.</CardDescription></CardHeader>
-              <CardContent className="pt-4">
+              <CardContent className="overflow-x-auto pt-4">
                 <Table>
                   <TableHeader><TableRow className="border-b border-stone-700/50"><TableHead className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Kênh</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Rows</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Qty</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Revenue</TableHead><TableHead /></TableRow></TableHeader>
                   <TableBody>
                     {byChannel.map((row, index) => {
                       const dotClass = getChannelDotClass(index);
                       return (
-                        <TableRow key={row.key} className="border-b border-stone-800/60 hover:bg-amber-400/[0.045]">
+                        <TableRow key={row.key} className="border-b border-stone-800/60 hover:bg-amber-400/[0.08]">
                           <TableCell className="font-medium text-stone-100">
                             <div className="flex items-center gap-2">
                               <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
