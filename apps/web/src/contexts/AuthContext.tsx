@@ -82,7 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await (supabase as any).from("user_roles").insert({ user_id: userId, role: "viewer" });
 
         const viewerRows = [
-          "dashboard", "reports", "niraan_dashboard", "finance_cost", "finance_revenue", "crm",
+          "dashboard", "finance_cost", "finance_revenue", "crm",
           "sales_po_inbox", "purchase_orders", "inventory", "goods_receipts", "sku_costs",
           "suppliers", "invoices", "payment_requests", "low_stock", "settings",
         ].map((moduleKey) => ({

@@ -37,8 +37,6 @@ const RevenueSourceDetail = lazy(() => import("@/pages/RevenueSourceDetail"));
 const SkuCostsManagement = lazy(() => import("@/pages/SkuCostsManagement"));
 const SkuCostsAnalysis = lazy(() => import("@/pages/SkuCostsAnalysis"));
 const SkuCostsDjango = lazy(() => import("@/pages/SkuCostsDjango"));
-const Reports = lazy(() => import("@/pages/Reports"));
-const NiraanDashboard = lazy(() => import("@/pages/NiraanDashboard"));
 const ProductionPlanning = lazy(() => import("@/pages/ProductionPlanning"));
 const ProductionShifts = lazy(() => import("@/pages/ProductionShifts"));
 const QAInspection = lazy(() => import("@/pages/QAInspection"));
@@ -147,8 +145,6 @@ export function AppRoutes() {
         <Route path="/sku-costs/ingredients" element={<SkuCostsIngredients />} />
         <Route path="/sku-costs/employees" element={<SkuCostsEmployees />} />
         <Route path="/sku-costs/overhead" element={<SkuCostsOverhead />} />
-        <Route path="/reports" element={<Suspense fallback={<AppLoadingFallback />}><Reports /></Suspense>} />
-        <Route path="/niraan-dashboard" element={<Suspense fallback={<AppLoadingFallback />}><NiraanDashboard /></Suspense>} />
         <Route path="/finance-control" element={<Navigate to="/finance-control/cost" replace />} />
         <Route path="/finance-control/cost" element={<Suspense fallback={<AppLoadingFallback />}><FinanceControl /></Suspense>} />
         <Route path="/finance-control/revenue" element={<Suspense fallback={<AppLoadingFallback />}><RevenueManagementDashboard /></Suspense>} />

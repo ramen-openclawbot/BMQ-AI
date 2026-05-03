@@ -14,8 +14,6 @@ import {
   PackageCheck,
   ShoppingCart,
   Inbox,
-  BarChart3,
-  Landmark,
   Scale,
   TrendingUp,
   UserRoundCog,
@@ -57,9 +55,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { icon: Shield, labelKey: "userManagement", path: "/user-management", section: "execution", ownerOnly: true, moduleKey: "user_management" },
   { icon: ServerCog, labelKey: "systemManagement", path: "/system-management", section: "execution", ownerOnly: true },
-  { icon: Landmark, labelKey: "investorDashboard", path: "/niraan-dashboard", section: "execution", moduleKey: "niraan_dashboard" },
   { icon: LayoutDashboard, labelKey: "dashboard", path: "/", section: "execution", moduleKey: "dashboard" },
-  { icon: BarChart3, labelKey: "reports", path: "/reports", section: "execution", moduleKey: "reports" },
 
   { icon: Scale, labelKey: "financeCostManagement", path: "/finance-control/cost", section: "finance", moduleKey: "finance_cost" },
   { icon: TrendingUp, labelKey: "financeRevenueManagement", path: "/finance-control/revenue", section: "finance", moduleKey: "finance_revenue" },

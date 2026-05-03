@@ -36,8 +36,6 @@ export interface Invitation {
 // ---------------------------------------------------------------------------
 export const ALL_MODULES: { key: string; labelEn: string; labelVi: string }[] = [
   { key: "dashboard", labelEn: "Dashboard", labelVi: "Tổng quan" },
-  { key: "reports", labelEn: "Reports", labelVi: "Báo cáo" },
-  { key: "niraan_dashboard", labelEn: "Investor Dashboard", labelVi: "Investor Dashboard" },
   { key: "finance_cost", labelEn: "Cost Management", labelVi: "Quản lý chi phí" },
   { key: "finance_revenue", labelEn: "Revenue Management", labelVi: "Quản lý doanh thu" },
   { key: "crm", labelEn: "CRM", labelVi: "CRM" },
@@ -287,7 +285,7 @@ export function useInviteUser() {
 // Default permission sets per role (mirrors the SQL seed logic)
 // ---------------------------------------------------------------------------
 const DEFAULT_VIEW: Record<string, string[]> = {
-  staff: ["dashboard","reports","finance_cost","finance_revenue","crm","sales_po_inbox","purchase_orders","attendance","inventory","goods_receipts","sku_costs","suppliers","invoices","payment_requests","low_stock","settings"],
+  staff: ["dashboard","finance_cost","finance_revenue","crm","sales_po_inbox","purchase_orders","attendance","inventory","goods_receipts","sku_costs","suppliers","invoices","payment_requests","low_stock","settings"],
   warehouse: ["dashboard","purchase_orders","inventory","goods_receipts","suppliers","invoices","low_stock","settings"],
   viewer: ["dashboard","inventory","low_stock","settings"],
 };
@@ -298,7 +296,7 @@ const DEFAULT_EDIT: Record<string, string[]> = {
 };
 
 const ALL_MODULE_KEYS = [
-  "dashboard","reports","niraan_dashboard","finance_cost","finance_revenue","crm",
+  "dashboard","finance_cost","finance_revenue","crm",
   "sales_po_inbox","purchase_orders","attendance","payroll","inventory","goods_receipts","sku_costs",
   "suppliers","invoices","payment_requests","low_stock","settings",
 ];
