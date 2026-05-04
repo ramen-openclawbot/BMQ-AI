@@ -189,7 +189,17 @@ export default function FinanceControl() {
   const qtmBalanceError = snapshotFailed ? fallbackQtmBalanceError : dailySnapshotError;
 
   const { data: monthlySummary, error: monthlyError, refetch: refetchMonthly } = useMonthlyReconciliation(selectedMonth, activeTab === "monthly");
-  const { data: declarationImages } = useDailyDeclarationImages(debouncedSelectedDate, imagesRequested);
+  const persistedQtmImages = dailyDeclaration?.extraction_meta?.qtm_images;
+  const persistedUncImages = dailyDeclaration?.extraction_meta?.unc_images;
+  const hasPersistedSlipImages = Boolean(
+    (Array.isArray(persistedQtmImages) && persistedQtmImages.length > 0)
+    || (Array.isArray(persistedUncImages) && persistedUncImages.length > 0),
+  );
+  const enableDeclarationImages = imagesRequested
+    || Number(dailyDeclaration?.qtm_extracted_amount || dailyDeclaration?.cash_fund_topup_amount || 0) > 0
+    || Number(dailyDeclaration?.unc_extracted_amount || dailyDeclaration?.unc_total_declared || 0) > 0
+    || hasPersistedSlipImages;
+  const { data: declarationImages, refetch: refetchDeclarationImages } = useDailyDeclarationImages(debouncedSelectedDate, enableDeclarationImages);
 
   // Surface query errors to user via toast (fire once per error)
   useEffect(() => {
@@ -1224,6 +1234,7 @@ export default function FinanceControl() {
       setUncTotalDeclared(nextUncAmount);
       setDeclarationSaveMessage(isVi ? "Đã xoá slip và lưu lại khai báo CEO" : "Slip deleted and CEO declaration updated");
       await refetchDeclaration();
+      await refetchDeclarationImages();
       toast({
         title: isVi ? "Đã xoá slip" : "Slip deleted",
         description: isVi ? "Khai báo CEO đã được cập nhật theo danh sách slip còn lại." : "CEO declaration has been recalculated from the remaining slips.",
@@ -1711,6 +1722,18 @@ export default function FinanceControl() {
                     if (files.length) await processSlipUpload("unc", files);
                     e.currentTarget.value = "";
                   }} />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => {
+                      setImagesRequested(true);
+                      void refetchDeclarationImages();
+                    }}
+                  >
+                    {isVi ? "Hiện / tải lại slip đã lưu" : "Show / reload saved slips"}
+                  </Button>
                   {slipUploadStatus.unc && (
                     <div className="text-xs rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-amber-700 dark:text-amber-300">
                       {slipUploadStatus.unc}
@@ -1753,6 +1776,18 @@ export default function FinanceControl() {
                     if (files.length) await processSlipUpload("qtm", files);
                     e.currentTarget.value = "";
                   }} />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => {
+                      setImagesRequested(true);
+                      void refetchDeclarationImages();
+                    }}
+                  >
+                    {isVi ? "Hiện / tải lại slip đã lưu" : "Show / reload saved slips"}
+                  </Button>
                   {slipUploadStatus.qtm && (
                     <div className="text-xs rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-amber-700 dark:text-amber-300">
                       {slipUploadStatus.qtm}
