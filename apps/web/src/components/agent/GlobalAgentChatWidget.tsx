@@ -76,6 +76,10 @@ type PaymentRequestMaterialSearchRow = PaymentRequestSearchRow & {
   matching_products: string[];
 };
 
+const NORMALIZED_SUPPLIER_CANDIDATE_LIMIT = 500;
+const NORMALIZED_MATERIAL_CANDIDATE_LIMIT = 500;
+const MIN_SUGGESTIONS_BEFORE_NORMALIZED_FALLBACK = 5;
+
 const moduleConfig: Array<{ test: (pathname: string) => boolean; context: ModuleContext }> = [
   { test: (p) => p === "/mini-crm", context: { key: "crm", label: "CRM", suggestions: ["Tạo khách hàng Vietjet Test email ops@vietjet.vn", "Checklist setup customer", "Tóm tắt module này"] } },
   { test: (p) => p === "/sales-po-inbox", context: { key: "sales_po", label: "Sales PO Inbox", suggestions: ["Tóm tắt PO đang chờ xử lý", "Checklist review delta trước khi post", "Giải thích auto-post an toàn"] } },
@@ -159,6 +163,76 @@ function normalizeSupplierSearchTerm(raw: string): string {
     .replace(/^(đã chi|da chi|chưa chi|chua chi)\s+/i, "")
     .replace(/^theo\s+(ncc|nhà cung cấp|nha cung cap)\s*/i, "")
     .trim();
+}
+
+function escapeIlikePattern(value: string): string {
+  return value.replace(/[%_]/g, "\\$&");
+}
+
+function normalizeVietnamese(value: string): string {
+  return String(value || "")
+    .replace(/[đĐ]/g, "d")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ");
+}
+
+function normalizedTokens(value: string): string[] {
+  return normalizeVietnamese(value).split(" ").filter(Boolean);
+}
+
+function isNoAccentInput(value: string): boolean {
+  const compactOriginal = String(value || "").toLowerCase().trim().replace(/\s+/g, " ");
+  return Boolean(compactOriginal) && compactOriginal === normalizeVietnamese(value);
+}
+
+function hasTokensInOrder(haystack: string, tokens: string[]): boolean {
+  let cursor = 0;
+  for (const token of tokens) {
+    const nextIndex = haystack.indexOf(token, cursor);
+    if (nextIndex < 0) return false;
+    cursor = nextIndex + token.length;
+  }
+  return true;
+}
+
+function getNormalizedMatchRank(query: string, labels: Array<string | null | undefined>): number | null {
+  const normalizedQuery = normalizeVietnamese(query);
+  const tokens = normalizedTokens(query);
+  if (!normalizedQuery || !tokens.length) return null;
+
+  const normalizedLabels = labels.map((label) => normalizeVietnamese(label || "")).filter(Boolean);
+  if (!normalizedLabels.length) return null;
+
+  const compactQuery = normalizedQuery.replace(/\s+/g, "");
+  const compactLabels = normalizedLabels.map((label) => label.replace(/\s+/g, ""));
+  if (normalizedLabels.some((label) => label === normalizedQuery)) return 0;
+  if (compactLabels.some((label) => label === compactQuery)) return 0;
+  if (normalizedLabels.some((label) => label.startsWith(normalizedQuery))) return 1;
+  if (compactLabels.some((label) => label.startsWith(compactQuery))) return 1;
+  if (normalizedLabels.some((label) => label.includes(normalizedQuery))) return 2;
+  if (compactLabels.some((label) => label.includes(compactQuery))) return 2;
+  if (normalizedLabels.some((label) => hasTokensInOrder(label, tokens))) return 3;
+
+  const combined = normalizedLabels.join(" ");
+  if (hasTokensInOrder(combined, tokens)) return 4;
+  if (tokens.every((token) => combined.includes(token))) return 5;
+  return null;
+}
+
+function compareText(a: string | null | undefined, b: string | null | undefined): number {
+  return String(a || "").localeCompare(String(b || ""), "vi");
+}
+
+function supplierLabels(supplier: PaymentRequestSearchSupplier): Array<string | null | undefined> {
+  return [supplier.name, supplier.short_code];
+}
+
+function materialLabels(item: PaymentRequestMaterialItem | MaterialSuggestion): Array<string | null | undefined> {
+  return [item.product_name, item.product_code];
 }
 
 function isPaymentRequestSupplierSearch(content: string, routeKey: string): boolean {
@@ -405,7 +479,7 @@ function aggregateMaterialSuggestions(rows: PaymentRequestMaterialItem[]): Mater
 }
 
 async function searchMaterialSuggestions(term: string): Promise<MaterialSuggestion[]> {
-  const pattern = `%${term.replace(/[%_]/g, "\\$&")}%`;
+  const pattern = `%${escapeIlikePattern(term)}%`;
   const { data, error } = await (supabase as any)
     .from("payment_request_items")
     .select("product_name,product_code,unit,payment_request_id,created_at")
@@ -414,14 +488,45 @@ async function searchMaterialSuggestions(term: string): Promise<MaterialSuggesti
     .limit(80);
 
   if (error) throw error;
-  return aggregateMaterialSuggestions(data || []);
+
+  const directRows: PaymentRequestMaterialItem[] = data || [];
+  let rows = directRows;
+  const directSuggestions = aggregateMaterialSuggestions(directRows);
+
+  if (directSuggestions.length < MIN_SUGGESTIONS_BEFORE_NORMALIZED_FALLBACK || isNoAccentInput(term)) {
+    const normalizedRows = await fetchNormalizedMaterialRows(term, "product_name,product_code,unit,payment_request_id,created_at", NORMALIZED_MATERIAL_CANDIDATE_LIMIT);
+    rows = mergeMaterialRows(directRows, normalizedRows);
+  }
+
+  return sortMaterialSuggestions(term, aggregateMaterialSuggestions(rows)).slice(0, 10);
 }
 
 async function searchSupplierSuggestions(term: string): Promise<SupplierSuggestion[]> {
-  const pattern = `%${term.replace(/[%_]/g, "\\$&")}%`;
+  const directSuppliers = await fetchSuppliersByIlike(term, 10);
+  const supplierMap = new Map<string, PaymentRequestSearchSupplier>();
+
+  directSuppliers.forEach((supplier) => {
+    if (supplier?.id) supplierMap.set(supplier.id, supplier);
+  });
+
+  if (directSuppliers.length < MIN_SUGGESTIONS_BEFORE_NORMALIZED_FALLBACK || isNoAccentInput(term)) {
+    const normalizedSuppliers = await fetchNormalizedSupplierCandidates(term);
+    normalizedSuppliers.forEach((supplier) => {
+      if (supplier?.id) supplierMap.set(supplier.id, supplier);
+    });
+  }
+
+  const suppliers = sortSuppliersForTerm(term, Array.from(supplierMap.values())).slice(0, 10);
+  if (!suppliers.length) return [];
+
+  return sortSuppliersForTerm(term, await enrichSupplierSuggestionCounts(suppliers)).slice(0, 10);
+}
+
+async function fetchSuppliersByIlike(term: string, limit: number): Promise<PaymentRequestSearchSupplier[]> {
+  const pattern = `%${escapeIlikePattern(term)}%`;
   const [nameResult, shortCodeResult] = await Promise.all([
-    (supabase as any).from("suppliers").select("id,name,short_code").ilike("name", pattern).limit(10),
-    (supabase as any).from("suppliers").select("id,name,short_code").ilike("short_code", pattern).limit(10),
+    (supabase as any).from("suppliers").select("id,name,short_code").ilike("name", pattern).limit(limit),
+    (supabase as any).from("suppliers").select("id,name,short_code").ilike("short_code", pattern).limit(limit),
   ]);
 
   if (nameResult.error) throw nameResult.error;
@@ -431,9 +536,26 @@ async function searchSupplierSuggestions(term: string): Promise<SupplierSuggesti
   [...(nameResult.data || []), ...(shortCodeResult.data || [])].forEach((supplier: PaymentRequestSearchSupplier) => {
     if (supplier?.id) supplierMap.set(supplier.id, supplier);
   });
-  const suppliers = Array.from(supplierMap.values()).slice(0, 10);
-  if (!suppliers.length) return [];
 
+  return Array.from(supplierMap.values()).slice(0, limit);
+}
+
+async function fetchNormalizedSupplierCandidates(term: string): Promise<PaymentRequestSearchSupplier[]> {
+  const { data, error } = await (supabase as any)
+    .from("suppliers")
+    .select("id,name,short_code")
+    .order("name", { ascending: true })
+    .limit(NORMALIZED_SUPPLIER_CANDIDATE_LIMIT);
+
+  if (error) throw error;
+
+  return sortSuppliersForTerm(
+    term,
+    (data || []).filter((supplier: PaymentRequestSearchSupplier) => getNormalizedMatchRank(term, supplierLabels(supplier)) !== null)
+  );
+}
+
+async function enrichSupplierSuggestionCounts(suppliers: PaymentRequestSearchSupplier[]): Promise<SupplierSuggestion[]> {
   const counts = new Map<string, number>();
   const { data: requestData } = await (supabase as any)
     .from("payment_requests")
@@ -448,26 +570,105 @@ async function searchSupplierSuggestions(term: string): Promise<SupplierSuggesti
   return suppliers.map((supplier) => ({ ...supplier, pr_count: counts.get(supplier.id) || 0 }));
 }
 
+function sortSuppliersForTerm<T extends PaymentRequestSearchSupplier>(term: string, suppliers: T[]): T[] {
+  return [...suppliers].sort((a, b) => {
+    const rankA = getNormalizedMatchRank(term, supplierLabels(a)) ?? Number.MAX_SAFE_INTEGER;
+    const rankB = getNormalizedMatchRank(term, supplierLabels(b)) ?? Number.MAX_SAFE_INTEGER;
+    if (rankA !== rankB) return rankA - rankB;
+
+    const countA = "pr_count" in a ? Number(a.pr_count || 0) : 0;
+    const countB = "pr_count" in b ? Number(b.pr_count || 0) : 0;
+    if (countB !== countA) return countB - countA;
+
+    return compareText(a.name || a.short_code || a.id, b.name || b.short_code || b.id);
+  });
+}
+
+function sortMaterialSuggestions(term: string, suggestions: MaterialSuggestion[]): MaterialSuggestion[] {
+  return [...suggestions].sort((a, b) => {
+    const rankA = getNormalizedMatchRank(term, materialLabels(a)) ?? Number.MAX_SAFE_INTEGER;
+    const rankB = getNormalizedMatchRank(term, materialLabels(b)) ?? Number.MAX_SAFE_INTEGER;
+    if (rankA !== rankB) return rankA - rankB;
+    if (b.pr_count !== a.pr_count) return b.pr_count - a.pr_count;
+
+    const dateA = new Date(a.latest_item_at || 0).getTime();
+    const dateB = new Date(b.latest_item_at || 0).getTime();
+    if (dateB !== dateA) return dateB - dateA;
+
+    if (b.line_count !== a.line_count) return b.line_count - a.line_count;
+    return compareText(a.product_name, b.product_name);
+  });
+}
+
+function materialRowKey(item: PaymentRequestMaterialItem): string {
+  return [
+    item.payment_request_id || "",
+    item.product_name || "",
+    item.product_code || "",
+    item.unit || "",
+    item.created_at || "",
+  ].map((part) => String(part).toLowerCase()).join("__");
+}
+
+function mergeMaterialRows(...groups: PaymentRequestMaterialItem[][]): PaymentRequestMaterialItem[] {
+  const rowMap = new Map<string, PaymentRequestMaterialItem>();
+  groups.flat().forEach((row) => {
+    const key = materialRowKey(row);
+    if (!rowMap.has(key)) rowMap.set(key, row);
+  });
+  return Array.from(rowMap.values());
+}
+
+async function fetchNormalizedMaterialRows(term: string, select: string, limit: number): Promise<PaymentRequestMaterialItem[]> {
+  const { data, error } = await (supabase as any)
+    .from("payment_request_items")
+    .select(select)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+
+  return (data || [])
+    .filter((item: PaymentRequestMaterialItem) => getNormalizedMatchRank(term, materialLabels(item)) !== null)
+    .sort((a: PaymentRequestMaterialItem, b: PaymentRequestMaterialItem) => {
+      const rankA = getNormalizedMatchRank(term, materialLabels(a)) ?? Number.MAX_SAFE_INTEGER;
+      const rankB = getNormalizedMatchRank(term, materialLabels(b)) ?? Number.MAX_SAFE_INTEGER;
+      if (rankA !== rankB) return rankA - rankB;
+
+      const dateA = new Date(a.created_at || 0).getTime();
+      const dateB = new Date(b.created_at || 0).getTime();
+      if (dateB !== dateA) return dateB - dateA;
+
+      return compareText(a.product_name, b.product_name);
+    });
+}
+
+async function resolveStrongSupplierSuggestion(term: string): Promise<SupplierSuggestion | null> {
+  const suggestions = await searchSupplierSuggestions(term);
+  const topSuggestion = suggestions[0];
+  if (!topSuggestion) return null;
+
+  const topRank = getNormalizedMatchRank(term, supplierLabels(topSuggestion));
+  if (topRank === null) return null;
+  if (topRank <= 1) return topSuggestion;
+
+  const secondRank = suggestions[1] ? getNormalizedMatchRank(term, supplierLabels(suggestions[1])) : null;
+  if (topRank <= 3 && (secondRank === null || secondRank > topRank)) return topSuggestion;
+  return null;
+}
+
 async function searchPaymentRequestsBySupplier(term: string, exactSupplier?: PaymentRequestSearchSupplier): Promise<{ suppliers: PaymentRequestSearchSupplier[]; rows: PaymentRequestSearchRow[] }> {
   let suppliers: PaymentRequestSearchSupplier[] = [];
 
   if (exactSupplier?.id) {
     suppliers = [exactSupplier];
   } else {
-    const pattern = `%${term.replace(/[%_]/g, "\\$&")}%`;
-    const [nameResult, shortCodeResult] = await Promise.all([
-      (supabase as any).from("suppliers").select("id,name,short_code").ilike("name", pattern).limit(10),
-      (supabase as any).from("suppliers").select("id,name,short_code").ilike("short_code", pattern).limit(10),
-    ]);
-
-    if (nameResult.error) throw nameResult.error;
-    if (shortCodeResult.error) throw shortCodeResult.error;
-
-    const supplierMap = new Map<string, PaymentRequestSearchSupplier>();
-    [...(nameResult.data || []), ...(shortCodeResult.data || [])].forEach((supplier: PaymentRequestSearchSupplier) => {
-      if (supplier?.id) supplierMap.set(supplier.id, supplier);
-    });
-    suppliers = Array.from(supplierMap.values()).slice(0, 10);
+    suppliers = await fetchSuppliersByIlike(term, 10);
+    if (!suppliers.length) {
+      const normalizedSupplier = await resolveStrongSupplierSuggestion(term);
+      suppliers = normalizedSupplier ? [normalizedSupplier] : [];
+      exactSupplier = normalizedSupplier || undefined;
+    }
   }
 
   if (!suppliers.length) return { suppliers: [], rows: [] };
@@ -489,7 +690,7 @@ async function searchPaymentRequestsBySupplier(term: string, exactSupplier?: Pay
 }
 
 async function searchPaymentRequestsByMaterial(term: string, exactProductName = false): Promise<PaymentRequestMaterialSearchRow[]> {
-  const pattern = `%${term.replace(/[%_]/g, "\\$&")}%`;
+  const pattern = `%${escapeIlikePattern(term)}%`;
   let itemQuery = (supabase as any).from("payment_request_items").select("*").order("created_at", { ascending: false }).limit(200);
 
   if (exactProductName) {
@@ -501,7 +702,11 @@ async function searchPaymentRequestsByMaterial(term: string, exactProductName = 
   const { data: itemData, error: itemError } = await itemQuery;
   if (itemError) throw itemError;
 
-  const items: PaymentRequestMaterialItem[] = itemData || [];
+  let items: PaymentRequestMaterialItem[] = itemData || [];
+  if (!exactProductName && !items.length) {
+    items = (await fetchNormalizedMaterialRows(term, "*", NORMALIZED_MATERIAL_CANDIDATE_LIMIT)).slice(0, 200);
+  }
+
   const requestIds = Array.from(new Set(items.map((item) => item.payment_request_id).filter(Boolean))) as string[];
   if (!requestIds.length) return [];
 
@@ -707,7 +912,25 @@ export function GlobalAgentChatWidget() {
     setMessages((prev) => [...prev, { role: "user", text: `Tìm NCC: ${term}` }]);
     setSupplierPickerOpen(false);
     setPendingPaymentSupplierSearch(false);
-    await runPaymentSupplierSearch(term);
+    try {
+      const directSuppliers = await fetchSuppliersByIlike(term, 1);
+      if (directSuppliers.length) {
+        await runPaymentSupplierSearch(term);
+        return;
+      }
+
+      const normalizedSupplier = await resolveStrongSupplierSuggestion(term);
+      if (normalizedSupplier) {
+        const supplierName = normalizedSupplier.name || normalizedSupplier.short_code || normalizedSupplier.id;
+        setSupplierSearchDraft(supplierName);
+        await runPaymentSupplierSearch(supplierName, normalizedSupplier);
+        return;
+      }
+
+      await runPaymentSupplierSearch(term);
+    } catch {
+      await runPaymentSupplierSearch(term);
+    }
   };
 
   const selectSupplierSuggestion = async (suggestion: SupplierSuggestion) => {
