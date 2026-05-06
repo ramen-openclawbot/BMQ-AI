@@ -56,29 +56,12 @@ type MaterialSuggestion = {
 type PaymentRequestMaterialItem = {
   product_name?: string | null;
   product_code?: string | null;
-  unit?: string | null;
-  payment_request_id?: string | null;
-  created_at?: string | null;
-  quantity?: number | null;
-  qty?: number | null;
-  unit_price?: number | null;
-  price?: number | null;
-  line_total?: number | null;
-  line_amount?: number | null;
-  total_amount?: number | null;
-  amount?: number | null;
-  subtotal?: number | null;
-  total?: number | null;
 };
 type PaymentRequestMaterialSearchRow = PaymentRequestSearchRow & {
   matching_line_total: number;
   matching_line_count: number;
   matching_products: string[];
 };
-
-const NORMALIZED_SUPPLIER_CANDIDATE_LIMIT = 500;
-const NORMALIZED_MATERIAL_CANDIDATE_LIMIT = 500;
-const MIN_SUGGESTIONS_BEFORE_NORMALIZED_FALLBACK = 5;
 
 const moduleConfig: Array<{ test: (pathname: string) => boolean; context: ModuleContext }> = [
   { test: (p) => p === "/mini-crm", context: { key: "crm", label: "CRM", suggestions: ["Tạo khách hàng Vietjet Test email ops@vietjet.vn", "Checklist setup customer", "Tóm tắt module này"] } },
@@ -165,10 +148,6 @@ function normalizeSupplierSearchTerm(raw: string): string {
     .trim();
 }
 
-function escapeIlikePattern(value: string): string {
-  return value.replace(/[%_]/g, "\\$&");
-}
-
 function normalizeVietnamese(value: string): string {
   return String(value || "")
     .replace(/[đĐ]/g, "d")
@@ -233,6 +212,36 @@ function supplierLabels(supplier: PaymentRequestSearchSupplier): Array<string | 
 
 function materialLabels(item: PaymentRequestMaterialItem | MaterialSuggestion): Array<string | null | undefined> {
   return [item.product_name, item.product_code];
+}
+
+function sortSuppliersForTerm<T extends PaymentRequestSearchSupplier>(term: string, suppliers: T[]): T[] {
+  return [...suppliers].sort((a, b) => {
+    const rankA = getNormalizedMatchRank(term, supplierLabels(a)) ?? Number.MAX_SAFE_INTEGER;
+    const rankB = getNormalizedMatchRank(term, supplierLabels(b)) ?? Number.MAX_SAFE_INTEGER;
+    if (rankA !== rankB) return rankA - rankB;
+
+    const countA = "pr_count" in a ? Number(a.pr_count || 0) : 0;
+    const countB = "pr_count" in b ? Number(b.pr_count || 0) : 0;
+    if (countB !== countA) return countB - countA;
+
+    return compareText(a.name || a.short_code || a.id, b.name || b.short_code || b.id);
+  });
+}
+
+function sortMaterialSuggestions(term: string, suggestions: MaterialSuggestion[]): MaterialSuggestion[] {
+  return [...suggestions].sort((a, b) => {
+    const rankA = getNormalizedMatchRank(term, materialLabels(a)) ?? Number.MAX_SAFE_INTEGER;
+    const rankB = getNormalizedMatchRank(term, materialLabels(b)) ?? Number.MAX_SAFE_INTEGER;
+    if (rankA !== rankB) return rankA - rankB;
+    if (b.pr_count !== a.pr_count) return b.pr_count - a.pr_count;
+
+    const dateA = new Date(a.latest_item_at || 0).getTime();
+    const dateB = new Date(b.latest_item_at || 0).getTime();
+    if (dateB !== dateA) return dateB - dateA;
+
+    if (b.line_count !== a.line_count) return b.line_count - a.line_count;
+    return compareText(a.product_name, b.product_name);
+  });
 }
 
 function isPaymentRequestSupplierSearch(content: string, routeKey: string): boolean {
@@ -423,224 +432,67 @@ function formatPaymentMaterialSearchResults(term: string, rows: PaymentRequestMa
   ].join("\n");
 }
 
-function getMaterialLineAmount(item: PaymentRequestMaterialItem): number {
-  const directKeys: Array<keyof PaymentRequestMaterialItem> = ["line_total", "line_amount", "total_amount", "amount", "subtotal", "total"];
-  for (const key of directKeys) {
-    const value = Number(item[key] || 0);
-    if (Number.isFinite(value) && value > 0) return value;
-  }
+type PaymentAgentSearchBody =
+  | { action: "supplier_suggestions"; term: string }
+  | { action: "material_suggestions"; term: string }
+  | { action: "supplier_search"; term: string; exactSupplier?: PaymentRequestSearchSupplier }
+  | { action: "material_search"; term: string; exactProductName?: boolean };
 
-  const quantity = Number(item.quantity ?? item.qty ?? 0);
-  const unitPrice = Number(item.unit_price ?? item.price ?? 0);
-  if (Number.isFinite(quantity) && Number.isFinite(unitPrice) && quantity > 0 && unitPrice > 0) return quantity * unitPrice;
-  return 0;
+type PaymentAgentSearchResponse = {
+  suggestions?: SupplierSuggestion[] | MaterialSuggestion[];
+  suppliers?: PaymentRequestSearchSupplier[];
+  rows?: PaymentRequestSearchRow[] | PaymentRequestMaterialSearchRow[];
+};
+
+class PaymentAgentAccessError extends Error {
+  constructor() {
+    super("ACCESS_DENIED");
+  }
 }
 
-function aggregateMaterialSuggestions(rows: PaymentRequestMaterialItem[]): MaterialSuggestion[] {
-  const suggestionMap = new Map<string, MaterialSuggestion & { requestIds: Set<string> }>();
+const PAYMENT_AGENT_ACCESS_DENIED_MESSAGE = "Tính năng tìm duyệt chi chỉ dành cho tài khoản owner. Anh kiểm tra lại quyền truy cập hoặc đăng nhập lại giúp em.";
+const PAYMENT_AGENT_SEARCH_ERROR_MESSAGE = "Em chưa tải được dữ liệu duyệt chi lúc này. Anh thử lại sau giúp em.";
 
-  rows.forEach((row) => {
-    const productName = String(row.product_name || "").trim();
-    if (!productName) return;
+function isPaymentAgentAccessError(error: unknown): boolean {
+  return error instanceof PaymentAgentAccessError;
+}
 
-    const unit = row.unit || null;
-    const productCode = row.product_code || null;
-    const key = `${productName.toLowerCase()}__${String(unit || "").toLowerCase()}`;
-    const current = suggestionMap.get(key) || {
-      product_name: productName,
-      product_code: productCode,
-      unit,
-      pr_count: 0,
-      line_count: 0,
-      latest_item_at: row.created_at || null,
-      requestIds: new Set<string>(),
-    };
-
-    current.line_count += 1;
-    if (!current.product_code && productCode) current.product_code = productCode;
-    if (row.payment_request_id) current.requestIds.add(row.payment_request_id);
-    if (row.created_at && (!current.latest_item_at || new Date(row.created_at).getTime() > new Date(current.latest_item_at).getTime())) {
-      current.latest_item_at = row.created_at;
-    }
-    current.pr_count = current.requestIds.size;
-    suggestionMap.set(key, current);
-  });
-
-  return Array.from(suggestionMap.values())
-    .sort((a, b) => {
-      if (b.pr_count !== a.pr_count) return b.pr_count - a.pr_count;
-      const dateA = new Date(a.latest_item_at || 0).getTime();
-      const dateB = new Date(b.latest_item_at || 0).getTime();
-      if (dateB !== dateA) return dateB - dateA;
-      return b.line_count - a.line_count;
-    })
-    .slice(0, 10)
-    .map(({ requestIds: _requestIds, ...suggestion }) => suggestion);
+async function invokePaymentAgentSearch<T extends PaymentAgentSearchResponse>(body: PaymentAgentSearchBody): Promise<T> {
+  const { data, error } = await supabase.functions.invoke("payment-agent-search", { body });
+  if (error) {
+    const status = Number((error as any)?.context?.status || (error as any)?.status || 0);
+    if (status === 401 || status === 403) throw new PaymentAgentAccessError();
+    throw new Error("Không tải được dữ liệu duyệt chi.");
+  }
+  return (data || {}) as T;
 }
 
 async function searchMaterialSuggestions(term: string): Promise<MaterialSuggestion[]> {
-  const pattern = `%${escapeIlikePattern(term)}%`;
-  const { data, error } = await (supabase as any)
-    .from("payment_request_items")
-    .select("product_name,product_code,unit,payment_request_id,created_at")
-    .or(`product_name.ilike.${pattern},product_code.ilike.${pattern}`)
-    .order("created_at", { ascending: false })
-    .limit(80);
-
-  if (error) throw error;
-
-  const directRows: PaymentRequestMaterialItem[] = data || [];
-  let rows = directRows;
-  const directSuggestions = aggregateMaterialSuggestions(directRows);
-
-  if (directSuggestions.length < MIN_SUGGESTIONS_BEFORE_NORMALIZED_FALLBACK || isNoAccentInput(term)) {
-    const normalizedRows = await fetchNormalizedMaterialRows(term, "product_name,product_code,unit,payment_request_id,created_at", NORMALIZED_MATERIAL_CANDIDATE_LIMIT);
-    rows = mergeMaterialRows(directRows, normalizedRows);
-  }
-
-  return sortMaterialSuggestions(term, aggregateMaterialSuggestions(rows)).slice(0, 10);
+  const data = await invokePaymentAgentSearch<{ suggestions?: MaterialSuggestion[] }>({ action: "material_suggestions", term });
+  return sortMaterialSuggestions(isNoAccentInput(term) ? normalizeVietnamese(term) : term, data.suggestions || []);
 }
 
 async function searchSupplierSuggestions(term: string): Promise<SupplierSuggestion[]> {
-  const directSuppliers = await fetchSuppliersByIlike(term, 10);
-  const supplierMap = new Map<string, PaymentRequestSearchSupplier>();
-
-  directSuppliers.forEach((supplier) => {
-    if (supplier?.id) supplierMap.set(supplier.id, supplier);
-  });
-
-  if (directSuppliers.length < MIN_SUGGESTIONS_BEFORE_NORMALIZED_FALLBACK || isNoAccentInput(term)) {
-    const normalizedSuppliers = await fetchNormalizedSupplierCandidates(term);
-    normalizedSuppliers.forEach((supplier) => {
-      if (supplier?.id) supplierMap.set(supplier.id, supplier);
-    });
-  }
-
-  const suppliers = sortSuppliersForTerm(term, Array.from(supplierMap.values())).slice(0, 10);
-  if (!suppliers.length) return [];
-
-  return sortSuppliersForTerm(term, await enrichSupplierSuggestionCounts(suppliers)).slice(0, 10);
+  const data = await invokePaymentAgentSearch<{ suggestions?: SupplierSuggestion[] }>({ action: "supplier_suggestions", term });
+  return sortSuppliersForTerm(isNoAccentInput(term) ? normalizeVietnamese(term) : term, data.suggestions || []);
 }
 
-async function fetchSuppliersByIlike(term: string, limit: number): Promise<PaymentRequestSearchSupplier[]> {
-  const pattern = `%${escapeIlikePattern(term)}%`;
-  const [nameResult, shortCodeResult] = await Promise.all([
-    (supabase as any).from("suppliers").select("id,name,short_code").ilike("name", pattern).limit(limit),
-    (supabase as any).from("suppliers").select("id,name,short_code").ilike("short_code", pattern).limit(limit),
-  ]);
-
-  if (nameResult.error) throw nameResult.error;
-  if (shortCodeResult.error) throw shortCodeResult.error;
-
-  const supplierMap = new Map<string, PaymentRequestSearchSupplier>();
-  [...(nameResult.data || []), ...(shortCodeResult.data || [])].forEach((supplier: PaymentRequestSearchSupplier) => {
-    if (supplier?.id) supplierMap.set(supplier.id, supplier);
-  });
-
-  return Array.from(supplierMap.values()).slice(0, limit);
-}
-
-async function fetchNormalizedSupplierCandidates(term: string): Promise<PaymentRequestSearchSupplier[]> {
-  const { data, error } = await (supabase as any)
-    .from("suppliers")
-    .select("id,name,short_code")
-    .order("name", { ascending: true })
-    .limit(NORMALIZED_SUPPLIER_CANDIDATE_LIMIT);
-
-  if (error) throw error;
-
-  return sortSuppliersForTerm(
+async function searchPaymentRequestsBySupplier(term: string, exactSupplier?: PaymentRequestSearchSupplier): Promise<{ suppliers: PaymentRequestSearchSupplier[]; rows: PaymentRequestSearchRow[] }> {
+  const data = await invokePaymentAgentSearch<{ suppliers?: PaymentRequestSearchSupplier[]; rows?: PaymentRequestSearchRow[] }>({
+    action: "supplier_search",
     term,
-    (data || []).filter((supplier: PaymentRequestSearchSupplier) => getNormalizedMatchRank(term, supplierLabels(supplier)) !== null)
-  );
-}
-
-async function enrichSupplierSuggestionCounts(suppliers: PaymentRequestSearchSupplier[]): Promise<SupplierSuggestion[]> {
-  const counts = new Map<string, number>();
-  const { data: requestData } = await (supabase as any)
-    .from("payment_requests")
-    .select("id,supplier_id")
-    .in("supplier_id", suppliers.map((supplier) => supplier.id))
-    .limit(1000);
-
-  (requestData || []).forEach((row: Pick<PaymentRequestSearchRow, "supplier_id">) => {
-    if (row.supplier_id) counts.set(row.supplier_id, (counts.get(row.supplier_id) || 0) + 1);
+    exactSupplier,
   });
-
-  return suppliers.map((supplier) => ({ ...supplier, pr_count: counts.get(supplier.id) || 0 }));
+  return { suppliers: data.suppliers || [], rows: data.rows || [] };
 }
 
-function sortSuppliersForTerm<T extends PaymentRequestSearchSupplier>(term: string, suppliers: T[]): T[] {
-  return [...suppliers].sort((a, b) => {
-    const rankA = getNormalizedMatchRank(term, supplierLabels(a)) ?? Number.MAX_SAFE_INTEGER;
-    const rankB = getNormalizedMatchRank(term, supplierLabels(b)) ?? Number.MAX_SAFE_INTEGER;
-    if (rankA !== rankB) return rankA - rankB;
-
-    const countA = "pr_count" in a ? Number(a.pr_count || 0) : 0;
-    const countB = "pr_count" in b ? Number(b.pr_count || 0) : 0;
-    if (countB !== countA) return countB - countA;
-
-    return compareText(a.name || a.short_code || a.id, b.name || b.short_code || b.id);
+async function searchPaymentRequestsByMaterial(term: string, exactProductName = false): Promise<PaymentRequestMaterialSearchRow[]> {
+  const data = await invokePaymentAgentSearch<{ rows?: PaymentRequestMaterialSearchRow[] }>({
+    action: "material_search",
+    term,
+    exactProductName,
   });
-}
-
-function sortMaterialSuggestions(term: string, suggestions: MaterialSuggestion[]): MaterialSuggestion[] {
-  return [...suggestions].sort((a, b) => {
-    const rankA = getNormalizedMatchRank(term, materialLabels(a)) ?? Number.MAX_SAFE_INTEGER;
-    const rankB = getNormalizedMatchRank(term, materialLabels(b)) ?? Number.MAX_SAFE_INTEGER;
-    if (rankA !== rankB) return rankA - rankB;
-    if (b.pr_count !== a.pr_count) return b.pr_count - a.pr_count;
-
-    const dateA = new Date(a.latest_item_at || 0).getTime();
-    const dateB = new Date(b.latest_item_at || 0).getTime();
-    if (dateB !== dateA) return dateB - dateA;
-
-    if (b.line_count !== a.line_count) return b.line_count - a.line_count;
-    return compareText(a.product_name, b.product_name);
-  });
-}
-
-function materialRowKey(item: PaymentRequestMaterialItem): string {
-  return [
-    item.payment_request_id || "",
-    item.product_name || "",
-    item.product_code || "",
-    item.unit || "",
-    item.created_at || "",
-  ].map((part) => String(part).toLowerCase()).join("__");
-}
-
-function mergeMaterialRows(...groups: PaymentRequestMaterialItem[][]): PaymentRequestMaterialItem[] {
-  const rowMap = new Map<string, PaymentRequestMaterialItem>();
-  groups.flat().forEach((row) => {
-    const key = materialRowKey(row);
-    if (!rowMap.has(key)) rowMap.set(key, row);
-  });
-  return Array.from(rowMap.values());
-}
-
-async function fetchNormalizedMaterialRows(term: string, select: string, limit: number): Promise<PaymentRequestMaterialItem[]> {
-  const { data, error } = await (supabase as any)
-    .from("payment_request_items")
-    .select(select)
-    .order("created_at", { ascending: false })
-    .limit(limit);
-
-  if (error) throw error;
-
-  return (data || [])
-    .filter((item: PaymentRequestMaterialItem) => getNormalizedMatchRank(term, materialLabels(item)) !== null)
-    .sort((a: PaymentRequestMaterialItem, b: PaymentRequestMaterialItem) => {
-      const rankA = getNormalizedMatchRank(term, materialLabels(a)) ?? Number.MAX_SAFE_INTEGER;
-      const rankB = getNormalizedMatchRank(term, materialLabels(b)) ?? Number.MAX_SAFE_INTEGER;
-      if (rankA !== rankB) return rankA - rankB;
-
-      const dateA = new Date(a.created_at || 0).getTime();
-      const dateB = new Date(b.created_at || 0).getTime();
-      if (dateB !== dateA) return dateB - dateA;
-
-      return compareText(a.product_name, b.product_name);
-    });
+  return data.rows || [];
 }
 
 async function resolveStrongSupplierSuggestion(term: string): Promise<SupplierSuggestion | null> {
@@ -655,92 +507,6 @@ async function resolveStrongSupplierSuggestion(term: string): Promise<SupplierSu
   const secondRank = suggestions[1] ? getNormalizedMatchRank(term, supplierLabels(suggestions[1])) : null;
   if (topRank <= 3 && (secondRank === null || secondRank > topRank)) return topSuggestion;
   return null;
-}
-
-async function searchPaymentRequestsBySupplier(term: string, exactSupplier?: PaymentRequestSearchSupplier): Promise<{ suppliers: PaymentRequestSearchSupplier[]; rows: PaymentRequestSearchRow[] }> {
-  let suppliers: PaymentRequestSearchSupplier[] = [];
-
-  if (exactSupplier?.id) {
-    suppliers = [exactSupplier];
-  } else {
-    suppliers = await fetchSuppliersByIlike(term, 10);
-    if (!suppliers.length) {
-      const normalizedSupplier = await resolveStrongSupplierSuggestion(term);
-      suppliers = normalizedSupplier ? [normalizedSupplier] : [];
-      exactSupplier = normalizedSupplier || undefined;
-    }
-  }
-
-  if (!suppliers.length) return { suppliers: [], rows: [] };
-
-  let requestQuery = (supabase as any)
-    .from("payment_requests")
-    .select("id,request_number,title,total_amount,payment_status,payment_method,status,approved_at,created_at,updated_at,invoice_id,supplier_id,invoices!payment_requests_invoice_id_fkey(invoice_number,invoice_date),suppliers!payment_requests_supplier_id_fkey(name,short_code)")
-    .order("created_at", { ascending: false })
-    .limit(100);
-
-  requestQuery = exactSupplier?.id
-    ? requestQuery.eq("supplier_id", exactSupplier.id)
-    : requestQuery.in("supplier_id", suppliers.map((supplier) => supplier.id));
-
-  const { data, error } = await requestQuery;
-
-  if (error) throw error;
-  return { suppliers, rows: data || [] };
-}
-
-async function searchPaymentRequestsByMaterial(term: string, exactProductName = false): Promise<PaymentRequestMaterialSearchRow[]> {
-  const pattern = `%${escapeIlikePattern(term)}%`;
-  let itemQuery = (supabase as any).from("payment_request_items").select("*").order("created_at", { ascending: false }).limit(200);
-
-  if (exactProductName) {
-    itemQuery = itemQuery.eq("product_name", term);
-  } else {
-    itemQuery = itemQuery.or(`product_name.ilike.${pattern},product_code.ilike.${pattern}`);
-  }
-
-  const { data: itemData, error: itemError } = await itemQuery;
-  if (itemError) throw itemError;
-
-  let items: PaymentRequestMaterialItem[] = itemData || [];
-  if (!exactProductName && !items.length) {
-    items = (await fetchNormalizedMaterialRows(term, "*", NORMALIZED_MATERIAL_CANDIDATE_LIMIT)).slice(0, 200);
-  }
-
-  const requestIds = Array.from(new Set(items.map((item) => item.payment_request_id).filter(Boolean))) as string[];
-  if (!requestIds.length) return [];
-
-  const { data: requestData, error: requestError } = await (supabase as any)
-    .from("payment_requests")
-    .select("id,request_number,title,total_amount,payment_status,payment_method,status,approved_at,created_at,updated_at,invoice_id,supplier_id,invoices!payment_requests_invoice_id_fkey(invoice_number,invoice_date),suppliers!payment_requests_supplier_id_fkey(name,short_code)")
-    .in("id", requestIds)
-    .order("created_at", { ascending: false })
-    .limit(100);
-
-  if (requestError) throw requestError;
-
-  const requestMap = new Map<string, PaymentRequestSearchRow>((requestData || []).map((row: PaymentRequestSearchRow) => [row.id, row]));
-  const itemAggregate = new Map<string, { matching_line_total: number; matching_line_count: number; matching_products: Set<string> }>();
-
-  items.forEach((item) => {
-    if (!item.payment_request_id) return;
-    const current = itemAggregate.get(item.payment_request_id) || { matching_line_total: 0, matching_line_count: 0, matching_products: new Set<string>() };
-    current.matching_line_total += getMaterialLineAmount(item);
-    current.matching_line_count += 1;
-    if (item.product_name) current.matching_products.add(item.product_name);
-    itemAggregate.set(item.payment_request_id, current);
-  });
-
-  return Array.from(itemAggregate.entries()).flatMap(([requestId, aggregate]) => {
-    const request = requestMap.get(requestId);
-    if (!request) return [];
-    return [{
-      ...request,
-      matching_line_total: aggregate.matching_line_total,
-      matching_line_count: aggregate.matching_line_count,
-      matching_products: Array.from(aggregate.matching_products),
-    }];
-  });
 }
 
 async function getNextKnowledgeProfileVersion(customerId: string) {
@@ -825,7 +591,7 @@ export function GlobalAgentChatWidget() {
         .catch((e: any) => {
           if (!cancelled) {
             setMaterialSuggestions([]);
-            setMaterialSuggestionError(e?.message || "Không tải được gợi ý NVL");
+            setMaterialSuggestionError(isPaymentAgentAccessError(e) ? PAYMENT_AGENT_ACCESS_DENIED_MESSAGE : "Không tải được gợi ý NVL lúc này.");
           }
         })
         .finally(() => {
@@ -860,7 +626,7 @@ export function GlobalAgentChatWidget() {
         .catch((e: any) => {
           if (!cancelled) {
             setSupplierSuggestions([]);
-            setSupplierSuggestionError(e?.message || "Không tải được gợi ý NCC");
+            setSupplierSuggestionError(isPaymentAgentAccessError(e) ? PAYMENT_AGENT_ACCESS_DENIED_MESSAGE : "Không tải được gợi ý NCC lúc này.");
           }
         })
         .finally(() => {
@@ -880,7 +646,7 @@ export function GlobalAgentChatWidget() {
       const result = await searchPaymentRequestsBySupplier(term, exactSupplier);
       pushAgent(formatPaymentSearchResults(term, result.suppliers, result.rows));
     } catch (e: any) {
-      pushAgent(`Em chưa tìm được dữ liệu duyệt chi. Lỗi: ${e?.message || "Không rõ"}`);
+      pushAgent(isPaymentAgentAccessError(e) ? PAYMENT_AGENT_ACCESS_DENIED_MESSAGE : PAYMENT_AGENT_SEARCH_ERROR_MESSAGE);
     } finally {
       setIsSearchingPaymentRequests(false);
     }
@@ -892,7 +658,7 @@ export function GlobalAgentChatWidget() {
       const rows = await searchPaymentRequestsByMaterial(term, exactProductName);
       pushAgent(formatPaymentMaterialSearchResults(term, rows));
     } catch (e: any) {
-      pushAgent(`Em chưa tìm được dữ liệu duyệt chi theo NVL. Lỗi: ${e?.message || "Không rõ"}`);
+      pushAgent(isPaymentAgentAccessError(e) ? PAYMENT_AGENT_ACCESS_DENIED_MESSAGE : PAYMENT_AGENT_SEARCH_ERROR_MESSAGE);
     } finally {
       setIsSearchingPaymentRequests(false);
     }
@@ -913,12 +679,6 @@ export function GlobalAgentChatWidget() {
     setSupplierPickerOpen(false);
     setPendingPaymentSupplierSearch(false);
     try {
-      const directSuppliers = await fetchSuppliersByIlike(term, 1);
-      if (directSuppliers.length) {
-        await runPaymentSupplierSearch(term);
-        return;
-      }
-
       const normalizedSupplier = await resolveStrongSupplierSuggestion(term);
       if (normalizedSupplier) {
         const supplierName = normalizedSupplier.name || normalizedSupplier.short_code || normalizedSupplier.id;
@@ -926,11 +686,10 @@ export function GlobalAgentChatWidget() {
         await runPaymentSupplierSearch(supplierName, normalizedSupplier);
         return;
       }
-
-      await runPaymentSupplierSearch(term);
     } catch {
-      await runPaymentSupplierSearch(term);
+      // The final search path below will show the friendly access/error message.
     }
+    await runPaymentSupplierSearch(term);
   };
 
   const selectSupplierSuggestion = async (suggestion: SupplierSuggestion) => {

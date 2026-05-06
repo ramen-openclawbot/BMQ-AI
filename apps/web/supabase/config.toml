@@ -1,5 +1,8 @@
 project_id = "cxntbdvfsikwmitapony"
 
+[functions.payment-agent-search]
+verify_jwt = false
+
 # ──────────────────────────────────────────────────────────
 # Functions with JWT verification ENABLED (have auth checks in code)
 # ──────────────────────────────────────────────────────────
