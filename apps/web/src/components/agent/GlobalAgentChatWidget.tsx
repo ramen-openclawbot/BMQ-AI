@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, MessageCircle, Sparkles, X } from "lucide-react";
@@ -40,6 +40,37 @@ type PaymentRequestSearchRow = {
   invoice_id: string | null;
   supplier_id: string | null;
   invoices?: { invoice_number?: string | null; invoice_date?: string | null } | null;
+  suppliers?: { name?: string | null; short_code?: string | null } | null;
+};
+type MaterialSuggestion = {
+  product_name: string;
+  product_code: string | null;
+  unit: string | null;
+  pr_count: number;
+  line_count: number;
+  latest_item_at: string | null;
+};
+type PaymentRequestMaterialItem = {
+  product_name?: string | null;
+  product_code?: string | null;
+  unit?: string | null;
+  payment_request_id?: string | null;
+  created_at?: string | null;
+  quantity?: number | null;
+  qty?: number | null;
+  unit_price?: number | null;
+  price?: number | null;
+  line_total?: number | null;
+  line_amount?: number | null;
+  total_amount?: number | null;
+  amount?: number | null;
+  subtotal?: number | null;
+  total?: number | null;
+};
+type PaymentRequestMaterialSearchRow = PaymentRequestSearchRow & {
+  matching_line_total: number;
+  matching_line_count: number;
+  matching_products: string[];
 };
 
 const moduleConfig: Array<{ test: (pathname: string) => boolean; context: ModuleContext }> = [
@@ -53,7 +84,7 @@ function getRouteContext(pathname: string): ModuleContext {
   if (pathname.startsWith("/inventory")) return { key: "inventory", label: "Tồn kho", suggestions: ["Kiểm tra mặt hàng sắp hết", "Tóm tắt tồn kho theo nhóm", "Đề xuất nhập hàng hôm nay"] };
   if (pathname.startsWith("/suppliers")) return { key: "suppliers", label: "Nhà cung cấp", suggestions: ["Tìm NCC theo từ khóa", "Checklist đánh giá NCC", "Tóm tắt NCC đang hoạt động"] };
   if (pathname.startsWith("/invoices")) return { key: "invoices", label: "Hóa đơn", suggestions: ["Tìm hóa đơn thiếu sản phẩm", "Kiểm tra ảnh hóa đơn/UNC bị thiếu file", "Đề xuất xử lý lỗi tạo invoice từ PR"] };
-  if (pathname.startsWith("/payment-requests")) return { key: "payment_requests", label: "Đề nghị chi", suggestions: ["Tìm đề nghị chi theo NCC"] };
+  if (pathname.startsWith("/payment-requests")) return { key: "payment_requests", label: "Đề nghị chi", suggestions: ["Tìm đề nghị chi theo NCC", "Tìm đề nghị chi theo NVL"] };
   if (pathname.startsWith("/goods-receipts")) return { key: "goods_receipts", label: "Phiếu nhập", suggestions: ["Tóm tắt phiếu nhập hôm nay", "Kiểm tra phiếu lệch số lượng", "Checklist đối soát nhập kho"] };
   if (pathname.startsWith("/purchase-orders")) return { key: "purchase_orders", label: "PO", suggestions: ["Tìm PO chờ xử lý", "Checklist tạo PO", "Đối soát PO với đề nghị chi"] };
   if (pathname.startsWith("/low-stock")) return { key: "low_stock", label: "Sắp hết hàng", suggestions: ["Liệt kê item dưới ngưỡng", "Đề xuất ưu tiên nhập", "Tạo checklist bổ sung tồn"] };
@@ -154,6 +185,30 @@ function isPaymentRequestControlCommand(content: string): boolean {
   return /^(confirm|xác nhận|xac nhan|thực thi|thuc thi|execute|cancel|hủy|huy|tạo|tao)\b/i.test(content.trim().toLowerCase());
 }
 
+function normalizeMaterialSearchTerm(raw: string): string {
+  return String(raw || "")
+    .trim()
+    .replace(/^(tìm|tim|search|kiểm tra|kiem tra)\s+/i, "")
+    .replace(/^đề nghị chi\s+(theo\s+)?/i, "")
+    .replace(/^(nvl|nguyên vật liệu|nguyen vat lieu|mặt hàng|mat hang|item|sản phẩm|san pham)\s+/i, "")
+    .replace(/^theo\s+(nvl|nguyên vật liệu|nguyen vat lieu|mặt hàng|mat hang|item|sản phẩm|san pham)\s*/i, "")
+    .trim();
+}
+
+function isPaymentRequestMaterialSearch(content: string, routeKey: string): boolean {
+  if (routeKey !== "payment_requests") return false;
+  const lower = content.trim().toLowerCase();
+  if (!lower) return false;
+  if (/^tìm đề nghị chi theo (nvl|nguyên vật liệu|nguyen vat lieu|mặt hàng|mat hang|item|sản phẩm|san pham)/i.test(lower)) return true;
+  return /\b(nvl|nguyên vật liệu|nguyen vat lieu|mặt hàng|mat hang|item|sản phẩm|san pham)\b/i.test(lower) && /^(tìm|tim|search|kiểm tra|kiem tra)\b/i.test(lower);
+}
+
+function extractMaterialSearchTerm(content: string): string {
+  const normalized = normalizeMaterialSearchTerm(content);
+  if (/^(theo\s+)?(nvl|nguyên vật liệu|nguyen vat lieu|mặt hàng|mat hang|item|sản phẩm|san pham)$/i.test(normalized)) return "";
+  return normalized;
+}
+
 function isBarePaymentRequestSupplierPhrase(content: string, routeKey: string): boolean {
   if (routeKey !== "payment_requests") return false;
   const term = content.trim();
@@ -201,6 +256,26 @@ function formatPaymentRows(rows: PaymentRequestSearchRow[], kind: "unpaid" | "pa
   return lines.length ? lines : ["Không có dòng nào."];
 }
 
+function formatPaymentMaterialRows(rows: PaymentRequestMaterialSearchRow[], kind: "unpaid" | "paid"): string[] {
+  const visibleRows = rows.slice(0, 8);
+  const lines = visibleRows.map((row) => {
+    const date = kind === "paid" ? row.invoices?.invoice_date || row.approved_at || row.updated_at || row.created_at : row.approved_at || row.updated_at || row.created_at;
+    const supplierName = row.suppliers?.short_code || row.suppliers?.name || "-";
+    const lastCol = kind === "paid" ? row.invoices?.invoice_number || "-" : row.status || "-";
+    return [
+      padCell(row.request_number || "-", 12),
+      padCell(supplierName, 12),
+      padCell(formatDateVi(date), 10),
+      padCell(formatVnd(row.matching_line_total), 13),
+      padCell(`${row.matching_line_count} dòng`, 8),
+      padCell(lastCol, kind === "paid" ? 14 : 10),
+    ].join(" | ");
+  });
+
+  if (rows.length > visibleRows.length) lines.push(`... còn ${rows.length - visibleRows.length} PR`);
+  return lines.length ? lines : ["Không có dòng nào."];
+}
+
 function formatPaymentSearchResults(term: string, suppliers: PaymentRequestSearchSupplier[], rows: PaymentRequestSearchRow[]): string {
   if (!suppliers.length || !rows.length) {
     return `Không tìm thấy đề nghị chi cho "${term}".\nGợi ý: thử nhập tên NCC đầy đủ hơn, ví dụ "Thiên An Sinh".`;
@@ -236,6 +311,109 @@ function formatPaymentSearchResults(term: string, suppliers: PaymentRequestSearc
   ].join("\n");
 }
 
+function formatPaymentMaterialSearchResults(term: string, rows: PaymentRequestMaterialSearchRow[]): string {
+  if (!rows.length) {
+    return `Không tìm thấy đề nghị chi theo NVL "${term}".\nGợi ý: thử nhập tên mặt hàng đầy đủ hơn, ví dụ "bơ anchor", "bột mì".`;
+  }
+
+  const sortedRows = [...rows].sort((a, b) => {
+    const groupA = a.payment_status === "paid" ? 1 : 0;
+    const groupB = b.payment_status === "paid" ? 1 : 0;
+    if (groupA !== groupB) return groupA - groupB;
+    const dateA = new Date(a.approved_at || a.updated_at || a.created_at || 0).getTime();
+    const dateB = new Date(b.approved_at || b.updated_at || b.created_at || 0).getTime();
+    return dateB - dateA;
+  });
+  const unpaidRows = sortedRows.filter((row) => row.payment_status !== "paid");
+  const paidRows = sortedRows.filter((row) => row.payment_status === "paid");
+  const unpaidTotal = unpaidRows.reduce((sum, row) => sum + Number(row.matching_line_total || 0), 0);
+  const paidTotal = paidRows.reduce((sum, row) => sum + Number(row.matching_line_total || 0), 0);
+  const lineCount = rows.reduce((sum, row) => sum + row.matching_line_count, 0);
+
+  return [
+    `Kết quả duyệt chi theo NVL: ${term}`,
+    `Tổng PR: ${rows.length} | Dòng NVL: ${lineCount} | Chưa chi: ${unpaidRows.length} (${formatVnd(unpaidTotal)}) | Đã chi: ${paidRows.length} (${formatVnd(paidTotal)})`,
+    "",
+    "CHƯA CHI / UNPAID",
+    "PR           | NCC          | Ngày       | Tiền dòng    | Số dòng  | Trạng thái",
+    "-------------|--------------|------------|--------------|----------|-----------",
+    ...formatPaymentMaterialRows(unpaidRows, "unpaid"),
+    "",
+    "ĐÃ CHI / PAID",
+    "PR           | NCC          | Ngày       | Tiền dòng    | Số dòng  | Invoice",
+    "-------------|--------------|------------|--------------|----------|--------------",
+    ...formatPaymentMaterialRows(paidRows, "paid"),
+  ].join("\n");
+}
+
+function getMaterialLineAmount(item: PaymentRequestMaterialItem): number {
+  const directKeys: Array<keyof PaymentRequestMaterialItem> = ["line_total", "line_amount", "total_amount", "amount", "subtotal", "total"];
+  for (const key of directKeys) {
+    const value = Number(item[key] || 0);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+
+  const quantity = Number(item.quantity ?? item.qty ?? 0);
+  const unitPrice = Number(item.unit_price ?? item.price ?? 0);
+  if (Number.isFinite(quantity) && Number.isFinite(unitPrice) && quantity > 0 && unitPrice > 0) return quantity * unitPrice;
+  return 0;
+}
+
+function aggregateMaterialSuggestions(rows: PaymentRequestMaterialItem[]): MaterialSuggestion[] {
+  const suggestionMap = new Map<string, MaterialSuggestion & { requestIds: Set<string> }>();
+
+  rows.forEach((row) => {
+    const productName = String(row.product_name || "").trim();
+    if (!productName) return;
+
+    const unit = row.unit || null;
+    const productCode = row.product_code || null;
+    const key = `${productName.toLowerCase()}__${String(unit || "").toLowerCase()}`;
+    const current = suggestionMap.get(key) || {
+      product_name: productName,
+      product_code: productCode,
+      unit,
+      pr_count: 0,
+      line_count: 0,
+      latest_item_at: row.created_at || null,
+      requestIds: new Set<string>(),
+    };
+
+    current.line_count += 1;
+    if (!current.product_code && productCode) current.product_code = productCode;
+    if (row.payment_request_id) current.requestIds.add(row.payment_request_id);
+    if (row.created_at && (!current.latest_item_at || new Date(row.created_at).getTime() > new Date(current.latest_item_at).getTime())) {
+      current.latest_item_at = row.created_at;
+    }
+    current.pr_count = current.requestIds.size;
+    suggestionMap.set(key, current);
+  });
+
+  return Array.from(suggestionMap.values())
+    .sort((a, b) => {
+      if (b.pr_count !== a.pr_count) return b.pr_count - a.pr_count;
+      const dateA = new Date(a.latest_item_at || 0).getTime();
+      const dateB = new Date(b.latest_item_at || 0).getTime();
+      if (dateB !== dateA) return dateB - dateA;
+      return b.line_count - a.line_count;
+    })
+    .slice(0, 10)
+    .map(({ requestIds: _requestIds, ...suggestion }) => suggestion);
+}
+
+async function searchMaterialSuggestions(term: string): Promise<MaterialSuggestion[]> {
+  const pattern = `%${term.replace(/[%_]/g, "\\$&")}%`;
+  const { data, error } = await (supabase as any)
+    .from("payment_request_items")
+    .select("product_name,product_code,unit,payment_request_id,created_at")
+    .or(`product_name.ilike.${pattern},product_code.ilike.${pattern}`)
+    .order("created_at", { ascending: false })
+    .limit(80);
+
+  if (error) throw error;
+  return aggregateMaterialSuggestions(data || []);
+}
+
 async function searchPaymentRequestsBySupplier(term: string): Promise<{ suppliers: PaymentRequestSearchSupplier[]; rows: PaymentRequestSearchRow[] }> {
   const pattern = `%${term.replace(/[%_]/g, "\\$&")}%`;
   const [nameResult, shortCodeResult] = await Promise.all([
@@ -255,13 +433,63 @@ async function searchPaymentRequestsBySupplier(term: string): Promise<{ supplier
 
   const { data, error } = await (supabase as any)
     .from("payment_requests")
-    .select("id,request_number,title,total_amount,payment_status,payment_method,status,approved_at,created_at,updated_at,invoice_id,supplier_id,invoices!payment_requests_invoice_id_fkey(invoice_number,invoice_date)")
+    .select("id,request_number,title,total_amount,payment_status,payment_method,status,approved_at,created_at,updated_at,invoice_id,supplier_id,invoices!payment_requests_invoice_id_fkey(invoice_number,invoice_date),suppliers!payment_requests_supplier_id_fkey(name,short_code)")
     .in("supplier_id", suppliers.map((supplier) => supplier.id))
     .order("created_at", { ascending: false })
     .limit(100);
 
   if (error) throw error;
   return { suppliers, rows: data || [] };
+}
+
+async function searchPaymentRequestsByMaterial(term: string, exactProductName = false): Promise<PaymentRequestMaterialSearchRow[]> {
+  const pattern = `%${term.replace(/[%_]/g, "\\$&")}%`;
+  let itemQuery = (supabase as any).from("payment_request_items").select("*").order("created_at", { ascending: false }).limit(200);
+
+  if (exactProductName) {
+    itemQuery = itemQuery.eq("product_name", term);
+  } else {
+    itemQuery = itemQuery.or(`product_name.ilike.${pattern},product_code.ilike.${pattern}`);
+  }
+
+  const { data: itemData, error: itemError } = await itemQuery;
+  if (itemError) throw itemError;
+
+  const items: PaymentRequestMaterialItem[] = itemData || [];
+  const requestIds = Array.from(new Set(items.map((item) => item.payment_request_id).filter(Boolean))) as string[];
+  if (!requestIds.length) return [];
+
+  const { data: requestData, error: requestError } = await (supabase as any)
+    .from("payment_requests")
+    .select("id,request_number,title,total_amount,payment_status,payment_method,status,approved_at,created_at,updated_at,invoice_id,supplier_id,invoices!payment_requests_invoice_id_fkey(invoice_number,invoice_date),suppliers!payment_requests_supplier_id_fkey(name,short_code)")
+    .in("id", requestIds)
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (requestError) throw requestError;
+
+  const requestMap = new Map<string, PaymentRequestSearchRow>((requestData || []).map((row: PaymentRequestSearchRow) => [row.id, row]));
+  const itemAggregate = new Map<string, { matching_line_total: number; matching_line_count: number; matching_products: Set<string> }>();
+
+  items.forEach((item) => {
+    if (!item.payment_request_id) return;
+    const current = itemAggregate.get(item.payment_request_id) || { matching_line_total: 0, matching_line_count: 0, matching_products: new Set<string>() };
+    current.matching_line_total += getMaterialLineAmount(item);
+    current.matching_line_count += 1;
+    if (item.product_name) current.matching_products.add(item.product_name);
+    itemAggregate.set(item.payment_request_id, current);
+  });
+
+  return Array.from(itemAggregate.entries()).flatMap(([requestId, aggregate]) => {
+    const request = requestMap.get(requestId);
+    if (!request) return [];
+    return [{
+      ...request,
+      matching_line_total: aggregate.matching_line_total,
+      matching_line_count: aggregate.matching_line_count,
+      matching_products: Array.from(aggregate.matching_products),
+    }];
+  });
 }
 
 async function getNextKnowledgeProfileVersion(customerId: string) {
@@ -288,10 +516,50 @@ export function GlobalAgentChatWidget() {
   const [isExecuting, setIsExecuting] = useState(false);
   const [isSearchingPaymentRequests, setIsSearchingPaymentRequests] = useState(false);
   const [pendingPaymentSupplierSearch, setPendingPaymentSupplierSearch] = useState(false);
+  const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
+  const [materialSearchDraft, setMaterialSearchDraft] = useState("");
+  const [materialSuggestions, setMaterialSuggestions] = useState<MaterialSuggestion[]>([]);
+  const [isLoadingMaterialSuggestions, setIsLoadingMaterialSuggestions] = useState(false);
+  const [materialSuggestionError, setMaterialSuggestionError] = useState<string | null>(null);
 
   const routeContext = useMemo(() => getRouteContext(location.pathname), [location.pathname]);
 
   const pushAgent = (text: string) => setMessages((prev) => [...prev, { role: "agent", text }]);
+
+  useEffect(() => {
+    const term = materialSearchDraft.trim();
+    if (!materialPickerOpen || term.length < 2) {
+      setMaterialSuggestions([]);
+      setIsLoadingMaterialSuggestions(false);
+      setMaterialSuggestionError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingMaterialSuggestions(true);
+    setMaterialSuggestionError(null);
+
+    const handle = window.setTimeout(() => {
+      searchMaterialSuggestions(term)
+        .then((suggestions) => {
+          if (!cancelled) setMaterialSuggestions(suggestions);
+        })
+        .catch((e: any) => {
+          if (!cancelled) {
+            setMaterialSuggestions([]);
+            setMaterialSuggestionError(e?.message || "Không tải được gợi ý NVL");
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setIsLoadingMaterialSuggestions(false);
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [materialPickerOpen, materialSearchDraft]);
 
   const runPaymentSupplierSearch = async (term: string) => {
     setIsSearchingPaymentRequests(true);
@@ -303,6 +571,35 @@ export function GlobalAgentChatWidget() {
     } finally {
       setIsSearchingPaymentRequests(false);
     }
+  };
+
+  const runPaymentMaterialSearch = async (term: string, exactProductName = false) => {
+    setIsSearchingPaymentRequests(true);
+    try {
+      const rows = await searchPaymentRequestsByMaterial(term, exactProductName);
+      pushAgent(formatPaymentMaterialSearchResults(term, rows));
+    } catch (e: any) {
+      pushAgent(`Em chưa tìm được dữ liệu duyệt chi theo NVL. Lỗi: ${e?.message || "Không rõ"}`);
+    } finally {
+      setIsSearchingPaymentRequests(false);
+    }
+  };
+
+  const submitMaterialPickerSearch = async () => {
+    const term = materialSearchDraft.trim();
+    if (term.length < 2 || isSearchingPaymentRequests) return;
+    setMessages((prev) => [...prev, { role: "user", text: `Tìm NVL: ${term}` }]);
+    setMaterialPickerOpen(false);
+    await runPaymentMaterialSearch(term);
+  };
+
+  const selectMaterialSuggestion = async (suggestion: MaterialSuggestion) => {
+    if (isSearchingPaymentRequests) return;
+    setMessages((prev) => [...prev, { role: "user", text: `Chọn NVL: ${suggestion.product_name}` }]);
+    setMaterialPickerOpen(false);
+    setMaterialSearchDraft(suggestion.product_name);
+    setMaterialSuggestions([]);
+    await runPaymentMaterialSearch(suggestion.product_name, true);
   };
 
   const executeCreateCustomer = async () => {
@@ -386,6 +683,31 @@ export function GlobalAgentChatWidget() {
     if (!content || isSearchingPaymentRequests) return;
     setMessages((prev) => [...prev, { role: "user", text: content }]);
     setDraft("");
+
+    if (routeContext.key === "payment_requests" && content === "Tìm đề nghị chi theo NVL") {
+      setMaterialPickerOpen(true);
+      setMaterialSearchDraft("");
+      setMaterialSuggestions([]);
+      setMaterialSuggestionError(null);
+      pushAgent('Anh nhập tên nguyên vật liệu/mặt hàng ở thanh tìm kiếm bên dưới. Ví dụ: "bơ anchor", "bột mì".');
+      return;
+    }
+
+    if (isPaymentRequestMaterialSearch(content, routeContext.key)) {
+      const term = extractMaterialSearchTerm(content);
+      if (!term) {
+        setMaterialPickerOpen(true);
+        setMaterialSearchDraft("");
+        setMaterialSuggestions([]);
+        setMaterialSuggestionError(null);
+        pushAgent('Anh nhập tên nguyên vật liệu/mặt hàng ở thanh tìm kiếm bên dưới. Ví dụ: "bơ anchor", "bột mì".');
+        return;
+      }
+      setMaterialPickerOpen(false);
+      setMaterialSearchDraft(term);
+      await runPaymentMaterialSearch(term);
+      return;
+    }
 
     if (routeContext.key === "payment_requests" && pendingPaymentSupplierSearch) {
       setPendingPaymentSupplierSearch(false);
@@ -498,6 +820,60 @@ export function GlobalAgentChatWidget() {
                   </Button>
                 </div>
                 {pendingMissing.length > 0 && <div className="text-amber-600 text-xs">Thiếu: {pendingMissing.join(", ")}</div>}
+              </div>
+            )}
+
+            {routeContext.key === "payment_requests" && materialPickerOpen && (
+              <div className="rounded-lg border p-3 space-y-2 bg-muted/20">
+                <div className="text-xs text-muted-foreground">Tìm theo nguyên vật liệu / mặt hàng</div>
+                <Input
+                  value={materialSearchDraft}
+                  onChange={(event) => setMaterialSearchDraft(event.target.value)}
+                  placeholder='Nhập NVL/mặt hàng, ví dụ "bơ anchor"'
+                  autoFocus
+                  disabled={isSearchingPaymentRequests}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      submitMaterialPickerSearch();
+                    }
+                  }}
+                />
+                {materialSearchDraft.trim().length > 0 && materialSearchDraft.trim().length < 2 && (
+                  <div className="text-xs text-muted-foreground">Nhập ít nhất 2 ký tự để tìm gợi ý.</div>
+                )}
+                {isLoadingMaterialSuggestions && (
+                  <div className="flex items-center text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    Đang tìm gợi ý...
+                  </div>
+                )}
+                {materialSuggestionError && <div className="text-xs text-destructive">{materialSuggestionError}</div>}
+                {materialSearchDraft.trim().length >= 2 && !isLoadingMaterialSuggestions && !materialSuggestionError && materialSuggestions.length === 0 && (
+                  <div className="text-xs text-muted-foreground">Chưa có gợi ý. Bấm Enter để tìm theo nội dung đã nhập.</div>
+                )}
+                <div className="max-h-56 overflow-auto space-y-1">
+                  {materialSuggestions.map((item) => (
+                    <button
+                      type="button"
+                      key={`${item.product_name}-${item.unit || ""}`}
+                      className="w-full min-w-0 rounded-md border bg-background px-2 py-2 text-left hover:bg-muted disabled:opacity-60"
+                      onClick={() => selectMaterialSuggestion(item)}
+                      disabled={isSearchingPaymentRequests}
+                    >
+                      <div className="min-w-0 break-words font-medium text-foreground">{item.product_name}</div>
+                      <div className="min-w-0 break-words text-xs text-muted-foreground">
+                        {item.product_code ? `${item.product_code} · ` : ""}{item.unit || "-"} · {item.pr_count} PR · {item.line_count} dòng
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs text-muted-foreground">Chọn một dòng để tìm các đề nghị chi liên quan.</div>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setMaterialPickerOpen(false)} disabled={isSearchingPaymentRequests}>
+                    Hủy
+                  </Button>
+                </div>
               </div>
             )}
 
