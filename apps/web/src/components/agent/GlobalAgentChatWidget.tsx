@@ -26,6 +26,9 @@ type PaymentRequestSearchSupplier = {
   name?: string | null;
   short_code?: string | null;
 };
+type SupplierSuggestion = PaymentRequestSearchSupplier & {
+  pr_count?: number;
+};
 type PaymentRequestSearchRow = {
   id: string;
   request_number: string | null;
@@ -414,7 +417,7 @@ async function searchMaterialSuggestions(term: string): Promise<MaterialSuggesti
   return aggregateMaterialSuggestions(data || []);
 }
 
-async function searchPaymentRequestsBySupplier(term: string): Promise<{ suppliers: PaymentRequestSearchSupplier[]; rows: PaymentRequestSearchRow[] }> {
+async function searchSupplierSuggestions(term: string): Promise<SupplierSuggestion[]> {
   const pattern = `%${term.replace(/[%_]/g, "\\$&")}%`;
   const [nameResult, shortCodeResult] = await Promise.all([
     (supabase as any).from("suppliers").select("id,name,short_code").ilike("name", pattern).limit(10),
@@ -429,14 +432,57 @@ async function searchPaymentRequestsBySupplier(term: string): Promise<{ supplier
     if (supplier?.id) supplierMap.set(supplier.id, supplier);
   });
   const suppliers = Array.from(supplierMap.values()).slice(0, 10);
+  if (!suppliers.length) return [];
+
+  const counts = new Map<string, number>();
+  const { data: requestData } = await (supabase as any)
+    .from("payment_requests")
+    .select("id,supplier_id")
+    .in("supplier_id", suppliers.map((supplier) => supplier.id))
+    .limit(1000);
+
+  (requestData || []).forEach((row: Pick<PaymentRequestSearchRow, "supplier_id">) => {
+    if (row.supplier_id) counts.set(row.supplier_id, (counts.get(row.supplier_id) || 0) + 1);
+  });
+
+  return suppliers.map((supplier) => ({ ...supplier, pr_count: counts.get(supplier.id) || 0 }));
+}
+
+async function searchPaymentRequestsBySupplier(term: string, exactSupplier?: PaymentRequestSearchSupplier): Promise<{ suppliers: PaymentRequestSearchSupplier[]; rows: PaymentRequestSearchRow[] }> {
+  let suppliers: PaymentRequestSearchSupplier[] = [];
+
+  if (exactSupplier?.id) {
+    suppliers = [exactSupplier];
+  } else {
+    const pattern = `%${term.replace(/[%_]/g, "\\$&")}%`;
+    const [nameResult, shortCodeResult] = await Promise.all([
+      (supabase as any).from("suppliers").select("id,name,short_code").ilike("name", pattern).limit(10),
+      (supabase as any).from("suppliers").select("id,name,short_code").ilike("short_code", pattern).limit(10),
+    ]);
+
+    if (nameResult.error) throw nameResult.error;
+    if (shortCodeResult.error) throw shortCodeResult.error;
+
+    const supplierMap = new Map<string, PaymentRequestSearchSupplier>();
+    [...(nameResult.data || []), ...(shortCodeResult.data || [])].forEach((supplier: PaymentRequestSearchSupplier) => {
+      if (supplier?.id) supplierMap.set(supplier.id, supplier);
+    });
+    suppliers = Array.from(supplierMap.values()).slice(0, 10);
+  }
+
   if (!suppliers.length) return { suppliers: [], rows: [] };
 
-  const { data, error } = await (supabase as any)
+  let requestQuery = (supabase as any)
     .from("payment_requests")
     .select("id,request_number,title,total_amount,payment_status,payment_method,status,approved_at,created_at,updated_at,invoice_id,supplier_id,invoices!payment_requests_invoice_id_fkey(invoice_number,invoice_date),suppliers!payment_requests_supplier_id_fkey(name,short_code)")
-    .in("supplier_id", suppliers.map((supplier) => supplier.id))
     .order("created_at", { ascending: false })
     .limit(100);
+
+  requestQuery = exactSupplier?.id
+    ? requestQuery.eq("supplier_id", exactSupplier.id)
+    : requestQuery.in("supplier_id", suppliers.map((supplier) => supplier.id));
+
+  const { data, error } = await requestQuery;
 
   if (error) throw error;
   return { suppliers, rows: data || [] };
@@ -521,10 +567,37 @@ export function GlobalAgentChatWidget() {
   const [materialSuggestions, setMaterialSuggestions] = useState<MaterialSuggestion[]>([]);
   const [isLoadingMaterialSuggestions, setIsLoadingMaterialSuggestions] = useState(false);
   const [materialSuggestionError, setMaterialSuggestionError] = useState<string | null>(null);
+  const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
+  const [supplierSearchDraft, setSupplierSearchDraft] = useState("");
+  const [supplierSuggestions, setSupplierSuggestions] = useState<SupplierSuggestion[]>([]);
+  const [isLoadingSupplierSuggestions, setIsLoadingSupplierSuggestions] = useState(false);
+  const [supplierSuggestionError, setSupplierSuggestionError] = useState<string | null>(null);
 
   const routeContext = useMemo(() => getRouteContext(location.pathname), [location.pathname]);
 
   const pushAgent = (text: string) => setMessages((prev) => [...prev, { role: "agent", text }]);
+
+  const openMaterialPicker = () => {
+    setMaterialPickerOpen(true);
+    setMaterialSearchDraft("");
+    setMaterialSuggestions([]);
+    setMaterialSuggestionError(null);
+    setSupplierPickerOpen(false);
+    setSupplierSuggestions([]);
+    setSupplierSuggestionError(null);
+    setPendingPaymentSupplierSearch(false);
+  };
+
+  const openSupplierPicker = () => {
+    setSupplierPickerOpen(true);
+    setSupplierSearchDraft("");
+    setSupplierSuggestions([]);
+    setSupplierSuggestionError(null);
+    setMaterialPickerOpen(false);
+    setMaterialSuggestions([]);
+    setMaterialSuggestionError(null);
+    setPendingPaymentSupplierSearch(true);
+  };
 
   useEffect(() => {
     const term = materialSearchDraft.trim();
@@ -561,10 +634,45 @@ export function GlobalAgentChatWidget() {
     };
   }, [materialPickerOpen, materialSearchDraft]);
 
-  const runPaymentSupplierSearch = async (term: string) => {
+  useEffect(() => {
+    const term = supplierSearchDraft.trim();
+    if (!supplierPickerOpen || term.length < 2) {
+      setSupplierSuggestions([]);
+      setIsLoadingSupplierSuggestions(false);
+      setSupplierSuggestionError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingSupplierSuggestions(true);
+    setSupplierSuggestionError(null);
+
+    const handle = window.setTimeout(() => {
+      searchSupplierSuggestions(term)
+        .then((suggestions) => {
+          if (!cancelled) setSupplierSuggestions(suggestions);
+        })
+        .catch((e: any) => {
+          if (!cancelled) {
+            setSupplierSuggestions([]);
+            setSupplierSuggestionError(e?.message || "Không tải được gợi ý NCC");
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setIsLoadingSupplierSuggestions(false);
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [supplierPickerOpen, supplierSearchDraft]);
+
+  const runPaymentSupplierSearch = async (term: string, exactSupplier?: PaymentRequestSearchSupplier) => {
     setIsSearchingPaymentRequests(true);
     try {
-      const result = await searchPaymentRequestsBySupplier(term);
+      const result = await searchPaymentRequestsBySupplier(term, exactSupplier);
       pushAgent(formatPaymentSearchResults(term, result.suppliers, result.rows));
     } catch (e: any) {
       pushAgent(`Em chưa tìm được dữ liệu duyệt chi. Lỗi: ${e?.message || "Không rõ"}`);
@@ -591,6 +699,26 @@ export function GlobalAgentChatWidget() {
     setMessages((prev) => [...prev, { role: "user", text: `Tìm NVL: ${term}` }]);
     setMaterialPickerOpen(false);
     await runPaymentMaterialSearch(term);
+  };
+
+  const submitSupplierPickerSearch = async () => {
+    const term = supplierSearchDraft.trim();
+    if (term.length < 2 || isSearchingPaymentRequests) return;
+    setMessages((prev) => [...prev, { role: "user", text: `Tìm NCC: ${term}` }]);
+    setSupplierPickerOpen(false);
+    setPendingPaymentSupplierSearch(false);
+    await runPaymentSupplierSearch(term);
+  };
+
+  const selectSupplierSuggestion = async (suggestion: SupplierSuggestion) => {
+    if (isSearchingPaymentRequests) return;
+    const supplierName = suggestion.name || suggestion.short_code || suggestion.id;
+    setMessages((prev) => [...prev, { role: "user", text: `Chọn NCC: ${supplierName}` }]);
+    setSupplierPickerOpen(false);
+    setPendingPaymentSupplierSearch(false);
+    setSupplierSearchDraft(supplierName);
+    setSupplierSuggestions([]);
+    await runPaymentSupplierSearch(supplierName, suggestion);
   };
 
   const selectMaterialSuggestion = async (suggestion: MaterialSuggestion) => {
@@ -684,11 +812,14 @@ export function GlobalAgentChatWidget() {
     setMessages((prev) => [...prev, { role: "user", text: content }]);
     setDraft("");
 
+    if (routeContext.key === "payment_requests" && content === "Tìm đề nghị chi theo NCC") {
+      openSupplierPicker();
+      pushAgent('Anh nhập tên hoặc mã NCC ở khung tìm kiếm bên dưới. Ví dụ: "Thiên An Sinh" hoặc mã viết tắt NCC.');
+      return;
+    }
+
     if (routeContext.key === "payment_requests" && content === "Tìm đề nghị chi theo NVL") {
-      setMaterialPickerOpen(true);
-      setMaterialSearchDraft("");
-      setMaterialSuggestions([]);
-      setMaterialSuggestionError(null);
+      openMaterialPicker();
       pushAgent('Anh nhập tên nguyên vật liệu/mặt hàng ở thanh tìm kiếm bên dưới. Ví dụ: "bơ anchor", "bột mì".');
       return;
     }
@@ -696,10 +827,7 @@ export function GlobalAgentChatWidget() {
     if (isPaymentRequestMaterialSearch(content, routeContext.key)) {
       const term = extractMaterialSearchTerm(content);
       if (!term) {
-        setMaterialPickerOpen(true);
-        setMaterialSearchDraft("");
-        setMaterialSuggestions([]);
-        setMaterialSuggestionError(null);
+        openMaterialPicker();
         pushAgent('Anh nhập tên nguyên vật liệu/mặt hàng ở thanh tìm kiếm bên dưới. Ví dụ: "bơ anchor", "bột mì".');
         return;
       }
@@ -738,8 +866,8 @@ export function GlobalAgentChatWidget() {
     if (isPaymentRequestSupplierSearch(content, routeContext.key)) {
       const term = extractSupplierSearchTerm(content);
       if (!term) {
-        setPendingPaymentSupplierSearch(true);
-        pushAgent('Anh nhập tên nhà cung cấp cần tìm giúp em. Ví dụ: "tìm Thiên An Sinh".');
+        openSupplierPicker();
+        pushAgent('Anh nhập tên hoặc mã NCC ở khung tìm kiếm bên dưới. Ví dụ: "Thiên An Sinh" hoặc mã viết tắt NCC.');
         return;
       }
 
@@ -820,6 +948,72 @@ export function GlobalAgentChatWidget() {
                   </Button>
                 </div>
                 {pendingMissing.length > 0 && <div className="text-amber-600 text-xs">Thiếu: {pendingMissing.join(", ")}</div>}
+              </div>
+            )}
+
+            {routeContext.key === "payment_requests" && supplierPickerOpen && (
+              <div className="rounded-lg border p-3 space-y-2 bg-muted/20">
+                <div className="text-xs text-muted-foreground">Tìm theo nhà cung cấp / NCC</div>
+                <Input
+                  value={supplierSearchDraft}
+                  onChange={(event) => setSupplierSearchDraft(event.target.value)}
+                  placeholder='Nhập tên/mã NCC, ví dụ "Thiên An Sinh"'
+                  autoFocus
+                  disabled={isSearchingPaymentRequests}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      submitSupplierPickerSearch();
+                    }
+                  }}
+                />
+                {supplierSearchDraft.trim().length > 0 && supplierSearchDraft.trim().length < 2 && (
+                  <div className="text-xs text-muted-foreground">Nhập ít nhất 2 ký tự để tìm gợi ý.</div>
+                )}
+                {isLoadingSupplierSuggestions && (
+                  <div className="flex items-center text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    Đang tìm gợi ý...
+                  </div>
+                )}
+                {supplierSuggestionError && <div className="text-xs text-destructive">{supplierSuggestionError}</div>}
+                {supplierSearchDraft.trim().length >= 2 && !isLoadingSupplierSuggestions && !supplierSuggestionError && supplierSuggestions.length === 0 && (
+                  <div className="text-xs text-muted-foreground">Chưa có gợi ý. Bấm Enter để tìm theo nội dung đã nhập.</div>
+                )}
+                <div className="max-h-56 overflow-auto space-y-1">
+                  {supplierSuggestions.map((supplier) => {
+                    const supplierName = supplier.name || supplier.short_code || supplier.id;
+                    return (
+                      <button
+                        type="button"
+                        key={supplier.id}
+                        className="w-full min-w-0 rounded-md border bg-background px-2 py-2 text-left hover:bg-muted disabled:opacity-60"
+                        onClick={() => selectSupplierSuggestion(supplier)}
+                        disabled={isSearchingPaymentRequests}
+                      >
+                        <div className="min-w-0 break-words font-medium text-foreground">{supplierName}</div>
+                        <div className="min-w-0 break-words text-xs text-muted-foreground">
+                          {supplier.short_code ? `${supplier.short_code} · ` : ""}{supplier.pr_count ?? 0} PR
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs text-muted-foreground">Chọn một NCC để tìm chính xác các đề nghị chi liên quan.</div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setSupplierPickerOpen(false);
+                      setPendingPaymentSupplierSearch(false);
+                    }}
+                    disabled={isSearchingPaymentRequests}
+                  >
+                    Hủy
+                  </Button>
+                </div>
               </div>
             )}
 
