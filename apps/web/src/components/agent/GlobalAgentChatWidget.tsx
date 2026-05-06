@@ -53,7 +53,7 @@ function getRouteContext(pathname: string): ModuleContext {
   if (pathname.startsWith("/inventory")) return { key: "inventory", label: "Tồn kho", suggestions: ["Kiểm tra mặt hàng sắp hết", "Tóm tắt tồn kho theo nhóm", "Đề xuất nhập hàng hôm nay"] };
   if (pathname.startsWith("/suppliers")) return { key: "suppliers", label: "Nhà cung cấp", suggestions: ["Tìm NCC theo từ khóa", "Checklist đánh giá NCC", "Tóm tắt NCC đang hoạt động"] };
   if (pathname.startsWith("/invoices")) return { key: "invoices", label: "Hóa đơn", suggestions: ["Tìm hóa đơn thiếu sản phẩm", "Kiểm tra ảnh hóa đơn/UNC bị thiếu file", "Đề xuất xử lý lỗi tạo invoice từ PR"] };
-  if (pathname.startsWith("/payment-requests")) return { key: "payment_requests", label: "Đề nghị chi", suggestions: ["Tìm đề nghị chi theo NCC", "Tìm đề nghị chi chưa có hóa đơn", "Checklist duyệt chi", "Đối soát trạng thái thanh toán"] };
+  if (pathname.startsWith("/payment-requests")) return { key: "payment_requests", label: "Đề nghị chi", suggestions: ["Tìm đề nghị chi theo NCC"] };
   if (pathname.startsWith("/goods-receipts")) return { key: "goods_receipts", label: "Phiếu nhập", suggestions: ["Tóm tắt phiếu nhập hôm nay", "Kiểm tra phiếu lệch số lượng", "Checklist đối soát nhập kho"] };
   if (pathname.startsWith("/purchase-orders")) return { key: "purchase_orders", label: "PO", suggestions: ["Tìm PO chờ xử lý", "Checklist tạo PO", "Đối soát PO với đề nghị chi"] };
   if (pathname.startsWith("/low-stock")) return { key: "low_stock", label: "Sắp hết hàng", suggestions: ["Liệt kê item dưới ngưỡng", "Đề xuất ưu tiên nhập", "Tạo checklist bổ sung tồn"] };
@@ -144,6 +144,22 @@ function extractSupplierSearchTerm(content: string): string {
   const normalized = normalizeSupplierSearchTerm(content);
   if (/^(theo\s+)?(ncc|nhà cung cấp|nha cung cap)$/i.test(normalized)) return "";
   return normalized;
+}
+
+function isPaymentRequestNonSupplierCommand(content: string): boolean {
+  return /(tóm tắt|tom tat|summary|checklist|hóa đơn|hoa don|invoice|đối soát|doi soat|trạng thái|trang thai|chưa có|chua co)/i.test(content.trim().toLowerCase());
+}
+
+function isPaymentRequestControlCommand(content: string): boolean {
+  return /^(confirm|xác nhận|xac nhan|thực thi|thuc thi|execute|cancel|hủy|huy|tạo|tao)\b/i.test(content.trim().toLowerCase());
+}
+
+function isBarePaymentRequestSupplierPhrase(content: string, routeKey: string): boolean {
+  if (routeKey !== "payment_requests") return false;
+  const term = content.trim();
+  if (term.length < 2) return false;
+  if (isPaymentRequestNonSupplierCommand(term) || isPaymentRequestControlCommand(term)) return false;
+  return true;
 }
 
 function formatVnd(amount: number | null | undefined): string {
@@ -271,10 +287,23 @@ export function GlobalAgentChatWidget() {
   const [executionArmed, setExecutionArmed] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [isSearchingPaymentRequests, setIsSearchingPaymentRequests] = useState(false);
+  const [pendingPaymentSupplierSearch, setPendingPaymentSupplierSearch] = useState(false);
 
   const routeContext = useMemo(() => getRouteContext(location.pathname), [location.pathname]);
 
   const pushAgent = (text: string) => setMessages((prev) => [...prev, { role: "agent", text }]);
+
+  const runPaymentSupplierSearch = async (term: string) => {
+    setIsSearchingPaymentRequests(true);
+    try {
+      const result = await searchPaymentRequestsBySupplier(term);
+      pushAgent(formatPaymentSearchResults(term, result.suppliers, result.rows));
+    } catch (e: any) {
+      pushAgent(`Em chưa tìm được dữ liệu duyệt chi. Lỗi: ${e?.message || "Không rõ"}`);
+    } finally {
+      setIsSearchingPaymentRequests(false);
+    }
+  };
 
   const executeCreateCustomer = async () => {
     if (!pendingCreateDraft) return;
@@ -358,6 +387,17 @@ export function GlobalAgentChatWidget() {
     setMessages((prev) => [...prev, { role: "user", text: content }]);
     setDraft("");
 
+    if (routeContext.key === "payment_requests" && pendingPaymentSupplierSearch) {
+      setPendingPaymentSupplierSearch(false);
+      if (!isPaymentRequestNonSupplierCommand(content) && !isPaymentRequestControlCommand(content)) {
+        const term = extractSupplierSearchTerm(content);
+        if (term.length >= 2) {
+          await runPaymentSupplierSearch(term);
+          return;
+        }
+      }
+    }
+
     if (routeContext.key === "crm" && /t[aạ]o\s+kh[aá]ch\s+h[aà]ng|customer/i.test(content)) {
       const { draft: parsed, missing } = parseCreateCustomerCommand(content);
       setPendingCreateDraft(parsed);
@@ -376,19 +416,18 @@ export function GlobalAgentChatWidget() {
     if (isPaymentRequestSupplierSearch(content, routeContext.key)) {
       const term = extractSupplierSearchTerm(content);
       if (!term) {
+        setPendingPaymentSupplierSearch(true);
         pushAgent('Anh nhập tên nhà cung cấp cần tìm giúp em. Ví dụ: "tìm Thiên An Sinh".');
         return;
       }
 
-      setIsSearchingPaymentRequests(true);
-      try {
-        const result = await searchPaymentRequestsBySupplier(term);
-        pushAgent(formatPaymentSearchResults(term, result.suppliers, result.rows));
-      } catch (e: any) {
-        pushAgent(`Em chưa tìm được dữ liệu duyệt chi. Lỗi: ${e?.message || "Không rõ"}`);
-      } finally {
-        setIsSearchingPaymentRequests(false);
-      }
+      setPendingPaymentSupplierSearch(false);
+      await runPaymentSupplierSearch(term);
+      return;
+    }
+
+    if (isBarePaymentRequestSupplierPhrase(content, routeContext.key)) {
+      await runPaymentSupplierSearch(content);
       return;
     }
 
