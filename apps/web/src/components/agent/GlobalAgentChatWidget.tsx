@@ -21,6 +21,26 @@ type CreateCustomerDraft = {
   kb_calc_notes: string | null;
   kb_ops_notes: string | null;
 };
+type PaymentRequestSearchSupplier = {
+  id: string;
+  name?: string | null;
+  short_code?: string | null;
+};
+type PaymentRequestSearchRow = {
+  id: string;
+  request_number: string | null;
+  title: string | null;
+  total_amount: number | null;
+  payment_status: "unpaid" | "paid" | string | null;
+  payment_method: "bank_transfer" | "cash" | string | null;
+  status: string | null;
+  approved_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  invoice_id: string | null;
+  supplier_id: string | null;
+  invoices?: { invoice_number?: string | null; invoice_date?: string | null } | null;
+};
 
 const moduleConfig: Array<{ test: (pathname: string) => boolean; context: ModuleContext }> = [
   { test: (p) => p === "/mini-crm", context: { key: "crm", label: "CRM", suggestions: ["Tạo khách hàng Vietjet Test email ops@vietjet.vn", "Checklist setup customer", "Tóm tắt module này"] } },
@@ -33,7 +53,7 @@ function getRouteContext(pathname: string): ModuleContext {
   if (pathname.startsWith("/inventory")) return { key: "inventory", label: "Tồn kho", suggestions: ["Kiểm tra mặt hàng sắp hết", "Tóm tắt tồn kho theo nhóm", "Đề xuất nhập hàng hôm nay"] };
   if (pathname.startsWith("/suppliers")) return { key: "suppliers", label: "Nhà cung cấp", suggestions: ["Tìm NCC theo từ khóa", "Checklist đánh giá NCC", "Tóm tắt NCC đang hoạt động"] };
   if (pathname.startsWith("/invoices")) return { key: "invoices", label: "Hóa đơn", suggestions: ["Tìm hóa đơn thiếu sản phẩm", "Kiểm tra ảnh hóa đơn/UNC bị thiếu file", "Đề xuất xử lý lỗi tạo invoice từ PR"] };
-  if (pathname.startsWith("/payment-requests")) return { key: "payment_requests", label: "Đề nghị chi", suggestions: ["Tìm đề nghị chi chưa có hóa đơn", "Checklist duyệt chi", "Đối soát trạng thái thanh toán"] };
+  if (pathname.startsWith("/payment-requests")) return { key: "payment_requests", label: "Đề nghị chi", suggestions: ["Tìm đề nghị chi theo NCC", "Tìm đề nghị chi chưa có hóa đơn", "Checklist duyệt chi", "Đối soát trạng thái thanh toán"] };
   if (pathname.startsWith("/goods-receipts")) return { key: "goods_receipts", label: "Phiếu nhập", suggestions: ["Tóm tắt phiếu nhập hôm nay", "Kiểm tra phiếu lệch số lượng", "Checklist đối soát nhập kho"] };
   if (pathname.startsWith("/purchase-orders")) return { key: "purchase_orders", label: "PO", suggestions: ["Tìm PO chờ xử lý", "Checklist tạo PO", "Đối soát PO với đề nghị chi"] };
   if (pathname.startsWith("/low-stock")) return { key: "low_stock", label: "Sắp hết hàng", suggestions: ["Liệt kê item dưới ngưỡng", "Đề xuất ưu tiên nhập", "Tạo checklist bổ sung tồn"] };
@@ -96,6 +116,138 @@ function parseCreateCustomerCommand(raw: string): { draft: CreateCustomerDraft; 
   return { draft, missing };
 }
 
+function normalizeSupplierSearchTerm(raw: string): string {
+  return String(raw || "")
+    .trim()
+    .replace(/^(tìm|tim|search|kiểm tra|kiem tra)\s+/i, "")
+    .replace(/^đề nghị chi\s+(theo\s+)?/i, "")
+    .replace(/^(ncc|nhà cung cấp|nha cung cap)\s+/i, "")
+    .replace(/^(đã chi|da chi|chưa chi|chua chi)\s+/i, "")
+    .replace(/^theo\s+(ncc|nhà cung cấp|nha cung cap)\s*/i, "")
+    .trim();
+}
+
+function isPaymentRequestSupplierSearch(content: string, routeKey: string): boolean {
+  if (routeKey !== "payment_requests") return false;
+  const lower = content.trim().toLowerCase();
+  if (!lower) return false;
+  if (/^tìm đề nghị chi theo (ncc|nhà cung cấp)|^tim de nghi chi theo (ncc|nha cung cap)/i.test(lower)) return true;
+  if (/^(đã chi|da chi|chưa chi|chua chi)\s+/i.test(lower)) return true;
+  if (/\b(ncc|nhà cung cấp|nha cung cap)\b/i.test(lower) && /^(tìm|tim|search|kiểm tra|kiem tra)\b/i.test(lower)) return true;
+  if (/^(tìm|tim|search)\s+/i.test(lower)) {
+    return !/(hóa đơn|hoa don|invoice|checklist|đối soát|doi soat|trạng thái|trang thai|chưa có|chua co)/i.test(lower);
+  }
+  return false;
+}
+
+function extractSupplierSearchTerm(content: string): string {
+  const normalized = normalizeSupplierSearchTerm(content);
+  if (/^(theo\s+)?(ncc|nhà cung cấp|nha cung cap)$/i.test(normalized)) return "";
+  return normalized;
+}
+
+function formatVnd(amount: number | null | undefined): string {
+  return `${Number(amount || 0).toLocaleString("vi-VN")}đ`;
+}
+
+function formatDateVi(value: string | null | undefined): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString("vi-VN");
+}
+
+function truncate(value: string | null | undefined, max: number): string {
+  const text = String(value || "-");
+  if (text.length <= max) return text;
+  return `${text.slice(0, Math.max(0, max - 1))}…`;
+}
+
+function padCell(value: string, width: number): string {
+  const text = truncate(value, width);
+  return `${text}${" ".repeat(Math.max(0, width - text.length))}`;
+}
+
+function formatPaymentRows(rows: PaymentRequestSearchRow[], kind: "unpaid" | "paid"): string[] {
+  const visibleRows = rows.slice(0, 8);
+  const lines = visibleRows.map((row) => {
+    const date = kind === "paid" ? row.invoices?.invoice_date || row.approved_at || row.updated_at || row.created_at : row.approved_at || row.updated_at || row.created_at;
+    const lastCol = kind === "paid" ? row.invoices?.invoice_number || "-" : row.status || "-";
+    return [
+      padCell(row.request_number || "-", 12),
+      padCell(formatDateVi(date), 10),
+      padCell(formatVnd(row.total_amount), 13),
+      padCell(lastCol, kind === "paid" ? 14 : 10),
+    ].join(" | ");
+  });
+
+  if (rows.length > visibleRows.length) lines.push(`... còn ${rows.length - visibleRows.length} dòng`);
+  return lines.length ? lines : ["Không có dòng nào."];
+}
+
+function formatPaymentSearchResults(term: string, suppliers: PaymentRequestSearchSupplier[], rows: PaymentRequestSearchRow[]): string {
+  if (!suppliers.length || !rows.length) {
+    return `Không tìm thấy đề nghị chi cho "${term}".\nGợi ý: thử nhập tên NCC đầy đủ hơn, ví dụ "Thiên An Sinh".`;
+  }
+
+  const supplierNames = suppliers.map((supplier) => supplier.name || supplier.short_code || supplier.id).join(", ");
+  const sortedRows = [...rows].sort((a, b) => {
+    const groupA = a.payment_status === "paid" ? 1 : 0;
+    const groupB = b.payment_status === "paid" ? 1 : 0;
+    if (groupA !== groupB) return groupA - groupB;
+    const dateA = new Date(a.approved_at || a.updated_at || a.created_at || 0).getTime();
+    const dateB = new Date(b.approved_at || b.updated_at || b.created_at || 0).getTime();
+    return dateB - dateA;
+  });
+  const unpaidRows = sortedRows.filter((row) => row.payment_status !== "paid");
+  const paidRows = sortedRows.filter((row) => row.payment_status === "paid");
+  const unpaidTotal = unpaidRows.reduce((sum, row) => sum + Number(row.total_amount || 0), 0);
+  const paidTotal = paidRows.reduce((sum, row) => sum + Number(row.total_amount || 0), 0);
+
+  return [
+    `Kết quả duyệt chi cho NCC: ${supplierNames}`,
+    `Tổng dòng: ${rows.length} | Chưa chi: ${unpaidRows.length} (${formatVnd(unpaidTotal)}) | Đã chi: ${paidRows.length} (${formatVnd(paidTotal)})`,
+    "",
+    "CHƯA CHI / UNPAID",
+    "PR           | Ngày       | Số tiền       | Trạng thái",
+    "-------------|------------|---------------|-----------",
+    ...formatPaymentRows(unpaidRows, "unpaid"),
+    "",
+    "ĐÃ CHI / PAID",
+    "PR           | Ngày       | Số tiền       | Invoice",
+    "-------------|------------|---------------|--------------",
+    ...formatPaymentRows(paidRows, "paid"),
+  ].join("\n");
+}
+
+async function searchPaymentRequestsBySupplier(term: string): Promise<{ suppliers: PaymentRequestSearchSupplier[]; rows: PaymentRequestSearchRow[] }> {
+  const pattern = `%${term.replace(/[%_]/g, "\\$&")}%`;
+  const [nameResult, shortCodeResult] = await Promise.all([
+    (supabase as any).from("suppliers").select("id,name,short_code").ilike("name", pattern).limit(10),
+    (supabase as any).from("suppliers").select("id,name,short_code").ilike("short_code", pattern).limit(10),
+  ]);
+
+  if (nameResult.error) throw nameResult.error;
+  if (shortCodeResult.error) throw shortCodeResult.error;
+
+  const supplierMap = new Map<string, PaymentRequestSearchSupplier>();
+  [...(nameResult.data || []), ...(shortCodeResult.data || [])].forEach((supplier: PaymentRequestSearchSupplier) => {
+    if (supplier?.id) supplierMap.set(supplier.id, supplier);
+  });
+  const suppliers = Array.from(supplierMap.values()).slice(0, 10);
+  if (!suppliers.length) return { suppliers: [], rows: [] };
+
+  const { data, error } = await (supabase as any)
+    .from("payment_requests")
+    .select("id,request_number,title,total_amount,payment_status,payment_method,status,approved_at,created_at,updated_at,invoice_id,supplier_id,invoices!payment_requests_invoice_id_fkey(invoice_number,invoice_date)")
+    .in("supplier_id", suppliers.map((supplier) => supplier.id))
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (error) throw error;
+  return { suppliers, rows: data || [] };
+}
+
 async function getNextKnowledgeProfileVersion(customerId: string) {
   const { data, error } = await (supabase as any)
     .from("mini_crm_knowledge_profile_versions")
@@ -118,6 +270,7 @@ export function GlobalAgentChatWidget() {
   const [pendingMissing, setPendingMissing] = useState<string[]>([]);
   const [executionArmed, setExecutionArmed] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [isSearchingPaymentRequests, setIsSearchingPaymentRequests] = useState(false);
 
   const routeContext = useMemo(() => getRouteContext(location.pathname), [location.pathname]);
 
@@ -199,9 +352,9 @@ export function GlobalAgentChatWidget() {
     }
   };
 
-  const sendMessage = (text?: string) => {
+  const sendMessage = async (text?: string) => {
     const content = String(text ?? draft).trim();
-    if (!content) return;
+    if (!content || isSearchingPaymentRequests) return;
     setMessages((prev) => [...prev, { role: "user", text: content }]);
     setDraft("");
 
@@ -216,6 +369,25 @@ export function GlobalAgentChatWidget() {
         pushAgent(
           `Em đã chuẩn bị execution plan tạo khách hàng:\n- Tên: ${parsed.customer_name}\n- Group: ${parsed.customer_group}\n- Product: ${parsed.product_group}\n- Emails: ${parsed.emails.join(", ")}\n- PO mode: ${parsed.kb_po_mode}\nAnh bấm 'Confirm kế hoạch' rồi 'Thực thi ngay'.`
         );
+      }
+      return;
+    }
+
+    if (isPaymentRequestSupplierSearch(content, routeContext.key)) {
+      const term = extractSupplierSearchTerm(content);
+      if (!term) {
+        pushAgent('Anh nhập tên nhà cung cấp cần tìm giúp em. Ví dụ: "tìm Thiên An Sinh".');
+        return;
+      }
+
+      setIsSearchingPaymentRequests(true);
+      try {
+        const result = await searchPaymentRequestsBySupplier(term);
+        pushAgent(formatPaymentSearchResults(term, result.suppliers, result.rows));
+      } catch (e: any) {
+        pushAgent(`Em chưa tìm được dữ liệu duyệt chi. Lỗi: ${e?.message || "Không rõ"}`);
+      } finally {
+        setIsSearchingPaymentRequests(false);
       }
       return;
     }
@@ -261,12 +433,19 @@ export function GlobalAgentChatWidget() {
           <div className="flex-1 overflow-auto p-4 space-y-3 text-sm">
             {messages.length === 0 && <div className="rounded-lg border bg-muted/30 p-3">Kính chào Quý khách. Hệ thống đã nhận diện ngữ cảnh hiện tại là <b>{routeContext.label}</b>. Vui lòng nhập yêu cầu để AI Agent hỗ trợ.</div>}
 
-            {messages.map((m, idx) => (
-              <div key={`${m.role}-${idx}`} className={cn("rounded-lg border p-3 whitespace-pre-wrap", m.role === "user" ? "bg-primary/5" : "bg-background")}>
-                <div className="text-xs text-muted-foreground mb-1">{m.role === "user" ? "Anh" : "Agent"}</div>
-                {m.text}
-              </div>
-            ))}
+            {messages.map((m, idx) => {
+              const isTableLikeAgentMessage = m.role === "agent" && /\n.*\|/.test(m.text);
+              return (
+                <div key={`${m.role}-${idx}`} className={cn("rounded-lg border p-3", m.role === "user" ? "bg-primary/5" : "bg-background")}>
+                  <div className="text-xs text-muted-foreground mb-1">{m.role === "user" ? "Anh" : "Agent"}</div>
+                  {isTableLikeAgentMessage ? (
+                    <pre className="overflow-x-auto whitespace-pre text-xs leading-relaxed font-mono text-foreground pb-1">{m.text}</pre>
+                  ) : (
+                    <div className="whitespace-pre-wrap">{m.text}</div>
+                  )}
+                </div>
+              );
+            })}
 
             {pendingCreateDraft && routeContext.key === "crm" && (
               <div className="rounded-lg border p-3 space-y-2">
@@ -286,7 +465,7 @@ export function GlobalAgentChatWidget() {
             <div className="rounded-lg border p-3">
               <div className="text-xs text-muted-foreground mb-2">Quick actions theo module</div>
               <div className="flex flex-wrap gap-2">
-                {routeContext.suggestions.map((s) => <Button key={s} type="button" size="sm" variant="outline" onClick={() => sendMessage(s)}>{s}</Button>)}
+                {routeContext.suggestions.map((s) => <Button key={s} type="button" size="sm" variant="outline" onClick={() => sendMessage(s)} disabled={isSearchingPaymentRequests}>{s}</Button>)}
               </div>
             </div>
           </div>
@@ -302,8 +481,11 @@ export function GlobalAgentChatWidget() {
                   sendMessage();
                 }
               }}
+              disabled={isSearchingPaymentRequests}
             />
-            <Button type="button" className="w-full" variant="secondary" onClick={() => sendMessage()}>Gửi</Button>
+            <Button type="button" className="w-full" variant="secondary" onClick={() => sendMessage()} disabled={isSearchingPaymentRequests}>
+              {isSearchingPaymentRequests ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" />Đang tìm</> : "Gửi"}
+            </Button>
           </div>
         </SheetContent>
       </Sheet>
