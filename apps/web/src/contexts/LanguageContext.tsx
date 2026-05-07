@@ -6,6 +6,7 @@ interface Translations {
   // Navigation
   dashboard: string;
   inventory: string;
+  kitchenInventory: string;
   skus: string;
   skuCosts: string;
   skuCostDashboard: string;
@@ -171,6 +172,7 @@ const translations: Record<Language, Translations> = {
     // Navigation
     dashboard: "Dashboard",
     inventory: "Inventory",
+    kitchenInventory: "Kitchen Inventory",
     skus: "SKU Management",
     skuCosts: "COGS Costing",
     skuCostDashboard: "COGS Dashboard",
@@ -356,6 +358,7 @@ const translations: Record<Language, Translations> = {
     // Navigation
     dashboard: "Tổng quan",
     inventory: "Kho hàng",
+    kitchenInventory: "Kiểm soát kho bếp",
     skus: "Quản lý SKU",
     skuCosts: "Tính chi phí giá vốn hàng bán",
     skuCostDashboard: "Tổng quan giá vốn",

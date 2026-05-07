@@ -15,6 +15,7 @@ import Invoices from "@/pages/Invoices";
 import PaymentRequests from "@/pages/PaymentRequests";
 import LowStock from "@/pages/LowStock";
 import GoodsReceipts from "@/pages/GoodsReceipts";
+import KitchenInventory from "@/pages/KitchenInventory";
 import PurchaseOrders from "@/pages/PurchaseOrders";
 import Settings from "@/pages/Settings";
 import Auth from "@/pages/Auth";
@@ -131,6 +132,7 @@ export function AppRoutes() {
       <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
         <Route path="/" element={<Index />} />
         <Route path="/inventory" element={<Inventory />} />
+        <Route path="/kitchen-inventory" element={<KitchenInventory />} />
         <Route path="/suppliers" element={<Suppliers />} />
         <Route path="/invoices" element={<Invoices />} />
         <Route path="/payment-requests" element={<PaymentRequests />} />

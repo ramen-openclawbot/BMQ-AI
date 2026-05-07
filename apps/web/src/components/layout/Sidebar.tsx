@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   Package,
+  CookingPot,
   Users,
   FileText,
   AlertTriangle,
@@ -70,6 +71,7 @@ const navItems: NavItem[] = [
   { icon: ScanLine, labelKey: "attendance", path: "/attendance", section: "operations", moduleKey: "attendance" },
   { icon: Wallet, labelKey: "payroll", path: "/payroll", section: "operations", moduleKey: "payroll" },
   { icon: Package, labelKey: "inventory", path: "/inventory", section: "operations", moduleKey: "inventory" },
+  { icon: CookingPot, labelKey: "kitchenInventory", path: "/kitchen-inventory", section: "operations", moduleKey: "kitchen_inventory" },
   { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts", section: "operations", moduleKey: "goods_receipts" },
   { icon: Truck, labelKey: "warehouseDispatch", path: "/warehouse/dispatch", section: "operations", moduleKey: "inventory" },
   { icon: BarChart4, labelKey: "stockReport", path: "/warehouse/stock-report", section: "operations", moduleKey: "inventory" },
