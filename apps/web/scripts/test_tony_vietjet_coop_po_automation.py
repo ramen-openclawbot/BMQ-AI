@@ -77,6 +77,18 @@ def test_monthly_preview_uses_parser_service_date_before_fallback() -> None:
         assert_contains(monthly, needle, label)
 
 
+def test_monthly_preview_uses_dashboard_canonical_channels() -> None:
+    for needle, label in [
+        ("dashboardRevenueChannel", "dashboard channel mapper"),
+        ('return "ĐẠI LÝ"', "agency canonical dashboard channel"),
+        ('return "BÁNH NGỌT"', "bakery canonical dashboard channel"),
+        ('return "B2B BMQ"', "B2B canonical dashboard channel"),
+        ('return "Retail Kiosk"', "retail canonical dashboard channel"),
+        ("raw_parse_channel", "raw parse channel preserved in payload"),
+    ]:
+        assert_contains(monthly, needle, label)
+
+
 def test_scheduler_keeps_new_rules_in_exception_review_path() -> None:
     for needle, label in [
         ("TONY_THANH_SENDER", "Tony sender-scoped fetch"),

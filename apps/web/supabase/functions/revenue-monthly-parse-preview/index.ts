@@ -100,6 +100,69 @@ const numberValue = (...values: unknown[]) => {
   return 0;
 };
 
+const normalizeText = (...values: unknown[]) =>
+  values
+    .map((value) => String(value ?? ""))
+    .join(" ")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[đ]/g, "d")
+    .trim();
+
+const dashboardRevenueChannel = (...signals: unknown[]) => {
+  for (const signal of signals) {
+    const normalized = normalizeText(signal);
+    if (!normalized) continue;
+
+    if (normalized === "dai ly" || normalized === "agency" || normalized === "franchise") return "ĐẠI LÝ";
+    if (normalized === "banh ngot" || normalized === "banhngot" || normalized === "bakery business") return "BÁNH NGỌT";
+    if (normalized === "b2b" || normalized === "b2b bmq" || normalized === "b2b_bmq") return "B2B BMQ";
+    if (normalized === "retail kiosk" || normalized === "retail" || normalized === "kiosk") return "Retail Kiosk";
+
+    if (
+      normalized.includes("xesg") ||
+      normalized.includes("retail") ||
+      normalized.includes("kiosk") ||
+      normalized.includes("xe sg") ||
+      normalized.includes("xe ban le") ||
+      normalized.includes("dam_xesg")
+    ) return "Retail Kiosk";
+
+    if (
+      normalized.includes("king") ||
+      normalized.includes("kfm") ||
+      normalized.includes("coop") ||
+      normalized.includes("cake") ||
+      normalized.includes("bakery") ||
+      normalized.includes("kho banh") ||
+      normalized.includes("banhngot") ||
+      normalized.includes("banh ngot")
+    ) return "BÁNH NGỌT";
+
+    if (
+      normalized.includes("b2b") ||
+      normalized.includes("vietjet") ||
+      normalized.includes("vjc") ||
+      normalized.includes("kho ban thanh pham")
+    ) return "B2B BMQ";
+
+    if (
+      normalized.includes("agency") ||
+      normalized.includes("franchise") ||
+      normalized.includes("tony") ||
+      normalized.includes("anh thanh") ||
+      normalized.includes("thuy") ||
+      normalized.includes("direct_company_dealer") ||
+      normalized.includes("direct dealer") ||
+      normalized.includes("direct_dealer") ||
+      normalized.includes("dai ly")
+    ) return "ĐẠI LÝ";
+  }
+
+  return "ĐẠI LÝ";
+};
+
 const isoDate = (date: Date) => date.toISOString().slice(0, 10);
 
 const getDatePartsInTimeZone = (date: Date, timeZone: string) => {
@@ -342,6 +405,29 @@ const buildPreviewLines = (runId: string, period: string, revenueFrom: string, r
         raw.customer_name,
         row.email_subject,
       ) || "Chưa xác định customer";
+      const rawChannel = stringValue(
+        row.revenue_channel,
+        raw.revenue_channel,
+        item.revenue_channel,
+        item.source_channel,
+        row.mini_crm_customers?.product_group,
+        poAutomation.rule,
+        poAutomation.channel_scope,
+        row.from_email,
+        customerName,
+      ) || "po_email";
+      const dashboardChannel = dashboardRevenueChannel(
+        rawChannel,
+        row.revenue_channel,
+        raw.revenue_channel,
+        item.revenue_channel,
+        item.source_channel,
+        row.mini_crm_customers?.product_group,
+        poAutomation.rule,
+        poAutomation.channel_scope,
+        row.from_email,
+        customerName,
+      );
       const gross = Number(line.gross || 0);
       lines.push({
         run_id: runId,
@@ -349,7 +435,7 @@ const buildPreviewLines = (runId: string, period: string, revenueFrom: string, r
         revenue_date: revenueDate,
         po_received_date: poReceivedDate,
         period,
-        channel: stringValue(row.revenue_channel, raw.revenue_channel, row.mini_crm_customers?.product_group) || "po_email",
+        channel: dashboardChannel,
         source_tab: "PO/email monthly parse",
         branch: stringValue(raw.branch, item.branch),
         invoice_no: stringValue(row.po_number, raw.po_number, extractPoNumberFromSubject(row.email_subject)),
@@ -382,6 +468,8 @@ const buildPreviewLines = (runId: string, period: string, revenueFrom: string, r
           service_date_source: stringValue(item.service_date, item.date, asRecord(raw.parse_meta).service_date, asRecord(raw.parse_meta).delivery_date, row.delivery_date) ? "parser_service_date" : "fallback_po_received_plus_1",
           monthly_parse_kind: "manual_current_month_to_yesterday",
           trust_semantics: "not_trusted_month_end_audit_source",
+          dashboard_channel: dashboardChannel,
+          raw_parse_channel: rawChannel,
           source_dedupe_key: stringValue(item.dedupe_key),
           dedupe_strategy: stringValue(item.dedupe_strategy, asRecord(raw.parse_meta).dedupe_strategy),
         },

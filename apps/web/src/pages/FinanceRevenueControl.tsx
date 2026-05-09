@@ -184,28 +184,15 @@ const normalizeLine = (value: unknown): MonthlyPreviewLine => {
 };
 
 const channelRuleLabel = (channel: string) => {
-  const normalized = channel.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  if (normalized.includes("king") || normalized.includes("kfm")) return "Kingfood / King Food Mart";
-  if (normalized.includes("tony") || normalized.includes("anh_thanh") || normalized.includes("anh thanh")) return "Tony / Anh Thanh";
-  if (normalized.includes("vietjet") || normalized.includes("vjc")) return "Vietjet";
-  if (normalized.includes("coop")) return "Coop / Coopmart";
-  if (normalized.includes("thuy") || normalized.includes("direct_dealer") || normalized.includes("dai ly truc tiep")) return "Thúy direct dealer";
-  if (normalized.includes("xesg") || normalized.includes("retail") || normalized.includes("kiosk")) return "XESG / Retail kiosk";
-  if (normalized.includes("cake") || normalized.includes("banhngot") || normalized.includes("banh ngot")) return "Bánh ngọt / wholesale";
-  if (normalized.includes("banhmi") || normalized.includes("banh mi")) return "Bánh mì / đại lý";
+  const normalized = channel.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[đ]/g, "d");
+  if (normalized.includes("dai ly") || normalized.includes("agency") || normalized.includes("franchise")) return "Đại lý";
+  if (normalized.includes("banh ngot") || normalized.includes("banhngot") || normalized.includes("bakery") || normalized.includes("king") || normalized.includes("kfm") || normalized.includes("coop")) return "Bánh ngọt";
+  if (normalized.includes("b2b") || normalized.includes("vietjet") || normalized.includes("vjc")) return "B2B BMQ";
+  if (normalized.includes("retail") || normalized.includes("kiosk") || normalized.includes("xesg")) return "Retail kiosk";
   return channel || "Other";
 };
 
-const channelRuleHint = (channel: string) => {
-  const label = channelRuleLabel(channel);
-  if (label.includes("Kingfood")) return "Rule PO Excel/PDF KFM";
-  if (label.includes("Tony")) return "Rule NPP Tony/Anh Thanh";
-  if (label.includes("Vietjet")) return "Rule lịch bay cộng dồn";
-  if (label.includes("Coop")) return "Rule Coopmart";
-  if (label.includes("Thúy")) return "Rule email đại lý trực tiếp";
-  if (label.includes("XESG")) return "Rule retail/kiosk";
-  return "PO/email parse rule";
-};
+const channelRuleHint = () => "Kênh dashboard";
 
 export default function FinanceRevenueControl() {
   const { language } = useLanguage();
@@ -591,8 +578,8 @@ export default function FinanceRevenueControl() {
               <div className="space-y-3">
                 <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                   <div>
-                    <h3 className="text-sm font-semibold text-stone-100">Summary theo kênh parse</h3>
-                    <p className="text-xs text-stone-400">Tổng hợp theo các rule chính thay vì hiển thị từng dòng parse lẻ.</p>
+                    <h3 className="text-sm font-semibold text-stone-100">Summary theo kênh dashboard</h3>
+                    <p className="text-xs text-stone-400">Tổng hợp theo đúng kênh đang dùng trên dashboard Quản lý doanh thu.</p>
                   </div>
                   <Badge className="w-fit border border-amber-300/30 bg-amber-400/10 text-amber-100">
                     {numberFmt(channelSummaries.length)} kênh
@@ -612,7 +599,7 @@ export default function FinanceRevenueControl() {
                             <div className="truncate font-semibold text-stone-100" title={channel.label}>{channel.label}</div>
                             <Badge className="border border-stone-600 bg-stone-800 text-stone-200">{channel.hint}</Badge>
                           </div>
-                          <div className="text-xs text-stone-500" title={channel.channel}>Raw channel: {channel.channel}</div>
+                          <div className="text-xs text-stone-500" title={channel.channel}>Mã kênh ledger: {channel.channel}</div>
                         </div>
                         <div className="grid min-w-full gap-2 text-sm sm:grid-cols-4 lg:min-w-[520px]">
                           <div className="rounded-lg border border-stone-800 bg-stone-950/60 p-2">
