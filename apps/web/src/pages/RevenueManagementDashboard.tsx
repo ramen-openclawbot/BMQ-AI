@@ -45,6 +45,7 @@ type RevenueLine = {
 
 type RevenueQuery = PromiseLike<{ data: RevenueLine[] | null; error: { message?: string } | null }> & {
   eq: (column: string, value: string) => RevenueQuery;
+  in: (column: string, values: string[]) => RevenueQuery;
   order: (column: string, options: { ascending: boolean }) => RevenueQuery;
   range: (from: number, to: number) => RevenueQuery;
 };
@@ -83,7 +84,7 @@ async function fetchAllRevenueLines(period: string, controlledOnly: boolean) {
       .order("revenue_date", { ascending: true })
       .range(from, from + pageSize - 1);
 
-    if (controlledOnly) q = q.eq("approval_status", "approved").eq("source_document.status", "trusted");
+    if (controlledOnly) q = q.eq("approval_status", "approved").in("source_document.status", ["controlled", "trusted"]);
 
     const { data, error } = await q;
     if (error) throw error;
@@ -109,6 +110,7 @@ const sourceTypeLabel: Record<string, string> = {
   manual_invoice: "Invoice",
   po_parse: "PO parse",
   email_parse: "Email parse",
+  po_email_parse: "PO/email đã duyệt",
   csv_import: "CSV",
   csv: "CSV",
   email: "Email",
@@ -187,7 +189,8 @@ export default function RevenueManagementDashboard() {
   const { language } = useLanguage();
   const isVi = language === "vi";
   const navigate = useNavigate();
-  const [period, setPeriod] = useState(CONTROLLED_APRIL_PERIOD);
+  const initialPeriod = new URLSearchParams(window.location.search).get("period") || CONTROLLED_APRIL_PERIOD;
+  const [period, setPeriod] = useState(initialPeriod);
   const [basis, setBasis] = useState<"controlled" | "all">("controlled");
   const prevPeriod = previousMonth(period);
 

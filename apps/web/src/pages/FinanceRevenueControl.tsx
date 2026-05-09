@@ -1,17 +1,21 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleAlert, Eye, Loader2, RefreshCw } from "lucide-react";
+import { CalendarDays, CheckCircle2, CircleAlert, Eye, Loader2, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 
+const TIME_ZONE = "Asia/Ho_Chi_Minh";
+
 const vnd = (v: number) =>
   new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(v || 0);
+
+const numberFmt = (v: number) => new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(v || 0);
 
 const getReadableError = (error: unknown): string => {
   if (!error) return "Không rõ nguyên nhân";
@@ -31,24 +35,41 @@ const getReadableError = (error: unknown): string => {
 
 const getNumber = (value: unknown) => (Number.isFinite(Number(value)) ? Number(value) : 0);
 
-const getVietnamDate = (deltaDays = 0) => {
-  const now = new Date();
-  now.setUTCDate(now.getUTCDate() + deltaDays);
+const isoDate = (date: Date) => date.toISOString().slice(0, 10);
+
+const getVietnamDateParts = (date = new Date()) => {
   const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Ho_Chi_Minh",
+    timeZone: TIME_ZONE,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(now);
+  }).formatToParts(date);
   const map = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
-  return `${map.year}-${map.month}-${map.day}`;
+  return { date: `${map.year}-${map.month}-${map.day}`, year: Number(map.year), month: Number(map.month), day: Number(map.day) };
 };
 
-const diffDaysInclusive = (from: string, to: string) => {
-  const fromMs = Date.parse(`${from}T00:00:00Z`);
-  const toMs = Date.parse(`${to}T00:00:00Z`);
-  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return Number.NaN;
-  return Math.floor((toMs - fromMs) / 86_400_000) + 1;
+const shiftLocalDate = (date: string, deltaDays: number) => {
+  const [year, month, day] = date.split("-").map((part) => Number(part));
+  const shifted = new Date(Date.UTC(year, month - 1, day));
+  shifted.setUTCDate(shifted.getUTCDate() + deltaDays);
+  return isoDate(shifted);
+};
+
+const getCurrentMonthParseWindow = () => {
+  const current = getVietnamDateParts();
+  const period = `${current.year}-${String(current.month).padStart(2, "0")}`;
+  const revenueDateFrom = `${period}-01`;
+  const revenueDateTo = shiftLocalDate(current.date, -1);
+  const poReceivedFrom = shiftLocalDate(revenueDateFrom, -1);
+  const poReceivedTo = shiftLocalDate(revenueDateTo, -1);
+  const hasRevenueWindow = Date.parse(`${revenueDateTo}T00:00:00Z`) >= Date.parse(`${revenueDateFrom}T00:00:00Z`);
+  return { period, revenueDateFrom, revenueDateTo, poReceivedFrom, poReceivedTo, hasRevenueWindow };
+};
+
+const formatDate = (value: string | null | undefined) => {
+  if (!value) return "—";
+  const [year, month, day] = value.split("-");
+  return `${day}/${month}/${year}`;
 };
 
 interface ScheduleRow {
@@ -63,6 +84,51 @@ interface RevenueDraftRow {
   status: string | null;
   total_amount: number | null;
 }
+
+interface MonthlyPreviewSummary {
+  period: string;
+  revenueDateFrom: string;
+  revenueDateTo: string;
+  poReceivedFrom: string;
+  poReceivedTo: string;
+  rows: number;
+  grossRevenue: number;
+  quantity: number;
+  customers: number;
+  needsReview: number;
+  channels?: Array<{ channel: string; rows: number; grossRevenue: number; quantity: number }>;
+}
+
+interface MonthlyPreviewRun {
+  id: string;
+  period: string;
+  status: string;
+  summary?: MonthlyPreviewSummary;
+}
+
+interface MonthlyPreviewLine {
+  id?: string;
+  source_row_number: number;
+  revenue_date: string;
+  po_received_date: string | null;
+  channel: string;
+  invoice_no: string | null;
+  customer_name: string;
+  product_name: string | null;
+  quantity: number;
+  gross_revenue: number;
+  review_status: string;
+  confidence_status: string;
+}
+
+interface ExistingParseInfo {
+  id: string;
+  sourceName?: string;
+  importedAt?: string;
+  summary?: Record<string, unknown>;
+}
+
+type ParseState = "idle" | "running" | "preview_ready" | "approving" | "rejecting" | "approved" | "error";
 
 type QueryResult<T> = PromiseLike<{ data: T | null; error: { message?: string; details?: string; hint?: string } | null }>;
 type QueryBuilder<T> = QueryResult<T[]> & {
@@ -79,7 +145,7 @@ type DbClient = {
 
 const db = supabase as unknown as DbClient;
 
-const parseSchedulerResponse = (rawText: string): Record<string, unknown> => {
+const parseFunctionResponse = (rawText: string): Record<string, unknown> => {
   if (!rawText) return {};
   try {
     const parsed = JSON.parse(rawText);
@@ -89,6 +155,27 @@ const parseSchedulerResponse = (rawText: string): Record<string, unknown> => {
   }
 };
 
+const isSummary = (value: unknown): value is MonthlyPreviewSummary =>
+  Boolean(value && typeof value === "object" && !Array.isArray(value));
+
+const normalizeLine = (value: unknown): MonthlyPreviewLine => {
+  const row = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  return {
+    id: typeof row.id === "string" ? row.id : undefined,
+    source_row_number: getNumber(row.source_row_number),
+    revenue_date: String(row.revenue_date || ""),
+    po_received_date: typeof row.po_received_date === "string" ? row.po_received_date : null,
+    channel: String(row.channel || "po_email"),
+    invoice_no: typeof row.invoice_no === "string" ? row.invoice_no : null,
+    customer_name: String(row.customer_name || "Chưa xác định customer"),
+    product_name: typeof row.product_name === "string" ? row.product_name : null,
+    quantity: getNumber(row.quantity),
+    gross_revenue: getNumber(row.gross_revenue),
+    review_status: String(row.review_status || "not_required"),
+    confidence_status: String(row.confidence_status || "manual_review"),
+  };
+};
+
 export default function FinanceRevenueControl() {
   const { language } = useLanguage();
   const isVi = language === "vi";
@@ -96,10 +183,16 @@ export default function FinanceRevenueControl() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [manualDateFrom, setManualDateFrom] = useState(() => getVietnamDate(-6));
-  const [manualDateTo, setManualDateTo] = useState(() => getVietnamDate());
-  const [automationRunning, setAutomationRunning] = useState(false);
+  const [parseState, setParseState] = useState<ParseState>("idle");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [previewRun, setPreviewRun] = useState<MonthlyPreviewRun | null>(null);
+  const [previewSummary, setPreviewSummary] = useState<MonthlyPreviewSummary | null>(null);
+  const [previewLines, setPreviewLines] = useState<MonthlyPreviewLine[]>([]);
+  const [previewTruncated, setPreviewTruncated] = useState(false);
+  const [overwritePrompt, setOverwritePrompt] = useState<ExistingParseInfo[] | null>(null);
   const [automationRunMessage, setAutomationRunMessage] = useState<string | null>(null);
+
+  const parseWindow = useMemo(() => getCurrentMonthParseWindow(), []);
 
   const { data: revenueDrafts = [] } = useQuery<RevenueDraftRow[]>({
     queryKey: ["revenue-drafts"],
@@ -148,107 +241,135 @@ export default function FinanceRevenueControl() {
   }, [revenueDrafts]);
 
   const scheduleSummary = automationSchedule
-    ? `${automationSchedule.run_hour_local || "23:59"} ${automationSchedule.timezone || "Asia/Ho_Chi_Minh"}`
-    : "23:59 Asia/Ho_Chi_Minh";
+    ? `${automationSchedule.run_hour_local || "23:59"} ${automationSchedule.timezone || TIME_ZONE}`
+    : `23:59 ${TIME_ZONE}`;
   const pendingReview = draftStats.pending + draftStats.exception;
   const canRunAutomation = isOwner;
-  const selectedRangeDays = diffDaysInclusive(manualDateFrom, manualDateTo);
+  const actionBusy = parseState === "running" || parseState === "approving" || parseState === "rejecting";
 
-  const validateManualRange = () => {
+  const callMonthlyParseFunction = async (body: Record<string, unknown>) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const sessionRecord = session as unknown as Record<string, string | undefined>;
+    const bearer = sessionRecord["access_" + "token"];
+    if (!bearer) throw new Error(isVi ? "Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại." : "Your session has expired. Please sign in again.");
+
+    const { error: userError } = await supabase.auth.getUser();
+    if (userError) throw new Error(isVi ? `Phiên đăng nhập không hợp lệ (${userError.message}).` : `Invalid session (${userError.message}).`);
+
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/revenue-monthly-parse-preview`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${bearer}`,
+      },
+      body: JSON.stringify(body),
+    });
+    const rawText = await response.text();
+    const result = parseFunctionResponse(rawText);
+    if (!response.ok && !result.requiresOverwriteConfirmation) {
+      throw new Error(String(result.error || result.message || result.raw || rawText || "Monthly parse failed"));
+    }
+    return { response, result };
+  };
+
+  const runMonthlyPreview = async () => {
     if (!canRunAutomation) {
       toast({
-        title: isVi ? "Không có quyền chạy automation" : "No permission to run automation",
-        description: isVi ? "Chỉ owner được parse thủ công theo khoảng ngày." : "Only owners can manually parse a date range.",
+        title: isVi ? "Không có quyền chạy parse" : "No permission to run parse",
+        description: isVi ? "Chỉ owner được parse và duyệt kết quả tháng." : "Only owners can parse and approve monthly results.",
         variant: "destructive",
       });
-      return false;
+      return;
     }
 
-    if (!manualDateFrom || !manualDateTo) {
+    if (!parseWindow.hasRevenueWindow) {
       toast({
-        title: isVi ? "Thiếu khoảng ngày" : "Missing date range",
-        description: isVi ? "Vui lòng chọn cả ngày bắt đầu và ngày kết thúc." : "Please choose both a start date and an end date.",
+        title: isVi ? "Chưa có ngày doanh thu để parse" : "No revenue day to parse",
+        description: isVi ? "Hãy chạy từ ngày 02 trở đi để có dữ liệu từ đầu tháng đến hôm qua." : "Run from the 2nd day onward to parse month-to-yesterday data.",
         variant: "destructive",
       });
-      return false;
+      return;
     }
 
-    const days = diffDaysInclusive(manualDateFrom, manualDateTo);
-    if (!Number.isFinite(days) || days < 1) {
-      toast({
-        title: isVi ? "Khoảng ngày không hợp lệ" : "Invalid date range",
-        description: isVi ? "Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc." : "Start date must be before or equal to end date.",
-        variant: "destructive",
-      });
-      return false;
-    }
+    setDialogOpen(true);
+    setParseState("running");
+    setPreviewRun(null);
+    setPreviewSummary(null);
+    setPreviewLines([]);
+    setOverwritePrompt(null);
+    setAutomationRunMessage(null);
 
-    if (days > 31) {
-      toast({
-        title: isVi ? "Khoảng ngày quá dài" : "Date range too large",
-        description: isVi ? "Vui lòng parse tối đa 31 ngày mỗi lần để tránh quá tải inbox." : "Please parse at most 31 days at a time to avoid overloading the inbox.",
-        variant: "destructive",
-      });
-      return false;
+    try {
+      const { result } = await callMonthlyParseFunction({ action: "preview_current_month" });
+      const run = result.run && typeof result.run === "object" ? result.run as MonthlyPreviewRun : null;
+      const summary = isSummary(result.summary) ? result.summary : null;
+      const rawLines = Array.isArray(result.lines) ? result.lines : [];
+      setPreviewRun(run);
+      setPreviewSummary(summary);
+      setPreviewLines(rawLines.map(normalizeLine));
+      setPreviewTruncated(Boolean(result.truncated));
+      setParseState("preview_ready");
+    } catch (error) {
+      setParseState("error");
+      toast({ title: isVi ? "Lỗi parse tháng" : "Monthly parse failed", description: getReadableError(error), variant: "destructive" });
     }
-
-    return true;
   };
 
-  const runManualRangeParse = async () => {
-    if (!validateManualRange()) return;
-
-    setAutomationRunMessage(null);
-    setAutomationRunning(true);
+  const approvePreview = async (overwrite = false) => {
+    if (!previewRun?.id) return;
+    setParseState("approving");
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const sessionRecord = session as unknown as Record<string, string | undefined>;
-      const bearer = sessionRecord["access_" + "token"];
-      if (!bearer) throw new Error(isVi ? "Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại." : "Your session has expired. Please sign in again.");
+      const { response, result } = await callMonthlyParseFunction({ action: "approve_preview", runId: previewRun.id, overwrite });
+      if (response.status === 409 || result.requiresOverwriteConfirmation) {
+        const existing = Array.isArray(result.existing) ? result.existing as ExistingParseInfo[] : [];
+        setOverwritePrompt(existing);
+        setParseState("preview_ready");
+        return;
+      }
 
-      const { error: userError } = await supabase.auth.getUser();
-      if (userError) throw new Error(isVi ? `Phiên đăng nhập không hợp lệ (${userError.message}).` : `Invalid session (${userError.message}).`);
-
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-sync-scheduler-run`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${bearer}`,
-        },
-        body: JSON.stringify({
-          mode: "manual_range",
-          ignoreDisabled: true,
-          dateFrom: manualDateFrom,
-          dateTo: manualDateTo,
-        }),
-      });
-
-      const rawText = await response.text();
-      const result = parseSchedulerResponse(rawText);
-      if (!response.ok) throw new Error(String(result.error || result.message || result.raw || rawText || "Automation run failed"));
-
-      const stats = result.result && typeof result.result === "object" ? result.result as Record<string, unknown> : {};
-      const rangeText = `${String(stats.dateFrom || manualDateFrom)} → ${String(stats.dateTo || manualDateTo)}`;
-      const message = `${rangeText}: ${getNumber(stats.rowsFound)} PO • ${getNumber(stats.draftsCreated)} draft • ${getNumber(stats.exceptionsCreated)} ngoại lệ • ${getNumber(stats.skippedRows)} bỏ qua`;
+      const summary = result.summary && typeof result.summary === "object" ? result.summary as Record<string, unknown> : {};
+      const message = `${String(summary.period || previewSummary?.period || parseWindow.period)}: ${getNumber(summary.row_count || previewSummary?.rows)} dòng lưu • ${vnd(getNumber(summary.gross_total || previewSummary?.grossRevenue))}${getNumber(summary.excluded_review_line_count) > 0 ? ` • ${getNumber(summary.excluded_review_line_count)} dòng cần kiểm tra không vào dashboard` : ""}`;
       setAutomationRunMessage(message);
+      setParseState("approved");
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["po-sync-jobs-recent"] }),
-        queryClient.invalidateQueries({ queryKey: ["po-sync-snapshots"] }),
-        queryClient.invalidateQueries({ queryKey: ["po-sync-schedule-foundation"] }),
+        queryClient.invalidateQueries({ queryKey: ["revenue-ledger-lines"] }),
         queryClient.invalidateQueries({ queryKey: ["revenue-drafts"] }),
       ]);
-      toast({
-        title: isVi ? "Đã parse khoảng ngày" : "Date range parsed",
-        description: isVi
-          ? `${getNumber(stats.draftsCreated)} draft • ${getNumber(stats.exceptionsCreated)} ngoại lệ • ${getNumber(stats.skippedRows)} bỏ qua`
-          : `${getNumber(stats.draftsCreated)} drafts • ${getNumber(stats.exceptionsCreated)} exceptions • ${getNumber(stats.skippedRows)} skipped`,
-      });
+      toast({ title: isVi ? "Đã duyệt kết quả parse" : "Parse result approved", description: message });
     } catch (error) {
-      toast({ title: isVi ? "Lỗi parse khoảng ngày" : "Date range parse failed", description: getReadableError(error), variant: "destructive" });
-    } finally {
-      setAutomationRunning(false);
+      setParseState("preview_ready");
+      toast({ title: isVi ? "Lỗi duyệt kết quả" : "Approval failed", description: getReadableError(error), variant: "destructive" });
     }
   };
+
+  const rejectPreview = async () => {
+    if (!previewRun?.id) {
+      setDialogOpen(false);
+      return;
+    }
+    setParseState("rejecting");
+    try {
+      await callMonthlyParseFunction({ action: "reject_preview", runId: previewRun.id });
+      setPreviewRun(null);
+      setPreviewSummary(null);
+      setPreviewLines([]);
+      setOverwritePrompt(null);
+      setParseState("idle");
+      setDialogOpen(false);
+      toast({ title: isVi ? "Đã reject" : "Rejected", description: isVi ? "Đã xoá staging, không lưu kết quả parse." : "Staging deleted; no parse result was saved." });
+    } catch (error) {
+      setParseState("preview_ready");
+      toast({ title: isVi ? "Lỗi reject" : "Reject failed", description: getReadableError(error), variant: "destructive" });
+    }
+  };
+
+  const dialogTitle = parseState === "running"
+    ? "Đang parse PO/email..."
+    : parseState === "approved"
+      ? "Đã lưu kết quả parse"
+      : overwritePrompt
+        ? "Đã có kết quả parse tháng này"
+        : "Kết quả parse từ đầu tháng";
 
   return (
     <div className="space-y-5">
@@ -262,11 +383,11 @@ export default function FinanceRevenueControl() {
               Daily Auto-Parse Operations
             </h1>
             <p className="max-w-3xl text-sm leading-6 text-stone-300/80">
-              Trung tâm parse PO/email thành draft và ngoại lệ theo khoảng ngày. Staff kiểm tra/sửa ở Daily Review, không có bước duyệt bắt buộc tại đây.
+              Trung tâm parse PO/email thành kết quả vận hành đã kiểm soát. Owner xem preview trước khi lưu; nguồn audit cuối tháng sẽ là tính năng riêng.
             </p>
           </div>
-          <Button variant="outline" className="border-amber-300/35 bg-amber-400/[0.08] text-amber-100 hover:bg-amber-400/[0.14]" onClick={() => window.location.assign("/finance-control/revenue/daily-review")}>
-            <Eye className="mr-2 h-4 w-4" />Open daily review
+          <Button variant="outline" className="border-amber-300/35 bg-amber-400/[0.08] text-amber-100 hover:bg-amber-400/[0.14]" onClick={() => window.location.assign("/finance-control/revenue") }>
+            <Eye className="mr-2 h-4 w-4" />Open dashboard
           </Button>
         </div>
       </div>
@@ -275,15 +396,15 @@ export default function FinanceRevenueControl() {
         <Card className="border-amber-300/30 bg-amber-50/70">
           <CardContent className="flex items-start gap-3 p-4 text-sm text-amber-900">
             <CircleAlert className="mt-0.5 h-4 w-4" />
-            {isVi ? "Chỉ owner được parse thủ công theo khoảng ngày. Staff có thể kiểm tra và sửa doanh thu đã parse trong Daily Review." : "Manual date-range parsing is owner-only. Staff can review and edit parsed revenue in Daily Review."}
+            {isVi ? "Chỉ owner được parse và duyệt kết quả tháng. Staff có thể kiểm tra/sửa doanh thu đã parse trong Daily Review." : "Only owners can parse and approve monthly results. Staff can review/edit parsed revenue in Daily Review."}
           </CardContent>
         </Card>
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: "Selected range", value: `${manualDateFrom} → ${manualDateTo}`, helper: Number.isFinite(selectedRangeDays) && selectedRangeDays > 0 ? `${selectedRangeDays} day(s)` : "Invalid range" },
-          { label: "Drafts created", value: String(revenueDrafts.length), helper: `${draftStats.pending} pending review` },
+          { label: "Kỳ doanh thu", value: `${formatDate(parseWindow.revenueDateFrom)} → ${formatDate(parseWindow.revenueDateTo)}`, helper: parseWindow.hasRevenueWindow ? "Từ đầu tháng đến hôm qua" : "Chưa có ngày parse" },
+          { label: "Nguồn PO/email", value: `${formatDate(parseWindow.poReceivedFrom)} → ${formatDate(parseWindow.poReceivedTo)}`, helper: "Lùi 1 ngày để khớp doanh thu" },
           { label: "Exceptions", value: String(draftStats.exception), helper: "Need staff check" },
           { label: "Pending staff review", value: String(pendingReview), helper: vnd(draftStats.pendingAmt) },
         ].map((item) => (
@@ -305,56 +426,177 @@ export default function FinanceRevenueControl() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Manual parse theo ngày</CardTitle>
+          <CardTitle>Parse doanh thu tháng hiện tại</CardTitle>
           <CardDescription>
-            Owner chọn khoảng ngày để parse PO/email thành draft hoặc ngoại lệ cho Daily Review. Không ghi nhận doanh thu final; tối đa 31 ngày/lần.
+            Owner parse PO/email từ đầu tháng đến hôm qua. PO/email được lấy lùi 1 ngày, ví dụ doanh thu 01/05 dùng PO ngày 30/04. Kết quả chỉ được lưu sau khi owner xem preview và approve.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-2">
-              <label htmlFor="manual-date-from" className="text-sm font-medium text-muted-foreground">Từ ngày</label>
-              <Input
-                id="manual-date-from"
-                type="date"
-                value={manualDateFrom}
-                onChange={(event) => setManualDateFrom(event.target.value)}
-                disabled={!canRunAutomation || automationRunning}
-              />
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-xl border border-amber-200/20 bg-stone-900 p-4 text-stone-100">
+              <div className="flex items-center gap-2 text-sm font-medium text-amber-100">
+                <CalendarDays className="h-4 w-4" />Kỳ doanh thu
+              </div>
+              <div className="mt-2 text-lg font-semibold text-stone-100">
+                {formatDate(parseWindow.revenueDateFrom)} → {formatDate(parseWindow.revenueDateTo)}
+              </div>
+              <p className="mt-1 text-xs text-stone-400">Hiển thị từ đầu tháng đến thời điểm parse trước 1 ngày.</p>
             </div>
-            <div className="space-y-2">
-              <label htmlFor="manual-date-to" className="text-sm font-medium text-muted-foreground">Đến ngày</label>
-              <Input
-                id="manual-date-to"
-                type="date"
-                value={manualDateTo}
-                onChange={(event) => setManualDateTo(event.target.value)}
-                disabled={!canRunAutomation || automationRunning}
-              />
+            <div className="rounded-xl border border-stone-700 bg-stone-900 p-4 text-stone-100">
+              <div className="flex items-center gap-2 text-sm font-medium text-stone-200">
+                <ShieldCheck className="h-4 w-4" />Nguồn PO/email
+              </div>
+              <div className="mt-2 text-lg font-semibold text-stone-100">
+                {formatDate(parseWindow.poReceivedFrom)} → {formatDate(parseWindow.poReceivedTo)}
+              </div>
+              <p className="mt-1 text-xs text-stone-400">Lùi 1 ngày để khớp ngày ghi nhận doanh thu.</p>
             </div>
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs leading-5 text-muted-foreground">
-              Kết quả parse chỉ là evidence/draft để staff review-by-exception trong Daily Review.
+              Approve sẽ ghi dòng đủ điều kiện vào operational `controlled`; dòng cần kiểm tra sẽ không vào dashboard và nguồn audit cuối tháng là tính năng riêng.
             </p>
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button variant="outline" className="w-full sm:w-auto" onClick={() => window.location.assign("/finance-control/revenue/daily-review")}>
+              <Button variant="outline" className="w-full sm:w-auto" onClick={() => window.location.assign("/finance-control/revenue/daily-review") }>
                 <Eye className="mr-2 h-4 w-4" />Daily Review
               </Button>
               <Button
                 className="w-full border border-amber-300/60 bg-amber-400 text-stone-950 hover:bg-amber-300 disabled:opacity-60 sm:w-auto"
-                disabled={!canRunAutomation || automationRunning}
-                onClick={() => void runManualRangeParse()}
-                title={canRunAutomation ? "Owner-only manual date range parse" : "Owner-only"}
+                disabled={!canRunAutomation || actionBusy || !parseWindow.hasRevenueWindow}
+                onClick={() => void runMonthlyPreview()}
+                title={canRunAutomation ? "Owner-only monthly parse preview" : "Owner-only"}
               >
-                {automationRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                {isVi ? "Parse khoảng ngày" : "Parse date range"}
+                {parseState === "running" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                {isVi ? "Parse từ đầu tháng" : "Parse month to date"}
               </Button>
             </div>
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={dialogOpen} onOpenChange={(open) => !actionBusy && setDialogOpen(open)}>
+        <DialogContent className="max-h-[88vh] overflow-y-auto border-amber-200/20 bg-stone-950 text-stone-100 sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle className="text-amber-50">{dialogTitle}</DialogTitle>
+            <DialogDescription className="text-stone-300">
+              Kỳ doanh thu {formatDate(parseWindow.revenueDateFrom)} → {formatDate(parseWindow.revenueDateTo)} • PO/email {formatDate(parseWindow.poReceivedFrom)} → {formatDate(parseWindow.poReceivedTo)}.
+            </DialogDescription>
+          </DialogHeader>
+
+          {parseState === "running" ? (
+            <div className="space-y-5 py-6 text-center">
+              <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full border border-amber-300/30 bg-amber-400/10">
+                <Loader2 className="h-10 w-10 animate-spin text-amber-200" />
+              </div>
+              <div className="space-y-2">
+                <p className="font-medium text-amber-50">Đang lấy PO/email và map sang ngày doanh thu...</p>
+                <p className="text-sm text-stone-400">Ví dụ 01/05 sẽ dùng PO/email ngày 30/04. Chưa có dòng nào được lưu vào ledger trước khi approve.</p>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-stone-800">
+                <div className="h-full w-2/3 animate-pulse rounded-full bg-amber-300" />
+              </div>
+            </div>
+          ) : null}
+
+          {parseState !== "running" && previewSummary ? (
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  { label: "Dòng parse", value: numberFmt(previewSummary.rows), helper: `${previewSummary.needsReview} cần kiểm tra` },
+                  { label: "Doanh thu", value: vnd(previewSummary.grossRevenue), helper: "Operational controlled" },
+                  { label: "Sản lượng", value: numberFmt(previewSummary.quantity), helper: "Từ PO/email" },
+                  { label: "Customer", value: numberFmt(previewSummary.customers), helper: "Theo customer/NPP" },
+                ].map((item) => (
+                  <div key={item.label} className="rounded-xl border border-stone-700 bg-stone-900 p-3">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-stone-500">{item.label}</div>
+                    <div className="mt-2 truncate text-lg font-semibold text-amber-100" title={item.value}>{item.value}</div>
+                    <div className="mt-1 text-xs text-stone-400">{item.helper}</div>
+                  </div>
+                ))}
+              </div>
+
+              {previewSummary.needsReview > 0 ? (
+                <div className="rounded-xl border border-rose-300/35 bg-rose-400/[0.08] p-4 text-sm text-rose-100">
+                  {previewSummary.needsReview} dòng cần kiểm tra sẽ không được ghi vào dashboard khi approve. Hãy xử lý các dòng này qua Daily Review hoặc reject nếu muốn parse lại.
+                </div>
+              ) : null}
+
+              {overwritePrompt ? (
+                <div className="rounded-xl border border-amber-300/40 bg-amber-400/[0.08] p-4 text-sm text-amber-50">
+                  <div className="font-semibold">Đã có kết quả parse cho kỳ {previewSummary.period}</div>
+                  <div className="mt-2 space-y-1 text-amber-100/90">
+                    {overwritePrompt.map((item) => (
+                      <div key={item.id}>• {item.sourceName || item.id} {item.importedAt ? `(${new Date(item.importedAt).toLocaleString("vi-VN")})` : ""}</div>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs text-amber-100/80">Overwrite sẽ supersede bản cũ và ghi bản mới; không xoá cứng evidence cũ.</p>
+                </div>
+              ) : null}
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-stone-100">Preview dòng parse</h3>
+                  {previewTruncated ? <Badge className="border border-amber-300/30 bg-amber-400/10 text-amber-100">Hiển thị 200 dòng đầu</Badge> : null}
+                </div>
+                <div className="grid gap-2">
+                  {previewLines.slice(0, 20).map((line) => (
+                    <div key={`${line.source_row_number}-${line.invoice_no || line.customer_name}`} className="rounded-xl border border-stone-800 bg-stone-900/80 p-3">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="truncate font-medium text-stone-100" title={line.customer_name}>{line.customer_name}</div>
+                          <div className="mt-1 text-xs text-stone-400">
+                            DT {formatDate(line.revenue_date)} • PO {formatDate(line.po_received_date || undefined)} • {line.invoice_no || "No PO"} • {line.channel}
+                          </div>
+                          <div className="mt-1 truncate text-xs text-stone-500" title={line.product_name || ""}>{line.product_name || "PO/email parsed item"}</div>
+                        </div>
+                        <div className="shrink-0 text-left sm:text-right">
+                          <div className="font-semibold text-amber-100">{vnd(line.gross_revenue)}</div>
+                          <div className="text-xs text-stone-400">SL {numberFmt(line.quantity)}</div>
+                        </div>
+                      </div>
+                      {line.review_status === "needs_manual_review" ? (
+                        <Badge className="mt-2 border border-rose-300/30 bg-rose-400/[0.08] text-rose-100">Cần kiểm tra</Badge>
+                      ) : null}
+                    </div>
+                  ))}
+                  {previewLines.length === 0 ? <div className="rounded-xl border border-stone-800 p-4 text-sm text-stone-400">Không có dòng parse trong kỳ này.</div> : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {parseState === "approved" ? (
+            <div className="rounded-xl border border-emerald-300/30 bg-emerald-400/[0.08] p-4 text-sm text-emerald-100">
+              <CheckCircle2 className="mb-2 h-5 w-5" />Đã lưu kết quả parse ở trạng thái operational controlled. Dashboard có thể hiển thị kỳ này.
+            </div>
+          ) : null}
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            {parseState === "approved" ? (
+              <Button className="bg-amber-400 text-stone-950 hover:bg-amber-300" onClick={() => window.location.assign(`/finance-control/revenue?period=${previewSummary?.period || parseWindow.period}`)}>
+                Open dashboard
+              </Button>
+            ) : parseState === "preview_ready" || overwritePrompt ? (
+              <>
+                {overwritePrompt ? (
+                  <Button variant="outline" className="border-stone-600 bg-transparent text-stone-200 hover:bg-stone-800" onClick={() => setOverwritePrompt(null)} disabled={actionBusy}>
+                    Cancel overwrite
+                  </Button>
+                ) : (
+                  <Button variant="outline" className="border-rose-300/40 bg-rose-400/[0.06] text-rose-100 hover:bg-rose-400/[0.12]" onClick={() => void rejectPreview()} disabled={actionBusy}>
+                    {parseState === "rejecting" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}Reject
+                  </Button>
+                )}
+                <Button className="bg-amber-400 text-stone-950 hover:bg-amber-300" onClick={() => void approvePreview(Boolean(overwritePrompt))} disabled={actionBusy || !previewRun?.id}>
+                  {parseState === "approving" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
+                  {overwritePrompt ? "Overwrite & approve" : "Approve"}
+                </Button>
+              </>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
