@@ -97,14 +97,22 @@ const getDatePartsInTimeZone = (date: Date, timeZone: string) => {
   };
 };
 
+const parseLocalRunTime = (value?: string | null) => {
+  const match = String(value || "23:59").trim().match(/^(\d{1,2})(?::(\d{2}))?$/);
+  if (!match) return { hour: 23, minute: 59 };
+  const hour = Math.min(Math.max(Number(match[1] || 0), 0), 23);
+  const minute = Math.min(Math.max(Number(match[2] || 0), 0), 59);
+  return { hour, minute };
+};
+
 const isCronRunDue = (schedule: ScheduleRow, now = new Date()) => {
   const timeZone = schedule.timezone || "Asia/Ho_Chi_Minh";
-  const scheduledHour = Number(String(schedule.run_hour_local || "00:00").slice(0, 2));
+  const scheduled = parseLocalRunTime(schedule.run_hour_local);
   const current = getDatePartsInTimeZone(now, timeZone);
-  if (current.hour !== scheduledHour) {
+  if (current.hour !== scheduled.hour || current.minute !== scheduled.minute) {
     return {
       due: false,
-      reason: `Outside scheduled hour (${schedule.run_hour_local} ${timeZone})`,
+      reason: `Outside scheduled minute (${schedule.run_hour_local || "23:59"} ${timeZone})`,
     };
   }
 
@@ -121,13 +129,38 @@ const isCronRunDue = (schedule: ScheduleRow, now = new Date()) => {
   return { due: true };
 };
 
-const buildDateRange = (lookbackDays: number) => {
-  const end = new Date();
-  const start = new Date();
-  start.setUTCDate(start.getUTCDate() - Math.max(0, lookbackDays - 1));
+const timeZoneOffsetMinutes = (timeZone: string) => {
+  // The production automation is currently scheduled in Vietnam time. Keep this
+  // explicit so received_at windows line up with local business days instead of
+  // UTC calendar days at the 23:59 ICT cron tick.
+  if (timeZone === "Asia/Ho_Chi_Minh") return 7 * 60;
+  return 0;
+};
+
+const dateFromLocalParts = (date: string, timeZone: string, endOfDay = false) => {
+  const [year, month, day] = date.split("-").map((part) => Number(part));
+  const localUtc = Date.UTC(year, month - 1, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0);
+  return new Date(localUtc - timeZoneOffsetMinutes(timeZone) * 60 * 1000);
+};
+
+const shiftLocalDate = (date: string, deltaDays: number) => {
+  const [year, month, day] = date.split("-").map((part) => Number(part));
+  const shifted = new Date(Date.UTC(year, month - 1, day));
+  shifted.setUTCDate(shifted.getUTCDate() + deltaDays);
+  return isoDate(shifted);
+};
+
+const buildDateRange = (lookbackDays: number, timeZone = "Asia/Ho_Chi_Minh", now = new Date()) => {
+  const current = getDatePartsInTimeZone(now, timeZone);
+  const endLocalDate = current.date;
+  const startLocalDate = shiftLocalDate(endLocalDate, -Math.max(0, lookbackDays - 1));
+  const receivedFrom = dateFromLocalParts(startLocalDate, timeZone).toISOString();
+  const receivedTo = dateFromLocalParts(endLocalDate, timeZone, true).toISOString();
   return {
-    dateFrom: isoDate(start),
-    dateTo: isoDate(end),
+    dateFrom: startLocalDate,
+    dateTo: endLocalDate,
+    receivedFrom,
+    receivedTo,
   };
 };
 
@@ -157,6 +190,18 @@ async function ensureAuthorized(supabaseAdmin: any, userId: string) {
 const AUTOMATION_LOCK_KEY = "po_sync_scheduler_default";
 const CRON_TRIGGERED_BY = "vercel-cron";
 const CRON_SECRET_ENV_KEY = "PO_SYNC_CRON_SECRET";
+const THUY_DIRECT_DEALER_SENDER = "thuy@bmq.vn";
+const AUTOMATION_REVIEW_STATUSES = [
+  "cancel_signal",
+  "pdf_only_needs_review",
+  "parse_failed_needs_review",
+  "parsed_needs_review",
+  "needs_manual_review",
+  "po_evidence_only",
+  "manual_trusted_ledger_only",
+  "line_level_manual_revenue_ready",
+  "superseded_duplicate_needs_review",
+] as const;
 
 type RequestContext = {
   triggeredBy: string;
@@ -237,33 +282,43 @@ async function fetchScopedCustomerIds(supabaseAdmin: any, scopeMode: ScheduleSco
   return ids;
 }
 
-async function fetchInboxRows(supabaseAdmin: any, dateFrom: string, dateTo: string, scopedCustomerIds: string[]) {
-  if (scopedCustomerIds.length === 0) return [] as InboxRow[];
-
+async function fetchInboxRows(supabaseAdmin: any, receivedFrom: string, receivedTo: string, scopedCustomerIds: string[]) {
   const pageSize = 1000;
-  const rows: InboxRow[] = [];
-  let offset = 0;
+  const rowsById = new Map<string, InboxRow>();
 
-  while (true) {
-    let query = supabaseAdmin
-      .from("customer_po_inbox")
-      .select("*, mini_crm_customers(id, customer_name, product_group, is_tier1)")
-      .gte("received_at", `${dateFrom}T00:00:00.000Z`)
-      .lte("received_at", `${dateTo}T23:59:59.999Z`)
-      .in("matched_customer_id", scopedCustomerIds)
-      .order("received_at", { ascending: false })
-      .range(offset, offset + pageSize - 1);
+  const fetchPages = async (applyScope: (query: any) => any) => {
+    let offset = 0;
+    while (true) {
+      const query = applyScope(
+        supabaseAdmin
+          .from("customer_po_inbox")
+          .select("*, mini_crm_customers(id, customer_name, product_group, is_tier1)")
+          .gte("received_at", receivedFrom)
+          .lte("received_at", receivedTo),
+      )
+        .order("received_at", { ascending: false })
+        .range(offset, offset + pageSize - 1);
 
-    const { data, error } = await query;
-    if (error) throw error;
+      const { data, error } = await query;
+      if (error) throw error;
 
-    const batch = (data || []) as InboxRow[];
-    rows.push(...batch);
-    if (batch.length < pageSize) break;
-    offset += pageSize;
+      const batch = (data || []) as InboxRow[];
+      for (const row of batch) rowsById.set(row.id, row);
+      if (batch.length < pageSize) break;
+      offset += pageSize;
+    }
+  };
+
+  if (scopedCustomerIds.length > 0) {
+    await fetchPages((query) => query.in("matched_customer_id", scopedCustomerIds));
   }
 
-  return rows;
+  // Thúy route-level evidence stores final customer matches inside production_items;
+  // matched_customer_id can remain null, so fetch sender-scoped rows separately and
+  // keep them in the manual Quản lý doanh thu review path instead of silently skipping them.
+  await fetchPages((query) => query.eq("from_email", THUY_DIRECT_DEALER_SENDER));
+
+  return Array.from(rowsById.values());
 }
 
 async function createSyncSnapshot(args: {
@@ -351,7 +406,7 @@ async function runScheduledSync(args: {
     }
   }
 
-  const { dateFrom, dateTo } = buildDateRange(Number(schedule.lookback_days || 1));
+  const { dateFrom, dateTo, receivedFrom, receivedTo } = buildDateRange(Number(schedule.lookback_days || 1), schedule.timezone || "Asia/Ho_Chi_Minh");
   const scopedCustomerIds = await fetchScopedCustomerIds(supabaseAdmin, schedule.scope_mode, schedule.customer_id);
 
   const { data: job, error: jobErr } = await supabaseAdmin
@@ -384,7 +439,7 @@ async function runScheduledSync(args: {
   };
 
   try {
-    const rows = await fetchInboxRows(supabaseAdmin, dateFrom, dateTo, scopedCustomerIds);
+    const rows = await fetchInboxRows(supabaseAdmin, receivedFrom, receivedTo, scopedCustomerIds);
 
     const ids = rows.map((row) => row.id).filter(Boolean);
     const { data: existingDocs, error: existingErr } = ids.length
@@ -426,14 +481,22 @@ async function runScheduledSync(args: {
       const isTier1 = Boolean(row.mini_crm_customers?.is_tier1);
       const poAutomation = row.raw_payload?.po_automation || null;
       const automationStatus = String(poAutomation?.automation_status || "");
-      const automationNeedsReview = ["cancel_signal", "pdf_only_needs_review", "parse_failed_needs_review", "parsed_needs_review", "needs_manual_review"].includes(automationStatus);
+      const automationNeedsReview = AUTOMATION_REVIEW_STATUSES.includes(automationStatus as typeof AUTOMATION_REVIEW_STATUSES[number]);
       const amount = calcAmountFromRow(row);
       const productGroup = String(row.mini_crm_customers?.product_group || inferProductGroupFromRow(row));
       const resolvedCustomerId = row.matched_customer_id || null;
       const kbProfileId = resolvedCustomerId ? kbByCustomer.get(resolvedCustomerId) ?? null : null;
       const canCreatePendingDraft = isTier1 && !automationNeedsReview;
+      const automationRule = String(poAutomation?.rule || "");
+      const automationReviewLabel = automationRule === "dam_xesg_text_body"
+        ? "Dam/XESG PO evidence cần review"
+        : automationRule === "thuy_direct_dealer_text"
+          ? "Thúy đại lý trực tiếp cần đối soát Quản lý doanh thu"
+        : automationRule === "kingfood_po_automation"
+          ? "Kingfood PO cần review"
+          : "PO automation cần review";
       const reviewExceptionReason = automationNeedsReview
-        ? `Kingfood PO cần review: ${automationStatus || "unknown"} - ${poAutomation?.reason || "Không đủ điều kiện auto-parse"}`
+        ? `${automationReviewLabel}: ${automationStatus || "unknown"} - ${poAutomation?.reason || "Không đủ điều kiện auto-parse"}`
         : "Khách hàng chưa được phân loại Tier-1";
 
       try {
@@ -538,6 +601,8 @@ async function runScheduledSync(args: {
       jobId: job.id,
       dateFrom,
       dateTo,
+      receivedFrom,
+      receivedTo,
       rowsFound: rows.length,
       rowsProcessed: processed,
       draftsCreated,

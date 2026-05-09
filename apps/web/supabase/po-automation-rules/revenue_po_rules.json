@@ -1,0 +1,60 @@
+{
+  "version": "revenue-option4-2026-05-09",
+  "status": "repo_trial_period",
+  "accounting_source_of_truth": {
+    "table": "revenue_ledger_lines",
+    "trusted_document_table": "revenue_source_documents",
+    "rule": "Approved trusted ledger rows are accounting truth. Parsed PO/email rows are operational evidence until finance reviews or imports trusted ledger data."
+  },
+  "schedule": {
+    "run_time_local": "23:59",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "vercel_cron_utc": "59 16 * * *",
+    "next_day_goal": "Users can review PO revenue evidence the next morning."
+  },
+  "rules": [
+    {
+      "id": "kingfood_po_automation",
+      "customer": "Kingfoodmart",
+      "sender": "dathang@kingfoodmart.com",
+      "primary_input": "Export-PO-Data.xlsx",
+      "fallbacks": [
+        {
+          "condition": "Valid Export-PO-Data.xlsx exists",
+          "status": "parsed_valid",
+          "handling": "Parse XLSX and stage PO evidence."
+        },
+        {
+          "condition": "PDF exists but XLSX is missing",
+          "status": "pdf_only_needs_review",
+          "handling": "Keep for manual review; do not auto-post revenue."
+        },
+        {
+          "condition": "Cancellation subject/body signal",
+          "status": "cancel_signal",
+          "handling": "Route to review and do not create a normal revenue draft."
+        }
+      ]
+    },
+    {
+      "id": "thuy_direct_dealer_text",
+      "customer": "Thuy direct company dealers",
+      "sender": "thuy@bmq.vn",
+      "channel_scope": "direct_company_dealer_not_npp",
+      "accepted_gap_rule": "If a day is missing from Thuy email evidence but exists in the trusted April ledger, accept it as ledger-only for accounting truth instead of treating it as parser failure.",
+      "posting_rule": "Line-level parser output is manual revenue evidence only; Quản lý doanh thu/trusted ledger controls accounting revenue."
+    },
+    {
+      "id": "dam_xesg_text_body",
+      "customer": "Dam/XESG",
+      "sender": "damvovan33@gmail.com",
+      "quantity_policy": {
+        "sent_qty": "Quantity parsed from Gmail text body/order evidence.",
+        "sold_qty": "Quantity accepted from trusted ledger/accounting reconciliation.",
+        "accounting_rule": "Do not treat sent_qty as sold_qty when inventory or unsold deltas exist."
+      },
+      "t4_inventory_note": "T4 reconciliation includes a 662 bánh inventory/unsold delta; preserve this as inventory context and keep trusted ledger sold_qty as accounting truth."
+    }
+  ],
+  "storage_policy": "Keep these rule outputs/configs in repo during trial period. Do not move to app KB/customer CRM until approved."
+}

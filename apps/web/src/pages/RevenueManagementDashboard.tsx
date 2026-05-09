@@ -83,9 +83,14 @@ const channelLabel: Record<string, string> = {
   "Bakery business": "Bánh ngọt",
   Franchise: "Nhượng quyền / đại lý",
   "Retail kiosk": "Xe bán lẻ",
+  "ĐẠI LÝ": "Đại lý",
+  "BÁNH NGỌT": "Bánh ngọt",
+  "B2B BMQ": "B2B BMQ",
+  "Retail Kiosk": "Retail kiosk",
 };
 
 const sourceTypeLabel: Record<string, string> = {
+  csv_audit: "CSV audit",
   manual_invoice: "Invoice",
   po_parse: "PO parse",
   email_parse: "Email parse",
@@ -153,6 +158,10 @@ const policyCards = [
 ] as const;
 
 const CHANNEL_COLORS = ["#FCD34D", "#FBBF24", "#6EE7B7", "#FCA5A5", "#D6D3D1"] as const;
+const TRUSTED_APRIL_PERIOD = "2026-04";
+const TRUSTED_APRIL_TOTAL = 936_505_570;
+const TRUSTED_APRIL_ROWS = 1_407;
+const TRUSTED_APRIL_QTY = 99_021.6;
 
 const getChannelColor = (key: string, fallbackIndex: number) => {
   const knownIndex = Object.keys(channelLabel).indexOf(key);
@@ -163,7 +172,7 @@ export default function RevenueManagementDashboard() {
   const { language } = useLanguage();
   const isVi = language === "vi";
   const navigate = useNavigate();
-  const [period, setPeriod] = useState("2026-03");
+  const [period, setPeriod] = useState(TRUSTED_APRIL_PERIOD);
   const [basis, setBasis] = useState<"trusted" | "all">("trusted");
 
   const { data: lines = [], isLoading, error, refetch } = useQuery<RevenueLine[]>({
@@ -207,6 +216,9 @@ export default function RevenueManagementDashboard() {
     }
     return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
   }, [lines]);
+
+  const trustedAprilLoaded = period === TRUSTED_APRIL_PERIOD && basis === "trusted";
+  const trustedAprilMatches = trustedAprilLoaded && stats.rows === TRUSTED_APRIL_ROWS && Math.round(stats.total) === TRUSTED_APRIL_TOTAL;
 
   const byCustomer = useMemo(() => {
     const map = new Map<string, { key: string; name: string; revenue: number; qty: number; rows: number; review: number; sourceTypes: Set<string> }>();
@@ -254,6 +266,16 @@ export default function RevenueManagementDashboard() {
         <div aria-label="Bộ lọc doanh thu" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200/10 bg-gradient-to-br from-stone-900/80 to-stone-950/60 p-2 ring-1 ring-stone-200/5">
           <div className="flex flex-wrap items-center gap-2">
             <Input type="month" value={period} onChange={(e) => setPeriod(e.target.value || monthNow())} className="w-[160px] border-stone-600/70 bg-stone-950/50 text-stone-100 hover:border-amber-300/40 focus-visible:ring-amber-300/30" />
+            <Button
+              className={trustedAprilLoaded ? "border border-amber-300/70 bg-amber-400 text-stone-950 hover:bg-amber-300" : "border border-amber-300/35 bg-amber-400/[0.08] text-amber-100 hover:bg-amber-400/[0.14]"}
+              variant={trustedAprilLoaded ? "default" : "outline"}
+              onClick={() => {
+                setPeriod(TRUSTED_APRIL_PERIOD);
+                setBasis("trusted");
+              }}
+            >
+              T4/2026 trusted
+            </Button>
             <Button className={basis === "trusted" ? "border border-amber-300/60 bg-amber-400 text-stone-950 hover:bg-amber-300" : "border border-stone-600/60 bg-transparent text-stone-200 hover:bg-stone-100/[0.04]"} variant={basis === "trusted" ? "default" : "outline"} onClick={() => setBasis("trusted")}>Trusted</Button>
             <Button className={basis === "all" ? "border border-amber-300/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/15" : "border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100"} variant="outline" onClick={() => setBasis("all")}>All</Button>
           </div>
@@ -273,6 +295,32 @@ export default function RevenueManagementDashboard() {
           </CardContent>
         </Card>
       ) : null}
+
+      <Card className="overflow-hidden border border-amber-200/20 bg-gradient-to-r from-amber-500/15 via-stone-900/90 to-stone-950 ring-1 ring-amber-100/10">
+        <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className="border border-amber-200/50 bg-amber-300/15 text-amber-50">T4/2026 accounting truth</Badge>
+              <Badge className={trustedAprilMatches ? "border border-emerald-200/40 bg-emerald-300/10 text-emerald-50" : "border border-stone-500/50 bg-stone-800 text-stone-100"}>
+                {trustedAprilMatches ? "Loaded & reconciled" : "Quick access"}
+              </Badge>
+            </div>
+            <div className="text-sm text-stone-200">
+              Trusted April ledger: <span className="font-semibold text-amber-100">{vnd(TRUSTED_APRIL_TOTAL)}</span> · {TRUSTED_APRIL_ROWS.toLocaleString("vi-VN")} lines · {numberFmt(TRUSTED_APRIL_QTY)} qty.
+            </div>
+            <div className="text-xs text-stone-300/75">Dashboard totals remain query-driven; this banner is the reviewed T4 validation target after import.</div>
+          </div>
+          <Button
+            className="border border-amber-300/60 bg-amber-400 text-stone-950 hover:bg-amber-300 md:w-auto"
+            onClick={() => {
+              setPeriod(TRUSTED_APRIL_PERIOD);
+              setBasis("trusted");
+            }}
+          >
+            Xem tổng T4
+          </Button>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
         {metricCards.map((card) => {

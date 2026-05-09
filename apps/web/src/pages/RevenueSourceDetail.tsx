@@ -17,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 
 const vnd = (v: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(v || 0);
 const numberFmt = (v: number) => new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(v || 0);
+const TRUSTED_APRIL_PERIOD = "2026-04";
 
 type RevenueLine = {
   id: string;
@@ -168,7 +169,7 @@ export default function RevenueSourceDetail() {
   const canEdit = canEditModule("finance_revenue");
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const period = params.get("period") || "2026-03";
+  const period = params.get("period") || TRUSTED_APRIL_PERIOD;
   const channel = params.get("channel") || "";
   const customerKey = params.get("customer_key") || "";
   const review = params.get("review") || "";
@@ -320,7 +321,10 @@ export default function RevenueSourceDetail() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Input type="month" value={period} onChange={(e) => updateParam("period", e.target.value || "2026-03")} className="w-[160px]" />
+          <Input type="month" value={period} onChange={(e) => updateParam("period", e.target.value || TRUSTED_APRIL_PERIOD)} className="w-[160px]" />
+          <Button variant={period === TRUSTED_APRIL_PERIOD ? "default" : "outline"} onClick={() => updateParam("period", TRUSTED_APRIL_PERIOD)}>
+            T4/2026
+          </Button>
           <Button variant={review ? "default" : "outline"} onClick={() => updateParam("review", review ? "" : "review_queue")}>
             <Filter className="mr-2 h-4 w-4" />Cần audit
           </Button>
@@ -338,6 +342,22 @@ export default function RevenueSourceDetail() {
       </div>
 
       {error ? <Card className="border-destructive/40 bg-destructive/5"><CardContent className="p-4 text-sm text-destructive">Không đọc được revenue ledger.</CardContent></Card> : null}
+
+      <Card className={canEdit ? "border-emerald-400/30 bg-emerald-950/35 text-emerald-50" : "border-amber-400/30 bg-amber-950/35 text-amber-50"}>
+        <CardContent className="flex flex-col gap-2 p-4 text-sm md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="font-medium text-current">
+              {canEdit ? "Bạn có quyền finance_revenue: có thể sửa dòng sai qua audited edit flow." : "Bạn chưa có quyền finance_revenue nên nút Edit đang bị khóa."}
+            </div>
+            <div className={canEdit ? "text-emerald-100/75" : "text-amber-100/75"}>
+              Mỗi lần lưu dùng RPC edit_revenue_ledger_line, giữ approval status và ghi audit log trước/sau.
+            </div>
+          </div>
+          <Badge className={canEdit ? "border-emerald-300/40 bg-emerald-400/10 text-emerald-50" : "border-amber-300/40 bg-amber-400/10 text-amber-50"} variant="outline">
+            {canEdit ? "Edit enabled" : "Read only"}
+          </Badge>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -398,7 +418,13 @@ export default function RevenueSourceDetail() {
                           {po.po_qty != null ? <div className="mt-1 text-xs text-muted-foreground">PO qty: {String(po.po_qty)}; delta: {String(po.delta_qty)}</div> : null}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button variant="outline" size="sm" disabled={!canEdit} onClick={() => openEdit(row)}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={!canEdit}
+                            title={canEdit ? "Sửa dòng và ghi audit log" : "Cần quyền finance_revenue để sửa dòng doanh thu"}
+                            onClick={() => openEdit(row)}
+                          >
                             <PencilLine className="mr-2 h-3.5 w-3.5" />Edit
                           </Button>
                         </TableCell>

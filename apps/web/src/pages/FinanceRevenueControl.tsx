@@ -197,7 +197,7 @@ export default function FinanceRevenueControl() {
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [scheduleScopeMode, setScheduleScopeMode] = useState<ScheduleScopeMode>("tier1_only");
   const [scheduleCustomerId, setScheduleCustomerId] = useState<string>("all");
-  const [scheduleHourLocal, setScheduleHourLocal] = useState<string>("06:00");
+  const [scheduleHourLocal, setScheduleHourLocal] = useState<string>("23:59");
   const [scheduleTimezone, setScheduleTimezone] = useState<string>("Asia/Ho_Chi_Minh");
   const [scheduleLookbackDays, setScheduleLookbackDays] = useState<string>("1");
   const [scheduleNotes, setScheduleNotes] = useState<string>("");
@@ -369,7 +369,7 @@ export default function FinanceRevenueControl() {
     setScheduleEnabled(Boolean(automationSchedule.is_enabled));
     setScheduleScopeMode((automationSchedule.scope_mode || "tier1_only") as ScheduleScopeMode);
     setScheduleCustomerId(automationSchedule.customer_id || "all");
-    setScheduleHourLocal(automationSchedule.run_hour_local || "06:00");
+    setScheduleHourLocal(automationSchedule.run_hour_local || "23:59");
     setScheduleTimezone(automationSchedule.timezone || "Asia/Ho_Chi_Minh");
     setScheduleLookbackDays(String(automationSchedule.lookback_days || 1));
     setScheduleNotes(automationSchedule.notes || "");
@@ -836,7 +836,7 @@ export default function FinanceRevenueControl() {
         is_enabled: scheduleEnabled,
         scope_mode: scheduleScopeMode,
         schedule_mode: "daily",
-        run_hour_local: scheduleHourLocal || "06:00",
+        run_hour_local: scheduleHourLocal || "23:59",
         timezone: scheduleTimezone || "Asia/Ho_Chi_Minh",
         lookback_days: lookback,
         notes: scheduleNotes.trim() || null,
@@ -1475,7 +1475,7 @@ export default function FinanceRevenueControl() {
                     className="mt-1 min-h-[96px] w-full rounded-md border bg-background px-3 py-2 text-sm"
                     value={scheduleNotes}
                     onChange={(e) => setScheduleNotes(e.target.value)}
-                    placeholder={isVi ? "Ví dụ: chạy backlog sáng sớm cho nhóm Tier-1, accountant review lúc 8h." : "Example: early-morning backlog sync for Tier-1 before accounting review."}
+                    placeholder={isVi ? "Ví dụ: chạy 23:59 hằng ngày, sáng hôm sau kế toán review PO/revenue." : "Example: run daily at 23:59 so finance can review PO/revenue the next morning."}
                   />
                 </div>
 

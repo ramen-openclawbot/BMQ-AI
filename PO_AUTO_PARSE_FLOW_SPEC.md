@@ -114,3 +114,58 @@ User có quyền CRM / PO inbox:
 2. Tái sử dụng parser rules đã có ở Mini CRM nhưng chuyển về shared logic/backend-safe.
 3. Sau khi batch ổn mới nối scheduler 23:59.
 4. Sau cùng mới tinh chỉnh UI trạng thái `auto_parsed / user_adjusted / final_saved`.
+
+## Revenue guardrail
+- PO automation là lớp **operational/order evidence**; không phải nguồn chốt doanh thu kế toán.
+- Cuối tháng đối soát với trusted ledger/CSV; ledger là accounting source of truth.
+- Parsed PO/email output must carry evidence status and reconciliation notes before any production revenue posting.
+
+## Customer rules locked 2026-05-09
+
+Trial-period rule outputs/config live in `apps/web/supabase/po-automation-rules/`. Do not move these rules into app KB/customer CRM until the trial is reviewed.
+
+### Kingfoodmart / KFM XLSX with PDF and cancellation fallback
+- Sender: `dathang@kingfoodmart.com`.
+- Primary accepted input: `Export-PO-Data.xlsx`; parse and validate XLSX totals before staging PO evidence.
+- PDF-only fallback: if an email has PDF but no valid `Export-PO-Data.xlsx`, keep status `pdf_only_needs_review`; do not auto-post revenue.
+- Cancellation fallback: cancellation subjects/bodies become `cancel_signal`; do not create a normal pending revenue draft.
+- Accounting guardrail: KFM PO parse is operational evidence. Trusted revenue ledger remains accounting truth.
+
+### Thúy / direct company dealer aggregation text
+- Sender: `thuy@bmq.vn`.
+- User-confirmed channel scope: this is **kênh đại lý trực tiếp của công ty, không qua NPP**. Do not map these lines under Tony/Anh Thanh or any other NPP parent.
+- Subject pattern: `Đặt bánh đại lý D.M` or `Đặt bánh đại lý D.M.YYYY`; subject date is the delivery/service date. If the subject omits year, use the email received year.
+- Body format is numbered or unnumbered route/customer lines, for example:
+  - `1. Bach Đằng 80`
+  - `2. Thích Quảng Đức 140`
+  - `3. Phạm Phú Thứ 160 đổi 6`
+  - `4. Lạc Long Quân 40 đổi 6`
+- Parse rule:
+  1. Strip quoted replies/signatures before parsing.
+  2. Ignore the list ordinal (`1.`, `2.`, ...); it is not the customer name.
+  3. Match `route/customer name + ordered_qty` with optional `đổi N` and optional `bù N` / `bu N`.
+  4. Normalize route aliases into direct-dealer CRM customers, for example Bạch Đằng, Thích Quảng Đức, Phạm Phú Thứ, Lạc Long Quân, Lê Văn Lương, Hồng Lạc, Tây Hòa, Bình Chánh, Nguyễn Sơn, Nguyễn Trãi, Nguyễn Trọng Tuyển, Phú Hòa, Nguyễn Văn Đậu, Võ Văn Ngân, Long An, Kinh Dương Vương, Tân Hòa Đông, HAGL, Vũng Tàu, Cà Mau, Lê Đại Hành, Phú Mỹ, PJ's Coffee, Cần Thơ, Gò Dầu.
+  5. Preserve every raw line, message id, subject, timestamp, service date, parsed route/customer, customer id if matched, quantities, and confidence.
+- Quantity/revenue rule:
+  - `ordered_qty` / first quantity after the route is revenue quantity.
+  - `đổi` and `bù` are non-revenue operational quantities; preserve them as `exchange_qty` and `makeup_qty`.
+  - `physical_qty = ordered_qty + exchange_qty + makeup_qty`.
+  - Observed T4 working price is `6,500 VND/unit`; gross candidate amount is `ordered_qty * 6,500`.
+- Double-count guardrails:
+  - Treat Thúy lines as direct company dealer evidence, not NPP child evidence.
+  - Do not also count the same `(service_date, route/customer, product)` from Tony/Dam/other alternate trace emails unless manually approved.
+  - Email parser output remains evidence/manual revenue candidate; production revenue remains trusted ledger / Quản lý doanh thu.
+  - Scheduler should keep status `line_level_manual_revenue_ready` in review/manual path, not auto-post it as final revenue.
+- April/T4 2026 analysis:
+  - Parsed April Thúy aggregation evidence: `25` messages, `250` counted parsed lines, `25` service dates.
+  - Candidate revenue evidence: `27,553` ordered units / `179,094,500 VND` at `6,500 VND/unit`.
+  - This was previously part of “Other agency” preliminary coverage (`179,094,500 VND` vs trusted other-agency slice `220,370,000 VND`, `81.3%` coverage); final accounting still follows trusted ledger.
+- Missing-day rule: if Thúy email evidence is absent for a day but the trusted ledger has approved rows, accept that day as ledger-only accounting truth rather than parser failure.
+- Artifacts: `/tmp/bmq_revenue_t4_email_lines_v2_channel_rules.csv`, `/tmp/bmq_revenue_t4_email_summary_v2_channel_rules.md`.
+
+### Dam/XESG / inventory-aware text evidence
+- Sender: `damvovan33@gmail.com`.
+- Subject pattern: `Đặt bánh điểm bán D/M/YYYY`; service date is direct from subject, with no +1 day shift.
+- Parsed route quantities are `sent_qty` / order evidence, not final `sold_qty`.
+- Trusted ledger provides accounting `sold_qty` and revenue when sent-vs-sold deltas exist.
+- T4 inventory note: preserve the `662 bánh` inventory/unsold delta in metadata/docs so automation does not auto-post sent quantity as sold revenue.
