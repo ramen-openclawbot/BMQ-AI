@@ -588,9 +588,9 @@ export default function FinanceRevenueControl() {
                     {parseState === "rejecting" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}Reject
                   </Button>
                 )}
-                <Button className="bg-amber-400 text-stone-950 hover:bg-amber-300" onClick={() => void approvePreview(Boolean(overwritePrompt))} disabled={actionBusy || !previewRun?.id}>
+                <Button className="bg-amber-400 text-stone-950 hover:bg-amber-300" onClick={() => void approvePreview(Boolean(overwritePrompt))} disabled={actionBusy || !previewRun?.id || !previewSummary || previewSummary.rows <= 0 || previewSummary.rows <= previewSummary.needsReview}>
                   {parseState === "approving" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
-                  {overwritePrompt ? "Overwrite & approve" : "Approve"}
+                  {overwritePrompt ? "Overwrite & approve" : previewSummary && previewSummary.rows <= 0 ? "Không có dòng để approve" : "Approve"}
                 </Button>
               </>
             ) : null}
