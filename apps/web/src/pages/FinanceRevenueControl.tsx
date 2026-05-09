@@ -85,6 +85,13 @@ interface RevenueDraftRow {
   total_amount: number | null;
 }
 
+interface MonthlyPreviewChannel {
+  channel: string;
+  rows: number;
+  grossRevenue: number;
+  quantity: number;
+}
+
 interface MonthlyPreviewSummary {
   period: string;
   revenueDateFrom: string;
@@ -96,7 +103,7 @@ interface MonthlyPreviewSummary {
   quantity: number;
   customers: number;
   needsReview: number;
-  channels?: Array<{ channel: string; rows: number; grossRevenue: number; quantity: number }>;
+  channels?: MonthlyPreviewChannel[];
 }
 
 interface MonthlyPreviewRun {
@@ -176,6 +183,30 @@ const normalizeLine = (value: unknown): MonthlyPreviewLine => {
   };
 };
 
+const channelRuleLabel = (channel: string) => {
+  const normalized = channel.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (normalized.includes("king") || normalized.includes("kfm")) return "Kingfood / King Food Mart";
+  if (normalized.includes("tony") || normalized.includes("anh_thanh") || normalized.includes("anh thanh")) return "Tony / Anh Thanh";
+  if (normalized.includes("vietjet") || normalized.includes("vjc")) return "Vietjet";
+  if (normalized.includes("coop")) return "Coop / Coopmart";
+  if (normalized.includes("thuy") || normalized.includes("direct_dealer") || normalized.includes("dai ly truc tiep")) return "Thúy direct dealer";
+  if (normalized.includes("xesg") || normalized.includes("retail") || normalized.includes("kiosk")) return "XESG / Retail kiosk";
+  if (normalized.includes("cake") || normalized.includes("banhngot") || normalized.includes("banh ngot")) return "Bánh ngọt / wholesale";
+  if (normalized.includes("banhmi") || normalized.includes("banh mi")) return "Bánh mì / đại lý";
+  return channel || "Other";
+};
+
+const channelRuleHint = (channel: string) => {
+  const label = channelRuleLabel(channel);
+  if (label.includes("Kingfood")) return "Rule PO Excel/PDF KFM";
+  if (label.includes("Tony")) return "Rule NPP Tony/Anh Thanh";
+  if (label.includes("Vietjet")) return "Rule lịch bay cộng dồn";
+  if (label.includes("Coop")) return "Rule Coopmart";
+  if (label.includes("Thúy")) return "Rule email đại lý trực tiếp";
+  if (label.includes("XESG")) return "Rule retail/kiosk";
+  return "PO/email parse rule";
+};
+
 export default function FinanceRevenueControl() {
   const { language } = useLanguage();
   const isVi = language === "vi";
@@ -247,6 +278,27 @@ export default function FinanceRevenueControl() {
   const canRunAutomation = isOwner;
   const actionBusy = parseState === "running" || parseState === "approving" || parseState === "rejecting";
 
+  const channelSummaries = useMemo(() => {
+    if (!previewSummary) return [];
+    const reviewCounts = new Map<string, number>();
+    for (const line of previewLines) {
+      if (line.review_status !== "needs_manual_review") continue;
+      reviewCounts.set(line.channel, (reviewCounts.get(line.channel) || 0) + 1);
+    }
+
+    const sourceChannels = previewSummary.channels?.length
+      ? previewSummary.channels
+      : [{ channel: "po_email", rows: previewSummary.rows, grossRevenue: previewSummary.grossRevenue, quantity: previewSummary.quantity }];
+
+    return sourceChannels.map((channel) => ({
+      ...channel,
+      label: channelRuleLabel(channel.channel),
+      hint: channelRuleHint(channel.channel),
+      percent: previewSummary.grossRevenue > 0 ? (Number(channel.grossRevenue || 0) / previewSummary.grossRevenue) * 100 : 0,
+      needsReview: previewTruncated ? null : reviewCounts.get(channel.channel) || 0,
+    }));
+  }, [previewLines, previewSummary, previewTruncated]);
+
   const callMonthlyParseFunction = async (body: Record<string, unknown>) => {
     const { data: { session } } = await supabase.auth.getSession();
     const sessionRecord = session as unknown as Record<string, string | undefined>;
@@ -296,6 +348,7 @@ export default function FinanceRevenueControl() {
     setPreviewRun(null);
     setPreviewSummary(null);
     setPreviewLines([]);
+    setPreviewTruncated(false);
     setOverwritePrompt(null);
     setAutomationRunMessage(null);
 
@@ -353,6 +406,7 @@ export default function FinanceRevenueControl() {
       setPreviewRun(null);
       setPreviewSummary(null);
       setPreviewLines([]);
+      setPreviewTruncated(false);
       setOverwritePrompt(null);
       setParseState("idle");
       setDialogOpen(false);
@@ -534,33 +588,62 @@ export default function FinanceRevenueControl() {
                 </div>
               ) : null}
 
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-semibold text-stone-100">Preview dòng parse</h3>
-                  {previewTruncated ? <Badge className="border border-amber-300/30 bg-amber-400/10 text-amber-100">Hiển thị 200 dòng đầu</Badge> : null}
+              <div className="space-y-3">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-stone-100">Summary theo kênh parse</h3>
+                    <p className="text-xs text-stone-400">Tổng hợp theo các rule chính thay vì hiển thị từng dòng parse lẻ.</p>
+                  </div>
+                  <Badge className="w-fit border border-amber-300/30 bg-amber-400/10 text-amber-100">
+                    {numberFmt(channelSummaries.length)} kênh
+                  </Badge>
                 </div>
-                <div className="grid gap-2">
-                  {previewLines.slice(0, 20).map((line) => (
-                    <div key={`${line.source_row_number}-${line.invoice_no || line.customer_name}`} className="rounded-xl border border-stone-800 bg-stone-900/80 p-3">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
-                          <div className="truncate font-medium text-stone-100" title={line.customer_name}>{line.customer_name}</div>
-                          <div className="mt-1 text-xs text-stone-400">
-                            DT {formatDate(line.revenue_date)} • PO {formatDate(line.po_received_date || undefined)} • {line.invoice_no || "No PO"} • {line.channel}
+                {previewTruncated ? (
+                  <div className="rounded-xl border border-amber-300/35 bg-amber-400/[0.08] p-3 text-xs text-amber-100">
+                    Hệ thống chỉ trả sample 200 dòng đầu cho preview chi tiết, nên số dòng cần kiểm tra chỉ hiển thị ở tổng quan ({numberFmt(previewSummary.needsReview)} dòng) thay vì chia theo từng kênh.
+                  </div>
+                ) : null}
+                <div className="grid gap-3">
+                  {channelSummaries.map((channel) => (
+                    <div key={channel.channel} className="rounded-xl border border-stone-800 bg-stone-900/80 p-4">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="truncate font-semibold text-stone-100" title={channel.label}>{channel.label}</div>
+                            <Badge className="border border-stone-600 bg-stone-800 text-stone-200">{channel.hint}</Badge>
                           </div>
-                          <div className="mt-1 truncate text-xs text-stone-500" title={line.product_name || ""}>{line.product_name || "PO/email parsed item"}</div>
+                          <div className="text-xs text-stone-500" title={channel.channel}>Raw channel: {channel.channel}</div>
                         </div>
-                        <div className="shrink-0 text-left sm:text-right">
-                          <div className="font-semibold text-amber-100">{vnd(line.gross_revenue)}</div>
-                          <div className="text-xs text-stone-400">SL {numberFmt(line.quantity)}</div>
+                        <div className="grid min-w-full gap-2 text-sm sm:grid-cols-4 lg:min-w-[520px]">
+                          <div className="rounded-lg border border-stone-800 bg-stone-950/60 p-2">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-stone-500">Doanh thu</div>
+                            <div className="mt-1 font-semibold text-amber-100">{vnd(channel.grossRevenue)}</div>
+                          </div>
+                          <div className="rounded-lg border border-stone-800 bg-stone-950/60 p-2">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-stone-500">Sản lượng</div>
+                            <div className="mt-1 font-semibold text-stone-100">{numberFmt(channel.quantity)}</div>
+                          </div>
+                          <div className="rounded-lg border border-stone-800 bg-stone-950/60 p-2">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-stone-500">Số dòng</div>
+                            <div className="mt-1 font-semibold text-stone-100">{numberFmt(channel.rows)}</div>
+                          </div>
+                          <div className="rounded-lg border border-stone-800 bg-stone-950/60 p-2">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-stone-500">Tỷ trọng</div>
+                            <div className="mt-1 font-semibold text-stone-100">{numberFmt(channel.percent)}%</div>
+                          </div>
                         </div>
                       </div>
-                      {line.review_status === "needs_manual_review" ? (
-                        <Badge className="mt-2 border border-rose-300/30 bg-rose-400/[0.08] text-rose-100">Cần kiểm tra</Badge>
+                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-800">
+                        <div className="h-full rounded-full bg-amber-300" style={{ width: `${Math.min(100, Math.max(0, channel.percent))}%` }} />
+                      </div>
+                      {channel.needsReview !== null && channel.needsReview > 0 ? (
+                        <Badge className="mt-3 border border-rose-300/30 bg-rose-400/[0.08] text-rose-100">
+                          {numberFmt(channel.needsReview)} dòng cần kiểm tra
+                        </Badge>
                       ) : null}
                     </div>
                   ))}
-                  {previewLines.length === 0 ? <div className="rounded-xl border border-stone-800 p-4 text-sm text-stone-400">Không có dòng parse trong kỳ này.</div> : null}
+                  {channelSummaries.length === 0 ? <div className="rounded-xl border border-stone-800 p-4 text-sm text-stone-400">Không có dữ liệu summary theo kênh trong kỳ này.</div> : null}
                 </div>
               </div>
             </div>
