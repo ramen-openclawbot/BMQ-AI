@@ -56,18 +56,27 @@ def test_vietjet_cumulative_xlsx_rule_and_monthly_dedupe() -> None:
 def test_coopmart_guardrail_blocks_auto_posting() -> None:
     for needle, label in [
         ("COOPMART_AUTOMATION", "Coopmart constants"),
-        ("mai-hnp@saigonco-op.com.vn", "Coopmart sender"),
+        ("mai-hnp@saigonco-op.com.vn", "Coopmart original sender"),
+        ("tram-nht@saigonco-op.com.vn", "Coopmart alternate sender seen in production mailbox"),
+        ("isCoopmartSenderEmail", "Coopmart sender/domain matcher"),
         ("coopmart_manual_trusted_ledger_only", "Coopmart manual/trusted-ledger status"),
         ("do not auto-post PO parse revenue", "Coopmart no-auto-post reason"),
         ("revenue_posting_allowed: false", "Coopmart no revenue posting flag"),
     ]:
         assert_contains(sync, needle, label)
-    assert_contains(scheduler, "Coopmart giữ manual/trusted ledger", "scheduler Coopmart exception label")
+    for needle, label in [
+        ("COOPMART_SENDERS", "scheduler Coopmart explicit sender list"),
+        ("tram-nht@saigonco-op.com.vn", "scheduler Coopmart alternate sender fetch"),
+        ("Coopmart giữ manual/trusted ledger", "scheduler Coopmart exception label"),
+    ]:
+        assert_contains(scheduler, needle, label)
 
 
 def test_monthly_preview_uses_parser_service_date_before_fallback() -> None:
     for needle, label in [
         ("lineRevenueDate", "line-level revenue date resolver"),
+        ("normalizeRevenueDate", "date normalization before monthly filtering"),
+        ("MM/DD/YYYY", "Kingfood spreadsheet date format support"),
         ("item.service_date", "item service date precedence"),
         ("parseMeta.service_date", "parse meta service date precedence"),
         ("parser_service_date_or_po_received_local_date_plus_1_day_fallback", "explicit fallback label"),

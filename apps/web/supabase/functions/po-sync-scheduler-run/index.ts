@@ -211,7 +211,8 @@ const CRON_TRIGGERED_BY = "vercel-cron";
 const CRON_SECRET_ENV_KEY = "PO_SYNC_CRON_SECRET";
 const THUY_DIRECT_DEALER_SENDER = "thuy@bmq.vn";
 const TONY_THANH_SENDER = "tonythanh@hotmail.com";
-const COOPMART_SENDER = "mai-hnp@saigonco-op.com.vn";
+const DAM_XESG_SENDER = "damvovan33@gmail.com";
+const COOPMART_SENDERS = ["mai-hnp@saigonco-op.com.vn", "tram-nht@saigonco-op.com.vn"] as const;
 const VIETJET_SENDER_DOMAIN = "vietjetair.com";
 const AUTOMATION_REVIEW_STATUSES = [
   "cancel_signal",
@@ -362,7 +363,8 @@ async function fetchInboxRows(supabaseAdmin: any, receivedFrom: string, received
   // or remain unmatched; fetch these rows explicitly so guardrail exceptions are visible.
   await fetchPages((query) => query.eq("from_email", THUY_DIRECT_DEALER_SENDER));
   await fetchPages((query) => query.eq("from_email", TONY_THANH_SENDER));
-  await fetchPages((query) => query.eq("from_email", COOPMART_SENDER));
+  await fetchPages((query) => query.eq("from_email", DAM_XESG_SENDER));
+  for (const sender of COOPMART_SENDERS) await fetchPages((query) => query.eq("from_email", sender));
   await fetchPages((query) => query.ilike("from_email", `%@${VIETJET_SENDER_DOMAIN}`));
 
   return Array.from(rowsById.values());

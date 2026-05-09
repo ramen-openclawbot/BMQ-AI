@@ -30,6 +30,8 @@ def test_dam_xesg_sender_rule_and_text_body_parser() -> None:
     assert_contains(sync, "po-gmail-sync:dam-xesg-text-body:v1", "Dam/XESG parser name")
     assert_contains(sync, "extractGmailTextPlainBody", "decoded text/plain Gmail body parser")
     assert_contains(sync, "gmail_text_plain_body", "text body source metadata")
+    assert_contains(sync, "fromEmail === DAM_XESG_AUTOMATION.sender", "Dam/XESG included in unmatched sender allowlist")
+    assert_contains(scheduler, "DAM_XESG_SENDER", "scheduler Dam/XESG sender-scoped fetch")
 
 
 def test_subject_date_is_direct_service_date() -> None:

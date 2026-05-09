@@ -200,6 +200,51 @@ const shiftLocalDate = (date: string, deltaDays: number) => {
   return isoDate(shifted);
 };
 
+const pad2 = (value: number) => String(value).padStart(2, "0");
+
+const makeValidIsoDate = (year: number, month: number, day: number) => {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return `${year}-${pad2(month)}-${pad2(day)}`;
+};
+
+const normalizeRevenueDate = (value: unknown) => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const iso = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (iso) return makeValidIsoDate(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+
+  // Kingfood spreadsheet exports commonly arrive as MM/DD/YYYY from SheetJS raw:false.
+  // Normalize them so monthly preview filters compare ISO dates, not raw text.
+  const us = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (us) {
+    const month = Number(us[1]);
+    const day = Number(us[2]);
+    const year = Number(us[3].length === 2 ? `20${us[3]}` : us[3]);
+    return makeValidIsoDate(year, month, day);
+  }
+
+  const vn = raw.match(/^(\d{1,2})[.](\d{1,2})[.](\d{2}|\d{4})$/);
+  if (vn) {
+    const day = Number(vn[1]);
+    const month = Number(vn[2]);
+    const year = Number(vn[3].length === 2 ? `20${vn[3]}` : vn[3]);
+    return makeValidIsoDate(year, month, day);
+  }
+
+  return null;
+};
+
+const firstNormalizedRevenueDate = (...values: unknown[]) => {
+  for (const value of values) {
+    const normalized = normalizeRevenueDate(value);
+    if (normalized) return normalized;
+  }
+  return null;
+};
+
 const localDateRangeInclusive = (from: string, to: string) => {
   const dates: string[] = [];
   let cursor = from;
@@ -348,7 +393,7 @@ const lineFromItem = (item: JsonRecord, fallbackAmount: number) => {
 const lineRevenueDate = (row: InboxRow, item: JsonRecord, poReceivedDate: string | null) => {
   const raw = asRecord(row.raw_payload);
   const parseMeta = asRecord(raw.parse_meta);
-  return stringValue(
+  return firstNormalizedRevenueDate(
     item.service_date,
     item.date,
     parseMeta.service_date,

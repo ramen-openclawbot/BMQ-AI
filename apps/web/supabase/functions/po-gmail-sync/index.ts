@@ -219,9 +219,13 @@ const VIETJET_AUTOMATION = {
 
 const COOPMART_AUTOMATION = {
   sender: "mai-hnp@saigonco-op.com.vn",
+  senders: ["mai-hnp@saigonco-op.com.vn", "tram-nht@saigonco-op.com.vn"],
   rule: "coopmart_manual_trusted_ledger_only",
   parser: "po-gmail-sync:coopmart-guardrail:v1",
 } as const;
+
+const isCoopmartSenderEmail = (email: string) =>
+  COOPMART_AUTOMATION.senders.includes(email as typeof COOPMART_AUTOMATION.senders[number]);
 
 const THUY_DIRECT_DEALER_ALIASES = [
   { canonical: "ĐẠI LÝ BẠCH ĐẰNG", aliases: ["Bạch Đằng", "Bach Đằng", "Bach Dang"] },
@@ -294,6 +298,43 @@ const toNum = (v: any) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+const pad2 = (value: number) => String(value).padStart(2, "0");
+
+const makeValidIsoDate = (year: number, month: number, day: number) => {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return `${year}-${pad2(month)}-${pad2(day)}`;
+};
+
+const normalizeKingfoodSpreadsheetDate = (value: unknown) => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const iso = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (iso) return makeValidIsoDate(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+
+  // Kingfood XLSX exports from SheetJS raw:false render Excel dates as MM/DD/YYYY.
+  // Normalize before monthly filtering; keep the original spreadsheet text in `date`.
+  const us = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (us) {
+    const month = Number(us[1]);
+    const day = Number(us[2]);
+    const year = Number(us[3].length === 2 ? `20${us[3]}` : us[3]);
+    return makeValidIsoDate(year, month, day);
+  }
+
+  const vn = raw.match(/^(\d{1,2})[.](\d{1,2})[.](\d{2}|\d{4})$/);
+  if (vn) {
+    const day = Number(vn[1]);
+    const month = Number(vn[2]);
+    const year = Number(vn[3].length === 2 ? `20${vn[3]}` : vn[3]);
+    return makeValidIsoDate(year, month, day);
+  }
+
+  return null;
+};
+
 const decodeBase64UrlToBytes = (input: string) => {
   const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
   const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
@@ -332,8 +373,10 @@ function parseKingfoodXlsx(bytes: Uint8Array) {
         const qty = toNum(row?.[17] ?? row?.[18] ?? 0);
         const unitPrice = toNum(row?.[20]);
         const explicitLineTotal = toNum(row?.[31]);
+        const rawDate = String(row?.[11] || "").trim();
         return {
-          date: String(row?.[11] || "").trim(),
+          date: rawDate,
+          service_date: normalizeKingfoodSpreadsheetDate(rawDate),
           product_name: productName,
           source_column_name: "row_item",
           sku,
@@ -904,7 +947,8 @@ serve(async (req) => {
       const allowedUnmatchedSender =
         fromEmail === THUY_DIRECT_DEALER_AUTOMATION.sender ||
         fromEmail === TONY_THANH_AUTOMATION.sender ||
-        fromEmail === COOPMART_AUTOMATION.sender ||
+        fromEmail === DAM_XESG_AUTOMATION.sender ||
+        isCoopmartSenderEmail(fromEmail) ||
         fromEmail.endsWith(`@${VIETJET_AUTOMATION.senderDomain}`);
       if (includeOnlyCrm && !match && !allowedUnmatchedSender) {
         skippedNotInCrm += 1;
@@ -919,7 +963,7 @@ serve(async (req) => {
       const isThuyDirectDealerSender = fromEmail === THUY_DIRECT_DEALER_AUTOMATION.sender;
       const isTonyThanhSender = fromEmail === TONY_THANH_AUTOMATION.sender;
       const isVietjetSender = fromEmail.endsWith(`@${VIETJET_AUTOMATION.senderDomain}`);
-      const isCoopmartSender = fromEmail === COOPMART_AUTOMATION.sender;
+      const isCoopmartSender = isCoopmartSenderEmail(fromEmail);
       const xlsxFile = attachmentParts.find((a) => a.filename === KINGFOOD_AUTOMATION.xlsxName && a.attachmentId);
       const pdfFile = attachmentParts.find((a) => a.filename.toLowerCase().endsWith(".pdf"));
       const isCancelSignal = isKingfoodSender && isKingfoodCancelSubject(subject || "");
@@ -1219,7 +1263,7 @@ serve(async (req) => {
         coopmartAutomation = {
           rule: COOPMART_AUTOMATION.rule,
           parser: COOPMART_AUTOMATION.parser,
-          sender: COOPMART_AUTOMATION.sender,
+          sender: fromEmail,
           source: "gmail_attachment_guardrail",
           automation_status: "coopmart_manual_trusted_ledger_only",
           reason: "Coopmart/Saigon Co-op PO files are mostly empty templates and high-value Coop revenue is trusted-ledger/manual; do not auto-post PO parse revenue",

@@ -30,6 +30,8 @@ def test_kingfood_gmail_sync_sender_rule_and_xlsx_parse() -> None:
     assert_contains(sync, "KINGFOOD_AUTOMATION", "Kingfood automation constants")
     assert_contains(sync, "import * as XLSX", "XLSX parsing import in Gmail sync")
     assert_contains(sync, "parseKingfoodXlsx", "Kingfood XLSX parser")
+    assert_contains(sync, "service_date", "Kingfood item ISO service date support")
+    assert_contains(sync, "normalizeKingfoodSpreadsheetDate", "Kingfood spreadsheet date normalization")
     assert_contains(sync, "production_items", "Gmail sync writes parsed items")
     assert_contains(sync, "subtotal_amount", "Gmail sync writes subtotal")
 
