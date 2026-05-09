@@ -135,6 +135,22 @@ const shiftLocalDate = (date: string, deltaDays: number) => {
   return isoDate(shifted);
 };
 
+const localDateRangeInclusive = (from: string, to: string) => {
+  const dates: string[] = [];
+  let cursor = from;
+  while (cursor <= to) {
+    dates.push(cursor);
+    cursor = shiftLocalDate(cursor, 1);
+    if (dates.length > 35) throw new Error("PO/email sync window is unexpectedly large");
+  }
+  return dates;
+};
+
+const gmailEpochSecondsForLocalDay = (date: string, endExclusive = false) => {
+  const shifted = endExclusive ? shiftLocalDate(date, 1) : date;
+  return Math.floor(dateFromLocalParts(shifted, TIME_ZONE).getTime() / 1000);
+};
+
 const currentMonthWindow = (now = new Date()) => {
   const current = getDatePartsInTimeZone(now, TIME_ZONE);
   const period = `${current.year}-${String(current.month).padStart(2, "0")}`;
@@ -166,6 +182,55 @@ async function ensureOwner(supabaseAdmin: ReturnType<typeof createClient>, userI
   if (error) throw error;
   const roles = (data || []).map((row: { role: string }) => row.role);
   if (!roles.includes("owner")) throw new Error("Forbidden: owner role required for monthly parse");
+}
+
+async function syncGmailInboxForPreview(req: Request, window: ReturnType<typeof currentMonthWindow>) {
+  const authHeader = req.headers.get("Authorization") || "";
+  if (!authHeader.startsWith("Bearer ")) throw new Error("Missing Authorization header for PO/email Gmail sync");
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+  if (!supabaseUrl) throw new Error("Missing SUPABASE_URL for PO/email Gmail sync");
+
+  const syncResults: JsonRecord[] = [];
+  const syncUrl = `${supabaseUrl}/functions/v1/po-gmail-sync`;
+
+  for (const poDate of localDateRangeInclusive(window.poReceivedFrom, window.poReceivedTo)) {
+    const after = gmailEpochSecondsForLocalDay(poDate);
+    const before = gmailEpochSecondsForLocalDay(poDate, true);
+    const query = `in:anywhere deliveredto:po@bmq.vn after:${after} before:${before}`;
+
+    const response = await fetch(syncUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: authHeader,
+      },
+      body: JSON.stringify({ mode: "import", maxResults: 100, query, includeOnlyCrm: true }),
+    });
+
+    const rawText = await response.text();
+    let parsed: JsonRecord = {};
+    try {
+      parsed = rawText ? asRecord(JSON.parse(rawText)) : {};
+    } catch {
+      parsed = { raw: rawText };
+    }
+
+    if (!response.ok) {
+      throw new Error(`PO/email Gmail sync failed for ${poDate}: HTTP ${response.status} - ${String(parsed.error || parsed.message || parsed.raw || rawText)}`);
+    }
+
+    syncResults.push({
+      date: poDate,
+      query,
+      synced: Number(parsed.synced || 0),
+      fetched: Number(parsed.fetched || 0),
+      resultSizeEstimate: Number(parsed.resultSizeEstimate || 0),
+      mailbox: typeof parsed.mailbox === "string" ? parsed.mailbox : null,
+    });
+  }
+
+  return syncResults;
 }
 
 async function fetchInboxRows(supabaseAdmin: ReturnType<typeof createClient>, receivedFrom: string, receivedTo: string) {
@@ -371,9 +436,10 @@ async function previewCurrentMonth(req: Request, supabaseAdmin: ReturnType<typeo
   if (runErr) throw runErr;
 
   try {
+    const syncResults = await syncGmailInboxForPreview(req, window);
     const rows = await fetchInboxRows(supabaseAdmin, receivedFrom, receivedTo);
     const lines = buildPreviewLines(String(run.id), window.period, window.revenueDateFrom, window.revenueDateTo, rows);
-    const summary = summarizeLines(lines, window);
+    const summary = { ...summarizeLines(lines, window), gmailSync: syncResults };
 
     for (let index = 0; index < lines.length; index += 500) {
       const batch = lines.slice(index, index + 500);
