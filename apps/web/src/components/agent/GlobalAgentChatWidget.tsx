@@ -82,9 +82,10 @@ function getRouteContext(pathname: string): ModuleContext {
   if (pathname.startsWith("/sku-costs")) return { key: "sku_costs", label: "SKU Costs", suggestions: ["Checklist cập nhật cost", "Tóm tắt cost anomalies", "Đề xuất kiểm tra tuần này"] };
   if (pathname.startsWith("/kho")) return { key: "warehouse", label: "Kho", suggestions: ["Checklist nhập kho", "Gợi ý kiểm tra tồn", "Tóm tắt thao tác theo ca"] };
   if (pathname === "/finance-control/cost") return { key: "finance_cost", label: "Finance / Cost", suggestions: ["Checklist cost", "KPI cost", "Cảnh báo bất thường"] };
-  if (pathname === "/finance-control/revenue") return { key: "finance_revenue", label: "Quản lý doanh thu", suggestions: ["Doanh thu tháng này", "Dòng cần audit", "Top customer"] };
-  if (pathname.startsWith("/finance-control/revenue/sources")) return { key: "finance_revenue_sources", label: "Chi tiết nguồn doanh thu", suggestions: ["Dòng nào cần kiểm tra", "So sánh CSV và PO", "Gợi ý audit"] };
-  if (pathname === "/finance-control/revenue/setup") return { key: "finance_revenue_setup", label: "Thiết lập doanh thu", suggestions: ["Checklist posting", "Đối soát doanh thu", "Cấu hình parser"] };
+  if (pathname === "/finance-control/revenue") return { key: "finance_revenue", label: "Quản lý doanh thu", suggestions: ["Doanh thu tháng này", "Dòng cần kiểm tra", "Top customer"] };
+  if (pathname.startsWith("/finance-control/revenue/sources")) return { key: "finance_revenue_sources", label: "Chi tiết nguồn doanh thu", suggestions: ["Dòng nào cần kiểm tra", "So sánh nguồn đối soát và PO", "Gợi ý kiểm tra"] };
+  if (pathname === "/finance-control/revenue/daily-review") return { key: "finance_revenue_review", label: "Daily Revenue Review", suggestions: ["Draft cần kiểm tra", "Ngoại lệ hôm nay", "Cách sửa doanh thu"] };
+  if (pathname === "/finance-control/revenue/setup") return { key: "finance_revenue_setup", label: "Auto-parse operations", suggestions: ["Job gần nhất", "Snapshot hôm nay", "Lịch chạy 23:59"] };
   return moduleConfig.find((m) => m.test(pathname))!.context;
 }
 
@@ -545,6 +546,7 @@ export function GlobalAgentChatWidget() {
   const [supplierSuggestionError, setSupplierSuggestionError] = useState<string | null>(null);
 
   const routeContext = useMemo(() => getRouteContext(location.pathname), [location.pathname]);
+  const isRevenueMobileContext = location.pathname.startsWith("/finance-control/revenue");
 
   const pushAgent = (text: string) => setMessages((prev) => [...prev, { role: "agent", text }]);
 
@@ -880,7 +882,13 @@ export function GlobalAgentChatWidget() {
       <Button
         type="button"
         size="icon"
-        className={cn("fixed z-50 right-6 bottom-[calc(1.5rem+env(safe-area-inset-bottom))]", "h-14 w-14 rounded-full shadow-lg", "bg-primary text-primary-foreground hover:bg-primary/90")}
+        className={cn(
+          "fixed z-50 rounded-full shadow-lg",
+          "bg-primary text-primary-foreground hover:bg-primary/90",
+          isRevenueMobileContext
+            ? "bottom-[calc(5rem+env(safe-area-inset-bottom))] right-3 h-11 w-11 sm:bottom-[calc(1.5rem+env(safe-area-inset-bottom))] sm:right-6 sm:h-14 sm:w-14"
+            : "right-6 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] h-14 w-14"
+        )}
         onClick={() => setOpen(true)}
         aria-label="Mở AI Agent Chat"
       >

@@ -35,9 +35,9 @@ export function AppLayout() {
       )}
       <div className="min-h-dvh bg-background">
         <Sidebar />
-        <div className="flex flex-col h-dvh" style={{ paddingLeft: "var(--sidebar-width, 16rem)" }}>
+        <div className="flex h-dvh flex-col md:pl-[var(--sidebar-width)]">
           <Header />
-          <main className="flex-1 overflow-auto p-4 pb-[max(5rem,env(safe-area-inset-bottom))] sm:p-6">
+          <main className="flex-1 overflow-auto px-3 py-3 pb-[max(6rem,env(safe-area-inset-bottom))] sm:p-6">
             <Outlet />
           </main>
         </div>

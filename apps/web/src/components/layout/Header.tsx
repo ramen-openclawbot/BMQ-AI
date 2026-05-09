@@ -1,4 +1,4 @@
-import { LogOut, Bell } from "lucide-react";
+import { LogOut, Bell, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -17,17 +17,26 @@ export function Header() {
   const initials = displayName.charAt(0).toUpperCase();
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-end border-b border-border bg-background/95 backdrop-blur px-6">
-      <div className="flex items-center gap-4">
+    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-background px-3 sm:h-16 sm:px-6">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="md:hidden"
+        onClick={() => window.dispatchEvent(new Event("bmq:open-sidebar"))}
+        aria-label="Mở menu"
+      >
+        <Menu className="h-5 w-5 text-muted-foreground" />
+      </Button>
+      <div className="flex items-center gap-2 sm:gap-4">
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="h-5 w-5 text-muted-foreground" />
         </Button>
         
-        <div className="flex items-center gap-3 pl-4 border-l border-border">
+        <div className="flex items-center gap-3 border-l border-border pl-2 sm:pl-4">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-                <div className="h-9 w-9 rounded-full bg-transparent border-2 border-primary flex items-center justify-center">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-primary bg-transparent sm:h-9 sm:w-9">
                   <span className="text-sm font-semibold text-primary">
                     {initials}
                   </span>

@@ -110,7 +110,14 @@ export function Sidebar() {
   }, []);
 
   useEffect(() => {
-    const width = collapsed ? "4rem" : "16rem";
+    const openSidebar = () => setCollapsed(false);
+    window.addEventListener("bmq:open-sidebar", openSidebar);
+    return () => window.removeEventListener("bmq:open-sidebar", openSidebar);
+  }, []);
+
+  useEffect(() => {
+    const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
+    const width = isMobile ? "0rem" : collapsed ? "4rem" : "16rem";
     document.documentElement.style.setProperty("--sidebar-width", width);
   }, [collapsed]);
 
@@ -131,7 +138,7 @@ export function Sidebar() {
   return (
     <aside className={cn(
       "fixed left-0 top-0 z-40 h-dvh bg-sidebar border-r border-sidebar-border transition-all duration-200",
-      collapsed ? "w-16" : "w-64"
+      collapsed ? "-translate-x-full w-16 md:translate-x-0" : "w-64"
     )}>
       <div className="flex h-full flex-col">
         {/* Logo */}
@@ -174,6 +181,9 @@ export function Sidebar() {
 
                 <NavLink
                   to={item.path}
+                  onClick={() => {
+                    if (window.matchMedia("(max-width: 767px)").matches) setCollapsed(true);
+                  }}
                   className={({ isActive }) =>
                     cn(
                       "group relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 border border-transparent",
@@ -225,7 +235,7 @@ export function Sidebar() {
         </nav>
 
         {/* Settings */}
-        <div className="px-4 py-4 border-t border-sidebar-border pb-[max(1rem,env(safe-area-inset-bottom))] bg-sidebar/95 backdrop-blur supports-[backdrop-filter]:bg-sidebar/80">
+        <div className="px-4 py-4 border-t border-sidebar-border pb-[max(1rem,env(safe-area-inset-bottom))] bg-sidebar">
           <NavLink
             to="/settings"
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-sidebar-foreground/75 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground transition-all duration-200"

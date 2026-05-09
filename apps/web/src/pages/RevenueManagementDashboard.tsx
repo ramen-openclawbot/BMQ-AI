@@ -56,7 +56,13 @@ const db = supabase as unknown as {
 const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
-async function fetchAllRevenueLines(period: string, trustedOnly: boolean) {
+const previousMonth = (period: string) => {
+  const [year, month] = period.split("-").map(Number);
+  const d = new Date(year, month - 2, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
+
+async function fetchAllRevenueLines(period: string, controlledOnly: boolean) {
   const pageSize = 1000;
   const rows: RevenueLine[] = [];
 
@@ -68,7 +74,7 @@ async function fetchAllRevenueLines(period: string, trustedOnly: boolean) {
       .order("revenue_date", { ascending: true })
       .range(from, from + pageSize - 1);
 
-    if (trustedOnly) q = q.eq("approval_status", "approved").eq("source_document.status", "trusted");
+    if (controlledOnly) q = q.eq("approval_status", "approved").eq("source_document.status", "trusted");
 
     const { data, error } = await q;
     if (error) throw error;
@@ -90,7 +96,7 @@ const channelLabel: Record<string, string> = {
 };
 
 const sourceTypeLabel: Record<string, string> = {
-  csv_audit: "CSV audit",
+  csv_audit: "Nguồn đối soát",
   manual_invoice: "Invoice",
   po_parse: "PO parse",
   email_parse: "Email parse",
@@ -105,7 +111,7 @@ const sourceTypeLabel: Record<string, string> = {
 const metricCards = [
   {
     key: "total",
-    label: "Doanh thu",
+    label: "Doanh thu đã kiểm soát",
     helper: "ledger lines",
     icon: TrendingUp,
     valueTone: "text-amber-100",
@@ -114,8 +120,8 @@ const metricCards = [
   },
   {
     key: "approved",
-    label: "Approved",
-    helper: "Trusted / approved only",
+    label: "Đã vào ledger",
+    helper: "Dòng đã kiểm soát",
     icon: CheckCircle2,
     valueTone: "text-emerald-200",
     iconShell: "border-emerald-300/25 bg-emerald-400/[0.08] text-emerald-200",
@@ -123,8 +129,8 @@ const metricCards = [
   },
   {
     key: "review",
-    label: "Cần audit",
-    helper: "Manual review queue",
+    label: "Cần kiểm tra",
+    helper: "Review queue",
     icon: AlertTriangle,
     valueTone: "text-rose-200",
     iconShell: "border-rose-300/30 bg-rose-400/[0.08] text-rose-200",
@@ -151,17 +157,17 @@ const metricCards = [
 ] as const;
 
 const policyCards = [
-  { title: "1. Dashboard", copy: "đọc approved/trusted revenue ledger.", rule: "border-l-amber-300 bg-amber-400/[0.06]" },
-  { title: "2. CSV audit", copy: "thắng PO parse khi có lệch.", rule: "border-l-emerald-400 bg-emerald-400/[0.05]" },
-  { title: "3. Parsed PO", copy: "mặc định pending, dùng để trace/edit.", rule: "border-l-amber-300 bg-amber-400/[0.05]" },
+  { title: "1. Dashboard", copy: "đọc ledger doanh thu đã kiểm soát.", rule: "border-l-amber-300 bg-amber-400/[0.06]" },
+  { title: "2. Nguồn đối soát", copy: "được dùng để kiểm tra khi PO parse có lệch.", rule: "border-l-emerald-400 bg-emerald-400/[0.05]" },
+  { title: "3. Parsed PO", copy: "mặc định là evidence để staff kiểm tra/sửa khi sai.", rule: "border-l-amber-300 bg-amber-400/[0.05]" },
   { title: "4. Dòng lệch", copy: "đưa vào manual review, không tự net doanh thu.", rule: "border-l-rose-400 bg-rose-400/[0.06]" },
 ] as const;
 
 const CHANNEL_COLORS = ["#FCD34D", "#FBBF24", "#6EE7B7", "#FCA5A5", "#D6D3D1"] as const;
-const TRUSTED_APRIL_PERIOD = "2026-04";
-const TRUSTED_APRIL_TOTAL = 936_505_570;
-const TRUSTED_APRIL_ROWS = 1_407;
-const TRUSTED_APRIL_QTY = 99_021.6;
+const CONTROLLED_APRIL_PERIOD = "2026-04";
+const CONTROLLED_APRIL_TOTAL = 936_505_570;
+const CONTROLLED_APRIL_ROWS = 1_407;
+const CONTROLLED_APRIL_QTY = 99_021.6;
 
 const getChannelColor = (key: string, fallbackIndex: number) => {
   const knownIndex = Object.keys(channelLabel).indexOf(key);
@@ -172,14 +178,20 @@ export default function RevenueManagementDashboard() {
   const { language } = useLanguage();
   const isVi = language === "vi";
   const navigate = useNavigate();
-  const [period, setPeriod] = useState(TRUSTED_APRIL_PERIOD);
-  const [basis, setBasis] = useState<"trusted" | "all">("trusted");
+  const [period, setPeriod] = useState(CONTROLLED_APRIL_PERIOD);
+  const [basis, setBasis] = useState<"controlled" | "all">("controlled");
+  const prevPeriod = previousMonth(period);
 
   const { data: lines = [], isLoading, error, refetch } = useQuery<RevenueLine[]>({
     queryKey: ["revenue-ledger-lines", period, basis],
     queryFn: async () => {
-      return fetchAllRevenueLines(period, basis === "trusted");
+      return fetchAllRevenueLines(period, basis === "controlled");
     },
+  });
+
+  const { data: previousLines = [] } = useQuery<RevenueLine[]>({
+    queryKey: ["revenue-ledger-lines", prevPeriod, basis],
+    queryFn: async () => fetchAllRevenueLines(prevPeriod, basis === "controlled"),
   });
 
   const stats = useMemo(() => {
@@ -217,16 +229,46 @@ export default function RevenueManagementDashboard() {
     return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
   }, [lines]);
 
-  const trustedAprilLoaded = period === TRUSTED_APRIL_PERIOD && basis === "trusted";
-  const trustedAprilMatches = trustedAprilLoaded && stats.rows === TRUSTED_APRIL_ROWS && Math.round(stats.total) === TRUSTED_APRIL_TOTAL;
+  const controlledAprilLoaded = period === CONTROLLED_APRIL_PERIOD && basis === "controlled";
+  const controlledAprilMatches = controlledAprilLoaded && stats.rows === CONTROLLED_APRIL_ROWS && Math.round(stats.total) === CONTROLLED_APRIL_TOTAL;
+
+  const mom = useMemo(() => {
+    const previousTotal = previousLines.reduce((sum, r) => sum + Number(r.gross_revenue || 0), 0);
+    const delta = stats.total - previousTotal;
+    const pct = previousTotal > 0 ? (delta / previousTotal) * 100 : null;
+    return {
+      previousTotal,
+      delta,
+      pct,
+      chart: [
+        { month: prevPeriod, revenue: previousTotal },
+        { month: period, revenue: stats.total },
+      ],
+    };
+  }, [period, prevPeriod, previousLines, stats.total]);
 
   const byCustomer = useMemo(() => {
-    const map = new Map<string, { key: string; name: string; revenue: number; qty: number; rows: number; review: number; sourceTypes: Set<string> }>();
+    const previousMap = new Map<string, { revenue: number; name: string }>();
+    for (const row of previousLines) {
+      const key = row.parent_customer_id || row.customer_id || row.customer_name;
+      const raw = asRecord(row.raw_payload);
+      const rollupName = String(raw.parent_customer_name || row.customer_name || "Chưa rõ khách hàng");
+      const cur = previousMap.get(key) || { revenue: 0, name: rollupName };
+      cur.revenue += Number(row.gross_revenue || 0);
+      previousMap.set(key, cur);
+    }
+
+    const map = new Map<string, { key: string; name: string; revenue: number; previousRevenue: number; qty: number; rows: number; review: number; sourceTypes: Set<string> }>();
+    for (const [key, prev] of previousMap) {
+      map.set(key, { key, name: prev.name, revenue: 0, previousRevenue: prev.revenue, qty: 0, rows: 0, review: 0, sourceTypes: new Set<string>() });
+    }
+
     for (const row of lines) {
       const key = row.parent_customer_id || row.customer_id || row.customer_name;
       const raw = asRecord(row.raw_payload);
       const rollupName = String(raw.parent_customer_name || row.customer_name || "Chưa rõ khách hàng");
-      const cur = map.get(key) || { key, name: rollupName, revenue: 0, qty: 0, rows: 0, review: 0, sourceTypes: new Set<string>() };
+      const cur = map.get(key) || { key, name: rollupName, revenue: 0, previousRevenue: previousMap.get(key)?.revenue || 0, qty: 0, rows: 0, review: 0, sourceTypes: new Set<string>() };
+      cur.name = rollupName || cur.name;
       cur.revenue += Number(row.gross_revenue || 0);
       cur.qty += Number(row.quantity || 0);
       cur.rows += 1;
@@ -234,8 +276,14 @@ export default function RevenueManagementDashboard() {
       cur.sourceTypes.add(row.source_type);
       map.set(key, cur);
     }
-    return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
-  }, [lines]);
+    return Array.from(map.values())
+      .map((row) => ({
+        ...row,
+        delta: row.revenue - row.previousRevenue,
+        pct: row.previousRevenue > 0 ? ((row.revenue - row.previousRevenue) / row.previousRevenue) * 100 : null,
+      }))
+      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  }, [lines, previousLines]);
 
   const openSources = (params: Record<string, string>) => {
     const sp = new URLSearchParams({ period, ...params });
@@ -248,10 +296,10 @@ export default function RevenueManagementDashboard() {
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <Badge className="gap-1 border border-amber-300/40 bg-amber-400/10 text-amber-100">
-              <Database className="h-3 w-3" />Trusted ledger
+              <Database className="h-3 w-3" />Controlled ledger
             </Badge>
             <Badge className="border border-emerald-300/25 bg-emerald-400/10 text-emerald-100">
-              {basis === "trusted" ? "Approved only" : "All sources"}
+              {basis === "controlled" ? "Doanh thu đã kiểm soát" : "All sources"}
             </Badge>
           </div>
           <h1 className="font-display text-3xl font-semibold tracking-tight text-amber-50 md:text-4xl">
@@ -259,30 +307,33 @@ export default function RevenueManagementDashboard() {
           </h1>
           <p className="max-w-3xl text-sm leading-6 text-stone-300/80 md:text-base">
             {isVi
-              ? "Dashboard production theo tháng, ngày, kênh và customer. Số chính lấy từ approved/trusted revenue ledger; PO/email parse chỉ là nguồn đối chiếu cho đến khi được duyệt."
-              : "Production dashboard by month, day, channel, and customer. The main numbers come from the approved/trusted revenue ledger; parsed PO/email rows remain evidence until approved."}
+              ? "Dashboard production theo tháng, ngày, kênh và customer. Số chính lấy từ revenue ledger đã kiểm soát; PO/email parse là nguồn vận hành để kiểm tra và sửa khi sai."
+              : "Production dashboard by month, day, channel, and customer. The main numbers come from the controlled revenue ledger; parsed PO/email rows remain operational evidence for review and edits."}
           </p>
         </div>
         <div aria-label="Bộ lọc doanh thu" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200/10 bg-gradient-to-br from-stone-900/80 to-stone-950/60 p-2 ring-1 ring-stone-200/5">
           <div className="flex flex-wrap items-center gap-2">
             <Input type="month" value={period} onChange={(e) => setPeriod(e.target.value || monthNow())} className="w-[160px] border-stone-600/70 bg-stone-950/50 text-stone-100 hover:border-amber-300/40 focus-visible:ring-amber-300/30" />
             <Button
-              className={trustedAprilLoaded ? "border border-amber-300/70 bg-amber-400 text-stone-950 hover:bg-amber-300" : "border border-amber-300/35 bg-amber-400/[0.08] text-amber-100 hover:bg-amber-400/[0.14]"}
-              variant={trustedAprilLoaded ? "default" : "outline"}
+              className={controlledAprilLoaded ? "border border-amber-300/70 bg-amber-400 text-stone-950 hover:bg-amber-300" : "border border-amber-300/35 bg-amber-400/[0.08] text-amber-100 hover:bg-amber-400/[0.14]"}
+              variant={controlledAprilLoaded ? "default" : "outline"}
               onClick={() => {
-                setPeriod(TRUSTED_APRIL_PERIOD);
-                setBasis("trusted");
+                setPeriod(CONTROLLED_APRIL_PERIOD);
+                setBasis("controlled");
               }}
             >
-              T4/2026 trusted
+              T4/2026 kiểm soát
             </Button>
-            <Button className={basis === "trusted" ? "border border-amber-300/60 bg-amber-400 text-stone-950 hover:bg-amber-300" : "border border-stone-600/60 bg-transparent text-stone-200 hover:bg-stone-100/[0.04]"} variant={basis === "trusted" ? "default" : "outline"} onClick={() => setBasis("trusted")}>Trusted</Button>
+            <Button className={basis === "controlled" ? "border border-amber-300/60 bg-amber-400 text-stone-950 hover:bg-amber-300" : "border border-stone-600/60 bg-transparent text-stone-200 hover:bg-stone-100/[0.04]"} variant={basis === "controlled" ? "default" : "outline"} onClick={() => setBasis("controlled")}>Đã kiểm soát</Button>
             <Button className={basis === "all" ? "border border-amber-300/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/15" : "border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100"} variant="outline" onClick={() => setBasis("all")}>All</Button>
           </div>
           <div className="flex flex-wrap items-center gap-2 border-t border-amber-100/10 pt-2 sm:border-l sm:border-t-0 sm:pl-2 sm:pt-0">
             <Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100" variant="outline" onClick={() => refetch()}>Refresh</Button>
             <Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100" variant="outline" onClick={() => navigate("/finance-control/revenue/setup")}>
-              <Settings className="mr-2 h-4 w-4" />Thiết lập doanh thu
+              <Settings className="mr-2 h-4 w-4" />Auto-parse ops
+            </Button>
+            <Button className="border border-amber-300/35 bg-amber-400/[0.08] text-amber-100 hover:bg-amber-400/[0.14]" variant="outline" onClick={() => navigate("/finance-control/revenue/daily-review")}>
+              Daily review
             </Button>
           </div>
         </div>
@@ -300,21 +351,21 @@ export default function RevenueManagementDashboard() {
         <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge className="border border-amber-200/50 bg-amber-300/15 text-amber-50">T4/2026 accounting truth</Badge>
-              <Badge className={trustedAprilMatches ? "border border-emerald-200/40 bg-emerald-300/10 text-emerald-50" : "border border-stone-500/50 bg-stone-800 text-stone-100"}>
-                {trustedAprilMatches ? "Loaded & reconciled" : "Quick access"}
+              <Badge className="border border-amber-200/50 bg-amber-300/15 text-amber-50">Doanh thu tháng 4 đã kiểm soát</Badge>
+              <Badge className={controlledAprilMatches ? "border border-emerald-200/40 bg-emerald-300/10 text-emerald-50" : "border border-stone-500/50 bg-stone-800 text-stone-100"}>
+                {controlledAprilMatches ? "Loaded & reconciled" : "Quick access"}
               </Badge>
             </div>
             <div className="text-sm text-stone-200">
-              Trusted April ledger: <span className="font-semibold text-amber-100">{vnd(TRUSTED_APRIL_TOTAL)}</span> · {TRUSTED_APRIL_ROWS.toLocaleString("vi-VN")} lines · {numberFmt(TRUSTED_APRIL_QTY)} qty.
+              Ledger T4 đã kiểm soát: <span className="font-semibold text-amber-100">{vnd(CONTROLLED_APRIL_TOTAL)}</span> · {CONTROLLED_APRIL_ROWS.toLocaleString("vi-VN")} lines · {numberFmt(CONTROLLED_APRIL_QTY)} qty.
             </div>
             <div className="text-xs text-stone-300/75">Dashboard totals remain query-driven; this banner is the reviewed T4 validation target after import.</div>
           </div>
           <Button
             className="border border-amber-300/60 bg-amber-400 text-stone-950 hover:bg-amber-300 md:w-auto"
             onClick={() => {
-              setPeriod(TRUSTED_APRIL_PERIOD);
-              setBasis("trusted");
+              setPeriod(CONTROLLED_APRIL_PERIOD);
+              setBasis("controlled");
             }}
           >
             Xem tổng T4
@@ -356,6 +407,50 @@ export default function RevenueManagementDashboard() {
         })}
       </div>
 
+      <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+        <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/95 via-stone-950 to-amber-950/15 ring-1 ring-stone-200/5">
+          <CardHeader className="border-b border-amber-100/10 bg-stone-900/30">
+            <CardTitle className="text-amber-50">Month-on-month</CardTitle>
+            <CardDescription className="text-stone-300/75">
+              {period === monthNow() ? "Current month is month to date." : "So sánh tổng doanh thu theo tháng."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 p-4 sm:grid-cols-3">
+            <div className="rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
+              <div className="text-xs uppercase tracking-[0.14em] text-stone-400">This month</div>
+              <div className="mt-2 truncate text-lg font-semibold tabular-nums text-amber-100" title={vnd(stats.total)}>{vnd(stats.total)}</div>
+            </div>
+            <div className="rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
+              <div className="text-xs uppercase tracking-[0.14em] text-stone-400">Previous month</div>
+              <div className="mt-2 truncate text-lg font-semibold tabular-nums text-stone-100" title={vnd(mom.previousTotal)}>{vnd(mom.previousTotal)}</div>
+            </div>
+            <div className="rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
+              <div className="text-xs uppercase tracking-[0.14em] text-stone-400">MoM change</div>
+              <div className={`mt-2 truncate text-lg font-semibold tabular-nums ${mom.delta >= 0 ? "text-emerald-100" : "text-rose-100"}`} title={vnd(mom.delta)}>
+                {vnd(mom.delta)}
+              </div>
+              <div className="text-xs text-stone-400">{mom.pct === null ? "N/A" : `${mom.pct >= 0 ? "+" : ""}${numberFmt(mom.pct)}%`}</div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/95 via-stone-950 to-amber-950/15 ring-1 ring-stone-200/5">
+          <CardContent className="h-[230px] p-4">
+            <ChartContainer config={{ revenue: { label: "Doanh thu", color: "#F2C15C" } }} className="h-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={mom.chart} margin={{ top: 8, right: 18, bottom: 18, left: 8 }}>
+                  <CartesianGrid stroke="rgba(245,158,11,0.14)" vertical={false} />
+                  <XAxis dataKey="month" tickLine={false} axisLine={false} fontSize={12} tick={{ fill: "rgba(245,245,244,0.74)" }} />
+                  <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`} tickLine={false} axisLine={false} width={48} tick={{ fill: "rgba(245,245,244,0.74)" }} />
+                  <ChartTooltip content={<ChartTooltipContent formatter={(value) => vnd(Number(value))} />} />
+                  <Bar dataKey="revenue" fill="var(--color-revenue)" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+      </div>
+
       {isLoading ? (
         <div className="flex min-h-[240px] items-center justify-center rounded-md border border-amber-200/10 bg-gradient-to-br from-stone-900/75 to-stone-950/60 ring-1 ring-stone-200/5"><Loader2 className="h-8 w-8 animate-spin text-amber-300" /></div>
       ) : (
@@ -380,11 +475,11 @@ export default function RevenueManagementDashboard() {
                 ) : (
                   <ChartContainer config={{ revenue: { label: "Revenue", color: "#F2C15C" }, review: { label: "Review", color: "#E97878" } }} className="h-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={byDay}>
+                      <BarChart data={byDay} margin={{ top: 8, right: 18, bottom: 18, left: 8 }}>
                         <CartesianGrid stroke="rgba(245,158,11,0.14)" vertical={false} />
                         <XAxis dataKey="date" tickLine={false} axisLine={false} fontSize={12} tick={{ fill: "rgba(245,245,244,0.74)" }} />
                         <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`} tickLine={false} axisLine={false} width={48} tick={{ fill: "rgba(245,245,244,0.74)" }} />
-                        <ChartTooltip content={<ChartTooltipContent formatter={(value) => vnd(Number(value))} />} />
+                        <ChartTooltip content={<ChartTooltipContent formatter={(value) => vnd(Number(value))} className="border-amber-300/30 bg-stone-900 text-amber-50 shadow-xl" />} />
                         <Legend
                           wrapperStyle={{ color: "rgba(245,245,244,0.74)", fontSize: 12 }}
                           formatter={(value) => (value === "revenue" ? "Doanh thu" : "Cần review")}
@@ -408,8 +503,8 @@ export default function RevenueManagementDashboard() {
                     <b>{item.title}</b> {item.copy}
                   </div>
                 ))}
-                <Button className="w-full border border-rose-300/40 bg-rose-400/[0.04] text-rose-100 hover:bg-rose-400/[0.09]" variant="outline" onClick={() => openSources({ review: "review_queue" })}>
-                  <Eye className="mr-2 h-4 w-4" />Mở dòng cần audit
+                <Button className="w-full border border-rose-300/40 bg-rose-400/[0.04] text-rose-100 hover:bg-rose-400/[0.09]" variant="outline" onClick={() => navigate("/finance-control/revenue/daily-review")}>
+                  <Eye className="mr-2 h-4 w-4" />Mở daily review
                   {stats.review > 0 ? <Badge className="ml-2 border border-rose-200/40 bg-rose-300/10 text-rose-50" variant="outline">{vnd(stats.review)}</Badge> : null}
                 </Button>
               </CardContent>
@@ -420,19 +515,23 @@ export default function RevenueManagementDashboard() {
             <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/90 via-stone-950/75 to-amber-950/15 ring-1 ring-stone-200/5">
               <CardHeader className="border-b border-amber-100/10 bg-stone-900/30">
                 <CardTitle className="text-amber-50">Doanh thu theo customer / NPP</CardTitle>
-                <CardDescription className="text-stone-300/75">Click “Chi tiết” để xem source lines, PO trace và trạng thái audit.</CardDescription>
+                <CardDescription className="text-stone-300/75">Click “Chi tiết” để xem source lines, PO trace và trạng thái audit. Bao gồm cả khách tháng trước về 0 trong kỳ hiện tại.</CardDescription>
               </CardHeader>
               <CardContent className="overflow-x-auto pt-4">
                 <Table>
-                  <TableHeader><TableRow className="border-b border-stone-700/50"><TableHead className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Customer / NPP</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Qty</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Revenue</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Cần review</TableHead><TableHead className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Source</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Action</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow className="border-b border-stone-700/50"><TableHead className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Customer / NPP</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Qty</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Revenue</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">MoM</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Cần kiểm tra</TableHead><TableHead className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Source</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Action</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {byCustomer.map((row) => (
                       <TableRow key={row.key} className="border-b border-stone-800/60 hover:bg-amber-400/[0.08]">
                         <TableCell className="font-medium text-stone-100">{row.name}<div className="text-xs text-stone-400/70">{row.rows} lines</div></TableCell>
                         <TableCell className="text-right tabular-nums text-stone-100">{numberFmt(row.qty)}</TableCell>
                         <TableCell className="text-right font-semibold tabular-nums text-amber-100">{vnd(row.revenue)}</TableCell>
+                        <TableCell className={`text-right tabular-nums ${row.delta >= 0 ? "text-emerald-100" : "text-rose-100"}`}>
+                          <div className="font-medium">{vnd(row.delta)}</div>
+                          <div className="text-xs text-stone-400">{row.pct === null ? "N/A" : `${row.pct >= 0 ? "+" : ""}${numberFmt(row.pct)}%`}</div>
+                        </TableCell>
                         <TableCell className="text-right">{row.review > 0 ? <Badge className="border border-rose-300/40 bg-rose-400/10 text-rose-100" variant="outline">{vnd(row.review)}</Badge> : <span className="text-stone-500">—</span>}</TableCell>
-                        <TableCell>{Array.from(row.sourceTypes).map((s) => <Badge key={s} className="mr-1 border border-amber-300/25 bg-amber-400/[0.07] text-amber-100" variant="secondary">{sourceTypeLabel[s] || s}</Badge>)}</TableCell>
+                        <TableCell>{row.sourceTypes.size > 0 ? Array.from(row.sourceTypes).map((s) => <Badge key={s} className="mr-1 border border-amber-300/25 bg-amber-400/[0.07] text-amber-100" variant="secondary">{sourceTypeLabel[s] || s}</Badge>) : <Badge className="border border-stone-500/50 bg-stone-800/70 text-stone-200" variant="secondary">Kỳ trước</Badge>}</TableCell>
                         <TableCell className="text-right"><Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100" size="sm" variant="outline" onClick={() => openSources({ customer_key: row.key })}>Chi tiết</Button></TableCell>
                       </TableRow>
                     ))}
@@ -444,7 +543,7 @@ export default function RevenueManagementDashboard() {
 
           <TabsContent value="channels">
             <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/90 via-stone-950/75 to-amber-950/15 ring-1 ring-stone-200/5">
-              <CardHeader className="border-b border-amber-100/10 bg-stone-900/30"><CardTitle className="text-amber-50">Doanh thu theo kênh</CardTitle><CardDescription className="text-stone-300/75">Circle chart theo tỷ trọng revenue của từng kênh trong trusted ledger.</CardDescription></CardHeader>
+              <CardHeader className="border-b border-amber-100/10 bg-stone-900/30"><CardTitle className="text-amber-50">Doanh thu theo kênh</CardTitle><CardDescription className="text-stone-300/75">Circle chart theo tỷ trọng revenue của từng kênh trong ledger đã kiểm soát.</CardDescription></CardHeader>
               <CardContent className="pt-4">
                 {byChannel.length === 0 ? (
                   <div className="flex min-h-[260px] items-center justify-center rounded-md border border-amber-100/10 bg-stone-950/40 text-sm text-stone-300/75">

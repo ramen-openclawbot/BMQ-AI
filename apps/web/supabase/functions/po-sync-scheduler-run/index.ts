@@ -165,26 +165,19 @@ const buildDateRange = (lookbackDays: number, timeZone = "Asia/Ho_Chi_Minh", now
 };
 
 async function ensureAuthorized(supabaseAdmin: any, userId: string) {
-  const [{ data: roleRows, error: roleErr }, { data: permRows, error: permErr }] = await Promise.all([
-    supabaseAdmin.from("user_roles").select("role").eq("user_id", userId),
-    supabaseAdmin.from("user_module_permissions").select("module_key, can_edit").eq("user_id", userId),
-  ]);
+  const { data: roleRows, error: roleErr } = await supabaseAdmin
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId);
 
   if (roleErr) throw roleErr;
-  if (permErr) throw permErr;
 
   const roles = (roleRows || []).map((row: { role: string }) => row.role);
-  const editableModules = new Set(
-    (permRows || [])
-      .filter((row: { module_key: string; can_edit: boolean }) => Boolean(row.can_edit))
-      .map((row: { module_key: string }) => row.module_key)
-  );
-
-  if (roles.includes("owner") || editableModules.has("finance_revenue") || editableModules.has("sales_po_inbox")) {
+  if (roles.includes("owner")) {
     return;
   }
 
-  throw new Error("Forbidden: owner or finance revenue / sales PO edit permission required");
+  throw new Error("Forbidden: owner role required for manual run now");
 }
 
 const AUTOMATION_LOCK_KEY = "po_sync_scheduler_default";

@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 
 const vnd = (v: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(v || 0);
 const numberFmt = (v: number) => new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(v || 0);
-const TRUSTED_APRIL_PERIOD = "2026-04";
+const CONTROLLED_APRIL_PERIOD = "2026-04";
 
 type RevenueLine = {
   id: string;
@@ -155,8 +155,19 @@ async function fetchAllRevenueSourceLines(period: string, channel: string, revie
 }
 
 function statusBadge(status: string) {
-  if (["approved", "trusted", "tied", "matched", "matched_po"].includes(status)) return <Badge variant="secondary">{status}</Badge>;
-  if (["needs_review", "needs_manual_review", "po_delta", "csv_only"].includes(status)) return <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">{status}</Badge>;
+  const labels: Record<string, string> = {
+    approved: "Đã kiểm soát",
+    trusted: "Đã kiểm soát",
+    tied: "Khớp đối soát",
+    matched: "Khớp",
+    matched_po: "Khớp PO",
+    needs_review: "Cần kiểm tra",
+    needs_manual_review: "Cần kiểm tra",
+    po_delta: "Lệch PO",
+    csv_only: "Chỉ có nguồn đối soát",
+  };
+  if (["approved", "trusted", "tied", "matched", "matched_po"].includes(status)) return <Badge variant="secondary">{labels[status] || status}</Badge>;
+  if (["needs_review", "needs_manual_review", "po_delta", "csv_only"].includes(status)) return <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">{labels[status] || status}</Badge>;
   if (["rejected", "low_confidence"].includes(status)) return <Badge variant="destructive">{status}</Badge>;
   return <Badge variant="outline">{status}</Badge>;
 }
@@ -169,7 +180,7 @@ export default function RevenueSourceDetail() {
   const canEdit = canEditModule("finance_revenue");
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const period = params.get("period") || TRUSTED_APRIL_PERIOD;
+  const period = params.get("period") || CONTROLLED_APRIL_PERIOD;
   const channel = params.get("channel") || "";
   const customerKey = params.get("customer_key") || "";
   const review = params.get("review") || "";
@@ -316,13 +327,13 @@ export default function RevenueSourceDetail() {
           <h1 className="text-3xl font-display font-bold">{isVi ? "Chi tiết nguồn doanh thu" : "Revenue source detail"}</h1>
           <p className="max-w-3xl text-muted-foreground">
             {isVi
-              ? "Trace từng dòng ledger về nguồn CSV/PO/email. Dòng parse từ PO mặc định pending; dòng trusted CSV được dùng làm số production nếu có lệch."
-              : "Trace each ledger line back to CSV/PO/email evidence. Parsed PO rows default to pending; trusted CSV rows drive production revenue when sources disagree."}
+              ? "Trace từng dòng ledger về nguồn đối soát/PO/email. Dòng parse từ PO là evidence vận hành; số dashboard lấy từ ledger đã kiểm soát."
+              : "Trace each ledger line back to source evidence, PO, and email. Parsed PO rows are operational evidence; dashboard numbers come from the controlled ledger."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Input type="month" value={period} onChange={(e) => updateParam("period", e.target.value || TRUSTED_APRIL_PERIOD)} className="w-[160px]" />
-          <Button variant={period === TRUSTED_APRIL_PERIOD ? "default" : "outline"} onClick={() => updateParam("period", TRUSTED_APRIL_PERIOD)}>
+          <Input type="month" value={period} onChange={(e) => updateParam("period", e.target.value || CONTROLLED_APRIL_PERIOD)} className="w-[160px]" />
+          <Button variant={period === CONTROLLED_APRIL_PERIOD ? "default" : "outline"} onClick={() => updateParam("period", CONTROLLED_APRIL_PERIOD)}>
             T4/2026
           </Button>
           <Button variant={review ? "default" : "outline"} onClick={() => updateParam("review", review ? "" : "review_queue")}>
@@ -484,7 +495,7 @@ export default function RevenueSourceDetail() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="audit-note">Lý do sửa / audit note</Label>
-                <Textarea id="audit-note" value={editForm.audit_note} onChange={(e) => updateEditField("audit_note", e.target.value)} placeholder="VD: Sửa số lượng theo CSV audit / PO đối soát…" />
+                <Textarea id="audit-note" value={editForm.audit_note} onChange={(e) => updateEditField("audit_note", e.target.value)} placeholder="VD: Sửa số lượng theo nguồn đối soát / PO…" />
               </div>
               <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
                 Sau khi lưu: audit_status = adjusted, review_status = resolved, confidence_status = manual_review, reconciliation_status = manual_override. Approval status được giữ nguyên, không có bước approve riêng.
