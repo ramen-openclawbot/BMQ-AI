@@ -60,6 +60,11 @@ verify_jwt = false
 # Auth handled inside function via requireAuth() → supabaseAdmin.auth.getUser(token).
 verify_jwt = false
 
+[functions.revenue-monthly-parse-preview]
+# verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
+# Auth handled inside function via requireAuth() + owner role check.
+verify_jwt = false
+
 [functions.po-gmail-sync]
 verify_jwt = false
 
