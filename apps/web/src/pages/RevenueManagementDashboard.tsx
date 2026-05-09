@@ -56,6 +56,15 @@ const db = supabase as unknown as {
 const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
+const normalizedCustomerName = (value: string) =>
+  value
+    .normalize("NFKC")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleUpperCase("vi-VN");
+
+type CustomerRollup = { key: string; name: string };
+
 const previousMonth = (period: string) => {
   const [year, month] = period.split("-").map(Number);
   const d = new Date(year, month - 2, 1);
@@ -248,14 +257,44 @@ export default function RevenueManagementDashboard() {
   }, [period, prevPeriod, previousLines, stats.total]);
 
   const byCustomer = useMemo(() => {
+    const historicalParentByCustomerName = new Map<string, CustomerRollup>();
+
+    for (const row of previousLines) {
+      const raw = asRecord(row.raw_payload);
+      const parentName = String(raw.parent_customer_name || "").trim();
+      if (row.parent_customer_id || parentName) {
+        historicalParentByCustomerName.set(normalizedCustomerName(row.customer_name), {
+          key: row.parent_customer_id || parentName,
+          name: parentName || row.customer_name || "Chưa rõ khách hàng",
+        });
+      }
+    }
+
+    const resolveRollup = (row: RevenueLine): CustomerRollup => {
+      const raw = asRecord(row.raw_payload);
+      const parentName = String(raw.parent_customer_name || "").trim();
+      if (row.parent_customer_id || parentName) {
+        return {
+          key: row.parent_customer_id || parentName,
+          name: parentName || row.customer_name || "Chưa rõ khách hàng",
+        };
+      }
+
+      const historicalParent = historicalParentByCustomerName.get(normalizedCustomerName(row.customer_name));
+      if (historicalParent) return historicalParent;
+
+      return {
+        key: row.customer_id || row.customer_name,
+        name: row.customer_name || "Chưa rõ khách hàng",
+      };
+    };
+
     const previousMap = new Map<string, { revenue: number; name: string }>();
     for (const row of previousLines) {
-      const key = row.parent_customer_id || row.customer_id || row.customer_name;
-      const raw = asRecord(row.raw_payload);
-      const rollupName = String(raw.parent_customer_name || row.customer_name || "Chưa rõ khách hàng");
-      const cur = previousMap.get(key) || { revenue: 0, name: rollupName };
+      const rollup = resolveRollup(row);
+      const cur = previousMap.get(rollup.key) || { revenue: 0, name: rollup.name };
       cur.revenue += Number(row.gross_revenue || 0);
-      previousMap.set(key, cur);
+      previousMap.set(rollup.key, cur);
     }
 
     const map = new Map<string, { key: string; name: string; revenue: number; previousRevenue: number; qty: number; rows: number; review: number; sourceTypes: Set<string> }>();
@@ -264,17 +303,15 @@ export default function RevenueManagementDashboard() {
     }
 
     for (const row of lines) {
-      const key = row.parent_customer_id || row.customer_id || row.customer_name;
-      const raw = asRecord(row.raw_payload);
-      const rollupName = String(raw.parent_customer_name || row.customer_name || "Chưa rõ khách hàng");
-      const cur = map.get(key) || { key, name: rollupName, revenue: 0, previousRevenue: previousMap.get(key)?.revenue || 0, qty: 0, rows: 0, review: 0, sourceTypes: new Set<string>() };
-      cur.name = rollupName || cur.name;
+      const rollup = resolveRollup(row);
+      const cur = map.get(rollup.key) || { key: rollup.key, name: rollup.name, revenue: 0, previousRevenue: previousMap.get(rollup.key)?.revenue || 0, qty: 0, rows: 0, review: 0, sourceTypes: new Set<string>() };
+      cur.name = rollup.name || cur.name;
       cur.revenue += Number(row.gross_revenue || 0);
       cur.qty += Number(row.quantity || 0);
       cur.rows += 1;
       if (row.review_status === "needs_manual_review" || row.audit_status === "needs_review") cur.review += Number(row.gross_revenue || 0);
       cur.sourceTypes.add(row.source_type);
-      map.set(key, cur);
+      map.set(rollup.key, cur);
     }
     return Array.from(map.values())
       .map((row) => ({
