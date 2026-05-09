@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleAlert, Eye, Loader2, RefreshCw, Save } from "lucide-react";
+import { CircleAlert, Eye, Loader2, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -12,13 +12,6 @@ import { useToast } from "@/hooks/use-toast";
 
 const vnd = (v: number) =>
   new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(v || 0);
-
-const dateTime = (v?: string | null) => {
-  if (!v) return "—";
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return String(v);
-  return d.toLocaleString("vi-VN");
-};
 
 const getReadableError = (error: unknown): string => {
   if (!error) return "Không rõ nguyên nhân";
@@ -36,54 +29,33 @@ const getReadableError = (error: unknown): string => {
   }
 };
 
-type ScheduleScopeMode = "all_root_customers" | "single_customer" | "tier1_only";
+const getNumber = (value: unknown) => (Number.isFinite(Number(value)) ? Number(value) : 0);
 
-interface CustomerRow {
-  id: string;
-  customer_name: string;
-}
+const getVietnamDate = (deltaDays = 0) => {
+  const now = new Date();
+  now.setUTCDate(now.getUTCDate() + deltaDays);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const map = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+};
+
+const diffDaysInclusive = (from: string, to: string) => {
+  const fromMs = Date.parse(`${from}T00:00:00Z`);
+  const toMs = Date.parse(`${to}T00:00:00Z`);
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return Number.NaN;
+  return Math.floor((toMs - fromMs) / 86_400_000) + 1;
+};
 
 interface ScheduleRow {
   id: string;
-  config_key?: string;
-  customer_id: string | null;
-  is_enabled: boolean;
-  scope_mode: ScheduleScopeMode;
-  schedule_mode: "daily";
   run_hour_local: string;
   timezone: string;
-  lookback_days: number;
-  notes: string | null;
-  last_job_id: string | null;
-  last_run_at: string | null;
-  created_at: string;
-  updated_at: string;
-  mini_crm_customers?: { customer_name?: string | null } | null;
-}
-
-interface SyncJobRow {
-  id: string;
-  customer_id: string | null;
-  status: "pending" | "running" | "done" | "failed";
-  date_from: string;
-  date_to: string;
-  inbox_rows_found: number;
-  inbox_rows_processed: number;
-  error_message: string | null;
-  created_at: string;
-  completed_at: string | null;
-  mini_crm_customers?: { customer_name?: string | null } | null;
-}
-
-interface SnapshotRow {
-  id: string;
-  snapshot_date: string;
-  total_drafts_count: number;
-  pending_drafts_count: number;
-  exception_drafts_count: number;
-  cumulative_total_amount: number;
-  cumulative_pending_amount: number;
-  created_at: string;
+  is_enabled: boolean;
 }
 
 interface RevenueDraftRow {
@@ -96,11 +68,9 @@ type QueryResult<T> = PromiseLike<{ data: T | null; error: { message?: string; d
 type QueryBuilder<T> = QueryResult<T[]> & {
   select: (columns: string) => QueryBuilder<T>;
   eq: (column: string, value: string | boolean | null) => QueryBuilder<T>;
-  is: (column: string, value: null) => QueryBuilder<T>;
   order: (column: string, options: { ascending: boolean }) => QueryBuilder<T>;
   limit: (count: number) => QueryBuilder<T>;
   maybeSingle: () => QueryResult<T>;
-  upsert: (payload: Record<string, unknown>, options?: { onConflict?: string }) => QueryResult<T[]>;
 };
 
 type DbClient = {
@@ -119,39 +89,17 @@ const parseSchedulerResponse = (rawText: string): Record<string, unknown> => {
   }
 };
 
-const getNumber = (value: unknown) => (Number.isFinite(Number(value)) ? Number(value) : 0);
-
 export default function FinanceRevenueControl() {
   const { language } = useLanguage();
   const isVi = language === "vi";
-  const { user, isOwner } = useAuth();
+  const { isOwner } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [scheduleEnabled, setScheduleEnabled] = useState(false);
-  const [scheduleScopeMode, setScheduleScopeMode] = useState<ScheduleScopeMode>("tier1_only");
-  const [scheduleCustomerId, setScheduleCustomerId] = useState<string>("all");
-  const [scheduleHourLocal, setScheduleHourLocal] = useState<string>("23:59");
-  const [scheduleTimezone, setScheduleTimezone] = useState<string>("Asia/Ho_Chi_Minh");
-  const [scheduleLookbackDays, setScheduleLookbackDays] = useState<string>("1");
-  const [scheduleNotes, setScheduleNotes] = useState<string>("");
-  const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [manualDateFrom, setManualDateFrom] = useState(() => getVietnamDate(-6));
+  const [manualDateTo, setManualDateTo] = useState(() => getVietnamDate());
   const [automationRunning, setAutomationRunning] = useState(false);
   const [automationRunMessage, setAutomationRunMessage] = useState<string | null>(null);
-
-  const { data: customers = [] } = useQuery<CustomerRow[]>({
-    queryKey: ["mini-crm-customers-tier"],
-    queryFn: async () => {
-      const { data, error } = await db
-        .from<CustomerRow>("mini_crm_customers")
-        .select("id, customer_name")
-        .eq("is_active", true)
-        .is("supplied_by_npp_customer_id", null)
-        .order("customer_name", { ascending: true });
-      if (error) throw error;
-      return data || [];
-    },
-  });
 
   const { data: revenueDrafts = [] } = useQuery<RevenueDraftRow[]>({
     queryKey: ["revenue-drafts"],
@@ -171,50 +119,13 @@ export default function FinanceRevenueControl() {
     queryFn: async () => {
       const { data, error } = await db
         .from<ScheduleRow>("po_sync_schedules")
-        .select("*, mini_crm_customers(customer_name)")
+        .select("id, run_hour_local, timezone, is_enabled")
         .eq("config_key", "default")
         .maybeSingle();
       if (error) throw error;
       return data || null;
     },
   });
-
-  const { data: recentSyncJobs = [] } = useQuery<SyncJobRow[]>({
-    queryKey: ["po-sync-jobs-recent"],
-    queryFn: async () => {
-      const { data, error } = await db
-        .from<SyncJobRow>("po_sync_jobs")
-        .select("*, mini_crm_customers(customer_name)")
-        .order("created_at", { ascending: false })
-        .limit(12);
-      if (error) throw error;
-      return data || [];
-    },
-  });
-
-  const { data: cumulativeSnapshots = [] } = useQuery<SnapshotRow[]>({
-    queryKey: ["po-sync-snapshots"],
-    queryFn: async () => {
-      const { data, error } = await db
-        .from<SnapshotRow>("po_sync_snapshots")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(12);
-      if (error) throw error;
-      return data || [];
-    },
-  });
-
-  useEffect(() => {
-    if (!automationSchedule) return;
-    setScheduleEnabled(Boolean(automationSchedule.is_enabled));
-    setScheduleScopeMode(automationSchedule.scope_mode || "tier1_only");
-    setScheduleCustomerId(automationSchedule.customer_id || "all");
-    setScheduleHourLocal(automationSchedule.run_hour_local || "23:59");
-    setScheduleTimezone(automationSchedule.timezone || "Asia/Ho_Chi_Minh");
-    setScheduleLookbackDays(String(automationSchedule.lookback_days || 1));
-    setScheduleNotes(automationSchedule.notes || "");
-  }, [automationSchedule]);
 
   const draftStats = useMemo(() => {
     const counts = { pending: 0, approved: 0, rejected: 0, exception: 0, pendingAmt: 0, approvedAmt: 0 };
@@ -236,83 +147,58 @@ export default function FinanceRevenueControl() {
     return counts;
   }, [revenueDrafts]);
 
-  const latestSyncJob = recentSyncJobs[0] || null;
   const scheduleSummary = automationSchedule
     ? `${automationSchedule.run_hour_local || "23:59"} ${automationSchedule.timezone || "Asia/Ho_Chi_Minh"}`
     : "23:59 Asia/Ho_Chi_Minh";
   const pendingReview = draftStats.pending + draftStats.exception;
   const canRunAutomation = isOwner;
+  const selectedRangeDays = diffDaysInclusive(manualDateFrom, manualDateTo);
 
-  const automationScopeSummary = useMemo(() => {
-    if (scheduleScopeMode === "all_root_customers") return isVi ? "Tất cả NPP / khách hàng gốc" : "All root customers / distributors";
-    if (scheduleScopeMode === "single_customer") {
-      const customer = customers.find((item) => item.id === scheduleCustomerId);
-      return customer?.customer_name || (isVi ? "Chưa chọn khách hàng" : "No customer selected");
-    }
-    return isVi ? "Chỉ nhóm Tier-1" : "Tier-1 only";
-  }, [customers, isVi, scheduleCustomerId, scheduleScopeMode]);
-
-  const persistAutomationSchedule = async (showToast = true) => {
-    if (scheduleScopeMode === "single_customer" && scheduleCustomerId === "all") {
-      toast({ title: isVi ? "Thiếu khách hàng" : "Missing customer", description: isVi ? "Vui lòng chọn một NPP / khách hàng gốc cụ thể." : "Please choose a specific root customer / distributor.", variant: "destructive" });
-      return false;
-    }
-
-    const parsedLookback = Number(scheduleLookbackDays || 1);
-    if (!Number.isFinite(parsedLookback)) {
-      toast({ title: isVi ? "Lookback không hợp lệ" : "Invalid lookback", description: isVi ? "Vui lòng nhập số ngày hợp lệ từ 1 đến 30." : "Please enter a valid lookback day count between 1 and 30.", variant: "destructive" });
-      return false;
-    }
-
-    setScheduleSaving(true);
-    try {
-      const lookback = Math.max(1, Math.min(30, parsedLookback));
-      const payload: Record<string, unknown> = {
-        config_key: "default",
-        customer_id: scheduleScopeMode === "single_customer" ? scheduleCustomerId : null,
-        is_enabled: scheduleEnabled,
-        scope_mode: scheduleScopeMode,
-        schedule_mode: "daily",
-        run_hour_local: scheduleHourLocal || "23:59",
-        timezone: scheduleTimezone || "Asia/Ho_Chi_Minh",
-        lookback_days: lookback,
-        notes: scheduleNotes.trim() || null,
-        updated_by: user?.id || "manual",
-        updated_at: new Date().toISOString(),
-      };
-      if (!automationSchedule) payload.created_by = user?.id || "manual";
-
-      const { error } = await db.from<ScheduleRow>("po_sync_schedules").upsert(payload, { onConflict: "config_key" });
-      if (error) throw error;
-
-      await queryClient.invalidateQueries({ queryKey: ["po-sync-schedule-foundation"] });
-      await queryClient.invalidateQueries({ queryKey: ["po-sync-jobs-recent"] });
-      if (showToast) {
-        toast({ title: isVi ? "Đã lưu cấu hình automation" : "Automation settings saved" });
-      }
-      return true;
-    } catch (error) {
-      toast({ title: isVi ? "Lỗi lưu cấu hình" : "Failed to save schedule", description: getReadableError(error), variant: "destructive" });
-      return false;
-    } finally {
-      setScheduleSaving(false);
-    }
-  };
-
-  const runAutomationNow = async () => {
+  const validateManualRange = () => {
     if (!canRunAutomation) {
       toast({
         title: isVi ? "Không có quyền chạy automation" : "No permission to run automation",
-        description: isVi ? "Chỉ owner được chạy automation thủ công." : "Only owners can run automation manually.",
+        description: isVi ? "Chỉ owner được parse thủ công theo khoảng ngày." : "Only owners can manually parse a date range.",
         variant: "destructive",
       });
-      return;
+      return false;
     }
 
-    setAutomationRunMessage(null);
-    const saved = await persistAutomationSchedule(false);
-    if (!saved) return;
+    if (!manualDateFrom || !manualDateTo) {
+      toast({
+        title: isVi ? "Thiếu khoảng ngày" : "Missing date range",
+        description: isVi ? "Vui lòng chọn cả ngày bắt đầu và ngày kết thúc." : "Please choose both a start date and an end date.",
+        variant: "destructive",
+      });
+      return false;
+    }
 
+    const days = diffDaysInclusive(manualDateFrom, manualDateTo);
+    if (!Number.isFinite(days) || days < 1) {
+      toast({
+        title: isVi ? "Khoảng ngày không hợp lệ" : "Invalid date range",
+        description: isVi ? "Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc." : "Start date must be before or equal to end date.",
+        variant: "destructive",
+      });
+      return false;
+    }
+
+    if (days > 31) {
+      toast({
+        title: isVi ? "Khoảng ngày quá dài" : "Date range too large",
+        description: isVi ? "Vui lòng parse tối đa 31 ngày mỗi lần để tránh quá tải inbox." : "Please parse at most 31 days at a time to avoid overloading the inbox.",
+        variant: "destructive",
+      });
+      return false;
+    }
+
+    return true;
+  };
+
+  const runManualRangeParse = async () => {
+    if (!validateManualRange()) return;
+
+    setAutomationRunMessage(null);
     setAutomationRunning(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -329,7 +215,12 @@ export default function FinanceRevenueControl() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${bearer}`,
         },
-        body: JSON.stringify({ mode: "run_now", ignoreDisabled: true }),
+        body: JSON.stringify({
+          mode: "manual_range",
+          ignoreDisabled: true,
+          dateFrom: manualDateFrom,
+          dateTo: manualDateTo,
+        }),
       });
 
       const rawText = await response.text();
@@ -337,7 +228,9 @@ export default function FinanceRevenueControl() {
       if (!response.ok) throw new Error(String(result.error || result.message || result.raw || rawText || "Automation run failed"));
 
       const stats = result.result && typeof result.result === "object" ? result.result as Record<string, unknown> : {};
-      setAutomationRunMessage(`${getNumber(stats.rowsFound)} PO • ${getNumber(stats.draftsCreated)} draft • ${getNumber(stats.exceptionsCreated)} ngoại lệ • ${getNumber(stats.skippedRows)} bỏ qua`);
+      const rangeText = `${String(stats.dateFrom || manualDateFrom)} → ${String(stats.dateTo || manualDateTo)}`;
+      const message = `${rangeText}: ${getNumber(stats.rowsFound)} PO • ${getNumber(stats.draftsCreated)} draft • ${getNumber(stats.exceptionsCreated)} ngoại lệ • ${getNumber(stats.skippedRows)} bỏ qua`;
+      setAutomationRunMessage(message);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["po-sync-jobs-recent"] }),
         queryClient.invalidateQueries({ queryKey: ["po-sync-snapshots"] }),
@@ -345,23 +238,17 @@ export default function FinanceRevenueControl() {
         queryClient.invalidateQueries({ queryKey: ["revenue-drafts"] }),
       ]);
       toast({
-        title: isVi ? "Đã chạy automation" : "Automation run completed",
+        title: isVi ? "Đã parse khoảng ngày" : "Date range parsed",
         description: isVi
           ? `${getNumber(stats.draftsCreated)} draft • ${getNumber(stats.exceptionsCreated)} ngoại lệ • ${getNumber(stats.skippedRows)} bỏ qua`
           : `${getNumber(stats.draftsCreated)} drafts • ${getNumber(stats.exceptionsCreated)} exceptions • ${getNumber(stats.skippedRows)} skipped`,
       });
     } catch (error) {
-      toast({ title: isVi ? "Lỗi chạy automation" : "Automation run failed", description: getReadableError(error), variant: "destructive" });
+      toast({ title: isVi ? "Lỗi parse khoảng ngày" : "Date range parse failed", description: getReadableError(error), variant: "destructive" });
     } finally {
       setAutomationRunning(false);
     }
   };
-
-  const lastJobTone = latestSyncJob?.status === "done"
-    ? "border-emerald-300/35 bg-emerald-400/10 text-emerald-100"
-    : latestSyncJob?.status === "failed"
-      ? "border-rose-300/35 bg-rose-400/10 text-rose-100"
-      : "border-amber-300/35 bg-amber-400/10 text-amber-100";
 
   return (
     <div className="space-y-5">
@@ -369,29 +256,18 @@ export default function FinanceRevenueControl() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-2">
             <Badge className="border border-amber-300/35 bg-amber-400/10 text-amber-100">
-              Auto-parse daily • {scheduleSummary}
+              Auto-parse daily • {scheduleLoading ? "Loading..." : scheduleSummary}
             </Badge>
             <h1 className="font-display text-2xl font-semibold tracking-tight text-amber-50 md:text-4xl">
               Daily Auto-Parse Operations
             </h1>
             <p className="max-w-3xl text-sm leading-6 text-stone-300/80">
-              Trung tâm vận hành `po-gmail-sync` và `po-sync-scheduler-run`: theo dõi job, snapshot, draft và ngoại lệ. Staff kiểm tra/sửa ở Daily Review, không có bước duyệt bắt buộc tại đây.
+              Trung tâm parse PO/email thành draft và ngoại lệ theo khoảng ngày. Staff kiểm tra/sửa ở Daily Review, không có bước duyệt bắt buộc tại đây.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" className="border-amber-300/35 bg-amber-400/[0.08] text-amber-100 hover:bg-amber-400/[0.14]" onClick={() => window.location.assign("/finance-control/revenue/daily-review")}>
-              <Eye className="mr-2 h-4 w-4" />Open daily review
-            </Button>
-            <Button
-              className="border border-amber-300/60 bg-amber-400 text-stone-950 hover:bg-amber-300 disabled:opacity-60"
-              disabled={!canRunAutomation || automationRunning}
-              onClick={() => void runAutomationNow()}
-              title={canRunAutomation ? "Owner-only run now" : "Owner-only"}
-            >
-              {automationRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-              {isVi ? "Chạy ngay" : "Run now"}
-            </Button>
-          </div>
+          <Button variant="outline" className="border-amber-300/35 bg-amber-400/[0.08] text-amber-100 hover:bg-amber-400/[0.14]" onClick={() => window.location.assign("/finance-control/revenue/daily-review")}>
+            <Eye className="mr-2 h-4 w-4" />Open daily review
+          </Button>
         </div>
       </div>
 
@@ -399,15 +275,14 @@ export default function FinanceRevenueControl() {
         <Card className="border-amber-300/30 bg-amber-50/70">
           <CardContent className="flex items-start gap-3 p-4 text-sm text-amber-900">
             <CircleAlert className="mt-0.5 h-4 w-4" />
-            {isVi ? "Chỉ owner được Chạy ngay thủ công. Staff có thể kiểm tra và sửa doanh thu đã parse trong Daily Review." : "Manual Run now is owner-only. Staff can review and edit parsed revenue in Daily Review."}
+            {isVi ? "Chỉ owner được parse thủ công theo khoảng ngày. Staff có thể kiểm tra và sửa doanh thu đã parse trong Daily Review." : "Manual date-range parsing is owner-only. Staff can review and edit parsed revenue in Daily Review."}
           </CardContent>
         </Card>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: "Next scheduled run", value: scheduleSummary, helper: scheduleLoading ? "Loading schedule..." : automationSchedule?.is_enabled ? "Enabled" : "Disabled" },
-          { label: "Last job result", value: latestSyncJob?.status || "No job yet", helper: latestSyncJob ? dateTime(latestSyncJob.completed_at || latestSyncJob.created_at) : "Waiting for first run" },
+          { label: "Selected range", value: `${manualDateFrom} → ${manualDateTo}`, helper: Number.isFinite(selectedRangeDays) && selectedRangeDays > 0 ? `${selectedRangeDays} day(s)` : "Invalid range" },
           { label: "Drafts created", value: String(revenueDrafts.length), helper: `${draftStats.pending} pending review` },
           { label: "Exceptions", value: String(draftStats.exception), helper: "Need staff check" },
           { label: "Pending staff review", value: String(pendingReview), helper: vnd(draftStats.pendingAmt) },
@@ -428,87 +303,56 @@ export default function FinanceRevenueControl() {
         </Card>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_1.2fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Schedule</CardTitle>
-            <CardDescription>Default daily parser window for Vietnam operations.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div className="flex items-center justify-between rounded-lg border p-3">
-              <span className="text-muted-foreground">Run time</span>
-              <span className="font-medium">{scheduleHourLocal || "23:59"} {scheduleTimezone || "Asia/Ho_Chi_Minh"}</span>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border p-3">
-              <span className="text-muted-foreground">Scope</span>
-              <span className="font-medium">{automationScopeSummary}</span>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border p-3">
-              <span className="text-muted-foreground">Lookback</span>
-              <span className="font-medium">{scheduleLookbackDays || "1"} day(s)</span>
-            </div>
-            <Button variant="outline" className="w-full" onClick={() => void persistAutomationSchedule(true)} disabled={!isOwner || scheduleSaving}>
-              {scheduleSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-              Save schedule (owner-only)
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent sync jobs</CardTitle>
-            <CardDescription>Latest scheduler results, evidence counts and failures.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {recentSyncJobs.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No sync jobs yet.</div>
-            ) : recentSyncJobs.slice(0, 6).map((job) => (
-              <div key={job.id} className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge className={job.id === latestSyncJob?.id ? lastJobTone : ""} variant="outline">{job.status}</Badge>
-                    <span className="truncate text-sm font-medium">{job.mini_crm_customers?.customer_name || "All customers"}</span>
-                  </div>
-                  <div className="mt-1 text-xs text-muted-foreground">{job.date_from} → {job.date_to} • {job.inbox_rows_processed}/{job.inbox_rows_found} rows</div>
-                  {job.error_message ? <div className="mt-1 text-xs text-destructive">{job.error_message}</div> : null}
-                </div>
-                <div className="text-xs text-muted-foreground">{dateTime(job.completed_at || job.created_at)}</div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
-
       <Card>
         <CardHeader>
-          <CardTitle>Snapshots / evidence</CardTitle>
-          <CardDescription>Draft and exception totals created by auto-parse jobs.</CardDescription>
+          <CardTitle>Manual parse theo ngày</CardTitle>
+          <CardDescription>
+            Owner chọn khoảng ngày để parse PO/email thành draft hoặc ngoại lệ cho Daily Review. Không ghi nhận doanh thu final; tối đa 31 ngày/lần.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead className="text-right">Drafts</TableHead>
-                <TableHead className="text-right">Pending</TableHead>
-                <TableHead className="text-right">Exceptions</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {cumulativeSnapshots.length === 0 ? (
-                <TableRow><TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">No snapshots yet.</TableCell></TableRow>
-              ) : cumulativeSnapshots.slice(0, 8).map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell>{row.snapshot_date}</TableCell>
-                  <TableCell className="text-right">{row.total_drafts_count}</TableCell>
-                  <TableCell className="text-right">{row.pending_drafts_count}</TableCell>
-                  <TableCell className="text-right">{row.exception_drafts_count}</TableCell>
-                  <TableCell className="text-right font-medium">{vnd(row.cumulative_total_amount)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label htmlFor="manual-date-from" className="text-sm font-medium text-muted-foreground">Từ ngày</label>
+              <Input
+                id="manual-date-from"
+                type="date"
+                value={manualDateFrom}
+                onChange={(event) => setManualDateFrom(event.target.value)}
+                disabled={!canRunAutomation || automationRunning}
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="manual-date-to" className="text-sm font-medium text-muted-foreground">Đến ngày</label>
+              <Input
+                id="manual-date-to"
+                type="date"
+                value={manualDateTo}
+                onChange={(event) => setManualDateTo(event.target.value)}
+                disabled={!canRunAutomation || automationRunning}
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs leading-5 text-muted-foreground">
+              Kết quả parse chỉ là evidence/draft để staff review-by-exception trong Daily Review.
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button variant="outline" className="w-full sm:w-auto" onClick={() => window.location.assign("/finance-control/revenue/daily-review")}>
+                <Eye className="mr-2 h-4 w-4" />Daily Review
+              </Button>
+              <Button
+                className="w-full border border-amber-300/60 bg-amber-400 text-stone-950 hover:bg-amber-300 disabled:opacity-60 sm:w-auto"
+                disabled={!canRunAutomation || automationRunning}
+                onClick={() => void runManualRangeParse()}
+                title={canRunAutomation ? "Owner-only manual date range parse" : "Owner-only"}
+              >
+                {automationRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                {isVi ? "Parse khoảng ngày" : "Parse date range"}
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>

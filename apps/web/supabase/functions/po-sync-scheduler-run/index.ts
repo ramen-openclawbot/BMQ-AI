@@ -20,6 +20,11 @@ type ScheduleRow = {
   last_run_at: string | null;
 };
 
+type ManualDateRange = {
+  dateFrom: string;
+  dateTo: string;
+};
+
 type InboxRow = {
   id: string;
   matched_customer_id: string | null;
@@ -150,6 +155,20 @@ const shiftLocalDate = (date: string, deltaDays: number) => {
   return isoDate(shifted);
 };
 
+const isIsoLocalDate = (value: unknown) => {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map((part) => Number(part));
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+};
+
+const localDateRangeDaysInclusive = (dateFrom: string, dateTo: string) => {
+  const fromMs = Date.parse(`${dateFrom}T00:00:00Z`);
+  const toMs = Date.parse(`${dateTo}T00:00:00Z`);
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return Number.NaN;
+  return Math.floor((toMs - fromMs) / 86_400_000) + 1;
+};
+
 const buildDateRange = (lookbackDays: number, timeZone = "Asia/Ho_Chi_Minh", now = new Date()) => {
   const current = getDatePartsInTimeZone(now, timeZone);
   const endLocalDate = current.date;
@@ -163,6 +182,13 @@ const buildDateRange = (lookbackDays: number, timeZone = "Asia/Ho_Chi_Minh", now
     receivedTo,
   };
 };
+
+const buildExplicitDateRange = (dateFrom: string, dateTo: string, timeZone = "Asia/Ho_Chi_Minh") => ({
+  dateFrom,
+  dateTo,
+  receivedFrom: dateFromLocalParts(dateFrom, timeZone).toISOString(),
+  receivedTo: dateFromLocalParts(dateTo, timeZone, true).toISOString(),
+});
 
 async function ensureAuthorized(supabaseAdmin: any, userId: string) {
   const { data: roleRows, error: roleErr } = await supabaseAdmin
@@ -199,6 +225,7 @@ const AUTOMATION_REVIEW_STATUSES = [
 type RequestContext = {
   triggeredBy: string;
   ignoreDisabled: boolean;
+  manualDateRange?: ManualDateRange;
 };
 
 async function resolveRequestContext(req: Request): Promise<RequestContext> {
@@ -215,9 +242,29 @@ async function resolveRequestContext(req: Request): Promise<RequestContext> {
   }
 
   const { user } = await requireAuth(req, corsHeaders);
+  const rawDateFrom = body?.dateFrom ?? body?.startDate;
+  const rawDateTo = body?.dateTo ?? body?.endDate;
+  const isManualRangeMode = body?.mode === "manual_range" || rawDateFrom || rawDateTo;
+
+  let manualDateRange: ManualDateRange | undefined;
+  if (isManualRangeMode) {
+    if (!isIsoLocalDate(rawDateFrom) || !isIsoLocalDate(rawDateTo)) {
+      throw new Error("Invalid manual date range: dateFrom and dateTo must use YYYY-MM-DD");
+    }
+    const days = localDateRangeDaysInclusive(rawDateFrom, rawDateTo);
+    if (!Number.isFinite(days) || days < 1) {
+      throw new Error("Invalid manual date range: dateFrom must be before or equal to dateTo");
+    }
+    if (days > 31) {
+      throw new Error("Invalid manual date range: maximum range is 31 days");
+    }
+    manualDateRange = { dateFrom: rawDateFrom, dateTo: rawDateTo };
+  }
+
   return {
     triggeredBy: user?.id || "manual",
     ignoreDisabled: Boolean(body?.ignoreDisabled),
+    manualDateRange,
   };
 }
 
@@ -379,8 +426,9 @@ async function runScheduledSync(args: {
   schedule: ScheduleRow;
   triggeredBy: string;
   ignoreDisabled: boolean;
+  manualDateRange?: ManualDateRange;
 }) {
-  const { supabaseAdmin, schedule, triggeredBy, ignoreDisabled } = args;
+  const { supabaseAdmin, schedule, triggeredBy, ignoreDisabled, manualDateRange } = args;
 
   if (!ignoreDisabled && !schedule.is_enabled) {
     return {
@@ -399,7 +447,9 @@ async function runScheduledSync(args: {
     }
   }
 
-  const { dateFrom, dateTo, receivedFrom, receivedTo } = buildDateRange(Number(schedule.lookback_days || 1), schedule.timezone || "Asia/Ho_Chi_Minh");
+  const { dateFrom, dateTo, receivedFrom, receivedTo } = manualDateRange
+    ? buildExplicitDateRange(manualDateRange.dateFrom, manualDateRange.dateTo)
+    : buildDateRange(Number(schedule.lookback_days || 1), schedule.timezone || "Asia/Ho_Chi_Minh");
   const scopedCustomerIds = await fetchScopedCustomerIds(supabaseAdmin, schedule.scope_mode, schedule.customer_id);
 
   const { data: job, error: jobErr } = await supabaseAdmin
@@ -584,10 +634,12 @@ async function runScheduledSync(args: {
       customerId: schedule.scope_mode === "single_customer" ? schedule.customer_id : null,
     });
 
-    await finishSchedule({
-      last_job_id: job.id,
-      last_run_at: new Date().toISOString(),
-    });
+    if (!manualDateRange) {
+      await finishSchedule({
+        last_job_id: job.id,
+        last_run_at: new Date().toISOString(),
+      });
+    }
 
     return {
       skipped: false,
@@ -611,10 +663,12 @@ async function runScheduledSync(args: {
         error_message: message,
         completed_at: new Date().toISOString(),
       });
-      await finishSchedule({
-        last_job_id: job.id,
-        last_run_at: new Date().toISOString(),
-      });
+      if (!manualDateRange) {
+        await finishSchedule({
+          last_job_id: job.id,
+          last_run_at: new Date().toISOString(),
+        });
+      }
     } catch (auditError) {
       const auditMessage = auditError instanceof Error ? auditError.message : "Unknown audit error";
       throw new Error(`${message}; audit update failed: ${auditMessage}`);
@@ -628,7 +682,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflightResponse(req);
 
   try {
-    const { triggeredBy, ignoreDisabled } = await resolveRequestContext(req);
+    const { triggeredBy, ignoreDisabled, manualDateRange } = await resolveRequestContext(req);
 
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL") || "",
@@ -661,6 +715,7 @@ serve(async (req) => {
         schedule: schedule as ScheduleRow,
         triggeredBy,
         ignoreDisabled,
+        manualDateRange,
       });
 
       return jsonResponse(req, { success: true, result });
