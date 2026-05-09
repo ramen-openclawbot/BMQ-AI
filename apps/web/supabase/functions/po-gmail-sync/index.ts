@@ -199,6 +199,30 @@ const THUY_DIRECT_DEALER_AUTOMATION = {
   unitPrice: 6500,
 } as const;
 
+
+const TONY_THANH_AUTOMATION = {
+  sender: "tonythanh@hotmail.com",
+  rule: "tony_thanh_npp_text",
+  parser: "po-gmail-sync:tony-thanh-npp-text:v1",
+  unitPrice: 6500,
+  parentCustomerName: "Đại lý cấp 1 - Anh Thanh",
+} as const;
+
+const VIETJET_AUTOMATION = {
+  senderDomain: "vietjetair.com",
+  rule: "vietjet_cumulative_xlsx",
+  parser: "po-gmail-sync:vietjet-cumulative-xlsx:v1",
+  unitPrice: 25000,
+  productCode: "40000294",
+  productName: "Bánh mì",
+} as const;
+
+const COOPMART_AUTOMATION = {
+  sender: "mai-hnp@saigonco-op.com.vn",
+  rule: "coopmart_manual_trusted_ledger_only",
+  parser: "po-gmail-sync:coopmart-guardrail:v1",
+} as const;
+
 const THUY_DIRECT_DEALER_ALIASES = [
   { canonical: "ĐẠI LÝ BẠCH ĐẰNG", aliases: ["Bạch Đằng", "Bach Đằng", "Bach Dang"] },
   { canonical: "ĐẠI LÝ THÍCH QUẢNG ĐỨC", aliases: ["Thích Quảng Đức", "Thich Quang Duc"] },
@@ -234,6 +258,19 @@ const DAM_XESG_ROUTE_ALIASES = [
   { canonical: "Phạm Văn Chí", aliases: ["Phạm Văn Chí", "213 Phạm Văn Chí", "Pham Van Chi", "213 Pham Van Chi"] },
   { canonical: "Thống Nhất", aliases: ["Thống Nhất", "Thong Nhat"] },
   { canonical: "Lê Văn Quới", aliases: ["Lê Văn Quới", "Le Van Quoi"] },
+] as const;
+
+
+const TONY_THANH_ROUTE_ALIASES = [
+  { canonical: "ĐẠI LÝ ĐỒNG VĂN CỐNG", aliases: ["ĐVC", "DVC", "Đồng Văn Cống", "Dong Van Cong"] },
+  { canonical: "ĐẠI LÝ COOPMART RẠCH GIÁ", aliases: ["Rạch Giá", "Rach Gia", "CoopMart Rạch Giá"] },
+  { canonical: "ĐẠI LÝ PHAN THIẾT", aliases: ["Phan Thiết", "Phan Thiet"] },
+  { canonical: "ĐẠI LÝ QUANG TRUNG", aliases: ["Quang Trung"] },
+  { canonical: "ĐẠI LÝ SATRA CỦ CHI", aliases: ["Satra Củ Chi", "Củ Chi", "Cu Chi"] },
+  { canonical: "ĐẠI LÝ XTRA LINH TRUNG_DĨ AN", aliases: ["Linh Trung", "Dĩ An", "Di An", "Xtra Linh Trung"] },
+  { canonical: "ĐẠI LÝ GO MỸ THO", aliases: ["Mỹ Tho", "My Tho", "Go Mỹ Tho"] },
+  { canonical: "ĐẠI LÝ HÓC MÔN_COOPMART NAT", aliases: ["Coopmart NAT", "Hóc Môn", "Hoc Mon"] },
+  { canonical: "ĐẠI LÝ TOP MARKET ÂU CƠ", aliases: ["Topsmarket Âu Cơ", "Top Market Âu Cơ", "Âu Cơ", "Au Co"] },
 ] as const;
 
 const toNum = (v: any) => {
@@ -356,6 +393,35 @@ const normalizeTextKey = (value: string) =>
     .replace(/\s+/g, " ")
     .toLowerCase();
 
+
+const isoDate = (date: Date) => date.toISOString().slice(0, 10);
+
+const shiftIsoDate = (date: string, deltaDays: number) => {
+  const [year, month, day] = date.split("-").map((part) => Number(part));
+  const shifted = new Date(Date.UTC(year, month - 1, day));
+  shifted.setUTCDate(shifted.getUTCDate() + deltaDays);
+  return isoDate(shifted);
+};
+
+const localDateFromTimestamp = (value?: string | null) => {
+  const date = value ? new Date(value) : new Date();
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = Object.fromEntries(formatter.formatToParts(date).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+};
+
+const excelSerialToIsoDate = (value: unknown) => {
+  const numeric = typeof value === "number" ? value : toNum(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  const ms = Math.round((numeric - 25569) * 86400 * 1000);
+  return isoDate(new Date(ms));
+};
+
 const extractGmailTextPlainBody = (payload: any): string => {
   const chunks: string[] = [];
   const walk = (part: any) => {
@@ -373,18 +439,11 @@ const extractGmailTextPlainBody = (payload: any): string => {
   return chunks.join("\n").trim();
 };
 
-const parseThuyDirectDealerSubjectDate = (subject: string, receivedAt: string) => {
-  const match = String(subject || "").match(/Đặt\s+bánh\s+đại\s+lý\s+(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?/i);
-  if (!match) return null;
-  const day = Number(match[1]);
-  const month = Number(match[2]);
-  const received = new Date(receivedAt || Date.now());
-  const receivedYear = Number.isFinite(received.getUTCFullYear()) ? received.getUTCFullYear() : new Date().getUTCFullYear();
-  const explicitYear = match[3] ? Number(match[3]) : null;
-  const year = explicitYear ? (explicitYear < 100 ? 2000 + explicitYear : explicitYear) : receivedYear;
-  const date = new Date(Date.UTC(year, month - 1, day));
-  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+const parseThuyDirectDealerSubjectDate = (_subject: string, receivedAt: string) => {
+  // User-confirmed 2026-05-09 rule: Thúy daily preorder service date is
+  // the local email-sent date + 1 day. Typed dates in subject/body can be
+  // staff typos and are retained only as diagnostic evidence.
+  return shiftIsoDate(localDateFromTimestamp(receivedAt), 1);
 };
 
 const stripQuotedTextOrderBody = (body: string) => {
@@ -474,6 +533,164 @@ const parseThuyDirectDealerBodyLines = (
   }
 
   return { items, needsReview };
+};
+
+
+const parseLooseSubjectDate = (subject: string, receivedAt: string) => {
+  const match = String(subject || "").match(/(?:^|\b)(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?(?:\b|$)/);
+  if (!match) return null;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const receivedYear = new Date(receivedAt || Date.now()).getUTCFullYear();
+  const explicitYear = match[3] ? Number(match[3]) : null;
+  const year = explicitYear ? (explicitYear < 100 ? 2000 + explicitYear : explicitYear) : receivedYear;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+};
+
+const findCandidateByName = (candidates: EmailCandidate[], name: string) => {
+  const key = normalizeTextKey(name);
+  return candidates.find((candidate) => normalizeTextKey(candidate.customerName || "") === key) || null;
+};
+
+const findTonyRouteCustomer = (route: string, candidates: EmailCandidate[]) => {
+  const routeKey = normalizeTextKey(route);
+  const alias = TONY_THANH_ROUTE_ALIASES.find((entry) => entry.aliases.some((value) => normalizeTextKey(value) === routeKey));
+  const canonicalName = alias?.canonical || route;
+  const canonicalKey = normalizeTextKey(canonicalName);
+  const child = candidates.find((candidate) => {
+    const customerKey = normalizeTextKey(candidate.customerName || "");
+    return customerKey === canonicalKey || customerKey.includes(routeKey) || routeKey.includes(customerKey);
+  });
+  return { customer: child || null, canonicalName, aliasApplied: Boolean(alias) };
+};
+
+const splitOrderTextLines = (body: string) => {
+  const normalized = stripQuotedTextOrderBody(body)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/,\s*(?=[^,\n]+\s+\d)/g, "\n");
+  const rawLines = normalized.split("\n");
+  const merged: string[] = [];
+  for (const raw of rawLines) {
+    const line = raw.trim();
+    if (!line || /^\d+\s*$/.test(line)) continue;
+    if (/^(?:đổi|doi|bù|bu)\s+\d+/i.test(line) && merged.length > 0) {
+      merged[merged.length - 1] = `${merged[merged.length - 1]} ${line}`;
+      continue;
+    }
+    merged.push(line);
+  }
+  return merged;
+};
+
+const parseTonyThanhBodyLines = (
+  body: string,
+  meta: { messageId: string; subject: string; timestamp: string; poOrderDate: string | null; serviceDate: string | null },
+  candidates: EmailCandidate[],
+) => {
+  const parent = findCandidateByName(candidates, TONY_THANH_AUTOMATION.parentCustomerName) || candidates.find((candidate) => candidate.isNpp) || null;
+  const items: any[] = [];
+  const needsReview: any[] = [];
+  const subjectKey = normalizeTextKey(meta.subject);
+  const isReplyOrUpdate = /\b(re|fw|fwd)\b|cap nhat|bo sung|update|them/.test(subjectKey);
+
+  for (const rawLine of splitOrderTextLines(body)) {
+    const match = rawLine.match(/^\s*(?:\d+[.)]\s*)?(.+?)\s+(\d+(?:[.,]\d+)?)\b(.*)$/i);
+    if (!match) continue;
+    const routeRaw = match[1].trim();
+    const orderedQty = toNum(match[2]);
+    const tail = String(match[3] || "");
+    if (!routeRaw || !Number.isFinite(orderedQty) || orderedQty <= 0) continue;
+    const exchangeQty = toNum(tail.match(/(?:^|\s)đổi\s+(\d+(?:[.,]\d+)?)/i)?.[1] || tail.match(/(?:^|\s)doi\s+(\d+(?:[.,]\d+)?)/i)?.[1] || "0");
+    const makeupQty = toNum(tail.match(/(?:^|\s)bù\s+(\d+(?:[.,]\d+)?)/i)?.[1] || tail.match(/(?:^|\s)bu\s+(\d+(?:[.,]\d+)?)/i)?.[1] || "0");
+    const matchedRoute = findTonyRouteCustomer(routeRaw, candidates);
+    const reviewReasons = [
+      !parent ? "Tony/Anh Thanh parent NPP customer not found" : null,
+      !matchedRoute.customer ? "Tony route child customer not matched; keep alias evidence" : null,
+      isReplyOrUpdate ? "Tony reply/update/supplement semantics require manual reconciliation" : null,
+      /[+=]|\btồn\b/i.test(rawLine) ? "Ambiguous Tony line contains +, =, or tồn" : null,
+    ].filter(Boolean);
+    if (reviewReasons.length > 0) needsReview.push({ raw_line: rawLine, route: routeRaw, reasons: reviewReasons });
+
+    items.push({
+      evidence_type: "tony_thanh_npp_text_line",
+      source_channel: "tony_thanh_npp",
+      service_date: meta.serviceDate,
+      date: meta.serviceDate,
+      po_order_date: meta.poOrderDate,
+      route: routeRaw,
+      customer_id: parent?.customerId || null,
+      parent_customer_id: parent?.customerId || null,
+      parent_customer_name: parent?.customerName || TONY_THANH_AUTOMATION.parentCustomerName,
+      route_customer_id: matchedRoute.customer?.customerId || null,
+      route_customer_name: matchedRoute.canonicalName,
+      customer_name: parent?.customerName || TONY_THANH_AUTOMATION.parentCustomerName,
+      revenue_channel: parent?.revenueChannel || "agency",
+      ordered_qty: orderedQty,
+      qty: orderedQty,
+      revenue_qty: orderedQty,
+      exchange_qty: exchangeQty,
+      makeup_qty: makeupQty,
+      physical_qty: orderedQty + exchangeQty + makeupQty,
+      unit_price: TONY_THANH_AUTOMATION.unitPrice,
+      line_total: orderedQty * TONY_THANH_AUTOMATION.unitPrice,
+      line_amount: orderedQty * TONY_THANH_AUTOMATION.unitPrice,
+      raw_line: rawLine,
+      note: tail.trim() || null,
+      alias_applied: matchedRoute.aliasApplied,
+      confidence: reviewReasons.length === 0 ? 0.94 : 0.7,
+      source_column_name: "tony_thanh_text_body_line",
+      gmail_message_id: meta.messageId,
+      email_subject: meta.subject,
+      received_at: meta.timestamp,
+      needs_manual_review: reviewReasons.length > 0,
+      review_reasons: reviewReasons,
+    });
+  }
+
+  return { items, needsReview, parent };
+};
+
+const parseVietjetCumulativeXlsx = (bytes: Uint8Array, meta: { messageId: string; subject: string; timestamp: string; filename: string }) => {
+  const workbook = XLSX.read(bytes, { type: "array", cellDates: false });
+  const items: any[] = [];
+  for (const sheetName of workbook.SheetNames || []) {
+    const rows = XLSX.utils.sheet_to_json<any[]>(workbook.Sheets[sheetName], { header: 1, raw: true, defval: "" });
+    for (let i = 1; i < rows.length; i += 1) {
+      const row = rows[i] || [];
+      if (normalizeTextKey(String(row?.[0] || "")) !== normalizeTextKey("TỔNG CỘNG THEO NGÀY")) continue;
+      const previous = rows[i - 1] || [];
+      const serviceDate = excelSerialToIsoDate(previous?.[1] || row?.[1]);
+      const qty = toNum(row?.[18]);
+      if (!serviceDate || qty <= 0) continue;
+      items.push({
+        evidence_type: "vietjet_cumulative_xlsx_day_total",
+        source_channel: "vietjet_cumulative_schedule",
+        service_date: serviceDate,
+        date: serviceDate,
+        product_code: VIETJET_AUTOMATION.productCode,
+        product_name: VIETJET_AUTOMATION.productName,
+        qty,
+        ordered_qty: qty,
+        revenue_qty: qty,
+        unit_price: VIETJET_AUTOMATION.unitPrice,
+        line_total: qty * VIETJET_AUTOMATION.unitPrice,
+        line_amount: qty * VIETJET_AUTOMATION.unitPrice,
+        dedupe_key: `${serviceDate}:${VIETJET_AUTOMATION.productCode}`,
+        dedupe_strategy: "keep_latest_gmail_timestamp_per_service_date_product",
+        source_sheet: sheetName,
+        source_filename: meta.filename,
+        source_column_name: "vietjet_total_by_day_col_19_product_40000294",
+        gmail_message_id: meta.messageId,
+        email_subject: meta.subject,
+        received_at: meta.timestamp,
+        confidence: 0.92,
+      });
+    }
+  }
+  return items;
 };
 
 const parseDamXesgSubjectDate = (subject: string) => {
@@ -684,7 +901,12 @@ serve(async (req) => {
         if (resolvedMatch.resolution === "ambiguous") ambiguousCount += 1;
       }
 
-      if (includeOnlyCrm && !match && fromEmail !== THUY_DIRECT_DEALER_AUTOMATION.sender) {
+      const allowedUnmatchedSender =
+        fromEmail === THUY_DIRECT_DEALER_AUTOMATION.sender ||
+        fromEmail === TONY_THANH_AUTOMATION.sender ||
+        fromEmail === COOPMART_AUTOMATION.sender ||
+        fromEmail.endsWith(`@${VIETJET_AUTOMATION.senderDomain}`);
+      if (includeOnlyCrm && !match && !allowedUnmatchedSender) {
         skippedNotInCrm += 1;
         if (skippedNotInCrmSamples.length < 5) skippedNotInCrmSamples.push(fromEmail);
         continue;
@@ -695,6 +917,9 @@ serve(async (req) => {
       const isKingfoodSender = fromEmail === KINGFOOD_AUTOMATION.sender;
       const isDamXesgSender = fromEmail === DAM_XESG_AUTOMATION.sender;
       const isThuyDirectDealerSender = fromEmail === THUY_DIRECT_DEALER_AUTOMATION.sender;
+      const isTonyThanhSender = fromEmail === TONY_THANH_AUTOMATION.sender;
+      const isVietjetSender = fromEmail.endsWith(`@${VIETJET_AUTOMATION.senderDomain}`);
+      const isCoopmartSender = fromEmail === COOPMART_AUTOMATION.sender;
       const xlsxFile = attachmentParts.find((a) => a.filename === KINGFOOD_AUTOMATION.xlsxName && a.attachmentId);
       const pdfFile = attachmentParts.find((a) => a.filename.toLowerCase().endsWith(".pdf"));
       const isCancelSignal = isKingfoodSender && isKingfoodCancelSubject(subject || "");
@@ -719,6 +944,11 @@ serve(async (req) => {
       let damXesgServiceDate: string | null = null;
       let thuyDirectDealerAutomation: any = null;
       let thuyDirectDealerServiceDate: string | null = null;
+      let tonyThanhAutomation: any = null;
+      let tonyThanhServiceDate: string | null = null;
+      let tonyThanhPoOrderDate: string | null = null;
+      let vietjetAutomation: any = null;
+      let coopmartAutomation: any = null;
 
       if (isCancelSignal && kingfoodAutomation) {
         kingfoodAutomation = {
@@ -875,7 +1105,132 @@ serve(async (req) => {
         }
       }
 
-      const poAutomation = thuyDirectDealerAutomation || damXesgAutomation || kingfoodAutomation;
+      if (isTonyThanhSender) {
+        tonyThanhPoOrderDate = parseLooseSubjectDate(subject || "", receivedAt);
+        tonyThanhServiceDate = tonyThanhPoOrderDate ? shiftIsoDate(tonyThanhPoOrderDate, 1) : null;
+        const textBody = extractGmailTextPlainBody(detail?.payload);
+        const parsed = tonyThanhServiceDate
+          ? parseTonyThanhBodyLines(textBody, { messageId: m.id, subject: subject || "", timestamp: receivedAt, poOrderDate: tonyThanhPoOrderDate, serviceDate: tonyThanhServiceDate }, resolvedMatch.candidates)
+          : { items: [], needsReview: [{ reason: "Tony subject/order date could not be parsed" }], parent: null };
+        const totalQty = parsed.items.reduce((sum, item) => sum + Number(item.revenue_qty || item.qty || 0), 0);
+        const totalAmount = parsed.items.reduce((sum, item) => sum + Number(item.line_total || 0), 0);
+        const reviewCount = parsed.needsReview.length;
+
+        tonyThanhAutomation = {
+          rule: TONY_THANH_AUTOMATION.rule,
+          parser: TONY_THANH_AUTOMATION.parser,
+          sender: TONY_THANH_AUTOMATION.sender,
+          source: "gmail_text_plain_body",
+          service_date_rule: "ledger_date_equals_po_order_date_plus_1_day",
+          po_order_date: tonyThanhPoOrderDate,
+          service_date: tonyThanhServiceDate,
+          item_count: parsed.items.length,
+          total_qty: totalQty,
+          total_amount: totalAmount,
+          unit_price: TONY_THANH_AUTOMATION.unitPrice,
+          automation_status: tonyThanhServiceDate && parsed.items.length > 0 && reviewCount === 0 ? "po_evidence_only" : "parsed_needs_review",
+          reason: tonyThanhServiceDate && parsed.items.length > 0 && reviewCount === 0
+            ? "Tony/Anh Thanh text order parsed as NPP operational evidence; trusted ledger/CSV remains accounting truth"
+            : "Tony/Anh Thanh email needs review because date, body lines, route mapping, or reply/update semantics were incomplete",
+          parent_customer_name: parsed.parent?.customerName || TONY_THANH_AUTOMATION.parentCustomerName,
+          revenue_posting_allowed: false,
+          trusted_ledger_required: true,
+          needs_review: parsed.needsReview,
+          route_aliases: TONY_THANH_ROUTE_ALIASES.map((entry) => ({ customer: entry.canonical, aliases: entry.aliases })),
+          lines: parsed.items.map((item) => ({
+            raw_line: item.raw_line,
+            gmail_message_id: item.gmail_message_id,
+            subject: item.email_subject,
+            timestamp: item.received_at,
+            po_order_date: item.po_order_date,
+            service_date: item.service_date,
+            route: item.route,
+            route_customer_id: item.route_customer_id,
+            route_customer_name: item.route_customer_name,
+            ordered_qty: item.ordered_qty,
+            exchange_qty: item.exchange_qty,
+            makeup_qty: item.makeup_qty,
+            physical_qty: item.physical_qty,
+            unit_price: item.unit_price,
+            line_total: item.line_total,
+            confidence: item.confidence,
+            review_reasons: item.review_reasons,
+          })),
+        };
+
+        if (tonyThanhServiceDate && parsed.items.length > 0) {
+          parsedItems = parsed.items;
+          parsedSubtotal = totalAmount;
+          parsedVat = 0;
+          parsedTotal = totalAmount;
+        }
+      }
+
+      if (isVietjetSender) {
+        const xlsxAttachments = attachmentParts.filter((a) => a.filename.toLowerCase().endsWith(".xlsx") && a.attachmentId);
+        const vietjetItems: any[] = [];
+        const parseErrors: string[] = [];
+        for (const file of xlsxAttachments) {
+          try {
+            const attachment = await gmailApi(accessToken, `messages/${m.id}/attachments/${file.attachmentId}`);
+            vietjetItems.push(...parseVietjetCumulativeXlsx(decodeBase64UrlToBytes(String(attachment?.data || "")), {
+              messageId: m.id,
+              subject: subject || "",
+              timestamp: receivedAt,
+              filename: file.filename,
+            }));
+          } catch (err) {
+            parseErrors.push(err instanceof Error ? err.message : String(err));
+          }
+        }
+        const totalQty = vietjetItems.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+        const totalAmount = vietjetItems.reduce((sum, item) => sum + Number(item.line_total || 0), 0);
+        vietjetAutomation = {
+          rule: VIETJET_AUTOMATION.rule,
+          parser: VIETJET_AUTOMATION.parser,
+          sender_domain: VIETJET_AUTOMATION.senderDomain,
+          source: "gmail_xlsx_attachment_cumulative_schedule",
+          service_date_rule: "xlsx_total_by_day_rows_deduped_by_service_date_product_keep_latest",
+          product_code: VIETJET_AUTOMATION.productCode,
+          product_name: VIETJET_AUTOMATION.productName,
+          item_count: vietjetItems.length,
+          total_qty: totalQty,
+          total_amount: totalAmount,
+          unit_price: VIETJET_AUTOMATION.unitPrice,
+          automation_status: vietjetItems.length > 0 && parseErrors.length === 0 ? "vietjet_cumulative_evidence_only" : "parse_failed_needs_review",
+          reason: vietjetItems.length > 0 && parseErrors.length === 0
+            ? "Vietjet cumulative XLSX schedule parsed; monthly preview must dedupe by service_date/product and keep latest Gmail timestamp"
+            : "Vietjet XLSX schedule could not be parsed; manual review required",
+          revenue_posting_allowed: false,
+          trusted_ledger_required: true,
+          dedupe_strategy: "keep_latest_gmail_timestamp_per_service_date_product",
+          parse_errors: parseErrors,
+          lines: vietjetItems,
+        };
+        if (vietjetItems.length > 0) {
+          parsedItems = vietjetItems;
+          parsedSubtotal = totalAmount;
+          parsedVat = 0;
+          parsedTotal = totalAmount;
+        }
+      }
+
+      if (isCoopmartSender) {
+        coopmartAutomation = {
+          rule: COOPMART_AUTOMATION.rule,
+          parser: COOPMART_AUTOMATION.parser,
+          sender: COOPMART_AUTOMATION.sender,
+          source: "gmail_attachment_guardrail",
+          automation_status: "coopmart_manual_trusted_ledger_only",
+          reason: "Coopmart/Saigon Co-op PO files are mostly empty templates and high-value Coop revenue is trusted-ledger/manual; do not auto-post PO parse revenue",
+          revenue_posting_allowed: false,
+          trusted_ledger_required: true,
+          no_order_template_guardrail: true,
+          attachment_names: attachmentNames,
+        };
+      }
+
+      const poAutomation = thuyDirectDealerAutomation || tonyThanhAutomation || vietjetAutomation || coopmartAutomation || damXesgAutomation || kingfoodAutomation;
       const parseMeta = thuyDirectDealerAutomation
         ? {
             source: "thuy_direct_dealer_gmail_text_body_auto",
@@ -898,6 +1253,69 @@ serve(async (req) => {
             revenue_posting_allowed: false,
             manual_revenue_management_required: true,
             double_count_guardrail: thuyDirectDealerAutomation.double_count_guardrail,
+            template_id: template?.id || null,
+            template_name: template?.template_name || null,
+          }
+        : tonyThanhAutomation
+        ? {
+            source: "tony_thanh_gmail_text_body_auto",
+            parser: TONY_THANH_AUTOMATION.parser,
+            parsed_at: new Date().toISOString(),
+            parse_mode: "tony_thanh_sender_text_body_rule",
+            po_order_date: tonyThanhPoOrderDate,
+            service_date: tonyThanhServiceDate,
+            delivery_date: tonyThanhServiceDate,
+            date_mapping: "po_order_date_plus_1_day",
+            item_count: Number(tonyThanhAutomation.item_count || 0),
+            total_qty: Number(tonyThanhAutomation.total_qty || 0),
+            subtotal: parsedSubtotal,
+            vat_amount: parsedVat,
+            total_amount: parsedTotal,
+            trusted_ledger_required: true,
+            revenue_posting_allowed: false,
+            automation_status: tonyThanhAutomation.automation_status,
+            status: tonyThanhAutomation.automation_status,
+            reason: tonyThanhAutomation.reason,
+            template_id: template?.id || null,
+            template_name: template?.template_name || null,
+          }
+        : vietjetAutomation
+        ? {
+            source: "vietjet_gmail_xlsx_cumulative_auto",
+            parser: VIETJET_AUTOMATION.parser,
+            parsed_at: new Date().toISOString(),
+            parse_mode: "vietjet_cumulative_xlsx_rule",
+            service_date: null,
+            delivery_date: null,
+            date_mapping: "xlsx_service_date_per_line_deduped_by_service_date_product_keep_latest",
+            product_code: VIETJET_AUTOMATION.productCode,
+            item_count: Number(vietjetAutomation.item_count || 0),
+            total_qty: Number(vietjetAutomation.total_qty || 0),
+            subtotal: parsedSubtotal,
+            vat_amount: parsedVat,
+            total_amount: parsedTotal,
+            trusted_ledger_required: true,
+            revenue_posting_allowed: false,
+            automation_status: vietjetAutomation.automation_status,
+            status: vietjetAutomation.automation_status,
+            reason: vietjetAutomation.reason,
+            dedupe_strategy: vietjetAutomation.dedupe_strategy,
+            template_id: template?.id || null,
+            template_name: template?.template_name || null,
+          }
+        : coopmartAutomation
+        ? {
+            source: "coopmart_gmail_guardrail_auto",
+            parser: COOPMART_AUTOMATION.parser,
+            parsed_at: new Date().toISOString(),
+            parse_mode: "coopmart_manual_trusted_ledger_only_guardrail",
+            service_date: null,
+            delivery_date: null,
+            trusted_ledger_required: true,
+            revenue_posting_allowed: false,
+            automation_status: coopmartAutomation.automation_status,
+            status: coopmartAutomation.automation_status,
+            reason: coopmartAutomation.reason,
             template_id: template?.id || null,
             template_name: template?.template_name || null,
           }
@@ -951,7 +1369,7 @@ serve(async (req) => {
         match_status: match ? (poAutomation?.automation_status === "cancel_signal" ? "error" : "pending_approval") : "unmatched",
         revenue_channel: match?.revenueChannel || null,
         po_number: extractPoNumber(subject || ""),
-        delivery_date: thuyDirectDealerServiceDate || damXesgServiceDate || extractDeliveryDate(subject || ""),
+        delivery_date: thuyDirectDealerServiceDate || tonyThanhServiceDate || damXesgServiceDate || extractDeliveryDate(subject || ""),
         production_items: parsedItems,
         subtotal_amount: parsedSubtotal,
         vat_amount: parsedVat,

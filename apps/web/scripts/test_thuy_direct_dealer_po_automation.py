@@ -44,9 +44,18 @@ def test_scheduler_keeps_thuy_in_review_manual_path() -> None:
         ("canCreatePendingDraft = isTier1 && !automationNeedsReview", "review status blocks pending drafts"),
         ("THUY_DIRECT_DEALER_SENDER", "sender-scoped scheduler constant"),
         ('.eq("from_email", THUY_DIRECT_DEALER_SENDER)', "fetch Thuy rows even without matched_customer_id"),
-        ("matched_customer_id can remain null", "documented null customer guardrail"),
+        ("Sender-scoped evidence can store final/customer mapping", "documented null customer guardrail"),
     ]:
         assert_contains(scheduler, needle, label)
+
+
+def test_thuy_service_date_uses_email_sent_plus_one_day() -> None:
+    for needle, label in [
+        ("the local email-sent date + 1 day", "email sent +1 day canonical service date"),
+        ("staff typos", "subject/body date typo diagnostic guardrail"),
+        ("return shiftIsoDate(localDateFromTimestamp(receivedAt), 1)", "implemented sent-date shift"),
+    ]:
+        assert_contains(sync, needle, label)
 
 
 if __name__ == "__main__":

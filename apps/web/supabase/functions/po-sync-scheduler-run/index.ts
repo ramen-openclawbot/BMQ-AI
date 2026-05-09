@@ -210,6 +210,9 @@ const AUTOMATION_LOCK_KEY = "po_sync_scheduler_default";
 const CRON_TRIGGERED_BY = "vercel-cron";
 const CRON_SECRET_ENV_KEY = "PO_SYNC_CRON_SECRET";
 const THUY_DIRECT_DEALER_SENDER = "thuy@bmq.vn";
+const TONY_THANH_SENDER = "tonythanh@hotmail.com";
+const COOPMART_SENDER = "mai-hnp@saigonco-op.com.vn";
+const VIETJET_SENDER_DOMAIN = "vietjetair.com";
 const AUTOMATION_REVIEW_STATUSES = [
   "cancel_signal",
   "pdf_only_needs_review",
@@ -219,6 +222,8 @@ const AUTOMATION_REVIEW_STATUSES = [
   "po_evidence_only",
   "manual_trusted_ledger_only",
   "line_level_manual_revenue_ready",
+  "vietjet_cumulative_evidence_only",
+  "coopmart_manual_trusted_ledger_only",
   "superseded_duplicate_needs_review",
 ] as const;
 
@@ -353,10 +358,12 @@ async function fetchInboxRows(supabaseAdmin: any, receivedFrom: string, received
     await fetchPages((query) => query.in("matched_customer_id", scopedCustomerIds));
   }
 
-  // Thúy route-level evidence stores final customer matches inside production_items;
-  // matched_customer_id can remain null, so fetch sender-scoped rows separately and
-  // keep them in the manual Quản lý doanh thu review path instead of silently skipping them.
+  // Sender-scoped evidence can store final/customer mapping inside production_items
+  // or remain unmatched; fetch these rows explicitly so guardrail exceptions are visible.
   await fetchPages((query) => query.eq("from_email", THUY_DIRECT_DEALER_SENDER));
+  await fetchPages((query) => query.eq("from_email", TONY_THANH_SENDER));
+  await fetchPages((query) => query.eq("from_email", COOPMART_SENDER));
+  await fetchPages((query) => query.ilike("from_email", `%@${VIETJET_SENDER_DOMAIN}`));
 
   return Array.from(rowsById.values());
 }
@@ -535,6 +542,12 @@ async function runScheduledSync(args: {
         ? "Dam/XESG PO evidence cần review"
         : automationRule === "thuy_direct_dealer_text"
           ? "Thúy đại lý trực tiếp cần đối soát Quản lý doanh thu"
+        : automationRule === "tony_thanh_npp_text"
+          ? "Tony/Anh Thanh NPP PO evidence cần đối soát trusted ledger"
+        : automationRule === "vietjet_cumulative_xlsx"
+          ? "Vietjet lịch bay cộng dồn cần dedupe và đối soát"
+        : automationRule === "coopmart_manual_trusted_ledger_only"
+          ? "Coopmart giữ manual/trusted ledger, không auto-post PO"
         : automationRule === "kingfood_po_automation"
           ? "Kingfood PO cần review"
           : "PO automation cần review";

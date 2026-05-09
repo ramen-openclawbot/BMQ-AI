@@ -68,6 +68,8 @@ const AUTOMATION_REVIEW_STATUSES = new Set([
   "po_evidence_only",
   "manual_trusted_ledger_only",
   "line_level_manual_revenue_ready",
+  "vietjet_cumulative_evidence_only",
+  "coopmart_manual_trusted_ledger_only",
   "superseded_duplicate_needs_review",
 ]);
 
@@ -157,7 +159,10 @@ const currentMonthWindow = (now = new Date()) => {
   const revenueDateFrom = `${period}-01`;
   const revenueDateTo = shiftLocalDate(current.date, -1);
   const poReceivedFrom = shiftLocalDate(revenueDateFrom, -1);
-  const poReceivedTo = shiftLocalDate(revenueDateTo, -1);
+  // Fetch through the current local day, then filter by parser service_date below.
+  // This is required for cumulative schedules such as Vietjet: the latest file
+  // for an earlier service_date can be received after service_date - 1.
+  const poReceivedTo = current.date;
   const hasRevenueWindow = Date.parse(`${revenueDateTo}T00:00:00Z`) >= Date.parse(`${revenueDateFrom}T00:00:00Z`);
   return { period, revenueDateFrom, revenueDateTo, poReceivedFrom, poReceivedTo, hasRevenueWindow };
 };
@@ -264,7 +269,7 @@ async function fetchInboxRows(supabaseAdmin: ReturnType<typeof createClient>, re
 }
 
 const lineFromItem = (item: JsonRecord, fallbackAmount: number) => {
-  const quantity = numberValue(item.quantity, item.qty, item.ordered_qty, item.count);
+  const quantity = numberValue(item.revenue_qty, item.quantity, item.qty, item.ordered_qty, item.count);
   const gross = numberValue(item.line_total, item.amount, item.gross_revenue, item.total, fallbackAmount);
   const unit = numberValue(item.unit_price, item.price, quantity > 0 ? gross / quantity : 0);
   return {
@@ -275,6 +280,19 @@ const lineFromItem = (item: JsonRecord, fallbackAmount: number) => {
     productName: stringValue(item.product_name, item.name, item.item_name) || "PO/email parsed item",
     note: stringValue(item.note, item.item_note, item.description),
   };
+};
+
+const lineRevenueDate = (row: InboxRow, item: JsonRecord, poReceivedDate: string | null) => {
+  const raw = asRecord(row.raw_payload);
+  const parseMeta = asRecord(raw.parse_meta);
+  return stringValue(
+    item.service_date,
+    item.date,
+    parseMeta.service_date,
+    parseMeta.delivery_date,
+    row.delivery_date,
+    poReceivedDate ? shiftLocalDate(poReceivedDate, 1) : null,
+  );
 };
 
 const calcAmountFromRow = (row: InboxRow): number => {
@@ -295,8 +313,6 @@ const buildPreviewLines = (runId: string, period: string, revenueFrom: string, r
   for (const row of rows) {
     const poReceivedDate = localDateFromTimestamp(row.received_at);
     if (!poReceivedDate) continue;
-    const revenueDate = shiftLocalDate(poReceivedDate, 1);
-    if (revenueDate < revenueFrom || revenueDate > revenueTo) continue;
 
     const raw = asRecord(row.raw_payload);
     const poAutomation = asRecord(raw.po_automation);
@@ -316,6 +332,8 @@ const buildPreviewLines = (runId: string, period: string, revenueFrom: string, r
     ];
 
     for (const item of effectiveItems) {
+      const revenueDate = lineRevenueDate(row, item, poReceivedDate);
+      if (!revenueDate || revenueDate < revenueFrom || revenueDate > revenueTo) continue;
       const line = lineFromItem(item, effectiveItems.length === 1 ? fallbackAmount : 0);
       const customerName = stringValue(
         item.customer_name,
@@ -335,8 +353,8 @@ const buildPreviewLines = (runId: string, period: string, revenueFrom: string, r
         source_tab: "PO/email monthly parse",
         branch: stringValue(raw.branch, item.branch),
         invoice_no: stringValue(row.po_number, raw.po_number, extractPoNumberFromSubject(row.email_subject)),
-        customer_id: row.matched_customer_id || null,
-        parent_customer_id: stringValue(row.mini_crm_customers?.supplied_by_npp_customer_id),
+        customer_id: row.matched_customer_id || stringValue(item.customer_id, item.parent_customer_id),
+        parent_customer_id: stringValue(item.parent_customer_id, row.mini_crm_customers?.supplied_by_npp_customer_id),
         customer_code: stringValue(row.mini_crm_customers?.customer_code, raw.customer_code),
         customer_name: customerName,
         product_code: line.productCode,
@@ -358,18 +376,38 @@ const buildPreviewLines = (runId: string, period: string, revenueFrom: string, r
           po_number: row.po_number || extractPoNumberFromSubject(row.email_subject),
           po_received_date: poReceivedDate,
           revenue_date: revenueDate,
-          date_mapping: "po_received_local_date_plus_1_day",
+          date_mapping: stringValue(asRecord(raw.parse_meta).date_mapping) || "parser_service_date_or_po_received_local_date_plus_1_day_fallback",
           automation_status: automationStatus || null,
           automation_rule: poAutomation.rule || null,
+          service_date_source: stringValue(item.service_date, item.date, asRecord(raw.parse_meta).service_date, asRecord(raw.parse_meta).delivery_date, row.delivery_date) ? "parser_service_date" : "fallback_po_received_plus_1",
           monthly_parse_kind: "manual_current_month_to_yesterday",
           trust_semantics: "not_trusted_month_end_audit_source",
+          source_dedupe_key: stringValue(item.dedupe_key),
+          dedupe_strategy: stringValue(item.dedupe_strategy, asRecord(raw.parse_meta).dedupe_strategy),
         },
       });
       sourceRowNumber += 1;
     }
   }
 
-  return lines;
+  const latestVietjetByKey = new Map<string, PreviewLine>();
+  const deduped: PreviewLine[] = [];
+  for (const line of lines) {
+    const raw = asRecord(line.raw_payload);
+    const rule = String(raw.automation_rule || "");
+    const key = String(raw.source_dedupe_key || "");
+    if (rule === "vietjet_cumulative_xlsx" && key) {
+      const existing = latestVietjetByKey.get(key);
+      const existingReceived = String(asRecord(existing?.raw_payload).received_at || "");
+      const currentReceived = String(raw.received_at || "");
+      if (!existing || currentReceived >= existingReceived) latestVietjetByKey.set(key, line);
+      continue;
+    }
+    deduped.push(line);
+  }
+
+  for (const line of latestVietjetByKey.values()) deduped.push(line);
+  return deduped.map((line, index) => ({ ...line, source_row_number: index + 1 }));
 };
 
 const summarizeLines = (lines: PreviewLine[], window: ReturnType<typeof currentMonthWindow>) => {

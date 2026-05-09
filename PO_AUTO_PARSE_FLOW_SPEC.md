@@ -163,6 +163,26 @@ Trial-period rule outputs/config live in `apps/web/supabase/po-automation-rules/
 - Missing-day rule: if Thúy email evidence is absent for a day but the trusted ledger has approved rows, accept that day as ledger-only accounting truth rather than parser failure.
 - Artifacts: `/tmp/bmq_revenue_t4_email_lines_v2_channel_rules.csv`, `/tmp/bmq_revenue_t4_email_summary_v2_channel_rules.md`.
 
+### Tony Thanh / Anh Thanh NPP text evidence
+- Sender: `tonythanh@hotmail.com`.
+- Parent customer: `Đại lý cấp 1 - Anh Thanh`; route/child customers are evidence aliases, not separate revenue parent customers.
+- Date rule: `ledger_date = po_order_date + 1 day`.
+- Quantity rule: `ordered_qty` is revenue quantity; `đổi`/`bù` are operational/non-revenue; `physical_qty = ordered_qty + exchange_qty + makeup_qty`.
+- Reply/update guardrail: `cập nhật`/`bổ sung`/reply emails require reconciliation semantics; keep raw lines and review labels instead of silently auto-merging ambiguous content.
+- Accounting guardrail: PO/email remains evidence; trusted ledger/CSV remains accounting truth.
+
+### Vietjet cumulative XLSX evidence
+- Senders: `vietjetair.com`.
+- XLSX attachments are cumulative schedules; do not sum every attachment.
+- Parse only `TỔNG CỘNG THEO NGÀY` rows, use the previous detail row Excel serial date as `service_date`, product `40000294` / `Bánh mì`, quantity one-based column `19`, and unit price from CRM/price list (observed T4 `25,000 VND`).
+- Monthly preview/reconciliation must dedupe by `(service_date, product_code)` and keep the latest Gmail/message timestamp.
+- Accounting guardrail: cumulative XLSX output is evidence/review data until reconciled to trusted ledger.
+
+### Coopmart / Saigon Co-op manual trusted-ledger guardrail
+- Sender: `mai-hnp@saigonco-op.com.vn`.
+- Current decision: do not run Coopmart parse automation for revenue; files are mostly empty templates and high-value Coop revenue is primarily trusted-ledger/manual.
+- Parser should mark these rows as manual/trusted-ledger-only guardrail or review, not auto-post PO revenue.
+
 ### Dam/XESG / inventory-aware text evidence
 - Sender: `damvovan33@gmail.com`.
 - Subject pattern: `Đặt bánh điểm bán D/M/YYYY`; service date is direct from subject, with no +1 day shift.
