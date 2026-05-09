@@ -282,7 +282,11 @@ export default function RevenueManagementDashboard() {
         delta: row.revenue - row.previousRevenue,
         pct: row.previousRevenue > 0 ? ((row.revenue - row.previousRevenue) / row.previousRevenue) * 100 : null,
       }))
-      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+      .sort((a, b) => {
+        if (b.revenue !== a.revenue) return b.revenue - a.revenue;
+        if (b.qty !== a.qty) return b.qty - a.qty;
+        return Math.abs(b.delta) - Math.abs(a.delta);
+      });
   }, [lines, previousLines]);
 
   const openSources = (params: Record<string, string>) => {
@@ -515,7 +519,7 @@ export default function RevenueManagementDashboard() {
             <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/90 via-stone-950/75 to-amber-950/15 ring-1 ring-stone-200/5">
               <CardHeader className="border-b border-amber-100/10 bg-stone-900/30">
                 <CardTitle className="text-amber-50">Doanh thu theo customer / NPP</CardTitle>
-                <CardDescription className="text-stone-300/75">Click “Chi tiết” để xem source lines, PO trace và trạng thái audit. Bao gồm cả khách tháng trước về 0 trong kỳ hiện tại.</CardDescription>
+                <CardDescription className="text-stone-300/75">Click “Chi tiết” để xem source lines, PO trace và trạng thái audit. Sắp xếp theo doanh thu hiện tại từ cao xuống thấp; khách chỉ có kỳ trước sẽ nằm cuối bảng.</CardDescription>
               </CardHeader>
               <CardContent className="overflow-x-auto pt-4">
                 <Table>
