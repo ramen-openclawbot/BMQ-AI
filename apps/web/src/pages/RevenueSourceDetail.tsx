@@ -21,6 +21,7 @@ const CONTROLLED_APRIL_PERIOD = "2026-04";
 
 type RevenueLine = {
   id: string;
+  source_document_id: string;
   source_row_number: number;
   period: string;
   revenue_date: string;
@@ -128,20 +129,29 @@ const ledgerSnapshot = (row: RevenueLine) => ({
   raw_payload: row.raw_payload,
 });
 
-async function fetchAllRevenueSourceLines(period: string, channel: string, review: string) {
+async function fetchAllRevenueSourceLines(period: string, channel: string, review: string, sourceDocumentId: string, revenueDate: string) {
   const pageSize = 1000;
   const rows: RevenueLine[] = [];
 
   for (let from = 0; ; from += pageSize) {
     let query = db
       .from("revenue_ledger_lines")
-      .select("id,source_row_number,period,revenue_date,channel,source_tab,branch,invoice_no,customer_id,parent_customer_id,customer_name,product_name,item_note,quantity,unit_price,gross_revenue,source_type,approval_status,audit_status,confidence_status,review_status,reconciliation_status,raw_payload,source_document:revenue_source_documents!inner(status)")
+      .select("id,source_document_id,source_row_number,period,revenue_date,channel,source_tab,branch,invoice_no,customer_id,parent_customer_id,customer_name,product_name,item_note,quantity,unit_price,gross_revenue,source_type,approval_status,audit_status,confidence_status,review_status,reconciliation_status,raw_payload,source_document:revenue_source_documents!inner(status)")
       .eq("period", period)
-      .eq("source_document.status", "trusted")
       .order("revenue_date", { ascending: true })
       .order("source_row_number", { ascending: true })
       .range(from, from + pageSize - 1);
 
+    if (sourceDocumentId) query = query.eq("source_document_id", sourceDocumentId);
+    if (revenueDate) query = query.eq("revenue_date", revenueDate);
+    if (sourceDocumentId || revenueDate) {
+      query = query
+        .eq("source_document.status", "controlled")
+        .eq("source_document.source_type", "po_email_parse")
+        .eq("source_document.summary->>monthly_parse_kind", "auto_daily_post");
+    } else {
+      query = query.eq("source_document.status", "trusted");
+    }
     if (channel) query = query.eq("channel", channel);
     if (review === "review_queue") query = query.or("review_status.eq.needs_manual_review,audit_status.eq.needs_review");
     else if (review) query = query.eq("review_status", review);
@@ -184,15 +194,17 @@ export default function RevenueSourceDetail() {
   const channel = params.get("channel") || "";
   const customerKey = params.get("customer_key") || "";
   const review = params.get("review") || "";
+  const sourceDocumentId = params.get("sourceDocumentId") || "";
+  const revenueDate = params.get("revenue_date") || "";
   const [q, setQ] = useState("");
   const [editingLine, setEditingLine] = useState<RevenueLine | null>(null);
   const [editForm, setEditForm] = useState<RevenueEditForm | null>(null);
   const [saving, setSaving] = useState(false);
 
   const { data: lines = [], isLoading, error, refetch } = useQuery<RevenueLine[]>({
-    queryKey: ["revenue-source-detail", period, channel, customerKey, review],
+    queryKey: ["revenue-source-detail", period, channel, customerKey, review, sourceDocumentId, revenueDate],
     queryFn: async () => {
-      return fetchAllRevenueSourceLines(period, channel, review);
+      return fetchAllRevenueSourceLines(period, channel, review, sourceDocumentId, revenueDate);
     },
   });
 
@@ -323,6 +335,8 @@ export default function RevenueSourceDetail() {
             <Badge variant="secondary" className="gap-1"><Database className="h-3 w-3" />Source detail</Badge>
             {review ? <Badge variant="outline">{review}</Badge> : null}
             {channel ? <Badge variant="outline">{channel}</Badge> : null}
+            {sourceDocumentId ? <Badge variant="outline">Auto daily source</Badge> : null}
+            {revenueDate ? <Badge variant="outline">{revenueDate}</Badge> : null}
           </div>
           <h1 className="text-3xl font-display font-bold">{isVi ? "Chi tiết nguồn doanh thu" : "Revenue source detail"}</h1>
           <p className="max-w-3xl text-muted-foreground">

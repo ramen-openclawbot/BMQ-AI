@@ -845,6 +845,216 @@ async function previewCurrentMonth(req: Request, supabaseAdmin: ReturnType<typeo
   }
 }
 
+type LedgerSummaryLine = {
+  channel?: string | null;
+  quantity?: number | string | null;
+  gross_revenue?: number | string | null;
+  review_status?: string | null;
+  audit_status?: string | null;
+};
+
+const summarizeLedgerRows = (lines: LedgerSummaryLine[], fallback: JsonRecord = {}) => {
+  const channels = new Map<string, { channel: string; rows: number; grossRevenue: number; quantity: number; reviewFlaggedRows: number }>();
+  let grossRevenue = 0;
+  let quantity = 0;
+  let needsReview = 0;
+
+  for (const line of lines) {
+    const channel = String(line.channel || "Chưa phân kênh");
+    const gross = Number(line.gross_revenue || 0);
+    const qty = Number(line.quantity || 0);
+    const reviewFlagged = line.review_status === "needs_manual_review" || line.audit_status === "needs_review";
+    grossRevenue += gross;
+    quantity += qty;
+    if (reviewFlagged) needsReview += 1;
+    const cur = channels.get(channel) || { channel, rows: 0, grossRevenue: 0, quantity: 0, reviewFlaggedRows: 0 };
+    cur.rows += 1;
+    cur.grossRevenue += gross;
+    cur.quantity += qty;
+    if (reviewFlagged) cur.reviewFlaggedRows += 1;
+    channels.set(channel, cur);
+  }
+
+  return {
+    rowCount: lines.length,
+    lineCount: lines.length,
+    grossRevenue,
+    grossTotal: grossRevenue,
+    quantity,
+    reviewCount: needsReview,
+    reviewFlaggedRows: needsReview,
+    channels: Array.from(channels.values()).sort((a, b) => b.grossRevenue - a.grossRevenue),
+    ...fallback,
+  };
+};
+
+async function summarizeSourceDocument(supabaseAdmin: ReturnType<typeof createClient>, document: JsonRecord) {
+  const sourceDocumentId = String(document.id || "");
+  const summary = asRecord(document.summary);
+  const { data: lines, error } = await supabaseAdmin
+    .from("revenue_ledger_lines")
+    .select("channel,quantity,gross_revenue,review_status,audit_status")
+    .eq("source_document_id", sourceDocumentId)
+    .neq("approval_status", "superseded");
+  if (error) throw error;
+
+  const ledgerSummary = summarizeLedgerRows((lines || []) as LedgerSummaryLine[]);
+  const channelsFromSummary = asArray(summary.channels);
+  return {
+    sourceDocumentId,
+    sourceName: String(document.source_name || ""),
+    sourceType: String(document.source_type || ""),
+    status: String(document.status || ""),
+    period: String(document.period || summary.period || ""),
+    importedAt: String(document.imported_at || document.created_at || ""),
+    revenueDate: String(summary.revenue_date || summary.revenue_date_from || ""),
+    trustSemantics: String(summary.trust_semantics || "not_trusted_month_end_audit_source"),
+    temporaryControlledRevenue: summary.temporary_controlled_revenue === true,
+    monthlyParseKind: String(summary.monthly_parse_kind || ""),
+    noDoubleCountKey: String(summary.auto_daily_no_double_count_key || ""),
+    summary: {
+      rowCount: ledgerSummary.rowCount || Number(summary.row_count || summary.posted_line_count || 0),
+      lineCount: ledgerSummary.lineCount || Number(summary.row_count || summary.posted_line_count || 0),
+      grossRevenue: ledgerSummary.grossRevenue || Number(summary.gross_total || 0),
+      grossTotal: ledgerSummary.grossTotal || Number(summary.gross_total || 0),
+      quantity: ledgerSummary.quantity || Number(summary.quantity_total || 0),
+      reviewCount: ledgerSummary.reviewCount || Number(summary.review_flagged_line_count || 0),
+      reviewFlaggedRows: ledgerSummary.reviewFlaggedRows || Number(summary.review_flagged_line_count || 0),
+      channels: ledgerSummary.channels.length ? ledgerSummary.channels : channelsFromSummary,
+    },
+  };
+}
+
+async function fetchLatestAutoDailyReport(supabaseAdmin: ReturnType<typeof createClient>) {
+  const { data, error } = await supabaseAdmin
+    .from("revenue_source_documents")
+    .select("id,source_type,source_name,period,status,summary,imported_at,created_at")
+    .eq("status", "controlled")
+    .eq("source_type", "po_email_parse")
+    .eq("summary->>monthly_parse_kind", "auto_daily_post")
+    .order("imported_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? await summarizeSourceDocument(supabaseAdmin, data as JsonRecord) : null;
+}
+
+async function fetchExistingAutoDailyReport(supabaseAdmin: ReturnType<typeof createClient>, revenueDate: string) {
+  const { data, error } = await supabaseAdmin
+    .from("revenue_source_documents")
+    .select("id,source_type,source_name,period,status,summary,imported_at,created_at")
+    .eq("status", "controlled")
+    .eq("source_type", "po_email_parse")
+    .eq("summary->>monthly_parse_kind", "auto_daily_post")
+    .eq("summary->>revenue_date", revenueDate)
+    .order("imported_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? await summarizeSourceDocument(supabaseAdmin, data as JsonRecord) : null;
+}
+
+const normalizeSummaryForCompare = (summary: JsonRecord = {}) => ({
+  rowCount: Number(summary.rowCount || summary.row_count || summary.postedRows || summary.posted_rows || summary.ledgerRows || 0),
+  lineCount: Number(summary.lineCount || summary.rowCount || summary.row_count || summary.ledgerRows || 0),
+  grossRevenue: Number(summary.grossRevenue || summary.gross_total || summary.dashboardGrossRevenue || 0),
+  quantity: Number(summary.quantity || summary.quantity_total || 0),
+  reviewCount: Number(summary.reviewCount || summary.reviewFlaggedRows || summary.review_flagged_line_count || summary.needsReview || 0),
+  channels: asArray(summary.channels).map((item) => {
+    const row = asRecord(item);
+    return {
+      channel: String(row.channel || "Chưa phân kênh"),
+      rows: Number(row.rows || row.rowCount || 0),
+      grossRevenue: Number(row.grossRevenue || row.gross_revenue || 0),
+      quantity: Number(row.quantity || 0),
+      reviewFlaggedRows: Number(row.reviewFlaggedRows || row.review_flagged_rows || 0),
+    };
+  }),
+});
+
+const compareDailySummaries = (currentSummary: JsonRecord | null, previewSummary: JsonRecord) => {
+  const current = normalizeSummaryForCompare(currentSummary || {});
+  const preview = normalizeSummaryForCompare(previewSummary);
+  const currentChannels = new Map(current.channels.map((channel) => [channel.channel, channel]));
+  const previewChannels = new Map(preview.channels.map((channel) => [channel.channel, channel]));
+  const channelNames = Array.from(new Set([...currentChannels.keys(), ...previewChannels.keys()])).sort((a, b) => a.localeCompare(b, "vi"));
+  return {
+    totals: {
+      current,
+      preview,
+      delta: {
+        lineCount: preview.lineCount - current.lineCount,
+        grossRevenue: preview.grossRevenue - current.grossRevenue,
+        quantity: preview.quantity - current.quantity,
+        reviewCount: preview.reviewCount - current.reviewCount,
+      },
+    },
+    channels: channelNames.map((channel) => {
+      const before = currentChannels.get(channel) || { channel, rows: 0, grossRevenue: 0, quantity: 0, reviewFlaggedRows: 0 };
+      const after = previewChannels.get(channel) || { channel, rows: 0, grossRevenue: 0, quantity: 0, reviewFlaggedRows: 0 };
+      return {
+        channel,
+        current: before,
+        preview: after,
+        delta: {
+          rows: after.rows - before.rows,
+          grossRevenue: after.grossRevenue - before.grossRevenue,
+          quantity: after.quantity - before.quantity,
+          reviewFlaggedRows: after.reviewFlaggedRows - before.reviewFlaggedRows,
+        },
+      };
+    }),
+  };
+};
+
+async function previewDailyCompare(req: Request, supabaseAdmin: ReturnType<typeof createClient>, userId: string, body: JsonRecord) {
+  const requestedRevenueDate = Object.prototype.hasOwnProperty.call(body, "revenueDate") ? strictIsoDate(body.revenueDate) : null;
+  if (Object.prototype.hasOwnProperty.call(body, "revenueDate") && !requestedRevenueDate) {
+    return jsonResponse(req, { success: false, error: "Invalid revenueDate. Expected a real date in YYYY-MM-DD format." }, 400);
+  }
+  const window = explicitRevenueDateWindow(requestedRevenueDate || autoDailyWindow().revenueDateFrom);
+  const noDoubleCountKey = `auto_daily_po_email_parse:${window.revenueDateFrom}`;
+  const preview = await runCurrentMonthPreview(req, supabaseAdmin, userId, undefined, {
+    window,
+    syncGmail: true,
+    monthlyParseKind: "auto_daily_post",
+    sourceTab: "PO/email auto daily parse",
+    runSummary: {
+      triggered_by: "owner_chat_daily_preview_compare",
+      controlled_kind: "auto_daily_temporary_controlled_parse",
+      temporary_controlled_revenue: true,
+      trust_semantics: "not_trusted_month_end_audit_source",
+      auto_daily_no_double_count_key: noDoubleCountKey,
+      noDoubleCountKey,
+      revenue_date_source: requestedRevenueDate ? "explicit" : "auto_daily_window",
+      explicit_revenue_date: requestedRevenueDate,
+      chat_safe_preview_compare: true,
+    },
+    linePayloadMetadata: {
+      controlled_kind: "auto_daily_temporary_controlled_parse",
+      temporary_controlled_revenue: true,
+      trust_semantics: "not_trusted_month_end_audit_source",
+      owner_approval_required: false,
+      auto_daily_no_double_count_key: noDoubleCountKey,
+      noDoubleCountKey,
+      revenue_date_source: requestedRevenueDate ? "explicit" : "auto_daily_window",
+      explicit_revenue_date: requestedRevenueDate,
+      chat_safe_preview_compare: true,
+    },
+  });
+  const existingReport = await fetchExistingAutoDailyReport(supabaseAdmin, window.revenueDateFrom);
+  return jsonResponse(req, {
+    success: true,
+    action: "preview_daily_compare",
+    revenueDate: window.revenueDateFrom,
+    period: window.period,
+    runId: String(asRecord(preview.run).id || ""),
+    existingReport,
+    previewSummary: preview.summary,
+    comparison: compareDailySummaries(existingReport ? asRecord(asRecord(existingReport).summary) : null, asRecord(preview.summary)),
+  });
+}
+
 function requireRevenueCronSecret(req: Request, corsHeaders: Record<string, string>) {
   const envKey = Deno.env.get(REVENUE_CRON_SECRET_ENV_KEY)
     ? REVENUE_CRON_SECRET_ENV_KEY
@@ -972,6 +1182,54 @@ serve(async (req) => {
         return streamCurrentMonthPreview(req, supabaseAdmin, user.id);
       }
       return await previewCurrentMonth(req, supabaseAdmin, user.id);
+    }
+
+    if (action === "latest_auto_daily_report") {
+      return jsonResponse(req, {
+        success: true,
+        action: "latest_auto_daily_report",
+        report: await fetchLatestAutoDailyReport(supabaseAdmin),
+      });
+    }
+
+    if (action === "preview_daily_compare") {
+      return await previewDailyCompare(req, supabaseAdmin, user.id, body);
+    }
+
+    if (action === "confirm_daily_overwrite" || action === "confirm_daily_post") {
+      const runId = String(body?.runId || "");
+      if (!runId) return jsonResponse(req, { error: "Missing runId" }, 400);
+      const { data: run, error: runError } = await supabaseAdmin
+        .from("revenue_monthly_parse_runs")
+        .select("id,status,revenue_date_from,revenue_date_to,summary")
+        .eq("id", runId)
+        .maybeSingle();
+      if (runError) throw runError;
+      const runSummary = asRecord((run as JsonRecord | null)?.summary);
+      if (
+        !run ||
+        run.status !== "preview_ready" ||
+        run.revenue_date_from !== run.revenue_date_to ||
+        runSummary.monthly_parse_kind !== "auto_daily_post" ||
+        runSummary.chat_safe_preview_compare !== true
+      ) {
+        return jsonResponse(req, { error: "Invalid daily preview run for confirm." }, 400);
+      }
+      const { data, error } = await supabaseAdmin.rpc("auto_post_revenue_daily_parse", { _run_id: runId });
+      if (error) throw error;
+      return jsonResponse(req, {
+        success: true,
+        action,
+        postResult: data,
+      });
+    }
+
+    if (action === "cancel_daily_preview") {
+      const runId = String(body?.runId || "");
+      if (!runId) return jsonResponse(req, { error: "Missing runId" }, 400);
+      const { data, error } = await supabaseAdmin.rpc("reject_revenue_monthly_parse", { _run_id: runId, _actor_id: user.id });
+      if (error) throw error;
+      return jsonResponse(req, data);
     }
 
     if (action === "approve_preview") {

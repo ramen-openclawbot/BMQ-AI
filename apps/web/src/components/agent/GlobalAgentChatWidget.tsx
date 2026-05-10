@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, MessageCircle, Sparkles, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -445,6 +445,63 @@ type PaymentAgentSearchResponse = {
   rows?: PaymentRequestSearchRow[] | PaymentRequestMaterialSearchRow[];
 };
 
+type RevenueDailyChannelSummary = {
+  channel: string;
+  rows?: number;
+  rowCount?: number;
+  grossRevenue?: number;
+  gross_revenue?: number;
+  quantity?: number;
+  reviewFlaggedRows?: number;
+  review_flagged_rows?: number;
+};
+
+type RevenueDailyReport = {
+  sourceDocumentId: string;
+  sourceName?: string;
+  status?: string;
+  period: string;
+  revenueDate: string;
+  importedAt?: string;
+  temporaryControlledRevenue?: boolean;
+  trustSemantics?: string;
+  summary: {
+    rowCount?: number;
+    lineCount?: number;
+    grossRevenue?: number;
+    grossTotal?: number;
+    quantity?: number;
+    reviewCount?: number;
+    reviewFlaggedRows?: number;
+    channels?: RevenueDailyChannelSummary[];
+  };
+};
+
+type RevenueDailyCompare = {
+  runId: string;
+  revenueDate: string;
+  period: string;
+  existingReport: RevenueDailyReport | null;
+  previewSummary: RevenueDailyReport["summary"];
+  comparison: {
+    totals: {
+      current: { lineCount: number; grossRevenue: number; quantity: number; reviewCount: number };
+      preview: { lineCount: number; grossRevenue: number; quantity: number; reviewCount: number };
+      delta: { lineCount: number; grossRevenue: number; quantity: number; reviewCount: number };
+    };
+    channels: Array<{
+      channel: string;
+      current: { rows: number; grossRevenue: number; quantity: number; reviewFlaggedRows: number };
+      preview: { rows: number; grossRevenue: number; quantity: number; reviewFlaggedRows: number };
+      delta: { rows: number; grossRevenue: number; quantity: number; reviewFlaggedRows: number };
+    }>;
+  };
+};
+
+type RevenueDailyActionResponse = {
+  report?: RevenueDailyReport | null;
+} & Partial<RevenueDailyCompare>;
+
 class PaymentAgentAccessError extends Error {
   constructor() {
     super("ACCESS_DENIED");
@@ -466,6 +523,29 @@ async function invokePaymentAgentSearch<T extends PaymentAgentSearchResponse>(bo
     throw new Error("Không tải được dữ liệu duyệt chi.");
   }
   return (data || {}) as T;
+}
+
+async function invokeRevenueDailyAction(body: Record<string, unknown>): Promise<RevenueDailyActionResponse> {
+  const { data, error } = await supabase.functions.invoke("revenue-monthly-parse-preview", { body });
+  if (error) throw new Error((error as any)?.message || "Không tải được báo cáo doanh thu daily.");
+  return (data || {}) as RevenueDailyActionResponse;
+}
+
+const revenueSummaryNumber = (summary: RevenueDailyReport["summary"] | undefined, ...keys: Array<keyof RevenueDailyReport["summary"]>) => {
+  for (const key of keys) {
+    const value = Number(summary?.[key] || 0);
+    if (Number.isFinite(value) && value !== 0) return value;
+  }
+  return 0;
+};
+
+const channelRows = (channel: RevenueDailyChannelSummary) => Number(channel.rows || channel.rowCount || 0);
+const channelGross = (channel: RevenueDailyChannelSummary) => Number(channel.grossRevenue || channel.gross_revenue || 0);
+const channelReview = (channel: RevenueDailyChannelSummary) => Number(channel.reviewFlaggedRows || channel.review_flagged_rows || 0);
+
+function formatDelta(value: number, formatter: (n: number) => string = (n) => Number(n || 0).toLocaleString("vi-VN")) {
+  const prefix = value > 0 ? "+" : "";
+  return `${prefix}${formatter(value)}`;
 }
 
 async function searchMaterialSuggestions(term: string): Promise<MaterialSuggestion[]> {
@@ -524,6 +604,7 @@ async function getNextKnowledgeProfileVersion(customerId: string) {
 
 export function GlobalAgentChatWidget() {
   const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
@@ -544,11 +625,110 @@ export function GlobalAgentChatWidget() {
   const [supplierSuggestions, setSupplierSuggestions] = useState<SupplierSuggestion[]>([]);
   const [isLoadingSupplierSuggestions, setIsLoadingSupplierSuggestions] = useState(false);
   const [supplierSuggestionError, setSupplierSuggestionError] = useState<string | null>(null);
+  const [dailyReport, setDailyReport] = useState<RevenueDailyReport | null>(null);
+  const [dailyReportLoaded, setDailyReportLoaded] = useState(false);
+  const [dailyReportError, setDailyReportError] = useState<string | null>(null);
+  const [isLoadingDailyReport, setIsLoadingDailyReport] = useState(false);
+  const [dailyCompare, setDailyCompare] = useState<RevenueDailyCompare | null>(null);
+  const [isRunningDailyCompare, setIsRunningDailyCompare] = useState(false);
+  const [isPostingDailyCompare, setIsPostingDailyCompare] = useState(false);
 
   const routeContext = useMemo(() => getRouteContext(location.pathname), [location.pathname]);
   const isRevenueMobileContext = location.pathname.startsWith("/finance-control/revenue");
 
   const pushAgent = (text: string) => setMessages((prev) => [...prev, { role: "agent", text }]);
+
+  const loadDailyReport = useCallback(async () => {
+    if (!isRevenueMobileContext) return;
+    setIsLoadingDailyReport(true);
+    setDailyReportError(null);
+    setDailyCompare(null);
+    try {
+      const result = await invokeRevenueDailyAction({ action: "latest_auto_daily_report" });
+      setDailyReport(result.report || null);
+      setDailyReportLoaded(true);
+    } catch (error) {
+      setDailyReport(null);
+      setDailyReportLoaded(true);
+      setDailyReportError(error instanceof Error ? error.message : "Không tải được báo cáo daily.");
+    } finally {
+      setIsLoadingDailyReport(false);
+    }
+  }, [isRevenueMobileContext]);
+
+  useEffect(() => {
+    if (open && isRevenueMobileContext) {
+      loadDailyReport();
+    }
+    if (!open) {
+      setDailyCompare(null);
+    }
+  }, [open, isRevenueMobileContext, loadDailyReport]);
+
+  const openDailyLedgerDetail = () => {
+    if (!dailyReport?.sourceDocumentId || !dailyReport.revenueDate) return;
+    const params = new URLSearchParams({
+      period: dailyReport.period || dailyReport.revenueDate.slice(0, 7),
+      sourceDocumentId: dailyReport.sourceDocumentId,
+      revenue_date: dailyReport.revenueDate,
+    });
+    setOpen(false);
+    navigate(`/finance-control/revenue/sources?${params.toString()}`);
+  };
+
+  const runDailyCompare = async () => {
+    setIsRunningDailyCompare(true);
+    setDailyReportError(null);
+    setDailyCompare(null);
+    try {
+      const result = await invokeRevenueDailyAction({
+        action: "preview_daily_compare",
+        ...(dailyReport?.revenueDate ? { revenueDate: dailyReport.revenueDate } : {}),
+      });
+      if (!result.runId || !result.comparison || !result.previewSummary || !result.revenueDate || !result.period) {
+        throw new Error("Preview daily compare không trả đủ dữ liệu.");
+      }
+      setDailyCompare({
+        runId: result.runId,
+        revenueDate: result.revenueDate,
+        period: result.period,
+        existingReport: result.existingReport || null,
+        previewSummary: result.previewSummary,
+        comparison: result.comparison,
+      });
+    } catch (error) {
+      setDailyReportError(error instanceof Error ? error.message : "Không chạy được preview daily.");
+    } finally {
+      setIsRunningDailyCompare(false);
+    }
+  };
+
+  const confirmDailyCompare = async () => {
+    if (!dailyCompare?.runId) return;
+    setIsPostingDailyCompare(true);
+    setDailyReportError(null);
+    try {
+      await invokeRevenueDailyAction({ action: "confirm_daily_overwrite", runId: dailyCompare.runId });
+      pushAgent(`Đã ghi daily revenue ngày ${dailyCompare.revenueDate} vào ledger tạm kiểm soát. Số liệu vẫn là controlled/not trusted cho đến kỳ audit cuối tháng.`);
+      setDailyCompare(null);
+      await loadDailyReport();
+    } catch (error) {
+      setDailyReportError(error instanceof Error ? error.message : "Không ghi được daily revenue.");
+    } finally {
+      setIsPostingDailyCompare(false);
+    }
+  };
+
+  const cancelDailyCompare = async () => {
+    const runId = dailyCompare?.runId;
+    setDailyCompare(null);
+    if (!runId) return;
+    try {
+      await invokeRevenueDailyAction({ action: "cancel_daily_preview", runId });
+    } catch {
+      // Staging cleanup failure should not block the user from canceling the chat action.
+    }
+  };
 
   const openMaterialPicker = () => {
     setMaterialPickerOpen(true);
@@ -911,6 +1091,125 @@ export function GlobalAgentChatWidget() {
 
           <div className="flex-1 overflow-auto p-4 space-y-3 text-sm">
             {messages.length === 0 && <div className="rounded-lg border bg-muted/30 p-3">Kính chào Quý khách. Hệ thống đã nhận diện ngữ cảnh hiện tại là <b>{routeContext.label}</b>. Vui lòng nhập yêu cầu để AI Agent hỗ trợ.</div>}
+
+            {isRevenueMobileContext && (
+              <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs text-muted-foreground">Auto daily cron report</div>
+                    <div className="font-semibold">Doanh thu tạm kiểm soát</div>
+                  </div>
+                  {isLoadingDailyReport ? <Loader2 className="mt-1 h-4 w-4 animate-spin text-muted-foreground" /> : null}
+                </div>
+
+                {dailyReportError ? <div className="text-xs text-destructive">{dailyReportError}</div> : null}
+
+                {dailyReportLoaded && !isLoadingDailyReport && dailyReport ? (
+                  <>
+                    <div className="rounded-md border bg-background p-3 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-muted-foreground">Ngày doanh thu</span>
+                        <b>{dailyReport.revenueDate}</b>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="rounded-md bg-muted/40 p-2">
+                          <div className="text-muted-foreground">Gross</div>
+                          <div className="font-semibold">{formatVnd(revenueSummaryNumber(dailyReport.summary, "grossRevenue", "grossTotal"))}</div>
+                        </div>
+                        <div className="rounded-md bg-muted/40 p-2">
+                          <div className="text-muted-foreground">Dòng / SL</div>
+                          <div className="font-semibold">{revenueSummaryNumber(dailyReport.summary, "lineCount", "rowCount").toLocaleString("vi-VN")} / {revenueSummaryNumber(dailyReport.summary, "quantity").toLocaleString("vi-VN")}</div>
+                        </div>
+                        <div className="rounded-md bg-muted/40 p-2">
+                          <div className="text-muted-foreground">Cần review</div>
+                          <div className="font-semibold">{revenueSummaryNumber(dailyReport.summary, "reviewCount", "reviewFlaggedRows").toLocaleString("vi-VN")}</div>
+                        </div>
+                        <div className="rounded-md bg-muted/40 p-2">
+                          <div className="text-muted-foreground">Status</div>
+                          <div className="font-semibold">controlled</div>
+                        </div>
+                      </div>
+                      <div className="text-xs text-amber-700">
+                        Số này là tạm kiểm soát, chưa phải trusted/month-end audited source.
+                      </div>
+                      <div className="space-y-1">
+                        {(dailyReport.summary.channels || []).slice(0, 4).map((channel) => (
+                          <div key={channel.channel} className="flex items-center justify-between gap-2 text-xs">
+                            <span className="truncate">{channel.channel}</span>
+                            <span className="whitespace-nowrap font-medium">{formatVnd(channelGross(channel))} · {channelRows(channel)} dòng · review {channelReview(channel)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" size="sm" variant="outline" onClick={openDailyLedgerDetail}>
+                        Ledger chi tiết
+                      </Button>
+                      <Button type="button" size="sm" onClick={runDailyCompare} disabled={isRunningDailyCompare || isPostingDailyCompare}>
+                        {isRunningDailyCompare ? <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />Đang preview</> : "Chạy parse daily"}
+                      </Button>
+                    </div>
+                  </>
+                ) : null}
+
+                {dailyReportLoaded && !isLoadingDailyReport && !dailyReport ? (
+                  <div className="space-y-2">
+                    <div className="text-xs text-muted-foreground">
+                      Chưa tìm thấy auto daily cron source đang active. Anh có thể chạy preview/compare cho ngày daily hiện tại trước khi quyết định ghi ledger.
+                    </div>
+                    <Button type="button" size="sm" onClick={runDailyCompare} disabled={isRunningDailyCompare || isPostingDailyCompare}>
+                      {isRunningDailyCompare ? <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />Đang preview</> : "Chạy parse daily"}
+                    </Button>
+                  </div>
+                ) : null}
+
+                {dailyCompare ? (
+                  <div className="rounded-md border bg-background p-3 space-y-2">
+                    <div className="font-medium">
+                      {dailyCompare.existingReport
+                        ? `So sánh parse daily ngày ${dailyCompare.revenueDate}`
+                        : `Chưa có daily revenue ngày ${dailyCompare.revenueDate}`}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {dailyCompare.existingReport
+                        ? "Xác nhận sẽ overwrite daily revenue cũ bằng preview mới."
+                        : "Xác nhận sẽ ghi vào ledger cho ngày này và cộng vào tháng hiện tại."}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-md bg-muted/40 p-2">
+                        <div className="text-muted-foreground">Gross delta</div>
+                        <div className="font-semibold">{formatDelta(dailyCompare.comparison.totals.delta.grossRevenue, formatVnd)}</div>
+                      </div>
+                      <div className="rounded-md bg-muted/40 p-2">
+                        <div className="text-muted-foreground">Dòng delta</div>
+                        <div className="font-semibold">{formatDelta(dailyCompare.comparison.totals.delta.lineCount)}</div>
+                      </div>
+                    </div>
+                    <div className="max-h-40 overflow-auto space-y-1">
+                      {dailyCompare.comparison.channels.map((channel) => (
+                        <div key={channel.channel} className="rounded border px-2 py-1 text-xs">
+                          <div className="font-medium">{channel.channel}</div>
+                          <div className="text-muted-foreground">
+                            Gross {formatVnd(channel.current.grossRevenue)} → {formatVnd(channel.preview.grossRevenue)} ({formatDelta(channel.delta.grossRevenue, formatVnd)})
+                          </div>
+                          <div className="text-muted-foreground">
+                            Dòng {channel.current.rows} → {channel.preview.rows} ({formatDelta(channel.delta.rows)}), SL {formatDelta(channel.delta.quantity)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" size="sm" onClick={confirmDailyCompare} disabled={isPostingDailyCompare}>
+                        {isPostingDailyCompare ? <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />Đang ghi</> : dailyCompare.existingReport ? "Confirm overwrite" : "Confirm ghi ledger"}
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" onClick={cancelDailyCompare} disabled={isPostingDailyCompare}>
+                        Hủy
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
 
             {messages.map((m, idx) => {
               const isTableLikeAgentMessage = m.role === "agent" && /\n.*\|/.test(m.text);
