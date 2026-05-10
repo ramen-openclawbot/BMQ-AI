@@ -18,6 +18,17 @@ const vnd = (v: number) =>
 
 const numberFmt = (v: number) => new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(v || 0);
 
+const compactVnd = (v: number) => {
+  const abs = Math.abs(v || 0);
+  const sign = v < 0 ? "-" : "";
+  if (abs >= 1_000_000_000) return `${sign}${numberFmt(abs / 1_000_000_000)} tỷ ₫`;
+  if (abs >= 1_000_000) return `${sign}${numberFmt(abs / 1_000_000)} tr ₫`;
+  return vnd(v);
+};
+
+const MOM_PREVIOUS_COLOR = "#F2C15C";
+const MOM_CURRENT_COLOR = "#34D399";
+
 const monthNow = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -229,8 +240,8 @@ export default function RevenueManagementDashboard() {
       delta,
       pct,
       chart: [
-        { month: prevPeriod, revenue: previousTotal },
-        { month: period, revenue: stats.total },
+        { month: prevPeriod, revenue: previousTotal, isCurrent: false },
+        { month: period, revenue: stats.total, isCurrent: true },
       ],
     };
   }, [period, prevPeriod, previousLines, stats.total]);
@@ -382,18 +393,18 @@ export default function RevenueManagementDashboard() {
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 p-4 sm:grid-cols-3">
-            <div className="rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
+            <div className="min-w-0 rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
               <div className="text-xs uppercase tracking-[0.14em] text-stone-400">This month</div>
-              <div className="mt-2 truncate text-lg font-semibold tabular-nums text-amber-100" title={vnd(stats.total)}>{vnd(stats.total)}</div>
+              <div className="mt-2 whitespace-nowrap text-[clamp(1rem,1.35vw,1.35rem)] font-semibold leading-tight tabular-nums text-amber-100" title={vnd(stats.total)}>{compactVnd(stats.total)}</div>
             </div>
-            <div className="rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
+            <div className="min-w-0 rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
               <div className="text-xs uppercase tracking-[0.14em] text-stone-400">Previous month</div>
-              <div className="mt-2 truncate text-lg font-semibold tabular-nums text-stone-100" title={vnd(mom.previousTotal)}>{vnd(mom.previousTotal)}</div>
+              <div className="mt-2 whitespace-nowrap text-[clamp(1rem,1.35vw,1.35rem)] font-semibold leading-tight tabular-nums text-stone-100" title={vnd(mom.previousTotal)}>{compactVnd(mom.previousTotal)}</div>
             </div>
-            <div className="rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
+            <div className="min-w-0 rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
               <div className="text-xs uppercase tracking-[0.14em] text-stone-400">MoM change</div>
-              <div className={`mt-2 truncate text-lg font-semibold tabular-nums ${mom.delta >= 0 ? "text-emerald-100" : "text-rose-100"}`} title={vnd(mom.delta)}>
-                {vnd(mom.delta)}
+              <div className={`mt-2 whitespace-nowrap text-[clamp(1rem,1.35vw,1.35rem)] font-semibold leading-tight tabular-nums ${mom.delta >= 0 ? "text-emerald-100" : "text-rose-100"}`} title={vnd(mom.delta)}>
+                {compactVnd(mom.delta)}
               </div>
               <div className="text-xs text-stone-400">{mom.pct === null ? "N/A" : `${mom.pct >= 0 ? "+" : ""}${numberFmt(mom.pct)}%`}</div>
             </div>
@@ -402,14 +413,18 @@ export default function RevenueManagementDashboard() {
 
         <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/95 via-stone-950 to-amber-950/15 ring-1 ring-stone-200/5">
           <CardContent className="h-[230px] p-4">
-            <ChartContainer config={{ revenue: { label: "Doanh thu", color: "#F2C15C" } }} className="h-full">
+            <ChartContainer config={{ revenue: { label: "Doanh thu", color: MOM_PREVIOUS_COLOR } }} className="h-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={mom.chart} margin={{ top: 8, right: 18, bottom: 18, left: 8 }}>
                   <CartesianGrid stroke="rgba(245,158,11,0.14)" vertical={false} />
                   <XAxis dataKey="month" tickLine={false} axisLine={false} fontSize={12} tick={{ fill: "rgba(245,245,244,0.74)" }} />
                   <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`} tickLine={false} axisLine={false} width={48} tick={{ fill: "rgba(245,245,244,0.74)" }} />
                   <ChartTooltip content={<ChartTooltipContent formatter={(value) => vnd(Number(value))} />} />
-                  <Bar dataKey="revenue" fill="var(--color-revenue)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
+                    {mom.chart.map((entry) => (
+                      <Cell key={entry.month} fill={entry.isCurrent ? MOM_CURRENT_COLOR : MOM_PREVIOUS_COLOR} />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </ChartContainer>
