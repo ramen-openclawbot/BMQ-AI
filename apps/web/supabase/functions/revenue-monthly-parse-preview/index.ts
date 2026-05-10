@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
-import { requireAuth } from "../_shared/auth.ts";
+import { requireAuth, requireCronSecret } from "../_shared/auth.ts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -58,8 +58,26 @@ type PreviewLine = {
 };
 
 type ProgressEmitter = (event: JsonRecord) => void;
+type ParseWindow = {
+  period: string;
+  revenueDateFrom: string;
+  revenueDateTo: string;
+  poReceivedFrom: string;
+  poReceivedTo: string;
+  hasRevenueWindow: boolean;
+};
+type PreviewOptions = {
+  window?: ParseWindow;
+  syncGmail?: boolean;
+  monthlyParseKind?: string;
+  sourceTab?: string;
+  runSummary?: JsonRecord;
+  linePayloadMetadata?: JsonRecord;
+};
 
 const TIME_ZONE = "Asia/Ho_Chi_Minh";
+const REVENUE_CRON_SECRET_ENV_KEY = "REVENUE_CRON_SECRET";
+const LEGACY_PO_CRON_SECRET_ENV_KEY = "PO_SYNC_CRON_SECRET";
 const THUY_DIRECT_DEALER_SENDER = "thuy@bmq.vn";
 const AUTOMATION_REVIEW_STATUSES = new Set([
   "cancel_signal",
@@ -287,6 +305,16 @@ const currentMonthWindow = (now = new Date()) => {
   return { period, revenueDateFrom, revenueDateTo, poReceivedFrom, poReceivedTo, hasRevenueWindow };
 };
 
+const autoDailyWindow = (now = new Date()) => {
+  const current = getDatePartsInTimeZone(now, TIME_ZONE);
+  const period = `${current.year}-${String(current.month).padStart(2, "0")}`;
+  const revenueDateFrom = current.date;
+  const revenueDateTo = current.date;
+  const poReceivedFrom = shiftLocalDate(current.date, -1);
+  const poReceivedTo = current.date;
+  return { period, revenueDateFrom, revenueDateTo, poReceivedFrom, poReceivedTo, hasRevenueWindow: true };
+};
+
 const localDateFromTimestamp = (value?: string | null) => {
   if (!value) return null;
   return getDatePartsInTimeZone(new Date(value), TIME_ZONE).date;
@@ -309,9 +337,12 @@ async function ensureOwner(supabaseAdmin: ReturnType<typeof createClient>, userI
   if (!roles.includes("owner")) throw new Error("Forbidden: owner role required for monthly parse");
 }
 
-async function syncGmailInboxForPreview(req: Request, window: ReturnType<typeof currentMonthWindow>, emit?: ProgressEmitter) {
+async function syncGmailInboxForPreview(req: Request, window: ParseWindow, emit?: ProgressEmitter) {
   const authHeader = req.headers.get("Authorization") || "";
-  if (!authHeader.startsWith("Bearer ")) throw new Error("Missing Authorization header for PO/email Gmail sync");
+  const cronSecret = req.headers.get("x-cron-secret") || "";
+  if (!authHeader.startsWith("Bearer ") && !cronSecret) {
+    throw new Error("Missing Authorization header or cron secret for PO/email Gmail sync");
+  }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
   if (!supabaseUrl) throw new Error("Missing SUPABASE_URL for PO/email Gmail sync");
@@ -344,7 +375,8 @@ async function syncGmailInboxForPreview(req: Request, window: ReturnType<typeof 
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: authHeader,
+        ...(authHeader.startsWith("Bearer ") ? { Authorization: authHeader } : {}),
+        ...(cronSecret ? { "x-cron-secret": cronSecret } : {}),
       },
       body: JSON.stringify({ mode: "import", maxResults: 100, query, includeOnlyCrm: true }),
     });
@@ -462,10 +494,21 @@ const calcAmountFromRow = (row: InboxRow): number => {
   return items.reduce((sum, item) => sum + numberValue(item.line_total, item.amount, item.total), 0);
 };
 
-const buildPreviewLines = (runId: string, period: string, revenueFrom: string, revenueTo: string, rows: InboxRow[], emit?: ProgressEmitter) => {
+const buildPreviewLines = (
+  runId: string,
+  period: string,
+  revenueFrom: string,
+  revenueTo: string,
+  rows: InboxRow[],
+  emit?: ProgressEmitter,
+  options: Pick<PreviewOptions, "monthlyParseKind" | "sourceTab" | "linePayloadMetadata"> = {},
+) => {
   const channelMailCounts = new Map<string, { mails: number; lines: number }>();
   const lines: PreviewLine[] = [];
   let sourceRowNumber = 1;
+  const monthlyParseKind = options.monthlyParseKind || "manual_current_month_to_yesterday";
+  const sourceTab = options.sourceTab || "PO/email monthly parse";
+  const linePayloadMetadata = options.linePayloadMetadata || {};
 
   for (const row of rows) {
     const poReceivedDate = localDateFromTimestamp(row.received_at);
@@ -544,7 +587,7 @@ const buildPreviewLines = (runId: string, period: string, revenueFrom: string, r
         po_received_date: poReceivedDate,
         period,
         channel: dashboardChannel,
-        source_tab: "PO/email monthly parse",
+        source_tab: sourceTab,
         branch: stringValue(raw.branch, item.branch),
         invoice_no: stringValue(row.po_number, raw.po_number, extractPoNumberFromSubject(row.email_subject)),
         customer_id: row.matched_customer_id || stringValue(item.customer_id, item.parent_customer_id),
@@ -574,7 +617,7 @@ const buildPreviewLines = (runId: string, period: string, revenueFrom: string, r
           automation_status: automationStatus || null,
           automation_rule: poAutomation.rule || null,
           service_date_source: stringValue(item.service_date, item.date, asRecord(raw.parse_meta).service_date, asRecord(raw.parse_meta).delivery_date, row.delivery_date) ? "parser_service_date" : "fallback_po_received_plus_1",
-          monthly_parse_kind: "manual_current_month_to_yesterday",
+          monthly_parse_kind: monthlyParseKind,
           trust_semantics: "not_trusted_month_end_audit_source",
           dashboard_channel: dashboardChannel,
           raw_parse_channel: rawChannel,
@@ -590,6 +633,7 @@ const buildPreviewLines = (runId: string, period: string, revenueFrom: string, r
           } : null,
           source_dedupe_key: stringValue(item.dedupe_key),
           dedupe_strategy: stringValue(item.dedupe_strategy, asRecord(raw.parse_meta).dedupe_strategy),
+          ...linePayloadMetadata,
         },
       });
       sourceRowNumber += 1;
@@ -637,7 +681,7 @@ const buildPreviewLines = (runId: string, period: string, revenueFrom: string, r
   return deduped.map((line, index) => ({ ...line, source_row_number: index + 1 }));
 };
 
-const summarizeLines = (lines: PreviewLine[], window: ReturnType<typeof currentMonthWindow>) => {
+const summarizeLines = (lines: PreviewLine[], window: ParseWindow) => {
   const customers = new Set(lines.map((line) => line.customer_id || line.customer_name));
   const channels = new Map<string, { channel: string; rows: number; grossRevenue: number; quantity: number; reviewFlaggedRows: number }>();
   let grossRevenue = 0;
@@ -677,8 +721,14 @@ const summarizeLines = (lines: PreviewLine[], window: ReturnType<typeof currentM
   };
 };
 
-async function runCurrentMonthPreview(req: Request, supabaseAdmin: ReturnType<typeof createClient>, userId: string, emit?: ProgressEmitter) {
-  const window = currentMonthWindow();
+async function runCurrentMonthPreview(
+  req: Request,
+  supabaseAdmin: ReturnType<typeof createClient>,
+  userId: string | null,
+  emit?: ProgressEmitter,
+  options: PreviewOptions = {},
+) {
+  const window = options.window || currentMonthWindow();
   if (!window.hasRevenueWindow) {
     const error = new Error("Chưa có ngày doanh thu trong tháng hiện tại để parse. Hãy chạy từ ngày 02 trở đi.");
     error.name = "no_parseable_revenue_window";
@@ -698,7 +748,13 @@ async function runCurrentMonthPreview(req: Request, supabaseAdmin: ReturnType<ty
       po_received_to: window.poReceivedTo,
       status: "preview_running",
       created_by: userId,
-      summary: { receivedFrom, receivedTo, timezone: TIME_ZONE },
+      summary: {
+        receivedFrom,
+        receivedTo,
+        timezone: TIME_ZONE,
+        monthly_parse_kind: options.monthlyParseKind || "manual_current_month_to_yesterday",
+        ...(options.runSummary || {}),
+      },
     })
     .select("*")
     .single();
@@ -707,11 +763,15 @@ async function runCurrentMonthPreview(req: Request, supabaseAdmin: ReturnType<ty
   emit?.({ type: "progress", stage: "preview_run_created", runId: run.id, period: window.period, message: "Đã tạo staging run, bắt đầu parse" });
 
   try {
-    const syncResults = await syncGmailInboxForPreview(req, window, emit);
+    const syncResults = options.syncGmail === false ? [] : await syncGmailInboxForPreview(req, window, emit);
     emit?.({ type: "progress", stage: "inbox_fetch_start", channel: "Mailbox", message: "Đang đọc inbox đã sync để chia theo channel" });
     const rows = await fetchInboxRows(supabaseAdmin, receivedFrom, receivedTo);
     emit?.({ type: "progress", stage: "inbox_fetch_done", channel: "Mailbox", inboxRows: rows.length, message: `Đã lấy ${rows.length} mail trong inbox, bắt đầu parse theo kênh` });
-    const lines = buildPreviewLines(String(run.id), window.period, window.revenueDateFrom, window.revenueDateTo, rows, emit);
+    const lines = buildPreviewLines(String(run.id), window.period, window.revenueDateFrom, window.revenueDateTo, rows, emit, {
+      monthlyParseKind: options.monthlyParseKind,
+      sourceTab: options.sourceTab,
+      linePayloadMetadata: options.linePayloadMetadata,
+    });
     const summary = { ...summarizeLines(lines, window), gmailSync: syncResults };
 
     emit?.({ type: "progress", stage: "staging_insert_start", rows: lines.length, message: `Đang ghi staging ${lines.length} dòng preview` });
@@ -763,6 +823,54 @@ async function previewCurrentMonth(req: Request, supabaseAdmin: ReturnType<typeo
   }
 }
 
+function requireRevenueCronSecret(req: Request, corsHeaders: Record<string, string>) {
+  const envKey = Deno.env.get(REVENUE_CRON_SECRET_ENV_KEY)
+    ? REVENUE_CRON_SECRET_ENV_KEY
+    : LEGACY_PO_CRON_SECRET_ENV_KEY;
+  requireCronSecret(req, envKey, corsHeaders);
+}
+
+async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof createClient>) {
+  const window = autoDailyWindow();
+  const noDoubleCountKey = `auto_daily_po_email_parse:${window.revenueDateFrom}`;
+  const preview = await runCurrentMonthPreview(req, supabaseAdmin, null, undefined, {
+    window,
+    syncGmail: true,
+    monthlyParseKind: "auto_daily_post",
+    sourceTab: "PO/email auto daily parse",
+    runSummary: {
+      triggered_by: "vercel_cron",
+      controlled_kind: "auto_daily_temporary_controlled_parse",
+      temporary_controlled_revenue: true,
+      trust_semantics: "not_trusted_month_end_audit_source",
+      auto_daily_no_double_count_key: noDoubleCountKey,
+    },
+    linePayloadMetadata: {
+      controlled_kind: "auto_daily_temporary_controlled_parse",
+      temporary_controlled_revenue: true,
+      trust_semantics: "not_trusted_month_end_audit_source",
+      owner_approval_required: false,
+      auto_daily_no_double_count_key: noDoubleCountKey,
+    },
+  });
+
+  const { data, error } = await supabaseAdmin.rpc("auto_post_revenue_daily_parse", {
+    _run_id: String(asRecord(preview.run).id || ""),
+  });
+  if (error) throw error;
+
+  return jsonResponse(req, {
+    success: true,
+    action: "auto_daily_post",
+    revenueDate: window.revenueDateFrom,
+    poReceivedFrom: window.poReceivedFrom,
+    poReceivedTo: window.poReceivedTo,
+    stagingRunId: String(asRecord(preview.run).id || ""),
+    previewSummary: preview.summary,
+    postResult: data,
+  });
+}
+
 function streamCurrentMonthPreview(req: Request, supabaseAdmin: ReturnType<typeof createClient>, userId: string) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -798,16 +906,21 @@ serve(async (req) => {
 
   try {
     const corsHeaders = getCorsHeaders(req);
-    const { user } = await requireAuth(req, corsHeaders);
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL") || "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
       { auth: { persistSession: false, autoRefreshToken: false } },
     );
-    await ensureOwner(supabaseAdmin, user.id);
-
     const body = await req.json().catch(() => ({}));
     const action = String(body?.action || "preview_current_month");
+
+    if (action === "auto_daily_post") {
+      requireRevenueCronSecret(req, corsHeaders);
+      return await autoDailyPost(req, supabaseAdmin);
+    }
+
+    const { user } = await requireAuth(req, corsHeaders);
+    await ensureOwner(supabaseAdmin, user.id);
 
     if (action === "preview_current_month") {
       if (body?.streamProgress) {

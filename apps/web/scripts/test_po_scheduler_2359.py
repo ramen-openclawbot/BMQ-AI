@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """Static regression checks for daily 23:59 Asia/Ho_Chi_Minh PO scheduler."""
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHED = ROOT / "supabase/functions/po-sync-scheduler-run/index.ts"
 VERCEL = ROOT / "vercel.json"
+CRON_API = ROOT / "api/po-sync-cron.js"
 MIGRATION = ROOT / "supabase/migrations/20260509035900_revenue_option4_po_schedule_2359.sql"
 CONTROL = ROOT / "src/pages/FinanceRevenueControl.tsx"
 
 scheduler = SCHED.read_text(encoding="utf-8")
 vercel = VERCEL.read_text(encoding="utf-8")
+vercel_config = json.loads(vercel)
+cron_api = CRON_API.read_text(encoding="utf-8")
 migration = MIGRATION.read_text(encoding="utf-8")
 control = CONTROL.read_text(encoding="utf-8")
 
@@ -20,6 +24,26 @@ def assert_contains(text: str, needle: str, label: str) -> None:
 
 def test_vercel_cron_runs_at_2359_vietnam_time() -> None:
     assert_contains(vercel, '"schedule": "59 16 * * *"', "23:59 Asia/Ho_Chi_Minh cron in UTC")
+
+
+def test_vercel_keeps_single_cron_path() -> None:
+    crons = vercel_config.get("crons", [])
+    assert len(crons) == 1, f"expected exactly one Vercel cron, found {len(crons)}"
+    assert crons[0] == {"path": "/api/po-sync-cron", "schedule": "59 16 * * *"}
+
+
+def test_vercel_cron_targets_revenue_auto_daily_post() -> None:
+    for needle, label in [
+        ("revenue-monthly-parse-preview", "revenue monthly parse function target"),
+        ("REVENUE_MONTHLY_PARSE_PREVIEW_URL", "revenue function URL override"),
+        ('JSON.stringify({ action: "auto_daily_post" })', "auto daily post action body"),
+        ("REVENUE_CRON_SECRET || process.env.PO_SYNC_CRON_SECRET", "revenue cron secret with compatibility fallback"),
+        ("po-sync-scheduler-run", "legacy scheduler target absent"),
+    ]:
+        if label == "legacy scheduler target absent":
+            assert needle not in cron_api, "cron proxy must not target legacy po-sync-scheduler-run"
+        else:
+            assert_contains(cron_api, needle, label)
 
 
 def test_schedule_migration_upserts_2359_local_time() -> None:

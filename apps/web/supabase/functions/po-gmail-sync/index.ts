@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import * as XLSX from "npm:xlsx@0.18.5";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
+import { requireCronSecret } from "../_shared/auth.ts";
 
 type GmailMessage = {
   id: string;
@@ -812,22 +813,28 @@ serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
     const supabaseAdmin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
-    // Enforce JWT authentication
+    // Enforce JWT authentication for manual users, or cron secret for the
+    // 23:59 controlled revenue parser that must import fresh PO/email first.
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
+    const hasCronSecret = Boolean(req.headers.get("x-cron-secret"));
+    if (hasCronSecret) {
+      const envKey = Deno.env.get("REVENUE_CRON_SECRET") ? "REVENUE_CRON_SECRET" : "PO_SYNC_CRON_SECRET";
+      requireCronSecret(req, envKey, getCorsHeaders(req));
+    } else if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Missing auth" }), {
         status: 401,
         headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
       });
-    }
-    const { data: { user: authUser }, error: authError } = await supabaseAdmin.auth.getUser(
-      authHeader.replace("Bearer ", "")
-    );
-    if (authError || !authUser) {
-      return new Response(JSON.stringify({ error: "Invalid token" }), {
-        status: 401,
-        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
-      });
+    } else {
+      const { data: { user: authUser }, error: authError } = await supabaseAdmin.auth.getUser(
+        authHeader.replace("Bearer ", "")
+      );
+      if (authError || !authUser) {
+        return new Response(JSON.stringify({ error: "Invalid token" }), {
+          status: 401,
+          headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+        });
+      }
     }
 
     const body = await req.json().catch(() => ({}));
@@ -835,6 +842,12 @@ serve(async (req) => {
     const includeOnlyCrm = body?.includeOnlyCrm !== false;
     const maxResults = Math.min(Math.max(Number(body?.maxResults || 20), 1), 100);
     const query = String(body?.query || "in:anywhere deliveredto:po@bmq.vn newer_than:30d");
+    if (hasCronSecret && (mode !== "import" || !includeOnlyCrm || !query.toLowerCase().includes("deliveredto:po@bmq.vn"))) {
+      return new Response(JSON.stringify({ error: "Invalid cron Gmail sync request" }), {
+        status: 400,
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
     const importMessageIds = new Set<string>(Array.isArray(body?.messageIds) ? body.messageIds.map((x: any) => String(x)) : []);
 
     const accessToken = await getGoogleAccessToken(supabaseAdmin);
@@ -1516,6 +1529,7 @@ serve(async (req) => {
       headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
     });
   } catch (error) {
+    if (error instanceof Response) return error;
     console.error("[po-gmail-sync] Error", error);
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), {
       status: 500,

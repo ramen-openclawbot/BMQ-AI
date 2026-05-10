@@ -7,12 +7,14 @@ SYNC = ROOT / "supabase/functions/po-gmail-sync/index.ts"
 SCHED = ROOT / "supabase/functions/po-sync-scheduler-run/index.ts"
 MONTHLY = ROOT / "supabase/functions/revenue-monthly-parse-preview/index.ts"
 MONTHLY_APPROVE_MIGRATION = ROOT / "supabase/migrations/20260510122949_monthly_parse_owner_controlled_approve.sql"
+AUTO_DAILY_MIGRATION = ROOT / "supabase/migrations/20260510170000_revenue_auto_daily_post.sql"
 SPEC = ROOT.parents[1] / "PO_AUTO_PARSE_FLOW_SPEC.md"
 
 sync = SYNC.read_text(encoding="utf-8")
 scheduler = SCHED.read_text(encoding="utf-8")
 monthly = MONTHLY.read_text(encoding="utf-8")
 monthly_approve_migration = MONTHLY_APPROVE_MIGRATION.read_text(encoding="utf-8")
+auto_daily_migration = AUTO_DAILY_MIGRATION.read_text(encoding="utf-8")
 spec = SPEC.read_text(encoding="utf-8")
 
 
@@ -141,6 +143,22 @@ def test_monthly_preview_summary_exposes_ledger_first_counts() -> None:
         ("approvalSemantics: \"owner_controlled_ledger_first\"", "preview approval semantics marker"),
     ]:
         assert_contains(monthly, needle, label)
+
+
+def test_auto_daily_posts_all_rows_as_temporary_controlled_revenue() -> None:
+    for needle, label in [
+        ("auto_post_revenue_daily_parse", "auto daily post RPC"),
+        ("'posted_line_count', _line_count", "posted line count matches all rows"),
+        ("'review_flagged_line_count', _review_flagged_line_count", "review rows preserved as metadata"),
+        ("from public.revenue_monthly_parse_lines\n  where run_id = _run.id\n  order by source_row_number", "all preview lines inserted without review-status filter"),
+        ("'temporary_controlled_revenue', true", "temporary controlled metadata"),
+        ("'trust_semantics', 'not_trusted_month_end_audit_source'", "not trusted month-end source metadata"),
+        ("'owner_approval_required', false", "cron path does not require owner approval"),
+        ("auto_daily_po_email_parse:", "stable no-double-count key"),
+        ("approval_status = 'superseded'", "old ledger rows superseded on replace"),
+    ]:
+        assert_contains(auto_daily_migration, needle, label)
+    assert "and review_status <> 'needs_manual_review'" not in auto_daily_migration, "auto daily must not exclude review rows"
 
 
 if __name__ == "__main__":
