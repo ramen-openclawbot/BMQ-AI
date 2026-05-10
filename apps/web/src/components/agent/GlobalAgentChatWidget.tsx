@@ -541,7 +541,6 @@ const revenueSummaryNumber = (summary: RevenueDailyReport["summary"] | undefined
 
 const channelRows = (channel: RevenueDailyChannelSummary) => Number(channel.rows || channel.rowCount || 0);
 const channelGross = (channel: RevenueDailyChannelSummary) => Number(channel.grossRevenue || channel.gross_revenue || 0);
-const channelReview = (channel: RevenueDailyChannelSummary) => Number(channel.reviewFlaggedRows || channel.review_flagged_rows || 0);
 
 function formatDelta(value: number, formatter: (n: number) => string = (n) => Number(n || 0).toLocaleString("vi-VN")) {
   const prefix = value > 0 ? "+" : "";
@@ -1120,11 +1119,7 @@ export function GlobalAgentChatWidget() {
                           <div className="text-muted-foreground">Dòng / SL</div>
                           <div className="font-semibold">{revenueSummaryNumber(dailyReport.summary, "lineCount", "rowCount").toLocaleString("vi-VN")} / {revenueSummaryNumber(dailyReport.summary, "quantity").toLocaleString("vi-VN")}</div>
                         </div>
-                        <div className="rounded-md bg-muted/40 p-2">
-                          <div className="text-muted-foreground">Cần review</div>
-                          <div className="font-semibold">{revenueSummaryNumber(dailyReport.summary, "reviewCount", "reviewFlaggedRows").toLocaleString("vi-VN")}</div>
-                        </div>
-                        <div className="rounded-md bg-muted/40 p-2">
+                        <div className="rounded-md bg-muted/40 p-2 col-span-2">
                           <div className="text-muted-foreground">Status</div>
                           <div className="font-semibold">controlled</div>
                         </div>
@@ -1136,7 +1131,7 @@ export function GlobalAgentChatWidget() {
                         {(dailyReport.summary.channels || []).slice(0, 4).map((channel) => (
                           <div key={channel.channel} className="flex items-center justify-between gap-2 text-xs">
                             <span className="truncate">{channel.channel}</span>
-                            <span className="whitespace-nowrap font-medium">{formatVnd(channelGross(channel))} · {channelRows(channel)} dòng · review {channelReview(channel)}</span>
+                            <span className="whitespace-nowrap font-medium">{formatVnd(channelGross(channel))} · {channelRows(channel)} dòng</span>
                           </div>
                         ))}
                       </div>
