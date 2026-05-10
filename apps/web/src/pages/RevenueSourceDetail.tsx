@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle2, Database, Filter, Loader2, PencilLine, Search, Settings, TriangleAlert } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Database, Filter, Loader2, PencilLine, Search, TriangleAlert } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -346,15 +346,8 @@ export default function RevenueSourceDetail() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Input type="month" value={period} onChange={(e) => updateParam("period", e.target.value || CONTROLLED_APRIL_PERIOD)} className="w-[160px]" />
-          <Button variant={period === CONTROLLED_APRIL_PERIOD ? "default" : "outline"} onClick={() => updateParam("period", CONTROLLED_APRIL_PERIOD)}>
-            T4/2026
-          </Button>
           <Button variant={review ? "default" : "outline"} onClick={() => updateParam("review", review ? "" : "review_queue")}>
             <Filter className="mr-2 h-4 w-4" />Cần audit
-          </Button>
-          <Button variant="outline" onClick={() => navigate("/finance-control/revenue/setup")}>
-            <Settings className="mr-2 h-4 w-4" />Thiết lập
           </Button>
         </div>
       </div>
