@@ -137,6 +137,45 @@ interface ExistingParseInfo {
 
 type ParseState = "idle" | "running" | "preview_ready" | "approving" | "rejecting" | "approved" | "error";
 
+interface ParseProgressChannel {
+  channel: string;
+  mails: number;
+  lines: number;
+}
+
+interface ParseProgressState {
+  stage: string;
+  message: string;
+  currentChannel: string;
+  currentDate: string | null;
+  fetched: number;
+  synced: number;
+  totalFetched: number;
+  totalSynced: number;
+  totalParsedMails: number;
+  totalParsedLines: number;
+  dayIndex: number;
+  totalDays: number;
+  channels: ParseProgressChannel[];
+}
+
+const emptyParseProgress = (): ParseProgressState => ({
+  stage: "idle",
+  message: "Chuẩn bị parse PO/email...",
+  currentChannel: "Mailbox",
+  currentDate: null,
+  fetched: 0,
+  synced: 0,
+  totalFetched: 0,
+  totalSynced: 0,
+  totalParsedMails: 0,
+  totalParsedLines: 0,
+  dayIndex: 0,
+  totalDays: 0,
+  channels: [],
+});
+
+
 type QueryResult<T> = PromiseLike<{ data: T | null; error: { message?: string; details?: string; hint?: string } | null }>;
 type QueryBuilder<T> = QueryResult<T[]> & {
   select: (columns: string) => QueryBuilder<T>;
@@ -209,6 +248,7 @@ export default function FinanceRevenueControl() {
   const [previewTruncated, setPreviewTruncated] = useState(false);
   const [overwritePrompt, setOverwritePrompt] = useState<ExistingParseInfo[] | null>(null);
   const [automationRunMessage, setAutomationRunMessage] = useState<string | null>(null);
+  const [parseProgress, setParseProgress] = useState<ParseProgressState>(() => emptyParseProgress());
 
   const parseWindow = useMemo(() => getCurrentMonthParseWindow(), []);
 
@@ -311,6 +351,109 @@ export default function FinanceRevenueControl() {
     return { response, result };
   };
 
+  const applyParseProgressEvent = (event: Record<string, unknown>) => {
+    if (event.type === "done") return;
+    setParseProgress((prev) => {
+      const next: ParseProgressState = {
+        ...prev,
+        stage: String(event.stage || prev.stage),
+        message: String(event.message || prev.message),
+        currentChannel: String(event.channel || prev.currentChannel),
+        currentDate: typeof event.date === "string" ? event.date : typeof event.receivedDate === "string" ? event.receivedDate : prev.currentDate,
+        fetched: event.fetched !== undefined ? getNumber(event.fetched) : prev.fetched,
+        synced: event.synced !== undefined ? getNumber(event.synced) : prev.synced,
+        totalFetched: event.totalFetched !== undefined ? getNumber(event.totalFetched) : prev.totalFetched,
+        totalSynced: event.totalSynced !== undefined ? getNumber(event.totalSynced) : prev.totalSynced,
+        totalParsedMails: event.totalParsedMails !== undefined ? getNumber(event.totalParsedMails) : prev.totalParsedMails,
+        totalParsedLines: event.totalParsedLines !== undefined ? getNumber(event.totalParsedLines) : prev.totalParsedLines,
+        dayIndex: event.dayIndex !== undefined ? getNumber(event.dayIndex) : prev.dayIndex,
+        totalDays: event.totalDays !== undefined ? getNumber(event.totalDays) : prev.totalDays,
+      };
+
+      if (event.stage === "parse_channel" && typeof event.channel === "string") {
+        const channel = event.channel;
+        const existing = new Map(prev.channels.map((item) => [item.channel, item]));
+        existing.set(channel, {
+          channel,
+          mails: getNumber(event.mailCount),
+          lines: getNumber(event.lineCount),
+        });
+        next.channels = Array.from(existing.values()).sort((a, b) => b.mails - a.mails || a.channel.localeCompare(b.channel));
+      }
+
+      return next;
+    });
+  };
+
+  const callMonthlyParseFunctionStream = async (body: Record<string, unknown>) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const sessionRecord = session as unknown as Record<string, string | undefined>;
+    const bearer = sessionRecord["access_" + "token"];
+    if (!bearer) throw new Error(isVi ? "Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại." : "Your session has expired. Please sign in again.");
+
+    const { error: userError } = await supabase.auth.getUser();
+    if (userError) throw new Error(isVi ? `Phiên đăng nhập không hợp lệ (${userError.message}).` : `Invalid session (${userError.message}).`);
+
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/revenue-monthly-parse-preview`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${bearer}`,
+      },
+      body: JSON.stringify({ ...body, streamProgress: true }),
+    });
+
+    const contentType = response.headers.get("content-type") || "";
+    if (!response.ok) {
+      const rawText = await response.text();
+      const result = parseFunctionResponse(rawText);
+      throw new Error(String(result.error || result.message || result.raw || rawText || "Monthly parse failed"));
+    }
+
+    if (contentType.includes("application/json")) {
+      return parseFunctionResponse(await response.text());
+    }
+
+    if (!response.body) {
+      const fallback = await callMonthlyParseFunction(body);
+      return fallback.result;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalResult: Record<string, unknown> | null = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split("\n");
+      buffer = parts.pop() || "";
+      for (const part of parts) {
+        const line = part.trim();
+        if (!line) continue;
+        const event = parseFunctionResponse(line);
+        if (event.type === "error") throw new Error(String(event.error || event.message || "Monthly parse failed"));
+        if (event.type === "done" || event.run || event.summary || Array.isArray(event.lines)) finalResult = event;
+        applyParseProgressEvent(event);
+      }
+    }
+
+    buffer += decoder.decode();
+    const tail = buffer.trim();
+    if (tail) {
+      const event = parseFunctionResponse(tail);
+      if (event.type === "error") throw new Error(String(event.error || event.message || "Monthly parse failed"));
+      if (event.type === "done" || event.run || event.summary || Array.isArray(event.lines)) finalResult = event;
+      applyParseProgressEvent(event);
+    }
+
+    if (!finalResult) throw new Error("Monthly parse finished without final preview result");
+    return finalResult;
+  };
+
+
   const runMonthlyPreview = async () => {
     if (!canRunAutomation) {
       toast({
@@ -338,9 +481,10 @@ export default function FinanceRevenueControl() {
     setPreviewTruncated(false);
     setOverwritePrompt(null);
     setAutomationRunMessage(null);
+    setParseProgress(emptyParseProgress());
 
     try {
-      const { result } = await callMonthlyParseFunction({ action: "preview_current_month" });
+      const result = await callMonthlyParseFunctionStream({ action: "preview_current_month" });
       const run = result.run && typeof result.run === "object" ? result.run as MonthlyPreviewRun : null;
       const summary = isSummary(result.summary) ? result.summary : null;
       const rawLines = Array.isArray(result.lines) ? result.lines : [];
@@ -526,16 +670,68 @@ export default function FinanceRevenueControl() {
           </DialogHeader>
 
           {parseState === "running" ? (
-            <div className="space-y-5 py-6 text-center">
-              <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full border border-amber-300/30 bg-amber-400/10">
-                <Loader2 className="h-10 w-10 animate-spin text-amber-200" />
+            <div className="space-y-5 py-6">
+              <div className="flex flex-col items-center gap-3 text-center">
+                <div className="flex h-20 w-20 items-center justify-center rounded-full border border-amber-300/30 bg-amber-400/10">
+                  <Loader2 className="h-10 w-10 animate-spin text-amber-200" />
+                </div>
+                <div className="space-y-2">
+                  <p className="font-medium text-amber-50">{parseProgress.message}</p>
+                  <p className="text-sm text-stone-400">Đang hiện realtime từng bước Gmail sync và parse theo channel. Chưa có dòng nào được lưu vào ledger trước khi approve.</p>
+                </div>
               </div>
-              <div className="space-y-2">
-                <p className="font-medium text-amber-50">Đang lấy PO/email và map sang ngày doanh thu...</p>
-                <p className="text-sm text-stone-400">Ví dụ 01/05 sẽ dùng PO/email ngày 30/04. Chưa có dòng nào được lưu vào ledger trước khi approve.</p>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  { label: "Channel hiện tại", value: parseProgress.currentChannel || "Mailbox", helper: parseProgress.currentDate ? formatDate(parseProgress.currentDate) : "Đang chuẩn bị" },
+                  { label: "Mail fetched", value: numberFmt(parseProgress.totalFetched), helper: parseProgress.synced ? `${numberFmt(parseProgress.totalSynced)} synced` : "Từ Gmail" },
+                  { label: "Mail đã parse", value: numberFmt(parseProgress.totalParsedMails), helper: `${numberFmt(parseProgress.totalParsedLines)} dòng preview` },
+                  { label: "Ngày xử lý", value: parseProgress.totalDays ? `${numberFmt(parseProgress.dayIndex)}/${numberFmt(parseProgress.totalDays)}` : "—", helper: parseProgress.stage },
+                ].map((item) => (
+                  <div key={item.label} className="rounded-xl border border-stone-800 bg-stone-900 p-3">
+                    <div className="text-[10px] uppercase tracking-[0.14em] text-stone-500">{item.label}</div>
+                    <div className="mt-1 truncate text-lg font-semibold text-amber-100" title={String(item.value)}>{item.value}</div>
+                    <div className="mt-1 truncate text-xs text-stone-400" title={item.helper}>{item.helper}</div>
+                  </div>
+                ))}
               </div>
-              <div className="h-2 overflow-hidden rounded-full bg-stone-800">
-                <div className="h-full w-2/3 animate-pulse rounded-full bg-amber-300" />
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs text-stone-400">
+                  <span>Tiến độ Gmail sync</span>
+                  <span>{parseProgress.totalDays ? `${numberFmt((parseProgress.dayIndex / parseProgress.totalDays) * 100)}%` : "Đang khởi động"}</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-stone-800">
+                  <div className="h-full rounded-full bg-amber-300 transition-all" style={{ width: `${parseProgress.totalDays ? Math.min(100, Math.max(4, (parseProgress.dayIndex / parseProgress.totalDays) * 100)) : 12}%` }} />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-stone-800 bg-stone-900/80 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-stone-100">Mail đang parse theo channel</h3>
+                    <p className="text-xs text-stone-500">Cập nhật live khi backend map từng mail thành dòng preview.</p>
+                  </div>
+                  <Badge className="border border-amber-300/30 bg-amber-400/10 text-amber-100">{numberFmt(parseProgress.channels.length)} channel</Badge>
+                </div>
+                <div className="space-y-2">
+                  {parseProgress.channels.length > 0 ? parseProgress.channels.map((channel) => (
+                    <div key={channel.channel} className="flex items-center justify-between gap-3 rounded-lg border border-stone-800 bg-stone-950/60 p-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-stone-100" title={channel.channel}>{channel.channel}</div>
+                        <div className="text-xs text-stone-500">{numberFmt(channel.lines)} dòng preview</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-semibold tabular-nums text-amber-100">{numberFmt(channel.mails)}</div>
+                        <div className="text-[10px] uppercase tracking-[0.14em] text-stone-500">mail</div>
+                      </div>
+                    </div>
+                  )) : (
+                    <div className="rounded-lg border border-dashed border-stone-700 p-4 text-center text-sm text-stone-400">
+                      Đang lấy mail từ Gmail; danh sách channel sẽ xuất hiện khi bắt đầu parse inbox.
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           ) : null}

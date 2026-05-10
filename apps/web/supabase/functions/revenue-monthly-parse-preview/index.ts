@@ -57,6 +57,8 @@ type PreviewLine = {
   raw_payload: JsonRecord;
 };
 
+type ProgressEmitter = (event: JsonRecord) => void;
+
 const TIME_ZONE = "Asia/Ho_Chi_Minh";
 const THUY_DIRECT_DEALER_SENDER = "thuy@bmq.vn";
 const AUTOMATION_REVIEW_STATUSES = new Set([
@@ -297,7 +299,7 @@ async function ensureOwner(supabaseAdmin: ReturnType<typeof createClient>, userI
   if (!roles.includes("owner")) throw new Error("Forbidden: owner role required for monthly parse");
 }
 
-async function syncGmailInboxForPreview(req: Request, window: ReturnType<typeof currentMonthWindow>) {
+async function syncGmailInboxForPreview(req: Request, window: ReturnType<typeof currentMonthWindow>, emit?: ProgressEmitter) {
   const authHeader = req.headers.get("Authorization") || "";
   if (!authHeader.startsWith("Bearer ")) throw new Error("Missing Authorization header for PO/email Gmail sync");
 
@@ -306,11 +308,27 @@ async function syncGmailInboxForPreview(req: Request, window: ReturnType<typeof 
 
   const syncResults: JsonRecord[] = [];
   const syncUrl = `${supabaseUrl}/functions/v1/po-gmail-sync`;
+  const poDates = localDateRangeInclusive(window.poReceivedFrom, window.poReceivedTo);
+  let totalFetched = 0;
+  let totalSynced = 0;
 
-  for (const poDate of localDateRangeInclusive(window.poReceivedFrom, window.poReceivedTo)) {
+  emit?.({ type: "progress", stage: "gmail_sync_start", channel: "Mailbox", totalDays: poDates.length, message: "Bắt đầu lấy PO/email từ Gmail" });
+
+  for (let index = 0; index < poDates.length; index += 1) {
+    const poDate = poDates[index];
     const after = gmailEpochSecondsForLocalDay(poDate);
     const before = gmailEpochSecondsForLocalDay(poDate, true);
     const query = `in:anywhere deliveredto:po@bmq.vn after:${after} before:${before}`;
+
+    emit?.({
+      type: "progress",
+      stage: "gmail_sync_day_start",
+      channel: "Mailbox",
+      date: poDate,
+      dayIndex: index + 1,
+      totalDays: poDates.length,
+      message: `Đang lấy mail ngày ${poDate}`,
+    });
 
     const response = await fetch(syncUrl, {
       method: "POST",
@@ -333,13 +351,33 @@ async function syncGmailInboxForPreview(req: Request, window: ReturnType<typeof 
       throw new Error(`PO/email Gmail sync failed for ${poDate}: HTTP ${response.status} - ${String(parsed.error || parsed.message || parsed.raw || rawText)}`);
     }
 
-    syncResults.push({
+    const fetched = Number(parsed.fetched || 0);
+    const synced = Number(parsed.synced || 0);
+    totalFetched += fetched;
+    totalSynced += synced;
+    const result = {
       date: poDate,
       query,
-      synced: Number(parsed.synced || 0),
-      fetched: Number(parsed.fetched || 0),
+      synced,
+      fetched,
       resultSizeEstimate: Number(parsed.resultSizeEstimate || 0),
       mailbox: typeof parsed.mailbox === "string" ? parsed.mailbox : null,
+    };
+    syncResults.push(result);
+    emit?.({
+      type: "progress",
+      stage: "gmail_sync_day_done",
+      channel: "Mailbox",
+      date: poDate,
+      dayIndex: index + 1,
+      totalDays: poDates.length,
+      fetched,
+      synced,
+      totalFetched,
+      totalSynced,
+      resultSizeEstimate: result.resultSizeEstimate,
+      mailbox: result.mailbox,
+      message: `${poDate}: ${fetched} mail fetched, ${synced} mail sync/import`,
     });
   }
 
@@ -414,7 +452,8 @@ const calcAmountFromRow = (row: InboxRow): number => {
   return items.reduce((sum, item) => sum + numberValue(item.line_total, item.amount, item.total), 0);
 };
 
-const buildPreviewLines = (runId: string, period: string, revenueFrom: string, revenueTo: string, rows: InboxRow[]) => {
+const buildPreviewLines = (runId: string, period: string, revenueFrom: string, revenueTo: string, rows: InboxRow[], emit?: ProgressEmitter) => {
+  const channelMailCounts = new Map<string, { mails: number; lines: number }>();
   const lines: PreviewLine[] = [];
   let sourceRowNumber = 1;
 
@@ -438,6 +477,9 @@ const buildPreviewLines = (runId: string, period: string, revenueFrom: string, r
         unit_price: numberValue(raw.unit_price),
       },
     ];
+
+    let rowLineCount = 0;
+    let rowChannel: string | null = null;
 
     for (const item of effectiveItems) {
       const revenueDate = lineRevenueDate(row, item, poReceivedDate);
@@ -474,6 +516,8 @@ const buildPreviewLines = (runId: string, period: string, revenueFrom: string, r
         customerName,
       );
       const gross = Number(line.gross || 0);
+      rowChannel = rowChannel || dashboardChannel;
+      rowLineCount += 1;
       lines.push({
         run_id: runId,
         source_row_number: sourceRowNumber,
@@ -520,6 +564,27 @@ const buildPreviewLines = (runId: string, period: string, revenueFrom: string, r
         },
       });
       sourceRowNumber += 1;
+    }
+
+    if (rowLineCount > 0 && rowChannel) {
+      const counts = channelMailCounts.get(rowChannel) || { mails: 0, lines: 0 };
+      counts.mails += 1;
+      counts.lines += rowLineCount;
+      channelMailCounts.set(rowChannel, counts);
+      emit?.({
+        type: "progress",
+        stage: "parse_channel",
+        channel: rowChannel,
+        mailCount: counts.mails,
+        lineCount: counts.lines,
+        currentMailLines: rowLineCount,
+        fromEmail: row.from_email || null,
+        receivedDate: poReceivedDate,
+        subject: row.email_subject || null,
+        totalParsedMails: Array.from(channelMailCounts.values()).reduce((sum, item) => sum + item.mails, 0),
+        totalParsedLines: lines.length,
+        message: `${rowChannel}: đã parse ${counts.mails} mail / ${counts.lines} dòng`,
+      });
     }
   }
 
@@ -576,15 +641,12 @@ const summarizeLines = (lines: PreviewLine[], window: ReturnType<typeof currentM
   };
 };
 
-async function previewCurrentMonth(req: Request, supabaseAdmin: ReturnType<typeof createClient>, userId: string) {
+async function runCurrentMonthPreview(req: Request, supabaseAdmin: ReturnType<typeof createClient>, userId: string, emit?: ProgressEmitter) {
   const window = currentMonthWindow();
   if (!window.hasRevenueWindow) {
-    return jsonResponse(req, {
-      success: false,
-      code: "no_parseable_revenue_window",
-      message: "Chưa có ngày doanh thu trong tháng hiện tại để parse. Hãy chạy từ ngày 02 trở đi.",
-      window,
-    }, 422);
+    const error = new Error("Chưa có ngày doanh thu trong tháng hiện tại để parse. Hãy chạy từ ngày 02 trở đi.");
+    error.name = "no_parseable_revenue_window";
+    throw error;
   }
 
   const receivedFrom = dateFromLocalParts(window.poReceivedFrom, TIME_ZONE).toISOString();
@@ -606,17 +668,23 @@ async function previewCurrentMonth(req: Request, supabaseAdmin: ReturnType<typeo
     .single();
   if (runErr) throw runErr;
 
+  emit?.({ type: "progress", stage: "preview_run_created", runId: run.id, period: window.period, message: "Đã tạo staging run, bắt đầu parse" });
+
   try {
-    const syncResults = await syncGmailInboxForPreview(req, window);
+    const syncResults = await syncGmailInboxForPreview(req, window, emit);
+    emit?.({ type: "progress", stage: "inbox_fetch_start", channel: "Mailbox", message: "Đang đọc inbox đã sync để chia theo channel" });
     const rows = await fetchInboxRows(supabaseAdmin, receivedFrom, receivedTo);
-    const lines = buildPreviewLines(String(run.id), window.period, window.revenueDateFrom, window.revenueDateTo, rows);
+    emit?.({ type: "progress", stage: "inbox_fetch_done", channel: "Mailbox", inboxRows: rows.length, message: `Đã lấy ${rows.length} mail trong inbox, bắt đầu parse theo kênh` });
+    const lines = buildPreviewLines(String(run.id), window.period, window.revenueDateFrom, window.revenueDateTo, rows, emit);
     const summary = { ...summarizeLines(lines, window), gmailSync: syncResults };
 
+    emit?.({ type: "progress", stage: "staging_insert_start", rows: lines.length, message: `Đang ghi staging ${lines.length} dòng preview` });
     for (let index = 0; index < lines.length; index += 500) {
       const batch = lines.slice(index, index + 500);
       if (batch.length === 0) continue;
       const { error: insertErr } = await supabaseAdmin.from("revenue_monthly_parse_lines").insert(batch);
       if (insertErr) throw insertErr;
+      emit?.({ type: "progress", stage: "staging_insert_batch", insertedRows: Math.min(index + batch.length, lines.length), rows: lines.length, message: `Đã ghi staging ${Math.min(index + batch.length, lines.length)}/${lines.length} dòng` });
     }
 
     const { data: updatedRun, error: updateErr } = await supabaseAdmin
@@ -627,13 +695,13 @@ async function previewCurrentMonth(req: Request, supabaseAdmin: ReturnType<typeo
       .single();
     if (updateErr) throw updateErr;
 
-    return jsonResponse(req, {
+    return {
       success: true,
       run: updatedRun,
       summary,
       lines: lines.slice(0, 200),
       truncated: lines.length > 200,
-    });
+    };
   } catch (error) {
     await supabaseAdmin
       .from("revenue_monthly_parse_runs")
@@ -641,6 +709,52 @@ async function previewCurrentMonth(req: Request, supabaseAdmin: ReturnType<typeo
       .eq("id", run.id);
     throw error;
   }
+}
+
+async function previewCurrentMonth(req: Request, supabaseAdmin: ReturnType<typeof createClient>, userId: string) {
+  try {
+    return jsonResponse(req, await runCurrentMonthPreview(req, supabaseAdmin, userId));
+  } catch (error) {
+    if (error instanceof Error && error.name === "no_parseable_revenue_window") {
+      return jsonResponse(req, {
+        success: false,
+        code: error.name,
+        message: error.message,
+        window: currentMonthWindow(),
+      }, 422);
+    }
+    throw error;
+  }
+}
+
+function streamCurrentMonthPreview(req: Request, supabaseAdmin: ReturnType<typeof createClient>, userId: string) {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (event: JsonRecord) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify({ ts: new Date().toISOString(), ...event })}\n`));
+      };
+
+      try {
+        send({ type: "progress", stage: "start", message: "Bắt đầu parse PO/email" });
+        const result = await runCurrentMonthPreview(req, supabaseAdmin, userId, send);
+        send({ type: "done", stage: "preview_ready", ...result });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        send({ type: "error", stage: "error", error: message });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      ...getCorsHeaders(req),
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache",
+    },
+  });
 }
 
 serve(async (req) => {
@@ -660,6 +774,9 @@ serve(async (req) => {
     const action = String(body?.action || "preview_current_month");
 
     if (action === "preview_current_month") {
+      if (Boolean(body?.streamProgress)) {
+        return streamCurrentMonthPreview(req, supabaseAdmin, user.id);
+      }
       return await previewCurrentMonth(req, supabaseAdmin, user.id);
     }
 
