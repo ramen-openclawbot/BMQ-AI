@@ -639,7 +639,7 @@ const buildPreviewLines = (runId: string, period: string, revenueFrom: string, r
 
 const summarizeLines = (lines: PreviewLine[], window: ReturnType<typeof currentMonthWindow>) => {
   const customers = new Set(lines.map((line) => line.customer_id || line.customer_name));
-  const channels = new Map<string, { channel: string; rows: number; grossRevenue: number; quantity: number }>();
+  const channels = new Map<string, { channel: string; rows: number; grossRevenue: number; quantity: number; reviewFlaggedRows: number }>();
   let grossRevenue = 0;
   let quantity = 0;
   let needsReview = 0;
@@ -647,11 +647,13 @@ const summarizeLines = (lines: PreviewLine[], window: ReturnType<typeof currentM
   for (const line of lines) {
     grossRevenue += Number(line.gross_revenue || 0);
     quantity += Number(line.quantity || 0);
-    if (line.review_status === "needs_manual_review") needsReview += 1;
-    const cur = channels.get(line.channel) || { channel: line.channel, rows: 0, grossRevenue: 0, quantity: 0 };
+    const isReviewFlagged = line.review_status === "needs_manual_review";
+    if (isReviewFlagged) needsReview += 1;
+    const cur = channels.get(line.channel) || { channel: line.channel, rows: 0, grossRevenue: 0, quantity: 0, reviewFlaggedRows: 0 };
     cur.rows += 1;
     cur.grossRevenue += Number(line.gross_revenue || 0);
     cur.quantity += Number(line.quantity || 0);
+    if (isReviewFlagged) cur.reviewFlaggedRows += 1;
     channels.set(line.channel, cur);
   }
 
@@ -662,10 +664,15 @@ const summarizeLines = (lines: PreviewLine[], window: ReturnType<typeof currentM
     poReceivedFrom: window.poReceivedFrom,
     poReceivedTo: window.poReceivedTo,
     rows: lines.length,
+    postedRows: lines.length,
+    ledgerRows: lines.length,
     grossRevenue,
+    dashboardGrossRevenue: grossRevenue,
     quantity,
     customers: customers.size,
     needsReview,
+    reviewFlaggedRows: needsReview,
+    approvalSemantics: "owner_controlled_ledger_first",
     channels: Array.from(channels.values()).sort((a, b) => b.grossRevenue - a.grossRevenue),
   };
 };

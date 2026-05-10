@@ -90,6 +90,7 @@ interface MonthlyPreviewChannel {
   rows: number;
   grossRevenue: number;
   quantity: number;
+  reviewFlaggedRows?: number;
 }
 
 interface MonthlyPreviewSummary {
@@ -99,10 +100,15 @@ interface MonthlyPreviewSummary {
   poReceivedFrom: string;
   poReceivedTo: string;
   rows: number;
+  postedRows?: number;
+  ledgerRows?: number;
   grossRevenue: number;
+  dashboardGrossRevenue?: number;
   quantity: number;
   customers: number;
   needsReview: number;
+  reviewFlaggedRows?: number;
+  approvalSemantics?: string;
   channels?: MonthlyPreviewChannel[];
 }
 
@@ -304,6 +310,9 @@ export default function FinanceRevenueControl() {
   const pendingReview = draftStats.pending + draftStats.exception;
   const canRunAutomation = isOwner;
   const actionBusy = parseState === "running" || parseState === "approving" || parseState === "rejecting";
+  const previewLedgerRows = previewSummary?.ledgerRows ?? previewSummary?.postedRows ?? previewSummary?.rows ?? 0;
+  const previewDashboardGross = previewSummary?.dashboardGrossRevenue ?? previewSummary?.grossRevenue ?? 0;
+  const previewReviewFlags = previewSummary?.reviewFlaggedRows ?? previewSummary?.needsReview ?? 0;
 
   const channelSummaries = useMemo(() => {
     if (!previewSummary) return [];
@@ -322,7 +331,7 @@ export default function FinanceRevenueControl() {
       label: channelRuleLabel(channel.channel),
       hint: channelRuleHint(channel.channel),
       percent: previewSummary.grossRevenue > 0 ? (Number(channel.grossRevenue || 0) / previewSummary.grossRevenue) * 100 : 0,
-      needsReview: previewTruncated ? null : reviewCounts.get(channel.channel) || 0,
+      needsReview: previewTruncated ? null : channel.reviewFlaggedRows ?? reviewCounts.get(channel.channel) ?? 0,
     }));
   }, [previewLines, previewSummary, previewTruncated]);
 
@@ -512,7 +521,11 @@ export default function FinanceRevenueControl() {
       }
 
       const summary = result.summary && typeof result.summary === "object" ? result.summary as Record<string, unknown> : {};
-      const message = `${String(summary.period || previewSummary?.period || parseWindow.period)}: ${getNumber(summary.row_count || previewSummary?.rows)} dòng lưu • ${vnd(getNumber(summary.gross_total || previewSummary?.grossRevenue))}${getNumber(summary.excluded_review_line_count) > 0 ? ` • ${getNumber(summary.excluded_review_line_count)} dòng cần kiểm tra không vào dashboard` : ""}`;
+      const postedRows = getNumber(summary.posted_line_count ?? summary.row_count ?? previewLedgerRows);
+      const grossTotal = getNumber(summary.gross_total ?? previewDashboardGross);
+      const message = isVi
+        ? `${String(summary.period || previewSummary?.period || parseWindow.period)}: đã ghi ${numberFmt(postedRows)} dòng / ${vnd(grossTotal)} vào ledger và Doanh thu đã kiểm soát. User có thể review/edit sau; cuối tháng audit riêng.`
+        : `${String(summary.period || previewSummary?.period || parseWindow.period)}: posted ${numberFmt(postedRows)} rows / ${vnd(grossTotal)} to the controlled revenue ledger.`;
       setAutomationRunMessage(message);
       setParseState("approved");
       await Promise.all([
@@ -581,7 +594,7 @@ export default function FinanceRevenueControl() {
         <Card className="border-amber-300/30 bg-amber-50/70">
           <CardContent className="flex items-start gap-3 p-4 text-sm text-amber-900">
             <CircleAlert className="mt-0.5 h-4 w-4" />
-            {isVi ? "Chỉ owner được parse và duyệt kết quả tháng. Staff có thể kiểm tra/sửa doanh thu đã parse trong Daily Review." : "Only owners can parse and approve monthly results. Staff can review/edit parsed revenue in Daily Review."}
+            {isVi ? "Chỉ owner được parse và approve kết quả tháng. Sau approve, staff có thể review/edit doanh thu đã vào ledger." : "Only owners can parse and approve monthly results. After approval, staff can review/edit parsed revenue in the ledger."}
           </CardContent>
         </Card>
       ) : null}
@@ -640,11 +653,11 @@ export default function FinanceRevenueControl() {
 
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs leading-5 text-muted-foreground">
-              Approve sẽ ghi dòng đủ điều kiện vào operational `controlled`; dòng cần kiểm tra sẽ không vào dashboard và nguồn audit cuối tháng là tính năng riêng.
+              Approve sẽ ghi toàn bộ preview vào ledger và Doanh thu đã kiểm soát; user review/edit sau trên ledger, cuối tháng audit riêng.
             </p>
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button variant="outline" className="w-full sm:w-auto" onClick={() => window.location.assign("/finance-control/revenue/daily-review") }>
-                <Eye className="mr-2 h-4 w-4" />Daily Review
+              <Button variant="outline" className="w-full sm:w-auto" onClick={() => window.location.assign(`/finance-control/revenue?period=${parseWindow.period}`) }>
+                <Eye className="mr-2 h-4 w-4" />Ledger / Dashboard
               </Button>
               <Button
                 className="w-full border border-amber-300/60 bg-amber-400 text-stone-950 hover:bg-amber-300 disabled:opacity-60 sm:w-auto"
@@ -653,7 +666,7 @@ export default function FinanceRevenueControl() {
                 title={canRunAutomation ? "Owner-only monthly parse preview" : "Owner-only"}
               >
                 {parseState === "running" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                {isVi ? "Parse từ đầu tháng" : "Parse month to date"}
+                {isVi ? "Parse & xem preview T5" : "Parse & preview current month"}
               </Button>
             </div>
           </div>
@@ -740,8 +753,8 @@ export default function FinanceRevenueControl() {
             <div className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {[
-                  { label: "Dòng parse", value: numberFmt(previewSummary.rows), helper: `${previewSummary.needsReview} cần kiểm tra` },
-                  { label: "Doanh thu", value: vnd(previewSummary.grossRevenue), helper: "Operational controlled" },
+                  { label: "Dòng vào ledger", value: numberFmt(previewLedgerRows), helper: `${numberFmt(previewReviewFlags)} flag để edit/audit sau` },
+                  { label: "Doanh thu vào dashboard", value: vnd(previewDashboardGross), helper: "Doanh thu đã kiểm soát" },
                   { label: "Sản lượng", value: numberFmt(previewSummary.quantity), helper: "Từ PO/email" },
                   { label: "Customer", value: numberFmt(previewSummary.customers), helper: "Theo customer/NPP" },
                 ].map((item) => (
@@ -753,9 +766,9 @@ export default function FinanceRevenueControl() {
                 ))}
               </div>
 
-              {previewSummary.needsReview > 0 ? (
-                <div className="rounded-xl border border-rose-300/35 bg-rose-400/[0.08] p-4 text-sm text-rose-100">
-                  {previewSummary.needsReview} dòng cần kiểm tra sẽ không được ghi vào dashboard khi approve. Hãy xử lý các dòng này qua Daily Review hoặc reject nếu muốn parse lại.
+              {previewReviewFlags > 0 ? (
+                <div className="rounded-xl border border-amber-300/35 bg-amber-400/[0.08] p-4 text-sm text-amber-100">
+                  {numberFmt(previewReviewFlags)} dòng có parser flag để edit/audit sau. Các flag này không chặn approve: toàn bộ preview sẽ được ghi vào ledger và dashboard T5; cuối tháng có bước audit riêng.
                 </div>
               ) : null}
 
@@ -767,7 +780,7 @@ export default function FinanceRevenueControl() {
                       <div key={item.id}>• {item.sourceName || item.id} {item.importedAt ? `(${new Date(item.importedAt).toLocaleString("vi-VN")})` : ""}</div>
                     ))}
                   </div>
-                  <p className="mt-2 text-xs text-amber-100/80">Overwrite sẽ supersede bản cũ và ghi bản mới; không xoá cứng evidence cũ.</p>
+                  <p className="mt-2 text-xs text-amber-100/80">Replace sẽ supersede bản cũ và ghi bản mới vào ledger; dashboard chỉ tính bản mới, không double-count.</p>
                 </div>
               ) : null}
 
@@ -783,7 +796,7 @@ export default function FinanceRevenueControl() {
                 </div>
                 {previewTruncated ? (
                   <div className="rounded-xl border border-amber-300/35 bg-amber-400/[0.08] p-3 text-xs text-amber-100">
-                    Hệ thống chỉ trả sample 200 dòng đầu cho preview chi tiết, nên số dòng cần kiểm tra chỉ hiển thị ở tổng quan ({numberFmt(previewSummary.needsReview)} dòng) thay vì chia theo từng kênh.
+                    Hệ thống chỉ trả sample 200 dòng đầu cho preview chi tiết, nên số parser flag chỉ hiển thị ở tổng quan ({numberFmt(previewReviewFlags)} flag) thay vì chia theo từng kênh.
                   </div>
                 ) : null}
                 <div className="grid gap-3">
@@ -820,8 +833,8 @@ export default function FinanceRevenueControl() {
                         <div className="h-full rounded-full bg-amber-300" style={{ width: `${Math.min(100, Math.max(0, channel.percent))}%` }} />
                       </div>
                       {channel.needsReview !== null && channel.needsReview > 0 ? (
-                        <Badge className="mt-3 border border-rose-300/30 bg-rose-400/[0.08] text-rose-100">
-                          {numberFmt(channel.needsReview)} dòng cần kiểm tra
+                        <Badge className="mt-3 border border-amber-300/30 bg-amber-400/[0.08] text-amber-100">
+                          {numberFmt(channel.needsReview)} flag edit/audit sau
                         </Badge>
                       ) : null}
                     </div>
@@ -834,7 +847,7 @@ export default function FinanceRevenueControl() {
 
           {parseState === "approved" ? (
             <div className="rounded-xl border border-emerald-300/30 bg-emerald-400/[0.08] p-4 text-sm text-emerald-100">
-              <CheckCircle2 className="mb-2 h-5 w-5" />Đã lưu kết quả parse ở trạng thái operational controlled. Dashboard có thể hiển thị kỳ này.
+              <CheckCircle2 className="mb-2 h-5 w-5" />Đã ghi kết quả parse vào ledger ở trạng thái Doanh thu đã kiểm soát. Dashboard T5 cập nhật ngay; user có thể review/edit sau và cuối tháng audit riêng.
             </div>
           ) : null}
 
@@ -847,16 +860,16 @@ export default function FinanceRevenueControl() {
               <>
                 {overwritePrompt ? (
                   <Button variant="outline" className="border-stone-600 bg-transparent text-stone-200 hover:bg-stone-800" onClick={() => setOverwritePrompt(null)} disabled={actionBusy}>
-                    Cancel overwrite
+                    Cancel replace
                   </Button>
                 ) : (
                   <Button variant="outline" className="border-rose-300/40 bg-rose-400/[0.06] text-rose-100 hover:bg-rose-400/[0.12]" onClick={() => void rejectPreview()} disabled={actionBusy}>
                     {parseState === "rejecting" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}Reject
                   </Button>
                 )}
-                <Button className="bg-amber-400 text-stone-950 hover:bg-amber-300" onClick={() => void approvePreview(Boolean(overwritePrompt))} disabled={actionBusy || !previewRun?.id || !previewSummary || previewSummary.rows <= 0 || previewSummary.rows <= previewSummary.needsReview}>
+                <Button className="bg-amber-400 text-stone-950 hover:bg-amber-300" onClick={() => void approvePreview(Boolean(overwritePrompt))} disabled={actionBusy || !previewRun?.id || !previewSummary || previewLedgerRows <= 0 || previewDashboardGross <= 0 || !canRunAutomation}>
                   {parseState === "approving" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
-                  {overwritePrompt ? "Overwrite & approve" : previewSummary && previewSummary.rows <= 0 ? "Không có dòng để approve" : "Approve"}
+                  {overwritePrompt ? "Replace bản T5 hiện tại & approve" : previewLedgerRows <= 0 ? "Không có dòng để approve" : "Approve & đưa vào dashboard T5"}
                 </Button>
               </>
             ) : null}

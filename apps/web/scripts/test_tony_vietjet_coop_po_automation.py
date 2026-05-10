@@ -6,11 +6,13 @@ ROOT = Path(__file__).resolve().parents[1]
 SYNC = ROOT / "supabase/functions/po-gmail-sync/index.ts"
 SCHED = ROOT / "supabase/functions/po-sync-scheduler-run/index.ts"
 MONTHLY = ROOT / "supabase/functions/revenue-monthly-parse-preview/index.ts"
+MONTHLY_APPROVE_MIGRATION = ROOT / "supabase/migrations/20260510122949_monthly_parse_owner_controlled_approve.sql"
 SPEC = ROOT.parents[1] / "PO_AUTO_PARSE_FLOW_SPEC.md"
 
 sync = SYNC.read_text(encoding="utf-8")
 scheduler = SCHED.read_text(encoding="utf-8")
 monthly = MONTHLY.read_text(encoding="utf-8")
+monthly_approve_migration = MONTHLY_APPROVE_MIGRATION.read_text(encoding="utf-8")
 spec = SPEC.read_text(encoding="utf-8")
 
 
@@ -114,6 +116,31 @@ def test_scheduler_keeps_new_rules_in_exception_review_path() -> None:
         ("canCreatePendingDraft = isTier1 && !automationNeedsReview", "review status blocks pending drafts"),
     ]:
         assert_contains(scheduler, needle, label)
+
+
+def test_monthly_approval_posts_all_preview_rows_to_controlled_ledger() -> None:
+    for needle, label in [
+        ("owner_controlled_ledger_first", "ledger-first approval semantics marker"),
+        ("'posted_line_count', _line_count", "posted line count matches all preview rows"),
+        ("'review_flagged_line_count', _review_flagged_line_count", "review flag count preserved as metadata"),
+        ("'trust_semantics', 'not_trusted_month_end_audit_source'", "PO/email parse is not trusted month-end source"),
+        ("from public.revenue_monthly_parse_lines\n  where run_id = _run.id\n  order by source_row_number", "all preview lines inserted without review-status filter"),
+        ("approval_status = 'superseded'", "old ledger rows superseded on replace"),
+    ]:
+        assert_contains(monthly_approve_migration, needle, label)
+    assert "and review_status <> 'needs_manual_review'" not in monthly_approve_migration, "approval must not exclude parser-review rows"
+    assert "excluded_review_line_count" not in monthly_approve_migration, "approval should not report review rows as excluded"
+
+
+def test_monthly_preview_summary_exposes_ledger_first_counts() -> None:
+    for needle, label in [
+        ("postedRows: lines.length", "preview posted rows equals all lines"),
+        ("ledgerRows: lines.length", "preview ledger rows equals all lines"),
+        ("dashboardGrossRevenue: grossRevenue", "dashboard gross equals total preview gross"),
+        ("reviewFlaggedRows: needsReview", "review flags preserved as metadata"),
+        ("approvalSemantics: \"owner_controlled_ledger_first\"", "preview approval semantics marker"),
+    ]:
+        assert_contains(monthly, needle, label)
 
 
 if __name__ == "__main__":
