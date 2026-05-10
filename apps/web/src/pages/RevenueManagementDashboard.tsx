@@ -409,21 +409,36 @@ export default function RevenueManagementDashboard() {
         timingTotals.set(timingBucket(lineDateDay(row), baselineDays), (timingTotals.get(timingBucket(lineDateDay(row), baselineDays)) || 0) + revenue);
       }
 
-      const weightedProductDaily = actualControlled > 0
-        ? Array.from(currentProductTotals.entries()).reduce((sum, [key, revenue]) => {
-          const share = revenue / actualControlled;
-          return sum + share * ((productTotals.get(key) || 0) / baselineDays || dailyAverage);
-        }, 0)
-        : dailyAverage;
-      const weightedChannelDaily = actualControlled > 0
+      const baselineDailyAnchor = dailyAverage;
+      const channelLiftFromComparableShares = actualControlled > 0 && total > 0
         ? Array.from(currentChannelTotals.entries()).reduce((sum, [key, revenue]) => {
-          const share = revenue / actualControlled;
-          return sum + share * ((channelTotals.get(key) || 0) / baselineDays || dailyAverage);
+          const currentShare = revenue / actualControlled;
+          const baselineShare = (channelTotals.get(key) || 0) / total;
+          const shareLift = key !== "unknown" && baselineShare > 0 ? currentShare / baselineShare : 1;
+          return sum + currentShare * shareLift;
         }, 0)
-        : dailyAverage;
-      const comparableDaily = productMixCoverage >= 0.25
-        ? weightedProductDaily * 0.45 + weightedChannelDaily * 0.35 + dailyAverage * 0.2
-        : weightedChannelDaily * 0.55 + dailyAverage * 0.45;
+        : 1;
+      const channelMixFactor = actualControlled > 0 && total > 0
+        ? clamp(channelLiftFromComparableShares || 1, 0.9, 1.1)
+        : 1;
+      const productLiftFromKnownProducts = actualControlled > 0 && total > 0 && productMixCoverage >= 0.25
+        ? Array.from(currentProductTotals.entries()).reduce((sum, [key, revenue]) => {
+          const currentShare = revenue / actualControlled;
+          const baselineShare = (productTotals.get(key) || 0) / total;
+          const hasKnownProduct = key !== "unknown" && !key.startsWith("SOURCE:");
+          const shareLift = hasKnownProduct && baselineShare > 0 ? currentShare / baselineShare : 1;
+          return sum + currentShare * shareLift;
+        }, 0)
+        : 1;
+      const productMixFactor = productMixCoverage >= 0.25
+        ? clamp(productLiftFromKnownProducts || 1, 0.9, 1.1)
+        : 1;
+      const baselineComparableFloor = dailyAverage * 0.9;
+      const comparableDaily = clamp(
+        baselineDailyAnchor * channelMixFactor * productMixFactor,
+        baselineComparableFloor,
+        dailyAverage * 1.15,
+      );
       const elapsedTimingShare = total > 0
         ? Array.from(timingTotals.entries())
           .filter(([bucket]) => bucket === "early" || (cutoffDay > periodDays / 3 && bucket === "mid") || (cutoffDay > (periodDays * 2) / 3 && bucket === "late"))
@@ -503,7 +518,7 @@ export default function RevenueManagementDashboard() {
     const drivers = [
       productMixCoverage >= 0.25
         ? `Mix sản phẩm/SKU: ${numberFmt(productMixCoverage * 100)}% doanh thu có mã sản phẩm/SKU để so với baseline.`
-        : `Mix sản phẩm/SKU: dữ liệu mã còn mỏng (${numberFmt(productMixCoverage * 100)}%), đang fallback thêm theo source/kênh.`,
+        : `Mix sản phẩm/SKU: dữ liệu product/SKU còn mỏng (${numberFmt(productMixCoverage * 100)}%), forecast fallback về historical baseline + điều chỉnh channel/source có biên.`,
       `Mix kênh: kênh lớn nhất ${channelLabel[topChannel[0]] || topChannel[0]} chiếm ${numberFmt(topChannelShare * 100)}% doanh thu đã kiểm soát.`,
       remainingWeekdayFactor >= 1.05
         ? `Lịch ngày còn lại nghiêng về ngày cao điểm, hệ số weekday/peak khoảng ${numberFmt(remainingWeekdayFactor)}x.`
@@ -737,7 +752,7 @@ export default function RevenueManagementDashboard() {
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="text-xs uppercase tracking-[0.14em] text-stone-400">Giải thích dự báo V2</div>
-                  <div className="text-xs text-stone-400">Công thức: blend baseline mix + run-rate gần đây + lịch ngày còn lại; không phải số audit cuối tháng.</div>
+                  <div className="text-xs text-stone-400">Công thức: blend historical baseline có bounded channel/source adjustment + run-rate gần đây + lịch ngày còn lại; không phải số audit cuối tháng.</div>
                 </div>
                 <Badge className={`w-fit border ${forecast.confidenceTone}`} variant="outline">Độ tin cậy: {forecast.confidenceLabel}</Badge>
               </div>
