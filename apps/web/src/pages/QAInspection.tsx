@@ -164,10 +164,10 @@ export default function QAInspection() {
   });
 
   // Fetch production orders for create dialog
-  const { data: productionOrders = [] } = useQuery({
+  const { data: productionOrders = [] } = useQuery<ProductionOrder[]>({
     queryKey: ["production_orders_active"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("production_orders")
         .select("*")
         .in("status", ["in_progress", "completed"])
@@ -182,7 +182,7 @@ export default function QAInspection() {
   const { data: productionShifts = [] } = useQuery({
     queryKey: ["production_shifts"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("production_shifts")
         .select("*")
         .order("shift_date", { ascending: false });

@@ -95,6 +95,7 @@ interface ProductionOrderItem {
   line_total: number;
   line_complete: boolean;
   delivery_date: string;
+  actual_qty?: number | null;
   notes: string | null;
   created_at: string;
 }
@@ -132,7 +133,7 @@ export default function ProductionPlanning() {
 
   // Form states for creation
   const [formData, setFormData] = useState<{
-    items: Array<{ product_name: string; planned_qty: number; unit: string; unit_price: number; line_total: number; date: string }>;
+    items: Array<{ product_name: string; original_qty: number; planned_qty: number; unit: string; unit_price: number; line_total: number; date: string }>;
     planned_start_date: string;
     planned_end_date: string;
     notes: string;
@@ -410,6 +411,7 @@ export default function ProductionPlanning() {
     setSelectedPoForCreation(po);
     const items = (po.production_items || []).map((item) => ({
       product_name: item.product_name,
+      original_qty: item.qty,
       planned_qty: item.qty,
       unit: item.unit,
       unit_price: item.unit_price,
@@ -742,16 +744,16 @@ export default function ProductionPlanning() {
                             <p className="font-medium">
                               {item.planned_qty} {item.unit}
                             </p>
-                            {item.actual_qty > 0 && (
+                            {Number(item.actual_qty || 0) > 0 && (
                               <p className="text-xs text-green-600">
-                                ✓ Thực tế: {item.actual_qty} {item.unit}
+                                ✓ Thực tế: {Number(item.actual_qty || 0)} {item.unit}
                               </p>
                             )}
                             {/* Deficit indicator */}
-                            {item.actual_qty < item.planned_qty && item.planned_qty > 0 && (
+                            {Number(item.actual_qty || 0) < item.planned_qty && item.planned_qty > 0 && (
                               <p className="text-xs text-red-600 font-medium flex items-center gap-1 justify-end mt-0.5">
                                 <AlertCircle className="h-3 w-3" />
-                                Thiếu {(item.planned_qty - item.actual_qty).toLocaleString("vi-VN")} {item.unit}
+                                Thiếu {(item.planned_qty - Number(item.actual_qty || 0)).toLocaleString("vi-VN")} {item.unit}
                               </p>
                             )}
                           </div>

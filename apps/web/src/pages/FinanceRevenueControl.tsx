@@ -237,7 +237,7 @@ const channelRuleLabel = (channel: string) => {
   return channel || "Other";
 };
 
-const channelRuleHint = () => "Kênh dashboard";
+const channelRuleHint = (_channel?: string) => "Kênh dashboard";
 
 export default function FinanceRevenueControl() {
   const { language } = useLanguage();

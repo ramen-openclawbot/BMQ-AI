@@ -145,6 +145,28 @@ interface Translations {
   filter: string;
   export: string;
   addItem: string;
+
+  // Dashboard page
+  dashboardTitle: string;
+  dashboardDescription: string;
+  dashboardTotalItems: string;
+  dashboardTotalItemsDesc: string;
+  dashboardActiveSuppliers: string;
+  dashboardActiveSuppliersDesc: string;
+  dashboardPendingApprovals: string;
+  dashboardPendingApprovalsDesc: string;
+  dashboardLowStockItems: string;
+  dashboardLowStockItemsDesc: string;
+  dashboardQuickActions: string;
+  dashboardNewRequest: string;
+  dashboardNewRequestDesc: string;
+  dashboardGenerateReport: string;
+  dashboardGenerateReportDesc: string;
+  dashboardViewAnalytics: string;
+  dashboardViewAnalyticsDesc: string;
+  dashboardSyncInventory: string;
+  dashboardSyncInventoryDesc: string;
+  dashboardTrendFromLastMonth: string;
   
   // Common
   loading: string;

@@ -93,9 +93,9 @@ export const parseCostTemplate = (value: unknown): CostTemplateLine[] => {
     return [...DEFAULT_SKU_COST_TEMPLATE];
   }
 
-  const lines = value
+  const lines: CostTemplateLine[] = value
     .filter((item) => item && typeof item === "object")
-    .map((item: any) => ({
+    .map((item: any): CostTemplateLine => ({
       key: String(item.key || ""),
       label: String(item.label || ""),
       mode: item.mode === "percent_of_material" ? "percent_of_material" : "amount",

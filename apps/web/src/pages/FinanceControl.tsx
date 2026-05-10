@@ -984,7 +984,7 @@ export default function FinanceControl() {
 
     return {
       imageBase64: normalized.imageBase64,
-      extracted: result.data as { amount: number; confidence?: number; transfer_date?: string; reference?: string },
+      extracted: result.data as { amount: number; confidence?: number; transfer_date?: string; reference?: string; provider?: string },
     };
   };
 

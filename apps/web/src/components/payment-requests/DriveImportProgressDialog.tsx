@@ -171,7 +171,7 @@ const upsertDriveFileIndex = async (
 ) => {
   await supabase
     .from('drive_file_index')
-    .upsert(payload, { onConflict: 'file_id,folder_type' });
+    .upsert(payload as any, { onConflict: 'file_id,folder_type' });
 };
 
 // Helper function to find best matching supplier by fuzzy name match

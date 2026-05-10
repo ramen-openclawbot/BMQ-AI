@@ -363,8 +363,8 @@ export default function AttendanceManagement() {
       if (!periodFrom || !periodTo) throw new Error(isVi ? "Thiếu ngày bắt đầu/kết thúc" : "Date range is required");
       if (periodFrom > periodTo) throw new Error(isVi ? "Ngày bắt đầu phải trước ngày kết thúc" : "Date from must be before date to");
 
-      const fromCode = periodFrom.replaceAll("-", "");
-      const toCode = periodTo.replaceAll("-", "");
+      const fromCode = periodFrom.replace(/-/g, "");
+      const toCode = periodTo.replace(/-/g, "");
       const fallbackName = `${isVi ? "Kỳ công" : "Attendance period"} ${periodFrom} → ${periodTo}`;
       const periodCode = `ATT-${fromCode}-${toCode}-${Date.now().toString().slice(-4)}`;
 

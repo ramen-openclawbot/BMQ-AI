@@ -27,6 +27,18 @@ export default function SkuCostsAnalysis() {
 
   const items = data?.items || [];
   const trendRows = data?.trendRows || [];
+  const copy = {
+    filter: language === "vi" ? "Bộ lọc" : "Filters",
+    search: language === "vi" ? "Tìm kiếm SKU hoặc sản phẩm" : "Search SKU or product",
+    title: language === "vi" ? "Tính chi phí giá vốn hàng bán (SKU thành phẩm)" : "COGS calculation (finished SKUs)",
+    loading: language === "vi" ? "Đang tải dữ liệu..." : "Loading data...",
+    empty: language === "vi" ? "Chưa có dữ liệu." : "No data yet.",
+    trendTitle: language === "vi" ? "Cost Trend theo dữ liệu mua hàng" : "Cost trend from purchasing data",
+    trendEmpty: language === "vi" ? "Chưa có dữ liệu mua hàng để dựng trend." : "No purchasing data to build the trend yet.",
+    breakdownTitle: language === "vi" ? "Tỷ trọng nhóm chi phí" : "Cost mix",
+    overheadTitle: language === "vi" ? "Phân bổ chi phí chung" : "Shared overhead allocation",
+    overheadDesc: language === "vi" ? "Delivery + Other Production + BH&QL đang được gom vào nhóm chi phí chung trong phân tích tổng quan." : "Delivery, other production, and SG&A are grouped into shared overhead in the overview analysis.",
+  };
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -175,15 +187,3 @@ export default function SkuCostsAnalysis() {
     </div>
   );
 }
-  const copy = {
-    filter: language === "vi" ? "Bộ lọc" : "Filters",
-    search: language === "vi" ? "Tìm kiếm SKU hoặc sản phẩm" : "Search SKU or product",
-    title: language === "vi" ? "Tính chi phí giá vốn hàng bán (SKU thành phẩm)" : "COGS calculation (finished SKUs)",
-    loading: language === "vi" ? "Đang tải dữ liệu..." : "Loading data...",
-    empty: language === "vi" ? "Chưa có dữ liệu." : "No data yet.",
-    trendTitle: language === "vi" ? "Cost Trend theo dữ liệu mua hàng" : "Cost trend from purchasing data",
-    trendEmpty: language === "vi" ? "Chưa có dữ liệu mua hàng để dựng trend." : "No purchasing data to build the trend yet.",
-    breakdownTitle: language === "vi" ? "Tỷ trọng nhóm chi phí" : "Cost mix",
-    overheadTitle: language === "vi" ? "Phân bổ chi phí chung" : "Shared overhead allocation",
-    overheadDesc: language === "vi" ? "Delivery + Other Production + BH&QL đang được gom vào nhóm chi phí chung trong phân tích tổng quan." : "Delivery, other production, and SG&A are grouped into shared overhead in the overview analysis.",
-  };

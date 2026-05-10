@@ -536,6 +536,70 @@ export function AddGoodsReceiptDialog() {
     e.currentTarget.value = "";
   };
 
+  const runBatchScan = async () => {
+    if (!batchFiles.length) {
+      toast.error("Chưa có file để scan");
+      return;
+    }
+
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !sessionData.session) {
+      toast.error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+      return;
+    }
+
+    setIsBatchScanning(true);
+    setBatchProgress({ done: 0, total: batchFiles.length });
+
+    try {
+      for (const entry of batchFiles) {
+        if (entry.status === "success") {
+          setBatchProgress((prev) => ({ ...prev, done: prev.done + 1 }));
+          continue;
+        }
+
+        setBatchFiles((prev) => prev.map((item) => item.id === entry.id ? { ...item, status: "running", error: undefined } : item));
+        try {
+          const result = await scanInvoiceFile(entry.file, sessionData.session.access_token);
+          setBatchFiles((prev) => prev.map((item) => item.id === entry.id
+            ? {
+                ...item,
+                status: "success",
+                matchedItems: result.matchedItems,
+                supplierId: result.supplierId || undefined,
+                supplierInfo: result.supplierInfo,
+              }
+            : item));
+        } catch (err) {
+          setBatchFiles((prev) => prev.map((item) => item.id === entry.id
+            ? { ...item, status: "error", error: err instanceof Error ? err.message : "Không thể scan file" }
+            : item));
+        } finally {
+          setBatchProgress((prev) => ({ ...prev, done: prev.done + 1 }));
+        }
+      }
+    } finally {
+      setIsBatchScanning(false);
+    }
+  };
+
+  const applyBatchResults = () => {
+    const successful = batchFiles.filter((file) => file.status === "success" && file.matchedItems?.length);
+    if (!successful.length) {
+      toast.error("Chưa có kết quả batch hợp lệ để áp dụng");
+      return;
+    }
+
+    const mergedItems = successful.flatMap((file) => file.matchedItems || []);
+    applyMergedItemsToForm(mergedItems);
+
+    const supplierFromBatch = batchSupplierId || successful.find((file) => file.supplierId)?.supplierId || "";
+    if (supplierFromBatch) form.setValue("supplier_id", supplierFromBatch);
+    setScanSupplierInfo(successful.find((file) => file.supplierInfo)?.supplierInfo || null);
+    setScanCompleted(true);
+    toast.success(`Đã áp dụng ${successful.length}/${batchFiles.length} file scan thành công`);
+  };
+
   // Auto-scan when image is uploaded
   useEffect(() => {
     const autoScan = async () => {

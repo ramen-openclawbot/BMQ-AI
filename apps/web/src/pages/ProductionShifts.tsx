@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -176,13 +176,13 @@ function CreateShiftDialog({
   });
 
   // Initialize item quantities when order items load
-  useState(() => {
+  useEffect(() => {
     const newQtys: Record<string, number> = {};
     orderItems.forEach((item) => {
       newQtys[item.id] = item.planned_qty;
     });
     setItemQtys(newQtys);
-  }, [orderItems.length]);
+  }, [orderItems]);
 
   // Create shift mutation
   const createShiftMutation = useMutation({
