@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { type KeyboardEvent, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, CalendarDays, CheckCircle2, Loader2, Settings, Users } from "lucide-react";
@@ -165,6 +165,8 @@ const metricCards = [
     key: "approved",
     label: "Đã vào ledger",
     helper: "Dòng đã kiểm soát",
+    detailLabel: "Chạm để xem chi tiết",
+    params: { scope: "controlled_ledger" },
     icon: CheckCircle2,
     valueTone: "text-emerald-200",
     iconShell: "border-emerald-300/25 bg-emerald-400/[0.08] text-emerald-200",
@@ -174,6 +176,8 @@ const metricCards = [
     key: "review",
     label: "Cần kiểm tra",
     helper: "Review queue",
+    detailLabel: "Chạm để xem chi tiết",
+    params: { scope: "controlled_ledger", review: "review_queue" },
     icon: AlertTriangle,
     valueTone: "text-rose-200",
     iconShell: "border-rose-300/30 bg-rose-400/[0.08] text-rose-200",
@@ -183,6 +187,8 @@ const metricCards = [
     key: "qty",
     label: "Sản lượng",
     helper: "Quantity from ledger",
+    detailLabel: "Chạm để xem chi tiết",
+    params: { scope: "controlled_ledger", focus: "quantity" },
     icon: CalendarDays,
     valueTone: "text-amber-100/80",
     iconShell: "border-amber-300/20 bg-amber-400/[0.08] text-amber-300/70",
@@ -192,6 +198,8 @@ const metricCards = [
     key: "customers",
     label: "Customer/NPP",
     helper: "Roll-up groups",
+    detailLabel: "Chạm để xem chi tiết",
+    params: { scope: "controlled_ledger", focus: "customers" },
     icon: Users,
     valueTone: "text-stone-100",
     iconShell: "border-stone-500/30 bg-stone-400/[0.08] text-stone-300",
@@ -411,9 +419,15 @@ export default function RevenueManagementDashboard() {
       });
   }, [lines, previousLines]);
 
-  const openSources = (params: Record<string, string>) => {
+  const openSources = (params: Readonly<Record<string, string>>) => {
     const sp = new URLSearchParams({ period, ...params });
     navigate(`/finance-control/revenue/sources?${sp.toString()}`);
+  };
+
+  const handleCardKeyDown = (event: KeyboardEvent<HTMLDivElement>, params: Readonly<Record<string, string>>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openSources(params);
   };
 
   return (
@@ -456,7 +470,15 @@ export default function RevenueManagementDashboard() {
           const helper = card.key === "approved" ? `${stats.rows} ${card.helper}` : card.helper;
 
           return (
-            <Card key={card.key} className={`overflow-hidden rounded-xl border border-amber-100/10 bg-gradient-to-br ${card.cardTone} ring-1 ring-stone-200/5`}>
+            <Card
+              key={card.key}
+              role="button"
+              tabIndex={0}
+              aria-label={`${card.label}: ${card.detailLabel}`}
+              onClick={() => openSources(card.params)}
+              onKeyDown={(event) => handleCardKeyDown(event, card.params)}
+              className={`cursor-pointer overflow-hidden rounded-xl border border-amber-100/10 bg-gradient-to-br ${card.cardTone} ring-1 ring-stone-200/5 transition duration-150 hover:border-amber-200/35 hover:shadow-[0_0_24px_rgba(245,158,11,0.16)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/45 active:scale-[0.99]`}
+            >
               <CardContent className="p-4 pr-5">
                 <div className="flex min-w-0 items-start justify-between gap-4">
                   <div className="min-w-0 flex-1 space-y-2 pr-1">
@@ -468,6 +490,7 @@ export default function RevenueManagementDashboard() {
                       {isLoading ? <span className="inline-block h-6 w-24 animate-pulse rounded bg-stone-700/70 align-middle" /> : value}
                     </div>
                     <div className="mt-1 truncate text-xs text-stone-300/70" title={helper}>{helper}</div>
+                    <div className="text-[11px] font-medium text-amber-200/80">{card.detailLabel}</div>
                   </div>
                   <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border ${card.iconShell}`}>
                     <Icon className="h-5 w-5" />

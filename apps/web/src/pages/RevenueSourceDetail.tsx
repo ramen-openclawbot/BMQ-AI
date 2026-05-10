@@ -77,6 +77,7 @@ type RevenueUpdatePayload = {
 
 type RevenueQuery = PromiseLike<{ data: RevenueLine[] | null; error: { message?: string } | null }> & {
   eq: (column: string, value: string) => RevenueQuery;
+  in: (column: string, values: string[]) => RevenueQuery;
   or: (filters: string) => RevenueQuery;
   order: (column: string, options: { ascending: boolean }) => RevenueQuery;
   range: (from: number, to: number) => RevenueQuery;
@@ -129,9 +130,10 @@ const ledgerSnapshot = (row: RevenueLine) => ({
   raw_payload: row.raw_payload,
 });
 
-async function fetchAllRevenueSourceLines(period: string, channel: string, review: string, sourceDocumentId: string, revenueDate: string) {
+async function fetchAllRevenueSourceLines(period: string, channel: string, review: string, sourceDocumentId: string, revenueDate: string, scope: string) {
   const pageSize = 1000;
   const rows: RevenueLine[] = [];
+  const isControlledLedgerScope = scope === "controlled_ledger";
 
   for (let from = 0; ; from += pageSize) {
     let query = db
@@ -144,7 +146,9 @@ async function fetchAllRevenueSourceLines(period: string, channel: string, revie
 
     if (sourceDocumentId) query = query.eq("source_document_id", sourceDocumentId);
     if (revenueDate) query = query.eq("revenue_date", revenueDate);
-    if (sourceDocumentId || revenueDate) {
+    if (isControlledLedgerScope) {
+      query = query.in("source_document.status", ["controlled", "trusted"]).eq("approval_status", "approved");
+    } else if (sourceDocumentId || revenueDate) {
       query = query
         .eq("source_document.status", "controlled")
         .eq("source_document.source_type", "po_email_parse")
@@ -194,17 +198,25 @@ export default function RevenueSourceDetail() {
   const channel = params.get("channel") || "";
   const customerKey = params.get("customer_key") || "";
   const review = params.get("review") || "";
+  const scope = params.get("scope") || "";
+  const focus = params.get("focus") || "";
   const sourceDocumentId = params.get("sourceDocumentId") || "";
   const revenueDate = params.get("revenue_date") || "";
+  const isControlledLedgerScope = scope === "controlled_ledger";
+  const isQuantityFocus = focus === "quantity";
+  const isCustomersFocus = focus === "customers";
+  const dashboardUrl = `/finance-control/revenue?${new URLSearchParams({ period }).toString()}`;
+  const focusLabel = isQuantityFocus ? "Sản lượng" : isCustomersFocus ? "Customer/NPP" : focus;
+  const reviewLabel = review === "review_queue" ? "Cần kiểm tra" : review;
   const [q, setQ] = useState("");
   const [editingLine, setEditingLine] = useState<RevenueLine | null>(null);
   const [editForm, setEditForm] = useState<RevenueEditForm | null>(null);
   const [saving, setSaving] = useState(false);
 
   const { data: lines = [], isLoading, error, refetch } = useQuery<RevenueLine[]>({
-    queryKey: ["revenue-source-detail", period, channel, customerKey, review, sourceDocumentId, revenueDate],
+    queryKey: ["revenue-source-detail", period, channel, customerKey, review, scope, focus, sourceDocumentId, revenueDate],
     queryFn: async () => {
-      return fetchAllRevenueSourceLines(period, channel, review, sourceDocumentId, revenueDate);
+      return fetchAllRevenueSourceLines(period, channel, review, sourceDocumentId, revenueDate, scope);
     },
   });
 
@@ -238,6 +250,17 @@ export default function RevenueSourceDetail() {
     if (value) next.set(key, value); else next.delete(key);
     setParams(next);
   };
+
+  const sourceLinesDescription = isQuantityFocus
+    ? "Search product/customer/source. Ưu tiên xem chi tiết Qty, product và source lines."
+    : isCustomersFocus
+      ? "Search customer/NPP/source. Đang xem ledger theo customer/NPP để lọc nhóm khách trong bảng."
+      : "Search invoice/customer/product/review flag. Staff sửa dòng sai tại đây; mỗi lần lưu sẽ ghi audit log.";
+  const searchPlaceholder = isQuantityFocus
+    ? "Search product/customer/source..."
+    : isCustomersFocus
+      ? "Search customer/NPP/source..."
+      : "Search source lines…";
 
   const openEdit = (row: RevenueLine) => {
     setEditingLine(row);
@@ -328,12 +351,14 @@ export default function RevenueSourceDetail() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-2">
-          <Button variant="ghost" className="-ml-2" onClick={() => navigate("/finance-control/revenue")}>
+          <Button variant="ghost" className="-ml-2" onClick={() => navigate(dashboardUrl)}>
             <ArrowLeft className="mr-2 h-4 w-4" />Quay lại dashboard
           </Button>
           <div className="flex flex-wrap gap-2">
             <Badge variant="secondary" className="gap-1"><Database className="h-3 w-3" />Source detail</Badge>
-            {review ? <Badge variant="outline">{review}</Badge> : null}
+            {isControlledLedgerScope ? <Badge variant="outline">Controlled ledger</Badge> : null}
+            {focusLabel ? <Badge variant="outline">{focusLabel}</Badge> : null}
+            {reviewLabel ? <Badge variant="outline">{reviewLabel}</Badge> : null}
             {channel ? <Badge variant="outline">{channel}</Badge> : null}
             {sourceDocumentId ? <Badge variant="outline">Auto daily source</Badge> : null}
             {revenueDate ? <Badge variant="outline">{revenueDate}</Badge> : null}
@@ -344,6 +369,16 @@ export default function RevenueSourceDetail() {
               ? "Trace từng dòng ledger về nguồn đối soát/PO/email. Dòng parse từ PO là evidence vận hành; số dashboard lấy từ ledger đã kiểm soát."
               : "Trace each ledger line back to source evidence, PO, and email. Parsed PO rows are operational evidence; dashboard numbers come from the controlled ledger."}
           </p>
+          {isControlledLedgerScope ? (
+            <p className="max-w-3xl text-sm text-muted-foreground">
+              Controlled ledger: Số vận hành đã kiểm soát, chưa phải final audit.
+            </p>
+          ) : null}
+          {isCustomersFocus ? (
+            <p className="max-w-3xl text-sm text-muted-foreground">
+              Đang xem toàn bộ ledger theo kỳ; dùng search/bảng để lọc customer hoặc NPP cần kiểm tra.
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant={review ? "default" : "outline"} onClick={() => updateParam("review", review ? "" : "review_queue")}>
@@ -354,7 +389,7 @@ export default function RevenueSourceDetail() {
 
       <div className="grid gap-3 md:grid-cols-4">
         <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">Rows</div><div className="mt-1 text-2xl font-bold">{stats.rows}</div></CardContent></Card>
-        <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">Qty</div><div className="mt-1 text-2xl font-bold">{numberFmt(stats.qty)}</div></CardContent></Card>
+        <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">{isQuantityFocus ? "Qty từ ledger" : "Qty"}</div><div className="mt-1 text-2xl font-bold">{numberFmt(stats.qty)}</div></CardContent></Card>
         <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">Revenue</div><div className="mt-1 text-2xl font-bold">{vnd(stats.revenue)}</div></CardContent></Card>
         <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">Need review</div><div className="mt-1 text-2xl font-bold">{stats.review}</div></CardContent></Card>
       </div>
@@ -382,11 +417,11 @@ export default function RevenueSourceDetail() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <CardTitle>Ledger source lines</CardTitle>
-              <CardDescription>Search invoice/customer/product/review flag. Staff sửa dòng sai tại đây; mỗi lần lưu sẽ ghi audit log.</CardDescription>
+              <CardDescription>{sourceLinesDescription}</CardDescription>
             </div>
             <div className="relative w-full lg:w-[360px]">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search source lines…" className="pl-9" />
+              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder} className="pl-9" />
             </div>
           </div>
         </CardHeader>
