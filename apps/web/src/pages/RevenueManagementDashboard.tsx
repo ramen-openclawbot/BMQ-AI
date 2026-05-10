@@ -105,7 +105,67 @@ const dayOfMonth = (date: string) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-const sumRevenue = (rows: RevenueLine[]) => rows.reduce((sum, r) => sum + Number(r.gross_revenue || 0), 0);
+const safeNumber = (value: unknown) => {
+  const n = Number(value || 0);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const lineRevenue = (row: RevenueLine) => safeNumber(row.gross_revenue);
+
+const lineDateDay = (row: RevenueLine) => dayOfMonth(row.revenue_date);
+
+const lineWeekday = (date: string) => {
+  const d = new Date(`${date}T00:00:00+07:00`);
+  return Number.isFinite(d.getTime()) ? d.getDay() : 0;
+};
+
+const extractRawText = (rawPayload: unknown, keys: string[]) => {
+  const raw = asRecord(rawPayload);
+  const records = [raw, asRecord(raw.product), asRecord(raw.sku), asRecord(raw.item), asRecord(raw.line_item)];
+
+  for (const record of records) {
+    for (const key of keys) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+      if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    }
+  }
+
+  return "";
+};
+
+const productSkuKey = (row: RevenueLine) => {
+  const keys = ["product", "product_name", "product_code", "product_group", "sku", "sku_id", "sku_code", "sku_name"];
+  const rawValue = extractRawText(row.raw_payload, keys);
+  if (rawValue) return rawValue.toLocaleUpperCase("vi-VN");
+
+  const rowRecord = row as unknown as Record<string, unknown>;
+  for (const key of keys) {
+    const value = rowRecord[key];
+    if (typeof value === "string" && value.trim()) return value.trim().toLocaleUpperCase("vi-VN");
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  }
+
+  return row.source_tab ? `SOURCE:${row.source_tab}` : "unknown";
+};
+
+const timingBucket = (day: number, periodDays: number) => {
+  if (day <= Math.ceil(periodDays / 3)) return "early";
+  if (day <= Math.ceil((periodDays * 2) / 3)) return "mid";
+  return "late";
+};
+
+const timingBucketLabel: Record<string, string> = {
+  early: "đầu tháng",
+  mid: "giữa tháng",
+  late: "cuối tháng",
+};
+
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const dateForPeriodDay = (period: string, day: number) => `${period}-${String(day).padStart(2, "0")}`;
+
+const sumRevenue = (rows: RevenueLine[]) => rows.reduce((sum, r) => sum + lineRevenue(r), 0);
 
 const maxRevenueDay = (rows: RevenueLine[], fallbackPeriod: string) => {
   const latest = rows.reduce((max, r) => Math.max(max, dayOfMonth(r.revenue_date)), 0);
@@ -295,40 +355,182 @@ export default function RevenueManagementDashboard() {
     const periodDays = daysInPeriod(period);
     const cutoffDay = Math.min(maxRevenueDay(lines, period), periodDays);
     const remainingDays = Math.max(periodDays - cutoffDay, 0);
+    const actualControlled = stats.total;
+    const currentProductTotals = new Map<string, number>();
+    const currentChannelTotals = new Map<string, number>();
+    const currentCustomerTotals = new Map<string, number>();
+    const currentDailyTotals = new Map<number, number>();
+
+    for (const row of lines) {
+      const revenue = lineRevenue(row);
+      const productKey = productSkuKey(row);
+      const channelKey = row.channel || "unknown";
+      const customerKey = row.parent_customer_id || row.customer_id || row.customer_name || "unknown";
+      const day = lineDateDay(row);
+
+      currentProductTotals.set(productKey, (currentProductTotals.get(productKey) || 0) + revenue);
+      currentChannelTotals.set(channelKey, (currentChannelTotals.get(channelKey) || 0) + revenue);
+      currentCustomerTotals.set(customerKey, (currentCustomerTotals.get(customerKey) || 0) + revenue);
+      if (day > 0) currentDailyTotals.set(day, (currentDailyTotals.get(day) || 0) + revenue);
+    }
+
+    const productKnownRevenue = Array.from(currentProductTotals.entries())
+      .filter(([key]) => key !== "unknown" && !key.startsWith("SOURCE:"))
+      .reduce((sum, [, revenue]) => sum + revenue, 0);
+    const productMixCoverage = actualControlled > 0 ? productKnownRevenue / actualControlled : 0;
+    const topChannel = Array.from(currentChannelTotals.entries()).sort((a, b) => b[1] - a[1])[0] || ["unknown", 0];
+    const topCustomer = Array.from(currentCustomerTotals.entries()).sort((a, b) => b[1] - a[1])[0] || ["unknown", 0];
+    const topChannelShare = actualControlled > 0 ? topChannel[1] / actualControlled : 0;
+    const topCustomerShare = actualControlled > 0 ? topCustomer[1] / actualControlled : 0;
+    const mtdDailyAverage = cutoffDay > 0 ? actualControlled / cutoffDay : 0;
+    const recentDays = Array.from(currentDailyTotals.entries())
+      .filter(([, revenue]) => revenue > 0)
+      .sort((a, b) => b[0] - a[0])
+      .slice(0, 7);
+    const recentDailyAverage = recentDays.length > 0 ? recentDays.reduce((sum, [, revenue]) => sum + revenue, 0) / recentDays.length : mtdDailyAverage;
+
     const allBaselines = [
       { period: forecastBasePeriod, lines: forecastBaseLines },
       { period: prevPeriod, lines: previousLines },
     ].map((baseline) => {
       const total = sumRevenue(baseline.lines);
-      const dailyAverage = total > 0 ? total / daysInPeriod(baseline.period) : 0;
-      const projected = stats.total + dailyAverage * remainingDays;
+      const baselineDays = daysInPeriod(baseline.period);
+      const dailyAverage = total > 0 ? total / baselineDays : 0;
+      const productTotals = new Map<string, number>();
+      const channelTotals = new Map<string, number>();
+      const weekdayTotals = new Map<number, number>();
+      const timingTotals = new Map<string, number>();
+
+      for (const row of baseline.lines) {
+        const revenue = lineRevenue(row);
+        productTotals.set(productSkuKey(row), (productTotals.get(productSkuKey(row)) || 0) + revenue);
+        channelTotals.set(row.channel || "unknown", (channelTotals.get(row.channel || "unknown") || 0) + revenue);
+        weekdayTotals.set(lineWeekday(row.revenue_date), (weekdayTotals.get(lineWeekday(row.revenue_date)) || 0) + revenue);
+        timingTotals.set(timingBucket(lineDateDay(row), baselineDays), (timingTotals.get(timingBucket(lineDateDay(row), baselineDays)) || 0) + revenue);
+      }
+
+      const weightedProductDaily = actualControlled > 0
+        ? Array.from(currentProductTotals.entries()).reduce((sum, [key, revenue]) => {
+          const share = revenue / actualControlled;
+          return sum + share * ((productTotals.get(key) || 0) / baselineDays || dailyAverage);
+        }, 0)
+        : dailyAverage;
+      const weightedChannelDaily = actualControlled > 0
+        ? Array.from(currentChannelTotals.entries()).reduce((sum, [key, revenue]) => {
+          const share = revenue / actualControlled;
+          return sum + share * ((channelTotals.get(key) || 0) / baselineDays || dailyAverage);
+        }, 0)
+        : dailyAverage;
+      const comparableDaily = productMixCoverage >= 0.25
+        ? weightedProductDaily * 0.45 + weightedChannelDaily * 0.35 + dailyAverage * 0.2
+        : weightedChannelDaily * 0.55 + dailyAverage * 0.45;
+      const elapsedTimingShare = total > 0
+        ? Array.from(timingTotals.entries())
+          .filter(([bucket]) => bucket === "early" || (cutoffDay > periodDays / 3 && bucket === "mid") || (cutoffDay > (periodDays * 2) / 3 && bucket === "late"))
+          .reduce((sum, [, revenue]) => sum + revenue, 0) / total
+        : 0;
+      const projected = actualControlled + comparableDaily * remainingDays;
       return {
         ...baseline,
         total,
+        baselineDays,
         dailyAverage,
+        comparableDaily,
+        elapsedTimingShare,
+        weekdayTotals,
         projected,
       };
     });
     const baselines = allBaselines.filter((baseline) => baseline.total > 0);
 
     const baselineAverage = baselines.length > 0 ? baselines.reduce((sum, baseline) => sum + baseline.total, 0) / baselines.length : 0;
-    const baselineDailyAverage = periodDays > 0 ? baselineAverage / periodDays : 0;
-    const scenarioValues = baselines.map((baseline) => stats.total + (baseline.total / Math.max(periodDays, 1)) * remainingDays).filter((value) => value > 0);
-    const scenarioAverage = baselineDailyAverage > 0 ? stats.total + baselineDailyAverage * remainingDays : stats.total;
-    const total = Math.max(stats.total, scenarioAverage);
-    const low = Math.max(stats.total, Math.min(...(scenarioValues.length ? scenarioValues : [total])));
-    const high = Math.max(total, Math.max(...(scenarioValues.length ? scenarioValues : [total])));
-    const remainder = Math.max(total - stats.total, 0);
+    const baselineDailyAverage = baselines.length > 0 ? baselines.reduce((sum, baseline) => sum + baseline.comparableDaily, 0) / baselines.length : mtdDailyAverage;
+    const weekdayRevenue = new Map<number, number>();
+    for (const baseline of baselines) {
+      for (const [weekday, revenue] of baseline.weekdayTotals) weekdayRevenue.set(weekday, (weekdayRevenue.get(weekday) || 0) + revenue);
+    }
+    const weekdayCounts = new Map<number, number>();
+    for (const baseline of baselines) {
+      for (let day = 1; day <= baseline.baselineDays; day += 1) {
+        const weekday = lineWeekday(dateForPeriodDay(baseline.period, day));
+        weekdayCounts.set(weekday, (weekdayCounts.get(weekday) || 0) + 1);
+      }
+    }
+    const totalBaselineDays = Array.from(weekdayCounts.values()).reduce((sum, count) => sum + count, 0);
+    const overallWeekdayAverage = totalBaselineDays > 0 && baselines.length > 0
+      ? baselines.reduce((sum, baseline) => sum + baseline.total, 0) / totalBaselineDays
+      : baselineDailyAverage;
+    const weekdayFactors = new Map<number, number>();
+    for (let weekday = 0; weekday < 7; weekday += 1) {
+      const weekdayAverage = (weekdayRevenue.get(weekday) || 0) / Math.max(weekdayCounts.get(weekday) || 1, 1);
+      weekdayFactors.set(weekday, overallWeekdayAverage > 0 ? clamp(weekdayAverage / overallWeekdayAverage, 0.6, 1.45) : 1);
+    }
+    const remainingWeekdayFactor = remainingDays > 0
+      ? Array.from({ length: remainingDays }, (_, index) => weekdayFactors.get(lineWeekday(dateForPeriodDay(period, cutoffDay + index + 1))) || 1).reduce((sum, factor) => sum + factor, 0) / remainingDays
+      : 1;
+    const baselineElapsedShare = baselines.length > 0 ? baselines.reduce((sum, baseline) => sum + baseline.elapsedTimingShare, 0) / baselines.length : cutoffDay / Math.max(periodDays, 1);
+    const currentMonthShare = baselineAverage > 0 ? actualControlled / baselineAverage : baselineElapsedShare;
+    const timingFactor = baselineElapsedShare > 0 ? clamp(currentMonthShare / baselineElapsedShare, 0.85, 1.15) : 1;
+    const trendFactor = mtdDailyAverage > 0 ? clamp(recentDailyAverage / mtdDailyAverage, 0.75, 1.25) : 1;
+    const blendedDailyRate = Math.max(
+      0,
+      (baselineDailyAverage * 0.55 + recentDailyAverage * 0.35 + mtdDailyAverage * 0.1) * remainingWeekdayFactor * timingFactor * (0.85 + trendFactor * 0.15),
+    );
+    const scenarioValues = baselines.map((baseline) => actualControlled + baseline.comparableDaily * remainingWeekdayFactor * timingFactor * remainingDays).filter((value) => value > 0);
+    const unclampedTotal = actualControlled + blendedDailyRate * remainingDays;
+    const lowScenario = Math.min(...(scenarioValues.length ? scenarioValues : [unclampedTotal]));
+    const highScenario = Math.max(...(scenarioValues.length ? scenarioValues : [unclampedTotal]));
+    const low = Math.max(actualControlled, Math.min(unclampedTotal, lowScenario * 0.92));
+    const high = Math.max(unclampedTotal, highScenario * 1.08, actualControlled);
+    const total = Math.max(actualControlled, clamp(unclampedTotal, low, high));
+    const remainder = Math.max(total - actualControlled, 0);
+    const volatility = baselineAverage > 0 && baselines.length > 1
+      ? Math.abs(baselines[0].total - baselines[1].total) / baselineAverage
+      : 0;
+    const confidenceScore = 100
+      - (baselines.length < 2 ? 24 : 0)
+      - (lines.length < 20 ? 14 : 0)
+      - (productMixCoverage < 0.25 ? 12 : 0)
+      - (topCustomerShare > 0.35 ? 16 : 0)
+      - (topChannelShare > 0.6 ? 12 : 0)
+      - (volatility > 0.25 ? 12 : 0);
+    const confidenceLabel = confidenceScore >= 72 ? "Cao" : confidenceScore >= 48 ? "Trung bình" : "Thấp";
+    const confidenceTone = confidenceLabel === "Cao"
+      ? "border-emerald-300/35 bg-emerald-400/10 text-emerald-100"
+      : confidenceLabel === "Trung bình"
+        ? "border-amber-300/35 bg-amber-400/10 text-amber-100"
+        : "border-rose-300/35 bg-rose-400/10 text-rose-100";
+    const drivers = [
+      productMixCoverage >= 0.25
+        ? `Mix sản phẩm/SKU: ${numberFmt(productMixCoverage * 100)}% doanh thu có mã sản phẩm/SKU để so với baseline.`
+        : `Mix sản phẩm/SKU: dữ liệu mã còn mỏng (${numberFmt(productMixCoverage * 100)}%), đang fallback thêm theo source/kênh.`,
+      `Mix kênh: kênh lớn nhất ${channelLabel[topChannel[0]] || topChannel[0]} chiếm ${numberFmt(topChannelShare * 100)}% doanh thu đã kiểm soát.`,
+      remainingWeekdayFactor >= 1.05
+        ? `Lịch ngày còn lại nghiêng về ngày cao điểm, hệ số weekday/peak khoảng ${numberFmt(remainingWeekdayFactor)}x.`
+        : remainingWeekdayFactor <= 0.95
+          ? `Lịch ngày còn lại nghiêng về ngày thấp điểm/downtime, hệ số weekday khoảng ${numberFmt(remainingWeekdayFactor)}x.`
+          : `Lịch ngày còn lại gần trung tính theo mẫu weekday/peak/downtime (${numberFmt(remainingWeekdayFactor)}x).`,
+      `Nhịp ${timingBucketLabel[timingBucket(cutoffDay, periodDays)]}: tiến độ hiện tại đạt ${numberFmt(currentMonthShare * 100)}% so với baseline tháng, hệ số timing ${numberFmt(timingFactor)}x.`,
+      `Run-rate gần đây: ${compactVnd(recentDailyAverage)}/ngày so với MTD ${compactVnd(mtdDailyAverage)}/ngày, trend ${numberFmt(trendFactor)}x.`,
+      topCustomerShare > 0.35 || topChannelShare > 0.6
+        ? `Rủi ro tập trung: customer/kênh lớn đang cao (${numberFmt(topCustomerShare * 100)}% customer, ${numberFmt(topChannelShare * 100)}% kênh).`
+        : `Rủi ro tập trung: customer/kênh ở mức kiểm soát (${numberFmt(topCustomerShare * 100)}% customer lớn nhất).`,
+    ];
 
     return {
       cutoffDay,
       periodDays,
-      actualControlled: stats.total,
+      actualControlled,
       total,
       low,
       high,
       remainder,
       baselineAverage,
+      blendedDailyRate,
+      productMixCoverage,
+      confidenceLabel,
+      confidenceTone,
+      drivers,
       baselines,
       chart: [
         ...allBaselines.map((baseline) => ({
@@ -341,7 +543,7 @@ export default function RevenueManagementDashboard() {
         {
           month: period,
           baselineRevenue: 0,
-          controlledRevenue: stats.total,
+          controlledRevenue: actualControlled,
           forecastRemaining: remainder,
           kind: "forecast" as const,
         },
@@ -510,23 +712,43 @@ export default function RevenueManagementDashboard() {
               Dự báo vận hành từ Doanh thu đã kiểm soát hiện tại, đối chiếu baseline {forecastBasePeriod} và {prevPeriod}; không phải trusted/final hay số audit cuối tháng.
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-3 p-4 sm:grid-cols-3">
-            <div className="min-w-0 rounded-lg border border-emerald-200/15 bg-emerald-400/[0.06] p-3">
-              <div className="text-xs uppercase tracking-[0.14em] text-stone-400">Đã parse / kiểm soát</div>
-              <div className="mt-2 whitespace-nowrap text-[clamp(1rem,1.35vw,1.35rem)] font-semibold leading-tight tabular-nums text-emerald-100" title={vnd(forecast.actualControlled)}>{compactVnd(forecast.actualControlled)}</div>
-              <div className="text-xs text-stone-400">Tới ngày {forecast.cutoffDay}/{forecast.periodDays}</div>
-            </div>
-            <div className="min-w-0 rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
-              <div className="text-xs uppercase tracking-[0.14em] text-stone-400">Dự báo vận hành</div>
-              <div className="mt-2 whitespace-nowrap text-[clamp(1rem,1.35vw,1.35rem)] font-semibold leading-tight tabular-nums text-amber-100" title={vnd(forecast.total)}>{compactVnd(forecast.total)}</div>
-              <div className="text-xs text-stone-400">Range {compactVnd(forecast.low)}–{compactVnd(forecast.high)}</div>
-            </div>
-            <div className="min-w-0 rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
-              <div className="text-xs uppercase tracking-[0.14em] text-stone-400">MoM vs {prevPeriod}</div>
-              <div className={`mt-2 whitespace-nowrap text-[clamp(1rem,1.35vw,1.35rem)] font-semibold leading-tight tabular-nums ${mom.delta >= 0 ? "text-emerald-100" : "text-rose-100"}`} title={vnd(mom.delta)}>
-                {compactVnd(mom.delta)}
+          <CardContent className="space-y-3 p-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="min-w-0 rounded-lg border border-emerald-200/15 bg-emerald-400/[0.06] p-3">
+                <div className="text-xs uppercase tracking-[0.14em] text-stone-400">Doanh thu đã kiểm soát</div>
+                <div className="mt-2 whitespace-nowrap text-[clamp(1rem,1.35vw,1.35rem)] font-semibold leading-tight tabular-nums text-emerald-100" title={vnd(forecast.actualControlled)}>{compactVnd(forecast.actualControlled)}</div>
+                <div className="text-xs text-stone-400">Tới ngày {forecast.cutoffDay}/{forecast.periodDays}</div>
               </div>
-              <div className="text-xs text-stone-400">{mom.pct === null ? "N/A" : `${mom.pct >= 0 ? "+" : ""}${numberFmt(mom.pct)}%`} · baseline avg {compactVnd(forecast.baselineAverage)}</div>
+              <div className="min-w-0 rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
+                <div className="text-xs uppercase tracking-[0.14em] text-stone-400">Dự báo vận hành</div>
+                <div className="mt-2 whitespace-nowrap text-[clamp(1rem,1.35vw,1.35rem)] font-semibold leading-tight tabular-nums text-amber-100" title={vnd(forecast.total)}>{compactVnd(forecast.total)}</div>
+                <div className="text-xs text-stone-400">Range {compactVnd(forecast.low)}–{compactVnd(forecast.high)}</div>
+              </div>
+              <div className="min-w-0 rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
+                <div className="text-xs uppercase tracking-[0.14em] text-stone-400">MoM vs {prevPeriod}</div>
+                <div className={`mt-2 whitespace-nowrap text-[clamp(1rem,1.35vw,1.35rem)] font-semibold leading-tight tabular-nums ${mom.delta >= 0 ? "text-emerald-100" : "text-rose-100"}`} title={vnd(mom.delta)}>
+                  {compactVnd(mom.delta)}
+                </div>
+                <div className="text-xs text-stone-400">{mom.pct === null ? "N/A" : `${mom.pct >= 0 ? "+" : ""}${numberFmt(mom.pct)}%`} · baseline avg {compactVnd(forecast.baselineAverage)}</div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-xs uppercase tracking-[0.14em] text-stone-400">Giải thích dự báo V2</div>
+                  <div className="text-xs text-stone-400">Công thức: blend baseline mix + run-rate gần đây + lịch ngày còn lại; không phải số audit cuối tháng.</div>
+                </div>
+                <Badge className={`w-fit border ${forecast.confidenceTone}`} variant="outline">Độ tin cậy: {forecast.confidenceLabel}</Badge>
+              </div>
+              <ul className="mt-3 grid gap-2 text-xs leading-5 text-stone-300/85 lg:grid-cols-2">
+                {forecast.drivers.map((driver) => (
+                  <li key={driver} className="flex gap-2">
+                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300/80" />
+                    <span>{driver}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           </CardContent>
         </Card>
