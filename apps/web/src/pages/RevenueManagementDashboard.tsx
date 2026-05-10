@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CalendarDays, CheckCircle2, Database, Eye, Loader2, Settings, TrendingUp, Users } from "lucide-react";
+import { AlertTriangle, CalendarDays, CheckCircle2, Loader2, Settings, Users } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -121,15 +121,6 @@ const sourceTypeLabel: Record<string, string> = {
 
 const metricCards = [
   {
-    key: "total",
-    label: "Doanh thu đã kiểm soát",
-    helper: "ledger lines",
-    icon: TrendingUp,
-    valueTone: "text-amber-100",
-    iconShell: "border-amber-300/30 bg-amber-400/10 text-amber-200",
-    cardTone: "from-amber-950/35 to-stone-950",
-  },
-  {
     key: "approved",
     label: "Đã vào ledger",
     helper: "Dòng đã kiểm soát",
@@ -167,18 +158,7 @@ const metricCards = [
   },
 ] as const;
 
-const policyCards = [
-  { title: "1. Dashboard", copy: "đọc ledger doanh thu đã kiểm soát.", rule: "border-l-amber-300 bg-amber-400/[0.06]" },
-  { title: "2. Nguồn đối soát", copy: "được dùng để kiểm tra khi PO parse có lệch.", rule: "border-l-emerald-400 bg-emerald-400/[0.05]" },
-  { title: "3. Parsed PO", copy: "mặc định là evidence để staff kiểm tra/sửa khi sai.", rule: "border-l-amber-300 bg-amber-400/[0.05]" },
-  { title: "4. Dòng lệch", copy: "đưa vào manual review, không tự net doanh thu.", rule: "border-l-rose-400 bg-rose-400/[0.06]" },
-] as const;
-
 const CHANNEL_COLORS = ["#FCD34D", "#FBBF24", "#6EE7B7", "#FCA5A5", "#D6D3D1"] as const;
-const CONTROLLED_APRIL_PERIOD = "2026-04";
-const CONTROLLED_APRIL_TOTAL = 936_505_570;
-const CONTROLLED_APRIL_ROWS = 1_407;
-const CONTROLLED_APRIL_QTY = 99_021.6;
 
 const getChannelColor = (key: string, fallbackIndex: number) => {
   const knownIndex = Object.keys(channelLabel).indexOf(key);
@@ -189,21 +169,20 @@ export default function RevenueManagementDashboard() {
   const { language } = useLanguage();
   const isVi = language === "vi";
   const navigate = useNavigate();
-  const initialPeriod = new URLSearchParams(window.location.search).get("period") || CONTROLLED_APRIL_PERIOD;
+  const initialPeriod = new URLSearchParams(window.location.search).get("period") || monthNow();
   const [period, setPeriod] = useState(initialPeriod);
-  const [basis, setBasis] = useState<"controlled" | "all">("controlled");
   const prevPeriod = previousMonth(period);
 
-  const { data: lines = [], isLoading, error, refetch } = useQuery<RevenueLine[]>({
-    queryKey: ["revenue-ledger-lines", period, basis],
+  const { data: lines = [], isLoading, error } = useQuery<RevenueLine[]>({
+    queryKey: ["revenue-ledger-lines", period],
     queryFn: async () => {
-      return fetchAllRevenueLines(period, basis === "controlled");
+      return fetchAllRevenueLines(period, true);
     },
   });
 
   const { data: previousLines = [] } = useQuery<RevenueLine[]>({
-    queryKey: ["revenue-ledger-lines", prevPeriod, basis],
-    queryFn: async () => fetchAllRevenueLines(prevPeriod, basis === "controlled"),
+    queryKey: ["revenue-ledger-lines", prevPeriod],
+    queryFn: async () => fetchAllRevenueLines(prevPeriod, true),
   });
 
   const stats = useMemo(() => {
@@ -240,9 +219,6 @@ export default function RevenueManagementDashboard() {
     }
     return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
   }, [lines]);
-
-  const controlledAprilLoaded = period === CONTROLLED_APRIL_PERIOD && basis === "controlled";
-  const controlledAprilMatches = controlledAprilLoaded && stats.rows === CONTROLLED_APRIL_ROWS && Math.round(stats.total) === CONTROLLED_APRIL_TOTAL;
 
   const mom = useMemo(() => {
     const previousTotal = previousLines.reduce((sum, r) => sum + Number(r.gross_revenue || 0), 0);
@@ -338,14 +314,6 @@ export default function RevenueManagementDashboard() {
     <div className="relative space-y-6 rounded-lg border border-amber-200/10 bg-stone-950/40 p-4 ring-1 ring-stone-200/5 md:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge className="gap-1 border border-amber-300/40 bg-amber-400/10 text-amber-100">
-              <Database className="h-3 w-3" />Controlled ledger
-            </Badge>
-            <Badge className="border border-emerald-300/25 bg-emerald-400/10 text-emerald-100">
-              {basis === "controlled" ? "Doanh thu đã kiểm soát" : "All sources"}
-            </Badge>
-          </div>
           <h1 className="font-display text-3xl font-semibold tracking-tight text-amber-50 md:text-4xl">
             {isVi ? "Quản lý doanh thu" : "Revenue Management"}
           </h1>
@@ -355,31 +323,11 @@ export default function RevenueManagementDashboard() {
               : "Production dashboard by month, day, channel, and customer. The main numbers come from the controlled revenue ledger; parsed PO/email rows remain operational evidence for review and edits."}
           </p>
         </div>
-        <div aria-label="Bộ lọc doanh thu" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200/10 bg-gradient-to-br from-stone-900/80 to-stone-950/60 p-2 ring-1 ring-stone-200/5">
-          <div className="flex flex-wrap items-center gap-2">
-            <Input type="month" value={period} onChange={(e) => setPeriod(e.target.value || monthNow())} className="w-[160px] border-stone-600/70 bg-stone-950/50 text-stone-100 hover:border-amber-300/40 focus-visible:ring-amber-300/30" />
-            <Button
-              className={controlledAprilLoaded ? "border border-amber-300/70 bg-amber-400 text-stone-950 hover:bg-amber-300" : "border border-amber-300/35 bg-amber-400/[0.08] text-amber-100 hover:bg-amber-400/[0.14]"}
-              variant={controlledAprilLoaded ? "default" : "outline"}
-              onClick={() => {
-                setPeriod(CONTROLLED_APRIL_PERIOD);
-                setBasis("controlled");
-              }}
-            >
-              T4/2026 kiểm soát
-            </Button>
-            <Button className={basis === "controlled" ? "border border-amber-300/60 bg-amber-400 text-stone-950 hover:bg-amber-300" : "border border-stone-600/60 bg-transparent text-stone-200 hover:bg-stone-100/[0.04]"} variant={basis === "controlled" ? "default" : "outline"} onClick={() => setBasis("controlled")}>Đã kiểm soát</Button>
-            <Button className={basis === "all" ? "border border-amber-300/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/15" : "border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100"} variant="outline" onClick={() => setBasis("all")}>All</Button>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 border-t border-amber-100/10 pt-2 sm:border-l sm:border-t-0 sm:pl-2 sm:pt-0">
-            <Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100" variant="outline" onClick={() => refetch()}>Refresh</Button>
-            <Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100" variant="outline" onClick={() => navigate("/finance-control/revenue/setup")}>
-              <Settings className="mr-2 h-4 w-4" />Auto-parse ops
-            </Button>
-            <Button className="border border-amber-300/35 bg-amber-400/[0.08] text-amber-100 hover:bg-amber-400/[0.14]" variant="outline" onClick={() => navigate("/finance-control/revenue/daily-review")}>
-              Daily review
-            </Button>
-          </div>
+        <div aria-label="Xem doanh thu theo tháng" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200/10 bg-gradient-to-br from-stone-900/80 to-stone-950/60 p-2 ring-1 ring-stone-200/5">
+          <Input type="month" value={period} onChange={(e) => setPeriod(e.target.value || monthNow())} className="w-[160px] border-stone-600/70 bg-stone-950/50 text-stone-100 hover:border-amber-300/40 focus-visible:ring-amber-300/30" />
+          <Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100" variant="outline" onClick={() => navigate("/finance-control/revenue/setup")}>
+            <Settings className="mr-2 h-4 w-4" />Parse Thủ Công
+          </Button>
         </div>
       </div>
 
@@ -391,41 +339,15 @@ export default function RevenueManagementDashboard() {
         </Card>
       ) : null}
 
-      <Card className="overflow-hidden border border-amber-200/20 bg-gradient-to-r from-amber-500/15 via-stone-900/90 to-stone-950 ring-1 ring-amber-100/10">
-        <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge className="border border-amber-200/50 bg-amber-300/15 text-amber-50">Doanh thu tháng 4 đã kiểm soát</Badge>
-              <Badge className={controlledAprilMatches ? "border border-emerald-200/40 bg-emerald-300/10 text-emerald-50" : "border border-stone-500/50 bg-stone-800 text-stone-100"}>
-                {controlledAprilMatches ? "Loaded & reconciled" : "Quick access"}
-              </Badge>
-            </div>
-            <div className="text-sm text-stone-200">
-              Ledger T4 đã kiểm soát: <span className="font-semibold text-amber-100">{vnd(CONTROLLED_APRIL_TOTAL)}</span> · {CONTROLLED_APRIL_ROWS.toLocaleString("vi-VN")} lines · {numberFmt(CONTROLLED_APRIL_QTY)} qty.
-            </div>
-            <div className="text-xs text-stone-300/75">Dashboard totals remain query-driven; this banner is the reviewed T4 validation target after import.</div>
-          </div>
-          <Button
-            className="border border-amber-300/60 bg-amber-400 text-stone-950 hover:bg-amber-300 md:w-auto"
-            onClick={() => {
-              setPeriod(CONTROLLED_APRIL_PERIOD);
-              setBasis("controlled");
-            }}
-          >
-            Xem tổng T4
-          </Button>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {metricCards.map((card) => {
           const Icon = card.icon;
-          const value = card.key === "total" || card.key === "approved" || card.key === "review"
+          const value = card.key === "approved" || card.key === "review"
             ? vnd(stats[card.key])
             : card.key === "qty"
               ? numberFmt(stats.qty)
               : String(stats.customers);
-          const helper = card.key === "total" ? `${stats.rows} ${card.helper}` : card.helper;
+          const helper = card.key === "approved" ? `${stats.rows} ${card.helper}` : card.helper;
 
           return (
             <Card key={card.key} className={`overflow-hidden rounded-xl border border-amber-100/10 bg-gradient-to-br ${card.cardTone} ring-1 ring-stone-200/5`}>
@@ -505,7 +427,7 @@ export default function RevenueManagementDashboard() {
             <TabsTrigger value="channels" className="rounded-none border-b-2 border-transparent bg-transparent px-1 pb-2 text-sm text-stone-300 data-[state=active]:border-amber-300 data-[state=active]:bg-transparent data-[state=active]:text-amber-100">Theo kênh</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="overview" className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
+          <TabsContent value="overview" className="grid gap-4">
             <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/90 via-stone-950/75 to-amber-950/20 ring-1 ring-stone-200/5">
               <CardHeader className="border-b border-amber-100/10 bg-stone-900/30">
                 <CardTitle className="text-amber-50">Doanh thu theo ngày</CardTitle>
@@ -534,23 +456,6 @@ export default function RevenueManagementDashboard() {
                     </ResponsiveContainer>
                   </ChartContainer>
                 )}
-              </CardContent>
-            </Card>
-            <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/90 via-stone-950/75 to-amber-950/20 ring-1 ring-stone-200/5">
-              <CardHeader className="border-b border-amber-100/10 bg-stone-900/30">
-                <CardTitle className="text-amber-50">Source policy</CardTitle>
-                <CardDescription className="text-stone-300/75">Rule production để tránh parser làm sai doanh thu.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3 pt-6 text-sm">
-                {policyCards.map((item) => (
-                  <div key={item.title} className={`rounded-md border-l-4 p-3 text-sm text-stone-100 ${item.rule}`}>
-                    <b>{item.title}</b> {item.copy}
-                  </div>
-                ))}
-                <Button className="w-full border border-rose-300/40 bg-rose-400/[0.04] text-rose-100 hover:bg-rose-400/[0.09]" variant="outline" onClick={() => navigate("/finance-control/revenue/daily-review")}>
-                  <Eye className="mr-2 h-4 w-4" />Mở daily review
-                  {stats.review > 0 ? <Badge className="ml-2 border border-rose-200/40 bg-rose-300/10 text-rose-50" variant="outline">{vnd(stats.review)}</Badge> : null}
-                </Button>
               </CardContent>
             </Card>
           </TabsContent>
