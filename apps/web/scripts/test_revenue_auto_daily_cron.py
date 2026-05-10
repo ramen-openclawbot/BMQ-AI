@@ -31,7 +31,8 @@ def test_proxy_calls_revenue_auto_daily_action() -> None:
         ("revenue-monthly-parse-preview", "revenue function target"),
         ("REVENUE_MONTHLY_PARSE_PREVIEW_URL", "revenue override env"),
         ("REVENUE_CRON_SECRET || process.env.PO_SYNC_CRON_SECRET", "cron secret fallback"),
-        ('JSON.stringify({ action: "auto_daily_post" })', "auto daily action body"),
+        ('action: "auto_daily_post"', "auto daily action body"),
+        ("JSON.stringify(upstreamBody)", "validated upstream body"),
         ("reportComposioRevenueCron", "optional Composio report hook"),
         ("tam@bmq.vn", "report recipient"),
         ("temporary controlled revenue", "report controlled revenue wording"),
@@ -45,7 +46,7 @@ def test_revenue_function_cron_secret_before_owner_auth() -> None:
         ("requireCronSecret", "cron secret helper import/use"),
         ('if (action === "auto_daily_post")', "auto daily branch"),
         ("requireRevenueCronSecret(req, corsHeaders)", "cron secret validation"),
-        ("return await autoDailyPost(req, supabaseAdmin)", "cron branch returns before owner auth"),
+        ("return await autoDailyPost(req, supabaseAdmin, body)", "cron branch returns before owner auth"),
         ("const { user } = await requireAuth(req, corsHeaders)", "manual owner auth still present"),
         ("await ensureOwner(supabaseAdmin, user.id)", "manual owner check still present"),
     ]:
@@ -70,6 +71,52 @@ def test_auto_daily_window_and_metadata() -> None:
         ('...(cronSecret ? { "x-cron-secret": cronSecret } : {})', "cron secret forwarded to Gmail sync"),
     ]:
         assert_contains(monthly, needle, label)
+
+
+def test_explicit_revenue_date_cron_window_and_metadata() -> None:
+    for needle, label in [
+        ("const strictIsoDate", "strict date helper"),
+        ('value.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/)', "strict YYYY-MM-DD only"),
+        ("normalized === value", "real normalized date validation"),
+        ("const explicitRevenueDateWindow", "explicit date window helper"),
+        ("period: revenueDate.slice(0, 7)", "explicit period from date"),
+        ("revenueDateFrom: revenueDate", "explicit revenue date from"),
+        ("revenueDateTo: revenueDate", "explicit revenue date to"),
+        ("poReceivedFrom: shiftLocalDate(revenueDate, -1)", "explicit PO received start"),
+        ("poReceivedTo: revenueDate", "explicit PO received end"),
+        ("hasRevenueWindow: true", "explicit revenue window enabled"),
+        ("Object.prototype.hasOwnProperty.call(body, \"revenueDate\")", "body-only explicit date detection"),
+        ("Invalid revenueDate. Expected a real date in YYYY-MM-DD format.", "invalid explicit date 400 message"),
+        ('revenueDateSource = explicitRevenueDate ? "explicit" : "auto_daily_window"', "revenue date source metadata"),
+        ("manualRecovery", "manual recovery response metadata"),
+        ("explicitRevenueDate", "explicit date response metadata"),
+        ("noDoubleCountKey", "response no-double-count key"),
+        ("auto_daily_po_email_parse:${window.revenueDateFrom}", "stable date-based no-double-count key"),
+        ("monthly_parse_kind: options.monthlyParseKind", "final run summary retains parse kind"),
+        ("...(options.runSummary || {})", "run summary preserves explicit metadata"),
+        ("revenue_date_source: revenueDateSource", "line payload explicit source metadata"),
+        ("manual_recovery: manualRecovery", "line payload manual recovery metadata"),
+    ]:
+        assert_contains(monthly, needle, label)
+    assert monthly.index("requireRevenueCronSecret(req, corsHeaders)") < monthly.index("return await autoDailyPost(req, supabaseAdmin, body)")
+    assert "new URL(req.url)" not in monthly, "Supabase function must not read explicit date from query params"
+
+
+def test_proxy_revenue_date_query_validation_and_pass_through() -> None:
+    for needle, label in [
+        ("function validStrictIsoDate", "proxy strict date helper"),
+        ('value.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/)', "proxy strict YYYY-MM-DD only"),
+        ("date.getUTCFullYear() !== year", "proxy real date validation"),
+        ("function requestedRevenueDate", "proxy query parser"),
+        ("query.revenueDate !== undefined ? query.revenueDate : query?.date", "revenueDate preferred over date alias"),
+        ("Array.isArray(value)", "array query values handled"),
+        ("res.status(400).json({ error: parsedRevenueDate.error })", "invalid date returns 400"),
+        ("...(parsedRevenueDate.revenueDate ? { revenueDate: parsedRevenueDate.revenueDate } : {})", "explicit date upstream pass-through"),
+        ("JSON.stringify(upstreamBody)", "upstream uses validated body"),
+        ("revenueDateSource: upstreamPayload.revenueDateSource", "report summary includes explicit source"),
+        ("noDoubleCountKey: upstreamPayload.noDoubleCountKey", "report summary includes no-double-count key"),
+    ]:
+        assert_contains(cron_api, needle, label)
 
 
 def test_gmail_sync_accepts_cron_secret_for_auto_daily_import() -> None:

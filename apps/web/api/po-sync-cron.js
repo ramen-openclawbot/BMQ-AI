@@ -14,6 +14,30 @@ function parseJsonIfPossible(raw) {
   }
 }
 
+function validStrictIsoDate(value) {
+  if (typeof value !== "string") return null;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return value;
+}
+
+function requestedRevenueDate(query) {
+  const value = query && query.revenueDate !== undefined ? query.revenueDate : query?.date;
+  if (value === undefined) return { ok: true, revenueDate: null };
+  if (Array.isArray(value)) {
+    if (value.length !== 1) return { ok: false, error: "Invalid revenueDate. Provide exactly one YYYY-MM-DD value." };
+    return requestedRevenueDate({ revenueDate: value[0] });
+  }
+  const revenueDate = validStrictIsoDate(value);
+  if (!revenueDate) return { ok: false, error: "Invalid revenueDate. Expected a real date in YYYY-MM-DD format." };
+  return { ok: true, revenueDate };
+}
+
 function safeReportSummary(upstreamPayload) {
   if (!upstreamPayload || typeof upstreamPayload !== "object" || Array.isArray(upstreamPayload)) return null;
   const postResult = upstreamPayload.postResult || {};
@@ -24,6 +48,10 @@ function safeReportSummary(upstreamPayload) {
     revenueDate: upstreamPayload.revenueDate,
     poReceivedFrom: upstreamPayload.poReceivedFrom,
     poReceivedTo: upstreamPayload.poReceivedTo,
+    revenueDateSource: upstreamPayload.revenueDateSource,
+    explicitRevenueDate: upstreamPayload.explicitRevenueDate,
+    manualRecovery: upstreamPayload.manualRecovery,
+    noDoubleCountKey: upstreamPayload.noDoubleCountKey,
     stagingRunId: upstreamPayload.stagingRunId,
     sourceDocumentId: postResult.sourceDocumentId,
     postedLineCount: postSummary.posted_line_count || postSummary.row_count,
@@ -105,6 +133,15 @@ export default async function handler(req, res) {
   }
 
   const targetUrl = process.env.REVENUE_MONTHLY_PARSE_PREVIEW_URL || DEFAULT_FUNCTION_URL;
+  const parsedRevenueDate = requestedRevenueDate(req.query || {});
+  if (!parsedRevenueDate.ok) {
+    res.status(400).json({ error: parsedRevenueDate.error });
+    return;
+  }
+  const upstreamBody = {
+    action: "auto_daily_post",
+    ...(parsedRevenueDate.revenueDate ? { revenueDate: parsedRevenueDate.revenueDate } : {}),
+  };
 
   try {
     const upstream = await fetch(targetUrl, {
@@ -113,7 +150,7 @@ export default async function handler(req, res) {
         "Content-Type": "application/json",
         "x-cron-secret": supabaseCronSecret,
       },
-      body: JSON.stringify({ action: "auto_daily_post" }),
+      body: JSON.stringify(upstreamBody),
     });
 
     const raw = await upstream.text();

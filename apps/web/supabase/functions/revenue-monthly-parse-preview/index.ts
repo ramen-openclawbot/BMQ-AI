@@ -240,6 +240,14 @@ const makeValidIsoDate = (year: number, month: number, day: number) => {
   return `${year}-${pad2(month)}-${pad2(day)}`;
 };
 
+const strictIsoDate = (value: unknown) => {
+  if (typeof value !== "string") return null;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const normalized = makeValidIsoDate(Number(match[1]), Number(match[2]), Number(match[3]));
+  return normalized === value ? normalized : null;
+};
+
 const normalizeRevenueDate = (value: unknown) => {
   const raw = String(value ?? "").trim();
   if (!raw) return null;
@@ -314,6 +322,15 @@ const autoDailyWindow = (now = new Date()) => {
   const poReceivedTo = current.date;
   return { period, revenueDateFrom, revenueDateTo, poReceivedFrom, poReceivedTo, hasRevenueWindow: true };
 };
+
+const explicitRevenueDateWindow = (revenueDate: string) => ({
+  period: revenueDate.slice(0, 7),
+  revenueDateFrom: revenueDate,
+  revenueDateTo: revenueDate,
+  poReceivedFrom: shiftLocalDate(revenueDate, -1),
+  poReceivedTo: revenueDate,
+  hasRevenueWindow: true,
+});
 
 const localDateFromTimestamp = (value?: string | null) => {
   if (!value) return null;
@@ -772,7 +789,12 @@ async function runCurrentMonthPreview(
       sourceTab: options.sourceTab,
       linePayloadMetadata: options.linePayloadMetadata,
     });
-    const summary = { ...summarizeLines(lines, window), gmailSync: syncResults };
+    const summary = {
+      ...summarizeLines(lines, window),
+      monthly_parse_kind: options.monthlyParseKind || "manual_current_month_to_yesterday",
+      ...(options.runSummary || {}),
+      gmailSync: syncResults,
+    };
 
     emit?.({ type: "progress", stage: "staging_insert_start", rows: lines.length, message: `Đang ghi staging ${lines.length} dòng preview` });
     for (let index = 0; index < lines.length; index += 500) {
@@ -830,9 +852,20 @@ function requireRevenueCronSecret(req: Request, corsHeaders: Record<string, stri
   requireCronSecret(req, envKey, corsHeaders);
 }
 
-async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof createClient>) {
-  const window = autoDailyWindow();
+async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof createClient>, body: JsonRecord = {}) {
+  const hasExplicitRevenueDate = Object.prototype.hasOwnProperty.call(body, "revenueDate");
+  const explicitRevenueDate = hasExplicitRevenueDate ? strictIsoDate(body.revenueDate) : null;
+  if (hasExplicitRevenueDate && !explicitRevenueDate) {
+    return jsonResponse(req, {
+      success: false,
+      error: "Invalid revenueDate. Expected a real date in YYYY-MM-DD format.",
+    }, 400);
+  }
+
+  const window = explicitRevenueDate ? explicitRevenueDateWindow(explicitRevenueDate) : autoDailyWindow();
   const noDoubleCountKey = `auto_daily_po_email_parse:${window.revenueDateFrom}`;
+  const revenueDateSource = explicitRevenueDate ? "explicit" : "auto_daily_window";
+  const manualRecovery = Boolean(explicitRevenueDate);
   const preview = await runCurrentMonthPreview(req, supabaseAdmin, null, undefined, {
     window,
     syncGmail: true,
@@ -844,6 +877,10 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
       temporary_controlled_revenue: true,
       trust_semantics: "not_trusted_month_end_audit_source",
       auto_daily_no_double_count_key: noDoubleCountKey,
+      noDoubleCountKey,
+      revenue_date_source: revenueDateSource,
+      explicit_revenue_date: explicitRevenueDate,
+      manual_recovery: manualRecovery,
     },
     linePayloadMetadata: {
       controlled_kind: "auto_daily_temporary_controlled_parse",
@@ -851,6 +888,10 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
       trust_semantics: "not_trusted_month_end_audit_source",
       owner_approval_required: false,
       auto_daily_no_double_count_key: noDoubleCountKey,
+      noDoubleCountKey,
+      revenue_date_source: revenueDateSource,
+      explicit_revenue_date: explicitRevenueDate,
+      manual_recovery: manualRecovery,
     },
   });
 
@@ -863,6 +904,10 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
     success: true,
     action: "auto_daily_post",
     revenueDate: window.revenueDateFrom,
+    revenueDateSource,
+    explicitRevenueDate: explicitRevenueDate,
+    manualRecovery,
+    noDoubleCountKey,
     poReceivedFrom: window.poReceivedFrom,
     poReceivedTo: window.poReceivedTo,
     stagingRunId: String(asRecord(preview.run).id || ""),
@@ -916,7 +961,7 @@ serve(async (req) => {
 
     if (action === "auto_daily_post") {
       requireRevenueCronSecret(req, corsHeaders);
-      return await autoDailyPost(req, supabaseAdmin);
+      return await autoDailyPost(req, supabaseAdmin, body);
     }
 
     const { user } = await requireAuth(req, corsHeaders);
