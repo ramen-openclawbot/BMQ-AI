@@ -28,10 +28,22 @@ const compactVnd = (v: number) => {
 
 const MOM_PREVIOUS_COLOR = "#F2C15C";
 const MOM_CURRENT_COLOR = "#34D399";
+const FORECAST_REMAINDER_COLOR = "#F59E0B";
+
+const vietnamToday = () => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || "01";
+  return { year: Number(get("year")), month: Number(get("month")), day: Number(get("day")) };
+};
 
 const monthNow = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const d = vietnamToday();
+  return `${d.year}-${String(d.month).padStart(2, "0")}`;
 };
 
 type RevenueLine = {
@@ -81,6 +93,24 @@ const previousMonth = (period: string) => {
   const [year, month] = period.split("-").map(Number);
   const d = new Date(year, month - 2, 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
+
+const daysInPeriod = (period: string) => {
+  const [year, month] = period.split("-").map(Number);
+  return new Date(year, month, 0).getDate();
+};
+
+const dayOfMonth = (date: string) => {
+  const n = Number(date.slice(8, 10));
+  return Number.isFinite(n) ? n : 0;
+};
+
+const sumRevenue = (rows: RevenueLine[]) => rows.reduce((sum, r) => sum + Number(r.gross_revenue || 0), 0);
+
+const maxRevenueDay = (rows: RevenueLine[], fallbackPeriod: string) => {
+  const latest = rows.reduce((max, r) => Math.max(max, dayOfMonth(r.revenue_date)), 0);
+  if (latest > 0) return latest;
+  return fallbackPeriod === monthNow() ? vietnamToday().day : daysInPeriod(fallbackPeriod);
 };
 
 async function fetchAllRevenueLines(period: string, controlledOnly: boolean) {
@@ -183,17 +213,28 @@ export default function RevenueManagementDashboard() {
   const initialPeriod = new URLSearchParams(window.location.search).get("period") || monthNow();
   const [period, setPeriod] = useState(initialPeriod);
   const prevPeriod = previousMonth(period);
+  const forecastBasePeriod = previousMonth(prevPeriod);
+  const isSelectedCurrentMonth = period === monthNow();
 
   const { data: lines = [], isLoading, error } = useQuery<RevenueLine[]>({
     queryKey: ["revenue-ledger-lines", period],
     queryFn: async () => {
       return fetchAllRevenueLines(period, true);
     },
+    refetchOnWindowFocus: true,
+    refetchInterval: isSelectedCurrentMonth ? 5 * 60 * 1000 : false,
   });
 
   const { data: previousLines = [] } = useQuery<RevenueLine[]>({
     queryKey: ["revenue-ledger-lines", prevPeriod],
     queryFn: async () => fetchAllRevenueLines(prevPeriod, true),
+    refetchOnWindowFocus: true,
+  });
+
+  const { data: forecastBaseLines = [] } = useQuery<RevenueLine[]>({
+    queryKey: ["revenue-ledger-lines", forecastBasePeriod],
+    queryFn: async () => fetchAllRevenueLines(forecastBasePeriod, true),
+    refetchOnWindowFocus: true,
   });
 
   const stats = useMemo(() => {
@@ -232,19 +273,73 @@ export default function RevenueManagementDashboard() {
   }, [lines]);
 
   const mom = useMemo(() => {
-    const previousTotal = previousLines.reduce((sum, r) => sum + Number(r.gross_revenue || 0), 0);
+    const previousTotal = sumRevenue(previousLines);
     const delta = stats.total - previousTotal;
     const pct = previousTotal > 0 ? (delta / previousTotal) * 100 : null;
     return {
       previousTotal,
       delta,
       pct,
+    };
+  }, [previousLines, stats.total]);
+
+  const forecast = useMemo(() => {
+    const periodDays = daysInPeriod(period);
+    const cutoffDay = Math.min(maxRevenueDay(lines, period), periodDays);
+    const remainingDays = Math.max(periodDays - cutoffDay, 0);
+    const allBaselines = [
+      { period: forecastBasePeriod, lines: forecastBaseLines },
+      { period: prevPeriod, lines: previousLines },
+    ].map((baseline) => {
+      const total = sumRevenue(baseline.lines);
+      const dailyAverage = total > 0 ? total / daysInPeriod(baseline.period) : 0;
+      const projected = stats.total + dailyAverage * remainingDays;
+      return {
+        ...baseline,
+        total,
+        dailyAverage,
+        projected,
+      };
+    });
+    const baselines = allBaselines.filter((baseline) => baseline.total > 0);
+
+    const baselineAverage = baselines.length > 0 ? baselines.reduce((sum, baseline) => sum + baseline.total, 0) / baselines.length : 0;
+    const baselineDailyAverage = periodDays > 0 ? baselineAverage / periodDays : 0;
+    const scenarioValues = baselines.map((baseline) => stats.total + (baseline.total / Math.max(periodDays, 1)) * remainingDays).filter((value) => value > 0);
+    const scenarioAverage = baselineDailyAverage > 0 ? stats.total + baselineDailyAverage * remainingDays : stats.total;
+    const total = Math.max(stats.total, scenarioAverage);
+    const low = Math.max(stats.total, Math.min(...(scenarioValues.length ? scenarioValues : [total])));
+    const high = Math.max(total, Math.max(...(scenarioValues.length ? scenarioValues : [total])));
+    const remainder = Math.max(total - stats.total, 0);
+
+    return {
+      cutoffDay,
+      periodDays,
+      actualControlled: stats.total,
+      total,
+      low,
+      high,
+      remainder,
+      baselineAverage,
+      baselines,
       chart: [
-        { month: prevPeriod, revenue: previousTotal, isCurrent: false },
-        { month: period, revenue: stats.total, isCurrent: true },
+        ...allBaselines.map((baseline) => ({
+          month: baseline.period,
+          baselineRevenue: baseline.total,
+          controlledRevenue: 0,
+          forecastRemaining: 0,
+          kind: "baseline" as const,
+        })),
+        {
+          month: period,
+          baselineRevenue: 0,
+          controlledRevenue: stats.total,
+          forecastRemaining: remainder,
+          kind: "forecast" as const,
+        },
       ],
     };
-  }, [period, prevPeriod, previousLines, stats.total]);
+  }, [forecastBaseLines, forecastBasePeriod, lines, period, prevPeriod, previousLines, stats.total]);
 
   const byCustomer = useMemo(() => {
     const historicalParentByCustomerName = new Map<string, CustomerRollup>();
@@ -387,44 +482,63 @@ export default function RevenueManagementDashboard() {
       <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
         <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/95 via-stone-950 to-amber-950/15 ring-1 ring-stone-200/5">
           <CardHeader className="border-b border-amber-100/10 bg-stone-900/30">
-            <CardTitle className="text-amber-50">Month-on-month</CardTitle>
+            <CardTitle className="text-amber-50">Dự báo vận hành doanh thu tháng hiện tại</CardTitle>
             <CardDescription className="text-stone-300/75">
-              {period === monthNow() ? "Current month is month to date." : "So sánh tổng doanh thu theo tháng."}
+              Dự báo vận hành từ Doanh thu đã kiểm soát hiện tại, đối chiếu baseline {forecastBasePeriod} và {prevPeriod}; không phải trusted/final hay số audit cuối tháng.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 p-4 sm:grid-cols-3">
-            <div className="min-w-0 rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
-              <div className="text-xs uppercase tracking-[0.14em] text-stone-400">This month</div>
-              <div className="mt-2 whitespace-nowrap text-[clamp(1rem,1.35vw,1.35rem)] font-semibold leading-tight tabular-nums text-amber-100" title={vnd(stats.total)}>{compactVnd(stats.total)}</div>
+            <div className="min-w-0 rounded-lg border border-emerald-200/15 bg-emerald-400/[0.06] p-3">
+              <div className="text-xs uppercase tracking-[0.14em] text-stone-400">Đã parse / kiểm soát</div>
+              <div className="mt-2 whitespace-nowrap text-[clamp(1rem,1.35vw,1.35rem)] font-semibold leading-tight tabular-nums text-emerald-100" title={vnd(forecast.actualControlled)}>{compactVnd(forecast.actualControlled)}</div>
+              <div className="text-xs text-stone-400">Tới ngày {forecast.cutoffDay}/{forecast.periodDays}</div>
             </div>
             <div className="min-w-0 rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
-              <div className="text-xs uppercase tracking-[0.14em] text-stone-400">Previous month</div>
-              <div className="mt-2 whitespace-nowrap text-[clamp(1rem,1.35vw,1.35rem)] font-semibold leading-tight tabular-nums text-stone-100" title={vnd(mom.previousTotal)}>{compactVnd(mom.previousTotal)}</div>
+              <div className="text-xs uppercase tracking-[0.14em] text-stone-400">Dự báo vận hành</div>
+              <div className="mt-2 whitespace-nowrap text-[clamp(1rem,1.35vw,1.35rem)] font-semibold leading-tight tabular-nums text-amber-100" title={vnd(forecast.total)}>{compactVnd(forecast.total)}</div>
+              <div className="text-xs text-stone-400">Range {compactVnd(forecast.low)}–{compactVnd(forecast.high)}</div>
             </div>
             <div className="min-w-0 rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
-              <div className="text-xs uppercase tracking-[0.14em] text-stone-400">MoM change</div>
+              <div className="text-xs uppercase tracking-[0.14em] text-stone-400">MoM vs {prevPeriod}</div>
               <div className={`mt-2 whitespace-nowrap text-[clamp(1rem,1.35vw,1.35rem)] font-semibold leading-tight tabular-nums ${mom.delta >= 0 ? "text-emerald-100" : "text-rose-100"}`} title={vnd(mom.delta)}>
                 {compactVnd(mom.delta)}
               </div>
-              <div className="text-xs text-stone-400">{mom.pct === null ? "N/A" : `${mom.pct >= 0 ? "+" : ""}${numberFmt(mom.pct)}%`}</div>
+              <div className="text-xs text-stone-400">{mom.pct === null ? "N/A" : `${mom.pct >= 0 ? "+" : ""}${numberFmt(mom.pct)}%`} · baseline avg {compactVnd(forecast.baselineAverage)}</div>
             </div>
           </CardContent>
         </Card>
 
         <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/95 via-stone-950 to-amber-950/15 ring-1 ring-stone-200/5">
-          <CardContent className="h-[230px] p-4">
-            <ChartContainer config={{ revenue: { label: "Doanh thu", color: MOM_PREVIOUS_COLOR } }} className="h-full">
+          <CardHeader className="border-b border-amber-100/10 bg-stone-900/30 pb-3">
+            <CardTitle className="text-amber-50">Dự báo lồng doanh thu parse hiện tại</CardTitle>
+            <CardDescription className="text-stone-300/75">
+              Cột {period} là dự báo vận hành tổng; phần xanh nằm trong cột là Doanh thu đã kiểm soát hiện tại, phần vàng là doanh thu còn dự báo.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="h-[260px] p-4">
+            <ChartContainer
+              config={{
+                baselineRevenue: { label: "Baseline T3/T4", color: MOM_PREVIOUS_COLOR },
+                controlledRevenue: { label: "Doanh thu đã kiểm soát", color: MOM_CURRENT_COLOR },
+                forecastRemaining: { label: "Dự báo vận hành còn lại", color: FORECAST_REMAINDER_COLOR },
+              }}
+              className="h-full"
+            >
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={mom.chart} margin={{ top: 8, right: 18, bottom: 18, left: 8 }}>
+                <BarChart data={forecast.chart} margin={{ top: 8, right: 18, bottom: 18, left: 8 }}>
                   <CartesianGrid stroke="rgba(245,158,11,0.14)" vertical={false} />
                   <XAxis dataKey="month" tickLine={false} axisLine={false} fontSize={12} tick={{ fill: "rgba(245,245,244,0.74)" }} />
                   <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`} tickLine={false} axisLine={false} width={48} tick={{ fill: "rgba(245,245,244,0.74)" }} />
-                  <ChartTooltip content={<ChartTooltipContent formatter={(value) => vnd(Number(value))} />} />
-                  <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
-                    {mom.chart.map((entry) => (
-                      <Cell key={entry.month} fill={entry.isCurrent ? MOM_CURRENT_COLOR : MOM_PREVIOUS_COLOR} />
-                    ))}
-                  </Bar>
+                  <Tooltip
+                    cursor={{ fill: "rgba(251,191,36,0.08)" }}
+                    contentStyle={{ background: "#1c1917", border: "1px solid rgba(251,191,36,0.28)", borderRadius: "6px", color: "#fef3c7" }}
+                    formatter={(value, name) => [vnd(Number(value)), name === "baselineRevenue" ? "Baseline lịch sử" : name === "controlledRevenue" ? "Doanh thu đã kiểm soát" : "Dự báo vận hành còn lại"]}
+                    labelStyle={{ color: "#fef3c7", fontWeight: 600 }}
+                  />
+                  <Legend wrapperStyle={{ color: "rgba(245,245,244,0.74)", fontSize: 12 }} />
+                  <Bar dataKey="baselineRevenue" fill="var(--color-baselineRevenue)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="controlledRevenue" stackId="forecast" fill="var(--color-controlledRevenue)" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="forecastRemaining" stackId="forecast" fill="var(--color-forecastRemaining)" fillOpacity={0.82} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </ChartContainer>
