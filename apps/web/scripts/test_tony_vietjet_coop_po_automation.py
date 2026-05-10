@@ -94,6 +94,9 @@ def test_monthly_preview_uses_dashboard_canonical_channels() -> None:
         ('return "B2B BMQ"', "B2B canonical dashboard channel"),
         ('return "Retail Kiosk"', "retail canonical dashboard channel"),
         ("raw_parse_channel", "raw parse channel preserved in payload"),
+        ("DAM_XESG_T4_GROSS_REVENUE", "Retail Kiosk T4 estimate constant"),
+        ("t4_xesg_sent_qty_revenue_estimate", "Retail Kiosk T4 estimate metadata"),
+        ("combined.includes(\"king\")", "Kingfood overrides stale b2b channel signal"),
     ]:
         assert_contains(monthly, needle, label)
 

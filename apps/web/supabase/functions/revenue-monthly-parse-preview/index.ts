@@ -112,7 +112,25 @@ const normalizeText = (...values: unknown[]) =>
     .replace(/[đ]/g, "d")
     .trim();
 
+const DAM_XESG_T4_SENT_QTY = 12_320;
+const DAM_XESG_T4_SOLD_QTY = 11_658;
+const DAM_XESG_T4_GROSS_REVENUE = 139_986_000;
+const DAM_XESG_T4_ESTIMATED_GROSS_PER_SENT_QTY = DAM_XESG_T4_GROSS_REVENUE / DAM_XESG_T4_SENT_QTY;
+const DAM_XESG_T4_SELL_THROUGH_RATE = DAM_XESG_T4_SOLD_QTY / DAM_XESG_T4_SENT_QTY;
+
 const dashboardRevenueChannel = (...signals: unknown[]) => {
+  const normalizedSignals = signals.map((signal) => normalizeText(signal)).filter(Boolean);
+  const combined = normalizedSignals.join(" ");
+
+  // Strong parser/customer evidence should override stale broad channel values such as `b2b`.
+  if (combined.includes("dam_xesg") || combined.includes("xesg")) return "Retail Kiosk";
+  if (
+    combined.includes("king") ||
+    combined.includes("kfm") ||
+    combined.includes("banhngot") ||
+    combined.includes("kho banh")
+  ) return "BÁNH NGỌT";
+
   for (const signal of signals) {
     const normalized = normalizeText(signal);
     if (!normalized) continue;
@@ -123,30 +141,9 @@ const dashboardRevenueChannel = (...signals: unknown[]) => {
     if (normalized === "retail kiosk" || normalized === "retail" || normalized === "kiosk") return "Retail Kiosk";
 
     if (
-      normalized.includes("xesg") ||
-      normalized.includes("retail") ||
-      normalized.includes("kiosk") ||
-      normalized.includes("xe sg") ||
-      normalized.includes("xe ban le") ||
-      normalized.includes("dam_xesg")
-    ) return "Retail Kiosk";
-
-    if (
-      normalized.includes("king") ||
-      normalized.includes("kfm") ||
-      normalized.includes("coop") ||
-      normalized.includes("cake") ||
-      normalized.includes("bakery") ||
-      normalized.includes("kho banh") ||
-      normalized.includes("banhngot") ||
-      normalized.includes("banh ngot")
-    ) return "BÁNH NGỌT";
-
-    if (
       normalized.includes("b2b") ||
       normalized.includes("vietjet") ||
-      normalized.includes("vjc") ||
-      normalized.includes("kho ban thanh pham")
+      normalized.includes("vjc")
     ) return "B2B BMQ";
 
     if (
@@ -163,6 +160,19 @@ const dashboardRevenueChannel = (...signals: unknown[]) => {
   }
 
   return "ĐẠI LÝ";
+};
+
+const estimateDamXesgRetailGross = (item: JsonRecord, rule: unknown, rawChannel: unknown) => {
+  const normalized = normalizeText(rule, rawChannel, item.source_column_name);
+  if (!normalized.includes("dam_xesg")) return null;
+  const sentQty = numberValue(item.sent_qty, item.quantity, item.qty, item.ordered_qty, item.count);
+  if (sentQty <= 0) return null;
+  return {
+    gross: Math.round(sentQty * DAM_XESG_T4_ESTIMATED_GROSS_PER_SENT_QTY),
+    unit: DAM_XESG_T4_ESTIMATED_GROSS_PER_SENT_QTY,
+    sentQty,
+    estimatedSoldQty: sentQty * DAM_XESG_T4_SELL_THROUGH_RATE,
+  };
 };
 
 const isoDate = (date: Date) => date.toISOString().slice(0, 10);
@@ -515,6 +525,15 @@ const buildPreviewLines = (runId: string, period: string, revenueFrom: string, r
         row.from_email,
         customerName,
       );
+      const damXesgEstimate = dashboardChannel === "Retail Kiosk" && Number(line.gross || 0) === 0
+        ? estimateDamXesgRetailGross(item, poAutomation.rule, rawChannel)
+        : null;
+      if (damXesgEstimate) {
+        const estimateNote = `Retail Kiosk estimate from T4 XESG pattern: ${damXesgEstimate.sentQty} sent_qty × ${DAM_XESG_T4_ESTIMATED_GROSS_PER_SENT_QTY.toLocaleString("vi-VN")} VND/sent_qty`;
+        line.gross = damXesgEstimate.gross;
+        line.unit = damXesgEstimate.unit;
+        line.note = line.note ? `${line.note}; ${estimateNote}` : estimateNote;
+      }
       const gross = Number(line.gross || 0);
       rowChannel = rowChannel || dashboardChannel;
       rowLineCount += 1;
@@ -559,6 +578,16 @@ const buildPreviewLines = (runId: string, period: string, revenueFrom: string, r
           trust_semantics: "not_trusted_month_end_audit_source",
           dashboard_channel: dashboardChannel,
           raw_parse_channel: rawChannel,
+          retail_estimate_basis: damXesgEstimate ? {
+            method: "t4_xesg_sent_qty_revenue_estimate",
+            sent_qty: damXesgEstimate.sentQty,
+            estimated_sold_qty: damXesgEstimate.estimatedSoldQty,
+            t4_sent_qty: DAM_XESG_T4_SENT_QTY,
+            t4_sold_qty: DAM_XESG_T4_SOLD_QTY,
+            t4_gross_revenue: DAM_XESG_T4_GROSS_REVENUE,
+            estimated_gross_per_sent_qty: DAM_XESG_T4_ESTIMATED_GROSS_PER_SENT_QTY,
+            note: "Retail Kiosk May preview estimate uses T4 XESG pattern because current PO email has sent_qty only, not actual sold_qty.",
+          } : null,
           source_dedupe_key: stringValue(item.dedupe_key),
           dedupe_strategy: stringValue(item.dedupe_strategy, asRecord(raw.parse_meta).dedupe_strategy),
         },
@@ -774,7 +803,7 @@ serve(async (req) => {
     const action = String(body?.action || "preview_current_month");
 
     if (action === "preview_current_month") {
-      if (Boolean(body?.streamProgress)) {
+      if (body?.streamProgress) {
         return streamCurrentMonthPreview(req, supabaseAdmin, user.id);
       }
       return await previewCurrentMonth(req, supabaseAdmin, user.id);
