@@ -439,22 +439,26 @@ export default function RevenueManagementDashboard() {
                     Chưa có dữ liệu doanh thu cho kỳ này.
                   </div>
                 ) : (
-                  <ChartContainer config={{ revenue: { label: "Revenue", color: "#F2C15C" }, review: { label: "Review", color: "#E97878" } }} className="h-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={byDay} margin={{ top: 8, right: 18, bottom: 18, left: 8 }}>
-                        <CartesianGrid stroke="rgba(245,158,11,0.14)" vertical={false} />
-                        <XAxis dataKey="date" tickLine={false} axisLine={false} fontSize={12} tick={{ fill: "rgba(245,245,244,0.74)" }} />
-                        <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`} tickLine={false} axisLine={false} width={48} tick={{ fill: "rgba(245,245,244,0.74)" }} />
-                        <ChartTooltip content={<ChartTooltipContent formatter={(value) => vnd(Number(value))} className="border-amber-300/30 bg-stone-900 text-amber-50 shadow-xl" />} />
-                        <Legend
-                          wrapperStyle={{ color: "rgba(245,245,244,0.74)", fontSize: 12 }}
-                          formatter={(value) => (value === "revenue" ? "Doanh thu" : "Cần review")}
-                        />
-                        <Bar dataKey="revenue" fill="var(--color-revenue)" radius={[2, 2, 0, 0]} />
-                        <Bar dataKey="review" fill="var(--color-review)" radius={[2, 2, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </ChartContainer>
+                  <div className="h-full overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
+                    <div className="h-full min-w-[720px]">
+                      <ChartContainer config={{ revenue: { label: "Revenue", color: "#F2C15C" }, review: { label: "Review", color: "#E97878" } }} className="h-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={byDay} margin={{ top: 8, right: 18, bottom: 18, left: 8 }}>
+                            <CartesianGrid stroke="rgba(245,158,11,0.14)" vertical={false} />
+                            <XAxis dataKey="date" tickLine={false} axisLine={false} fontSize={12} tick={{ fill: "rgba(245,245,244,0.74)" }} />
+                            <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`} tickLine={false} axisLine={false} width={48} tick={{ fill: "rgba(245,245,244,0.74)" }} />
+                            <ChartTooltip content={<ChartTooltipContent formatter={(value) => vnd(Number(value))} className="border-amber-300/30 bg-stone-900 text-amber-50 shadow-xl" />} />
+                            <Legend
+                              wrapperStyle={{ color: "rgba(245,245,244,0.74)", fontSize: 12 }}
+                              formatter={(value) => (value === "revenue" ? "Doanh thu" : "Cần review")}
+                            />
+                            <Bar dataKey="revenue" fill="var(--color-revenue)" radius={[2, 2, 0, 0]} />
+                            <Bar dataKey="review" fill="var(--color-review)" radius={[2, 2, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </ChartContainer>
+                    </div>
+                  </div>
                 )}
               </CardContent>
             </Card>
