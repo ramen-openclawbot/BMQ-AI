@@ -222,15 +222,20 @@ export default function FinanceControl() {
   const classificationMonthlyRows = costClassification.monthlySummary.data || EMPTY_COST_CLASSIFICATION_MONTHLY_ROWS;
   const classificationReviewRows = costClassification.reviewQueue.data || EMPTY_COST_CLASSIFICATION_REVIEW_ROWS;
   const classificationCategoryByCode = useMemo(() => {
+    const fallbackLabels = new Map(classificationCategoryRows.map((row) => [row.category_code, row.category_label]));
     const totals = new Map<string, { label: string; amount: number; count: number }>();
-    for (const row of classificationCategoryRows) {
-      const existing = totals.get(row.category_code) || { label: row.category_label, amount: 0, count: 0 };
+    for (const row of classificationMonthlyRows) {
+      const existing = totals.get(row.category_code) || {
+        label: row.category_label || fallbackLabels.get(row.category_code) || row.category_code,
+        amount: 0,
+        count: 0,
+      };
       existing.amount += Number(row.total_amount || 0);
       existing.count += Number(row.line_count || 0);
       totals.set(row.category_code, existing);
     }
     return totals;
-  }, [classificationCategoryRows]);
+  }, [classificationMonthlyRows, classificationCategoryRows]);
   const persistedQtmImages = dailyDeclaration?.extraction_meta?.qtm_images;
   const persistedUncImages = dailyDeclaration?.extraction_meta?.unc_images;
   const hasPersistedSlipImages = Boolean(

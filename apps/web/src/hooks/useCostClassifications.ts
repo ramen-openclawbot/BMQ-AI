@@ -155,14 +155,19 @@ export function useCostClassificationMonthlySummary(month: Date, enabled = true)
   });
 }
 
-export function useCostClassificationReviewQueue(enabled = true) {
+export function useCostClassificationReviewQueue(month: Date, enabled = true) {
+  const monthStart = format(startOfMonth(month), "yyyy-MM-dd");
+  const monthEnd = format(endOfMonth(month), "yyyy-MM-dd");
+
   return useQuery({
-    queryKey: ["cost-classification-review-queue"],
+    queryKey: ["cost-classification-review-queue", monthStart],
     enabled,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("cost_classification_line_details")
         .select("*")
+        .gte("source_date", monthStart)
+        .lte("source_date", monthEnd)
         .or("review_status.eq.needs_review,category_code.eq.UNMAPPED_REVIEW,confidence.lt.0.7")
         .order("line_amount", { ascending: false })
         .limit(50);
@@ -177,7 +182,7 @@ export function useCostClassificationReviewQueue(enabled = true) {
 export function useCostClassificationDashboard(month: Date, enabled = true) {
   const categorySummary = useCostClassificationCategorySummary(enabled);
   const monthlySummary = useCostClassificationMonthlySummary(month, enabled);
-  const reviewQueue = useCostClassificationReviewQueue(enabled);
+  const reviewQueue = useCostClassificationReviewQueue(month, enabled);
 
   return {
     categorySummary,
