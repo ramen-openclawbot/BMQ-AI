@@ -364,7 +364,8 @@ export default function FinanceControl() {
   const hasDeclaredUnc = Number(uncTotalDeclared || 0) > 0;
   const hasDeclaredQtm = Number(cashFundTopupAmount || 0) > 0;
   const canCloseWithoutBankSlips = !hasDeclaredUnc && !hasDeclaredQtm;
-  const missingRequiredPreview = (hasDeclaredUnc && previewUncFiles === 0) || (hasDeclaredQtm && previewQtmFiles === 0);
+  const missingRequiredPreview = hasDeclaredUnc && previewUncFiles === 0;
+  const qtmCarryForwardPreview = hasDeclaredQtm && previewQtmFiles === 0;
 
   const qtmResolved = useMemo(() => {
     const persistedOpening = Number(dailyDeclaration?.extraction_meta?.qtm_opening_balance || 0);
@@ -665,7 +666,7 @@ export default function FinanceControl() {
       const targetUncFiles = uncFiles;
       const targetQtmFiles = qtmFiles;
 
-      if (!targetUncFiles.length && !targetQtmFiles.length) {
+      if (!targetUncFiles.length && !targetQtmFiles.length && (hasDeclaredUnc || !hasDeclaredQtm)) {
         const uncMsg = uncScanData?.message || "";
         const qtmMsg = qtmScanData?.message || "";
         const pathInfo = `UNC: ${uncPath}, QTM: ${qtmPath}`;
@@ -1587,15 +1588,13 @@ export default function FinanceControl() {
           ? `Không thể chốt ngày: UNC đã khai báo ${vnd(Number(uncTotalDeclared || 0))} nhưng thư mục Drive UNC không quét được file nào (${folderScanResult.uncPath}).`
           : `Cannot close day: UNC was declared but Drive UNC scan returned 0 files (${folderScanResult.uncPath}).`);
       }
-      if (hasDeclaredQtm && folderScanResult.qtmTotalScannedCount === 0) {
+      // QTM declared by CEO is cash added to the QTM fund. It may be spent from the
+      // Drive QTM folder on a later day, so zero QTM files/spend today must carry
+      // forward into qtmClosingBalance instead of blocking close-day approval.
+      if (hasDeclaredUnc && Number(folderScanResult.uncFolderTotal || 0) === 0) {
         throw new Error(isVi
-          ? `Không thể chốt ngày: QTM đã khai báo ${vnd(Number(cashFundTopupAmount || 0))} nhưng thư mục Drive QTM không quét được file nào (${folderScanResult.qtmPath}).`
-          : `Cannot close day: QTM was declared but Drive QTM scan returned 0 files (${folderScanResult.qtmPath}).`);
-      }
-      if ((hasDeclaredUnc && Number(folderScanResult.uncFolderTotal || 0) === 0) || (hasDeclaredQtm && Number(folderScanResult.qtmFolderTotal || 0) === 0)) {
-        throw new Error(isVi
-          ? "Không thể chốt ngày: có bank slip đã khai báo nhưng tổng tiền quét từ Drive vẫn bằng 0. Vui lòng kiểm tra lại thư mục đang lưu hoặc kết quả OCR."
-          : "Cannot close day: declared bank slips exist but Drive scanned total is still 0. Please verify the saved folder or OCR results.");
+          ? "Không thể chốt ngày: UNC đã khai báo nhưng tổng tiền quét từ Drive vẫn bằng 0. Vui lòng kiểm tra lại thư mục đang lưu hoặc kết quả OCR."
+          : "Cannot close day: UNC was declared but Drive scanned total is still 0. Please verify the saved folder or OCR results.");
       }
 
       // Step 3: Run reconciliation
@@ -2262,8 +2261,16 @@ export default function FinanceControl() {
               {missingRequiredPreview && !previewLoading && !reconcileError && (
                 <div className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
                   {isVi
-                    ? "Có khai báo UNC/QTM nhưng quét nhanh chưa thấy đủ file tương ứng. Anh vẫn có thể bấm Thực hiện để hệ thống kiểm tra/OCR và trả lỗi chi tiết."
-                    : "UNC/QTM was declared but quick scan did not find all matching files. You can still execute so the system can validate/OCR and return the exact error."}
+                    ? "Có khai báo UNC nhưng quét nhanh chưa thấy file UNC tương ứng. Anh vẫn có thể bấm Thực hiện để hệ thống kiểm tra/OCR và trả lỗi chi tiết."
+                    : "UNC was declared but quick scan did not find matching UNC files. You can still execute so the system can validate/OCR and return the exact error."}
+                </div>
+              )}
+
+              {qtmCarryForwardPreview && !previewLoading && !reconcileError && (
+                <div className="rounded border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-700 dark:text-emerald-300">
+                  {isVi
+                    ? "QTM đã khai báo nhưng hôm nay chưa có file QTM trên Drive. Số tiền này sẽ cộng vào quỹ QTM và được chuyển sang ngày sau nếu chưa chi."
+                    : "QTM was declared but no same-day QTM Drive file was found. This amount will be added to the QTM fund and carried forward if not spent today."}
                 </div>
               )}
 

@@ -54,10 +54,16 @@ def main() -> None:
     assert_true("OCR đọc được" in finance_page and "chưa đọc được" in finance_page, "partial OCR failure error must show extracted/failed counts in Vietnamese")
     assert_true("successfulOcrFileIds" in finance_page, "processed markers must distinguish files with successful OCR from failed files")
     assert_true("processed: successfulOcrFileIds.has" in finance_page, "failed OCR files must not be persisted as processed=true")
-    assert_true("missingRequiredPreview" in finance_page, "close preview should still calculate missing Drive file requirements for runtime validation")
+    assert_true("missingRequiredPreview = hasDeclaredUnc && previewUncFiles === 0" in finance_page, "close preview should treat only missing UNC files as required runtime validation")
+    assert_true("qtmCarryForwardPreview = hasDeclaredQtm && previewQtmFiles === 0" in finance_page, "QTM zero-file preview should be informational carry-forward, not a blocking missing-file warning")
     assert_true("disabled={previewLoading || closeActing || (!!reconcileError && !canCloseWithoutBankSlips)}" in finance_page, "Execute button must remain clickable after quick scan so runtime validation can show the exact missing UNC/QTM error")
+    assert_true("Số tiền này sẽ cộng vào quỹ QTM" in finance_page, "QTM zero-file preview must tell users the declared amount carries forward into QTM fund")
+    assert_true("QTM declared by CEO is cash added to the QTM fund" in finance_page, "declared QTM must carry forward into QTM balance even when Drive QTM has no same-day files")
+    assert_true("!targetUncFiles.length && !targetQtmFiles.length && (hasDeclaredUnc || !hasDeclaredQtm)" in finance_page, "QTM-only declarations with no Drive files must not be rejected by the empty-folder guard")
+    assert_true("QTM đã khai báo ${vnd(Number(cashFundTopupAmount || 0))}" not in finance_page, "declared QTM with zero Drive files must not block close-day approval")
+    assert_true("hasDeclaredQtm && Number(folderScanResult.qtmFolderTotal || 0) === 0" not in finance_page, "declared QTM with zero scanned total must be treated as no same-day spend, not a hard error")
 
-    print("PASS: CEO bank slip upload and UNC Drive slip flow use OpenAI Vision only")
+    print("PASS: CEO bank slip upload and UNC/QTM close-day flow use OpenAI Vision with QTM carry-forward")
 
 
 if __name__ == "__main__":
