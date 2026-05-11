@@ -789,10 +789,12 @@ export default function FinanceControl() {
       // ── Inject cached QTM results ──
       let qtmTotal = 0;
       let qtmLowConfidence = 0;
+      let qtmSuccessfulCount = 0;
       for (const f of targetQtmFiles) {
         const cached = ocrCache.get(f.id);
         if (cached) {
           qtmTotal += cached.amount;
+          qtmSuccessfulCount += 1;
           if (cached.confidence < uncLowConfidenceThreshold) qtmLowConfidence += 1;
         }
       }
@@ -802,22 +804,32 @@ export default function FinanceControl() {
       for (const r of qtmResults) {
         if (!r) continue;
         qtmTotal += r.amount;
+        qtmSuccessfulCount += 1;
         if (r.confidence < uncLowConfidenceThreshold) qtmLowConfidence += 1;
       }
 
       const folderTotal = uncItems.reduce((sum, x) => sum + x.amount, 0);
       const uncOcrFailedHard = targetUncFiles.length > 0 && uncItems.length === 0;
-      const qtmOcrFailedHard = targetQtmFiles.length > 0 && qtmTotal === 0;
-      if (uncOcrFailedHard || qtmOcrFailedHard) {
+      const qtmOcrFailedHard = targetQtmFiles.length > 0 && qtmSuccessfulCount === 0;
+      const uncOcrPartialFailedHard = targetUncFiles.length > 0 && uncItems.length > 0 && uncItems.length < targetUncFiles.length;
+      const qtmOcrPartialFailedHard = targetQtmFiles.length > 0 && qtmSuccessfulCount > 0 && qtmSuccessfulCount < targetQtmFiles.length;
+      let ocrFailureMessage: string | null = null;
+      if (uncOcrFailedHard || qtmOcrFailedHard || uncOcrPartialFailedHard || qtmOcrPartialFailedHard) {
         const preview = ocrErrors.slice(0, 8).join(" | ");
-        const scope = uncOcrFailedHard && qtmOcrFailedHard
-          ? (isVi ? "UNC và QTM" : "UNC and QTM")
-          : uncOcrFailedHard
-            ? "UNC"
-            : "QTM";
-        throw new Error(isVi
-          ? `${scope}: Drive đã thấy file nhưng OCR không đọc được số tiền. ${preview || "Vui lòng kiểm tra format bank slip hoặc edge function finance-extract-slip-amount."}`
-          : `${scope}: Drive found files but OCR could not extract amounts. ${preview || "Please verify bank slip format or finance-extract-slip-amount."}`);
+        const scopes: string[] = [];
+        if (uncOcrFailedHard || uncOcrPartialFailedHard) {
+          scopes.push(isVi
+            ? `UNC: OCR đọc được ${uncItems.length}/${targetUncFiles.length} file, còn ${Math.max(targetUncFiles.length - uncItems.length, 0)} file chưa đọc được`
+            : `UNC: OCR extracted ${uncItems.length}/${targetUncFiles.length} files, ${Math.max(targetUncFiles.length - uncItems.length, 0)} files still failed`);
+        }
+        if (qtmOcrFailedHard || qtmOcrPartialFailedHard) {
+          scopes.push(isVi
+            ? `QTM: OCR đọc được ${qtmSuccessfulCount}/${targetQtmFiles.length} file, còn ${Math.max(targetQtmFiles.length - qtmSuccessfulCount, 0)} file chưa đọc được`
+            : `QTM: OCR extracted ${qtmSuccessfulCount}/${targetQtmFiles.length} files, ${Math.max(targetQtmFiles.length - qtmSuccessfulCount, 0)} files still failed`);
+        }
+        ocrFailureMessage = isVi
+          ? `${scopes.join("; ")}. ${preview || "Vui lòng kiểm tra format bank slip hoặc edge function finance-extract-slip-amount."}`
+          : `${scopes.join("; ")}. ${preview || "Please verify bank slip format or finance-extract-slip-amount."}`;
       }
       const ceoTotal = Number(uncTotalDeclared || 0);
       const delta = folderTotal - ceoTotal;
@@ -828,10 +840,6 @@ export default function FinanceControl() {
         if (x.status === "needs_review") return x;
         return { ...x, status: "matched" as const };
       });
-
-      setReconcileProgress({ done: totalTargets, total: totalTargets, currentFile: "" });
-      setQtmSpentFromFolder(Number(qtmTotal || 0));
-      setQtmLowConfidenceCount(Number(qtmLowConfidence || 0));
 
       // Persist processed markers + OCR amounts so next runs can reuse cached results
       // instead of re-downloading + re-OCR-ing every file.
@@ -848,20 +856,23 @@ export default function FinanceControl() {
       for (const [fileId, cached] of ocrCache.entries()) {
         if (!ocrAmountMap.has(fileId)) ocrAmountMap.set(fileId, cached);
       }
+      const successfulOcrFileIds = new Set(Array.from(ocrAmountMap.keys()).map(String));
       const processedRows = [...targetUncFiles, ...targetQtmFiles].map((f: any) => {
-        const ocr = ocrAmountMap.get(f.id);
+        const fileId = String(f.id);
+        const ocr = ocrAmountMap.get(f.id) || ocrAmountMap.get(fileId);
+        const ocrSucceeded = successfulOcrFileIds.has(fileId);
         return {
-          file_id: String(f.id),
+          file_id: fileId,
           file_name: String(f.name || f.id),
           folder_date: autoDayFolderPath,
           folder_type: "bank_slip",
           mime_type: f?.mimeType || null,
           parent_folder_id: null,
-          processed: true,
-          processed_at: processedAt,
+          processed: successfulOcrFileIds.has(fileId),
+          processed_at: ocrSucceeded ? processedAt : null,
           last_seen_at: processedAt,
-          extracted_amount: ocr?.amount ?? null,
-          extraction_confidence: ocr?.confidence ?? null,
+          extracted_amount: ocrSucceeded ? (ocr?.amount ?? null) : null,
+          extraction_confidence: ocrSucceeded ? (ocr?.confidence ?? null) : null,
         };
       });
 
@@ -872,8 +883,21 @@ export default function FinanceControl() {
 
         if (processedUpsertError) {
           console.error("[FinanceControl] Failed to persist processed markers:", processedUpsertError);
+          if (ocrFailureMessage) {
+            throw new Error(isVi
+              ? `Không thể lưu trạng thái OCR lỗi để retry: ${processedUpsertError.message || "drive_file_index upsert failed"}`
+              : `Could not save failed OCR retry state: ${processedUpsertError.message || "drive_file_index upsert failed"}`);
+          }
         }
       }
+
+      if (ocrFailureMessage) {
+        throw new Error(ocrFailureMessage);
+      }
+
+      setReconcileProgress({ done: totalTargets, total: totalTargets, currentFile: "" });
+      setQtmSpentFromFolder(Number(qtmTotal || 0));
+      setQtmLowConfidenceCount(Number(qtmLowConfidence || 0));
 
       const uncSummary = {
         folderDate: uncPath,

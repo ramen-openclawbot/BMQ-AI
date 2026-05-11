@@ -49,6 +49,11 @@ def main() -> None:
     assert_true("enableDeclarationImages" in finance_page, "saved slip images must load without relying on desktop hover")
     assert_true("setImagesRequested(true)" in finance_page, "CEO slip UI must expose an explicit action to load saved slip previews")
     assert_true("deleteDeclaredSlip(\"qtm\", idx)" in finance_page, "QTM previews must expose the declared slip delete action")
+    assert_true("uncOcrPartialFailedHard" in finance_page, "Drive UNC reconciliation must block partial OCR failures, not only total failures")
+    assert_true("qtmOcrPartialFailedHard" in finance_page, "Drive QTM reconciliation must block partial OCR failures, not only total failures")
+    assert_true("OCR đọc được" in finance_page and "chưa đọc được" in finance_page, "partial OCR failure error must show extracted/failed counts in Vietnamese")
+    assert_true("successfulOcrFileIds" in finance_page, "processed markers must distinguish files with successful OCR from failed files")
+    assert_true("processed: successfulOcrFileIds.has" in finance_page, "failed OCR files must not be persisted as processed=true")
 
     print("PASS: CEO bank slip upload and UNC Drive slip flow use OpenAI Vision only")
 
