@@ -56,6 +56,8 @@ def main() -> None:
     assert_true("processed: successfulOcrFileIds.has" in finance_page, "failed OCR files must not be persisted as processed=true")
     assert_true("missingRequiredPreview = hasDeclaredUnc && previewUncFiles === 0" in finance_page, "close preview should treat only missing UNC files as required runtime validation")
     assert_true("qtmCarryForwardPreview = hasDeclaredQtm && previewQtmFiles === 0" in finance_page, "QTM zero-file preview should be informational carry-forward, not a blocking missing-file warning")
+    assert_true("shouldRunFolderReconciliation = hasDeclaredUnc || hasDeclaredQtm || previewUncFiles > 0 || previewQtmFiles > 0" in finance_page, "preview-detected UNC/QTM files must force runtime Drive OCR even when CEO declared 0")
+    assert_true("const folderScanResult = shouldRunFolderReconciliation" in finance_page, "close-day execution must not skip folder reconciliation when preview found files")
     assert_true("disabled={previewLoading || closeActing || (!!reconcileError && !canCloseWithoutBankSlips)}" in finance_page, "Execute button must remain clickable after quick scan so runtime validation can show the exact missing UNC/QTM error")
     assert_true("Số tiền này sẽ cộng vào quỹ QTM" in finance_page, "QTM zero-file preview must tell users the declared amount carries forward into QTM fund")
     assert_true("QTM declared by CEO is cash added to the QTM fund" in finance_page, "declared QTM must carry forward into QTM balance even when Drive QTM has no same-day files")

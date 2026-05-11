@@ -366,6 +366,7 @@ export default function FinanceControl() {
   const canCloseWithoutBankSlips = !hasDeclaredUnc && !hasDeclaredQtm;
   const missingRequiredPreview = hasDeclaredUnc && previewUncFiles === 0;
   const qtmCarryForwardPreview = hasDeclaredQtm && previewQtmFiles === 0;
+  const shouldRunFolderReconciliation = hasDeclaredUnc || hasDeclaredQtm || previewUncFiles > 0 || previewQtmFiles > 0;
 
   const qtmResolved = useMemo(() => {
     const persistedOpening = Number(dailyDeclaration?.extraction_meta?.qtm_opening_balance || 0);
@@ -1569,16 +1570,16 @@ export default function FinanceControl() {
 
       // Step 2: Scan Drive folders (UNC + QTM)
       setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 2/4: Quét & OCR bank slip..." : "Step 2/4: Scanning & OCR bank slips..." });
-      const folderScanResult = canCloseWithoutBankSlips
-        ? {
+      const folderScanResult = shouldRunFolderReconciliation
+        ? await runFolderReconciliation()
+        : {
             uncPath: uncPathForDate,
             qtmPath: qtmPathForDate,
             uncTotalScannedCount: 0,
             qtmTotalScannedCount: 0,
             uncFolderTotal: 0,
             qtmFolderTotal: 0,
-          }
-        : await runFolderReconciliation();
+          };
       if (!folderScanResult) {
         throw new Error(isVi ? "Không nhận được kết quả quét thư mục Drive" : "Missing Drive scan result");
       }
