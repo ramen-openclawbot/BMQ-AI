@@ -59,20 +59,104 @@ const parseAmountVN = (v: unknown): number | null => {
   return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
 };
 
+const stripVietnamese = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase();
+
+const WORD_DIGITS: Record<string, number> = {
+  khong: 0,
+  mot: 1,
+  motj: 1,
+  hai: 2,
+  ba: 3,
+  bon: 4,
+  tu: 4,
+  nam: 5,
+  lam: 5,
+  sau: 6,
+  bay: 7,
+  tam: 8,
+  chin: 9,
+};
+
+const parseVietnameseAmountGroup = (tokens: string[]): number => {
+  const compact = tokens.filter((token) => token && token !== "linh" && token !== "le" && token !== "va");
+  let value = 0;
+  let i = 0;
+
+  const digitAt = (index: number) => WORD_DIGITS[compact[index] || ""];
+
+  const hundredIndex = compact.indexOf("tram");
+  if (hundredIndex > 0) {
+    value += (digitAt(hundredIndex - 1) ?? 0) * 100;
+    i = hundredIndex + 1;
+  }
+
+  if (compact[i] === "muoi") {
+    value += 10;
+    i += 1;
+  } else if (compact[i + 1] === "muoi") {
+    value += (digitAt(i) ?? 0) * 10;
+    i += 2;
+  }
+
+  const ones = digitAt(i);
+  if (ones !== undefined) value += ones;
+
+  return value;
+};
+
+const parseVietnameseAmountWords = (value: unknown): number | null => {
+  const raw = stripVietnamese(String(value ?? ""));
+  if (!raw || !(raw.includes("dong") || raw.includes("nghin") || raw.includes("ngan") || raw.includes("trieu"))) return null;
+
+  const tokens = raw
+    .replace(/[^a-z\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((token) => !["bang", "chu", "so", "tien", "vnd"].includes(token));
+
+  let total = 0;
+  let group: string[] = [];
+
+  for (const token of tokens) {
+    if (token === "ty" || token === "trieu" || token === "nghin" || token === "ngan" || token === "dong") {
+      const groupValue = parseVietnameseAmountGroup(group);
+      if (token === "ty") total += groupValue * 1_000_000_000;
+      else if (token === "trieu") total += groupValue * 1_000_000;
+      else if (token === "nghin" || token === "ngan") total += groupValue * 1_000;
+      else total += groupValue;
+      group = [];
+      if (token === "dong") break;
+    } else {
+      group.push(token);
+    }
+  }
+
+  if (group.length > 0) total += parseVietnameseAmountGroup(group);
+  return Number.isFinite(total) && total > 0 ? total : null;
+};
+
 const SLIP_EXTRACTION_SYSTEM_PROMPT = `Bạn là chuyên gia trích xuất số tiền từ ảnh UNC/QTM/bank slip tiếng Việt.
 
 Hãy trích xuất các trường sau:
 1. amount: số tiền thực chuyển/thực chi — trả về dạng CHUỖI chính xác như hiển thị trên ảnh (VD: "41.006.300" hoặc "41.006.300,00"). KHÔNG tự tính toán, KHÔNG đổi thứ tự chữ số, KHÔNG bỏ dấu chấm/phẩy.
-2. transfer_date: ngày giao dịch (YYYY-MM-DD nếu có thể)
-3. reference: mã giao dịch/tham chiếu nếu có
-4. confidence: độ tin cậy từ 0 đến 1
-5. notes: ghi chú ngắn nếu ảnh mờ hoặc có nhiều số tiền
+2. amount_in_words: dòng số tiền bằng chữ nếu ảnh có hiển thị, giữ nguyên tiếng Việt/English trên ảnh; nếu không có thì null.
+3. transfer_date: ngày giao dịch (YYYY-MM-DD nếu có thể)
+4. reference: mã giao dịch/tham chiếu nếu có
+5. confidence: độ tin cậy từ 0 đến 1
+6. notes: ghi chú ngắn nếu ảnh mờ hoặc có nhiều số tiền
 
 Quy tắc quan trọng:
 - amount PHẢI là string, giữ nguyên định dạng gốc trên ảnh.
 - Trong tiếng Việt, dấu chấm (.) là phân cách hàng nghìn, dấu phẩy (,) là phân cách thập phân. VD: "41.006.300,00" = bốn mươi mốt triệu không trăm linh sáu nghìn ba trăm đồng.
 - Ưu tiên các nhãn: "Số tiền", "Số tiền chuyển", "Giá trị giao dịch", "Amount", "Debit Amount", "Credit Amount", "Số tiền nợ", "Số tiền có".
 - Với Vietcombank / VCB / DigiBiz debit advice, ưu tiên số cạnh "Debit Amount" hoặc "Credit Amount" và đối chiếu dòng "In Words / Bằng chữ" nếu thấy.
+- Luôn trích xuất amount_in_words từ dòng "In Words", "Bằng chữ", "Số tiền bằng chữ" nếu có. Nếu amount dạng số và bằng chữ không cùng bậc giá trị, amount_in_words sẽ được dùng để phát hiện lỗi OCR.
 - KHÔNG lấy số tài khoản, số chứng từ, mã giao dịch, số điện thoại, ngày giờ, OTP, số dư làm amount.
 - Nếu có nhiều số, chọn số tiền thanh toán/chuyển khoản thực tế.
 - Nếu không chắc, vẫn trả best guess và giảm confidence.
@@ -82,7 +166,15 @@ Trả về JSON.`;
 const slipUserPrompt = (slipType?: string) =>
   `Slip type: ${slipType || "unknown"}. Trích xuất số tiền thực chuyển/thực chi từ ảnh UNC/QTM/bank slip này. Trả về đúng schema JSON.`;
 
-const normalizeExtractedSlip = (data: any) => {
+type ExtractedSlipData = {
+  amount?: unknown;
+  amount_in_words?: unknown;
+  confidence?: unknown;
+  notes?: unknown;
+  [key: string]: unknown;
+};
+
+const normalizeExtractedSlip = (data: ExtractedSlipData) => {
   if (!data || !data.amount) {
     throw new Error("AI did not return amount field");
   }
@@ -92,10 +184,27 @@ const normalizeExtractedSlip = (data: any) => {
     throw new Error(`Failed to parse amount string: ${data.amount}`);
   }
 
+  const wordAmount = parseVietnameseAmountWords(data.amount_in_words || data.notes);
+  const ratio = wordAmount ? parsedAmount / wordAmount : 1;
+  const shouldTrustWords = Boolean(
+    wordAmount
+      && wordAmount > 0
+      && parsedAmount !== wordAmount
+      && Number.isInteger(ratio)
+      && [10, 100, 1000].includes(ratio)
+  );
+  const amount = shouldTrustWords ? wordAmount : parsedAmount;
+  const confidence = shouldTrustWords
+    ? Math.min(Number(data.confidence || 0.6), 0.68)
+    : data.confidence;
+
   return {
     ...data,
     amount_raw: data.amount,
-    amount: parsedAmount,
+    amount_in_words: data.amount_in_words ?? null,
+    amount,
+    confidence,
+    amount_corrected_from_words: shouldTrustWords,
     provider: "openai",
   };
 };
@@ -166,12 +275,16 @@ const callOpenAiVision = async (imageBase64: string, mimeType: string, slipType?
                       type: "string",
                       description: "Exact amount string as shown on slip, preserving dots and commas. E.g. '41.006.300,00'",
                     },
+                    amount_in_words: {
+                      type: ["string", "null"],
+                      description: "Exact amount-in-words line if present, e.g. 'Bảy trăm ba mươi bốn nghìn ba trăm chín mươi tám đồng'",
+                    },
                     transfer_date: { type: ["string", "null"] },
                     reference: { type: ["string", "null"] },
                     confidence: { type: "number" },
                     notes: { type: ["string", "null"] },
                   },
-                  required: ["amount", "confidence"],
+                  required: ["amount", "amount_in_words", "confidence"],
                 },
               },
             },
