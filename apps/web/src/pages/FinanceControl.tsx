@@ -26,6 +26,12 @@ import {
   useDailyDeclarationImages,
   useMonthlyReconciliation,
 } from "@/hooks/useFinanceReconciliation";
+import {
+  useCostClassificationDashboard,
+  type CostClassificationCategorySummary,
+  type CostClassificationMonthlySummary,
+  type CostClassificationReviewRow,
+} from "@/hooks/useCostClassifications";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -34,6 +40,19 @@ import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { normalizeUploadImage, optimizeSlipImageForOcr } from "@/lib/slip-image";
 
 const vnd = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value || 0);
+const COST_CLASSIFICATION_CARD_CODES = [
+  "COGS_BMQ_BREAD",
+  "COGS_SWEET_KITCHEN",
+  "PACKAGING_SALES",
+  "OPEX_GENERAL",
+  "CAPEX_ASSET_PROJECT",
+  "UNMAPPED_REVIEW",
+];
+
+const EMPTY_COST_CLASSIFICATION_CATEGORY_ROWS: CostClassificationCategorySummary[] = [];
+const EMPTY_COST_CLASSIFICATION_MONTHLY_ROWS: CostClassificationMonthlySummary[] = [];
+const EMPTY_COST_CLASSIFICATION_REVIEW_ROWS: CostClassificationReviewRow[] = [];
+
 const getOcrErrorMessage = (errorLike: any, fallbackMessage: string) => {
   if (typeof errorLike?.error === "string" && errorLike.error.trim()) return errorLike.error.trim();
   if (typeof errorLike?.detail === "string" && errorLike.detail.trim()) return errorLike.detail.trim();
@@ -189,6 +208,20 @@ export default function FinanceControl() {
   const qtmBalanceError = snapshotFailed ? fallbackQtmBalanceError : dailySnapshotError;
 
   const { data: monthlySummary, error: monthlyError, refetch: refetchMonthly } = useMonthlyReconciliation(selectedMonth, activeTab === "monthly");
+  const costClassification = useCostClassificationDashboard(selectedMonth, activeTab === "classification");
+  const classificationCategoryRows = costClassification.categorySummary.data || EMPTY_COST_CLASSIFICATION_CATEGORY_ROWS;
+  const classificationMonthlyRows = costClassification.monthlySummary.data || EMPTY_COST_CLASSIFICATION_MONTHLY_ROWS;
+  const classificationReviewRows = costClassification.reviewQueue.data || EMPTY_COST_CLASSIFICATION_REVIEW_ROWS;
+  const classificationCategoryByCode = useMemo(() => {
+    const totals = new Map<string, { label: string; amount: number; count: number }>();
+    for (const row of classificationCategoryRows) {
+      const existing = totals.get(row.category_code) || { label: row.category_label, amount: 0, count: 0 };
+      existing.amount += Number(row.total_amount || 0);
+      existing.count += Number(row.line_count || 0);
+      totals.set(row.category_code, existing);
+    }
+    return totals;
+  }, [classificationCategoryRows]);
   const persistedQtmImages = dailyDeclaration?.extraction_meta?.qtm_images;
   const persistedUncImages = dailyDeclaration?.extraction_meta?.unc_images;
   const hasPersistedSlipImages = Boolean(
@@ -1705,6 +1738,7 @@ export default function FinanceControl() {
         <TabsList>
           <TabsTrigger value="daily">{isVi ? "Chốt ngày" : "Daily Close"}</TabsTrigger>
           <TabsTrigger value="monthly">{isVi ? "Chốt tháng" : "Monthly Close"}</TabsTrigger>
+          <TabsTrigger value="classification">{isVi ? "Phân loại chi phí" : "Cost Classification"}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="daily" className="space-y-4">
@@ -1975,6 +2009,149 @@ export default function FinanceControl() {
               {!monthlySummary?.rows?.length && (
                 <div className="text-sm text-muted-foreground text-center py-4">{isVi ? "Chưa có dữ liệu" : "No data yet"}</div>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="classification" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <CardTitle className="text-xl sm:text-2xl">{isVi ? "Phân loại chi phí nội bộ" : "Internal Cost Classification"}</CardTitle>
+                  <CardDescription>
+                    {isVi
+                      ? "Preview phân loại theo line-item, chỉ hiển thị trong Quản lý chi phí."
+                      : "Line-item classification preview, visible only in Cost management."}
+                  </CardDescription>
+                </div>
+                <Input
+                  type="month"
+                  className="w-full sm:w-40"
+                  value={format(selectedMonth, "yyyy-MM")}
+                  onChange={(e) => setSelectedMonth(new Date(`${e.target.value}-01`))}
+                />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-5 overflow-hidden">
+              {costClassification.error && (
+                <div className="rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+                  {isVi ? "Chưa đọc được dữ liệu phân loại. Hãy kiểm tra migration/backfill Phase 1." : "Classification data is not available yet. Check the Phase 1 migration/backfill."}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {COST_CLASSIFICATION_CARD_CODES.map((code) => {
+                  const row = classificationCategoryByCode.get(code);
+                  return (
+                    <Card key={code}>
+                      <CardContent className="p-4">
+                        <div className="text-xs text-muted-foreground">{row?.label || code}</div>
+                        <div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(row?.amount || 0))}</div>
+                        <div className="text-xs text-muted-foreground">{Number(row?.count || 0)} {isVi ? "dòng" : "lines"}</div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">{isVi ? "Tổng theo tháng và nhóm" : "Monthly Totals by Category"}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto rounded-md border">
+                    <Table className="min-w-[900px]">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{isVi ? "Tháng" : "Month"}</TableHead>
+                          <TableHead>{isVi ? "Nhóm" : "Category"}</TableHead>
+                          <TableHead>{isVi ? "Product line" : "Product line"}</TableHead>
+                          <TableHead>{isVi ? "Allocation" : "Allocation"}</TableHead>
+                          <TableHead>{isVi ? "Review" : "Review"}</TableHead>
+                          <TableHead className="text-right">{isVi ? "Số dòng" : "Lines"}</TableHead>
+                          <TableHead className="text-right">{isVi ? "Tổng tiền" : "Amount"}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {classificationMonthlyRows.map((row) => (
+                          <TableRow key={`${row.month}-${row.category_code}-${row.review_status}`}>
+                            <TableCell className="whitespace-nowrap">{row.month ? format(new Date(row.month), "MM/yyyy") : "-"}</TableCell>
+                            <TableCell>
+                              <div className="font-medium">{row.category_label || row.category_code}</div>
+                              <div className="text-xs text-muted-foreground">{row.cost_group}</div>
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap">{row.product_line}</TableCell>
+                            <TableCell className="whitespace-nowrap">{row.allocation_rule}</TableCell>
+                            <TableCell className="whitespace-nowrap">{row.review_status}</TableCell>
+                            <TableCell className="text-right">{Number(row.line_count || 0)}</TableCell>
+                            <TableCell className="text-right">{vnd(Number(row.total_amount || 0))}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  {!classificationMonthlyRows.length && (
+                    <div className="py-4 text-center text-sm text-muted-foreground">
+                      {costClassification.isLoading || costClassification.isFetching ? (isVi ? "Đang tải..." : "Loading...") : (isVi ? "Chưa có dữ liệu backfill cho tháng này" : "No backfilled data for this month yet")}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">{isVi ? "Queue cần review" : "Review Queue"}</CardTitle>
+                  <CardDescription>
+                    {isVi ? "Chỉ các dòng chưa phân loại hoặc confidence thấp." : "Only unmapped or low-confidence lines."}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto rounded-md border">
+                    <Table className="min-w-[1100px]">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{isVi ? "Ngày" : "Date"}</TableHead>
+                          <TableHead>{isVi ? "Nhà cung cấp" : "Supplier"}</TableHead>
+                          <TableHead>{isVi ? "Mặt hàng" : "Item"}</TableHead>
+                          <TableHead>{isVi ? "Nguồn" : "Source"}</TableHead>
+                          <TableHead>{isVi ? "Gợi ý" : "Suggested"}</TableHead>
+                          <TableHead>{isVi ? "Confidence" : "Confidence"}</TableHead>
+                          <TableHead className="text-right">{isVi ? "Số tiền" : "Amount"}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {classificationReviewRows.map((row) => (
+                          <TableRow key={row.classification_id}>
+                            <TableCell className="whitespace-nowrap">{row.source_date ? format(new Date(row.source_date), "dd/MM/yyyy") : "-"}</TableCell>
+                            <TableCell>{row.supplier_name || "-"}</TableCell>
+                            <TableCell>
+                              <div className="font-medium">{row.product_name}</div>
+                              <div className="text-xs text-muted-foreground">{row.product_code || row.unit || ""}</div>
+                            </TableCell>
+                            <TableCell>
+                              <div>{row.source_number || "-"}</div>
+                              <div className="text-xs text-muted-foreground">{row.source_type}</div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={row.category_code === "UNMAPPED_REVIEW" ? "destructive" : "secondary"}>
+                                {row.category_code}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{Math.round(Number(row.confidence || 0) * 100)}%</TableCell>
+                            <TableCell className="text-right">{vnd(Number(row.line_amount || 0))}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  {!classificationReviewRows.length && (
+                    <div className="py-4 text-center text-sm text-muted-foreground">
+                      {costClassification.isLoading || costClassification.isFetching ? (isVi ? "Đang tải..." : "Loading...") : (isVi ? "Không có dòng cần review" : "No lines need review")}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </CardContent>
           </Card>
         </TabsContent>

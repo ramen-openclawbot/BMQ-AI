@@ -32,6 +32,248 @@ export type Database = {
         }
         Relationships: []
       }
+      cost_categories: {
+        Row: {
+          code: string
+          cost_group: string
+          created_at: string
+          id: string
+          is_active: boolean
+          is_revenue_related: boolean
+          label: string
+          parent_code: string | null
+          product_line: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          cost_group: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          is_revenue_related?: boolean
+          label: string
+          parent_code?: string | null
+          product_line?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          cost_group?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          is_revenue_related?: boolean
+          label?: string
+          parent_code?: string | null
+          product_line?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cost_categories_parent_code_fkey"
+            columns: ["parent_code"]
+            isOneToOne: false
+            referencedRelation: "cost_categories"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      cost_classification_audit_logs: {
+        Row: {
+          action: string
+          actor_id: string | null
+          after: Json
+          before: Json | null
+          classification_id: string | null
+          created_at: string
+          id: string
+          reason: string | null
+          source_line_id: string
+          source_type: string
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          after: Json
+          before?: Json | null
+          classification_id?: string | null
+          created_at?: string
+          id?: string
+          reason?: string | null
+          source_line_id: string
+          source_type: string
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          after?: Json
+          before?: Json | null
+          classification_id?: string | null
+          created_at?: string
+          id?: string
+          reason?: string | null
+          source_line_id?: string
+          source_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cost_classification_audit_logs_classification_id_fkey"
+            columns: ["classification_id"]
+            isOneToOne: false
+            referencedRelation: "cost_line_classifications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cost_classification_rules: {
+        Row: {
+          active: boolean
+          allocation_rule: string
+          category_code: string
+          confidence: number
+          created_at: string
+          effective_from: string | null
+          effective_to: string | null
+          id: string
+          inventory_item_id: string | null
+          keyword_pattern: string | null
+          match_scope: string
+          priority: number
+          product_line: string
+          revenue_channel: string | null
+          rule_name: string
+          sku_id: string | null
+          supplier_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          allocation_rule?: string
+          category_code: string
+          confidence: number
+          created_at?: string
+          effective_from?: string | null
+          effective_to?: string | null
+          id?: string
+          inventory_item_id?: string | null
+          keyword_pattern?: string | null
+          match_scope?: string
+          priority: number
+          product_line: string
+          revenue_channel?: string | null
+          rule_name: string
+          sku_id?: string | null
+          supplier_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          allocation_rule?: string
+          category_code?: string
+          confidence?: number
+          created_at?: string
+          effective_from?: string | null
+          effective_to?: string | null
+          id?: string
+          inventory_item_id?: string | null
+          keyword_pattern?: string | null
+          match_scope?: string
+          priority?: number
+          product_line?: string
+          revenue_channel?: string | null
+          rule_name?: string
+          sku_id?: string | null
+          supplier_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cost_classification_rules_category_code_fkey"
+            columns: ["category_code"]
+            isOneToOne: false
+            referencedRelation: "cost_categories"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      cost_line_classifications: {
+        Row: {
+          allocation_rule: string
+          category_code: string
+          classification_source: string
+          confidence: number
+          created_at: string
+          id: string
+          invoice_id: string | null
+          note: string | null
+          payment_request_id: string | null
+          product_line: string
+          revenue_channel: string | null
+          review_status: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          rule_id: string | null
+          source_line_id: string
+          source_type: string
+          supplier_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          allocation_rule?: string
+          category_code: string
+          classification_source: string
+          confidence: number
+          created_at?: string
+          id?: string
+          invoice_id?: string | null
+          note?: string | null
+          payment_request_id?: string | null
+          product_line: string
+          revenue_channel?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          rule_id?: string | null
+          source_line_id: string
+          source_type: string
+          supplier_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          allocation_rule?: string
+          category_code?: string
+          classification_source?: string
+          confidence?: number
+          created_at?: string
+          id?: string
+          invoice_id?: string | null
+          note?: string | null
+          payment_request_id?: string | null
+          product_line?: string
+          revenue_channel?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          rule_id?: string | null
+          source_line_id?: string
+          source_type?: string
+          supplier_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cost_line_classifications_category_code_fkey"
+            columns: ["category_code"]
+            isOneToOne: false
+            referencedRelation: "cost_categories"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
       drive_file_index: {
         Row: {
           created_by: string | null
@@ -1148,7 +1390,68 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      cost_classification_category_summary: {
+        Row: {
+          allocation_rule: string | null
+          category_code: string | null
+          category_label: string | null
+          cost_group: string | null
+          first_source_date: string | null
+          last_source_date: string | null
+          line_count: number | null
+          product_line: string | null
+          review_status: string | null
+          total_amount: number | null
+        }
+        Relationships: []
+      }
+      cost_classification_line_details: {
+        Row: {
+          allocation_rule: string | null
+          category_code: string | null
+          category_label: string | null
+          classification_id: string | null
+          classification_source: string | null
+          confidence: number | null
+          cost_group: string | null
+          invoice_id: string | null
+          line_amount: number | null
+          payment_request_id: string | null
+          payment_status: string | null
+          product_code: string | null
+          product_line: string | null
+          product_name: string | null
+          quantity: number | null
+          revenue_channel: string | null
+          review_status: string | null
+          rule_id: string | null
+          source_date: string | null
+          source_line_id: string | null
+          source_number: string | null
+          source_status: string | null
+          source_type: string | null
+          supplier_id: string | null
+          supplier_name: string | null
+          unit: string | null
+          unit_price: number | null
+          updated_at: string | null
+        }
+        Relationships: []
+      }
+      cost_classification_monthly_summary: {
+        Row: {
+          allocation_rule: string | null
+          category_code: string | null
+          category_label: string | null
+          cost_group: string | null
+          line_count: number | null
+          month: string | null
+          product_line: string | null
+          review_status: string | null
+          total_amount: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       generate_po_number: { Args: never; Returns: string }
