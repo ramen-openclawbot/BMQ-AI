@@ -54,6 +54,8 @@ def main() -> None:
     assert_true("OCR đọc được" in finance_page and "chưa đọc được" in finance_page, "partial OCR failure error must show extracted/failed counts in Vietnamese")
     assert_true("successfulOcrFileIds" in finance_page, "processed markers must distinguish files with successful OCR from failed files")
     assert_true("processed: successfulOcrFileIds.has" in finance_page, "failed OCR files must not be persisted as processed=true")
+    assert_true("missingRequiredPreview" in finance_page, "close preview should still calculate missing Drive file requirements for runtime validation")
+    assert_true("disabled={previewLoading || closeActing || (!!reconcileError && !canCloseWithoutBankSlips)}" in finance_page, "Execute button must remain clickable after quick scan so runtime validation can show the exact missing UNC/QTM error")
 
     print("PASS: CEO bank slip upload and UNC Drive slip flow use OpenAI Vision only")
 

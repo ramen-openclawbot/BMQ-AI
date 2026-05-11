@@ -2259,6 +2259,14 @@ export default function FinanceControl() {
                 )}
               </div>
 
+              {missingRequiredPreview && !previewLoading && !reconcileError && (
+                <div className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+                  {isVi
+                    ? "Có khai báo UNC/QTM nhưng quét nhanh chưa thấy đủ file tương ứng. Anh vẫn có thể bấm Thực hiện để hệ thống kiểm tra/OCR và trả lỗi chi tiết."
+                    : "UNC/QTM was declared but quick scan did not find all matching files. You can still execute so the system can validate/OCR and return the exact error."}
+                </div>
+              )}
+
               {/* CEO declared summary */}
               <div className="rounded border p-3 space-y-1 text-sm">
                 <div className="font-medium">{isVi ? "CEO đã khai báo" : "CEO declared"}</div>
@@ -2360,7 +2368,7 @@ export default function FinanceControl() {
                 </Button>
                 <Button
                   className="bg-green-600 hover:bg-green-700 text-white"
-                  disabled={previewLoading || closeActing || missingRequiredPreview || (!!reconcileError && !canCloseWithoutBankSlips)}
+                  disabled={previewLoading || closeActing || (!!reconcileError && !canCloseWithoutBankSlips)}
                   onClick={executeClose}
                 >
                   <Lock className="h-4 w-4 mr-2" />
