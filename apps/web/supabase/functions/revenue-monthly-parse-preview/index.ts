@@ -344,14 +344,34 @@ const extractPoNumberFromSubject = (subject?: string | null) => {
   return match[1].toUpperCase().startsWith("PO") ? match[1].toUpperCase() : `PO${match[1]}`;
 };
 
-async function ensureOwner(supabaseAdmin: ReturnType<typeof createClient>, userId: string) {
+async function userHasRole(supabaseAdmin: ReturnType<typeof createClient>, userId: string, role: string) {
   const { data, error } = await supabaseAdmin
     .from("user_roles")
     .select("role")
     .eq("user_id", userId);
   if (error) throw error;
   const roles = (data || []).map((row: { role: string }) => row.role);
-  if (!roles.includes("owner")) throw new Error("Forbidden: owner role required for monthly parse");
+  return roles.includes(role);
+}
+
+async function ensureOwner(supabaseAdmin: ReturnType<typeof createClient>, userId: string) {
+  if (!(await userHasRole(supabaseAdmin, userId, "owner"))) {
+    throw new Error("Forbidden: owner role required for monthly parse");
+  }
+}
+
+async function ensureRevenueViewer(supabaseAdmin: ReturnType<typeof createClient>, userId: string) {
+  if (await userHasRole(supabaseAdmin, userId, "owner")) return;
+  const { data, error } = await supabaseAdmin
+    .from("user_module_permissions")
+    .select("module_key,can_view")
+    .eq("user_id", userId)
+    .eq("module_key", "finance_revenue")
+    .maybeSingle();
+  if (error) throw error;
+  if (!(data as { can_view?: boolean } | null)?.can_view) {
+    throw new Error("Forbidden: finance_revenue view permission required for daily revenue report");
+  }
 }
 
 async function syncGmailInboxForPreview(req: Request, window: ParseWindow, emit?: ProgressEmitter) {
@@ -1175,6 +1195,16 @@ serve(async (req) => {
     }
 
     const { user } = await requireAuth(req, corsHeaders);
+
+    if (action === "latest_auto_daily_report") {
+      await ensureRevenueViewer(supabaseAdmin, user.id);
+      return jsonResponse(req, {
+        success: true,
+        action: "latest_auto_daily_report",
+        report: await fetchLatestAutoDailyReport(supabaseAdmin),
+      });
+    }
+
     await ensureOwner(supabaseAdmin, user.id);
 
     if (action === "preview_current_month") {
@@ -1184,13 +1214,6 @@ serve(async (req) => {
       return await previewCurrentMonth(req, supabaseAdmin, user.id);
     }
 
-    if (action === "latest_auto_daily_report") {
-      return jsonResponse(req, {
-        success: true,
-        action: "latest_auto_daily_report",
-        report: await fetchLatestAutoDailyReport(supabaseAdmin),
-      });
-    }
 
     if (action === "preview_daily_compare") {
       return await previewDailyCompare(req, supabaseAdmin, user.id, body);

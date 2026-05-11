@@ -23,7 +23,8 @@ def test_chat_daily_report_card_and_buttons() -> None:
         ("Doanh thu tạm kiểm soát", "temporary controlled wording"),
         ("chưa phải trusted/month-end audited source", "not trusted wording"),
         ("Ledger chi tiết", "ledger detail button copy"),
-        ("Chạy parse daily", "parse daily button copy"),
+        ("{isOwner ? (", "parse daily buttons only render for owner"),
+        ("Chỉ owner mới được chạy lại parse daily", "staff-friendly owner-only parse copy"),
         ("sourceDocumentId: dailyReport.sourceDocumentId", "detail route source filter"),
         ("revenue_date: dailyReport.revenueDate", "detail route date filter"),
         ("setOpen(false)", "detail button closes chat"),
@@ -62,7 +63,10 @@ def test_backend_owner_actions_preserve_cron_boundary() -> None:
         ('if (action === "auto_daily_post")', "cron branch"),
         ("requireRevenueCronSecret(req, corsHeaders)", "cron secret check"),
         ("const { user } = await requireAuth(req, corsHeaders)", "owner auth after cron"),
-        ('action === "latest_auto_daily_report"', "latest report owner action"),
+        ('action === "latest_auto_daily_report"', "latest report view action"),
+        ("ensureRevenueViewer(supabaseAdmin, user.id)", "latest report allows finance_revenue viewers"),
+        ("module_key", "module permission lookup"),
+        ("finance_revenue", "revenue module permission key"),
         ('action === "preview_daily_compare"', "preview compare owner action"),
         ('action === "confirm_daily_overwrite" || action === "confirm_daily_post"', "confirm daily owner action aliases"),
         ("fetchLatestAutoDailyReport", "latest controlled daily source aggregation"),
@@ -72,7 +76,8 @@ def test_backend_owner_actions_preserve_cron_boundary() -> None:
     ]:
         assert_contains(monthly, needle, label)
     assert monthly.index('if (action === "auto_daily_post")') < monthly.index("const { user } = await requireAuth(req, corsHeaders)")
-    assert monthly.index("const { user } = await requireAuth(req, corsHeaders)") < monthly.index('action === "latest_auto_daily_report"')
+    assert monthly.index('action === "latest_auto_daily_report"') < monthly.index("await ensureOwner(supabaseAdmin, user.id)")
+    assert monthly.index("await ensureOwner(supabaseAdmin, user.id)") < monthly.index('action === "preview_daily_compare"')
 
 
 def test_source_detail_filters_controlled_daily_source() -> None:

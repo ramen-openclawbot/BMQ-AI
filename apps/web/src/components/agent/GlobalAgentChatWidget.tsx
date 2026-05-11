@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
 
 type AgentMessage = { role: "user" | "agent"; text: string };
 type ModuleContext = { key: string; label: string; suggestions: string[] };
@@ -605,6 +606,7 @@ export function GlobalAgentChatWidget() {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { isOwner } = useAuth();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<AgentMessage[]>([]);
@@ -1140,9 +1142,15 @@ export function GlobalAgentChatWidget() {
                       <Button type="button" size="sm" variant="outline" onClick={openDailyLedgerDetail}>
                         Ledger chi tiết
                       </Button>
-                      <Button type="button" size="sm" onClick={runDailyCompare} disabled={isRunningDailyCompare || isPostingDailyCompare}>
-                        {isRunningDailyCompare ? <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />Đang preview</> : "Chạy parse daily"}
-                      </Button>
+                      {isOwner ? (
+                        <Button type="button" size="sm" onClick={runDailyCompare} disabled={isRunningDailyCompare || isPostingDailyCompare}>
+                          {isRunningDailyCompare ? <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />Đang preview</> : "Chạy parse daily"}
+                        </Button>
+                      ) : (
+                        <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                          Chỉ owner mới được chạy lại parse daily. Tài khoản có quyền Quản lý doanh thu vẫn xem được báo cáo daily.
+                        </div>
+                      )}
                     </div>
                   </>
                 ) : null}
@@ -1152,9 +1160,15 @@ export function GlobalAgentChatWidget() {
                     <div className="text-xs text-muted-foreground">
                       Chưa tìm thấy auto daily cron source đang active. Anh có thể chạy preview/compare cho ngày daily hiện tại trước khi quyết định ghi ledger.
                     </div>
-                    <Button type="button" size="sm" onClick={runDailyCompare} disabled={isRunningDailyCompare || isPostingDailyCompare}>
-                      {isRunningDailyCompare ? <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />Đang preview</> : "Chạy parse daily"}
-                    </Button>
+                    {isOwner ? (
+                      <Button type="button" size="sm" onClick={runDailyCompare} disabled={isRunningDailyCompare || isPostingDailyCompare}>
+                        {isRunningDailyCompare ? <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />Đang preview</> : "Chạy parse daily"}
+                      </Button>
+                    ) : (
+                      <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                        Chỉ owner mới được chạy lại parse daily. Tài khoản có quyền Quản lý doanh thu vẫn xem được báo cáo daily.
+                      </div>
+                    )}
                   </div>
                 ) : null}
 
