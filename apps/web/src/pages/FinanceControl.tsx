@@ -71,6 +71,15 @@ const parseDateInputValue = (value: string) => {
   return new Date(y, (m || 1) - 1, day || 1);
 };
 
+const OCR_CACHE_MIN_PROCESSED_AT = "2026-05-11T01:25:00.000Z";
+
+const isOcrCacheFresh = (processedAt: unknown) => {
+  if (!processedAt) return false;
+  const cacheProcessedAt = Date.parse(String(processedAt));
+  return Number.isFinite(cacheProcessedAt)
+    && cacheProcessedAt >= Date.parse(OCR_CACHE_MIN_PROCESSED_AT);
+};
+
 export default function FinanceControl() {
   const { toast } = useToast();
   const { language } = useLanguage();
@@ -681,11 +690,13 @@ export default function FinanceControl() {
           const chunk = allFileIds.slice(i, i + CHUNK);
           const { data: cachedRows } = await (supabase as any)
             .from("drive_file_index")
-            .select("file_id, extracted_amount, extraction_confidence")
+            .select("file_id, extracted_amount, extraction_confidence, processed_at")
             .in("file_id", chunk)
             .not("extracted_amount", "is", null);
           for (const row of (cachedRows || [])) {
             if (row?.file_id && Number(row.extracted_amount) > 0) {
+              const cacheProcessedAt = row.processed_at;
+              if (!isOcrCacheFresh(cacheProcessedAt)) continue;
               ocrCache.set(row.file_id, {
                 amount: Number(row.extracted_amount),
                 confidence: Number(row.extraction_confidence || 0),
