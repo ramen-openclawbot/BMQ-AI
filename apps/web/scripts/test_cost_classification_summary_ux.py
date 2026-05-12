@@ -11,9 +11,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FINANCE = ROOT / "src/pages/FinanceControl.tsx"
 HOOK = ROOT / "src/hooks/useCostClassifications.ts"
+SIDEBAR = ROOT / "src/components/layout/Sidebar.tsx"
+ROUTES = ROOT / "src/components/AppRoutes.tsx"
+LANGUAGE = ROOT / "src/contexts/LanguageContext.tsx"
 
 finance = FINANCE.read_text(encoding="utf-8")
 hook = HOOK.read_text(encoding="utf-8")
+sidebar = SIDEBAR.read_text(encoding="utf-8")
+routes = ROUTES.read_text(encoding="utf-8")
+language = LANGUAGE.read_text(encoding="utf-8")
+
+assert "mode === \"classification\"" in finance, "FinanceControl must support a dedicated classification-only route"
+assert "mode === \"ceo\"" in finance, "FinanceControl CEO page must only expose daily/monthly closing"
+assert "financeCeoDeclaration" in sidebar and "financeCostClassification" in sidebar, "Sidebar must expose CEO declaration and cost classification submenus"
+assert "path: \"/finance-control\"" not in sidebar, "Sidebar parent Cost Management must not be a clickable route"
+assert "/finance-control/ceo-declaration" in routes and "/finance-control/classification" in routes, "AppRoutes must register split finance cost pages"
+assert "<Navigate to=\"/finance-control/ceo-declaration\" replace />" in routes, "Legacy /finance-control routes must redirect to CEO declaration"
+assert "financeCeoDeclaration" in language and "financeCostClassification" in language, "Language labels must include split finance cost submenu labels"
 
 assert "classificationMonthlyDisplayRows" in finance, "FinanceControl must use display rows aggregated by canonical category"
 assert "review_status_counts" in finance, "Aggregated summary rows must keep review status only as note/count metadata"

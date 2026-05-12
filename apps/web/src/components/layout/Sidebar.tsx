@@ -43,7 +43,7 @@ import bmqLogo from "@/assets/bmq-logo.png";
 interface NavItem {
   icon: LucideIcon;
   labelKey: keyof ReturnType<typeof useLanguage>["t"];
-  path: string;
+  path?: string;
   section: "operations" | "finance" | "execution" | "production";
   showBadge?: boolean;
   showPOBadge?: boolean;
@@ -51,6 +51,8 @@ interface NavItem {
   moduleKey?: string;
   /** If true, only owners can see this item */
   ownerOnly?: boolean;
+  /** Non-clickable children displayed as submenu links. */
+  children?: NavItem[];
 }
 
 const navItems: NavItem[] = [
@@ -58,7 +60,16 @@ const navItems: NavItem[] = [
   { icon: ServerCog, labelKey: "systemManagement", path: "/system-management", section: "execution", ownerOnly: true },
   { icon: LayoutDashboard, labelKey: "dashboard", path: "/", section: "execution", moduleKey: "dashboard" },
 
-  { icon: Scale, labelKey: "financeCostManagement", path: "/finance-control/cost", section: "finance", moduleKey: "finance_cost" },
+  {
+    icon: Scale,
+    labelKey: "financeCostManagement",
+    section: "finance",
+    moduleKey: "finance_cost",
+    children: [
+      { icon: CalendarClock, labelKey: "financeCeoDeclaration", path: "/finance-control/ceo-declaration", section: "finance", moduleKey: "finance_cost" },
+      { icon: ClipboardCheck, labelKey: "financeCostClassification", path: "/finance-control/classification", section: "finance", moduleKey: "finance_cost" },
+    ],
+  },
   { icon: TrendingUp, labelKey: "financeRevenueManagement", path: "/finance-control/revenue", section: "finance", moduleKey: "finance_revenue" },
   { icon: UserRoundCog, labelKey: "crm", path: "/mini-crm", section: "finance", moduleKey: "crm" },
   { icon: Inbox, labelKey: "poSales", path: "/sales-po-inbox", section: "finance", moduleKey: "sales_po_inbox" },
@@ -128,12 +139,16 @@ export function Sidebar() {
     setShowDriveDialog(true);
   };
 
-  // Filter nav items by permission
-  const visibleItems = navItems.filter((item) => {
+  const canViewItem = (item: NavItem) => {
     if (item.ownerOnly && !isOwner) return false;
     if (item.moduleKey && !item.ownerOnly) return canAccessModule(item.moduleKey);
     return true;
-  });
+  };
+
+  // Filter nav items by permission. Parent groups remain visible when any child is visible.
+  const visibleItems = navItems
+    .map((item) => item.children ? { ...item, children: item.children.filter(canViewItem) } : item)
+    .filter((item) => (item.children ? item.children.length > 0 : canViewItem(item)));
 
   return (
     <aside className={cn(
@@ -179,35 +194,70 @@ export function Sidebar() {
                   </div>
                 )}
 
-                <NavLink
-                  to={item.path}
-                  onClick={() => {
-                    if (window.matchMedia("(max-width: 767px)").matches) setCollapsed(true);
-                  }}
-                  className={({ isActive }) =>
-                    cn(
-                      "group relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 border border-transparent",
-                      isActive
-                        ? "bg-sidebar-accent/80 text-sidebar-primary font-semibold border-sidebar-border/80 shadow-sm"
-                        : "text-sidebar-foreground/75 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
-                    )
-                  }
-                >
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-sidebar-accent/30 group-hover:bg-sidebar-accent/50 transition-colors">
-                    <item.icon className="h-4 w-4" />
-                  </span>
-                  {!collapsed && <span className="flex-1">{t[item.labelKey]}</span>}
-                  {!collapsed && item.showBadge && badgeCount > 0 && (
-                    <Badge variant="destructive" className="h-5 min-w-5 flex items-center justify-center text-xs">
-                      {badgeCount}
-                    </Badge>
-                  )}
-                  {!collapsed && item.showPOBadge && draftPOCount && draftPOCount > 0 && (
-                    <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center text-xs">
-                      {draftPOCount}
-                    </Badge>
-                  )}
-                </NavLink>
+                {item.children ? (
+                  <div>
+                    <div className="group relative flex items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-sm font-semibold text-sidebar-foreground/75">
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-sidebar-accent/30 transition-colors">
+                        <item.icon className="h-4 w-4" />
+                      </span>
+                      {!collapsed && <span className="flex-1">{t[item.labelKey]}</span>}
+                    </div>
+                    {!collapsed && (
+                      <div className="ml-10 mt-1 space-y-1">
+                        {item.children.map((child) => (
+                          <NavLink
+                            key={child.path}
+                            to={child.path || "#"}
+                            onClick={() => {
+                              if (window.matchMedia("(max-width: 767px)").matches) setCollapsed(true);
+                            }}
+                            className={({ isActive }) =>
+                              cn(
+                                "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                                isActive
+                                  ? "bg-sidebar-accent/70 text-sidebar-primary"
+                                  : "text-sidebar-foreground/65 hover:bg-sidebar-accent/30 hover:text-sidebar-foreground"
+                              )
+                            }
+                          >
+                            <child.icon className="h-3.5 w-3.5" />
+                            <span>{t[child.labelKey]}</span>
+                          </NavLink>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <NavLink
+                    to={item.path || "#"}
+                    onClick={() => {
+                      if (window.matchMedia("(max-width: 767px)").matches) setCollapsed(true);
+                    }}
+                    className={({ isActive }) =>
+                      cn(
+                        "group relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 border border-transparent",
+                        isActive
+                          ? "bg-sidebar-accent/80 text-sidebar-primary font-semibold border-sidebar-border/80 shadow-sm"
+                          : "text-sidebar-foreground/75 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
+                      )
+                    }
+                  >
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-sidebar-accent/30 group-hover:bg-sidebar-accent/50 transition-colors">
+                      <item.icon className="h-4 w-4" />
+                    </span>
+                    {!collapsed && <span className="flex-1">{t[item.labelKey]}</span>}
+                    {!collapsed && item.showBadge && badgeCount > 0 && (
+                      <Badge variant="destructive" className="h-5 min-w-5 flex items-center justify-center text-xs">
+                        {badgeCount}
+                      </Badge>
+                    )}
+                    {!collapsed && item.showPOBadge && draftPOCount && draftPOCount > 0 && (
+                      <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center text-xs">
+                        {draftPOCount}
+                      </Badge>
+                    )}
+                  </NavLink>
+                )}
 
                 {/* Quick Action: Tạo PO từ GG Drive - under Purchase Orders */}
                 {item.path === "/purchase-orders" && !collapsed && (

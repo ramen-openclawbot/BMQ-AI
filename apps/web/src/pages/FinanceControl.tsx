@@ -193,7 +193,9 @@ const isOcrCacheFresh = (processedAt: unknown) => {
     && cacheProcessedAt >= Date.parse(OCR_CACHE_MIN_PROCESSED_AT);
 };
 
-export default function FinanceControl() {
+type FinanceControlMode = "ceo" | "classification";
+
+export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControlMode }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { language } = useLanguage();
@@ -203,7 +205,7 @@ export default function FinanceControl() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [debouncedSelectedDate, setDebouncedSelectedDate] = useState<Date>(new Date());
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date());
-  const [activeTab, setActiveTab] = useState<string>("daily");
+  const [activeTab, setActiveTab] = useState<string>(mode === "classification" ? "classification" : "daily");
   const [imagesRequested, setImagesRequested] = useState(false);
   const [saving, setSaving] = useState(false);
   const [reconciling, setReconciling] = useState(false);
@@ -260,10 +262,20 @@ export default function FinanceControl() {
   }, [selectedDate]);
 
   useEffect(() => {
-    if (activeTab !== "monthly") {
+    if (mode === "classification") {
+      setActiveTab("classification");
+      return;
+    }
+    if (activeTab === "classification") {
+      setActiveTab("daily");
+    }
+  }, [mode, activeTab]);
+
+  useEffect(() => {
+    if (mode === "ceo" && activeTab !== "monthly") {
       setSelectedMonth(startOfMonth(selectedDate));
     }
-  }, [selectedDate, activeTab]);
+  }, [selectedDate, activeTab, mode]);
 
   // Root folder is configured in Google Drive Integration and resolved on demand.
 
@@ -335,8 +347,8 @@ export default function FinanceControl() {
   const dailyReconError = snapshotFailed ? fallbackDailyReconError : dailySnapshotError;
   const qtmBalanceError = snapshotFailed ? fallbackQtmBalanceError : dailySnapshotError;
 
-  const { data: monthlySummary, error: monthlyError, refetch: refetchMonthly } = useMonthlyReconciliation(selectedMonth, activeTab === "monthly");
-  const costClassification = useCostClassificationDashboard(selectedMonth, activeTab === "classification");
+  const { data: monthlySummary, error: monthlyError, refetch: refetchMonthly } = useMonthlyReconciliation(selectedMonth, mode === "ceo" && activeTab === "monthly");
+  const costClassification = useCostClassificationDashboard(selectedMonth, mode === "classification");
   const classificationCategoryRows = costClassification.categorySummary.data || EMPTY_COST_CLASSIFICATION_CATEGORY_ROWS;
   const classificationMonthlyRows = costClassification.monthlySummary.data || EMPTY_COST_CLASSIFICATION_MONTHLY_ROWS;
   const costCategoryOptions = costClassification.categories.data || EMPTY_COST_CATEGORY_OPTIONS;
@@ -344,7 +356,7 @@ export default function FinanceControl() {
     month: selectedCostSummaryRow.month,
     category_code: selectedCostSummaryRow.category_code,
   } : null;
-  const selectedCostDetail = useCostClassificationLineDetails(selectedCostDetailFilter, activeTab === "classification");
+  const selectedCostDetail = useCostClassificationLineDetails(selectedCostDetailFilter, mode === "classification");
   const selectedCostDetailRows = selectedCostDetail.data || EMPTY_COST_CLASSIFICATION_REVIEW_ROWS;
   const costCategoryByCode = useMemo(() => new Map(costCategoryOptions.map((row) => [row.code, row])), [costCategoryOptions]);
   const changedClassificationRows = useMemo(() => selectedCostDetailRows.filter((row) => {
@@ -2060,55 +2072,61 @@ export default function FinanceControl() {
       {/* Header + Date picker */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-display font-bold">{isVi ? "Quản lý chi phí" : "Cost management"}</h1>
-          <p className="text-muted-foreground text-sm">{isVi ? "Khai báo, đối soát và chốt ngày" : "Declare, reconcile and close daily"}</p>
+          <h1 className="text-3xl font-display font-bold">{mode === "classification" ? (isVi ? "Phân loại chi phí" : "Cost Classification") : (isVi ? "CEO khai báo" : "CEO Declaration")}</h1>
+          <p className="text-muted-foreground text-sm">{mode === "classification" ? (isVi ? "Rà soát và chỉnh nhóm chi phí nội bộ" : "Review and adjust internal cost categories") : (isVi ? "Khai báo, đối soát, chốt ngày và chốt tháng" : "Declare, reconcile, close daily and monthly")}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" size="icon" onClick={() => setSelectedDate((d) => subDays(d, 1))}>←</Button>
-          <Input type="date" className="w-40" value={toDateInputValue(selectedDate)} onChange={(e) => setSelectedDate(parseDateInputValue(e.target.value))} />
-          <Button type="button" variant="outline" size="icon" onClick={() => setSelectedDate((d) => subDays(d, -1))}>→</Button>
-        </div>
+        {mode === "ceo" && (
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="icon" onClick={() => setSelectedDate((d) => subDays(d, 1))}>←</Button>
+            <Input type="date" className="w-40" value={toDateInputValue(selectedDate)} onChange={(e) => setSelectedDate(parseDateInputValue(e.target.value))} />
+            <Button type="button" variant="outline" size="icon" onClick={() => setSelectedDate((d) => subDays(d, -1))}>→</Button>
+          </div>
+        )}
       </div>
 
       {/* Dashboard */}
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
-        <Card><CardContent className="p-4">
-          <div className="text-xs text-muted-foreground">{isVi ? "UNC khai báo" : "UNC declared"}</div>
-          <div className="text-xl font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4">
-          <div className="text-xs text-muted-foreground">{isVi ? "QTM khai báo" : "QTM declared"}</div>
-          <div className="text-xl font-semibold">{vnd(Number(resolvedQtmDeclared || 0))}</div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4">
-          <div className="text-xs text-muted-foreground">{isVi ? "Tồn quỹ đầu ngày" : "Opening cash balance"}</div>
-          <div className="text-xl font-semibold">{vnd(Number(resolvedQtmOpening || 0))}</div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4">
-          <div className="text-xs text-muted-foreground">{isVi ? "Trạng thái" : "Status"}</div>
-          <div className="text-xl font-semibold">
-            {closeApprovalLocked
-              ? <Badge className="bg-green-600">{isVi ? "Đã chốt" : "Closed"}</Badge>
-              : resolvedStatus === "match" ? <Badge className="bg-green-600">{isVi ? "Khớp" : "Match"}</Badge>
-              : resolvedStatus === "mismatch" ? <Badge variant="destructive">{isVi ? "Lệch" : "Mismatch"}</Badge>
-              : <Badge variant="secondary">{isVi ? "Chờ" : "Pending"}</Badge>}
-          </div>
-        </CardContent></Card>
-      </div>
+      {mode === "ceo" && (
+        <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+          <Card><CardContent className="p-4">
+            <div className="text-xs text-muted-foreground">{isVi ? "UNC khai báo" : "UNC declared"}</div>
+            <div className="text-xl font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div>
+          </CardContent></Card>
+          <Card><CardContent className="p-4">
+            <div className="text-xs text-muted-foreground">{isVi ? "QTM khai báo" : "QTM declared"}</div>
+            <div className="text-xl font-semibold">{vnd(Number(resolvedQtmDeclared || 0))}</div>
+          </CardContent></Card>
+          <Card><CardContent className="p-4">
+            <div className="text-xs text-muted-foreground">{isVi ? "Tồn quỹ đầu ngày" : "Opening cash balance"}</div>
+            <div className="text-xl font-semibold">{vnd(Number(resolvedQtmOpening || 0))}</div>
+          </CardContent></Card>
+          <Card><CardContent className="p-4">
+            <div className="text-xs text-muted-foreground">{isVi ? "Trạng thái" : "Status"}</div>
+            <div className="text-xl font-semibold">
+              {closeApprovalLocked
+                ? <Badge className="bg-green-600">{isVi ? "Đã chốt" : "Closed"}</Badge>
+                : resolvedStatus === "match" ? <Badge className="bg-green-600">{isVi ? "Khớp" : "Match"}</Badge>
+                : resolvedStatus === "mismatch" ? <Badge variant="destructive">{isVi ? "Lệch" : "Mismatch"}</Badge>
+                : <Badge variant="secondary">{isVi ? "Chờ" : "Pending"}</Badge>}
+            </div>
+          </CardContent></Card>
+        </div>
+      )}
 
-      <Tabs value={activeTab} onValueChange={(value) => {
+      <Tabs value={mode === "classification" ? "classification" : activeTab} onValueChange={(value) => {
+        if (mode === "classification") return;
         setActiveTab(value);
         if (value === "monthly") {
           setSelectedMonth(startOfMonth(selectedDate));
         }
       }} className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="daily">{isVi ? "Chốt ngày" : "Daily Close"}</TabsTrigger>
-          <TabsTrigger value="monthly">{isVi ? "Chốt tháng" : "Monthly Close"}</TabsTrigger>
-          <TabsTrigger value="classification">{isVi ? "Phân loại chi phí" : "Cost Classification"}</TabsTrigger>
-        </TabsList>
+        {mode === "ceo" && (
+          <TabsList>
+            <TabsTrigger value="daily">{isVi ? "Chốt ngày" : "Daily Close"}</TabsTrigger>
+            <TabsTrigger value="monthly">{isVi ? "Chốt tháng" : "Monthly Close"}</TabsTrigger>
+          </TabsList>
+        )}
 
-        <TabsContent value="daily" className="space-y-4">
+        {mode === "ceo" && <TabsContent value="daily" className="space-y-4">
           {/* CEO Declaration */}
           <Card>
             <CardHeader className="pb-3">
@@ -2306,9 +2324,9 @@ export default function FinanceControl() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
+        </TabsContent>}
 
-        <TabsContent value="monthly" className="space-y-4">
+        {mode === "ceo" && <TabsContent value="monthly" className="space-y-4">
           <Card>
             <CardHeader>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -2378,9 +2396,9 @@ export default function FinanceControl() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+        </TabsContent>}
 
-        <TabsContent value="classification" className="space-y-4">
+        {mode === "classification" && <TabsContent value="classification" className="space-y-4">
           <Card>
             <CardHeader>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -2388,8 +2406,8 @@ export default function FinanceControl() {
                   <CardTitle className="text-xl sm:text-2xl">{isVi ? "Phân loại chi phí nội bộ" : "Internal Cost Classification"}</CardTitle>
                   <CardDescription>
                     {isVi
-                      ? "Preview phân loại theo line-item, chỉ hiển thị trong Quản lý chi phí."
-                      : "Line-item classification preview, visible only in Cost management."}
+                      ? "Phân loại theo line-item, bấm từng nhóm để xem chi tiết và chỉnh nhóm khi cần."
+                      : "Line-item classification. Tap a category to review details and adjust when needed."}
                   </CardDescription>
                 </div>
                 <Input
@@ -2766,7 +2784,7 @@ export default function FinanceControl() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+        </TabsContent>}
       </Tabs>
 
       {hasClassificationEdits && (

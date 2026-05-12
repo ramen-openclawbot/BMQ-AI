@@ -25,6 +25,8 @@ interface Translations {
   reports: string;
   investorDashboard: string;
   financeCostManagement: string;
+  financeCeoDeclaration: string;
+  financeCostClassification: string;
   financeRevenueManagement: string;
   financeRevenueSetup: string;
   crm: string;
@@ -212,7 +214,9 @@ const translations: Record<Language, Translations> = {
     lowStock: "Low Stock",
     reports: "Reports",
     investorDashboard: "Investor Dashboard",
-    financeCostManagement: "Cost Management (Procurement)",
+    financeCostManagement: "Cost Management",
+    financeCeoDeclaration: "CEO Declaration",
+    financeCostClassification: "Cost Classification",
     financeRevenueManagement: "Revenue Management",
     financeRevenueSetup: "Revenue Setup",
     crm: "CRM",
@@ -399,6 +403,8 @@ const translations: Record<Language, Translations> = {
     reports: "Báo cáo",
     investorDashboard: "Investor Dashboard",
     financeCostManagement: "Quản lý chi phí",
+    financeCeoDeclaration: "CEO khai báo",
+    financeCostClassification: "Phân loại chi phí",
     financeRevenueManagement: "Quản lý doanh thu",
     financeRevenueSetup: "Thiết lập doanh thu",
     crm: "CRM",

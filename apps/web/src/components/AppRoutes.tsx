@@ -172,8 +172,10 @@ export function AppRoutes() {
         <Route path="/sku-costs/ingredients" element={<SkuCostsIngredients />} />
         <Route path="/sku-costs/employees" element={<SkuCostsEmployees />} />
         <Route path="/sku-costs/overhead" element={<SkuCostsOverhead />} />
-        <Route path="/finance-control" element={<Navigate to="/finance-control/cost" replace />} />
-        <Route path="/finance-control/cost" element={<ModuleRoute moduleKey="finance_cost"><Suspense fallback={<AppLoadingFallback />}><FinanceControl /></Suspense></ModuleRoute>} />
+        <Route path="/finance-control" element={<Navigate to="/finance-control/ceo-declaration" replace />} />
+        <Route path="/finance-control/cost" element={<Navigate to="/finance-control/ceo-declaration" replace />} />
+        <Route path="/finance-control/ceo-declaration" element={<ModuleRoute moduleKey="finance_cost"><Suspense fallback={<AppLoadingFallback />}><FinanceControl mode="ceo" /></Suspense></ModuleRoute>} />
+        <Route path="/finance-control/classification" element={<ModuleRoute moduleKey="finance_cost"><Suspense fallback={<AppLoadingFallback />}><FinanceControl mode="classification" /></Suspense></ModuleRoute>} />
         <Route path="/finance-control/revenue" element={<Suspense fallback={<AppLoadingFallback />}><RevenueManagementDashboard /></Suspense>} />
         <Route path="/finance-control/revenue/sources" element={<Suspense fallback={<AppLoadingFallback />}><RevenueSourceDetail /></Suspense>} />
         <Route path="/finance-control/revenue/setup" element={<Suspense fallback={<AppLoadingFallback />}><FinanceRevenueControl /></Suspense>} />
