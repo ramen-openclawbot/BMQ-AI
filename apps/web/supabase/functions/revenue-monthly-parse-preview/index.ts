@@ -1082,6 +1082,46 @@ function requireRevenueCronSecret(req: Request, corsHeaders: Record<string, stri
   requireCronSecret(req, envKey, corsHeaders);
 }
 
+async function upsertAutoDailyParseLog(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  payload: {
+    revenueDate: string;
+    period: string;
+    status: "started" | "success" | "failed";
+    scheduledForVn?: string;
+    startedAt?: string | null;
+    finishedAt?: string | null;
+    runId?: string | null;
+    sourceDocumentId?: string | null;
+    poReceivedFrom?: string | null;
+    poReceivedTo?: string | null;
+    rowCount?: number;
+    grossTotal?: number;
+    reviewFlaggedLineCount?: number;
+    errorMessage?: string | null;
+    metadata?: JsonRecord;
+  },
+) {
+  const { error } = await supabaseAdmin.rpc("upsert_revenue_auto_daily_parse_log", {
+    _revenue_date: payload.revenueDate,
+    _period: payload.period,
+    _status: payload.status,
+    _scheduled_for_vn: payload.scheduledForVn || "23:59",
+    _started_at: payload.startedAt || null,
+    _finished_at: payload.finishedAt || null,
+    _run_id: payload.runId || null,
+    _source_document_id: payload.sourceDocumentId || null,
+    _po_received_from: payload.poReceivedFrom || null,
+    _po_received_to: payload.poReceivedTo || null,
+    _row_count: Math.max(0, Math.trunc(Number(payload.rowCount || 0))),
+    _gross_total: Number(payload.grossTotal || 0),
+    _review_flagged_line_count: Math.max(0, Math.trunc(Number(payload.reviewFlaggedLineCount || 0))),
+    _error_message: payload.errorMessage || null,
+    _metadata: payload.metadata || {},
+  });
+  if (error) throw error;
+}
+
 async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof createClient>, body: JsonRecord = {}) {
   const hasExplicitRevenueDate = Object.prototype.hasOwnProperty.call(body, "revenueDate");
   const explicitRevenueDate = hasExplicitRevenueDate ? strictIsoDate(body.revenueDate) : null;
@@ -1096,54 +1136,110 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
   const noDoubleCountKey = `auto_daily_po_email_parse:${window.revenueDateFrom}`;
   const revenueDateSource = explicitRevenueDate ? "explicit" : "auto_daily_window";
   const manualRecovery = Boolean(explicitRevenueDate);
-  const preview = await runCurrentMonthPreview(req, supabaseAdmin, null, undefined, {
-    window,
-    syncGmail: true,
-    monthlyParseKind: "auto_daily_post",
-    sourceTab: "PO/email auto daily parse",
-    runSummary: {
-      triggered_by: "vercel_cron",
-      controlled_kind: "auto_daily_temporary_controlled_parse",
-      temporary_controlled_revenue: true,
-      trust_semantics: "not_trusted_month_end_audit_source",
-      auto_daily_no_double_count_key: noDoubleCountKey,
-      noDoubleCountKey,
-      revenue_date_source: revenueDateSource,
-      explicit_revenue_date: explicitRevenueDate,
-      manual_recovery: manualRecovery,
-    },
-    linePayloadMetadata: {
-      controlled_kind: "auto_daily_temporary_controlled_parse",
-      temporary_controlled_revenue: true,
-      trust_semantics: "not_trusted_month_end_audit_source",
-      owner_approval_required: false,
-      auto_daily_no_double_count_key: noDoubleCountKey,
-      noDoubleCountKey,
-      revenue_date_source: revenueDateSource,
-      explicit_revenue_date: explicitRevenueDate,
-      manual_recovery: manualRecovery,
-    },
-  });
+  const startedAt = new Date().toISOString();
+  let runId: string | null = null;
 
-  const { data, error } = await supabaseAdmin.rpc("auto_post_revenue_daily_parse", {
-    _run_id: String(asRecord(preview.run).id || ""),
-  });
-  if (error) throw error;
+  try {
+    await upsertAutoDailyParseLog(supabaseAdmin, {
+      revenueDate: window.revenueDateFrom,
+      period: window.period,
+      status: "started",
+      startedAt,
+      poReceivedFrom: window.poReceivedFrom,
+      poReceivedTo: window.poReceivedTo,
+      metadata: { revenueDateSource, manualRecovery, noDoubleCountKey, trigger: "vercel_cron" },
+    });
 
-  return jsonResponse(req, {
-    success: true,
-    action: "auto_daily_post",
-    revenueDate: window.revenueDateFrom,
-    revenueDateSource,
-    explicitRevenueDate: explicitRevenueDate,
-    manualRecovery,
-    noDoubleCountKey,
-    poReceivedFrom: window.poReceivedFrom,
-    poReceivedTo: window.poReceivedTo,
-    stagingRunId: String(asRecord(preview.run).id || ""),
-    previewSummary: preview.summary,
-    postResult: data,
-  });
+    const preview = await runCurrentMonthPreview(req, supabaseAdmin, null, undefined, {
+      window,
+      syncGmail: true,
+      monthlyParseKind: "auto_daily_post",
+      sourceTab: "PO/email auto daily parse",
+      runSummary: {
+        triggered_by: "vercel_cron",
+        controlled_kind: "auto_daily_temporary_controlled_parse",
+        temporary_controlled_revenue: true,
+        trust_semantics: "not_trusted_month_end_audit_source",
+        auto_daily_no_double_count_key: noDoubleCountKey,
+        noDoubleCountKey,
+        revenue_date_source: revenueDateSource,
+        explicit_revenue_date: explicitRevenueDate,
+        manual_recovery: manualRecovery,
+      },
+      linePayloadMetadata: {
+        controlled_kind: "auto_daily_temporary_controlled_parse",
+        temporary_controlled_revenue: true,
+        trust_semantics: "not_trusted_month_end_audit_source",
+        owner_approval_required: false,
+        auto_daily_no_double_count_key: noDoubleCountKey,
+        noDoubleCountKey,
+        revenue_date_source: revenueDateSource,
+        explicit_revenue_date: explicitRevenueDate,
+        manual_recovery: manualRecovery,
+      },
+    });
+
+    runId = String(asRecord(preview.run).id || "") || null;
+    const { data, error } = await supabaseAdmin.rpc("auto_post_revenue_daily_parse", {
+      _run_id: String(asRecord(preview.run).id || ""),
+    });
+    if (error) throw error;
+
+    const postResult = asRecord(data);
+    const postSummary = asRecord(postResult.summary);
+    const previewSummary = asRecord(preview.summary);
+    const sourceDocumentId = String(postResult.sourceDocumentId || "") || null;
+    const rowCount = Number(postSummary.posted_line_count || postSummary.row_count || previewSummary.ledgerRows || previewSummary.rows || 0);
+    const grossTotal = Number(postSummary.gross_total || previewSummary.dashboardGrossRevenue || previewSummary.grossRevenue || 0);
+    const reviewFlaggedLineCount = Number(postSummary.review_flagged_line_count || previewSummary.reviewFlaggedRows || previewSummary.needsReview || 0);
+    const gmailSyncSummary = asArray(previewSummary.gmailSync);
+
+    await upsertAutoDailyParseLog(supabaseAdmin, {
+      revenueDate: window.revenueDateFrom,
+      period: window.period,
+      status: "success",
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      runId,
+      sourceDocumentId,
+      poReceivedFrom: window.poReceivedFrom,
+      poReceivedTo: window.poReceivedTo,
+      rowCount,
+      grossTotal,
+      reviewFlaggedLineCount,
+      metadata: { revenueDateSource, manualRecovery, noDoubleCountKey, gmailSyncSummary, postResult },
+    });
+
+    return jsonResponse(req, {
+      success: true,
+      action: "auto_daily_post",
+      revenueDate: window.revenueDateFrom,
+      revenueDateSource,
+      explicitRevenueDate: explicitRevenueDate,
+      manualRecovery,
+      noDoubleCountKey,
+      poReceivedFrom: window.poReceivedFrom,
+      poReceivedTo: window.poReceivedTo,
+      stagingRunId: String(asRecord(preview.run).id || ""),
+      previewSummary: preview.summary,
+      postResult: data,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    await upsertAutoDailyParseLog(supabaseAdmin, {
+      revenueDate: window.revenueDateFrom,
+      period: window.period,
+      status: "failed",
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      runId,
+      poReceivedFrom: window.poReceivedFrom,
+      poReceivedTo: window.poReceivedTo,
+      errorMessage: message,
+      metadata: { revenueDateSource, manualRecovery, noDoubleCountKey },
+    });
+    throw error;
+  }
 }
 
 function streamCurrentMonthPreview(req: Request, supabaseAdmin: ReturnType<typeof createClient>, userId: string) {

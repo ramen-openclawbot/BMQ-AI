@@ -72,11 +72,43 @@ const formatDate = (value: string | null | undefined) => {
   return `${day}/${month}/${year}`;
 };
 
+const formatDateTime = (value: string | null | undefined) => {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("vi-VN", { timeZone: TIME_ZONE, hour12: false });
+};
+
+const statusLabel = (status: string | null | undefined) => {
+  if (status === "success") return "Thành công";
+  if (status === "failed") return "Lỗi";
+  if (status === "started") return "Đang chạy";
+  return status || "—";
+};
+
 interface ScheduleRow {
   id: string;
   run_hour_local: string;
   timezone: string;
   is_enabled: boolean;
+}
+
+interface AutoDailyParseLogRow {
+  id: string;
+  revenue_date: string;
+  period: string;
+  scheduled_for_vn: string;
+  status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  run_id: string | null;
+  source_document_id: string | null;
+  po_received_from: string | null;
+  po_received_to: string | null;
+  row_count: number | null;
+  gross_total: number | null;
+  review_flagged_line_count: number | null;
+  error_message: string | null;
+  metadata: Record<string, unknown> | null;
+  updated_at: string | null;
 }
 
 interface RevenueDraftRow {
@@ -255,6 +287,7 @@ export default function FinanceRevenueControl() {
   const [overwritePrompt, setOverwritePrompt] = useState<ExistingParseInfo[] | null>(null);
   const [automationRunMessage, setAutomationRunMessage] = useState<string | null>(null);
   const [parseProgress, setParseProgress] = useState<ParseProgressState>(() => emptyParseProgress());
+  const [selectedAutoDailyLog, setSelectedAutoDailyLog] = useState<AutoDailyParseLogRow | null>(null);
 
   const parseWindow = useMemo(() => getCurrentMonthParseWindow(), []);
 
@@ -281,6 +314,19 @@ export default function FinanceRevenueControl() {
         .maybeSingle();
       if (error) throw error;
       return data || null;
+    },
+  });
+
+  const { data: autoDailyLogs = [], isLoading: logsLoading } = useQuery<AutoDailyParseLogRow[]>({
+    queryKey: ["revenue-auto-daily-parse-logs"],
+    queryFn: async () => {
+      const { data, error } = await db
+        .from<AutoDailyParseLogRow>("revenue_auto_daily_parse_logs")
+        .select("id,revenue_date,period,scheduled_for_vn,status,started_at,finished_at,run_id,source_document_id,po_received_from,po_received_to,row_count,gross_total,review_flagged_line_count,error_message,metadata,updated_at")
+        .order("revenue_date", { ascending: false })
+        .limit(45);
+      if (error) throw error;
+      return data || [];
     },
   });
 
@@ -672,6 +718,104 @@ export default function FinanceRevenueControl() {
           </div>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Log parse tự động hằng ngày</CardTitle>
+          <CardDescription>
+            Mỗi ngày một dòng để theo dõi cron 23:59 VN. Bấm vào từng dòng để xem chi tiết run/source và lỗi nếu có.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-hidden rounded-xl border">
+            <div className="grid grid-cols-12 gap-2 border-b bg-muted/40 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              <div className="col-span-3 md:col-span-2">Ngày</div>
+              <div className="col-span-3 md:col-span-2">Trạng thái</div>
+              <div className="col-span-3 md:col-span-2">Kết thúc</div>
+              <div className="hidden md:col-span-2 md:block">Dòng</div>
+              <div className="hidden md:col-span-3 md:block">Doanh thu</div>
+              <div className="col-span-3 md:col-span-1 text-right">Xem</div>
+            </div>
+            <div className="divide-y">
+              {logsLoading ? (
+                <div className="px-3 py-4 text-sm text-muted-foreground">Đang tải log...</div>
+              ) : autoDailyLogs.length > 0 ? autoDailyLogs.map((log) => (
+                <button
+                  key={log.id}
+                  type="button"
+                  className="grid w-full grid-cols-12 items-center gap-2 px-3 py-3 text-left text-sm transition hover:bg-amber-50/70"
+                  onClick={() => setSelectedAutoDailyLog(log)}
+                >
+                  <div className="col-span-3 md:col-span-2 font-medium tabular-nums">{formatDate(log.revenue_date)}</div>
+                  <div className="col-span-3 md:col-span-2">
+                    <Badge className={log.status === "success" ? "border border-emerald-200 bg-emerald-50 text-emerald-700" : log.status === "failed" ? "border border-rose-200 bg-rose-50 text-rose-700" : "border border-amber-200 bg-amber-50 text-amber-700"}>
+                      {statusLabel(log.status)}
+                    </Badge>
+                  </div>
+                  <div className="col-span-3 md:col-span-2 truncate text-muted-foreground" title={formatDateTime(log.finished_at || log.updated_at)}>{formatDateTime(log.finished_at || log.updated_at)}</div>
+                  <div className="hidden md:col-span-2 md:block tabular-nums">{numberFmt(Number(log.row_count || 0))}</div>
+                  <div className="hidden md:col-span-3 md:block truncate font-medium" title={vnd(Number(log.gross_total || 0))}>{vnd(Number(log.gross_total || 0))}</div>
+                  <div className="col-span-3 md:col-span-1 text-right text-amber-700">Chi tiết</div>
+                </button>
+              )) : (
+                <div className="px-3 py-4 text-sm text-muted-foreground">Chưa có log parse tự động hằng ngày.</div>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={Boolean(selectedAutoDailyLog)} onOpenChange={(open) => !open && setSelectedAutoDailyLog(null)}>
+        <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Chi tiết log parse</DialogTitle>
+            <DialogDescription>
+              {selectedAutoDailyLog ? `${formatDate(selectedAutoDailyLog.revenue_date)} • ${statusLabel(selectedAutoDailyLog.status)} • cron ${selectedAutoDailyLog.scheduled_for_vn} VN` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedAutoDailyLog ? (
+            <div className="space-y-4 text-sm">
+              <div className="grid gap-3 sm:grid-cols-2">
+                {[
+                  ["Ngày doanh thu", formatDate(selectedAutoDailyLog.revenue_date)],
+                  ["Kỳ", selectedAutoDailyLog.period],
+                  ["Bắt đầu", formatDateTime(selectedAutoDailyLog.started_at)],
+                  ["Kết thúc", formatDateTime(selectedAutoDailyLog.finished_at)],
+                  ["PO/email", `${formatDate(selectedAutoDailyLog.po_received_from)} → ${formatDate(selectedAutoDailyLog.po_received_to)}`],
+                  ["Review flag", numberFmt(Number(selectedAutoDailyLog.review_flagged_line_count || 0))],
+                  ["run_id", selectedAutoDailyLog.run_id || "—"],
+                  ["source_document_id", selectedAutoDailyLog.source_document_id || "—"],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-lg border bg-muted/30 p-3">
+                    <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">{label}</div>
+                    <div className="mt-1 break-all font-medium">{value}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Dòng ledger</div>
+                  <div className="mt-1 text-lg font-semibold">{numberFmt(Number(selectedAutoDailyLog.row_count || 0))}</div>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Gross total</div>
+                  <div className="mt-1 text-lg font-semibold">{vnd(Number(selectedAutoDailyLog.gross_total || 0))}</div>
+                </div>
+              </div>
+              {selectedAutoDailyLog.error_message ? (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-rose-800">
+                  <div className="font-medium">Lỗi</div>
+                  <div className="mt-1 whitespace-pre-wrap">{selectedAutoDailyLog.error_message}</div>
+                </div>
+              ) : null}
+              <details className="rounded-lg border p-3">
+                <summary className="cursor-pointer font-medium">Metadata</summary>
+                <pre className="mt-3 max-h-72 overflow-auto rounded bg-stone-950 p-3 text-xs text-stone-100">{JSON.stringify(selectedAutoDailyLog.metadata || {}, null, 2)}</pre>
+              </details>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={(open) => !actionBusy && setDialogOpen(open)}>
         <DialogContent className="max-h-[88vh] overflow-y-auto border-amber-200/20 bg-stone-950 text-stone-100 sm:max-w-4xl">

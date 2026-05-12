@@ -9,12 +9,16 @@ CRON_API = ROOT / "api/po-sync-cron.js"
 MONTHLY = ROOT / "supabase/functions/revenue-monthly-parse-preview/index.ts"
 GMAIL_SYNC = ROOT / "supabase/functions/po-gmail-sync/index.ts"
 MIGRATION = ROOT / "supabase/migrations/20260510170000_revenue_auto_daily_post.sql"
+LOG_MIGRATION = ROOT / "supabase/migrations/20260512110000_revenue_auto_daily_parse_logs.sql"
+FINANCE_REVENUE = ROOT / "src/pages/FinanceRevenueControl.tsx"
 
 vercel = json.loads(VERCEL.read_text(encoding="utf-8"))
 cron_api = CRON_API.read_text(encoding="utf-8")
 monthly = MONTHLY.read_text(encoding="utf-8")
 gmail_sync = GMAIL_SYNC.read_text(encoding="utf-8")
 migration = MIGRATION.read_text(encoding="utf-8")
+log_migration = LOG_MIGRATION.read_text(encoding="utf-8")
+finance_revenue = FINANCE_REVENUE.read_text(encoding="utf-8")
 
 
 def assert_contains(text: str, needle: str, label: str) -> None:
@@ -147,6 +151,52 @@ def test_auto_daily_rpc_posts_all_review_rows_and_supersedes() -> None:
     ]:
         assert_contains(migration, needle, label)
     assert "and review_status <> 'needs_manual_review'" not in migration, "review rows must be posted"
+
+
+def test_auto_daily_log_table_is_one_row_per_revenue_date() -> None:
+    for needle, label in [
+        ("create table if not exists public.revenue_auto_daily_parse_logs", "daily log table"),
+        ("revenue_date date not null", "business date column"),
+        ("scheduled_for_vn text not null default '23:59'", "scheduled local time"),
+        ("status text not null", "status column"),
+        ("run_id uuid references public.revenue_monthly_parse_runs(id)", "run relationship"),
+        ("source_document_id uuid references public.revenue_source_documents(id)", "source document relationship"),
+        ("unique (revenue_date)", "one row per revenue date"),
+        ("create or replace function public.upsert_revenue_auto_daily_parse_log", "upsert helper"),
+        ("on conflict (revenue_date) do update", "idempotent daily upsert"),
+        ("alter table public.revenue_auto_daily_parse_logs enable row level security", "RLS enabled"),
+        ("finance_revenue", "finance revenue permission policy"),
+    ]:
+        assert_contains(log_migration, needle, label)
+
+
+def test_auto_daily_function_writes_started_success_and_failure_logs() -> None:
+    for needle, label in [
+        ("upsertAutoDailyParseLog", "edge helper writes daily parse log"),
+        ('status: "started"', "started log before parse"),
+        ('status: "success"', "success log after ledger post"),
+        ('status: "failed"', "failure log on exception"),
+        ("sourceDocumentId", "source document id logged"),
+        ("grossTotal", "gross total logged"),
+        ("gmailSyncSummary", "Gmail sync summary logged"),
+        ("await upsertAutoDailyParseLog(supabaseAdmin", "log helper invoked"),
+    ]:
+        assert_contains(monthly, needle, label)
+
+
+def test_manual_parse_page_shows_clickable_auto_daily_log_rows() -> None:
+    for needle, label in [
+        ("AutoDailyParseLogRow", "frontend log row type"),
+        ('queryKey: ["revenue-auto-daily-parse-logs"]', "daily log query key"),
+        ('.from<AutoDailyParseLogRow>("revenue_auto_daily_parse_logs")', "daily log table query"),
+        ("Log parse tự động hằng ngày", "daily log section heading"),
+        ("selectedAutoDailyLog", "click row opens detail state"),
+        ("setSelectedAutoDailyLog(log)", "log row click handler"),
+        ("Chi tiết log parse", "detail dialog title"),
+        ("source_document_id", "source document shown in detail"),
+        ("run_id", "run id shown in detail"),
+    ]:
+        assert_contains(finance_revenue, needle, label)
 
 
 if __name__ == "__main__":
