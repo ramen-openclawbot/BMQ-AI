@@ -30,6 +30,7 @@ interface AuthContextType {
   loading: boolean;
   timedOut: boolean;
   roles: AppRole[];
+  authzLoaded: boolean;
   isOwner: boolean;
   canAccessModule: (moduleKey: string) => boolean;
   canEditModule: (moduleKey: string) => boolean;
@@ -48,6 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [timedOut, setTimedOut] = useState(false);
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [permissions, setPermissions] = useState<ModulePermission[]>([]);
+  const [authzLoaded, setAuthzLoaded] = useState(false);
 
   // Track if initial load is complete to prevent listener from affecting loading state
   const initialLoadCompleteRef = useRef(false);
@@ -61,6 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Fetch roles + permissions for a user
   // -------------------------------------------------------------------------
   const fetchRolesAndPermissions = useCallback(async (userId: string, userEmail?: string | null) => {
+    setAuthzLoaded(false);
     try {
       let [rolesRes, permsRes] = await Promise.all([
         (supabase as any)
@@ -124,6 +127,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (err) {
       console.error("[AuthContext] Error fetching roles/permissions:", err);
+    } finally {
+      setAuthzLoaded(true);
     }
   }, []);
 
@@ -371,6 +376,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       timedOut,
       roles,
+      authzLoaded,
       isOwner,
       canAccessModule,
       canEditModule,

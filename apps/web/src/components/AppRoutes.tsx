@@ -111,7 +111,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function ModuleRoute({ moduleKey, children }: { moduleKey: string; children: React.ReactNode }) {
-  const { canAccessModule } = useAuth();
+  const { user, loading, authzLoaded, canAccessModule } = useAuth();
+
+  if (loading || (user && !authzLoaded)) {
+    return <AppLoadingFallback />;
+  }
 
   if (!canAccessModule(moduleKey)) {
     return (
