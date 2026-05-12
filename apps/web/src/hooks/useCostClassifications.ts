@@ -175,7 +175,9 @@ export function useCostClassificationMonthlySummary(month: Date, enabled = true)
         .order("category_code", { ascending: true });
 
       if (error) throw error;
-      return (data || []).map(normalizeMonthlySummary);
+      return (data || [])
+        .map(normalizeMonthlySummary)
+        .filter((row) => row.month.slice(0, 7) === monthStart.slice(0, 7));
     },
     staleTime: COST_CLASSIFICATION_STALE_MS,
   });
