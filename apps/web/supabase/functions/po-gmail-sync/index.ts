@@ -385,6 +385,9 @@ function parseKingfoodXlsx(bytes: Uint8Array) {
           unit: String(row?.[16] || "").trim(),
           unit_price: unitPrice,
           line_total: explicitLineTotal || qty * unitPrice,
+          amount_includes_vat: true,
+          amount_source: "kingfood_po_line_total_vat_included",
+          vat_handling: "no_extra_multiplier",
         };
       })
       .filter((item) => /^SP\d+/i.test(item.sku) && item.product_name && item.qty > 0);
@@ -1030,6 +1033,9 @@ serve(async (req) => {
             subtotal: parsed.subtotal,
             vat_amount: parsed.vat,
             total_amount: parsed.total,
+            amount_includes_vat: true,
+            amount_source: "kingfood_po_total_vat_included",
+            vat_handling: "no_extra_multiplier",
             item_subtotal: parsed.itemSubtotal,
             item_qty: parsed.itemQty,
             subtotal_diff: parsed.subtotalDiff,
@@ -1405,6 +1411,9 @@ serve(async (req) => {
               subtotal: parsedSubtotal,
               vat_amount: parsedVat,
               total_amount: parsedTotal,
+              amount_includes_vat: true,
+              amount_source: "kingfood_po_total_vat_included",
+              vat_handling: "no_extra_multiplier",
               subtotal_source: "kingfood_sheet_subtotal_col_33",
               template_id: template?.id || null,
               template_name: template?.template_name || null,

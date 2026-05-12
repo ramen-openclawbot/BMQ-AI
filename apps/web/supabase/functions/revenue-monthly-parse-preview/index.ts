@@ -75,6 +75,46 @@ type PreviewOptions = {
   linePayloadMetadata?: JsonRecord;
 };
 
+type DispatchRevenueConfirmationLine = {
+  id: string;
+  confirmation_id: string;
+  source_line_key?: string | null;
+  sku?: string | null;
+  product_name?: string | null;
+  ordered_qty?: number | string | null;
+  produced_qty?: number | string | null;
+  defect_qty?: number | string | null;
+  dispatched_qty?: number | string | null;
+  billable_qty?: number | string | null;
+  unit_price_vat_included?: number | string | null;
+  source_line_amount_vat_included?: number | string | null;
+  temporary_revenue_amount_vat_included?: number | string | null;
+  confirmed_revenue_amount_vat_included?: number | string | null;
+  shortage_reason_code?: string | null;
+  shortage_note?: string | null;
+};
+
+type DispatchRevenueConfirmation = {
+  id: string;
+  customer_po_inbox_id: string;
+  warehouse_dispatch_id?: string | null;
+  production_order_id?: string | null;
+  status: "draft" | "confirmed" | "revised" | "cancelled" | string;
+  amount_status: "temporary_po_amount" | "confirmed_dispatch_amount" | "needs_sku_allocation" | "month_end_audit_adjusted" | string;
+  amount_basis?: string | null;
+  ordered_qty_total?: number | string | null;
+  produced_qty_total?: number | string | null;
+  defect_qty_total?: number | string | null;
+  dispatched_qty_total?: number | string | null;
+  billable_qty_total?: number | string | null;
+  temporary_revenue_amount_vat_included?: number | string | null;
+  confirmed_revenue_amount_vat_included?: number | string | null;
+  updated_at?: string | null;
+  po_dispatch_revenue_confirmation_lines?: DispatchRevenueConfirmationLine[] | null;
+};
+
+type DispatchConfirmationMap = Map<string, DispatchRevenueConfirmation>;
+
 const TIME_ZONE = "Asia/Ho_Chi_Minh";
 const REVENUE_CRON_SECRET_ENV_KEY = "REVENUE_CRON_SECRET";
 const LEGACY_PO_CRON_SECRET_ENV_KEY = "PO_SYNC_CRON_SECRET";
@@ -344,6 +384,151 @@ const extractPoNumberFromSubject = (subject?: string | null) => {
   return match[1].toUpperCase().startsWith("PO") ? match[1].toUpperCase() : `PO${match[1]}`;
 };
 
+const amountNumber = (value: unknown, fallback = 0) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+};
+
+const matchKey = (...values: unknown[]) =>
+  normalizeText(...values)
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+const previewLineSourceKey = (item: JsonRecord, line: ReturnType<typeof lineFromItem>, itemIndex: number) =>
+  stringValue(item.source_line_key, item.dedupe_key, item.sku, item.product_code, line.productCode, line.productName)
+  || `line_${itemIndex + 1}`;
+
+const lineMatchCandidates = (item: JsonRecord, line: ReturnType<typeof lineFromItem>, sourceLineKey: string) => {
+  const keys = [
+    sourceLineKey,
+    item.source_line_key,
+    item.dedupe_key,
+    item.sku,
+    item.product_code,
+    line.productCode,
+    item.product_name,
+    item.name,
+    item.item_name,
+    line.productName,
+  ];
+  return new Set(keys.map((key) => matchKey(key)).filter(Boolean));
+};
+
+const findDispatchLine = (
+  confirmation: DispatchRevenueConfirmation | undefined,
+  item: JsonRecord,
+  line: ReturnType<typeof lineFromItem>,
+  sourceLineKey: string,
+) => {
+  const candidates = lineMatchCandidates(item, line, sourceLineKey);
+  const dispatchLines = confirmation?.po_dispatch_revenue_confirmation_lines || [];
+  return dispatchLines.find((dispatchLine) => {
+    const keys = [
+      dispatchLine.source_line_key,
+      dispatchLine.sku,
+      dispatchLine.product_name,
+    ];
+    return keys.some((key) => candidates.has(matchKey(key)));
+  }) || null;
+};
+
+const buildVatIncludedMetadata = (row: InboxRow, item: JsonRecord) => {
+  const raw = asRecord(row.raw_payload);
+  const revenuePost = asRecord(raw.revenue_post);
+  const poAutomation = asRecord(raw.po_automation);
+  const amountIncludesVat = [item.amount_includes_vat, raw.amount_includes_vat, revenuePost.amount_includes_vat, poAutomation.amount_includes_vat]
+    .some((value) => value === true || String(value).toLowerCase() === "true");
+  const isKingfood = normalizeText(row.from_email, row.email_subject, row.mini_crm_customers?.customer_name, poAutomation.rule).includes("kingfood")
+    || normalizeText(poAutomation.rule).includes("kingfood");
+
+  if (!amountIncludesVat && !isKingfood) return null;
+
+  return {
+    amount_includes_vat: true,
+    amount_source: stringValue(item.amount_source, revenuePost.amount_source, poAutomation.amount_source)
+      || (isKingfood ? "kingfood_po_total_vat_included" : "source_marks_vat_included"),
+    vat_handling: "no_extra_multiplier",
+  };
+};
+
+const dispatchRevenueTrace = (
+  rowId: string,
+  item: JsonRecord,
+  line: ReturnType<typeof lineFromItem>,
+  sourceLineKey: string,
+  confirmations: DispatchConfirmationMap,
+) => {
+  const confirmation = confirmations.get(rowId);
+  if (!confirmation) {
+    return {
+      quantity: Number(line.quantity || 0),
+      gross: Number(line.gross || 0),
+      unit: Number(line.unit || 0),
+      needsManualReview: false,
+      raw: {
+        source_line_key: sourceLineKey,
+        revenue_amount_status: "temporary_po_amount",
+        revenue_amount_basis: "temporary_po_ordered_amount",
+        dispatch_confirmation_status: "missing",
+      },
+    };
+  }
+
+  const dispatchLine = findDispatchLine(confirmation, item, line, sourceLineKey);
+  const isFinalStatus = confirmation.status === "confirmed" || confirmation.status === "revised";
+  const isFinalAmount = confirmation.amount_status === "confirmed_dispatch_amount" || confirmation.amount_status === "month_end_audit_adjusted";
+  const confirmedAmount = amountNumber(dispatchLine?.confirmed_revenue_amount_vat_included, NaN);
+  const headerConfirmedAmount = amountNumber(confirmation.confirmed_revenue_amount_vat_included, NaN);
+  const billableQty = amountNumber(dispatchLine?.billable_qty, Number(line.quantity || 0));
+  const canUseDispatchLine = Boolean(dispatchLine && isFinalStatus && isFinalAmount && Number.isFinite(confirmedAmount));
+  const canUseHeaderAmount = Boolean(
+    (!dispatchLine || !Number.isFinite(confirmedAmount))
+    && isFinalStatus
+    && isFinalAmount
+    && Number.isFinite(headerConfirmedAmount)
+    && (confirmation.po_dispatch_revenue_confirmation_lines || []).length <= 1,
+  );
+
+  const raw = {
+    source_line_key: sourceLineKey,
+    dispatch_confirmation_id: confirmation.id,
+    warehouse_dispatch_id: confirmation.warehouse_dispatch_id || null,
+    dispatch_confirmation_status: confirmation.amount_status === "needs_sku_allocation" ? "needs_sku_allocation" : confirmation.status,
+    revenue_amount_status: (canUseDispatchLine || canUseHeaderAmount) ? confirmation.amount_status : "temporary_po_amount",
+    revenue_amount_basis: (canUseDispatchLine || canUseHeaderAmount) ? confirmation.amount_basis || "confirmed_dispatch_line_amounts" : "temporary_po_ordered_amount",
+    dispatch_trace: {
+      ordered_qty: amountNumber(dispatchLine?.ordered_qty, amountNumber(confirmation.ordered_qty_total)),
+      produced_qty: amountNumber(dispatchLine?.produced_qty, amountNumber(confirmation.produced_qty_total)),
+      defect_qty: amountNumber(dispatchLine?.defect_qty, amountNumber(confirmation.defect_qty_total)),
+      dispatched_qty: amountNumber(dispatchLine?.dispatched_qty, amountNumber(confirmation.dispatched_qty_total)),
+      billable_qty: amountNumber(dispatchLine?.billable_qty, amountNumber(confirmation.billable_qty_total)),
+      shortage_reason_code: dispatchLine?.shortage_reason_code || null,
+      shortage_note: dispatchLine?.shortage_note || null,
+      matched_dispatch_line_id: dispatchLine?.id || null,
+    },
+  };
+
+  if (canUseDispatchLine || canUseHeaderAmount) {
+    const finalAmount = canUseDispatchLine ? confirmedAmount : headerConfirmedAmount;
+    const finalQty = canUseDispatchLine ? billableQty : amountNumber(confirmation.billable_qty_total, Number(line.quantity || 0));
+    return {
+      quantity: finalQty,
+      gross: finalAmount,
+      unit: finalQty > 0 ? finalAmount / finalQty : Number(line.unit || 0),
+      needsManualReview: false,
+      raw,
+    };
+  }
+
+  return {
+    quantity: Number(line.quantity || 0),
+    gross: Number(line.gross || 0),
+    unit: Number(line.unit || 0),
+    needsManualReview: confirmation.amount_status === "needs_sku_allocation",
+    raw,
+  };
+};
+
 async function userHasRole(supabaseAdmin: ReturnType<typeof createClient>, userId: string, role: string) {
   const { data, error } = await supabaseAdmin
     .from("user_roles")
@@ -493,6 +678,29 @@ async function fetchInboxRows(supabaseAdmin: ReturnType<typeof createClient>, re
   return Array.from(rowsById.values());
 }
 
+async function fetchDispatchRevenueConfirmations(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  inboxIds: string[],
+): Promise<DispatchConfirmationMap> {
+  const byInboxId: DispatchConfirmationMap = new Map();
+  const uniqueIds = Array.from(new Set(inboxIds.filter(Boolean)));
+  for (let index = 0; index < uniqueIds.length; index += 200) {
+    const batch = uniqueIds.slice(index, index + 200);
+    const { data, error } = await supabaseAdmin
+      .from("po_dispatch_revenue_confirmations")
+      .select("*, po_dispatch_revenue_confirmation_lines(*)")
+      .in("customer_po_inbox_id", batch)
+      .neq("status", "cancelled")
+      .order("updated_at", { ascending: false });
+    if (error) throw error;
+
+    for (const row of (data || []) as DispatchRevenueConfirmation[]) {
+      if (!byInboxId.has(row.customer_po_inbox_id)) byInboxId.set(row.customer_po_inbox_id, row);
+    }
+  }
+  return byInboxId;
+}
+
 const lineFromItem = (item: JsonRecord, fallbackAmount: number) => {
   const quantity = numberValue(item.revenue_qty, item.quantity, item.qty, item.ordered_qty, item.count);
   const gross = numberValue(item.line_total, item.amount, item.gross_revenue, item.total, fallbackAmount);
@@ -537,6 +745,7 @@ const buildPreviewLines = (
   revenueFrom: string,
   revenueTo: string,
   rows: InboxRow[],
+  dispatchConfirmations: DispatchConfirmationMap = new Map(),
   emit?: ProgressEmitter,
   options: Pick<PreviewOptions, "monthlyParseKind" | "sourceTab" | "linePayloadMetadata"> = {},
 ) => {
@@ -571,10 +780,12 @@ const buildPreviewLines = (
     let rowLineCount = 0;
     let rowChannel: string | null = null;
 
-    for (const item of effectiveItems) {
+    for (let itemIndex = 0; itemIndex < effectiveItems.length; itemIndex += 1) {
+      const item = effectiveItems[itemIndex];
       const revenueDate = lineRevenueDate(row, item, poReceivedDate);
       if (!revenueDate || revenueDate < revenueFrom || revenueDate > revenueTo) continue;
       const line = lineFromItem(item, effectiveItems.length === 1 ? fallbackAmount : 0);
+      const sourceLineKey = previewLineSourceKey(item, line, itemIndex);
       const customerName = stringValue(
         item.customer_name,
         item.route_name,
@@ -614,7 +825,10 @@ const buildPreviewLines = (
         line.unit = damXesgEstimate.unit;
         line.note = line.note ? `${line.note}; ${estimateNote}` : estimateNote;
       }
-      const gross = Number(line.gross || 0);
+      const dispatchTrace = dispatchRevenueTrace(row.id, item, line, sourceLineKey, dispatchConfirmations);
+      const vatIncludedMetadata = buildVatIncludedMetadata(row, item);
+      const gross = Number(dispatchTrace.gross || 0);
+      const lineNeedsReview = needsReview || dispatchTrace.needsManualReview;
       rowChannel = rowChannel || dashboardChannel;
       rowLineCount += 1;
       lines.push({
@@ -634,14 +848,14 @@ const buildPreviewLines = (
         product_code: line.productCode,
         product_name: line.productName,
         item_note: line.note,
-        quantity: Number(line.quantity || 0),
-        unit_price: Number(line.unit || 0),
+        quantity: Number(dispatchTrace.quantity || 0),
+        unit_price: Number(dispatchTrace.unit || 0),
         gross_revenue: gross,
         source_type: "po_email_parse",
         source_ref: row.id,
-        confidence_status: needsReview ? "manual_review" : "matched",
+        confidence_status: lineNeedsReview ? "manual_review" : "matched",
         reconciliation_status: "not_reconciled",
-        review_status: needsReview ? "needs_manual_review" : "not_required",
+        review_status: lineNeedsReview ? "needs_manual_review" : "not_required",
         raw_payload: {
           inbox_row_id: row.id,
           from_email: row.from_email || null,
@@ -670,6 +884,8 @@ const buildPreviewLines = (
           } : null,
           source_dedupe_key: stringValue(item.dedupe_key),
           dedupe_strategy: stringValue(item.dedupe_strategy, asRecord(raw.parse_meta).dedupe_strategy),
+          ...(vatIncludedMetadata || {}),
+          ...dispatchTrace.raw,
           ...linePayloadMetadata,
         },
       });
@@ -804,7 +1020,9 @@ async function runCurrentMonthPreview(
     emit?.({ type: "progress", stage: "inbox_fetch_start", channel: "Mailbox", message: "Đang đọc inbox đã sync để chia theo channel" });
     const rows = await fetchInboxRows(supabaseAdmin, receivedFrom, receivedTo);
     emit?.({ type: "progress", stage: "inbox_fetch_done", channel: "Mailbox", inboxRows: rows.length, message: `Đã lấy ${rows.length} mail trong inbox, bắt đầu parse theo kênh` });
-    const lines = buildPreviewLines(String(run.id), window.period, window.revenueDateFrom, window.revenueDateTo, rows, emit, {
+    const dispatchConfirmations = await fetchDispatchRevenueConfirmations(supabaseAdmin, rows.map((row) => row.id));
+    emit?.({ type: "progress", stage: "dispatch_confirmation_fetch_done", rows: dispatchConfirmations.size, message: `Đã lấy ${dispatchConfirmations.size} xác nhận xuất kho/doanh thu` });
+    const lines = buildPreviewLines(String(run.id), window.period, window.revenueDateFrom, window.revenueDateTo, rows, dispatchConfirmations, emit, {
       monthlyParseKind: options.monthlyParseKind,
       sourceTab: options.sourceTab,
       linePayloadMetadata: options.linePayloadMetadata,

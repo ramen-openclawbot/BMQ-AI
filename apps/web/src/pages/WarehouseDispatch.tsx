@@ -22,12 +22,16 @@ interface PoInbox {
   from_name: string | null;
   delivery_date: string | null;
   matched_customer_id: string | null;
+  total_amount?: number | null;
   customer_address?: string | null;
   production_items: Array<{
     product_name: string;
     qty: number;
     unit: string;
     sku?: string;
+    unit_price?: number;
+    line_total?: number;
+    amount?: number;
   }> | null;
 }
 
@@ -45,6 +49,15 @@ interface DispatchFormItem {
   ordered_qty: number;    // from sales PO
   available_qty: number;  // from inventory
   dispatch_qty: number;   // what we're dispatching
+  produced_qty: number;   // usable/accepted bánh
+  defect_qty: number;
+  billable_qty: number;
+  unit_price_vat_included: number;
+  source_line_amount_vat_included: number;
+  actual_revenue_amount: string;
+  shortage_reason_code: string;
+  shortage_note: string;
+  shortage_sku: string;
   unit: string;
   inventory_item_id?: string;
 }
@@ -87,6 +100,25 @@ const statusColors: Record<DispatchStatus, string> = {
   picked:     "bg-blue-100 text-blue-700",
   dispatched: "bg-amber-100 text-amber-700",
   delivered:  "bg-green-100 text-green-700",
+};
+
+const shortageReasons = [
+  { value: "production_defect", label: "Lỗi sản xuất" },
+  { value: "warehouse_shortage", label: "Thiếu kho" },
+  { value: "customer_change", label: "Khách đổi số lượng" },
+  { value: "other", label: "Khác" },
+];
+
+const moneyNumber = (value: string) => {
+  const numeric = Number(String(value || "").replace(/,/g, ""));
+  return Number.isFinite(numeric) ? numeric : 0;
+};
+
+const amountStatusLabel: Record<string, string> = {
+  temporary_po_amount: "Doanh thu tạm từ PO",
+  confirmed_dispatch_amount: "Đã xác nhận số xuất",
+  needs_sku_allocation: "Cần chọn SKU thiếu",
+  month_end_audit_adjusted: "Đã chỉnh audit cuối tháng",
 };
 
 export default function WarehouseDispatch() {
@@ -147,6 +179,7 @@ export default function WarehouseDispatch() {
         .from("customer_po_inbox")
         .select(`
           id, po_number, from_name, delivery_date, matched_customer_id, production_items,
+          total_amount,
           mini_crm_customers!matched_customer_id ( address )
         `)
         .eq("match_status", "approved")
@@ -200,17 +233,35 @@ export default function WarehouseDispatch() {
     }
 
     // Map PO items → form items, cross-reference with inventory
+    const poTotal = Number(po.total_amount || 0);
+    const totalOrderedQty = po.production_items.reduce((sum, pi) => sum + Number(pi.qty || 0), 0);
     const mapped: DispatchFormItem[] = po.production_items.map((pi) => {
       const inv = finishedInventory.find(
         (i) => i.name.toLowerCase().includes(pi.product_name.toLowerCase().trim()) ||
                pi.product_name.toLowerCase().includes(i.name.toLowerCase().trim())
       );
+      const orderedQty = Number(pi.qty || 0);
+      const dispatchQty = Math.min(orderedQty, inv?.quantity ?? 0);
+      const sourceLineAmount = Number(pi.line_total || pi.amount || 0) || (poTotal > 0 && totalOrderedQty > 0 ? poTotal * orderedQty / totalOrderedQty : 0);
+      const unitPrice = Number(pi.unit_price || 0) || (orderedQty > 0 ? sourceLineAmount / orderedQty : 0);
       return {
         product_name: pi.product_name,
         sku: pi.sku,
-        ordered_qty: pi.qty ?? 0,
+        ordered_qty: orderedQty,
         available_qty: inv?.quantity ?? 0,
-        dispatch_qty: Math.min(pi.qty ?? 0, inv?.quantity ?? 0),
+        dispatch_qty: dispatchQty,
+        produced_qty: dispatchQty,
+        defect_qty: Math.max(orderedQty - dispatchQty, 0),
+        billable_qty: dispatchQty,
+        unit_price_vat_included: unitPrice,
+        source_line_amount_vat_included: sourceLineAmount,
+        actual_revenue_amount: "",
+        shortage_reason_code: "production_defect",
+        shortage_note: "",
+        // Shortage SKU must be chosen explicitly when there is a shortage.
+        // Do not default to the PO SKU, otherwise a short dispatch can become
+        // final revenue without the operator allocating which SKU was missing.
+        shortage_sku: Math.max(orderedQty - dispatchQty, 0) > 0 ? "" : (pi.sku || ""),
         unit: pi.unit || inv?.unit || "kg",
         inventory_item_id: inv?.id,
       };
@@ -226,7 +277,21 @@ export default function WarehouseDispatch() {
     const qty = Math.max(0, parseFloat(val) || 0);
     setFormItems((prev) => {
       const next = [...prev];
-      next[idx] = { ...next[idx], dispatch_qty: qty };
+      next[idx] = {
+        ...next[idx],
+        dispatch_qty: qty,
+        produced_qty: qty,
+        defect_qty: Math.max(next[idx].ordered_qty - qty, 0),
+        billable_qty: qty,
+      };
+      return next;
+    });
+  };
+
+  const updateFormItem = (idx: number, patch: Partial<DispatchFormItem>) => {
+    setFormItems((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], ...patch };
       return next;
     });
   };
@@ -286,23 +351,94 @@ export default function WarehouseDispatch() {
         .single();
       if (dispatchErr) throw dispatchErr;
 
-      // Insert items
-      const { error: itemsErr } = await (supabase as any)
-        .from("warehouse_dispatch_items")
-        .insert(
-          itemsToDispatch.map((i) => ({
-            dispatch_id: dispatchData.id,
+      try {
+        // Insert items
+        const { error: itemsErr } = await (supabase as any)
+          .from("warehouse_dispatch_items")
+          .insert(
+            itemsToDispatch.map((i) => ({
+              dispatch_id: dispatchData.id,
+              product_name: i.product_name,
+              quantity: i.dispatch_qty,
+              unit: i.unit,
+            }))
+          );
+        if (itemsErr) throw itemsErr;
+
+        const confirmationLines = formItems.map((i, idx) => {
+          const hasShortage = i.ordered_qty > i.billable_qty || i.ordered_qty > i.produced_qty || i.defect_qty > 0;
+          const hasMissingSkuAllocation = hasShortage && !(i.shortage_sku || "").trim();
+          const manualAmount = moneyNumber(i.actual_revenue_amount);
+          const computedAmount = i.unit_price_vat_included > 0 ? i.billable_qty * i.unit_price_vat_included : 0;
+          return {
+            source_line_key: i.sku || i.product_name || `line_${idx + 1}`,
+            sku: hasShortage ? ((i.shortage_sku || "").trim() || null) : (i.sku || null),
             product_name: i.product_name,
-            quantity: i.dispatch_qty,
-            unit: i.unit,
-          }))
-        );
-      if (itemsErr) throw itemsErr;
+            ordered_qty: i.ordered_qty,
+            produced_qty: i.produced_qty,
+            defect_qty: i.defect_qty,
+            dispatched_qty: i.dispatch_qty,
+            billable_qty: i.billable_qty,
+            unit_price_vat_included: i.unit_price_vat_included || null,
+            source_line_amount_vat_included: i.source_line_amount_vat_included || null,
+            temporary_revenue_amount_vat_included: i.source_line_amount_vat_included || null,
+            confirmed_revenue_amount_vat_included: hasMissingSkuAllocation ? null : (manualAmount || computedAmount || null),
+            shortage_reason_code: hasShortage ? i.shortage_reason_code || null : null,
+            shortage_note: i.shortage_note || null,
+          };
+        });
+        const payload = {
+          po_number: po?.po_number ?? null,
+          production_order_id: linkedPO?.id ?? null,
+          revenue_date: po?.delivery_date || dispatchDate,
+          dispatch_date: dispatchDate,
+          po_total_vat_included: po?.total_amount ?? null,
+          ordered_qty_total: formItems.reduce((sum, i) => sum + i.ordered_qty, 0),
+          produced_qty_total: formItems.reduce((sum, i) => sum + i.produced_qty, 0),
+          defect_qty_total: formItems.reduce((sum, i) => sum + i.defect_qty, 0),
+          dispatched_qty_total: formItems.reduce((sum, i) => sum + i.dispatch_qty, 0),
+          billable_qty_total: formItems.reduce((sum, i) => sum + i.billable_qty, 0),
+          temporary_revenue_amount_vat_included: po?.total_amount ?? confirmationLines.reduce((sum, i) => sum + Number(i.temporary_revenue_amount_vat_included || 0), 0),
+          lines: confirmationLines,
+        };
+        const { data: confirmation, error: confirmationErr } = await (supabase as any).rpc("upsert_po_dispatch_revenue_confirmation", {
+          _customer_po_inbox_id: selectedPoId,
+          _warehouse_dispatch_id: dispatchData.id,
+          _payload: payload,
+          _note: notes || null,
+        });
+        if (confirmationErr) throw confirmationErr;
+        let finalConfirmation = confirmation;
+        if (
+          confirmation?.id
+          && confirmation?.amount_status !== "needs_sku_allocation"
+          && confirmation?.confirmed_revenue_amount_vat_included !== null
+          && confirmation?.confirmed_revenue_amount_vat_included !== undefined
+        ) {
+          const { data: confirmed, error: confirmErr } = await (supabase as any).rpc("confirm_po_dispatch_revenue", {
+            _confirmation_id: confirmation.id,
+            _note: notes || "Xác nhận số xuất thực tế từ phiếu xuất kho",
+          });
+          if (confirmErr) throw confirmErr;
+          finalConfirmation = confirmed || confirmation;
+        }
+        return finalConfirmation;
+      } catch (error) {
+        // Keep the dispatch + revenue-confirmation workflow effectively atomic
+        // from the operator's perspective. If the confirmation/audit write fails,
+        // remove the just-created dispatch rows instead of leaving partial ops data.
+        await (supabase as any).from("warehouse_dispatch_items").delete().eq("dispatch_id", dispatchData.id);
+        await (supabase as any).from("warehouse_dispatches").delete().eq("id", dispatchData.id);
+        throw error;
+      }
     },
-    onSuccess: () => {
+    onSuccess: (confirmation: any) => {
       queryClient.invalidateQueries({ queryKey: ["warehouse_dispatches"] });
       queryClient.invalidateQueries({ queryKey: ["warehouse_dispatch_items"] });
-      toast({ title: "Tạo phiếu xuất kho thành công" });
+      toast({
+        title: "Tạo phiếu xuất kho thành công",
+        description: amountStatusLabel[confirmation?.amount_status] || "Doanh thu tạm từ PO",
+      });
       setCreateOpen(false);
       resetForm();
     },
@@ -488,7 +624,7 @@ export default function WarehouseDispatch() {
 
       {/* ── Create Dialog ────────────────────────────────────────────────── */}
       <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (!o) resetForm(); }}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-6xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Truck className="h-5 w-5" /> Tạo phiếu xuất kho
@@ -540,7 +676,21 @@ export default function WarehouseDispatch() {
             {/* Items from PO × Inventory */}
             {formItems.length > 0 && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Sản phẩm xuất kho</label>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="text-sm font-medium">Sản phẩm xuất kho</label>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="outline">Doanh thu tạm từ PO</Badge>
+                    {formItems.some((i) => i.ordered_qty > i.billable_qty || i.ordered_qty > i.produced_qty || i.defect_qty > 0) ? (
+                      <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">
+                        {formItems.some((i) => (i.ordered_qty > i.billable_qty || i.ordered_qty > i.produced_qty || i.defect_qty > 0) && !i.shortage_sku)
+                          ? "Cần chọn SKU thiếu"
+                          : "Đã xác nhận số xuất"}
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary">Đã xác nhận số xuất</Badge>
+                    )}
+                  </div>
+                </div>
                 <div className="rounded-lg border overflow-hidden">
                   <Table>
                     <TableHeader>
@@ -549,12 +699,20 @@ export default function WarehouseDispatch() {
                         <TableHead className="text-right">Đặt (PO)</TableHead>
                         <TableHead className="text-right">Tồn kho</TableHead>
                         <TableHead className="text-right w-28">Số lượng XK</TableHead>
+                        <TableHead className="text-right w-28">Số bánh đạt</TableHead>
+                        <TableHead className="text-right w-28">Số lỗi/thiếu</TableHead>
+                        <TableHead className="text-right w-28">Số tính tiền</TableHead>
+                        <TableHead className="w-32">SKU thiếu</TableHead>
+                        <TableHead className="w-36">Lý do</TableHead>
+                        <TableHead className="w-40">Ghi chú</TableHead>
+                        <TableHead className="w-36">Thành tiền thực tế</TableHead>
                         <TableHead>ĐVT</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {formItems.map((item, idx) => {
                         const overStock = item.dispatch_qty > item.available_qty;
+                        const shortage = item.ordered_qty > item.billable_qty || item.ordered_qty > item.produced_qty || item.defect_qty > 0;
                         return (
                           <TableRow key={idx} className={overStock ? "bg-red-50" : ""}>
                             <TableCell className="font-medium text-sm">{item.product_name}</TableCell>
@@ -574,6 +732,90 @@ export default function WarehouseDispatch() {
                                 className={`w-24 text-right h-8 ${overStock ? "border-destructive" : ""}`}
                               />
                               {overStock && <p className="text-[10px] text-destructive mt-0.5">Vượt tồn kho</p>}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Input
+                                type="number"
+                                min={0}
+                                value={item.produced_qty}
+                                onChange={(e) => {
+                                  const producedQty = Math.max(0, parseFloat(e.target.value) || 0);
+                                  updateFormItem(idx, {
+                                    produced_qty: producedQty,
+                                    defect_qty: Math.max(item.ordered_qty - producedQty, 0),
+                                    billable_qty: Math.min(item.billable_qty, producedQty),
+                                    shortage_sku: producedQty < item.ordered_qty ? "" : item.shortage_sku,
+                                  });
+                                }}
+                                className="w-24 text-right h-8"
+                              />
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Input
+                                type="number"
+                                min={0}
+                                value={item.defect_qty}
+                                onChange={(e) => updateFormItem(idx, { defect_qty: Math.max(0, parseFloat(e.target.value) || 0) })}
+                                className="w-24 text-right h-8"
+                              />
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Input
+                                type="number"
+                                min={0}
+                                value={item.billable_qty}
+                                onChange={(e) => updateFormItem(idx, { billable_qty: Math.max(0, parseFloat(e.target.value) || 0) })}
+                                className="w-24 text-right h-8"
+                              />
+                            </TableCell>
+                            <TableCell>
+                              {shortage ? (
+                                <Input
+                                  value={item.shortage_sku}
+                                  onChange={(e) => updateFormItem(idx, { shortage_sku: e.target.value })}
+                                  placeholder="SKU thiếu"
+                                  className="h-8"
+                                />
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {shortage ? (
+                                <Select value={item.shortage_reason_code} onValueChange={(value) => updateFormItem(idx, { shortage_reason_code: value })}>
+                                  <SelectTrigger className="h-8">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {shortageReasons.map((reason) => (
+                                      <SelectItem key={reason.value} value={reason.value}>{reason.label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {shortage ? (
+                                <Input
+                                  value={item.shortage_note}
+                                  onChange={(e) => updateFormItem(idx, { shortage_note: e.target.value })}
+                                  placeholder="Ghi chú"
+                                  className="h-8"
+                                />
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                inputMode="decimal"
+                                value={item.actual_revenue_amount}
+                                onChange={(e) => updateFormItem(idx, { actual_revenue_amount: e.target.value })}
+                                placeholder="Tùy chọn"
+                                className="h-8"
+                              />
                             </TableCell>
                             <TableCell className="text-muted-foreground text-sm">{item.unit}</TableCell>
                           </TableRow>

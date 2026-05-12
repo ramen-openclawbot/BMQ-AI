@@ -114,6 +114,14 @@ const lineRevenue = (row: RevenueLine) => safeNumber(row.gross_revenue);
 
 const lineDateDay = (row: RevenueLine) => dayOfMonth(row.revenue_date);
 
+const dispatchAmountBucket = (row: RevenueLine) => {
+  const raw = asRecord(row.raw_payload);
+  const status = String(raw.revenue_amount_status || raw.dispatch_confirmation_status || "");
+  if (status === "confirmed_dispatch_amount" || status === "month_end_audit_adjusted" || status === "confirmed" || status === "revised") return "confirmed";
+  if (status === "needs_sku_allocation") return "needsAllocation";
+  return "temporary";
+};
+
 const lineWeekday = (date: string) => {
   const d = new Date(`${date}T00:00:00+07:00`);
   return Number.isFinite(d.getTime()) ? d.getDay() : 0;
@@ -312,7 +320,10 @@ export default function RevenueManagementDashboard() {
     const pending = lines.filter((r) => r.approval_status === "pending").reduce((sum, r) => sum + Number(r.gross_revenue || 0), 0);
     const review = lines.filter((r) => r.review_status === "needs_manual_review" || r.audit_status === "needs_review").reduce((sum, r) => sum + Number(r.gross_revenue || 0), 0);
     const customers = new Set(lines.map((r) => r.parent_customer_id || r.customer_id || r.customer_name)).size;
-    return { total, qty, approved, pending, review, customers, rows: lines.length };
+    const dispatchTemporary = lines.filter((r) => dispatchAmountBucket(r) === "temporary").length;
+    const dispatchConfirmed = lines.filter((r) => dispatchAmountBucket(r) === "confirmed").length;
+    const dispatchNeedsAllocation = lines.filter((r) => dispatchAmountBucket(r) === "needsAllocation").length;
+    return { total, qty, approved, pending, review, customers, rows: lines.length, dispatchTemporary, dispatchConfirmed, dispatchNeedsAllocation };
   }, [lines]);
 
   const byDay = useMemo(() => {
@@ -718,6 +729,15 @@ export default function RevenueManagementDashboard() {
           );
         })}
       </div>
+
+      <Card className="border border-amber-100/10 bg-stone-950/45 ring-1 ring-stone-200/5">
+        <CardContent className="flex flex-wrap items-center gap-2 p-3 text-xs text-stone-300">
+          <span className="font-medium text-stone-200">Trạng thái số xuất:</span>
+          <Badge variant="outline" className="border-amber-200/20 text-amber-100">Doanh thu tạm từ PO: {stats.dispatchTemporary}</Badge>
+          <Badge variant="outline" className="border-emerald-300/25 text-emerald-100">Đã xác nhận xuất thực tế: {stats.dispatchConfirmed}</Badge>
+          <Badge variant="outline" className="border-rose-300/25 text-rose-100">Cần phân bổ SKU thiếu: {stats.dispatchNeedsAllocation}</Badge>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
         <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/95 via-stone-950 to-amber-950/15 ring-1 ring-stone-200/5">

@@ -186,6 +186,32 @@ function statusBadge(status: string) {
   return <Badge variant="outline">{status}</Badge>;
 }
 
+function dispatchRevenueBadge(raw: Record<string, unknown>) {
+  const status = String(raw.revenue_amount_status || raw.dispatch_confirmation_status || "");
+  if (status === "confirmed_dispatch_amount" || status === "month_end_audit_adjusted" || raw.dispatch_confirmation_status === "confirmed" || raw.dispatch_confirmation_status === "revised") {
+    return <Badge variant="secondary">Đã xác nhận số xuất</Badge>;
+  }
+  if (status === "needs_sku_allocation" || raw.dispatch_confirmation_status === "needs_sku_allocation") {
+    return <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">Cần chọn SKU thiếu</Badge>;
+  }
+  if (status === "temporary_po_amount" || raw.dispatch_confirmation_status === "missing") {
+    return <Badge variant="outline">Doanh thu tạm từ PO</Badge>;
+  }
+  return null;
+}
+
+function dispatchTraceText(raw: Record<string, unknown>) {
+  const trace = asRecord(raw.dispatch_trace);
+  if (!Object.keys(trace).length) return null;
+  return [
+    `PO: ${String(trace.ordered_qty ?? "—")}`,
+    `Đạt: ${String(trace.produced_qty ?? "—")}`,
+    `Lỗi/thiếu: ${String(trace.defect_qty ?? "—")}`,
+    `Xuất: ${String(trace.dispatched_qty ?? "—")}`,
+    `Tính tiền: ${String(trace.billable_qty ?? "—")}`,
+  ].join(" · ");
+}
+
 export default function RevenueSourceDetail() {
   const { language } = useLanguage();
   const { canEditModule } = useAuth();
@@ -461,6 +487,7 @@ export default function RevenueSourceDetail() {
                         <TableCell className="space-y-1">
                           <div>{statusBadge(row.approval_status)}</div>
                           <div>{statusBadge(row.reconciliation_status)}</div>
+                          <div>{dispatchRevenueBadge(raw)}</div>
                         </TableCell>
                         <TableCell className="min-w-[260px] text-sm">
                           {row.review_status === "needs_manual_review" || row.audit_status === "needs_review" ? (
@@ -469,6 +496,8 @@ export default function RevenueSourceDetail() {
                             <div className="flex gap-2 text-emerald-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /><span>{row.confidence_status}</span></div>
                           )}
                           {po.po_qty != null ? <div className="mt-1 text-xs text-muted-foreground">PO qty: {String(po.po_qty)}; delta: {String(po.delta_qty)}</div> : null}
+                          {dispatchTraceText(raw) ? <div className="mt-1 text-xs text-muted-foreground">{dispatchTraceText(raw)}</div> : null}
+                          {raw.revenue_amount_basis ? <div className="mt-1 text-xs text-muted-foreground">Basis: {String(raw.revenue_amount_basis)}</div> : null}
                         </TableCell>
                         <TableCell className="text-right">
                           <Button
