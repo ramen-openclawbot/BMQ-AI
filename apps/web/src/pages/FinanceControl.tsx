@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth, subDays } from "date-fns";
 import { vi } from "date-fns/locale";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -28,6 +30,7 @@ import {
 } from "@/hooks/useFinanceReconciliation";
 import {
   useCostClassificationDashboard,
+  useCostClassificationLineDetails,
   type CostClassificationCategorySummary,
   type CostClassificationMonthlySummary,
   type CostClassificationReviewRow,
@@ -52,6 +55,39 @@ const COST_CLASSIFICATION_CARD_CODES = [
 const EMPTY_COST_CLASSIFICATION_CATEGORY_ROWS: CostClassificationCategorySummary[] = [];
 const EMPTY_COST_CLASSIFICATION_MONTHLY_ROWS: CostClassificationMonthlySummary[] = [];
 const EMPTY_COST_CLASSIFICATION_REVIEW_ROWS: CostClassificationReviewRow[] = [];
+
+type ClassificationEdits = Record<string, string>;
+
+const escapeCostRulePattern = (value: string) => value.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const costDetailSelectionKey = (row: CostClassificationMonthlySummary | null) => row
+  ? `${row.month}-${row.category_code}-${row.product_line}-${row.allocation_rule}-${row.review_status}`
+  : "";
+
+const getCostGroupAllocationRule = (costGroup: string) => {
+  if (costGroup === "cogs") return "direct";
+  if (costGroup === "packaging") return "manual";
+  return "none";
+};
+
+const buildManualCostRuleName = (row: CostClassificationReviewRow) => {
+  const supplierKey = row.supplier_id || row.supplier_name || "no-supplier";
+  const itemKey = `${row.product_code || ""}-${row.product_name || "item"}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "item";
+  return `Manual cost category: ${supplierKey}:${itemKey}`.slice(0, 180);
+};
+
+const getLineDateLabel = (value: string | null | undefined) => {
+  if (!value) return "-";
+  const [y, m, d] = value.slice(0, 10).split("-");
+  return y && m && d ? `${d}/${m}/${y}` : "-";
+};
+
+const getCostCategorySelectLabel = (code: string, label?: string) => label ? `${code} — ${label}` : code;
 
 const getOcrErrorMessage = (errorLike: any, fallbackMessage: string) => {
   if (typeof errorLike?.error === "string" && errorLike.error.trim()) return errorLike.error.trim();
@@ -91,8 +127,10 @@ const isOcrCacheFresh = (processedAt: unknown) => {
 
 export default function FinanceControl() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const { language } = useLanguage();
-  const { isOwner } = useAuth();
+  const { isOwner, user, canEditModule } = useAuth();
+  const canEditCostClassification = isOwner || canEditModule("finance_cost");
   const isVi = language === "vi";
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [debouncedSelectedDate, setDebouncedSelectedDate] = useState<Date>(new Date());
@@ -108,6 +146,9 @@ export default function FinanceControl() {
   const [slipPreviewOpen, setSlipPreviewOpen] = useState(false);
   const [slipPreviewSrc, setSlipPreviewSrc] = useState<string | null>(null);
   const [slipPreviewTitle, setSlipPreviewTitle] = useState<string>("");
+  const [selectedCostSummaryRow, setSelectedCostSummaryRow] = useState<CostClassificationMonthlySummary | null>(null);
+  const [classificationEdits, setClassificationEdits] = useState<ClassificationEdits>({});
+  const [savingClassificationEdits, setSavingClassificationEdits] = useState(false);
 
   const [uncSkipProcessed, setUncSkipProcessed] = useState(true);
   const [uncScanImagesOnly, setUncScanImagesOnly] = useState(true);
@@ -229,7 +270,23 @@ export default function FinanceControl() {
   const costClassification = useCostClassificationDashboard(selectedMonth, activeTab === "classification");
   const classificationCategoryRows = costClassification.categorySummary.data || EMPTY_COST_CLASSIFICATION_CATEGORY_ROWS;
   const classificationMonthlyRows = costClassification.monthlySummary.data || EMPTY_COST_CLASSIFICATION_MONTHLY_ROWS;
-  const classificationReviewRows = costClassification.reviewQueue.data || EMPTY_COST_CLASSIFICATION_REVIEW_ROWS;
+  const costCategoryOptions = costClassification.categories.data || [];
+  const selectedCostDetailFilter = selectedCostSummaryRow ? {
+    month: selectedCostSummaryRow.month,
+    category_code: selectedCostSummaryRow.category_code,
+    product_line: selectedCostSummaryRow.product_line,
+    allocation_rule: selectedCostSummaryRow.allocation_rule,
+    review_status: selectedCostSummaryRow.review_status,
+  } : null;
+  const selectedCostDetail = useCostClassificationLineDetails(selectedCostDetailFilter, activeTab === "classification");
+  const selectedCostDetailRows = selectedCostDetail.data || EMPTY_COST_CLASSIFICATION_REVIEW_ROWS;
+  const costCategoryByCode = useMemo(() => new Map(costCategoryOptions.map((row) => [row.code, row])), [costCategoryOptions]);
+  const changedClassificationRows = useMemo(() => selectedCostDetailRows.filter((row) => {
+    const nextCode = classificationEdits[row.classification_id];
+    return Boolean(nextCode && nextCode !== row.category_code);
+  }), [selectedCostDetailRows, classificationEdits]);
+  const hasClassificationEdits = changedClassificationRows.length > 0;
+  const selectedCostSummaryKey = costDetailSelectionKey(selectedCostSummaryRow);
   const classificationCategoryByCode = useMemo(() => {
     const fallbackLabels = new Map(classificationCategoryRows.map((row) => [row.category_code, row.category_label]));
     const totals = new Map<string, { label: string; amount: number; count: number }>();
@@ -245,6 +302,129 @@ export default function FinanceControl() {
     }
     return totals;
   }, [classificationMonthlyRows, classificationCategoryRows]);
+
+  useEffect(() => {
+    setClassificationEdits({});
+  }, [selectedCostSummaryKey]);
+
+  useEffect(() => {
+    setSelectedCostSummaryRow(null);
+    setClassificationEdits({});
+  }, [selectedMonth]);
+
+  const updateClassificationEdit = (classificationId: string, currentCode: string, nextCode: string) => {
+    setClassificationEdits((prev) => {
+      const next = { ...prev };
+      if (nextCode === currentCode) delete next[classificationId];
+      else next[classificationId] = nextCode;
+      return next;
+    });
+  };
+
+  const cancelClassificationEdits = () => setClassificationEdits({});
+
+  const saveClassificationEdits = async () => {
+    if (!changedClassificationRows.length) return;
+    setSavingClassificationEdits(true);
+    try {
+      for (const row of changedClassificationRows) {
+        const nextCode = classificationEdits[row.classification_id];
+        const nextCategory = costCategoryByCode.get(nextCode);
+        if (!nextCode || !nextCategory) continue;
+        const nextAllocationRule = getCostGroupAllocationRule(nextCategory.cost_group);
+        const before = {
+          category_code: row.category_code,
+          category_label: row.category_label,
+          product_line: row.product_line,
+          allocation_rule: row.allocation_rule,
+          review_status: row.review_status,
+          confidence: row.confidence,
+          classification_source: row.classification_source,
+        };
+        const after = {
+          category_code: nextCode,
+          category_label: nextCategory.label,
+          product_line: nextCategory.product_line,
+          allocation_rule: nextAllocationRule,
+          review_status: "approved",
+          confidence: 1,
+          classification_source: "manual_override",
+        };
+
+        const { error: updateError } = await (supabase as any)
+          .from("cost_line_classifications")
+          .update({
+            category_code: nextCode,
+            product_line: nextCategory.product_line,
+            allocation_rule: nextAllocationRule,
+            confidence: 1,
+            classification_source: "manual_override",
+            review_status: "approved",
+            reviewed_by: user?.id || null,
+            reviewed_at: new Date().toISOString(),
+            note: `Manual category override from ${row.category_code} to ${nextCode}`,
+          })
+          .eq("id", row.classification_id);
+        if (updateError) throw updateError;
+
+        const { error: auditError } = await (supabase as any)
+          .from("cost_classification_audit_logs")
+          .insert({
+            classification_id: row.classification_id,
+            source_type: row.source_type,
+            source_line_id: row.source_line_id,
+            action: "manual_override",
+            before,
+            after,
+            reason: "finance_cost_manual_category_review",
+            actor_id: user?.id || null,
+          });
+        if (auditError) throw auditError;
+
+        const productPattern = escapeCostRulePattern(row.product_name || row.product_code || "");
+        if (productPattern) {
+          const { error: ruleError } = await (supabase as any)
+            .from("cost_classification_rules")
+            .upsert({
+              priority: 20,
+              rule_name: buildManualCostRuleName(row),
+              supplier_id: row.supplier_id || null,
+              keyword_pattern: productPattern,
+              match_scope: row.supplier_id ? "supplier_and_item" : "item_text",
+              category_code: nextCode,
+              product_line: nextCategory.product_line,
+              allocation_rule: nextAllocationRule,
+              confidence: 0.99,
+              active: true,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: "rule_name" });
+          if (ruleError) throw ruleError;
+        }
+      }
+
+      setClassificationEdits({});
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["cost-classification-monthly-summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["cost-classification-category-summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["cost-classification-review-queue"] }),
+        queryClient.invalidateQueries({ queryKey: ["cost-classification-line-details"] }),
+        queryClient.invalidateQueries({ queryKey: ["cost-categories"] }),
+      ]);
+      toast({
+        title: isVi ? "Đã lưu phân loại" : "Classification saved",
+        description: isVi ? "Hệ thống đã ghi nhớ nhóm để áp dụng cho PR/invoice sau." : "The category memory rule was saved for future PRs/invoices.",
+      });
+    } catch (error: any) {
+      toast({
+        title: isVi ? "Không lưu được phân loại" : "Could not save classification",
+        description: error?.message || String(error),
+        variant: "destructive",
+      });
+    } finally {
+      setSavingClassificationEdits(false);
+    }
+  };
+
   const persistedQtmImages = dailyDeclaration?.extraction_meta?.qtm_images;
   const persistedUncImages = dailyDeclaration?.extraction_meta?.unc_images;
   const hasPersistedSlipImages = Boolean(
@@ -2123,20 +2303,28 @@ export default function FinanceControl() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {classificationMonthlyRows.map((row) => (
-                          <TableRow key={`${row.month}-${row.category_code}-${row.review_status}`}>
-                            <TableCell className="whitespace-nowrap">{formatMonthValue(row.month)}</TableCell>
-                            <TableCell>
-                              <div className="font-medium">{row.category_label || row.category_code}</div>
-                              <div className="text-xs text-muted-foreground">{row.cost_group}</div>
-                            </TableCell>
-                            <TableCell className="whitespace-nowrap">{row.product_line}</TableCell>
-                            <TableCell className="whitespace-nowrap">{row.allocation_rule}</TableCell>
-                            <TableCell className="whitespace-nowrap">{row.review_status}</TableCell>
-                            <TableCell className="text-right">{Number(row.line_count || 0)}</TableCell>
-                            <TableCell className="text-right">{vnd(Number(row.total_amount || 0))}</TableCell>
-                          </TableRow>
-                        ))}
+                        {classificationMonthlyRows.map((row) => {
+                          const rowKey = costDetailSelectionKey(row);
+                          const isSelected = rowKey === selectedCostSummaryKey;
+                          return (
+                            <TableRow
+                              key={rowKey}
+                              className={`cursor-pointer transition-colors hover:bg-muted/60 ${isSelected ? "bg-muted" : ""}`}
+                              onClick={() => setSelectedCostSummaryRow(isSelected ? null : row)}
+                            >
+                              <TableCell className="whitespace-nowrap">{formatMonthValue(row.month)}</TableCell>
+                              <TableCell>
+                                <div className="font-medium">{row.category_label || row.category_code}</div>
+                                <div className="text-xs text-muted-foreground">{row.cost_group}</div>
+                              </TableCell>
+                              <TableCell className="whitespace-nowrap">{row.product_line}</TableCell>
+                              <TableCell className="whitespace-nowrap">{row.allocation_rule}</TableCell>
+                              <TableCell className="whitespace-nowrap">{row.review_status}</TableCell>
+                              <TableCell className="text-right">{Number(row.line_count || 0)}</TableCell>
+                              <TableCell className="text-right">{vnd(Number(row.total_amount || 0))}</TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </div>
@@ -2148,63 +2336,121 @@ export default function FinanceControl() {
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-lg">{isVi ? "Queue cần review" : "Review Queue"}</CardTitle>
-                  <CardDescription>
-                    {isVi ? "Chỉ các dòng chưa phân loại hoặc confidence thấp." : "Only unmapped or low-confidence lines."}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto rounded-md border">
-                    <Table className="min-w-[1100px]">
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>{isVi ? "Ngày" : "Date"}</TableHead>
-                          <TableHead>{isVi ? "Nhà cung cấp" : "Supplier"}</TableHead>
-                          <TableHead>{isVi ? "Mặt hàng" : "Item"}</TableHead>
-                          <TableHead>{isVi ? "Nguồn" : "Source"}</TableHead>
-                          <TableHead>{isVi ? "Gợi ý" : "Suggested"}</TableHead>
-                          <TableHead>{isVi ? "Confidence" : "Confidence"}</TableHead>
-                          <TableHead className="text-right">{isVi ? "Số tiền" : "Amount"}</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {classificationReviewRows.map((row) => (
-                          <TableRow key={row.classification_id}>
-                            <TableCell className="whitespace-nowrap">{row.source_date ? format(new Date(row.source_date), "dd/MM/yyyy") : "-"}</TableCell>
-                            <TableCell>{row.supplier_name || "-"}</TableCell>
-                            <TableCell>
-                              <div className="font-medium">{row.product_name}</div>
-                              <div className="text-xs text-muted-foreground">{row.product_code || row.unit || ""}</div>
-                            </TableCell>
-                            <TableCell>
-                              <div>{row.source_number || "-"}</div>
-                              <div className="text-xs text-muted-foreground">{row.source_type}</div>
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant={row.category_code === "UNMAPPED_REVIEW" ? "destructive" : "secondary"}>
-                                {row.category_code}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>{Math.round(Number(row.confidence || 0) * 100)}%</TableCell>
-                            <TableCell className="text-right">{vnd(Number(row.line_amount || 0))}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                  {!classificationReviewRows.length && (
-                    <div className="py-4 text-center text-sm text-muted-foreground">
-                      {costClassification.isLoading || costClassification.isFetching ? (isVi ? "Đang tải..." : "Loading...") : (isVi ? "Không có dòng cần review" : "No lines need review")}
+              {selectedCostSummaryRow && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <CardTitle className="text-lg">
+                          {isVi ? "Chi tiết nhóm" : "Category Details"}: {selectedCostSummaryRow.category_label || selectedCostSummaryRow.category_code}
+                        </CardTitle>
+                        <CardDescription>
+                          {formatMonthValue(selectedCostSummaryRow.month)} • {selectedCostSummaryRow.review_status} • {Number(selectedCostSummaryRow.line_count || 0)} {isVi ? "dòng" : "lines"}
+                        </CardDescription>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => setSelectedCostSummaryRow(null)}>
+                        {isVi ? "Đóng chi tiết" : "Close details"}
+                      </Button>
                     </div>
-                  )}
-                </CardContent>
-              </Card>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto rounded-md border">
+                      <Table className="min-w-[1200px]">
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>{isVi ? "Ngày" : "Date"}</TableHead>
+                            <TableHead>{isVi ? "Nhà cung cấp" : "Supplier"}</TableHead>
+                            <TableHead>{isVi ? "Mặt hàng" : "Item"}</TableHead>
+                            <TableHead>{isVi ? "Nguồn" : "Source"}</TableHead>
+                            <TableHead>{isVi ? "Nhóm" : "Category"}</TableHead>
+                            <TableHead>{isVi ? "Confidence" : "Confidence"}</TableHead>
+                            <TableHead className="text-right">{isVi ? "Số tiền" : "Amount"}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {selectedCostDetailRows.map((row) => {
+                            const selectedCode = classificationEdits[row.classification_id] || row.category_code;
+                            const selectedCategory = costCategoryByCode.get(selectedCode);
+                            const isChanged = selectedCode !== row.category_code;
+                            return (
+                              <TableRow key={row.classification_id} className={isChanged ? "bg-amber-500/5" : ""}>
+                                <TableCell className="whitespace-nowrap">{getLineDateLabel(row.source_date)}</TableCell>
+                                <TableCell>{row.supplier_name || "-"}</TableCell>
+                                <TableCell>
+                                  <div className="font-medium">{row.product_name}</div>
+                                  <div className="text-xs text-muted-foreground">{row.product_code || row.unit || ""}</div>
+                                </TableCell>
+                                <TableCell>
+                                  <div>{row.source_number || "-"}</div>
+                                  <div className="text-xs text-muted-foreground">{row.source_type}</div>
+                                </TableCell>
+                                <TableCell className="min-w-[320px]">
+                                  {canEditCostClassification ? (
+                                    <Select
+                                      value={selectedCode}
+                                      onValueChange={(value) => updateClassificationEdit(row.classification_id, row.category_code, value)}
+                                    >
+                                      <SelectTrigger className={isChanged ? "border-amber-500" : ""}>
+                                        <SelectValue placeholder={isVi ? "Chọn nhóm" : "Select category"} />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {costCategoryOptions.map((category) => (
+                                          <SelectItem key={category.code} value={category.code}>
+                                            {getCostCategorySelectLabel(category.code, category.label)}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  ) : (
+                                    <Badge variant={row.category_code === "UNMAPPED_REVIEW" ? "destructive" : "secondary"}>{row.category_code}</Badge>
+                                  )}
+                                  <div className="mt-1 text-xs text-muted-foreground">
+                                    {selectedCategory?.cost_group || row.cost_group} • {selectedCategory?.product_line || row.product_line}
+                                  </div>
+                                </TableCell>
+                                <TableCell>{Math.round(Number(row.confidence || 0) * 100)}%</TableCell>
+                                <TableCell className="text-right">{vnd(Number(row.line_amount || 0))}</TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    {!selectedCostDetailRows.length && (
+                      <div className="py-4 text-center text-sm text-muted-foreground">
+                        {selectedCostDetail.isLoading || selectedCostDetail.isFetching ? (isVi ? "Đang tải chi tiết..." : "Loading details...") : (isVi ? "Không có dòng chi tiết cho nhóm này" : "No detail lines for this group")}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
+
+      {hasClassificationEdits && (
+        <div className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 px-4 py-3 shadow-lg backdrop-blur">
+          <div className="mx-auto flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm">
+              <div className="font-medium">
+                {isVi ? `Đã thay đổi ${changedClassificationRows.length} dòng phân loại` : `${changedClassificationRows.length} classification changes`}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {isVi ? "Save để lưu và tự ghi nhớ nhóm cho PR/invoice sau này." : "Save to persist and remember the category for future PRs/invoices."}
+              </div>
+            </div>
+            <div className="flex gap-2 sm:justify-end">
+              <Button variant="outline" onClick={cancelClassificationEdits} disabled={savingClassificationEdits}>
+                {isVi ? "Cancel" : "Cancel"}
+              </Button>
+              <Button onClick={saveClassificationEdits} disabled={savingClassificationEdits || !canEditCostClassification}>
+                {savingClassificationEdits ? (isVi ? "Đang lưu..." : "Saving...") : (isVi ? "Save" : "Save")}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Dialog open={slipPreviewOpen} onOpenChange={setSlipPreviewOpen}>
         <DialogContent className="max-w-4xl">

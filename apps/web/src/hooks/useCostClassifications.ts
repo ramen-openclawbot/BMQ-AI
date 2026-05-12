@@ -6,6 +6,15 @@ import type { Tables } from "@/integrations/supabase/types";
 type CostClassificationCategorySummaryRow = Tables<"cost_classification_category_summary">;
 type CostClassificationMonthlySummaryRow = Tables<"cost_classification_monthly_summary">;
 type CostClassificationReviewDetailRow = Tables<"cost_classification_line_details">;
+type CostCategoryRow = Tables<"cost_categories">;
+
+export interface CostCategoryOption {
+  code: string;
+  label: string;
+  cost_group: string;
+  product_line: string;
+  sort_order: number;
+}
 
 export interface CostClassificationCategorySummary {
   category_code: string;
@@ -40,6 +49,7 @@ export interface CostClassificationReviewRow {
   invoice_id: string | null;
   source_number: string | null;
   source_date: string | null;
+  supplier_id: string | null;
   supplier_name: string | null;
   product_name: string;
   product_code: string | null;
@@ -55,6 +65,24 @@ export interface CostClassificationReviewRow {
   confidence: number;
   classification_source: string;
   review_status: string;
+}
+
+export interface CostClassificationDetailFilter {
+  month: string;
+  category_code: string;
+  product_line: string;
+  allocation_rule: string;
+  review_status: string;
+}
+
+function normalizeCategoryOption(row: CostCategoryRow): CostCategoryOption {
+  return {
+    code: row.code,
+    label: row.label || row.code,
+    cost_group: row.cost_group || "unmapped",
+    product_line: row.product_line || "general",
+    sort_order: Number(row.sort_order || 0),
+  };
 }
 
 function normalizeCategorySummary(row: CostClassificationCategorySummaryRow): CostClassificationCategorySummary {
@@ -95,6 +123,7 @@ function normalizeReviewRow(row: CostClassificationReviewDetailRow): CostClassif
     invoice_id: row.invoice_id,
     source_number: row.source_number,
     source_date: row.source_date,
+    supplier_id: row.supplier_id,
     supplier_name: row.supplier_name,
     product_name: row.product_name || "-",
     product_code: row.product_code,
@@ -179,17 +208,68 @@ export function useCostClassificationReviewQueue(month: Date, enabled = true) {
   });
 }
 
+export function useCostCategories(enabled = true) {
+  return useQuery({
+    queryKey: ["cost-categories"],
+    enabled,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cost_categories")
+        .select("*")
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .order("code", { ascending: true });
+
+      if (error) throw error;
+      return (data || []).map(normalizeCategoryOption);
+    },
+    staleTime: COST_CLASSIFICATION_STALE_MS,
+  });
+}
+
+export function useCostClassificationLineDetails(filter: CostClassificationDetailFilter | null, enabled = true) {
+  return useQuery({
+    queryKey: ["cost-classification-line-details", filter],
+    enabled: enabled && Boolean(filter),
+    queryFn: async () => {
+      if (!filter) return [];
+      const monthStart = filter.month.slice(0, 10);
+      const [year, month] = monthStart.split("-").map(Number);
+      const monthEnd = format(endOfMonth(new Date(year, (month || 1) - 1, 1)), "yyyy-MM-dd");
+
+      const { data, error } = await supabase
+        .from("cost_classification_line_details")
+        .select("*")
+        .gte("source_date", monthStart)
+        .lte("source_date", monthEnd)
+        .eq("category_code", filter.category_code)
+        .eq("product_line", filter.product_line)
+        .eq("allocation_rule", filter.allocation_rule)
+        .eq("review_status", filter.review_status)
+        .order("source_date", { ascending: false })
+        .order("line_amount", { ascending: false })
+        .limit(500);
+
+      if (error) throw error;
+      return (data || []).map(normalizeReviewRow);
+    },
+    staleTime: COST_CLASSIFICATION_STALE_MS,
+  });
+}
+
 export function useCostClassificationDashboard(month: Date, enabled = true) {
   const categorySummary = useCostClassificationCategorySummary(enabled);
   const monthlySummary = useCostClassificationMonthlySummary(month, enabled);
   const reviewQueue = useCostClassificationReviewQueue(month, enabled);
+  const categories = useCostCategories(enabled);
 
   return {
     categorySummary,
     monthlySummary,
     reviewQueue,
-    isLoading: categorySummary.isLoading || monthlySummary.isLoading || reviewQueue.isLoading,
-    isFetching: categorySummary.isFetching || monthlySummary.isFetching || reviewQueue.isFetching,
-    error: categorySummary.error || monthlySummary.error || reviewQueue.error,
+    categories,
+    isLoading: categorySummary.isLoading || monthlySummary.isLoading || reviewQueue.isLoading || categories.isLoading,
+    isFetching: categorySummary.isFetching || monthlySummary.isFetching || reviewQueue.isFetching || categories.isFetching,
+    error: categorySummary.error || monthlySummary.error || reviewQueue.error || categories.error,
   };
 }
