@@ -21,6 +21,16 @@ assert "classificationMonthlyRows.map((row)" not in finance, "Raw monthly rows m
 assert "Product line" not in finance[finance.index("Tổng theo tháng và nhóm"):finance.index("selectedCostSummaryRow &&")], "Summary table should not expose product_line as a grouping column"
 assert "Allocation" not in finance[finance.index("Tổng theo tháng và nhóm"):finance.index("selectedCostSummaryRow &&")], "Summary table should not expose allocation as a grouping column"
 assert "row.review_status}</TableCell>" not in finance, "Review status must not be rendered as the row grouping value"
+summary_table_block = finance[finance.index("Tổng theo tháng và nhóm"):finance.index("selectedCostSummaryRow &&")]
+assert "Note" not in summary_table_block, "Summary table should not show a Note column; review counts belong in the detail header only"
+assert "formatReviewStatusCounts(row.review_status_counts" not in summary_table_block, "Summary rows should stay compact without note/count metadata cells"
+
+detail_table_block = finance[finance.index("selectedCostDetailRows.map((row)"):finance.index("</TableBody>", finance.index("selectedCostDetailRows.map((row)"))]
+assert "editingClassificationLineId" in finance, "Detail category selector must be controlled by an explicit per-row edit mode"
+assert "setEditingClassificationLineId(isEditingClassificationLine ? null : row.classification_id)" in detail_table_block, "Each detail row must expose an edit action that toggles category edit mode"
+assert "isEditingClassificationLine" in detail_table_block, "Detail rows must compute whether the row is currently being edited"
+assert detail_table_block.index("isEditingClassificationLine") < detail_table_block.index("<Select"), "Category selector should only render after checking row edit mode"
+assert "getCostCategorySelectLabel" not in detail_table_block[:detail_table_block.index("isEditingClassificationLine")], "Category selector labels must not render before edit mode"
 
 filter_block_start = hook.index("export interface CostClassificationDetailFilter")
 filter_block_end = hook.index("function normalizeCategoryOption", filter_block_start)

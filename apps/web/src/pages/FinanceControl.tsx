@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth, subDays } from "date-fns";
 import { vi } from "date-fns/locale";
@@ -39,7 +39,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { Lock, Trash2, Unlock } from "lucide-react";
+import { Lock, Pencil, Trash2, Unlock, X } from "lucide-react";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { normalizeUploadImage, optimizeSlipImageForOcr } from "@/lib/slip-image";
 
@@ -173,6 +173,7 @@ export default function FinanceControl() {
   const [slipPreviewTitle, setSlipPreviewTitle] = useState<string>("");
   const [selectedCostSummaryRow, setSelectedCostSummaryRow] = useState<CostClassificationMonthlySummary | null>(null);
   const [classificationEdits, setClassificationEdits] = useState<ClassificationEdits>({});
+  const [editingClassificationLineId, setEditingClassificationLineId] = useState<string | null>(null);
   const [savingClassificationEdits, setSavingClassificationEdits] = useState(false);
 
   const [uncSkipProcessed, setUncSkipProcessed] = useState(true);
@@ -368,11 +369,13 @@ export default function FinanceControl() {
 
   useEffect(() => {
     setClassificationEdits({});
+    setEditingClassificationLineId(null);
   }, [selectedCostSummaryKey]);
 
   useEffect(() => {
     setSelectedCostSummaryRow(null);
     setClassificationEdits({});
+    setEditingClassificationLineId(null);
   }, [selectedMonth]);
 
   const updateClassificationEdit = (classificationId: string, currentCode: string, nextCode: string) => {
@@ -384,7 +387,10 @@ export default function FinanceControl() {
     });
   };
 
-  const cancelClassificationEdits = () => setClassificationEdits({});
+  const cancelClassificationEdits = () => {
+    setClassificationEdits({});
+    setEditingClassificationLineId(null);
+  };
 
   const saveClassificationEdits = async () => {
     if (!changedClassificationRows.length) return;
@@ -466,6 +472,7 @@ export default function FinanceControl() {
       }
 
       setClassificationEdits({});
+      setEditingClassificationLineId(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["cost-classification-monthly-summary"] }),
         queryClient.invalidateQueries({ queryKey: ["cost-classification-category-summary"] }),
@@ -2353,12 +2360,11 @@ export default function FinanceControl() {
                 </CardHeader>
                 <CardContent>
                   <div className="overflow-x-auto rounded-md border">
-                    <Table className="min-w-[900px]">
+                    <Table className="min-w-[760px]">
                       <TableHeader>
                         <TableRow>
                           <TableHead>{isVi ? "Tháng" : "Month"}</TableHead>
                           <TableHead>{isVi ? "Nhóm chính" : "Main Category"}</TableHead>
-                          <TableHead>{isVi ? "Note" : "Note"}</TableHead>
                           <TableHead className="text-right">{isVi ? "Số dòng" : "Lines"}</TableHead>
                           <TableHead className="text-right">{isVi ? "Tổng tiền" : "Amount"}</TableHead>
                         </TableRow>
@@ -2377,9 +2383,6 @@ export default function FinanceControl() {
                               <TableCell>
                                 <div className="font-medium">{row.category_label || row.category_code}</div>
                                 <div className="text-xs text-muted-foreground">{row.category_code}</div>
-                              </TableCell>
-                              <TableCell className="min-w-[220px] text-xs text-muted-foreground">
-                                {formatReviewStatusCounts(row.review_status_counts, isVi)}
                               </TableCell>
                               <TableCell className="text-right">{Number(row.line_count || 0)}</TableCell>
                               <TableCell className="text-right">{vnd(Number(row.total_amount || 0))}</TableCell>
@@ -2416,16 +2419,16 @@ export default function FinanceControl() {
                   </CardHeader>
                   <CardContent>
                     <div className="overflow-x-auto rounded-md border">
-                      <Table className="min-w-[1200px]">
+                      <Table className="min-w-[980px]">
                         <TableHeader>
                           <TableRow>
                             <TableHead>{isVi ? "Ngày" : "Date"}</TableHead>
                             <TableHead>{isVi ? "Nhà cung cấp" : "Supplier"}</TableHead>
                             <TableHead>{isVi ? "Mặt hàng" : "Item"}</TableHead>
                             <TableHead>{isVi ? "Nguồn" : "Source"}</TableHead>
-                            <TableHead>{isVi ? "Nhóm" : "Category"}</TableHead>
                             <TableHead>{isVi ? "Confidence" : "Confidence"}</TableHead>
                             <TableHead className="text-right">{isVi ? "Số tiền" : "Amount"}</TableHead>
+                            <TableHead className="text-right">{isVi ? "Sửa" : "Edit"}</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -2433,45 +2436,68 @@ export default function FinanceControl() {
                             const selectedCode = classificationEdits[row.classification_id] || row.category_code;
                             const selectedCategory = costCategoryByCode.get(selectedCode);
                             const isChanged = selectedCode !== row.category_code;
+                            const isEditingClassificationLine = editingClassificationLineId === row.classification_id;
                             return (
-                              <TableRow key={row.classification_id} className={isChanged ? "bg-amber-500/5" : ""}>
-                                <TableCell className="whitespace-nowrap">{getLineDateLabel(row.source_date)}</TableCell>
-                                <TableCell>{row.supplier_name || "-"}</TableCell>
-                                <TableCell>
-                                  <div className="font-medium">{row.product_name}</div>
-                                  <div className="text-xs text-muted-foreground">{row.product_code || row.unit || ""}</div>
-                                </TableCell>
-                                <TableCell>
-                                  <div>{row.source_number || "-"}</div>
-                                  <div className="text-xs text-muted-foreground">{row.source_type}</div>
-                                </TableCell>
-                                <TableCell className="min-w-[320px]">
-                                  {canEditCostClassification ? (
-                                    <Select
-                                      value={selectedCode}
-                                      onValueChange={(value) => updateClassificationEdit(row.classification_id, row.category_code, value)}
-                                    >
-                                      <SelectTrigger className={isChanged ? "border-amber-500" : ""}>
-                                        <SelectValue placeholder={isVi ? "Chọn nhóm" : "Select category"} />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {costCategoryOptions.map((category) => (
-                                          <SelectItem key={category.code} value={category.code}>
-                                            {getCostCategorySelectLabel(category.code, category.label)}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  ) : (
-                                    <Badge variant={row.category_code === "UNMAPPED_REVIEW" ? "destructive" : "secondary"}>{row.category_code}</Badge>
-                                  )}
-                                  <div className="mt-1 text-xs text-muted-foreground">
-                                    {selectedCategory?.cost_group || row.cost_group} • {selectedCategory?.product_line || row.product_line}
-                                  </div>
-                                </TableCell>
-                                <TableCell>{Math.round(Number(row.confidence || 0) * 100)}%</TableCell>
-                                <TableCell className="text-right">{vnd(Number(row.line_amount || 0))}</TableCell>
-                              </TableRow>
+                              <Fragment key={row.classification_id}>
+                                <TableRow key={row.classification_id} className={isChanged ? "bg-amber-500/5" : ""}>
+                                  <TableCell className="whitespace-nowrap">{getLineDateLabel(row.source_date)}</TableCell>
+                                  <TableCell>{row.supplier_name || "-"}</TableCell>
+                                  <TableCell>
+                                    <div className="font-medium">{row.product_name}</div>
+                                    <div className="text-xs text-muted-foreground">{row.product_code || row.unit || ""}</div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <div>{row.source_number || "-"}</div>
+                                    <div className="text-xs text-muted-foreground">{row.source_type}</div>
+                                  </TableCell>
+                                  <TableCell>{Math.round(Number(row.confidence || 0) * 100)}%</TableCell>
+                                  <TableCell className="text-right">{vnd(Number(row.line_amount || 0))}</TableCell>
+                                  <TableCell className="text-right">
+                                    {canEditCostClassification ? (
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        aria-label={isVi ? "Sửa nhóm" : "Edit category"}
+                                        onClick={() => setEditingClassificationLineId(isEditingClassificationLine ? null : row.classification_id)}
+                                      >
+                                        {isEditingClassificationLine ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+                                      </Button>
+                                    ) : (
+                                      <Badge variant={row.category_code === "UNMAPPED_REVIEW" ? "destructive" : "secondary"}>{row.category_code}</Badge>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                                {isEditingClassificationLine && (
+                                  <TableRow key={`${row.classification_id}-category-editor`} className={isChanged ? "bg-amber-500/5" : "bg-muted/30"}>
+                                    <TableCell colSpan={7}>
+                                      <div className="space-y-2 py-2">
+                                        <div className="text-xs font-medium text-muted-foreground">
+                                          {isVi ? "Chọn nhóm mới cho dòng này" : "Select a new category for this line"}
+                                        </div>
+                                        <Select
+                                          value={selectedCode}
+                                          onValueChange={(value) => updateClassificationEdit(row.classification_id, row.category_code, value)}
+                                        >
+                                          <SelectTrigger className={`max-w-xl ${isChanged ? "border-amber-500" : ""}`}>
+                                            <SelectValue placeholder={isVi ? "Chọn nhóm" : "Select category"} />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {costCategoryOptions.map((category) => (
+                                              <SelectItem key={category.code} value={category.code}>
+                                                {getCostCategorySelectLabel(category.code, category.label)}
+                                              </SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                        <div className="text-xs text-muted-foreground">
+                                          {selectedCategory?.cost_group || row.cost_group} • {selectedCategory?.product_line || row.product_line}
+                                        </div>
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                )}
+                              </Fragment>
                             );
                           })}
                         </TableBody>
