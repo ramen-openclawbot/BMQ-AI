@@ -674,7 +674,7 @@ export default function RevenueManagementDashboard() {
         <div aria-label="Xem doanh thu theo tháng" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200/10 bg-gradient-to-br from-stone-900/80 to-stone-950/60 p-2 ring-1 ring-stone-200/5">
           <Input type="month" value={period} onChange={(e) => setPeriod(e.target.value || monthNow())} className="w-[160px] border-stone-600/70 bg-stone-950/50 text-stone-100 hover:border-amber-300/40 focus-visible:ring-amber-300/30" />
           <Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100" variant="outline" onClick={() => navigate("/finance-control/revenue/setup")}>
-            <Settings className="mr-2 h-4 w-4" />Parse Thủ Công
+            <Settings className="mr-2 h-4 w-4" />Thiết lập Parse
           </Button>
         </div>
       </div>

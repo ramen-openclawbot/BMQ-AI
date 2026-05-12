@@ -111,12 +111,6 @@ interface AutoDailyParseLogRow {
   updated_at: string | null;
 }
 
-interface RevenueDraftRow {
-  id: string;
-  status: string | null;
-  total_amount: number | null;
-}
-
 interface MonthlyPreviewChannel {
   channel: string;
   rows: number;
@@ -288,21 +282,9 @@ export default function FinanceRevenueControl() {
   const [automationRunMessage, setAutomationRunMessage] = useState<string | null>(null);
   const [parseProgress, setParseProgress] = useState<ParseProgressState>(() => emptyParseProgress());
   const [selectedAutoDailyLog, setSelectedAutoDailyLog] = useState<AutoDailyParseLogRow | null>(null);
+  const [manualParseOpen, setManualParseOpen] = useState(false);
 
   const parseWindow = useMemo(() => getCurrentMonthParseWindow(), []);
-
-  const { data: revenueDrafts = [] } = useQuery<RevenueDraftRow[]>({
-    queryKey: ["revenue-drafts"],
-    queryFn: async () => {
-      const { data, error } = await db
-        .from<RevenueDraftRow>("revenue_drafts")
-        .select("id,status,total_amount")
-        .order("created_at", { ascending: false })
-        .limit(300);
-      if (error) throw error;
-      return data || [];
-    },
-  });
 
   const { data: automationSchedule, isLoading: scheduleLoading } = useQuery<ScheduleRow | null>({
     queryKey: ["po-sync-schedule-foundation"],
@@ -330,30 +312,9 @@ export default function FinanceRevenueControl() {
     },
   });
 
-  const draftStats = useMemo(() => {
-    const counts = { pending: 0, approved: 0, rejected: 0, exception: 0, pendingAmt: 0, approvedAmt: 0 };
-    for (const draft of revenueDrafts) {
-      const status = draft.status || "";
-      const amount = Number(draft.total_amount || 0);
-      if (status === "pending") {
-        counts.pending += 1;
-        counts.pendingAmt += amount;
-      } else if (status === "approved") {
-        counts.approved += 1;
-        counts.approvedAmt += amount;
-      } else if (status === "rejected") {
-        counts.rejected += 1;
-      } else if (status === "exception") {
-        counts.exception += 1;
-      }
-    }
-    return counts;
-  }, [revenueDrafts]);
-
   const scheduleSummary = automationSchedule
     ? `${automationSchedule.run_hour_local || "23:59"} ${automationSchedule.timezone || TIME_ZONE}`
     : `23:59 ${TIME_ZONE}`;
-  const pendingReview = draftStats.pending + draftStats.exception;
   const canRunAutomation = isOwner;
   const actionBusy = parseState === "running" || parseState === "approving" || parseState === "rejecting";
   const previewLedgerRows = previewSummary?.ledgerRows ?? previewSummary?.postedRows ?? previewSummary?.rows ?? 0;
@@ -645,23 +606,6 @@ export default function FinanceRevenueControl() {
         </Card>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {[
-          { label: "Kỳ doanh thu", value: `${formatDate(parseWindow.revenueDateFrom)} → ${formatDate(parseWindow.revenueDateTo)}`, helper: parseWindow.hasRevenueWindow ? "Từ đầu tháng đến hôm qua" : "Chưa có ngày parse" },
-          { label: "Nguồn PO/email", value: `${formatDate(parseWindow.poReceivedFrom)} → ${formatDate(parseWindow.poReceivedTo)}`, helper: "Lùi 1 ngày để khớp doanh thu" },
-          { label: "Exceptions", value: String(draftStats.exception), helper: "Need staff check" },
-          { label: "Pending staff review", value: String(pendingReview), helper: vnd(draftStats.pendingAmt) },
-        ].map((item) => (
-          <Card key={item.label} className="border-amber-100/10 bg-gradient-to-br from-stone-900 to-stone-950 text-stone-100 ring-1 ring-stone-200/5">
-            <CardContent className="p-4">
-              <div className="text-[11px] uppercase tracking-[0.16em] text-stone-400">{item.label}</div>
-              <div className="mt-2 truncate text-xl font-semibold tabular-nums text-amber-100" title={item.value}>{item.value}</div>
-              <div className="mt-1 truncate text-xs text-stone-400" title={item.helper}>{item.helper}</div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
       {automationRunMessage ? (
         <Card className="border-emerald-300/30 bg-emerald-50">
           <CardContent className="p-4 text-sm text-emerald-900">{automationRunMessage}</CardContent>
@@ -669,59 +613,75 @@ export default function FinanceRevenueControl() {
       ) : null}
 
       <Card>
-        <CardHeader>
-          <CardTitle>Parse doanh thu tháng hiện tại</CardTitle>
-          <CardDescription>
-            Owner parse PO/email từ đầu tháng đến hôm qua. PO/email được lấy lùi 1 ngày, ví dụ doanh thu 01/05 dùng PO ngày 30/04. Kết quả chỉ được lưu sau khi owner xem preview và approve.
-          </CardDescription>
+        <CardHeader className="space-y-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-1">
+              <CardTitle>1/ Parse theo tháng thủ công</CardTitle>
+              <CardDescription>
+                Dùng khi cần parse T5/tháng hiện tại thủ công. Bấm mở để hiện box parse doanh thu tháng hiện tại.
+              </CardDescription>
+            </div>
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setManualParseOpen((open) => !open)}>
+              {manualParseOpen ? "Ẩn thiết lập" : "Mở thiết lập parse"}
+            </Button>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="rounded-xl border border-amber-200/20 bg-stone-900 p-4 text-stone-100">
-              <div className="flex items-center gap-2 text-sm font-medium text-amber-100">
-                <CalendarDays className="h-4 w-4" />Kỳ doanh thu
-              </div>
-              <div className="mt-2 text-lg font-semibold text-stone-100">
-                {formatDate(parseWindow.revenueDateFrom)} → {formatDate(parseWindow.revenueDateTo)}
-              </div>
-              <p className="mt-1 text-xs text-stone-400">Hiển thị từ đầu tháng đến thời điểm parse trước 1 ngày.</p>
+        {manualParseOpen ? (
+          <CardContent className="space-y-4 border-t pt-4">
+            <div>
+              <h2 className="text-lg font-semibold">Parse doanh thu tháng hiện tại</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Owner parse PO/email từ đầu tháng đến hôm qua. PO/email được lấy lùi 1 ngày, ví dụ doanh thu 01/05 dùng PO ngày 30/04. Kết quả chỉ được lưu sau khi owner xem preview và approve.
+              </p>
             </div>
-            <div className="rounded-xl border border-stone-700 bg-stone-900 p-4 text-stone-100">
-              <div className="flex items-center gap-2 text-sm font-medium text-stone-200">
-                <ShieldCheck className="h-4 w-4" />Nguồn PO/email
-              </div>
-              <div className="mt-2 text-lg font-semibold text-stone-100">
-                {formatDate(parseWindow.poReceivedFrom)} → {formatDate(parseWindow.poReceivedTo)}
-              </div>
-              <p className="mt-1 text-xs text-stone-400">Lùi 1 ngày để khớp ngày ghi nhận doanh thu.</p>
-            </div>
-          </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs leading-5 text-muted-foreground">
-              Approve sẽ ghi toàn bộ preview vào ledger và Doanh thu đã kiểm soát; user review/edit sau trên ledger, cuối tháng audit riêng.
-            </p>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Button variant="outline" className="w-full sm:w-auto" onClick={() => window.location.assign(`/finance-control/revenue?period=${parseWindow.period}`) }>
-                <Eye className="mr-2 h-4 w-4" />Ledger / Dashboard
-              </Button>
-              <Button
-                className="w-full border border-amber-300/60 bg-amber-400 text-stone-950 hover:bg-amber-300 disabled:opacity-60 sm:w-auto"
-                disabled={!canRunAutomation || actionBusy || !parseWindow.hasRevenueWindow}
-                onClick={() => void runMonthlyPreview()}
-                title={canRunAutomation ? "Owner-only monthly parse preview" : "Owner-only"}
-              >
-                {parseState === "running" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                {isVi ? "Parse & xem preview T5" : "Parse & preview current month"}
-              </Button>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border border-amber-200/20 bg-stone-900 p-4 text-stone-100">
+                <div className="flex items-center gap-2 text-sm font-medium text-amber-100">
+                  <CalendarDays className="h-4 w-4" />Kỳ doanh thu
+                </div>
+                <div className="mt-2 text-lg font-semibold text-stone-100">
+                  {formatDate(parseWindow.revenueDateFrom)} → {formatDate(parseWindow.revenueDateTo)}
+                </div>
+                <p className="mt-1 text-xs text-stone-400">Hiển thị từ đầu tháng đến thời điểm parse trước 1 ngày.</p>
+              </div>
+              <div className="rounded-xl border border-stone-700 bg-stone-900 p-4 text-stone-100">
+                <div className="flex items-center gap-2 text-sm font-medium text-stone-200">
+                  <ShieldCheck className="h-4 w-4" />Nguồn PO/email
+                </div>
+                <div className="mt-2 text-lg font-semibold text-stone-100">
+                  {formatDate(parseWindow.poReceivedFrom)} → {formatDate(parseWindow.poReceivedTo)}
+                </div>
+                <p className="mt-1 text-xs text-stone-400">Lùi 1 ngày để khớp ngày ghi nhận doanh thu.</p>
+              </div>
             </div>
-          </div>
-        </CardContent>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs leading-5 text-muted-foreground">
+                Approve sẽ ghi toàn bộ preview vào ledger và Doanh thu đã kiểm soát; user review/edit sau trên ledger, cuối tháng audit riêng.
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button variant="outline" className="w-full sm:w-auto" onClick={() => window.location.assign(`/finance-control/revenue?period=${parseWindow.period}`) }>
+                  <Eye className="mr-2 h-4 w-4" />Ledger / Dashboard
+                </Button>
+                <Button
+                  className="w-full border border-amber-300/60 bg-amber-400 text-stone-950 hover:bg-amber-300 disabled:opacity-60 sm:w-auto"
+                  disabled={!canRunAutomation || actionBusy || !parseWindow.hasRevenueWindow}
+                  onClick={() => void runMonthlyPreview()}
+                  title={canRunAutomation ? "Owner-only monthly parse preview" : "Owner-only"}
+                >
+                  {parseState === "running" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                  {isVi ? "Parse & xem preview T5" : "Parse & preview current month"}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        ) : null}
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Log parse tự động hằng ngày</CardTitle>
+          <CardTitle>2/ Log parse tự động hằng ngày</CardTitle>
           <CardDescription>
             Mỗi ngày một dòng để theo dõi cron 23:59 VN. Bấm vào từng dòng để xem chi tiết run/source và lỗi nếu có.
           </CardDescription>
