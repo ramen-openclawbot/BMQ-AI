@@ -895,15 +895,20 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     return String(data.value);
   };
 
-  // Returns a valid session — always attempts refreshSession() first (most reliable),
-  // falls back to current session if refresh fails.
+  // Returns a valid session without forcing an auth refresh on every action.
+  // Forcing refreshSession() fires an auth-state event, temporarily resets authzLoaded,
+  // and ModuleRoute unmounts this page, making the close dialog flash then disappear.
   const getFreshSession = async () => {
-    // Always try refresh first: ensures token is valid even after long idle
+    const { data } = await supabase.auth.getSession();
+    const currentSession = data.session;
+    const expiresAtMs = Number(currentSession?.expires_at || 0) * 1000;
+    const shouldRefresh = !currentSession?.access_token || !expiresAtMs || expiresAtMs - Date.now() < 60_000;
+
+    if (!shouldRefresh) return currentSession;
+
     const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
     if (!refreshError && refreshed.session) return refreshed.session;
-    // Fallback: return whatever session is cached
-    const { data } = await supabase.auth.getSession();
-    return data.session;
+    return currentSession;
   };
 
 
