@@ -70,6 +70,15 @@ const parseDateInputValue = (value: string) => {
   const [y, m, day] = value.split("-").map(Number);
   return new Date(y, (m || 1) - 1, day || 1);
 };
+const parseMonthInputValue = (value: string) => {
+  const [y, m] = value.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, 1);
+};
+const formatMonthValue = (value: string | null | undefined) => {
+  if (!value) return "-";
+  const [y, m] = value.slice(0, 10).split("-");
+  return y && m ? `${m}/${y}` : "-";
+};
 
 const OCR_CACHE_MIN_PROCESSED_AT = "2026-05-11T01:25:00.000Z";
 
@@ -1990,7 +1999,7 @@ export default function FinanceControl() {
                   type="month"
                   className="w-full sm:w-40"
                   value={format(selectedMonth, "yyyy-MM")}
-                  onChange={(e) => setSelectedMonth(new Date(`${e.target.value}-01`))}
+                  onChange={(e) => setSelectedMonth(parseMonthInputValue(e.target.value))}
                 />
               </div>
             </CardHeader>
@@ -2069,7 +2078,7 @@ export default function FinanceControl() {
                   type="month"
                   className="w-full sm:w-40"
                   value={format(selectedMonth, "yyyy-MM")}
-                  onChange={(e) => setSelectedMonth(new Date(`${e.target.value}-01`))}
+                  onChange={(e) => setSelectedMonth(parseMonthInputValue(e.target.value))}
                 />
               </div>
             </CardHeader>
@@ -2116,7 +2125,7 @@ export default function FinanceControl() {
                       <TableBody>
                         {classificationMonthlyRows.map((row) => (
                           <TableRow key={`${row.month}-${row.category_code}-${row.review_status}`}>
-                            <TableCell className="whitespace-nowrap">{row.month ? format(new Date(row.month), "MM/yyyy") : "-"}</TableCell>
+                            <TableCell className="whitespace-nowrap">{formatMonthValue(row.month)}</TableCell>
                             <TableCell>
                               <div className="font-medium">{row.category_label || row.category_code}</div>
                               <div className="text-xs text-muted-foreground">{row.cost_group}</div>
