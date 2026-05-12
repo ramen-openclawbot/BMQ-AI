@@ -40,6 +40,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Lock, Pencil, Trash2, Unlock, X } from "lucide-react";
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { normalizeUploadImage, optimizeSlipImageForOcr } from "@/lib/slip-image";
 
@@ -63,6 +64,24 @@ type ClassificationMonthlyDisplayRow = CostClassificationMonthlySummary & {
   review_status_counts: Record<string, number>;
 };
 
+type ClassificationChartRow = ClassificationMonthlyDisplayRow & {
+  amount: number;
+  percentage: number;
+  fill: string;
+  note: string;
+};
+
+const COST_CLASSIFICATION_CHART_COLORS = [
+  "#0f766e",
+  "#2563eb",
+  "#f97316",
+  "#7c3aed",
+  "#dc2626",
+  "#64748b",
+  "#16a34a",
+  "#ca8a04",
+];
+
 const getReviewStatusLabel = (status: string, isVi: boolean) => {
   const labels: Record<string, { vi: string; en: string }> = {
     approved: { vi: "đã duyệt", en: "approved" },
@@ -81,6 +100,30 @@ const formatReviewStatusCounts = (counts: Record<string, number>, isVi: boolean)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([status, count]) => `${count} ${getReviewStatusLabel(status, isVi)}`)
     .join(" · ");
+};
+
+const buildClassificationNote = (
+  row: ClassificationMonthlyDisplayRow,
+  percentage: number,
+  isTopGroup: boolean,
+  isVi: boolean,
+) => {
+  const counts = row.review_status_counts || {};
+  const suggested = Number(counts.suggested || counts.needs_review || 0);
+  const statusText = suggested > 0
+    ? (isVi ? `${suggested} dòng gợi ý cần rà soát` : `${suggested} suggested lines to review`)
+    : (isVi ? "Nhóm đã sẵn sàng để đối soát" : "Ready for review");
+  const shareText = isVi
+    ? `${percentage.toFixed(1)}% tổng chi phí tháng`
+    : `${percentage.toFixed(1)}% of monthly cost`;
+  return isTopGroup
+    ? `${isVi ? "Nhóm chiếm tỷ trọng cao nhất" : "Largest cost group"} · ${shareText} · ${statusText}`
+    : `${shareText} · ${statusText}`;
+};
+
+const getClassificationShareLabel = (percentage: number, isVi: boolean) => {
+  if (!Number.isFinite(percentage) || percentage <= 0) return isVi ? "0% tỷ trọng" : "0% share";
+  return isVi ? `${percentage.toFixed(1)}% tỷ trọng` : `${percentage.toFixed(1)}% share`;
 };
 
 const escapeCostRulePattern = (value: string) => value.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -366,6 +409,31 @@ export default function FinanceControl() {
       return (a.category_label || a.category_code).localeCompare(b.category_label || b.category_code);
     });
   }, [classificationMonthlyRows, costCategoryOptions, costCategoryByCode]);
+
+  const classificationTotalAmount = useMemo(
+    () => classificationMonthlyDisplayRows.reduce((sum, row) => sum + Number(row.total_amount || 0), 0),
+    [classificationMonthlyDisplayRows],
+  );
+
+  const classificationChartRows = useMemo<ClassificationChartRow[]>(() => {
+    const sorted = [...classificationMonthlyDisplayRows].sort((a, b) => Number(b.total_amount || 0) - Number(a.total_amount || 0));
+    return sorted.map((row, index) => {
+      const amount = Number(row.total_amount || 0);
+      const percentage = classificationTotalAmount > 0 ? (amount / classificationTotalAmount) * 100 : 0;
+      return {
+        ...row,
+        amount,
+        percentage,
+        fill: COST_CLASSIFICATION_CHART_COLORS[index % COST_CLASSIFICATION_CHART_COLORS.length],
+        note: buildClassificationNote(row, percentage, index === 0, isVi),
+      };
+    });
+  }, [classificationMonthlyDisplayRows, classificationTotalAmount, isVi]);
+
+  const selectedCostChartRow = useMemo(
+    () => classificationChartRows.find((row) => costDetailSelectionKey(row) === selectedCostSummaryKey) || null,
+    [classificationChartRows, selectedCostSummaryKey],
+  );
 
   useEffect(() => {
     setClassificationEdits({});
@@ -2356,43 +2424,155 @@ export default function FinanceControl() {
 
               <Card>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-lg">{isVi ? "Tổng theo tháng và nhóm" : "Monthly Totals by Category"}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto rounded-md border">
-                    <Table className="min-w-[760px]">
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>{isVi ? "Tháng" : "Month"}</TableHead>
-                          <TableHead>{isVi ? "Nhóm chính" : "Main Category"}</TableHead>
-                          <TableHead className="text-right">{isVi ? "Số dòng" : "Lines"}</TableHead>
-                          <TableHead className="text-right">{isVi ? "Tổng tiền" : "Amount"}</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {classificationMonthlyDisplayRows.map((row) => {
-                          const rowKey = costDetailSelectionKey(row);
-                          const isSelected = rowKey === selectedCostSummaryKey;
-                          return (
-                            <TableRow
-                              key={rowKey}
-                              className={`cursor-pointer transition-colors hover:bg-muted/60 ${isSelected ? "bg-muted" : ""}`}
-                              onClick={() => setSelectedCostSummaryRow(isSelected ? null : row)}
-                            >
-                              <TableCell className="whitespace-nowrap">{formatMonthValue(row.month)}</TableCell>
-                              <TableCell>
-                                <div className="font-medium">{row.category_label || row.category_code}</div>
-                                <div className="text-xs text-muted-foreground">{row.category_code}</div>
-                              </TableCell>
-                              <TableCell className="text-right">{Number(row.line_count || 0)}</TableCell>
-                              <TableCell className="text-right">{vnd(Number(row.total_amount || 0))}</TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                      <CardTitle className="text-lg">{isVi ? "Tổng theo nhóm" : "Totals by Category"}</CardTitle>
+                      <CardDescription>
+                        {format(selectedMonth, "MM/yyyy")} · {classificationMonthlyDisplayRows.length} {isVi ? "nhóm" : "categories"} · {vnd(classificationTotalAmount)}
+                      </CardDescription>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {isVi ? "Bấm vào từng nhóm để xem chi tiết" : "Tap a category to view details"}
+                    </div>
                   </div>
-                  {!classificationMonthlyDisplayRows.length && (
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {classificationMonthlyDisplayRows.length > 0 ? (
+                    <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+                      <div className="rounded-2xl border bg-muted/20 p-3 sm:p-4">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <div>
+                            <div className="text-sm font-medium">{isVi ? "Tỷ trọng chi phí" : "Cost share"}</div>
+                            <div className="text-xs text-muted-foreground">{format(selectedMonth, "MM/yyyy")}</div>
+                          </div>
+                          <Badge variant="secondary">{vnd(classificationTotalAmount)}</Badge>
+                        </div>
+                        <div className="h-[240px] sm:h-[280px]">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie
+                                data={classificationChartRows}
+                                dataKey="amount"
+                                nameKey="category_label"
+                                innerRadius="58%"
+                                outerRadius="82%"
+                                paddingAngle={2}
+                                stroke="hsl(var(--background))"
+                                strokeWidth={3}
+                              >
+                                {classificationChartRows.map((row) => (
+                                  <Cell key={costDetailSelectionKey(row)} fill={row.fill} />
+                                ))}
+                              </Pie>
+                              <Tooltip
+                                formatter={(value: number, _name, item: any) => [
+                                  `${vnd(Number(value || 0))} · ${Number(item?.payload?.percentage || 0).toFixed(1)}%`,
+                                  item?.payload?.category_label || item?.payload?.category_code,
+                                ]}
+                              />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                        <div className="grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-1">
+                          {classificationChartRows.slice(0, 6).map((row) => (
+                            <button
+                              type="button"
+                              key={`legend-${costDetailSelectionKey(row)}`}
+                              className={`flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-background ${costDetailSelectionKey(row) === selectedCostSummaryKey ? "bg-background shadow-sm" : ""}`}
+                              onClick={() => setSelectedCostSummaryRow(costDetailSelectionKey(row) === selectedCostSummaryKey ? null : row)}
+                            >
+                              <span className="flex min-w-0 items-center gap-2">
+                                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: row.fill }} />
+                                <span className="truncate">{row.category_label || row.category_code}</span>
+                              </span>
+                              <span className="shrink-0 text-muted-foreground">{row.percentage.toFixed(1)}%</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div className="grid gap-3 md:hidden">
+                          {classificationChartRows.map((row) => {
+                            const rowKey = costDetailSelectionKey(row);
+                            const isSelected = rowKey === selectedCostSummaryKey;
+                            return (
+                              <button
+                                type="button"
+                                key={`mobile-${rowKey}`}
+                                className={`rounded-2xl border p-3 text-left shadow-sm transition-all ${isSelected ? "border-primary bg-primary/5" : "bg-card hover:bg-muted/40"}`}
+                                onClick={() => setSelectedCostSummaryRow(isSelected ? null : row)}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: row.fill }} />
+                                      <div className="line-clamp-2 text-sm font-semibold leading-snug">{row.category_label || row.category_code}</div>
+                                    </div>
+                                    <div className="mt-1 truncate text-[11px] text-muted-foreground">{row.category_code}</div>
+                                  </div>
+                                  <Badge variant={isSelected ? "default" : "secondary"} className="shrink-0">
+                                    {getClassificationShareLabel(row.percentage, isVi)}
+                                  </Badge>
+                                </div>
+                                <div className="mt-3 flex items-end justify-between gap-3">
+                                  <div>
+                                    <div className="text-base font-bold leading-tight">{vnd(row.amount)}</div>
+                                    <div className="text-xs text-muted-foreground">{Number(row.line_count || 0)} {isVi ? "dòng" : "lines"}</div>
+                                  </div>
+                                  <div className="text-xs font-medium text-primary">{isVi ? "Xem" : "View"}</div>
+                                </div>
+                                <div className="mt-2 rounded-lg bg-muted/50 px-2 py-1.5 text-xs text-muted-foreground">
+                                  {row.note}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        <div className="hidden overflow-hidden rounded-xl border md:block">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>{isVi ? "Nhóm chính" : "Main Category"}</TableHead>
+                                <TableHead>{isVi ? "Note" : "Note"}</TableHead>
+                                <TableHead className="text-right">{isVi ? "Số dòng" : "Lines"}</TableHead>
+                                <TableHead className="text-right">{isVi ? "Tỷ trọng" : "Share"}</TableHead>
+                                <TableHead className="text-right">{isVi ? "Tổng tiền" : "Amount"}</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {classificationChartRows.map((row) => {
+                                const rowKey = costDetailSelectionKey(row);
+                                const isSelected = rowKey === selectedCostSummaryKey;
+                                return (
+                                  <TableRow
+                                    key={rowKey}
+                                    className={`cursor-pointer transition-colors hover:bg-muted/60 ${isSelected ? "bg-muted" : ""}`}
+                                    onClick={() => setSelectedCostSummaryRow(isSelected ? null : row)}
+                                  >
+                                    <TableCell>
+                                      <div className="flex items-center gap-2">
+                                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: row.fill }} />
+                                        <div className="min-w-0">
+                                          <div className="font-medium">{row.category_label || row.category_code}</div>
+                                          <div className="text-xs text-muted-foreground">{row.category_code}</div>
+                                        </div>
+                                      </div>
+                                    </TableCell>
+                                    <TableCell className="max-w-[360px] text-xs text-muted-foreground">{row.note}</TableCell>
+                                    <TableCell className="text-right">{Number(row.line_count || 0)}</TableCell>
+                                    <TableCell className="text-right">{row.percentage.toFixed(1)}%</TableCell>
+                                    <TableCell className="text-right font-medium">{vnd(row.amount)}</TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
                     <div className="py-4 text-center text-sm text-muted-foreground">
                       {costClassification.isLoading || costClassification.isFetching ? (isVi ? "Đang tải..." : "Loading...") : (isVi ? "Chưa có dữ liệu backfill cho tháng này" : "No backfilled data for this month yet")}
                     </div>
@@ -2401,7 +2581,7 @@ export default function FinanceControl() {
               </Card>
 
               {selectedCostSummaryRow && (
-                <Card>
+                <Card className="overflow-hidden">
                   <CardHeader className="pb-3">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div>
@@ -2410,15 +2590,88 @@ export default function FinanceControl() {
                         </CardTitle>
                         <CardDescription>
                           {formatMonthValue(selectedCostSummaryRow.month)} • {formatReviewStatusCounts((selectedCostSummaryRow as ClassificationMonthlyDisplayRow).review_status_counts || {}, isVi)} • {Number(selectedCostSummaryRow.line_count || 0)} {isVi ? "dòng" : "lines"}
+                          {selectedCostChartRow ? ` • ${selectedCostChartRow.percentage.toFixed(1)}%` : ""}
                         </CardDescription>
                       </div>
                       <Button variant="outline" size="sm" onClick={() => setSelectedCostSummaryRow(null)}>
                         {isVi ? "Đóng chi tiết" : "Close details"}
                       </Button>
                     </div>
+                    {selectedCostChartRow?.note && (
+                      <div className="rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+                        {selectedCostChartRow.note}
+                      </div>
+                    )}
                   </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto rounded-md border">
+                  <CardContent className="space-y-3">
+                    <div className="grid gap-3 md:hidden">
+                      {selectedCostDetailRows.map((row) => {
+                        const selectedCode = classificationEdits[row.classification_id] || row.category_code;
+                        const selectedCategory = costCategoryByCode.get(selectedCode);
+                        const isChanged = selectedCode !== row.category_code;
+                        const isEditingClassificationLine = editingClassificationLineId === row.classification_id;
+                        return (
+                          <div key={`mobile-detail-${row.classification_id}`} className={`rounded-2xl border p-3 ${isChanged ? "border-amber-400 bg-amber-500/5" : "bg-card"}`}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="text-xs text-muted-foreground">{getLineDateLabel(row.source_date)} · {row.source_type}</div>
+                                <div className="mt-1 line-clamp-2 text-sm font-semibold leading-snug">{row.product_name}</div>
+                                <div className="mt-1 truncate text-xs text-muted-foreground">{row.supplier_name || "-"}</div>
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <div className="text-sm font-bold">{vnd(Number(row.line_amount || 0))}</div>
+                                <div className="text-[11px] text-muted-foreground">{Math.round(Number(row.confidence || 0) * 100)}%</div>
+                              </div>
+                            </div>
+                            <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                              <span className="truncate">{row.source_number || row.product_code || row.unit || "-"}</span>
+                              {canEditCostClassification ? (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 px-2"
+                                  aria-label={isVi ? "Sửa nhóm" : "Edit category"}
+                                  onClick={() => setEditingClassificationLineId(isEditingClassificationLine ? null : row.classification_id)}
+                                >
+                                  {isEditingClassificationLine ? <X className="mr-1 h-3.5 w-3.5" /> : <Pencil className="mr-1 h-3.5 w-3.5" />}
+                                  {isVi ? "Sửa" : "Edit"}
+                                </Button>
+                              ) : (
+                                <Badge variant={row.category_code === "UNMAPPED_REVIEW" ? "destructive" : "secondary"}>{row.category_code}</Badge>
+                              )}
+                            </div>
+                            {isEditingClassificationLine && (
+                              <div className="mt-3 space-y-2 rounded-xl bg-muted/40 p-2">
+                                <div className="text-xs font-medium text-muted-foreground">
+                                  {isVi ? "Chọn nhóm mới cho dòng này" : "Select a new category for this line"}
+                                </div>
+                                <Select
+                                  value={selectedCode}
+                                  onValueChange={(value) => updateClassificationEdit(row.classification_id, row.category_code, value)}
+                                >
+                                  <SelectTrigger className={`${isChanged ? "border-amber-500" : ""}`}>
+                                    <SelectValue placeholder={isVi ? "Chọn nhóm" : "Select category"} />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {costCategoryOptions.map((category) => (
+                                      <SelectItem key={category.code} value={category.code}>
+                                        {getCostCategorySelectLabel(category.code, category.label)}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <div className="text-xs text-muted-foreground">
+                                  {selectedCategory?.cost_group || row.cost_group} • {selectedCategory?.product_line || row.product_line}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="hidden overflow-x-auto rounded-md border md:block">
                       <Table className="min-w-[980px]">
                         <TableHeader>
                           <TableRow>

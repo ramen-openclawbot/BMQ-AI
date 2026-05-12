@@ -18,12 +18,15 @@ hook = HOOK.read_text(encoding="utf-8")
 assert "classificationMonthlyDisplayRows" in finance, "FinanceControl must use display rows aggregated by canonical category"
 assert "review_status_counts" in finance, "Aggregated summary rows must keep review status only as note/count metadata"
 assert "classificationMonthlyRows.map((row)" not in finance, "Raw monthly rows must not render directly because they are split by review_status"
-assert "Product line" not in finance[finance.index("Tổng theo tháng và nhóm"):finance.index("selectedCostSummaryRow &&")], "Summary table should not expose product_line as a grouping column"
-assert "Allocation" not in finance[finance.index("Tổng theo tháng và nhóm"):finance.index("selectedCostSummaryRow &&")], "Summary table should not expose allocation as a grouping column"
+summary_table_block = finance[finance.index("Tổng theo nhóm"):finance.index("selectedCostSummaryRow &&")]
+assert "Product line" not in summary_table_block, "Summary should not expose product_line as a grouping column"
+assert "Allocation" not in summary_table_block, "Summary should not expose allocation as a grouping column"
 assert "row.review_status}</TableCell>" not in finance, "Review status must not be rendered as the row grouping value"
-summary_table_block = finance[finance.index("Tổng theo tháng và nhóm"):finance.index("selectedCostSummaryRow &&")]
-assert "Note" not in summary_table_block, "Summary table should not show a Note column; review counts belong in the detail header only"
-assert "formatReviewStatusCounts(row.review_status_counts" not in summary_table_block, "Summary rows should stay compact without note/count metadata cells"
+assert "PieChart" in summary_table_block and "classificationChartRows" in summary_table_block, "Summary should include a donut/pie chart backed by grouped rows"
+assert "<TableHead>{isVi ? \"Tháng\"" not in summary_table_block, "Summary table must not show a redundant Month column"
+assert "Note" in summary_table_block and "row.note" in summary_table_block, "Summary should expose a compact note for each group"
+assert "formatReviewStatusCounts(row.review_status_counts" not in summary_table_block, "Summary rows should not render raw status-count metadata cells"
+assert "md:hidden" in summary_table_block, "Summary should include a mobile-first card/list layout"
 
 detail_table_block = finance[finance.index("selectedCostDetailRows.map((row)"):finance.index("</TableBody>", finance.index("selectedCostDetailRows.map((row)"))]
 assert "editingClassificationLineId" in finance, "Detail category selector must be controlled by an explicit per-row edit mode"
