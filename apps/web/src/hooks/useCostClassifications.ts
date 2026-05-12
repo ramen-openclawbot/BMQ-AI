@@ -70,9 +70,6 @@ export interface CostClassificationReviewRow {
 export interface CostClassificationDetailFilter {
   month: string;
   category_code: string;
-  product_line: string;
-  allocation_rule: string;
-  review_status: string;
 }
 
 function normalizeCategoryOption(row: CostCategoryRow): CostCategoryOption {
@@ -243,9 +240,6 @@ export function useCostClassificationLineDetails(filter: CostClassificationDetai
         .gte("source_date", monthStart)
         .lte("source_date", monthEnd)
         .eq("category_code", filter.category_code)
-        .eq("product_line", filter.product_line)
-        .eq("allocation_rule", filter.allocation_rule)
-        .eq("review_status", filter.review_status)
         .order("source_date", { ascending: false })
         .order("line_amount", { ascending: false })
         .limit(500);

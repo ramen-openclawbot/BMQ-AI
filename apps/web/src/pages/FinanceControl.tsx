@@ -31,6 +31,7 @@ import {
 import {
   useCostClassificationDashboard,
   useCostClassificationLineDetails,
+  type CostCategoryOption,
   type CostClassificationCategorySummary,
   type CostClassificationMonthlySummary,
   type CostClassificationReviewRow,
@@ -55,12 +56,36 @@ const COST_CLASSIFICATION_CARD_CODES = [
 const EMPTY_COST_CLASSIFICATION_CATEGORY_ROWS: CostClassificationCategorySummary[] = [];
 const EMPTY_COST_CLASSIFICATION_MONTHLY_ROWS: CostClassificationMonthlySummary[] = [];
 const EMPTY_COST_CLASSIFICATION_REVIEW_ROWS: CostClassificationReviewRow[] = [];
+const EMPTY_COST_CATEGORY_OPTIONS: CostCategoryOption[] = [];
 
 type ClassificationEdits = Record<string, string>;
+type ClassificationMonthlyDisplayRow = CostClassificationMonthlySummary & {
+  review_status_counts: Record<string, number>;
+};
+
+const getReviewStatusLabel = (status: string, isVi: boolean) => {
+  const labels: Record<string, { vi: string; en: string }> = {
+    approved: { vi: "đã duyệt", en: "approved" },
+    suggested: { vi: "gợi ý", en: "suggested" },
+    needs_review: { vi: "cần kiểm tra", en: "needs review" },
+  };
+  const normalized = status || "needs_review";
+  const label = labels[normalized];
+  return label ? (isVi ? label.vi : label.en) : normalized;
+};
+
+const formatReviewStatusCounts = (counts: Record<string, number>, isVi: boolean) => {
+  const entries = Object.entries(counts).filter(([, count]) => count > 0);
+  if (!entries.length) return isVi ? "Không có note" : "No notes";
+  return entries
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([status, count]) => `${count} ${getReviewStatusLabel(status, isVi)}`)
+    .join(" · ");
+};
 
 const escapeCostRulePattern = (value: string) => value.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const costDetailSelectionKey = (row: CostClassificationMonthlySummary | null) => row
-  ? `${row.month}-${row.category_code}-${row.product_line}-${row.allocation_rule}-${row.review_status}`
+  ? `${row.month}-${row.category_code}`
   : "";
 
 const getCostGroupAllocationRule = (costGroup: string) => {
@@ -270,13 +295,10 @@ export default function FinanceControl() {
   const costClassification = useCostClassificationDashboard(selectedMonth, activeTab === "classification");
   const classificationCategoryRows = costClassification.categorySummary.data || EMPTY_COST_CLASSIFICATION_CATEGORY_ROWS;
   const classificationMonthlyRows = costClassification.monthlySummary.data || EMPTY_COST_CLASSIFICATION_MONTHLY_ROWS;
-  const costCategoryOptions = costClassification.categories.data || [];
+  const costCategoryOptions = costClassification.categories.data || EMPTY_COST_CATEGORY_OPTIONS;
   const selectedCostDetailFilter = selectedCostSummaryRow ? {
     month: selectedCostSummaryRow.month,
     category_code: selectedCostSummaryRow.category_code,
-    product_line: selectedCostSummaryRow.product_line,
-    allocation_rule: selectedCostSummaryRow.allocation_rule,
-    review_status: selectedCostSummaryRow.review_status,
   } : null;
   const selectedCostDetail = useCostClassificationLineDetails(selectedCostDetailFilter, activeTab === "classification");
   const selectedCostDetailRows = selectedCostDetail.data || EMPTY_COST_CLASSIFICATION_REVIEW_ROWS;
@@ -302,6 +324,47 @@ export default function FinanceControl() {
     }
     return totals;
   }, [classificationMonthlyRows, classificationCategoryRows]);
+
+  const classificationMonthlyDisplayRows = useMemo<ClassificationMonthlyDisplayRow[]>(() => {
+    const canonicalCategoryCodes = new Set(costCategoryOptions.map((category) => category.code));
+    const grouped = new Map<string, ClassificationMonthlyDisplayRow>();
+
+    for (const row of classificationMonthlyRows) {
+      if (canonicalCategoryCodes.size > 0 && !canonicalCategoryCodes.has(row.category_code)) continue;
+      const key = `${row.month}-${row.category_code}`;
+      const category = costCategoryByCode.get(row.category_code);
+      const existing = grouped.get(key);
+      const lineCount = Number(row.line_count || 0);
+      const reviewStatus = row.review_status || "needs_review";
+
+      if (existing) {
+        existing.line_count += lineCount;
+        existing.total_amount += Number(row.total_amount || 0);
+        existing.review_status_counts[reviewStatus] = (existing.review_status_counts[reviewStatus] || 0) + lineCount;
+      } else {
+        grouped.set(key, {
+          ...row,
+          category_label: category?.label || row.category_label || row.category_code,
+          cost_group: category?.cost_group || row.cost_group,
+          product_line: category?.product_line || row.product_line,
+          allocation_rule: "category_code",
+          review_status: "note_only",
+          line_count: lineCount,
+          total_amount: Number(row.total_amount || 0),
+          review_status_counts: { [reviewStatus]: lineCount },
+        });
+      }
+    }
+
+    return Array.from(grouped.values()).sort((a, b) => {
+      const monthCompare = a.month.localeCompare(b.month);
+      if (monthCompare !== 0) return monthCompare;
+      const aOrder = costCategoryByCode.get(a.category_code)?.sort_order ?? 9999;
+      const bOrder = costCategoryByCode.get(b.category_code)?.sort_order ?? 9999;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return (a.category_label || a.category_code).localeCompare(b.category_label || b.category_code);
+    });
+  }, [classificationMonthlyRows, costCategoryOptions, costCategoryByCode]);
 
   useEffect(() => {
     setClassificationEdits({});
@@ -2294,16 +2357,14 @@ export default function FinanceControl() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>{isVi ? "Tháng" : "Month"}</TableHead>
-                          <TableHead>{isVi ? "Nhóm" : "Category"}</TableHead>
-                          <TableHead>{isVi ? "Product line" : "Product line"}</TableHead>
-                          <TableHead>{isVi ? "Allocation" : "Allocation"}</TableHead>
-                          <TableHead>{isVi ? "Review" : "Review"}</TableHead>
+                          <TableHead>{isVi ? "Nhóm chính" : "Main Category"}</TableHead>
+                          <TableHead>{isVi ? "Note" : "Note"}</TableHead>
                           <TableHead className="text-right">{isVi ? "Số dòng" : "Lines"}</TableHead>
                           <TableHead className="text-right">{isVi ? "Tổng tiền" : "Amount"}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {classificationMonthlyRows.map((row) => {
+                        {classificationMonthlyDisplayRows.map((row) => {
                           const rowKey = costDetailSelectionKey(row);
                           const isSelected = rowKey === selectedCostSummaryKey;
                           return (
@@ -2315,11 +2376,11 @@ export default function FinanceControl() {
                               <TableCell className="whitespace-nowrap">{formatMonthValue(row.month)}</TableCell>
                               <TableCell>
                                 <div className="font-medium">{row.category_label || row.category_code}</div>
-                                <div className="text-xs text-muted-foreground">{row.cost_group}</div>
+                                <div className="text-xs text-muted-foreground">{row.category_code}</div>
                               </TableCell>
-                              <TableCell className="whitespace-nowrap">{row.product_line}</TableCell>
-                              <TableCell className="whitespace-nowrap">{row.allocation_rule}</TableCell>
-                              <TableCell className="whitespace-nowrap">{row.review_status}</TableCell>
+                              <TableCell className="min-w-[220px] text-xs text-muted-foreground">
+                                {formatReviewStatusCounts(row.review_status_counts, isVi)}
+                              </TableCell>
                               <TableCell className="text-right">{Number(row.line_count || 0)}</TableCell>
                               <TableCell className="text-right">{vnd(Number(row.total_amount || 0))}</TableCell>
                             </TableRow>
@@ -2328,7 +2389,7 @@ export default function FinanceControl() {
                       </TableBody>
                     </Table>
                   </div>
-                  {!classificationMonthlyRows.length && (
+                  {!classificationMonthlyDisplayRows.length && (
                     <div className="py-4 text-center text-sm text-muted-foreground">
                       {costClassification.isLoading || costClassification.isFetching ? (isVi ? "Đang tải..." : "Loading...") : (isVi ? "Chưa có dữ liệu backfill cho tháng này" : "No backfilled data for this month yet")}
                     </div>
@@ -2345,7 +2406,7 @@ export default function FinanceControl() {
                           {isVi ? "Chi tiết nhóm" : "Category Details"}: {selectedCostSummaryRow.category_label || selectedCostSummaryRow.category_code}
                         </CardTitle>
                         <CardDescription>
-                          {formatMonthValue(selectedCostSummaryRow.month)} • {selectedCostSummaryRow.review_status} • {Number(selectedCostSummaryRow.line_count || 0)} {isVi ? "dòng" : "lines"}
+                          {formatMonthValue(selectedCostSummaryRow.month)} • {formatReviewStatusCounts((selectedCostSummaryRow as ClassificationMonthlyDisplayRow).review_status_counts || {}, isVi)} • {Number(selectedCostSummaryRow.line_count || 0)} {isVi ? "dòng" : "lines"}
                         </CardDescription>
                       </div>
                       <Button variant="outline" size="sm" onClick={() => setSelectedCostSummaryRow(null)}>
