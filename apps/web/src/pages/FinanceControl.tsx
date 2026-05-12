@@ -210,6 +210,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
   const [saving, setSaving] = useState(false);
   const [reconciling, setReconciling] = useState(false);
   const [extracting, setExtracting] = useState(false);
+  const [activeSlipScan, setActiveSlipScan] = useState<{ type: "unc" | "qtm"; fileCount: number } | null>(null);
   const [declarationSaveMessage, setDeclarationSaveMessage] = useState<string | null>(null);
   const [ocrDebugMessage, setOcrDebugMessage] = useState<string | null>(null);
   const [slipUploadStatus, setSlipUploadStatus] = useState<{ unc: string | null; qtm: string | null }>({ unc: null, qtm: null });
@@ -698,6 +699,11 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
   ]);
 
   const dateKey = format(selectedDate, "yyyy-MM-dd");
+  const activeSlipScanLabel = activeSlipScan
+    ? (isVi
+      ? `Đang upload & scan ${activeSlipScan.type.toUpperCase()}... ${activeSlipScan.fileCount} ảnh. Vui lòng chờ, hệ thống sẽ tự lưu sau khi scan xong.`
+      : `Uploading & scanning ${activeSlipScan.type.toUpperCase()}... ${activeSlipScan.fileCount} image(s). Please wait; the system will auto-save after scanning.`)
+    : null;
 
   const persistedFolderTotal = Number(dailyDeclaration?.extraction_meta?.unc_folder_total || 0);
   const persistedFolderStatus = dailyDeclaration?.extraction_meta?.unc_folder_status as ("match" | "mismatch" | undefined);
@@ -778,6 +784,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     setDeclarationSaveMessage(null);
     setOcrDebugMessage(null);
     setSlipUploadStatus({ unc: null, qtm: null });
+    setActiveSlipScan(null);
     setQtmSpentFromFolder(0);
     setQtmOpeningBalance(0);
     setImagesRequested(false);
@@ -1407,6 +1414,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     setDeclarationSaveMessage(null);
     setOcrDebugMessage(null);
     setSlipUploadStatus((prev) => ({ ...prev, [slipType]: null }));
+    setActiveSlipScan({ type: slipType, fileCount: files.length });
     setExtracting(true);
     try {
       const batchResults: Array<{ imageBase64: string; extracted: any; file: File }> = [];
@@ -1503,6 +1511,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       toast({ title: "Lỗi OpenAI Vision slip", description: e?.message || "Không thể trích xuất số tiền từ ảnh upload. Nếu ảnh chụp từ iPhone, vui lòng thử lại sau khi chụp rõ hơn hoặc dùng ảnh/JPEG ít nén hơn.", variant: "destructive" });
     } finally {
       setExtracting(false);
+      setActiveSlipScan(null);
     }
   };
 
@@ -2133,14 +2142,29 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
               <CardTitle className="text-lg">{isVi ? "CEO Khai báo" : "CEO Declaration"}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4" onMouseEnter={() => { if (!imagesRequested) setImagesRequested(true); }}>
+              {activeSlipScanLabel && (
+                <div className="sticky top-2 z-10 flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-800 shadow-sm dark:text-amber-200">
+                  <span className="relative flex h-3 w-3 flex-shrink-0">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
+                    <span className="relative inline-flex h-3 w-3 rounded-full bg-amber-500" />
+                  </span>
+                  <span>{activeSlipScanLabel}</span>
+                </div>
+              )}
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">{isVi ? "Slip ngân hàng (UNC)" : "Bank slips (UNC)"}</Label>
-                  <Input type="file" accept="image/*" multiple disabled={ceoDeclarationLocked || closeApprovalLocked} onChange={async (e) => {
+                  <Input type="file" accept="image/*" multiple disabled={extracting || ceoDeclarationLocked || closeApprovalLocked} onChange={async (e) => {
                     const files = Array.from(e.target.files || []);
                     if (files.length) await processSlipUpload("unc", files);
                     e.currentTarget.value = "";
                   }} />
+                  {activeSlipScan?.type === "unc" && (
+                    <div className="flex items-center gap-2 rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+                      <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
+                      <span>{activeSlipScanLabel}</span>
+                    </div>
+                  )}
                   <Button
                     type="button"
                     variant="ghost"
@@ -2190,11 +2214,17 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                 </div>
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">{isVi ? "Slip tiền mặt (QTM)" : "Cash slips (QTM)"}</Label>
-                  <Input type="file" accept="image/*" multiple disabled={ceoDeclarationLocked || closeApprovalLocked} onChange={async (e) => {
+                  <Input type="file" accept="image/*" multiple disabled={extracting || ceoDeclarationLocked || closeApprovalLocked} onChange={async (e) => {
                     const files = Array.from(e.target.files || []);
                     if (files.length) await processSlipUpload("qtm", files);
                     e.currentTarget.value = "";
                   }} />
+                  {activeSlipScan?.type === "qtm" && (
+                    <div className="flex items-center gap-2 rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+                      <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
+                      <span>{activeSlipScanLabel}</span>
+                    </div>
+                  )}
                   <Button
                     type="button"
                     variant="ghost"

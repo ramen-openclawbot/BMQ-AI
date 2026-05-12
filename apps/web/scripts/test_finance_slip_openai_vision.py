@@ -65,7 +65,15 @@ def main() -> None:
     assert_true("QTM đã khai báo ${vnd(Number(cashFundTopupAmount || 0))}" not in finance_page, "declared QTM with zero Drive files must not block close-day approval")
     assert_true("hasDeclaredQtm && Number(folderScanResult.qtmFolderTotal || 0) === 0" not in finance_page, "declared QTM with zero scanned total must be treated as no same-day spend, not a hard error")
 
-    print("PASS: CEO bank slip upload and UNC/QTM close-day flow use OpenAI Vision with QTM carry-forward")
+    assert_true("activeSlipScan" in finance_page, "CEO slip upload must track which input is actively scanning")
+    assert_true("activeSlipScanLabel" in finance_page, "CEO slip upload must render an explicit scanning status label")
+    assert_true("Đang upload & scan" in finance_page, "CEO slip upload must show visible upload+scan progress copy")
+    assert_true("activeSlipScan?.type === \"unc\"" in finance_page, "UNC input must show an inline scan indicator near the file picker")
+    assert_true("activeSlipScan?.type === \"qtm\"" in finance_page, "QTM input must show an inline scan indicator near the file picker")
+    assert_true("sticky top-2" in finance_page, "CEO declaration card must show a mobile-visible sticky scan banner")
+    assert_true("disabled={extracting || ceoDeclarationLocked || closeApprovalLocked}" in finance_page, "slip file inputs must be disabled while a scan is running")
+
+    print("PASS: CEO bank slip upload and UNC/QTM close-day flow use OpenAI Vision with visible scan progress")
 
 
 if __name__ == "__main__":
