@@ -457,6 +457,19 @@ class CostClassificationPhase1Tests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Refusing to mutate non-classification table"):
             store._request("POST", "payment_request_items", [])
 
+    def test_finance_cost_route_requires_finance_cost_view_permission(self) -> None:
+        app_routes = (SCRIPT_DIR.parent / "src" / "components" / "AppRoutes.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("function ModuleRoute(", app_routes)
+        self.assertIn("canAccessModule(moduleKey)", app_routes)
+        self.assertIn("Không có quyền truy cập", app_routes)
+        self.assertIn('moduleKey="finance_cost"', app_routes)
+        self.assertIn('path="/finance-control/cost"', app_routes)
+        self.assertRegex(
+            app_routes,
+            r'<Route path="/finance-control/cost" element=\{<ModuleRoute moduleKey="finance_cost">.*?<FinanceControl />.*?</ModuleRoute>\}',
+        )
+
 
 class FakeResponse:
     def __init__(self, payload: object) -> None:

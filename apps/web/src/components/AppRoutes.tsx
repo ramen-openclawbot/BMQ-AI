@@ -110,6 +110,26 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function ModuleRoute({ moduleKey, children }: { moduleKey: string; children: React.ReactNode }) {
+  const { canAccessModule } = useAuth();
+
+  if (!canAccessModule(moduleKey)) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center p-6">
+        <div className="max-w-md rounded-xl border bg-card p-6 text-center shadow-sm">
+          <AlertTriangle className="mx-auto h-10 w-10 text-amber-500" />
+          <h1 className="mt-3 text-xl font-semibold">Không có quyền truy cập</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Trang này yêu cầu quyền xem module {moduleKey} trong Quản lý người dùng.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+
 export function AppRoutes() {
   const { loading } = useAuth();
 
@@ -149,7 +169,7 @@ export function AppRoutes() {
         <Route path="/sku-costs/employees" element={<SkuCostsEmployees />} />
         <Route path="/sku-costs/overhead" element={<SkuCostsOverhead />} />
         <Route path="/finance-control" element={<Navigate to="/finance-control/cost" replace />} />
-        <Route path="/finance-control/cost" element={<Suspense fallback={<AppLoadingFallback />}><FinanceControl /></Suspense>} />
+        <Route path="/finance-control/cost" element={<ModuleRoute moduleKey="finance_cost"><Suspense fallback={<AppLoadingFallback />}><FinanceControl /></Suspense></ModuleRoute>} />
         <Route path="/finance-control/revenue" element={<Suspense fallback={<AppLoadingFallback />}><RevenueManagementDashboard /></Suspense>} />
         <Route path="/finance-control/revenue/sources" element={<Suspense fallback={<AppLoadingFallback />}><RevenueSourceDetail /></Suspense>} />
         <Route path="/finance-control/revenue/setup" element={<Suspense fallback={<AppLoadingFallback />}><FinanceRevenueControl /></Suspense>} />
