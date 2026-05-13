@@ -32,6 +32,14 @@ def test_edge_function_exports_to_google_sheet_in_date_folder() -> None:
             "trusted",
             "Google Drive đang kết nối bằng quyền read-only",
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
+            "styleAccountingSheet",
+            "sheets.googleapis.com/v4/spreadsheets",
+            "batchUpdate",
+            "BÁO CÁO DOANH THU NGÀY",
+            "TỔNG HỢP THEO KÊNH",
+            "CHI TIẾT DOANH THU / SỔ PHỤ LEDGER",
+            "setBasicFilter",
+            "autoResizeDimensions",
         ],
     )
     text = EDGE_FN.read_text(encoding="utf-8")

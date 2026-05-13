@@ -154,6 +154,70 @@ async function uploadCsvAsGoogleSheet(accessToken: string, folderId: string, fil
   return data;
 }
 
+type AccountingSheetLayout = {
+  channelHeaderRow: number;
+  channelStartRow: number;
+  channelEndRow: number;
+  detailSectionRow: number;
+  detailHeaderRow: number;
+  totalRows: number;
+  totalColumns: number;
+};
+
+function color(red: number, green: number, blue: number) {
+  return { red: red / 255, green: green / 255, blue: blue / 255 };
+}
+
+async function sheetsJson(accessToken: string, url: string, init: RequestInit = {}) {
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      ...(init.headers || {}),
+    },
+  });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!response.ok) throw new Error(`sheets_api_error:${response.status}:${text}`);
+  return data;
+}
+
+async function styleAccountingSheet(accessToken: string, spreadsheetId: string, layout: AccountingSheetLayout) {
+  const spreadsheet = await sheetsJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets(properties(sheetId,title))`);
+  const sheetId = spreadsheet.sheets?.[0]?.properties?.sheetId;
+  if (sheetId == null) throw new Error("sheet_id_missing");
+
+  const allRange = { sheetId, startRowIndex: 0, endRowIndex: layout.totalRows, startColumnIndex: 0, endColumnIndex: layout.totalColumns };
+  const detailDataStart = Math.min(layout.detailHeaderRow + 1, layout.totalRows);
+
+  const requests = [
+    { updateSheetProperties: { properties: { sheetId, title: "Doanh thu ngày", gridProperties: { frozenRowCount: Math.min(layout.detailHeaderRow + 1, 20) } }, fields: "title,gridProperties.frozenRowCount" } },
+    { mergeCells: { range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: layout.totalColumns }, mergeType: "MERGE_ALL" } },
+    { repeatCell: { range: allRange, cell: { userEnteredFormat: { backgroundColor: color(255, 251, 235), textFormat: { fontFamily: "Arial", fontSize: 10, foregroundColor: color(41, 37, 36) }, verticalAlignment: "MIDDLE", wrapStrategy: "WRAP" } }, fields: "userEnteredFormat(backgroundColor,textFormat,verticalAlignment,wrapStrategy)" } },
+    { repeatCell: { range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: layout.totalColumns }, cell: { userEnteredFormat: { backgroundColor: color(67, 45, 25), horizontalAlignment: "CENTER", textFormat: { bold: true, fontSize: 16, foregroundColor: color(251, 191, 36) } } }, fields: "userEnteredFormat(backgroundColor,horizontalAlignment,textFormat)" } },
+    { repeatCell: { range: { sheetId, startRowIndex: 1, endRowIndex: 2, startColumnIndex: 0, endColumnIndex: layout.totalColumns }, cell: { userEnteredFormat: { backgroundColor: color(245, 235, 218), textFormat: { italic: true, foregroundColor: color(87, 83, 78) } } }, fields: "userEnteredFormat(backgroundColor,textFormat)" } },
+    { repeatCell: { range: { sheetId, startRowIndex: 3, endRowIndex: 4, startColumnIndex: 0, endColumnIndex: 3 }, cell: { userEnteredFormat: { backgroundColor: color(217, 119, 6), horizontalAlignment: "CENTER", textFormat: { bold: true, foregroundColor: color(255, 255, 255) } } }, fields: "userEnteredFormat(backgroundColor,horizontalAlignment,textFormat)" } },
+    { repeatCell: { range: { sheetId, startRowIndex: layout.channelHeaderRow, endRowIndex: layout.channelHeaderRow + 1, startColumnIndex: 0, endColumnIndex: 4 }, cell: { userEnteredFormat: { backgroundColor: color(217, 119, 6), horizontalAlignment: "CENTER", textFormat: { bold: true, foregroundColor: color(255, 255, 255) } } }, fields: "userEnteredFormat(backgroundColor,horizontalAlignment,textFormat)" } },
+    { repeatCell: { range: { sheetId, startRowIndex: layout.detailHeaderRow, endRowIndex: layout.detailHeaderRow + 1, startColumnIndex: 0, endColumnIndex: layout.totalColumns }, cell: { userEnteredFormat: { backgroundColor: color(68, 64, 60), horizontalAlignment: "CENTER", textFormat: { bold: true, foregroundColor: color(255, 255, 255) } } }, fields: "userEnteredFormat(backgroundColor,horizontalAlignment,textFormat)" } },
+    { repeatCell: { range: { sheetId, startRowIndex: 8, endRowIndex: 9, startColumnIndex: 0, endColumnIndex: layout.totalColumns }, cell: { userEnteredFormat: { backgroundColor: color(254, 243, 199), textFormat: { bold: true, foregroundColor: color(146, 64, 14) } } }, fields: "userEnteredFormat(backgroundColor,textFormat)" } },
+    { repeatCell: { range: { sheetId, startRowIndex: layout.detailSectionRow, endRowIndex: layout.detailSectionRow + 1, startColumnIndex: 0, endColumnIndex: layout.totalColumns }, cell: { userEnteredFormat: { backgroundColor: color(254, 243, 199), textFormat: { bold: true, foregroundColor: color(146, 64, 14) } } }, fields: "userEnteredFormat(backgroundColor,textFormat)" } },
+    { repeatCell: { range: { sheetId, startRowIndex: 4, endRowIndex: 7, startColumnIndex: 1, endColumnIndex: 2 }, cell: { userEnteredFormat: { horizontalAlignment: "RIGHT", numberFormat: { type: "NUMBER", pattern: "#,##0" }, textFormat: { bold: true } } }, fields: "userEnteredFormat(horizontalAlignment,numberFormat,textFormat)" } },
+    { repeatCell: { range: { sheetId, startRowIndex: layout.channelStartRow, endRowIndex: layout.channelEndRow, startColumnIndex: 1, endColumnIndex: 4 }, cell: { userEnteredFormat: { horizontalAlignment: "RIGHT", numberFormat: { type: "NUMBER", pattern: "#,##0" } } }, fields: "userEnteredFormat(horizontalAlignment,numberFormat)" } },
+    { repeatCell: { range: { sheetId, startRowIndex: detailDataStart, endRowIndex: layout.totalRows, startColumnIndex: 5, endColumnIndex: 8 }, cell: { userEnteredFormat: { horizontalAlignment: "RIGHT", numberFormat: { type: "NUMBER", pattern: "#,##0" } } }, fields: "userEnteredFormat(horizontalAlignment,numberFormat)" } },
+    { updateBorders: { range: allRange, top: { style: "SOLID", width: 1, color: color(214, 211, 209) }, bottom: { style: "SOLID", width: 1, color: color(214, 211, 209) }, left: { style: "SOLID", width: 1, color: color(214, 211, 209) }, right: { style: "SOLID", width: 1, color: color(214, 211, 209) }, innerHorizontal: { style: "SOLID", width: 1, color: color(231, 229, 228) }, innerVertical: { style: "SOLID", width: 1, color: color(231, 229, 228) } } },
+    { setBasicFilter: { filter: { range: { sheetId, startRowIndex: layout.detailHeaderRow, endRowIndex: layout.totalRows, startColumnIndex: 0, endColumnIndex: layout.totalColumns } } } },
+    { autoResizeDimensions: { dimensions: { sheetId, dimension: "COLUMNS", startIndex: 0, endIndex: layout.totalColumns } } },
+    { updateDimensionProperties: { range: { sheetId, dimension: "COLUMNS", startIndex: 2, endIndex: 4 }, properties: { pixelSize: 220 }, fields: "pixelSize" } },
+    { updateDimensionProperties: { range: { sheetId, dimension: "COLUMNS", startIndex: 12, endIndex: 13 }, properties: { pixelSize: 260 }, fields: "pixelSize" } },
+  ];
+
+  await sheetsJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
+    method: "POST",
+    body: JSON.stringify({ requests }),
+  });
+}
+
 async function canExportRevenue(supabaseAdmin: any, userId: string): Promise<boolean> {
   const [{ data: roleRows }, { data: permRows }] = await Promise.all([
     supabaseAdmin.from("user_roles").select("role").eq("user_id", userId),
@@ -210,17 +274,27 @@ serve(async (req) => {
       totalsByChannel.set(key, current);
     }
 
-    const summaryRows = [
-      ["BMQ - Export doanh thu ngày", revenueDate],
-      ["Tổng số dòng", lines.length],
-      ["Tổng số lượng", lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0)],
-      ["Tổng doanh thu", lines.reduce((sum, line) => sum + Number(line.gross_revenue || 0), 0)],
+    const totalQuantity = lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
+    const totalGrossRevenue = lines.reduce((sum, line) => sum + Number(line.gross_revenue || 0), 0);
+    const channelRows = Array.from(totalsByChannel.entries()).map(([channel, stats]) => [channel, stats.rows, stats.qty, stats.revenue]);
+    if (channelRows.length === 0) channelRows.push(["Không có dữ liệu", 0, 0, 0]);
+    const detailSectionRow = 10 + channelRows.length + 1;
+    const detailHeaderRow = detailSectionRow + 1;
+
+    const accountingRows = [
+      ["BÁO CÁO DOANH THU NGÀY", "", "", "", "", "", "", "", "", "", "", "", ""],
+      ["Bánh Mì Que - Doanh thu đã kiểm soát", `Ngày doanh thu: ${revenueDate}`, "Đơn vị: VND", "Mẫu kế toán nội bộ", "", "", "", "", "", "", "", "", ""],
       [],
-      ["Tổng theo kênh"],
-      ["Kênh", "Số dòng", "Số lượng", "Doanh thu"],
-      ...Array.from(totalsByChannel.entries()).map(([channel, stats]) => [channel, stats.rows, stats.qty, stats.revenue]),
+      ["CHỈ TIÊU", "GIÁ TRỊ", "GHI CHÚ"],
+      ["Tổng số dòng", lines.length, "Số dòng ledger đã duyệt"],
+      ["Tổng số lượng", totalQuantity, "Tổng quantity trong ngày"],
+      ["Tổng doanh thu", totalGrossRevenue, "Doanh thu đã kiểm soát"],
       [],
-      ["Chi tiết"],
+      ["TỔNG HỢP THEO KÊNH"],
+      ["Kênh bán hàng", "Số dòng", "Số lượng", "Doanh thu"],
+      ...channelRows,
+      [],
+      ["CHI TIẾT DOANH THU / SỔ PHỤ LEDGER"],
       ["Ngày", "Kênh", "Khách hàng", "Sản phẩm", "Ghi chú", "Số lượng", "Đơn giá", "Doanh thu", "Nguồn", "Audit", "Review", "Reconciliation", "Ledger ID"],
       ...lines.map((line) => [
         line.revenue_date,
@@ -239,11 +313,22 @@ serve(async (req) => {
       ]),
     ];
 
+    const sheetLayout: AccountingSheetLayout = {
+      channelHeaderRow: 9,
+      channelStartRow: 10,
+      channelEndRow: 10 + channelRows.length,
+      detailSectionRow,
+      detailHeaderRow,
+      totalRows: accountingRows.length,
+      totalColumns: 13,
+    };
+
     const accessToken = await getAccessToken(supabaseAdmin);
     const folderName = dateFolderName(revenueDate);
     const folder = await ensureDateFolder(accessToken, parentFolderId, folderName);
-    const fileName = `BMQ Doanh thu ngày ${folderName}`;
-    const sheet = await uploadCsvAsGoogleSheet(accessToken, folder.id, fileName, toCsv(summaryRows));
+    const fileName = `BMQ Báo cáo doanh thu ngày ${folderName}`;
+    const sheet = await uploadCsvAsGoogleSheet(accessToken, folder.id, fileName, toCsv(accountingRows));
+    await styleAccountingSheet(accessToken, sheet.id, sheetLayout);
 
     return jsonResponse({
       success: true,
@@ -255,7 +340,7 @@ serve(async (req) => {
       fileName: sheet.name,
       webViewLink: sheet.webViewLink,
       rowCount: lines.length,
-      grossRevenue: lines.reduce((sum, line) => sum + Number(line.gross_revenue || 0), 0),
+      grossRevenue: totalGrossRevenue,
     }, 200, corsHeaders);
   } catch (error) {
     console.error("[export-daily-revenue-sheet] failed", error);
