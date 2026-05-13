@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle2, Database, Filter, Loader2, PencilLine, Search, TriangleAlert } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, CheckCircle2, Database, Filter, Loader2, PencilLine, Plus, Search, TriangleAlert } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -75,6 +75,36 @@ type RevenueUpdatePayload = {
   raw_payload: Record<string, unknown>;
 };
 
+type ManualRevenueForm = {
+  revenue_date: string;
+  channel: string;
+  customer_name: string;
+  product_name: string;
+  item_note: string;
+  quantity: string;
+  unit_price: string;
+  gross_revenue: string;
+  evidence_note: string;
+  evidence_url: string;
+  audit_note: string;
+};
+
+type ManualRevenuePayload = {
+  period: string;
+  revenue_date: string;
+  channel: string;
+  customer_name: string;
+  product_name: string | null;
+  item_note: string | null;
+  quantity: number;
+  unit_price: number;
+  gross_revenue: number;
+  manual_entry_type: "missing_po_email";
+  reason_code: "staff_forgot_po_email";
+  evidence_note: string;
+  evidence_url: string | null;
+};
+
 type RevenueQuery = PromiseLike<{ data: RevenueLine[] | null; error: { message?: string } | null }> & {
   eq: (column: string, value: string) => RevenueQuery;
   in: (column: string, values: string[]) => RevenueQuery;
@@ -87,7 +117,16 @@ const db = supabase as unknown as {
   from: (table: string) => {
     select: (columns: string) => RevenueQuery;
   };
-  rpc: (fn: "edit_revenue_ledger_line", args: { _ledger_line_id: string; _patch: RevenueUpdatePayload; _note: string | null }) => PromiseLike<{ data: RevenueLine | null; error: { message?: string } | null }>;
+  rpc: {
+    (
+      fn: "edit_revenue_ledger_line",
+      args: { _ledger_line_id: string; _patch: RevenueUpdatePayload; _note: string | null }
+    ): PromiseLike<{ data: RevenueLine | null; error: { message?: string } | null }>;
+    (
+      fn: "add_manual_revenue_ledger_line",
+      args: { _payload: ManualRevenuePayload; _note: string | null }
+    ): PromiseLike<{ data: RevenueLine | null; error: { message?: string } | null }>;
+  };
 };
 
 const asRecord = (value: unknown): Record<string, unknown> =>
@@ -110,6 +149,20 @@ const buildEditForm = (row: RevenueLine): RevenueEditForm => ({
   quantity: String(row.quantity ?? 0),
   unit_price: String(row.unit_price ?? 0),
   gross_revenue: String(row.gross_revenue ?? 0),
+  audit_note: "",
+});
+
+const buildManualRevenueForm = (period: string, channel: string, revenueDate: string): ManualRevenueForm => ({
+  revenue_date: revenueDate || `${period}-01`,
+  channel,
+  customer_name: "",
+  product_name: "Bánh mì que",
+  item_note: "",
+  quantity: "",
+  unit_price: "6500",
+  gross_revenue: "",
+  evidence_note: "",
+  evidence_url: "",
   audit_note: "",
 });
 
@@ -216,6 +269,7 @@ export default function RevenueSourceDetail() {
   const { language } = useLanguage();
   const { canEditModule } = useAuth();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const isVi = language === "vi";
   const canEdit = canEditModule("finance_revenue");
   const navigate = useNavigate();
@@ -237,6 +291,8 @@ export default function RevenueSourceDetail() {
   const [q, setQ] = useState("");
   const [editingLine, setEditingLine] = useState<RevenueLine | null>(null);
   const [editForm, setEditForm] = useState<RevenueEditForm | null>(null);
+  const [manualDialogOpen, setManualDialogOpen] = useState(params.get("openAdd") === "1");
+  const [manualForm, setManualForm] = useState<ManualRevenueForm>(() => buildManualRevenueForm(period, channel, revenueDate));
   const [saving, setSaving] = useState(false);
 
   const { data: lines = [], isLoading, error, refetch } = useQuery<RevenueLine[]>({
@@ -271,6 +327,29 @@ export default function RevenueSourceDetail() {
     review: filtered.filter((r) => r.review_status === "needs_manual_review" || r.audit_status === "needs_review").length,
   }), [filtered]);
 
+  const channelOptions = useMemo(() => Array.from(new Set(lines.map((line) => line.channel).filter(Boolean))).sort(), [lines]);
+
+  const manualNumbers = useMemo(() => {
+    const quantity = (() => { try { return toNumber(manualForm.quantity); } catch { return NaN; } })();
+    const unitPrice = (() => { try { return toNumber(manualForm.unit_price); } catch { return NaN; } })();
+    const grossRevenue = (() => { try { return toNumber(manualForm.gross_revenue); } catch { return NaN; } })();
+    return { quantity, unitPrice, grossRevenue };
+  }, [manualForm.gross_revenue, manualForm.quantity, manualForm.unit_price]);
+
+  const duplicateWarnings = useMemo(() => {
+    const customer = manualForm.customer_name.trim().toLowerCase();
+    const product = manualForm.product_name.trim().toLowerCase();
+    if (!manualForm.revenue_date || !manualForm.channel || !customer) return [] as RevenueLine[];
+    return lines.filter((line) => {
+      const sameDate = line.revenue_date === manualForm.revenue_date;
+      const sameChannel = line.channel === manualForm.channel;
+      const sameCustomer = line.customer_name.trim().toLowerCase() === customer;
+      const sameProduct = !product || String(line.product_name || "").trim().toLowerCase() === product;
+      const sameAmount = Number.isFinite(manualNumbers.grossRevenue) && Number(line.gross_revenue || 0) === manualNumbers.grossRevenue;
+      return sameDate && sameChannel && sameCustomer && sameProduct && sameAmount;
+    }).slice(0, 3);
+  }, [lines, manualForm.channel, manualForm.customer_name, manualForm.product_name, manualForm.revenue_date, manualNumbers.grossRevenue]);
+
   const updateParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value); else next.delete(key);
@@ -297,6 +376,90 @@ export default function RevenueSourceDetail() {
     if (saving) return;
     setEditingLine(null);
     setEditForm(null);
+  };
+
+  const openManualAdd = () => {
+    setManualForm(buildManualRevenueForm(period, channel, revenueDate));
+    setManualDialogOpen(true);
+  };
+
+  const closeManualAdd = () => {
+    if (saving) return;
+    setManualDialogOpen(false);
+  };
+
+  const updateManualField = (key: keyof ManualRevenueForm, value: string) => {
+    setManualForm((current) => {
+      const next = { ...current, [key]: value };
+      if (key === "quantity" || key === "unit_price") {
+        try {
+          const quantity = key === "quantity" ? toNumber(value) : toNumber(next.quantity);
+          const unitPrice = key === "unit_price" ? toNumber(value) : toNumber(next.unit_price);
+          if (Number.isFinite(quantity) && Number.isFinite(unitPrice) && quantity > 0 && unitPrice >= 0) {
+            next.gross_revenue = String(quantity * unitPrice);
+          }
+        } catch {
+          // Keep user-entered gross revenue while number is incomplete.
+        }
+      }
+      return next;
+    });
+  };
+
+  const saveManualAdd = async () => {
+    if (!canEdit) {
+      toast({ title: "Không có quyền thêm doanh thu", variant: "destructive" });
+      return;
+    }
+    const customerName = manualForm.customer_name.trim();
+    const evidenceNote = manualForm.evidence_note.trim();
+    const note = manualForm.audit_note.trim();
+    if (!manualForm.revenue_date || !manualForm.channel || !customerName) {
+      toast({ title: "Thiếu ngày, kênh hoặc khách hàng", variant: "destructive" });
+      return;
+    }
+    if (evidenceNote.length < 10 || note.length < 10) {
+      toast({ title: "Thiếu lý do/evidence", description: "Vui lòng nhập evidence và audit note tối thiểu 10 ký tự.", variant: "destructive" });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const quantity = toNumber(manualForm.quantity);
+      const unitPrice = toNumber(manualForm.unit_price);
+      const grossRevenue = toNumber(manualForm.gross_revenue);
+      if (quantity <= 0 || unitPrice < 0 || grossRevenue <= 0) throw new Error("Số lượng/doanh thu phải lớn hơn 0");
+      const payload: ManualRevenuePayload = {
+        period: manualForm.revenue_date.slice(0, 7),
+        revenue_date: manualForm.revenue_date,
+        channel: manualForm.channel,
+        customer_name: customerName,
+        product_name: manualForm.product_name.trim() || null,
+        item_note: manualForm.item_note.trim() || null,
+        quantity,
+        unit_price: unitPrice,
+        gross_revenue: grossRevenue,
+        manual_entry_type: "missing_po_email",
+        reason_code: "staff_forgot_po_email",
+        evidence_note: evidenceNote,
+        evidence_url: manualForm.evidence_url.trim() || null,
+      };
+      const { error: addError } = await db.rpc("add_manual_revenue_ledger_line", {
+        _payload: payload,
+        _note: note,
+      });
+      if (addError) throw addError;
+      toast({ title: "Đã thêm dòng doanh thu thủ công và ghi audit log." });
+      setManualDialogOpen(false);
+      setManualForm(buildManualRevenueForm(period, channel, revenueDate));
+      await refetch();
+      await queryClient.invalidateQueries({ queryKey: ["revenue-source-detail"] });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Không thêm được dòng doanh thu";
+      toast({ title: "Không thêm được dòng doanh thu", description: message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const updateEditField = (key: keyof RevenueEditForm, value: string) => {
@@ -407,6 +570,9 @@ export default function RevenueSourceDetail() {
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={openManualAdd} disabled={!canEdit} title={canEdit ? "Thêm dòng doanh thu thiếu PO/email" : "Cần quyền finance_revenue để thêm dòng doanh thu"}>
+            <Plus className="mr-2 h-4 w-4" />+ Thêm dòng doanh thu
+          </Button>
           <Button variant={review ? "default" : "outline"} onClick={() => updateParam("review", review ? "" : "review_queue")}>
             <Filter className="mr-2 h-4 w-4" />Cần audit
           </Button>
@@ -519,6 +685,98 @@ export default function RevenueSourceDetail() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={manualDialogOpen} onOpenChange={(open) => { if (!open) closeManualAdd(); else setManualDialogOpen(true); }}>
+        <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Thêm dòng doanh thu thủ công</DialogTitle>
+            <DialogDescription>
+              Dòng này sẽ vào Doanh thu đã kiểm soát và được ghi audit log. Không thay thế audit cuối tháng.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <div className="rounded-lg border border-amber-300/40 bg-amber-50 p-3 text-sm text-amber-800">
+              <div className="font-medium">Loại bổ sung: Thiếu PO/email</div>
+              <div>Áp dụng khi staff quên gửi mail đặt bánh cho đại lý làm PO parse thiếu so với thực tế vận hành.</div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="manual-revenue-date">Ngày doanh thu</Label>
+                <Input id="manual-revenue-date" type="date" value={manualForm.revenue_date} onChange={(e) => updateManualField("revenue_date", e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="manual-channel">Kênh</Label>
+                <Input id="manual-channel" list="manual-channel-options" value={manualForm.channel} onChange={(e) => updateManualField("channel", e.target.value)} placeholder="VD: ĐẠI LÝ" />
+                <datalist id="manual-channel-options">
+                  {channelOptions.map((option) => <option key={option} value={option} />)}
+                </datalist>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="manual-type">Loại dòng</Label>
+                <Input id="manual-type" value="Thiếu PO/email" disabled />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="manual-customer">Khách hàng/Đại lý</Label>
+                <Input id="manual-customer" value={manualForm.customer_name} onChange={(e) => updateManualField("customer_name", e.target.value)} placeholder="Tên đại lý cần tính công nợ" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="manual-product">Sản phẩm</Label>
+                <Input id="manual-product" value={manualForm.product_name} onChange={(e) => updateManualField("product_name", e.target.value)} placeholder="Bánh mì que" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="manual-qty">Số lượng thực tế</Label>
+                <Input id="manual-qty" inputMode="decimal" value={manualForm.quantity} onChange={(e) => updateManualField("quantity", e.target.value)} placeholder="0" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="manual-price">Đơn giá</Label>
+                <Input id="manual-price" inputMode="decimal" value={manualForm.unit_price} onChange={(e) => updateManualField("unit_price", e.target.value)} placeholder="6500" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="manual-gross">Doanh thu</Label>
+                <Input id="manual-gross" inputMode="decimal" value={manualForm.gross_revenue} onChange={(e) => updateManualField("gross_revenue", e.target.value)} placeholder="Tự tính từ SL × đơn giá" />
+              </div>
+              <div className="space-y-2 md:col-span-3">
+                <Label htmlFor="manual-item-note">Ghi chú mặt hàng</Label>
+                <Input id="manual-item-note" value={manualForm.item_note} onChange={(e) => updateManualField("item_note", e.target.value)} placeholder="VD: Bổ sung công nợ vì thiếu email PO" />
+              </div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="manual-evidence">Nguồn xác nhận / evidence</Label>
+                <Textarea id="manual-evidence" value={manualForm.evidence_note} onChange={(e) => updateManualField("evidence_note", e.target.value)} placeholder="VD: Quản lý vận hành xác nhận đại lý có nhận thêm 100 bánh ngày này..." />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="manual-audit-note">Lý do / audit note</Label>
+                <Textarea id="manual-audit-note" value={manualForm.audit_note} onChange={(e) => updateManualField("audit_note", e.target.value)} placeholder="VD: Thiếu PO/email do staff quên gửi mail, bổ sung theo xác nhận vận hành." />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="manual-evidence-url">Link ảnh/tài liệu nếu có</Label>
+                <Input id="manual-evidence-url" value={manualForm.evidence_url} onChange={(e) => updateManualField("evidence_url", e.target.value)} placeholder="https://..." />
+              </div>
+            </div>
+            {duplicateWarnings.length ? (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                <div className="font-medium">Có {duplicateWarnings.length} dòng tương tự trong ngày này. Vui lòng kiểm tra để tránh cộng trùng công nợ.</div>
+                <div className="mt-2 space-y-1">
+                  {duplicateWarnings.map((line) => (
+                    <div key={line.id}>• {line.customer_name} · {line.product_name || "—"} · {numberFmt(Number(line.quantity || 0))} · {vnd(Number(line.gross_revenue || 0))}</div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+              Sau khi lưu: source_type = manual_entry, approval_status = approved, audit_status = adjusted, confidence_status = manual_review, review_status = resolved, reconciliation_status = manual_override.
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeManualAdd} disabled={saving}>Huỷ</Button>
+            <Button onClick={saveManualAdd} disabled={saving || !canEdit}>
+              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+              Thêm vào Doanh thu đã kiểm soát
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!editingLine} onOpenChange={(open) => { if (!open) closeEdit(); }}>
         <DialogContent className="max-w-3xl">
