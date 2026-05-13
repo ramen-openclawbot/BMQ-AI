@@ -44,6 +44,7 @@ def test_revenue_source_detail_has_export_button_and_function_call() -> None:
         REVENUE_SOURCE,
         [
             "FileSpreadsheet",
+            "canAccessModule, canEditModule",
             "Export Google Sheet",
             "exportDailyRevenueSheet",
             "export-daily-revenue-sheet",

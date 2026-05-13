@@ -293,7 +293,7 @@ function shouldShowDispatchShortageAction(raw: Record<string, unknown>) {
 
 export default function RevenueSourceDetail() {
   const { language } = useLanguage();
-  const { canEditModule } = useAuth();
+  const { canAccessModule, canEditModule } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isVi = language === "vi";
