@@ -58,6 +58,15 @@ def test_thuy_service_date_uses_email_sent_plus_one_day() -> None:
         assert_contains(sync, needle, label)
 
 
+def test_thuy_heading_date_is_not_parsed_as_quantity() -> None:
+    for needle, label in [
+        ("isThuyDirectDealerHeadingLine", "Thuy header-line guard"),
+        ("Header examples from Thúy emails", "documented date-header examples"),
+        ("isThuyDirectDealerHeadingLine(line)) continue", "parser skips date header before quantity regex"),
+    ]:
+        assert_contains(sync, needle, label)
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

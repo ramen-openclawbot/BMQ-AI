@@ -169,6 +169,24 @@ const getOcrTimeoutMessage = (isVi: boolean) => (
     : "Slip scanning timed out. Please try again."
 );
 
+const getQtmClosingFromMismatch = (result: any) => {
+  if (!result) return 0;
+  if (Number.isFinite(Number(result.qtmClosingBalance))) return Number(result.qtmClosingBalance);
+  if (Number.isFinite(Number(result.qtmClosing))) return Number(result.qtmClosing);
+  return Number(result.qtmOpening || 0) + Number(result.qtmDeclared || 0) - Number(result.qtmSpent || 0);
+};
+
+const getMismatchCauseLabel = (result: any, isVi: boolean) => {
+  const uncVariance = Number(result?.uncVariance || 0);
+  const qtmClosing = getQtmClosingFromMismatch(result);
+  const uncMismatch = uncVariance !== 0;
+  const qtmNegative = qtmClosing < 0;
+  if (uncMismatch && qtmNegative) return isVi ? "UNC chênh lệch và QTM âm quỹ" : "UNC variance and negative QTM balance";
+  if (uncMismatch) return isVi ? "UNC chênh lệch" : "UNC variance";
+  if (qtmNegative) return isVi ? "UNC khớp, QTM âm quỹ" : "UNC matches, QTM balance is negative";
+  return isVi ? "Cần kiểm tra đối soát" : "Reconciliation needs review";
+};
+
 const toDateInputValue = (d: Date) => format(d, "yyyy-MM-dd");
 const parseDateInputValue = (value: string) => {
   const [y, m, day] = value.split("-").map(Number);
@@ -2989,23 +3007,57 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
 
           {closeDialogStep === "mismatch" && (
             <div className="space-y-4 py-2">
-              <div className="flex items-center gap-2 text-amber-600">
+              <div className="flex items-start gap-2 text-amber-600">
                 <span className="text-xl">⚠️</span>
-                <span className="text-base font-semibold">{isVi ? "Phát hiện chênh lệch UNC/QTM" : "UNC/QTM Variance Detected"}</span>
+                <div>
+                  <div className="text-base font-semibold">{getMismatchCauseLabel(mismatchResult, isVi)}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {isVi
+                      ? "Trạng thái tổng đang là mismatch vì một phần đối soát chưa đạt; xem chi tiết UNC/QTM bên dưới."
+                      : "Overall status is mismatch because one reconciliation check failed; see UNC/QTM details below."}
+                  </div>
+                </div>
               </div>
-              <div className="rounded border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-3 space-y-2 text-sm">
-                {Number(mismatchResult?.uncVariance || 0) !== 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">{isVi ? "UNC chênh lệch:" : "UNC variance:"}</span>
-                    <span className="font-semibold text-amber-700">{vnd(Math.abs(Number(mismatchResult?.uncVariance || 0)))}</span>
+              <div className="rounded border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-3 space-y-3 text-sm">
+                <div className="rounded bg-background/70 p-2 space-y-1">
+                  <div className="flex justify-between gap-3">
+                    <span className="font-medium">UNC</span>
+                    <span className={Number(mismatchResult?.uncVariance || 0) === 0 ? "font-semibold text-green-700" : "font-semibold text-amber-700"}>
+                      {Number(mismatchResult?.uncVariance || 0) === 0 ? (isVi ? "Khớp" : "Match") : (isVi ? "Chênh lệch" : "Variance")}
+                    </span>
                   </div>
-                )}
-                {Number(mismatchResult?.qtmVariance || 0) > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">{isVi ? "QTM chênh lệch:" : "QTM variance:"}</span>
-                    <span className="font-semibold text-amber-700">{vnd(Number(mismatchResult?.qtmVariance || 0))}</span>
+                  <div className="flex justify-between gap-3 text-xs text-muted-foreground">
+                    <span>{isVi ? "Drive/OCR" : "Drive/OCR"}: {vnd(Number(mismatchResult?.uncDetail || 0))}</span>
+                    <span>{isVi ? "CEO khai báo" : "CEO declared"}: {vnd(Number(mismatchResult?.uncDeclared || 0))}</span>
                   </div>
-                )}
+                  {Number(mismatchResult?.uncVariance || 0) !== 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">{isVi ? "UNC chênh lệch:" : "UNC variance:"}</span>
+                      <span className="font-semibold text-amber-700">{vnd(Math.abs(Number(mismatchResult?.uncVariance || 0)))}</span>
+                    </div>
+                  )}
+                </div>
+                <div className="rounded bg-background/70 p-2 space-y-1">
+                  <div className="flex justify-between gap-3">
+                    <span className="font-medium">QTM</span>
+                    <span className={getQtmClosingFromMismatch(mismatchResult) >= 0 ? "font-semibold text-green-700" : "font-semibold text-amber-700"}>
+                      {getQtmClosingFromMismatch(mismatchResult) >= 0 ? (isVi ? "Khớp" : "Match") : (isVi ? "Âm quỹ" : "Negative balance")}
+                    </span>
+                  </div>
+                  <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+                    <span>{isVi ? "Số dư mở" : "Opening"}: {vnd(Number(mismatchResult?.qtmOpening || 0))}</span>
+                    <span>{isVi ? "CEO nạp QTM" : "CEO QTM top-up"}: {vnd(Number(mismatchResult?.qtmDeclared || 0))}</span>
+                    <span>{isVi ? "Chi từ folder" : "Folder spend"}: {vnd(Number(mismatchResult?.qtmSpent || 0))}</span>
+                    <span>{isVi ? "Số dư đóng" : "Closing"}: {vnd(getQtmClosingFromMismatch(mismatchResult))}</span>
+                  </div>
+                  {getQtmClosingFromMismatch(mismatchResult) < 0 && (
+                    <div className="rounded border border-amber-200 bg-amber-100/70 p-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                      {isVi
+                        ? `UNC đang khớp; mismatch phát sinh do QTM âm quỹ ${vnd(Math.abs(getQtmClosingFromMismatch(mismatchResult)))}.`
+                        : `UNC matches; mismatch is caused by negative QTM balance of ${vnd(Math.abs(getQtmClosingFromMismatch(mismatchResult)))}.`}
+                    </div>
+                  )}
+                </div>
               </div>
               <p className="text-sm text-muted-foreground">
                 {isVi

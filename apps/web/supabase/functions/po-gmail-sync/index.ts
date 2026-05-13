@@ -507,6 +507,13 @@ const stripQuotedTextOrderBody = (body: string) => {
   return kept.join("\n");
 };
 
+const isThuyDirectDealerHeadingLine = (line: string) => {
+  const normalized = normalizeTextKey(line);
+  // Header examples from Thúy emails: "Đặt bánh 10.5" / "Đặt bánh đại lý 10.5".
+  // The trailing D.M is a service-date label, not an order quantity.
+  return /^dat banh(?: dai ly)? \d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?$/.test(normalized);
+};
+
 const findThuyDealerCustomer = (route: string, candidates: EmailCandidate[]) => {
   const routeKey = normalizeTextKey(route);
   const alias = THUY_DIRECT_DEALER_ALIASES.find((entry) => entry.aliases.some((value) => normalizeTextKey(value) === routeKey));
@@ -536,7 +543,7 @@ const parseThuyDirectDealerBodyLines = (
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
-    if (!line || /^\d+\s*$/.test(line)) continue;
+    if (!line || /^\d+\s*$/.test(line) || isThuyDirectDealerHeadingLine(line)) continue;
     const match = line.match(/^\s*(?:\d+[.)]\s*)?(.+?)\s+(\d+(?:[.,]\d+)?)\b(.*)$/i);
     if (!match) continue;
 
