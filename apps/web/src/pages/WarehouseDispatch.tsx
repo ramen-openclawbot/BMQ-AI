@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -124,6 +125,10 @@ const amountStatusLabel: Record<string, string> = {
 export default function WarehouseDispatch() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [params] = useSearchParams();
+  const dispatchPoId = params.get("dispatchPoId") || "";
+  const dispatchRevenueDate = params.get("revenueDate") || "";
+  const dispatchReason = params.get("reason") || "";
   const [activeTab, setActiveTab] = useState<DispatchStatus | "all">("all");
   const [createOpen, setCreateOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -132,10 +137,11 @@ export default function WarehouseDispatch() {
 
   // Form state
   const [selectedPoId, setSelectedPoId] = useState("");
-  const [dispatchDate, setDispatchDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [dispatchDate, setDispatchDate] = useState(dispatchRevenueDate || format(new Date(), "yyyy-MM-dd"));
   const [deliveryAddress, setDeliveryAddress] = useState("");
-  const [notes, setNotes] = useState("");
+  const [notes, setNotes] = useState(dispatchReason === "short_delivery" ? "Xử lý giao thiếu từ ledger: xác nhận số xuất thực tế/billable theo vận hành." : "");
   const [formItems, setFormItems] = useState<DispatchFormItem[]>([]);
+  const [autoOpenDispatchFromLedger, setAutoOpenDispatchFromLedger] = useState(Boolean(dispatchPoId));
 
   // ── Queries ──────────────────────────────────────────────────────────────
 
@@ -169,13 +175,13 @@ export default function WarehouseDispatch() {
   // Approved sales POs for dispatch — delivery_date trong 3 ngày trước ngày xuất kho
   // Ví dụ: ngày xuất = 04/04 → lấy PO có delivery_date từ 01/04 đến 03/04
   const { data: salesPOs = [] } = useQuery<PoInbox[]>({
-    queryKey: ["po_inbox_for_dispatch", dispatchDate],
+    queryKey: ["po_inbox_for_dispatch", dispatchDate, dispatchPoId],
     queryFn: async () => {
       const dispatchDateObj = new Date(dispatchDate);
       const fromDate = format(subDays(dispatchDateObj, 3), "yyyy-MM-dd"); // -3 ngày
       const toDate   = format(subDays(dispatchDateObj, 1), "yyyy-MM-dd"); // -1 ngày (không lấy chính ngày xuất)
 
-      const { data, error } = await (supabase as any)
+      let query = (supabase as any)
         .from("customer_po_inbox")
         .select(`
           id, po_number, from_name, delivery_date, matched_customer_id, production_items,
@@ -183,10 +189,15 @@ export default function WarehouseDispatch() {
           mini_crm_customers!matched_customer_id ( address )
         `)
         .eq("match_status", "approved")
-        .not("production_items", "is", null)
-        .gte("delivery_date", fromDate)
-        .lte("delivery_date", toDate)
-        .order("delivery_date", { ascending: true });
+        .not("production_items", "is", null);
+
+      if (dispatchPoId) {
+        query = query.eq("id", dispatchPoId);
+      } else {
+        query = query.gte("delivery_date", fromDate).lte("delivery_date", toDate);
+      }
+
+      const { data, error } = await query.order("delivery_date", { ascending: true });
       if (error) throw error;
       // Flatten joined customer address
       return (data || []).map((row: any) => ({
@@ -194,11 +205,11 @@ export default function WarehouseDispatch() {
         customer_address: row.mini_crm_customers?.address ?? null,
       }));
     },
-    enabled: createOpen,
+    enabled: createOpen || Boolean(dispatchPoId),
   });
 
   // Finished goods inventory (sku_type = 'finished_good')
-  const { data: finishedInventory = [] } = useQuery<InventoryItem[]>({
+  const { data: finishedInventory = [], isFetched: isInventoryFetched } = useQuery<InventoryItem[]>({
     queryKey: ["inventory_finished_goods"],
     queryFn: async () => {
       // Get inventory_items joined with product_skus to filter finished_good
@@ -219,12 +230,12 @@ export default function WarehouseDispatch() {
         skuNames.has(inv.name.toLowerCase().trim()) || inv.quantity > 0
       ).map((inv: any) => ({ ...inv }));
     },
-    enabled: createOpen,
+    enabled: createOpen || Boolean(dispatchPoId),
   });
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
-  const handleSelectPO = (poId: string) => {
+  const handleSelectPO = useCallback((poId: string) => {
     setSelectedPoId(poId);
     const po = salesPOs.find((p) => p.id === poId);
     if (!po?.production_items?.length) {
@@ -271,7 +282,21 @@ export default function WarehouseDispatch() {
     if (po.delivery_date) setDispatchDate(po.delivery_date);
     // Auto-fill delivery address from CRM customer profile (only if not already filled)
     if (po.customer_address) setDeliveryAddress(po.customer_address);
-  };
+  }, [deliveryAddress, finishedInventory, salesPOs]);
+
+  useEffect(() => {
+    if (!autoOpenDispatchFromLedger || !dispatchPoId) return;
+    setCreateOpen(true);
+  }, [autoOpenDispatchFromLedger, dispatchPoId]);
+
+  useEffect(() => {
+    if (!autoOpenDispatchFromLedger || !dispatchPoId || !salesPOs.length || !isInventoryFetched) return;
+    const po = salesPOs.find((p) => p.id === dispatchPoId);
+    if (!po) return;
+    setSelectedPoId(dispatchPoId);
+    handleSelectPO(dispatchPoId);
+    setAutoOpenDispatchFromLedger(false);
+  }, [autoOpenDispatchFromLedger, dispatchPoId, handleSelectPO, isInventoryFetched, salesPOs]);
 
   const handleDispatchQtyChange = (idx: number, val: string) => {
     const qty = Math.max(0, parseFloat(val) || 0);
@@ -310,6 +335,18 @@ export default function WarehouseDispatch() {
     mutationFn: async () => {
       if (!selectedPoId) throw new Error("Vui lòng chọn đơn hàng bán");
       if (!formItems.length) throw new Error("Không có sản phẩm nào để xuất");
+
+      const { data: existingConfirmation, error: existingConfirmationErr } = await (supabase as any)
+        .from("po_dispatch_revenue_confirmations")
+        .select("id,status,amount_status,warehouse_dispatch_id")
+        .eq("customer_po_inbox_id", selectedPoId)
+        .neq("status", "cancelled")
+        .maybeSingle();
+      if (existingConfirmationErr) throw existingConfirmationErr;
+      if (existingConfirmation?.id) {
+        throw new Error("PO này đã có xác nhận số xuất/doanh thu. Vui lòng mở bản xác nhận hiện có hoặc revise thay vì tạo phiếu mới để tránh cộng trùng công nợ.");
+      }
+
       const itemsToDispatch = formItems.filter((i) => i.dispatch_qty > 0);
       if (!itemsToDispatch.length) throw new Error("Số lượng xuất phải lớn hơn 0");
 
@@ -627,7 +664,7 @@ export default function WarehouseDispatch() {
         <DialogContent className="max-w-6xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Truck className="h-5 w-5" /> Tạo phiếu xuất kho
+              <Truck className="h-5 w-5" /> {dispatchReason === "short_delivery" ? "Xử lý giao thiếu từ ledger" : "Tạo phiếu xuất kho"}
             </DialogTitle>
           </DialogHeader>
 
@@ -638,8 +675,10 @@ export default function WarehouseDispatch() {
                 Đơn hàng bán (Sales PO) <span className="text-destructive">*</span>
               </label>
               <p className="text-xs text-muted-foreground">
-                Hiển thị PO có ngày giao trong 3 ngày trước ngày xuất kho
-                {dispatchDate && (
+                {dispatchPoId
+                  ? "Mở từ ledger cho case PO đặt nhưng thực tế giao không đủ. Nhập số xuất/số đạt/số tính tiền; nếu thiếu phải chọn SKU thiếu để tránh cộng trùng công nợ."
+                  : "Hiển thị PO có ngày giao trong 3 ngày trước ngày xuất kho"}
+                {!dispatchPoId && dispatchDate && (
                   <> ({format(subDays(new Date(dispatchDate), 3), "dd/MM")} — {format(subDays(new Date(dispatchDate), 1), "dd/MM")})</>
                 )}
               </p>

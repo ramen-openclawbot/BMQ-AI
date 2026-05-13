@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle2, Database, Filter, Loader2, PencilLine, Plus, Search, TriangleAlert } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Database, Filter, Loader2, PencilLine, Plus, Search, Truck, TriangleAlert } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -265,6 +265,19 @@ function dispatchTraceText(raw: Record<string, unknown>) {
   ].join(" · ");
 }
 
+function getInboxRowId(raw: Record<string, unknown>) {
+  return String(raw.inbox_row_id || raw.customer_po_inbox_id || raw.po_inbox_id || "");
+}
+
+function shouldShowDispatchShortageAction(raw: Record<string, unknown>) {
+  const inboxRowId = getInboxRowId(raw);
+  const amountStatus = String(raw.revenue_amount_status || "");
+  const confirmationStatus = String(raw.dispatch_confirmation_status || "");
+  return Boolean(inboxRowId)
+    && !["confirmed_dispatch_amount", "month_end_audit_adjusted"].includes(amountStatus)
+    && !["confirmed", "revised"].includes(confirmationStatus);
+}
+
 export default function RevenueSourceDetail() {
   const { language } = useLanguage();
   const { canEditModule } = useAuth();
@@ -381,6 +394,22 @@ export default function RevenueSourceDetail() {
   const openManualAdd = () => {
     setManualForm(buildManualRevenueForm(period, channel, revenueDate));
     setManualDialogOpen(true);
+  };
+
+  const openDispatchConfirmation = (row: RevenueLine) => {
+    const raw = asRecord(row.raw_payload);
+    const dispatchPoId = getInboxRowId(raw);
+    if (!dispatchPoId) {
+      toast({ title: "Chưa có PO gốc để xác nhận giao thiếu", variant: "destructive" });
+      return;
+    }
+    const next = new URLSearchParams({
+      dispatchPoId,
+      revenueDate: row.revenue_date,
+      sourceLineId: row.id,
+      reason: "short_delivery",
+    });
+    navigate(`/warehouse-dispatch?${next.toString()}`);
   };
 
   const closeManualAdd = () => {
@@ -666,15 +695,28 @@ export default function RevenueSourceDetail() {
                           {raw.revenue_amount_basis ? <div className="mt-1 text-xs text-muted-foreground">Basis: {String(raw.revenue_amount_basis)}</div> : null}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={!canEdit}
-                            title={canEdit ? "Sửa dòng và ghi audit log" : "Cần quyền finance_revenue để sửa dòng doanh thu"}
-                            onClick={() => openEdit(row)}
-                          >
-                            <PencilLine className="mr-2 h-3.5 w-3.5" />Edit
-                          </Button>
+                          <div className="flex justify-end gap-2">
+                            {shouldShowDispatchShortageAction(raw) ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={!canEdit}
+                                title={canEdit ? "PO đặt nhưng thực tế giao không đủ: xác nhận số giao/billable theo phiếu xuất" : "Cần quyền finance_revenue để xác nhận số xuất thực tế"}
+                                onClick={() => openDispatchConfirmation(row)}
+                              >
+                                <Truck className="mr-2 h-3.5 w-3.5" />Xác nhận số xuất
+                              </Button>
+                            ) : null}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={!canEdit}
+                              title={canEdit ? "Sửa dòng và ghi audit log" : "Cần quyền finance_revenue để sửa dòng doanh thu"}
+                              onClick={() => openEdit(row)}
+                            >
+                              <PencilLine className="mr-2 h-3.5 w-3.5" />Edit
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
