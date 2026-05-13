@@ -321,6 +321,8 @@ export default function RevenueSourceDetail() {
   const [manualForm, setManualForm] = useState<ManualRevenueForm>(() => buildManualRevenueForm(period, channel, revenueDate));
   const [saving, setSaving] = useState(false);
   const [exportingSheet, setExportingSheet] = useState(false);
+  const [sheetExportResult, setSheetExportResult] = useState<DailyRevenueSheetExportResponse | null>(null);
+  const [sheetExportMessage, setSheetExportMessage] = useState<string | null>(null);
 
   const { data: lines = [], isLoading, error, refetch } = useQuery<RevenueLine[]>({
     queryKey: ["revenue-source-detail", period, channel, customerKey, review, scope, focus, sourceDocumentId, revenueDate],
@@ -431,22 +433,61 @@ export default function RevenueSourceDetail() {
       toast({ title: "Chọn một ngày doanh thu trước khi export", variant: "destructive" });
       return;
     }
+    if (!canAccessModule("finance_revenue")) {
+      toast({ title: "Không có quyền export doanh thu", description: "Tài khoản cần quyền xem hoặc sửa finance_revenue.", variant: "destructive" });
+      return;
+    }
+
+    setSheetExportResult(null);
+    setSheetExportMessage("Đang tạo thư mục ngày và Google Sheet trên Drive...");
     setExportingSheet(true);
+    toast({ title: "Đang export Google Sheet", description: "App đang tạo thư mục dd/mm/yyyy và file Sheet trên Drive." });
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 90000);
     try {
-      const { data, error } = await supabase.functions.invoke("export-daily-revenue-sheet", {
-        body: { revenueDate },
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại rồi export.");
+
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const response = await fetch(`${supabaseUrl}/functions/v1/export-daily-revenue-sheet`, {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          apikey: anonKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ revenueDate }),
       });
-      if (error) throw error;
-      const result = (data || {}) as DailyRevenueSheetExportResponse;
-      if (!result.success || !result.webViewLink) throw new Error(result.error || "Không tạo được Google Sheet doanh thu ngày");
+      const raw = await response.text();
+      let result: DailyRevenueSheetExportResponse = {};
+      try {
+        result = raw ? JSON.parse(raw) : {};
+      } catch {
+        throw new Error(raw || "Function trả về response không đọc được.");
+      }
+      if (!response.ok || !result.success || !result.webViewLink) {
+        throw new Error(result.error || `Export failed HTTP ${response.status}`);
+      }
+      setSheetExportResult(result);
+      setSheetExportMessage(`Đã tạo ${result.fileName || "Google Sheet"} trong thư mục ${result.folderName || revenueDate}.`);
       toast({
         title: "Đã export Google Sheet doanh thu ngày",
         description: `${result.folderName || revenueDate} · ${result.rowCount || 0} dòng · ${vnd(Number(result.grossRevenue || 0))}`,
       });
       window.open(result.webViewLink, "_blank", "noopener,noreferrer");
     } catch (err) {
-      toast({ title: "Export Google Sheet thất bại", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
+      const message = err instanceof DOMException && err.name === "AbortError"
+        ? "Export quá 90 giây chưa phản hồi. Kiểm tra quyền Drive/Google token rồi thử lại."
+        : err instanceof Error ? err.message : String(err);
+      setSheetExportMessage(`Export Google Sheet thất bại: ${message}`);
+      toast({ title: "Export Google Sheet thất bại", description: message, variant: "destructive" });
     } finally {
+      window.clearTimeout(timeout);
       setExportingSheet(false);
     }
   };
@@ -642,7 +683,7 @@ export default function RevenueSourceDetail() {
             <Button
               variant="outline"
               onClick={exportDailyRevenueSheet}
-              disabled={exportingSheet || !canAccessModule("finance_revenue")}
+              disabled={exportingSheet}
               title="Export doanh thu ngày ra Google Sheet trong Drive theo thư mục dd/mm/yyyy"
             >
               {exportingSheet ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSpreadsheet className="mr-2 h-4 w-4" />}
@@ -657,6 +698,25 @@ export default function RevenueSourceDetail() {
           </Button>
         </div>
       </div>
+
+      {sheetExportMessage ? (
+        <Card className={sheetExportResult?.webViewLink ? "border-emerald-400/30 bg-emerald-950/30" : sheetExportMessage.startsWith("Export Google Sheet thất bại") ? "border-destructive/40 bg-destructive/5" : "border-amber-400/30 bg-amber-950/25"}>
+          <CardContent className="flex flex-col gap-2 p-4 text-sm md:flex-row md:items-center md:justify-between">
+            <div className="flex items-start gap-2">
+              {exportingSheet ? <Loader2 className="mt-0.5 h-4 w-4 animate-spin" /> : <FileSpreadsheet className="mt-0.5 h-4 w-4" />}
+              <div>
+                <div className="font-medium">Trạng thái export Google Sheet</div>
+                <div className="text-muted-foreground">{sheetExportMessage}</div>
+              </div>
+            </div>
+            {sheetExportResult?.webViewLink ? (
+              <Button variant="outline" size="sm" onClick={() => window.open(sheetExportResult.webViewLink, "_blank", "noopener,noreferrer")}>
+                Mở Google Sheet
+              </Button>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="grid gap-3 md:grid-cols-4">
         <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">Rows</div><div className="mt-1 text-2xl font-bold">{stats.rows}</div></CardContent></Card>
