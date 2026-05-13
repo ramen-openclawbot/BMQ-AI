@@ -83,6 +83,38 @@ const WORD_DIGITS: Record<string, number> = {
   chin: 9,
 };
 
+const ENGLISH_SMALL_NUMBERS: Record<string, number> = {
+  zero: 0,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+  thirty: 30,
+  forty: 40,
+  fourty: 40,
+  fifty: 50,
+  sixty: 60,
+  seventy: 70,
+  eighty: 80,
+  ninety: 90,
+};
+
 const parseVietnameseAmountGroup = (tokens: string[]): number => {
   const compact = tokens.filter((token) => token && token !== "linh" && token !== "le" && token !== "va");
   let value = 0;
@@ -141,6 +173,52 @@ const parseVietnameseAmountWords = (value: unknown): number | null => {
   return Number.isFinite(total) && total > 0 ? total : null;
 };
 
+const parseEnglishAmountWords = (value: unknown): number | null => {
+  const raw = String(value ?? "").toLowerCase();
+  if (!raw || !(raw.includes("million") || raw.includes("thousand") || raw.includes("billion") || raw.includes("dong") || raw.includes("vnd"))) return null;
+
+  const tokens = raw
+    .replace(/[-]/g, " ")
+    .replace(/[^a-z\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((token) => ![
+      "in", "words", "word", "amount", "by", "text", "and", "only", "vietnam", "vietnamese", "viet", "nam", "dong", "vnd", "currency",
+    ].includes(token));
+
+  let total = 0;
+  let current = 0;
+  let sawNumberWord = false;
+
+  for (const token of tokens) {
+    if (ENGLISH_SMALL_NUMBERS[token] !== undefined) {
+      current += ENGLISH_SMALL_NUMBERS[token];
+      sawNumberWord = true;
+    } else if (token === "hundred") {
+      current = (current || 1) * 100;
+      sawNumberWord = true;
+    } else if (token === "thousand") {
+      total += (current || 1) * 1_000;
+      current = 0;
+      sawNumberWord = true;
+    } else if (token === "million") {
+      total += (current || 1) * 1_000_000;
+      current = 0;
+      sawNumberWord = true;
+    } else if (token === "billion") {
+      total += (current || 1) * 1_000_000_000;
+      current = 0;
+      sawNumberWord = true;
+    }
+  }
+
+  total += current;
+  return sawNumberWord && Number.isFinite(total) && total > 0 ? total : null;
+};
+
+const parseAmountWords = (value: unknown): number | null =>
+  parseVietnameseAmountWords(value) ?? parseEnglishAmountWords(value);
+
 const SLIP_EXTRACTION_SYSTEM_PROMPT = `Bạn là chuyên gia trích xuất số tiền từ ảnh UNC/QTM/bank slip tiếng Việt.
 
 Hãy trích xuất các trường sau:
@@ -157,6 +235,8 @@ Quy tắc quan trọng:
 - Ưu tiên các nhãn: "Số tiền", "Số tiền chuyển", "Giá trị giao dịch", "Amount", "Debit Amount", "Credit Amount", "Số tiền nợ", "Số tiền có".
 - Với Vietcombank / VCB / DigiBiz debit advice, ưu tiên số cạnh "Debit Amount" hoặc "Credit Amount" và đối chiếu dòng "In Words / Bằng chữ" nếu thấy.
 - Luôn trích xuất amount_in_words từ dòng "In Words", "Bằng chữ", "Số tiền bằng chữ" nếu có. Nếu amount dạng số và bằng chữ không cùng bậc giá trị, amount_in_words sẽ được dùng để phát hiện lỗi OCR.
+- Với dòng tiếng Anh kiểu "Twenty eight million four hundred eighty thousand Vietnam dong", hiểu là 28.480.000 VND; không được đọc thiếu thành 2.848.000 hoặc thừa thành 284.800.000.
+- Nếu amount dạng số và "In Words/Bằng chữ" lệch nhau đúng 1-3 bậc thập phân (x10/x100/x1000 hoặc /10//100//1000), ưu tiên số bằng chữ và giảm confidence để staff audit.
 - KHÔNG lấy số tài khoản, số chứng từ, mã giao dịch, số điện thoại, ngày giờ, OTP, số dư làm amount.
 - Nếu có nhiều số, chọn số tiền thanh toán/chuyển khoản thực tế.
 - Nếu không chắc, vẫn trả best guess và giảm confidence.
@@ -184,14 +264,16 @@ const normalizeExtractedSlip = (data: ExtractedSlipData) => {
     throw new Error(`Failed to parse amount string: ${data.amount}`);
   }
 
-  const wordAmount = parseVietnameseAmountWords(data.amount_in_words || data.notes);
-  const ratio = wordAmount ? parsedAmount / wordAmount : 1;
+  const wordAmount = parseAmountWords(data.amount_in_words || data.notes);
+  const scaleRatio = wordAmount && parsedAmount !== wordAmount
+    ? Math.max(parsedAmount, wordAmount) / Math.min(parsedAmount, wordAmount)
+    : 1;
   const shouldTrustWords = Boolean(
     wordAmount
       && wordAmount > 0
       && parsedAmount !== wordAmount
-      && Number.isInteger(ratio)
-      && [10, 100, 1000].includes(ratio)
+      && Number.isInteger(scaleRatio)
+      && [10, 100, 1000].includes(scaleRatio)
   );
   const amount = shouldTrustWords ? wordAmount : parsedAmount;
   const confidence = shouldTrustWords
@@ -205,6 +287,10 @@ const normalizeExtractedSlip = (data: ExtractedSlipData) => {
     amount,
     confidence,
     amount_corrected_from_words: shouldTrustWords,
+    amount_digit_value: parsedAmount,
+    amount_word_value: wordAmount,
+    amount_scale_ratio: shouldTrustWords ? scaleRatio : null,
+    // Regression marker: English In Words "Twenty eight million four hundred eighty thousand Vietnam dong" = 28480000.
     provider: "openai",
   };
 };
