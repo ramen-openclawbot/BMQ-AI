@@ -159,6 +159,7 @@ type AccountingSheetLayout = {
   channelStartRow: number;
   channelEndRow: number;
   detailSectionRow: number;
+  detailGroupHeaderRow: number;
   detailHeaderRow: number;
   totalRows: number;
   totalColumns: number;
@@ -199,6 +200,10 @@ async function styleAccountingSheet(accessToken: string, spreadsheetId: string, 
     { repeatCell: { range: { sheetId, startRowIndex: 1, endRowIndex: 2, startColumnIndex: 0, endColumnIndex: layout.totalColumns }, cell: { userEnteredFormat: { backgroundColor: color(245, 235, 218), textFormat: { italic: true, foregroundColor: color(87, 83, 78) } } }, fields: "userEnteredFormat(backgroundColor,textFormat)" } },
     { repeatCell: { range: { sheetId, startRowIndex: 3, endRowIndex: 4, startColumnIndex: 0, endColumnIndex: 3 }, cell: { userEnteredFormat: { backgroundColor: color(217, 119, 6), horizontalAlignment: "CENTER", textFormat: { bold: true, foregroundColor: color(255, 255, 255) } } }, fields: "userEnteredFormat(backgroundColor,horizontalAlignment,textFormat)" } },
     { repeatCell: { range: { sheetId, startRowIndex: layout.channelHeaderRow, endRowIndex: layout.channelHeaderRow + 1, startColumnIndex: 0, endColumnIndex: 4 }, cell: { userEnteredFormat: { backgroundColor: color(217, 119, 6), horizontalAlignment: "CENTER", textFormat: { bold: true, foregroundColor: color(255, 255, 255) } } }, fields: "userEnteredFormat(backgroundColor,horizontalAlignment,textFormat)" } },
+    { mergeCells: { range: { sheetId, startRowIndex: layout.detailGroupHeaderRow, endRowIndex: layout.detailGroupHeaderRow + 1, startColumnIndex: 0, endColumnIndex: 5 }, mergeType: "MERGE_ALL" } },
+    { mergeCells: { range: { sheetId, startRowIndex: layout.detailGroupHeaderRow, endRowIndex: layout.detailGroupHeaderRow + 1, startColumnIndex: 5, endColumnIndex: 8 }, mergeType: "MERGE_ALL" } },
+    { repeatCell: { range: { sheetId, startRowIndex: layout.detailGroupHeaderRow, endRowIndex: layout.detailGroupHeaderRow + 1, startColumnIndex: 0, endColumnIndex: 5 }, cell: { userEnteredFormat: { backgroundColor: color(120, 53, 15), horizontalAlignment: "CENTER", textFormat: { bold: true, foregroundColor: color(255, 255, 255) } } }, fields: "userEnteredFormat(backgroundColor,horizontalAlignment,textFormat)" } },
+    { repeatCell: { range: { sheetId, startRowIndex: layout.detailGroupHeaderRow, endRowIndex: layout.detailGroupHeaderRow + 1, startColumnIndex: 5, endColumnIndex: 8 }, cell: { userEnteredFormat: { backgroundColor: color(146, 64, 14), horizontalAlignment: "CENTER", textFormat: { bold: true, foregroundColor: color(255, 255, 255) } } }, fields: "userEnteredFormat(backgroundColor,horizontalAlignment,textFormat)" } },
     { repeatCell: { range: { sheetId, startRowIndex: layout.detailHeaderRow, endRowIndex: layout.detailHeaderRow + 1, startColumnIndex: 0, endColumnIndex: layout.totalColumns }, cell: { userEnteredFormat: { backgroundColor: color(68, 64, 60), horizontalAlignment: "CENTER", textFormat: { bold: true, foregroundColor: color(255, 255, 255) } } }, fields: "userEnteredFormat(backgroundColor,horizontalAlignment,textFormat)" } },
     { repeatCell: { range: { sheetId, startRowIndex: 8, endRowIndex: 9, startColumnIndex: 0, endColumnIndex: layout.totalColumns }, cell: { userEnteredFormat: { backgroundColor: color(254, 243, 199), textFormat: { bold: true, foregroundColor: color(146, 64, 14) } } }, fields: "userEnteredFormat(backgroundColor,textFormat)" } },
     { repeatCell: { range: { sheetId, startRowIndex: layout.detailSectionRow, endRowIndex: layout.detailSectionRow + 1, startColumnIndex: 0, endColumnIndex: layout.totalColumns }, cell: { userEnteredFormat: { backgroundColor: color(254, 243, 199), textFormat: { bold: true, foregroundColor: color(146, 64, 14) } } }, fields: "userEnteredFormat(backgroundColor,textFormat)" } },
@@ -209,7 +214,6 @@ async function styleAccountingSheet(accessToken: string, spreadsheetId: string, 
     { setBasicFilter: { filter: { range: { sheetId, startRowIndex: layout.detailHeaderRow, endRowIndex: layout.totalRows, startColumnIndex: 0, endColumnIndex: layout.totalColumns } } } },
     { autoResizeDimensions: { dimensions: { sheetId, dimension: "COLUMNS", startIndex: 0, endIndex: layout.totalColumns } } },
     { updateDimensionProperties: { range: { sheetId, dimension: "COLUMNS", startIndex: 2, endIndex: 4 }, properties: { pixelSize: 220 }, fields: "pixelSize" } },
-    { updateDimensionProperties: { range: { sheetId, dimension: "COLUMNS", startIndex: 12, endIndex: 13 }, properties: { pixelSize: 260 }, fields: "pixelSize" } },
   ];
 
   await sheetsJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
@@ -279,11 +283,12 @@ serve(async (req) => {
     const channelRows = Array.from(totalsByChannel.entries()).map(([channel, stats]) => [channel, stats.rows, stats.qty, stats.revenue]);
     if (channelRows.length === 0) channelRows.push(["Không có dữ liệu", 0, 0, 0]);
     const detailSectionRow = 10 + channelRows.length + 1;
-    const detailHeaderRow = detailSectionRow + 1;
+    const detailGroupHeaderRow = detailSectionRow + 1;
+    const detailHeaderRow = detailSectionRow + 2;
 
     const accountingRows = [
-      ["BÁO CÁO DOANH THU NGÀY", "", "", "", "", "", "", "", "", "", "", "", ""],
-      ["Bánh Mì Que - Doanh thu đã kiểm soát", `Ngày doanh thu: ${revenueDate}`, "Đơn vị: VND", "Mẫu kế toán nội bộ", "", "", "", "", "", "", "", "", ""],
+      ["BÁO CÁO DOANH THU NGÀY", "", "", "", "", "", "", ""],
+      ["Bánh Mì Que - Doanh thu đã kiểm soát", `Ngày doanh thu: ${revenueDate}`, "Đơn vị: VND", "Mẫu kế toán nội bộ", "", "", "", ""],
       [],
       ["CHỈ TIÊU", "GIÁ TRỊ", "GHI CHÚ"],
       ["Tổng số dòng", lines.length, "Số dòng ledger đã duyệt"],
@@ -294,8 +299,9 @@ serve(async (req) => {
       ["Kênh bán hàng", "Số dòng", "Số lượng", "Doanh thu"],
       ...channelRows,
       [],
-      ["CHI TIẾT DOANH THU / SỔ PHỤ LEDGER"],
-      ["Ngày", "Kênh", "Khách hàng", "Sản phẩm", "Ghi chú", "Số lượng", "Đơn giá", "Doanh thu", "Nguồn", "Audit", "Review", "Reconciliation", "Ledger ID"],
+      ["CHI TIẾT DOANH THU / SỔ PHỤ KẾ TOÁN"],
+      ["THÔNG TIN BÁN HÀNG", "", "", "", "", "GIÁ TRỊ KẾ TOÁN", "", ""],
+      ["Ngày", "Kênh", "Khách hàng", "Sản phẩm", "Ghi chú", "Số lượng", "Đơn giá", "Thành tiền"],
       ...lines.map((line) => [
         line.revenue_date,
         line.channel || "",
@@ -305,11 +311,6 @@ serve(async (req) => {
         Number(line.quantity || 0),
         Number(line.unit_price || 0),
         Number(line.gross_revenue || 0),
-        line.source_type || "",
-        line.audit_status || "",
-        line.review_status || "",
-        line.reconciliation_status || "",
-        line.id,
       ]),
     ];
 
@@ -318,9 +319,10 @@ serve(async (req) => {
       channelStartRow: 10,
       channelEndRow: 10 + channelRows.length,
       detailSectionRow,
+      detailGroupHeaderRow,
       detailHeaderRow,
       totalRows: accountingRows.length,
-      totalColumns: 13,
+      totalColumns: 8,
     };
 
     const accessToken = await getAccessToken(supabaseAdmin);
