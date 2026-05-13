@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle2, Database, Filter, Loader2, PencilLine, Plus, Search, Truck, TriangleAlert } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Database, FileSpreadsheet, Filter, Loader2, PencilLine, Plus, Search, Truck, TriangleAlert } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -103,6 +103,19 @@ type ManualRevenuePayload = {
   reason_code: "staff_forgot_po_email";
   evidence_note: string;
   evidence_url: string | null;
+};
+
+type DailyRevenueSheetExportResponse = {
+  success?: boolean;
+  revenueDate?: string;
+  folderName?: string;
+  folderId?: string;
+  fileId?: string;
+  fileName?: string;
+  webViewLink?: string;
+  rowCount?: number;
+  grossRevenue?: number;
+  error?: string;
 };
 
 type RevenueQuery = PromiseLike<{ data: RevenueLine[] | null; error: { message?: string } | null }> & {
@@ -307,6 +320,7 @@ export default function RevenueSourceDetail() {
   const [manualDialogOpen, setManualDialogOpen] = useState(params.get("openAdd") === "1");
   const [manualForm, setManualForm] = useState<ManualRevenueForm>(() => buildManualRevenueForm(period, channel, revenueDate));
   const [saving, setSaving] = useState(false);
+  const [exportingSheet, setExportingSheet] = useState(false);
 
   const { data: lines = [], isLoading, error, refetch } = useQuery<RevenueLine[]>({
     queryKey: ["revenue-source-detail", period, channel, customerKey, review, scope, focus, sourceDocumentId, revenueDate],
@@ -410,6 +424,31 @@ export default function RevenueSourceDetail() {
       reason: "short_delivery",
     });
     navigate(`/warehouse-dispatch?${next.toString()}`);
+  };
+
+  const exportDailyRevenueSheet = async () => {
+    if (!revenueDate) {
+      toast({ title: "Chọn một ngày doanh thu trước khi export", variant: "destructive" });
+      return;
+    }
+    setExportingSheet(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("export-daily-revenue-sheet", {
+        body: { revenueDate },
+      });
+      if (error) throw error;
+      const result = (data || {}) as DailyRevenueSheetExportResponse;
+      if (!result.success || !result.webViewLink) throw new Error(result.error || "Không tạo được Google Sheet doanh thu ngày");
+      toast({
+        title: "Đã export Google Sheet doanh thu ngày",
+        description: `${result.folderName || revenueDate} · ${result.rowCount || 0} dòng · ${vnd(Number(result.grossRevenue || 0))}`,
+      });
+      window.open(result.webViewLink, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      toast({ title: "Export Google Sheet thất bại", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
+    } finally {
+      setExportingSheet(false);
+    }
   };
 
   const closeManualAdd = () => {
@@ -599,6 +638,17 @@ export default function RevenueSourceDetail() {
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {revenueDate ? (
+            <Button
+              variant="outline"
+              onClick={exportDailyRevenueSheet}
+              disabled={exportingSheet || !canAccessModule("finance_revenue")}
+              title="Export doanh thu ngày ra Google Sheet trong Drive theo thư mục dd/mm/yyyy"
+            >
+              {exportingSheet ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSpreadsheet className="mr-2 h-4 w-4" />}
+              Export Google Sheet
+            </Button>
+          ) : null}
           <Button variant="outline" onClick={openManualAdd} disabled={!canEdit} title={canEdit ? "Thêm dòng doanh thu thiếu PO/email" : "Cần quyền finance_revenue để thêm dòng doanh thu"}>
             <Plus className="mr-2 h-4 w-4" />+ Thêm dòng doanh thu
           </Button>
