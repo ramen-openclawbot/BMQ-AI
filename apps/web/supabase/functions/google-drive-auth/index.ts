@@ -23,6 +23,7 @@ serve(async (req) => {
   const ALLOWED_REDIRECT_ORIGINS = [
     'https://bmqvn.lovable.app',
     'https://bmq-ai.vercel.app',
+    'https://ai.banhmique.vn',
     'http://localhost:5173',
     'http://localhost:8080',
   ];
@@ -94,7 +95,7 @@ serve(async (req) => {
     const stateParam = btoa(JSON.stringify({ redirect: appRedirect, mode: requestMode }));
     const scope = requestMode === 'gmail'
       ? 'https://www.googleapis.com/auth/gmail.readonly email profile'
-      : 'https://www.googleapis.com/auth/drive.readonly email profile';
+      : 'https://www.googleapis.com/auth/drive email profile';
 
     const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
     authUrl.searchParams.set('client_id', clientId);

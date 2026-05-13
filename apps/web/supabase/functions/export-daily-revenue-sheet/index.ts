@@ -259,6 +259,10 @@ serve(async (req) => {
     }, 200, corsHeaders);
   } catch (error) {
     console.error("[export-daily-revenue-sheet] failed", error);
-    return jsonResponse({ error: error instanceof Error ? error.message : String(error) }, 500, getCorsHeaders(req));
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const message = rawMessage.includes("ACCESS_TOKEN_SCOPE_INSUFFICIENT") || rawMessage.includes("insufficient authentication scopes")
+      ? "Google Drive đang kết nối bằng quyền read-only. Vào Cài đặt hệ thống → Tích hợp Google Drive → Ngắt kết nối/Kết nối lại để cấp quyền tạo thư mục và Google Sheet, rồi export lại."
+      : rawMessage;
+    return jsonResponse({ error: message }, 500, getCorsHeaders(req));
   }
 });
