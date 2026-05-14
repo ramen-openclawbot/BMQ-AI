@@ -88,6 +88,12 @@ type LedgerLineQuery = PromiseLike<{ data: LedgerLine[] | null; error: QueryErro
   limit: (count: number) => LedgerLineQuery;
 };
 type DebtExportResponse = { success?: boolean; error?: string; spreadsheetName?: string; webViewLink?: string; recipientEmails?: string[]; emailResult?: { sent?: boolean; skipped?: boolean; reason?: string } };
+type ExportStatus = {
+  kind: "idle" | "pending" | "success" | "error";
+  title: string;
+  message?: string;
+  webViewLink?: string;
+};
 
 const debtDb = supabase as unknown as {
   from: (table: "mini_crm_customers") => CustomerQuery;
@@ -139,6 +145,7 @@ export default function NppDebtManagement() {
   const [dateTo, setDateTo] = useState(isoToday());
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [expandedAgencyId, setExpandedAgencyId] = useState<string | null>(null);
+  const [exportStatus, setExportStatus] = useState<ExportStatus>({ kind: "idle", title: "" });
 
   const { data: customers = [], isLoading: customersLoading } = useQuery<Customer[]>({
     queryKey: ["npp-debt-customers"],
@@ -258,18 +265,30 @@ export default function NppDebtManagement() {
       if (!data?.success) throw new Error(data?.error || (sendEmail ? "Gửi công nợ thất bại" : "Export Google Sheet thất bại"));
       return data;
     },
+    onMutate: () => {
+      const title = sendEmail ? "Đang gửi công nợ" : "Đang xuất Google Sheet";
+      setExportStatus({
+        kind: "pending",
+        title,
+        message: `${selectedCustomer?.customer_name || "Khách hàng"} • ${dateFrom} → ${dateTo}`,
+      });
+      toast({ title, description: "Hệ thống đang tạo file, vui lòng chờ trong giây lát." });
+    },
     onSuccess: (data: DebtExportResponse) => {
       const emails = data?.recipientEmails || [];
-      toast({
-        title: sendEmail ? "Đã gửi công nợ" : "Đã xuất Google Sheet",
-        description: emails.length
-          ? `${data?.spreadsheetName || "Công nợ khách hàng"} • Email CRM: ${emails.join(", ")}`
-          : `${data?.spreadsheetName || "Công nợ khách hàng"} • Chưa có email CRM`,
-      });
+      const title = sendEmail ? "Đã gửi công nợ" : "Đã xuất Google Sheet";
+      const message = emails.length
+        ? `${data?.spreadsheetName || "Công nợ khách hàng"} • Email CRM: ${emails.join(", ")}`
+        : `${data?.spreadsheetName || "Công nợ khách hàng"} • Chưa có email CRM`;
+      setExportStatus({ kind: "success", title, message, webViewLink: data?.webViewLink });
+      toast({ title, description: message });
       if (data?.webViewLink) window.open(data.webViewLink, "_blank", "noopener,noreferrer");
     },
     onError: (error: Error) => {
-      toast({ title: sendEmail ? "Gửi email thất bại" : "Export thất bại", description: error?.message || "Không thể tạo Google Sheet", variant: "destructive" });
+      const title = sendEmail ? "Gửi email thất bại" : "Export thất bại";
+      const message = error?.message || "Không thể tạo Google Sheet";
+      setExportStatus({ kind: "error", title, message });
+      toast({ title, description: message, variant: "destructive" });
     },
   });
 
@@ -300,6 +319,25 @@ export default function NppDebtManagement() {
           </Button>
         </div>
       </div>
+
+      {exportStatus.kind !== "idle" && (
+        <Card className={exportStatus.kind === "error" ? "border-destructive/60 bg-destructive/5" : "border-amber-500/40 bg-amber-500/5"}>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              {exportStatus.kind === "pending" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {exportStatus.title}
+            </CardTitle>
+            {exportStatus.message ? <CardDescription>{exportStatus.message}</CardDescription> : null}
+          </CardHeader>
+          {exportStatus.webViewLink ? (
+            <CardContent className="pt-0">
+              <Button asChild variant="outline" size="sm">
+                <a href={exportStatus.webViewLink} target="_blank" rel="noreferrer">Mở Google Sheet</a>
+              </Button>
+            </CardContent>
+          ) : null}
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
