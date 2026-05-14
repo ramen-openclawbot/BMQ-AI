@@ -133,7 +133,7 @@ type RevenueChannelQuery = PromiseLike<{ data: RevenueChannelRow[] | null; error
   range: (from: number, to: number) => RevenueChannelQuery;
 };
 
-type CustomerOption = { id: string; customer_name: string | null };
+type CustomerOption = { id: string; customer_name: string | null; customer_group: string | null; product_group: string | null };
 type CustomerOptionQuery = PromiseLike<{ data: CustomerOption[] | null; error: { message?: string } | null }> & {
   eq: (column: string, value: boolean) => CustomerOptionQuery;
   order: (column: string, options: { ascending: boolean }) => CustomerOptionQuery;
@@ -296,7 +296,7 @@ async function fetchManualRevenueCustomers() {
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await crmDb
       .from("mini_crm_customers")
-      .select("id,customer_name")
+      .select("id,customer_name,customer_group,product_group")
       .eq("is_active", true)
       .order("customer_name", { ascending: true })
       .range(from, from + pageSize - 1);
@@ -330,6 +330,16 @@ function ledgerDisplayStatus(row: RevenueLine) {
   if (row.audit_status === "adjusted" || row.reconciliation_status === "manual_override") return "adjusted";
   if (row.review_status === "needs_manual_review" || row.audit_status === "needs_review") return "needs_review";
   return row.approval_status;
+}
+
+function customerMatchesManualChannel(customer: CustomerOption, channel: string) {
+  const customerGroup = String(customer.customer_group || "").toLowerCase();
+  const productGroup = String(customer.product_group || "").toLowerCase();
+  if (channel === "ĐẠI LÝ") return productGroup === "banhmi" && (customerGroup.includes("agency") || customerGroup.includes("point"));
+  if (channel === "BÁNH NGỌT") return productGroup === "banhngot";
+  if (channel === "B2B BMQ") return productGroup === "banhmi" && customerGroup === "b2b";
+  if (channel === "Retail Kiosk") return customerGroup.includes("retail") || customerGroup.includes("kiosk") || productGroup.includes("retail");
+  return true;
 }
 
 export default function RevenueSourceDetail() {
@@ -388,6 +398,11 @@ export default function RevenueSourceDetail() {
     () => Array.from(new Set([channel, ...channelOptions, ...MANUAL_REVENUE_CHANNELS].filter(Boolean))).sort(),
     [channel, channelOptions],
   );
+
+  const filteredCustomerOptions = useMemo(() => {
+    if (!manualForm.channel) return [];
+    return customerOptions.filter((customer) => customerMatchesManualChannel(customer, manualForm.channel));
+  }, [customerOptions, manualForm.channel]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -557,6 +572,7 @@ export default function RevenueSourceDetail() {
   const updateManualField = (key: keyof ManualRevenueForm, value: string) => {
     setManualForm((current) => {
       const next = { ...current, [key]: value };
+      if (key === "channel") next.customer_name = "";
       if (key === "quantity" || key === "unit_price") {
         try {
           const quantity = key === "quantity" ? toNumber(value) : toNumber(next.quantity);
@@ -586,9 +602,9 @@ export default function RevenueSourceDetail() {
       toast({ title: "Vui lòng chọn kênh từ danh sách", variant: "destructive" });
       return;
     }
-    const selectedCustomer = customerOptions.find((customer) => customer.customer_name === customerName);
+    const selectedCustomer = filteredCustomerOptions.find((customer) => customer.customer_name === customerName);
     if (!selectedCustomer) {
-      toast({ title: "Vui lòng chọn khách hàng/đại lý từ CRM", variant: "destructive" });
+      toast({ title: "Vui lòng chọn khách hàng/đại lý đúng kênh từ CRM", variant: "destructive" });
       return;
     }
 
@@ -932,20 +948,17 @@ export default function RevenueSourceDetail() {
                   {manualChannelOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                 </select>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="manual-type">Loại dòng</Label>
-                <Input id="manual-type" value="Thiếu PO/email" disabled />
-              </div>
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="manual-customer">Khách hàng/Đại lý</Label>
                 <select
                   id="manual-customer"
                   value={manualForm.customer_name}
                   onChange={(e) => updateManualField("customer_name", e.target.value)}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  disabled={!manualForm.channel}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
-                  <option value="">Chọn khách hàng/đại lý</option>
-                  {customerOptions.map((customer) => (
+                  <option value="">{manualForm.channel ? "Chọn khách hàng/đại lý" : "Chọn kênh trước"}</option>
+                  {filteredCustomerOptions.map((customer) => (
                     <option key={customer.id} value={customer.customer_name || ""}>{customer.customer_name}</option>
                   ))}
                 </select>

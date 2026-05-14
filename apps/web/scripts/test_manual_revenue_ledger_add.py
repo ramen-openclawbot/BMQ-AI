@@ -43,7 +43,6 @@ def test_manual_revenue_ui_has_required_staff_flow() -> None:
     required = [
         "add_manual_revenue_ledger_line",
         "+ Thêm dòng doanh thu",
-        "Thiếu PO/email",
         "Thêm vào Doanh thu đã kiểm soát",
         "Bổ sung doanh thu thủ công từ vận hành",
         "evidence_note: autoNote",
@@ -51,9 +50,11 @@ def test_manual_revenue_ui_has_required_staff_flow() -> None:
         "MANUAL_REVENUE_CHANNELS",
         "manualChannelOptions",
         "fetchManualRevenueCustomers",
+        "customerMatchesManualChannel",
+        "filteredCustomerOptions",
         "Chọn kênh",
         "Chọn khách hàng/đại lý",
-        "Vui lòng chọn khách hàng/đại lý từ CRM",
+        "Vui lòng chọn khách hàng/đại lý đúng kênh từ CRM",
         "manual_entry_type",
         "staff_forgot_po_email",
     ]
@@ -66,6 +67,8 @@ def test_manual_revenue_ui_has_required_staff_flow() -> None:
         "Link ảnh/tài liệu nếu có",
         "Sau khi lưu: source_type = manual_entry",
         "Dòng này sẽ vào Doanh thu đã kiểm soát",
+        "Loại dòng",
+        "Thiếu PO/email",
     ]
     for needle in removed_visible_fields:
         assert needle not in text, f"manual add UI should not show operational clutter: {needle}"
