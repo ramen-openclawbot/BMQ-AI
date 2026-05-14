@@ -18,6 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 const vnd = (v: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(v || 0);
 const numberFmt = (v: number) => new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(v || 0);
 const CONTROLLED_APRIL_PERIOD = "2026-04";
+const MANUAL_REVENUE_CHANNELS = ["ĐẠI LÝ", "BÁNH NGỌT", "B2B BMQ", "Retail Kiosk"] as const;
 
 type RevenueLine = {
   id: string;
@@ -132,6 +133,13 @@ type RevenueChannelQuery = PromiseLike<{ data: RevenueChannelRow[] | null; error
   range: (from: number, to: number) => RevenueChannelQuery;
 };
 
+type CustomerOption = { id: string; customer_name: string | null };
+type CustomerOptionQuery = PromiseLike<{ data: CustomerOption[] | null; error: { message?: string } | null }> & {
+  eq: (column: string, value: boolean) => CustomerOptionQuery;
+  order: (column: string, options: { ascending: boolean }) => CustomerOptionQuery;
+  range: (from: number, to: number) => CustomerOptionQuery;
+};
+
 const db = supabase as unknown as {
   from: (table: string) => {
     select: (columns: string) => RevenueQuery;
@@ -145,6 +153,12 @@ const db = supabase as unknown as {
       fn: "add_manual_revenue_ledger_line",
       args: { _payload: ManualRevenuePayload; _note: string | null }
     ): PromiseLike<{ data: RevenueLine | null; error: { message?: string } | null }>;
+  };
+};
+
+const crmDb = supabase as unknown as {
+  from: (table: "mini_crm_customers") => {
+    select: (columns: string) => CustomerOptionQuery;
   };
 };
 
@@ -275,6 +289,24 @@ async function fetchRevenueSourceChannels(period: string, review: string, source
   }
 }
 
+async function fetchManualRevenueCustomers() {
+  const pageSize = 1000;
+  const customers: CustomerOption[] = [];
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await crmDb
+      .from("mini_crm_customers")
+      .select("id,customer_name")
+      .eq("is_active", true)
+      .order("customer_name", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    const batch = (data || []).filter((row) => row.customer_name);
+    customers.push(...batch);
+    if ((data || []).length < pageSize) return customers;
+  }
+}
+
 function statusBadge(status: string) {
   const labels: Record<string, string> = {
     approved: "Đã kiểm soát",
@@ -346,6 +378,16 @@ export default function RevenueSourceDetail() {
       return fetchRevenueSourceChannels(period, review, sourceDocumentId, revenueDate, scope);
     },
   });
+
+  const { data: customerOptions = [] } = useQuery<CustomerOption[]>({
+    queryKey: ["manual-revenue-customers"],
+    queryFn: fetchManualRevenueCustomers,
+  });
+
+  const manualChannelOptions = useMemo(
+    () => Array.from(new Set([channel, ...channelOptions, ...MANUAL_REVENUE_CHANNELS].filter(Boolean))).sort(),
+    [channel, channelOptions],
+  );
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -538,6 +580,15 @@ export default function RevenueSourceDetail() {
     const customerName = manualForm.customer_name.trim();
     if (!manualForm.revenue_date || !manualForm.channel || !customerName) {
       toast({ title: "Thiếu ngày, kênh hoặc khách hàng", variant: "destructive" });
+      return;
+    }
+    if (!manualChannelOptions.includes(manualForm.channel)) {
+      toast({ title: "Vui lòng chọn kênh từ danh sách", variant: "destructive" });
+      return;
+    }
+    const selectedCustomer = customerOptions.find((customer) => customer.customer_name === customerName);
+    if (!selectedCustomer) {
+      toast({ title: "Vui lòng chọn khách hàng/đại lý từ CRM", variant: "destructive" });
       return;
     }
 
@@ -871,10 +922,15 @@ export default function RevenueSourceDetail() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="manual-channel">Kênh</Label>
-                <Input id="manual-channel" list="manual-channel-options" value={manualForm.channel} onChange={(e) => updateManualField("channel", e.target.value)} placeholder="VD: ĐẠI LÝ" />
-                <datalist id="manual-channel-options">
-                  {channelOptions.map((option) => <option key={option} value={option} />)}
-                </datalist>
+                <select
+                  id="manual-channel"
+                  value={manualForm.channel}
+                  onChange={(e) => updateManualField("channel", e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <option value="">Chọn kênh</option>
+                  {manualChannelOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="manual-type">Loại dòng</Label>
@@ -882,7 +938,17 @@ export default function RevenueSourceDetail() {
               </div>
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="manual-customer">Khách hàng/Đại lý</Label>
-                <Input id="manual-customer" value={manualForm.customer_name} onChange={(e) => updateManualField("customer_name", e.target.value)} placeholder="Tên đại lý cần tính công nợ" />
+                <select
+                  id="manual-customer"
+                  value={manualForm.customer_name}
+                  onChange={(e) => updateManualField("customer_name", e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <option value="">Chọn khách hàng/đại lý</option>
+                  {customerOptions.map((customer) => (
+                    <option key={customer.id} value={customer.customer_name || ""}>{customer.customer_name}</option>
+                  ))}
+                </select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="manual-product">Sản phẩm</Label>

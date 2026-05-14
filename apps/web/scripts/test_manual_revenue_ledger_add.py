@@ -48,6 +48,12 @@ def test_manual_revenue_ui_has_required_staff_flow() -> None:
         "Bổ sung doanh thu thủ công từ vận hành",
         "evidence_note: autoNote",
         "duplicateWarnings",
+        "MANUAL_REVENUE_CHANNELS",
+        "manualChannelOptions",
+        "fetchManualRevenueCustomers",
+        "Chọn kênh",
+        "Chọn khách hàng/đại lý",
+        "Vui lòng chọn khách hàng/đại lý từ CRM",
         "manual_entry_type",
         "staff_forgot_po_email",
     ]
