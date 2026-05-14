@@ -126,6 +126,15 @@ type RevenueQuery = PromiseLike<{ data: RevenueLine[] | null; error: { message?:
   range: (from: number, to: number) => RevenueQuery;
 };
 
+type RevenueChannelRow = { channel: string | null };
+type RevenueChannelQuery = PromiseLike<{ data: RevenueChannelRow[] | null; error: { message?: string } | null }> & {
+  eq: (column: string, value: string) => RevenueChannelQuery;
+  in: (column: string, values: string[]) => RevenueChannelQuery;
+  or: (filters: string) => RevenueChannelQuery;
+  order: (column: string, options: { ascending: boolean }) => RevenueChannelQuery;
+  range: (from: number, to: number) => RevenueChannelQuery;
+};
+
 const db = supabase as unknown as {
   from: (table: string) => {
     select: (columns: string) => RevenueQuery;
@@ -196,41 +205,79 @@ const ledgerSnapshot = (row: RevenueLine) => ({
   raw_payload: row.raw_payload,
 });
 
+const applyRevenueSourceFilters = <T extends RevenueQuery | RevenueChannelQuery>(
+  query: T,
+  { period, channel, review, sourceDocumentId, revenueDate, scope }: {
+    period: string;
+    channel?: string;
+    review: string;
+    sourceDocumentId: string;
+    revenueDate: string;
+    scope: string;
+  }
+): T => {
+  let next = query.eq("period", period) as T;
+  const isControlledLedgerScope = scope === "controlled_ledger";
+
+  if (sourceDocumentId) next = next.eq("source_document_id", sourceDocumentId) as T;
+  if (revenueDate) next = next.eq("revenue_date", revenueDate) as T;
+  if (isControlledLedgerScope) {
+    next = next.in("source_document.status", ["controlled", "trusted"]).eq("approval_status", "approved") as T;
+  } else if (sourceDocumentId || revenueDate) {
+    next = next
+      .eq("source_document.status", "controlled")
+      .eq("source_document.source_type", "po_email_parse")
+      .eq("source_document.summary->>monthly_parse_kind", "auto_daily_post") as T;
+  } else {
+    next = next.eq("source_document.status", "trusted") as T;
+  }
+  if (channel) next = next.eq("channel", channel) as T;
+  if (review === "review_queue") next = next.or("review_status.eq.needs_manual_review,audit_status.eq.needs_review") as T;
+  else if (review) next = next.eq("review_status", review) as T;
+
+  return next;
+};
+
 async function fetchAllRevenueSourceLines(period: string, channel: string, review: string, sourceDocumentId: string, revenueDate: string, scope: string) {
   const pageSize = 1000;
   const rows: RevenueLine[] = [];
-  const isControlledLedgerScope = scope === "controlled_ledger";
 
   for (let from = 0; ; from += pageSize) {
-    let query = db
+    const baseQuery = db
       .from("revenue_ledger_lines")
       .select("id,source_document_id,source_row_number,period,revenue_date,channel,source_tab,branch,invoice_no,customer_id,parent_customer_id,customer_name,product_name,item_note,quantity,unit_price,gross_revenue,source_type,approval_status,audit_status,confidence_status,review_status,reconciliation_status,raw_payload,source_document:revenue_source_documents!inner(status)")
-      .eq("period", period)
       .order("revenue_date", { ascending: true })
       .order("source_row_number", { ascending: true })
       .range(from, from + pageSize - 1);
-
-    if (sourceDocumentId) query = query.eq("source_document_id", sourceDocumentId);
-    if (revenueDate) query = query.eq("revenue_date", revenueDate);
-    if (isControlledLedgerScope) {
-      query = query.in("source_document.status", ["controlled", "trusted"]).eq("approval_status", "approved");
-    } else if (sourceDocumentId || revenueDate) {
-      query = query
-        .eq("source_document.status", "controlled")
-        .eq("source_document.source_type", "po_email_parse")
-        .eq("source_document.summary->>monthly_parse_kind", "auto_daily_post");
-    } else {
-      query = query.eq("source_document.status", "trusted");
-    }
-    if (channel) query = query.eq("channel", channel);
-    if (review === "review_queue") query = query.or("review_status.eq.needs_manual_review,audit_status.eq.needs_review");
-    else if (review) query = query.eq("review_status", review);
+    const query = applyRevenueSourceFilters(baseQuery, { period, channel, review, sourceDocumentId, revenueDate, scope });
 
     const { data, error } = await query;
     if (error) throw error;
     const batch = (data || []) as RevenueLine[];
     rows.push(...batch);
     if (batch.length < pageSize) return rows;
+  }
+}
+
+async function fetchRevenueSourceChannels(period: string, review: string, sourceDocumentId: string, revenueDate: string, scope: string) {
+  const pageSize = 1000;
+  const channels = new Set<string>();
+
+  for (let from = 0; ; from += pageSize) {
+    const baseQuery = db
+      .from("revenue_ledger_lines")
+      .select("channel,source_document:revenue_source_documents!inner(status)")
+      .order("channel", { ascending: true })
+      .range(from, from + pageSize - 1) as unknown as RevenueChannelQuery;
+    const query = applyRevenueSourceFilters(baseQuery, { period, review, sourceDocumentId, revenueDate, scope });
+
+    const { data, error } = await query;
+    if (error) throw error;
+    const batch = data || [];
+    batch.forEach((row) => {
+      if (row.channel) channels.add(row.channel);
+    });
+    if (batch.length < pageSize) return Array.from(channels).sort();
   }
 }
 
@@ -299,6 +346,13 @@ export default function RevenueSourceDetail() {
     },
   });
 
+  const { data: channelOptions = [] } = useQuery<string[]>({
+    queryKey: ["revenue-source-channels", period, review, scope, focus, sourceDocumentId, revenueDate],
+    queryFn: async () => {
+      return fetchRevenueSourceChannels(period, review, sourceDocumentId, revenueDate, scope);
+    },
+  });
+
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return lines.filter((row) => {
@@ -323,8 +377,6 @@ export default function RevenueSourceDetail() {
     revenue: filtered.reduce((s, r) => s + Number(r.gross_revenue || 0), 0),
     review: filtered.filter((r) => r.review_status === "needs_manual_review" || r.audit_status === "needs_review").length,
   }), [filtered]);
-
-  const channelOptions = useMemo(() => Array.from(new Set(lines.map((line) => line.channel).filter(Boolean))).sort(), [lines]);
 
   const manualNumbers = useMemo(() => {
     const quantity = (() => { try { return toNumber(manualForm.quantity); } catch { return NaN; } })();
