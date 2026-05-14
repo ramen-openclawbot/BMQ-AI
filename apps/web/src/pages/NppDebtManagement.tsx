@@ -87,7 +87,7 @@ type LedgerLineQuery = PromiseLike<{ data: LedgerLine[] | null; error: QueryErro
   order: (column: string, options: { ascending: boolean }) => LedgerLineQuery;
   limit: (count: number) => LedgerLineQuery;
 };
-type DebtExportResponse = { success?: boolean; error?: string; spreadsheetName?: string; webViewLink?: string };
+type DebtExportResponse = { success?: boolean; error?: string; spreadsheetName?: string; webViewLink?: string; recipientEmails?: string[] };
 
 const debtDb = supabase as unknown as {
   from: (table: "mini_crm_customers") => CustomerQuery;
@@ -252,14 +252,20 @@ export default function NppDebtManagement() {
   const exportMutation = useMutation({
     mutationFn: async () => {
       const { data, error } = await supabase.functions.invoke("export-npp-debt-sheet", {
-        body: { fromDate: dateFrom, toDate: dateTo, nppCustomerId: effectiveCustomerId },
+        body: { fromDate: dateFrom, toDate: dateTo, customerId: effectiveCustomerId },
       });
       if (error) throw error;
       if (!data?.success) throw new Error(data?.error || "Export Google Sheet thất bại");
       return data;
     },
     onSuccess: (data: DebtExportResponse) => {
-      toast({ title: "Đã xuất Google Sheet", description: data?.spreadsheetName || "Công nợ khách hàng" });
+      const emails = data?.recipientEmails || [];
+      toast({
+        title: "Đã xuất Google Sheet",
+        description: emails.length
+          ? `${data?.spreadsheetName || "Công nợ khách hàng"} • Email CRM: ${emails.join(", ")}`
+          : `${data?.spreadsheetName || "Công nợ khách hàng"} • Chưa có email CRM`,
+      });
       if (data?.webViewLink) window.open(data.webViewLink, "_blank", "noopener,noreferrer");
     },
     onError: (error: Error) => {
@@ -281,12 +287,10 @@ export default function NppDebtManagement() {
             {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
             Làm mới
           </Button>
-          {isSelectedNpp ? (
-            <Button onClick={() => exportMutation.mutate()} disabled={!effectiveCustomerId || exportMutation.isPending}>
-              {exportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-              Xuất Google Sheet
-            </Button>
-          ) : null}
+          <Button onClick={() => exportMutation.mutate()} disabled={!effectiveCustomerId || exportMutation.isPending}>
+            {exportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+            Xuất Google Sheet
+          </Button>
         </div>
       </div>
 
