@@ -436,6 +436,8 @@ const normalizeTextKey = (value: string) =>
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/đ/g, "d")
     .replace(/Đ/g, "D")
+    .replace(/ð/g, "d")
+    .replace(/Ð/g, "D")
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
     .replace(/\s+/g, " ")

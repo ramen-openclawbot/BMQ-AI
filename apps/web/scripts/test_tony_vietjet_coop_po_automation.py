@@ -31,6 +31,7 @@ def test_tony_sender_rule_date_shift_and_quantities() -> None:
         ("revenue_qty: orderedQty", "ordered qty is revenue qty"),
         ("physical_qty: orderedQty + exchangeQty + makeupQty", "physical qty includes đổi/bù"),
         ("ĐẠI LÝ TOP MARKET ÂU CƠ", "Top Market/Âu Cơ alias"),
+        ('.replace(/Ð/g, "D")', "Tony malformed ÐVC character normalization"),
         ("reply/update/supplement semantics require manual reconciliation", "update/reply guardrail"),
     ]:
         assert_contains(sync, needle, label)
@@ -98,6 +99,10 @@ def test_monthly_preview_uses_dashboard_canonical_channels() -> None:
         ('return "B2B BMQ"', "B2B canonical dashboard channel"),
         ('return "Retail Kiosk"', "retail canonical dashboard channel"),
         ("raw_parse_channel", "raw parse channel preserved in payload"),
+        ("route_customer_id: stringValue(item.route_customer_id)", "route child id preserved in monthly ledger payload"),
+        ("route_customer_name: stringValue(item.route_customer_name)", "route child name preserved in monthly ledger payload"),
+        ("agency_customer_id: stringValue(item.agency_customer_id, item.route_customer_id)", "agency id alias preserved for NPP debt grouping"),
+        ("raw_line: stringValue(item.raw_line)", "source email line preserved in ledger payload"),
         ("DAM_XESG_T4_GROSS_REVENUE", "Retail Kiosk T4 estimate constant"),
         ("t4_xesg_sent_qty_revenue_estimate", "Retail Kiosk T4 estimate metadata"),
         ("combined.includes(\"king\")", "Kingfood overrides stale b2b channel signal"),
