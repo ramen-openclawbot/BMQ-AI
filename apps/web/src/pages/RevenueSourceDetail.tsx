@@ -425,7 +425,7 @@ export default function RevenueSourceDetail() {
       sourceLineId: row.id,
       reason: "short_delivery",
     });
-    navigate(`/warehouse-dispatch?${next.toString()}`);
+    navigate(`/warehouse/dispatch?${next.toString()}`);
   };
 
   const exportDailyRevenueSheet = async () => {

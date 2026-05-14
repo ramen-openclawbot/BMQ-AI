@@ -18,7 +18,7 @@ def test_revenue_source_links_po_lines_to_dispatch_confirmation() -> None:
         "Xác nhận số xuất",
         "PO đặt nhưng thực tế giao không đủ",
         "dispatchPoId",
-        "/warehouse-dispatch?",
+        "/warehouse/dispatch?",
     ]
     for needle in required:
         assert needle in src, f"missing RevenueSourceDetail marker: {needle}"
