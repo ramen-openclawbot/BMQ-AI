@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle2, Database, FileSpreadsheet, Filter, Loader2, PencilLine, Plus, Search, Truck, TriangleAlert } from "lucide-react";
+import { ArrowLeft, Database, FileSpreadsheet, Filter, Loader2, PencilLine, Plus, Search } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -241,54 +241,22 @@ function statusBadge(status: string) {
     tied: "Khớp đối soát",
     matched: "Khớp",
     matched_po: "Khớp PO",
+    adjusted: "Đã chỉnh sửa",
     needs_review: "Cần kiểm tra",
     needs_manual_review: "Cần kiểm tra",
     po_delta: "Lệch PO",
     csv_only: "Chỉ có nguồn đối soát",
   };
-  if (["approved", "trusted", "tied", "matched", "matched_po"].includes(status)) return <Badge variant="secondary">{labels[status] || status}</Badge>;
+  if (["approved", "trusted", "tied", "matched", "matched_po", "adjusted"].includes(status)) return <Badge variant="secondary">{labels[status] || status}</Badge>;
   if (["needs_review", "needs_manual_review", "po_delta", "csv_only"].includes(status)) return <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">{labels[status] || status}</Badge>;
   if (["rejected", "low_confidence"].includes(status)) return <Badge variant="destructive">{status}</Badge>;
   return <Badge variant="outline">{status}</Badge>;
 }
 
-function dispatchRevenueBadge(raw: Record<string, unknown>) {
-  const status = String(raw.revenue_amount_status || raw.dispatch_confirmation_status || "");
-  if (status === "confirmed_dispatch_amount" || status === "month_end_audit_adjusted" || raw.dispatch_confirmation_status === "confirmed" || raw.dispatch_confirmation_status === "revised") {
-    return <Badge variant="secondary">Đã xác nhận số xuất</Badge>;
-  }
-  if (status === "needs_sku_allocation" || raw.dispatch_confirmation_status === "needs_sku_allocation") {
-    return <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">Cần chọn SKU thiếu</Badge>;
-  }
-  if (status === "temporary_po_amount" || raw.dispatch_confirmation_status === "missing") {
-    return <Badge variant="outline">Doanh thu tạm từ PO</Badge>;
-  }
-  return null;
-}
-
-function dispatchTraceText(raw: Record<string, unknown>) {
-  const trace = asRecord(raw.dispatch_trace);
-  if (!Object.keys(trace).length) return null;
-  return [
-    `PO: ${String(trace.ordered_qty ?? "—")}`,
-    `Đạt: ${String(trace.produced_qty ?? "—")}`,
-    `Lỗi/thiếu: ${String(trace.defect_qty ?? "—")}`,
-    `Xuất: ${String(trace.dispatched_qty ?? "—")}`,
-    `Tính tiền: ${String(trace.billable_qty ?? "—")}`,
-  ].join(" · ");
-}
-
-function getInboxRowId(raw: Record<string, unknown>) {
-  return String(raw.inbox_row_id || raw.customer_po_inbox_id || raw.po_inbox_id || "");
-}
-
-function shouldShowDispatchShortageAction(raw: Record<string, unknown>) {
-  const inboxRowId = getInboxRowId(raw);
-  const amountStatus = String(raw.revenue_amount_status || "");
-  const confirmationStatus = String(raw.dispatch_confirmation_status || "");
-  return Boolean(inboxRowId)
-    && !["confirmed_dispatch_amount", "month_end_audit_adjusted"].includes(amountStatus)
-    && !["confirmed", "revised"].includes(confirmationStatus);
+function ledgerDisplayStatus(row: RevenueLine) {
+  if (row.audit_status === "adjusted" || row.reconciliation_status === "manual_override") return "adjusted";
+  if (row.review_status === "needs_manual_review" || row.audit_status === "needs_review") return "needs_review";
+  return row.approval_status;
 }
 
 export default function RevenueSourceDetail() {
@@ -427,22 +395,6 @@ export default function RevenueSourceDetail() {
   const openManualAdd = () => {
     setManualForm(buildManualRevenueForm(period, channel, revenueDate));
     setManualDialogOpen(true);
-  };
-
-  const openDispatchConfirmation = (row: RevenueLine) => {
-    const raw = asRecord(row.raw_payload);
-    const dispatchPoId = getInboxRowId(raw);
-    if (!dispatchPoId) {
-      toast({ title: "Chưa có PO gốc để xác nhận giao thiếu", variant: "destructive" });
-      return;
-    }
-    const next = new URLSearchParams({
-      dispatchPoId,
-      revenueDate: row.revenue_date,
-      sourceLineId: row.id,
-      reason: "short_delivery",
-    });
-    navigate(`/warehouse/dispatch?${next.toString()}`);
   };
 
   const exportDailyRevenueSheet = async () => {
@@ -814,14 +766,12 @@ export default function RevenueSourceDetail() {
                     <TableHead className="text-right">Qty</TableHead>
                     <TableHead className="text-right">Revenue</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Audit note</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filtered.map((row) => {
                     const raw = asRecord(row.raw_payload);
-                    const po = asRecord(raw.po_reconciliation);
                     return (
                       <TableRow key={row.id}>
                         <TableCell className="whitespace-nowrap">{row.revenue_date}<div className="text-xs text-muted-foreground">#{row.source_row_number}</div></TableCell>
@@ -833,34 +783,11 @@ export default function RevenueSourceDetail() {
                         <TableCell className="min-w-[220px]">{row.product_name || "—"}<div className="text-xs text-muted-foreground">{row.item_note || row.branch || ""}</div></TableCell>
                         <TableCell className="text-right">{numberFmt(Number(row.quantity || 0))}</TableCell>
                         <TableCell className="text-right font-semibold">{vnd(Number(row.gross_revenue || 0))}</TableCell>
-                        <TableCell className="space-y-1">
-                          <div>{statusBadge(row.approval_status)}</div>
-                          <div>{statusBadge(row.reconciliation_status)}</div>
-                          <div>{dispatchRevenueBadge(raw)}</div>
-                        </TableCell>
-                        <TableCell className="min-w-[260px] text-sm">
-                          {row.review_status === "needs_manual_review" || row.audit_status === "needs_review" ? (
-                            <div className="flex gap-2 text-amber-700"><TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" /><span>{String(po.review_flag || row.audit_status || "needs_manual_review")}</span></div>
-                          ) : (
-                            <div className="flex gap-2 text-emerald-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /><span>{row.confidence_status}</span></div>
-                          )}
-                          {po.po_qty != null ? <div className="mt-1 text-xs text-muted-foreground">PO qty: {String(po.po_qty)}; delta: {String(po.delta_qty)}</div> : null}
-                          {dispatchTraceText(raw) ? <div className="mt-1 text-xs text-muted-foreground">{dispatchTraceText(raw)}</div> : null}
-                          {raw.revenue_amount_basis ? <div className="mt-1 text-xs text-muted-foreground">Basis: {String(raw.revenue_amount_basis)}</div> : null}
+                        <TableCell>
+                          {statusBadge(ledgerDisplayStatus(row))}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
-                            {shouldShowDispatchShortageAction(raw) ? (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={!canEdit}
-                                title={canEdit ? "PO đặt nhưng thực tế giao không đủ: xác nhận số giao/billable theo phiếu xuất" : "Cần quyền finance_revenue để xác nhận số xuất thực tế"}
-                                onClick={() => openDispatchConfirmation(row)}
-                              >
-                                <Truck className="mr-2 h-3.5 w-3.5" />Xác nhận số xuất
-                              </Button>
-                            ) : null}
                             <Button
                               variant="outline"
                               size="sm"
