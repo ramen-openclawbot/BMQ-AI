@@ -385,6 +385,23 @@ export default function RevenueSourceDetail() {
     setParams(next);
   };
 
+  const updateMonthFilter = (value: string) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set("period", value); else next.delete("period");
+    const activeDate = next.get("revenue_date") || "";
+    if (activeDate && value && !activeDate.startsWith(`${value}-`)) next.delete("revenue_date");
+    setParams(next);
+  };
+
+  const clearLedgerFilters = () => {
+    const next = new URLSearchParams(params);
+    next.delete("channel");
+    next.delete("revenue_date");
+    next.delete("review");
+    setParams(next);
+    setQ("");
+  };
+
   const sourceLinesDescription = isQuantityFocus
     ? "Search product/customer/source. Ưu tiên xem chi tiết Qty, product và source lines."
     : isCustomersFocus
@@ -727,22 +744,6 @@ export default function RevenueSourceDetail() {
 
       {error ? <Card className="border-destructive/40 bg-destructive/5"><CardContent className="p-4 text-sm text-destructive">Không đọc được revenue ledger.</CardContent></Card> : null}
 
-      <Card className={canEdit ? "border-emerald-400/30 bg-emerald-950/35 text-emerald-50" : "border-amber-400/30 bg-amber-950/35 text-amber-50"}>
-        <CardContent className="flex flex-col gap-2 p-4 text-sm md:flex-row md:items-center md:justify-between">
-          <div>
-            <div className="font-medium text-current">
-              {canEdit ? "Bạn có quyền finance_revenue: có thể sửa dòng sai qua audited edit flow." : "Bạn chưa có quyền finance_revenue nên nút Edit đang bị khóa."}
-            </div>
-            <div className={canEdit ? "text-emerald-100/75" : "text-amber-100/75"}>
-              Mỗi lần lưu dùng RPC edit_revenue_ledger_line, giữ approval status và ghi audit log trước/sau.
-            </div>
-          </div>
-          <Badge className={canEdit ? "border-emerald-300/40 bg-emerald-400/10 text-emerald-50" : "border-amber-300/40 bg-amber-400/10 text-amber-50"} variant="outline">
-            {canEdit ? "Edit enabled" : "Read only"}
-          </Badge>
-        </CardContent>
-      </Card>
-
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -750,9 +751,52 @@ export default function RevenueSourceDetail() {
               <CardTitle>Ledger source lines</CardTitle>
               <CardDescription>{sourceLinesDescription}</CardDescription>
             </div>
-            <div className="relative w-full lg:w-[360px]">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder} className="pl-9" />
+            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-6">
+              <div className="space-y-1">
+                <Label htmlFor="ledger-period-filter" className="text-xs text-muted-foreground">Tháng</Label>
+                <Input
+                  id="ledger-period-filter"
+                  type="month"
+                  value={period}
+                  onChange={(e) => updateMonthFilter(e.target.value)}
+                  title="Lọc ledger theo tháng/kỳ doanh thu"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="ledger-date-filter" className="text-xs text-muted-foreground">Ngày</Label>
+                <Input
+                  id="ledger-date-filter"
+                  type="date"
+                  value={revenueDate}
+                  onChange={(e) => updateParam("revenue_date", e.target.value)}
+                  title="Lọc ledger theo ngày doanh thu"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="ledger-channel-filter" className="text-xs text-muted-foreground">Kênh bán hàng</Label>
+                <select
+                  id="ledger-channel-filter"
+                  value={channel}
+                  onChange={(e) => updateParam("channel", e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  title="Lọc ledger theo kênh bán hàng"
+                >
+                  <option value="">Tất cả kênh</option>
+                  {Array.from(new Set([channel, ...channelOptions].filter(Boolean))).map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1 xl:col-span-2">
+                <Label htmlFor="ledger-search-filter" className="text-xs text-muted-foreground">Tìm kiếm</Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input id="ledger-search-filter" value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder} className="pl-9" />
+                </div>
+              </div>
+              <div className="flex items-end">
+                <Button variant="ghost" className="w-full" onClick={clearLedgerFilters}>Xóa lọc</Button>
+              </div>
             </div>
           </div>
         </CardHeader>
