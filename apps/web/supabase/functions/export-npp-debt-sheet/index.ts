@@ -153,6 +153,62 @@ const sum = (lines: LedgerLine[], key: "quantity" | "gross_revenue") => lines.re
 
 const sheetRange = (title: string, columns: string, rows: number) => `'${title.replace(/'/g, "''")}'!A1:${columns}${rows}`;
 
+const escapeHtml = (value: unknown) =>
+  String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const formatVnd = (value: number) =>
+  new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(Number(value || 0));
+
+async function shareSheetWithRecipients(accessToken: string, spreadsheetId: string, emails: string[]) {
+  const results = [];
+  for (const email of emails) {
+    try {
+      const result = await googleJson(accessToken, `https://www.googleapis.com/drive/v3/files/${spreadsheetId}/permissions?sendNotificationEmail=false&supportsAllDrives=true&fields=id`, {
+        method: "POST",
+        body: JSON.stringify({ type: "user", role: "reader", emailAddress: email }),
+      });
+      results.push({ email, ok: true, permissionId: result?.id || null });
+    } catch (error) {
+      results.push({ email, ok: false, error: error instanceof Error ? error.message : "share_failed" });
+    }
+  }
+  return results;
+}
+
+async function sendDebtEmail(input: { to: string[]; customerName: string; fromDate: string; toDate: string; spreadsheetName: string; webViewLink: string; payable: number; lineCount: number; isNpp: boolean }) {
+  const emailEnabled = (Deno.env.get("CUSTOMER_DEBT_EMAIL_ENABLED") || "true").toLowerCase() !== "false";
+  if (!emailEnabled) return { skipped: true, reason: "CUSTOMER_DEBT_EMAIL_ENABLED=false" };
+  const apiKey = Deno.env.get("RESEND_API_KEY");
+  if (!apiKey) throw new Error("RESEND_API_KEY missing");
+  const from = Deno.env.get("CUSTOMER_DEBT_EMAIL_FROM") || Deno.env.get("FINANCE_REPORT_FROM") || "BMQ Finance <ramen@bmq.vn>";
+  const subject = `BMQ - Công nợ ${input.customerName} ${vnDate(input.fromDate)}-${vnDate(input.toDate)}`;
+  const html = `
+    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#1f2937">
+      <p>Kính gửi Quý khách,</p>
+      <p>BMQ gửi bảng công nợ của <strong>${escapeHtml(input.customerName)}</strong> cho kỳ <strong>${vnDate(input.fromDate)} đến ${vnDate(input.toDate)}</strong>.</p>
+      <ul>
+        <li>Loại khách hàng: ${input.isNpp ? "NPP / đại lý cấp 1" : "Khách hàng trực tiếp"}</li>
+        <li>Số dòng công nợ: ${input.lineCount}</li>
+        <li>Tổng công nợ: <strong>${formatVnd(input.payable)}</strong></li>
+      </ul>
+      <p>Link Google Sheet: <a href="${escapeHtml(input.webViewLink)}">${escapeHtml(input.spreadsheetName)}</a></p>
+      <p>Trân trọng,<br/>BMQ Finance</p>
+    </div>`;
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ from, to: input.to, subject, html }),
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Resend error ${response.status}: ${text}`);
+  return { sent: true, provider: "resend", subject, response: text };
+}
+
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
   if (req.method === "OPTIONS") return corsPreflightResponse(req);
@@ -176,6 +232,7 @@ serve(async (req) => {
     const customerId = String(body.customerId || body.customer_id || body.nppCustomerId || body.npp_customer_id || "").trim();
     if (!customerId) throw new Error("customer_id_required");
     const parentFolderId = String(body.parentFolderId || DEFAULT_PARENT_FOLDER_ID).trim();
+    const shouldSendEmail = body.sendEmail === true || body.send_email === true;
 
     const { data: customer, error: customerError } = await supabaseAdmin
       .from("mini_crm_customers")
@@ -191,7 +248,7 @@ serve(async (req) => {
       .eq("customer_id", customerId)
       .order("email", { ascending: true });
     if (emailError) throw emailError;
-    const recipientEmails = Array.from(new Set((emailRows || [])
+    const recipientEmails: string[] = Array.from(new Set((emailRows || [])
       .map((row: CustomerEmail) => String(row.email || "").trim().toLowerCase())
       .filter((email: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))));
 
@@ -226,6 +283,8 @@ serve(async (req) => {
     const spreadsheetId = spreadsheet.spreadsheetId;
 
     let summaryCount = 0;
+    let emailLineCount = 0;
+    let emailPayable = 0;
     if (isNpp) {
       const childById = new Map(childRows.map((c) => [c.id, c]));
       const childByName = new Map(childRows.map((c) => [normalizeText(c.customer_name), c]));
@@ -250,6 +309,8 @@ serve(async (req) => {
       }
       const summaries = Array.from(groups.values()).map((g) => ({ ...g, payable: g.gross - g.fee })).sort((a, b) => b.gross - a.gross);
       summaryCount = summaries.length;
+      emailLineCount = summaries.reduce((s, g) => s + g.lines.length, 0);
+      emailPayable = summaries.reduce((s, g) => s + g.payable, 0);
 
       const addSheetRequests = summaries.filter((g) => g.id !== "unmapped").map((g) => ({ addSheet: { properties: { title: safeSheetTitle(g.name) } } }));
       if (addSheetRequests.length) await googleJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, { method: "POST", body: JSON.stringify({ requests: addSheetRequests }) });
@@ -286,6 +347,8 @@ serve(async (req) => {
       summaryCount = directLines.length;
       const gross = sum(directLines, "gross_revenue");
       const quantity = sum(directLines, "quantity");
+      emailLineCount = directLines.length;
+      emailPayable = gross;
       const values = [
         ["BMQ - Lầu 4 - Tòa Nhà 212 Pasteur - Quận 3 - TPHCM"],
         ["SỔ CHI TIẾT CÔNG NỢ"],
@@ -330,7 +393,27 @@ serve(async (req) => {
       console.warn("[export-npp-debt-sheet] move to folder skipped", moveError);
     }
 
-    return jsonResponse({ success: true, spreadsheetId, spreadsheetName, webViewLink: spreadsheet.spreadsheetUrl, summaryCount, recipientEmails, isNpp }, 200, corsHeaders);
+    let shareResults: Array<{ email: string; ok: boolean; permissionId?: string | null; error?: string }> = [];
+    let emailResult: unknown = null;
+    if (shouldSendEmail) {
+      if (!recipientEmails.length) throw new Error("customer_email_missing_in_crm");
+      shareResults = await shareSheetWithRecipients(accessToken, spreadsheetId, recipientEmails);
+      const failedShare = shareResults.filter((row) => !row.ok);
+      if (failedShare.length) throw new Error(`share_sheet_failed:${failedShare.map((row) => row.email).join(",")}`);
+      emailResult = await sendDebtEmail({
+        to: recipientEmails,
+        customerName,
+        fromDate,
+        toDate,
+        spreadsheetName,
+        webViewLink: spreadsheet.spreadsheetUrl,
+        payable: emailPayable,
+        lineCount: emailLineCount,
+        isNpp,
+      });
+    }
+
+    return jsonResponse({ success: true, spreadsheetId, spreadsheetName, webViewLink: spreadsheet.spreadsheetUrl, summaryCount, recipientEmails, isNpp, emailResult, shareResults }, 200, corsHeaders);
   } catch (error) {
     console.error("[export-npp-debt-sheet] Error", error);
     return jsonResponse({ success: false, error: error instanceof Error ? error.message : "Unknown error" }, 500, corsHeaders);

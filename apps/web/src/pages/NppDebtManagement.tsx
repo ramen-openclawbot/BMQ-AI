@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Download, Loader2, RefreshCw } from "lucide-react";
+import { Download, Loader2, Mail, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -87,7 +87,7 @@ type LedgerLineQuery = PromiseLike<{ data: LedgerLine[] | null; error: QueryErro
   order: (column: string, options: { ascending: boolean }) => LedgerLineQuery;
   limit: (count: number) => LedgerLineQuery;
 };
-type DebtExportResponse = { success?: boolean; error?: string; spreadsheetName?: string; webViewLink?: string; recipientEmails?: string[] };
+type DebtExportResponse = { success?: boolean; error?: string; spreadsheetName?: string; webViewLink?: string; recipientEmails?: string[]; emailResult?: { sent?: boolean; skipped?: boolean; reason?: string } };
 
 const debtDb = supabase as unknown as {
   from: (table: "mini_crm_customers") => CustomerQuery;
@@ -249,19 +249,19 @@ export default function NppDebtManagement() {
     }), { quantity: 0, gross: 0, managementFee: 0, payable: 0, lines: 0 });
   }, [directLines, isSelectedNpp, summaries]);
 
-  const exportMutation = useMutation({
+  const buildExportMutation = (sendEmail: boolean) => ({
     mutationFn: async () => {
       const { data, error } = await supabase.functions.invoke("export-npp-debt-sheet", {
-        body: { fromDate: dateFrom, toDate: dateTo, customerId: effectiveCustomerId },
+        body: { fromDate: dateFrom, toDate: dateTo, customerId: effectiveCustomerId, sendEmail },
       });
       if (error) throw error;
-      if (!data?.success) throw new Error(data?.error || "Export Google Sheet thất bại");
+      if (!data?.success) throw new Error(data?.error || (sendEmail ? "Gửi công nợ thất bại" : "Export Google Sheet thất bại"));
       return data;
     },
     onSuccess: (data: DebtExportResponse) => {
       const emails = data?.recipientEmails || [];
       toast({
-        title: "Đã xuất Google Sheet",
+        title: sendEmail ? "Đã gửi công nợ" : "Đã xuất Google Sheet",
         description: emails.length
           ? `${data?.spreadsheetName || "Công nợ khách hàng"} • Email CRM: ${emails.join(", ")}`
           : `${data?.spreadsheetName || "Công nợ khách hàng"} • Chưa có email CRM`,
@@ -269,9 +269,12 @@ export default function NppDebtManagement() {
       if (data?.webViewLink) window.open(data.webViewLink, "_blank", "noopener,noreferrer");
     },
     onError: (error: Error) => {
-      toast({ title: "Export thất bại", description: error?.message || "Không thể tạo Google Sheet", variant: "destructive" });
+      toast({ title: sendEmail ? "Gửi email thất bại" : "Export thất bại", description: error?.message || "Không thể tạo Google Sheet", variant: "destructive" });
     },
   });
+
+  const exportMutation = useMutation(buildExportMutation(false));
+  const sendDebtMutation = useMutation(buildExportMutation(true));
 
   const isLoading = customersLoading || linesLoading;
 
@@ -287,9 +290,13 @@ export default function NppDebtManagement() {
             {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
             Làm mới
           </Button>
-          <Button onClick={() => exportMutation.mutate()} disabled={!effectiveCustomerId || exportMutation.isPending}>
+          <Button onClick={() => exportMutation.mutate()} disabled={!effectiveCustomerId || exportMutation.isPending || sendDebtMutation.isPending}>
             {exportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
             Xuất Google Sheet
+          </Button>
+          <Button onClick={() => sendDebtMutation.mutate()} disabled={!effectiveCustomerId || exportMutation.isPending || sendDebtMutation.isPending}>
+            {sendDebtMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
+            Gửi công nợ
           </Button>
         </div>
       </div>
