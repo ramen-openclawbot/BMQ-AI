@@ -455,6 +455,7 @@ export default function MiniCrm() {
   const [setupIsNpp, setSetupIsNpp] = useState(false);
   const [setupUsesNpp, setSetupUsesNpp] = useState(false);
   const [setupSuppliedByNppCustomerId, setSetupSuppliedByNppCustomerId] = useState("");
+  const [setupNppManagementFee, setSetupNppManagementFee] = useState("");
   const [editContractFile, setEditContractFile] = useState<File | null>(null);
   const [editPriceRows, setEditPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
   const [editSkuPriceMap, setEditSkuPriceMap] = useState<Map<string, string>>(new Map());
@@ -471,6 +472,7 @@ export default function MiniCrm() {
   const [editIsNpp, setEditIsNpp] = useState(false);
   const [editUsesNpp, setEditUsesNpp] = useState(false);
   const [editSuppliedByNppCustomerId, setEditSuppliedByNppCustomerId] = useState("");
+  const [editNppManagementFee, setEditNppManagementFee] = useState("");
   const [kbChangeNote, setKbChangeNote] = useState("");
   const [agentCommand, setAgentCommand] = useState("");
   const [agentDraft, setAgentDraft] = useState<any | null>(null);
@@ -639,6 +641,7 @@ export default function MiniCrm() {
     setEditIsNpp(Boolean(c.is_npp));
     setEditUsesNpp(Boolean(c.supplied_by_npp_customer_id));
     setEditSuppliedByNppCustomerId(String(c.supplied_by_npp_customer_id || ""));
+    setEditNppManagementFee(String(Number(c.npp_management_fee_vnd || 0) || ""));
     const emails = (c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ");
     setEditEmailsInput(emails);
     setEditOriginalEmailsInput(emails);
@@ -967,7 +970,7 @@ export default function MiniCrm() {
 
       const { data: created, error: createError } = await (supabase as any)
         .from("mini_crm_customers")
-        .insert({ customer_name: trimmedName, customer_group: customerGroup, product_group: productGroup, is_npp: setupIsNpp, supplied_by_npp_customer_id: setupIsNpp ? null : (setupUsesNpp ? (setupSuppliedByNppCustomerId || null) : null) })
+        .insert({ customer_name: trimmedName, customer_group: customerGroup, product_group: productGroup, is_npp: setupIsNpp, supplied_by_npp_customer_id: setupIsNpp ? null : (setupUsesNpp ? (setupSuppliedByNppCustomerId || null) : null), npp_management_fee_vnd: Number(String(setupNppManagementFee || "0").replace(/[^0-9]/g, "")) || 0 })
         .select("id")
         .single();
       if (createError) throw createError;
@@ -1068,6 +1071,7 @@ export default function MiniCrm() {
       setSetupIsNpp(false);
       setSetupUsesNpp(false);
       setSetupSuppliedByNppCustomerId("");
+      setSetupNppManagementFee("");
       setTemplateFileName("");
       setTemplatePreview(null);
       setTemplateAiContext("");
@@ -1312,6 +1316,7 @@ export default function MiniCrm() {
         address: editAddress.trim() || null,
         is_npp: editIsNpp,
         supplied_by_npp_customer_id: editIsNpp ? null : (editUsesNpp ? (editSuppliedByNppCustomerId || null) : null),
+        npp_management_fee_vnd: Number(String(editNppManagementFee || "0").replace(/[^0-9]/g, "")) || 0,
       };
 
       const { data: updatedCustomer, error: updateError } = await (supabase as any)
@@ -3078,6 +3083,12 @@ export default function MiniCrm() {
               </div>
             )}
 
+            <div className="space-y-2 md:col-span-2">
+              <Label>Phí quản lí / hỗ trợ cố định (VND)</Label>
+              <Input value={setupNppManagementFee} onChange={(e) => setSetupNppManagementFee(e.target.value)} placeholder="VD: 300000" />
+              <p className="text-xs text-muted-foreground">Dùng để trừ khi tính công nợ NPP cho đại lý này.</p>
+            </div>
+
             <div className="space-y-2 md:col-span-2 rounded-md border p-3">
               <Label>Upload hợp đồng (PDF)</Label>
               <Input type="file" accept="application/pdf,.pdf" onChange={(e) => setSetupContractFile(e.target.files?.[0] || null)} />
@@ -3179,6 +3190,7 @@ export default function MiniCrm() {
                 <TableHead>Email</TableHead>
                 <TableHead>NPP</TableHead>
                 <TableHead>Lấy qua NPP</TableHead>
+                <TableHead>Phí QL</TableHead>
                 <TableHead>Knowledge</TableHead>
                 <TableHead>Trạng thái</TableHead>
                 <TableHead className="text-right">Thao tác</TableHead>
@@ -3194,6 +3206,7 @@ export default function MiniCrm() {
                     <TableCell>{(c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"}</TableCell>
                     <TableCell>{c.is_npp ? <Badge variant="default">Yes</Badge> : <Badge variant="secondary">No</Badge>}</TableCell>
                     <TableCell>{(() => { const npp = customers.find((x: any) => x.id === c.supplied_by_npp_customer_id); return npp?.customer_name || "-"; })()}</TableCell>
+                    <TableCell>{formatVnd(Number(c.npp_management_fee_vnd || 0))}</TableCell>
                     <TableCell>
                       {(() => {
                         const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === c.id);
@@ -3235,7 +3248,7 @@ export default function MiniCrm() {
               })}
               {filteredCustomers.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-muted-foreground py-6">{ui.noCustomers}</TableCell>
+                  <TableCell colSpan={10} className="text-center text-muted-foreground py-6">{ui.noCustomers}</TableCell>
                 </TableRow>
               )}
             </TableBody>
@@ -3722,6 +3735,11 @@ export default function MiniCrm() {
                 placeholder="VD: 123 Nguyễn Huệ, Q.1, TP.HCM"
               />
               <p className="text-xs text-muted-foreground">Tự động điền vào phiếu xuất kho khi chọn đơn hàng của khách này.</p>
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Phí quản lí / hỗ trợ cố định (VND)</Label>
+              <Input value={editNppManagementFee} onChange={(e) => setEditNppManagementFee(e.target.value)} placeholder="VD: 300000" />
+              <p className="text-xs text-muted-foreground">Dùng để trừ khi tính công nợ NPP cho đại lý này.</p>
             </div>
             <div className="space-y-2 md:col-span-2">
               <Label>Trạng thái</Label>

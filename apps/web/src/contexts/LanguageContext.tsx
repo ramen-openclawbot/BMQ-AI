@@ -28,6 +28,7 @@ interface Translations {
   financeCeoDeclaration: string;
   financeCostClassification: string;
   financeRevenueManagement: string;
+  financeDebtManagement: string;
   financeRevenueSetup: string;
   crm: string;
   poPurchasing: string;
@@ -218,6 +219,7 @@ const translations: Record<Language, Translations> = {
     financeCeoDeclaration: "CEO Declaration",
     financeCostClassification: "Cost Classification",
     financeRevenueManagement: "Revenue Management",
+    financeDebtManagement: "Debt Management",
     financeRevenueSetup: "Revenue Setup",
     crm: "CRM",
     poPurchasing: "PO (Procurement)",
@@ -406,6 +408,7 @@ const translations: Record<Language, Translations> = {
     financeCeoDeclaration: "CEO khai báo",
     financeCostClassification: "Phân loại chi phí",
     financeRevenueManagement: "Quản lý doanh thu",
+    financeDebtManagement: "Quản lý công nợ",
     financeRevenueSetup: "Thiết lập doanh thu",
     crm: "CRM",
     poPurchasing: "PO (Mua hàng)",

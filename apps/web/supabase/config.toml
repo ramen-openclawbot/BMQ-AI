@@ -68,6 +68,9 @@ verify_jwt = false
 [functions.po-gmail-sync]
 verify_jwt = false
 
+[functions.export-npp-debt-sheet]
+verify_jwt = false
+
 [functions.get-ai-credit-balance]
 verify_jwt = false
 

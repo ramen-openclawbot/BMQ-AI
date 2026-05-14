@@ -70,7 +70,16 @@ const navItems: NavItem[] = [
       { icon: ClipboardCheck, labelKey: "financeCostClassification", path: "/finance-control/classification", section: "finance", moduleKey: "finance_cost" },
     ],
   },
-  { icon: TrendingUp, labelKey: "financeRevenueManagement", path: "/finance-control/revenue", section: "finance", moduleKey: "finance_revenue" },
+  {
+    icon: TrendingUp,
+    labelKey: "financeRevenueManagement",
+    section: "finance",
+    moduleKey: "finance_revenue",
+    children: [
+      { icon: TrendingUp, labelKey: "financeRevenueManagement", path: "/finance-control/revenue", section: "finance", moduleKey: "finance_revenue" },
+      { icon: Wallet, labelKey: "financeDebtManagement", path: "/finance-control/revenue/debt", section: "finance", moduleKey: "finance_revenue" },
+    ],
+  },
   { icon: UserRoundCog, labelKey: "crm", path: "/mini-crm", section: "finance", moduleKey: "crm" },
   { icon: Inbox, labelKey: "poSales", path: "/sales-po-inbox", section: "finance", moduleKey: "sales_po_inbox" },
   { icon: ShoppingCart, labelKey: "poPurchasing", path: "/purchase-orders", section: "finance", showPOBadge: true, moduleKey: "purchase_orders" },
@@ -184,7 +193,7 @@ export function Sidebar() {
             const prevItem = idx > 0 ? visibleItems[idx - 1] : null;
             const showSectionHeader = !prevItem || prevItem.section !== item.section;
             return (
-              <div key={item.path}>
+              <div key={item.path || item.labelKey}>
                 {!collapsed && showSectionHeader && (
                   <div className="pt-4 first:pt-0">
                     {idx !== 0 && <div className="mx-4 mb-3 border-t border-sidebar-border/70" />}
