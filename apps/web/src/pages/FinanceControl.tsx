@@ -2182,12 +2182,6 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                     if (files.length) await processSlipUpload("unc", files);
                     e.currentTarget.value = "";
                   }} />
-                  {activeSlipScan?.type === "unc" && (
-                    <div className="flex items-center gap-2 rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1.5 text-xs font-medium text-amber-700 dark:text-amber-300">
-                      <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-                      <span>{activeSlipScanLabel}</span>
-                    </div>
-                  )}
                   <Button
                     type="button"
                     variant="ghost"
@@ -2242,12 +2236,6 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                     if (files.length) await processSlipUpload("qtm", files);
                     e.currentTarget.value = "";
                   }} />
-                  {activeSlipScan?.type === "qtm" && (
-                    <div className="flex items-center gap-2 rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1.5 text-xs font-medium text-amber-700 dark:text-amber-300">
-                      <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-                      <span>{activeSlipScanLabel}</span>
-                    </div>
-                  )}
                   <Button
                     type="button"
                     variant="ghost"
