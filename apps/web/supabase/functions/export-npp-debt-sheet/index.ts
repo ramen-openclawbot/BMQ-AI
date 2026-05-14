@@ -106,15 +106,42 @@ async function getAccessToken(supabaseAdmin: DbClient): Promise<string> {
   return tokens.access_token;
 }
 
+const parseGoogleJson = (text: string) => {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch (_error) {
+    return { raw: text };
+  }
+};
+
+const friendlyGoogleError = (message: string) => {
+  if (message.includes("ACCESS_TOKEN_SCOPE_INSUFFICIENT") || message.includes("insufficient authentication scopes")) {
+    return "Google Drive đang kết nối bằng quyền read-only. Vào Cài đặt hệ thống → Tích hợp Google Drive → Ngắt kết nối/Kết nối lại để cấp quyền tạo Google Sheet, rồi export lại.";
+  }
+  return message;
+};
+
 async function googleJson(accessToken: string, url: string, init: RequestInit = {}) {
   const response = await fetch(url, {
     ...init,
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", ...(init.headers || {}) },
   });
   const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  const data = parseGoogleJson(text);
   if (!response.ok) throw new Error(`google_api_error:${response.status}:${text}`);
   return data;
+}
+
+function sheetIdByTitle(spreadsheet: { sheets?: Array<{ properties?: { sheetId?: number; title?: string | null } }> }, title: string) {
+  return spreadsheet.sheets?.find((sheet) => sheet.properties?.title === title)?.properties?.sheetId;
+}
+
+async function getSheetId(accessToken: string, spreadsheetId: string, title: string) {
+  const spreadsheet = await googleJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets(properties(sheetId,title))`);
+  const sheetId = sheetIdByTitle(spreadsheet, title);
+  if (sheetId == null) throw new Error(`sheet_id_missing:${title}`);
+  return sheetId;
 }
 
 async function canExportRevenue(supabaseAdmin: DbClient, userId: string): Promise<boolean> {
@@ -376,13 +403,15 @@ serve(async (req) => {
       body: JSON.stringify({ valueInputOption: "USER_ENTERED", data }),
     });
 
+    const totalSheetId = sheetIdByTitle(spreadsheet, "TOTAL") ?? await getSheetId(accessToken, spreadsheetId, "TOTAL");
+    const totalColumnCount = isNpp ? 5 : 7;
     await googleJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
       method: "POST",
       body: JSON.stringify({
         requests: [
-          { repeatCell: { range: { sheetId: 0, startRowIndex: 0, endRowIndex: 4 }, cell: { userEnteredFormat: { textFormat: { bold: true }, horizontalAlignment: "CENTER" } }, fields: "userEnteredFormat(textFormat,horizontalAlignment)" } },
-          { repeatCell: { range: { sheetId: 0, startRowIndex: 5, endRowIndex: 6 }, cell: { userEnteredFormat: { textFormat: { bold: true }, backgroundColor: { red: 0.85, green: 0.47, blue: 0.04 } } }, fields: "userEnteredFormat(textFormat,backgroundColor)" } },
-          { autoResizeDimensions: { dimensions: { sheetId: 0, dimension: "COLUMNS", startIndex: 0, endIndex: 7 } } },
+          { repeatCell: { range: { sheetId: totalSheetId, startRowIndex: 0, endRowIndex: 4 }, cell: { userEnteredFormat: { textFormat: { bold: true }, horizontalAlignment: "CENTER" } }, fields: "userEnteredFormat(textFormat,horizontalAlignment)" } },
+          { repeatCell: { range: { sheetId: totalSheetId, startRowIndex: 5, endRowIndex: 6 }, cell: { userEnteredFormat: { textFormat: { bold: true }, backgroundColor: { red: 0.85, green: 0.47, blue: 0.04 } } }, fields: "userEnteredFormat(textFormat,backgroundColor)" } },
+          { autoResizeDimensions: { dimensions: { sheetId: totalSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: totalColumnCount } } },
         ],
       }),
     });
@@ -416,6 +445,7 @@ serve(async (req) => {
     return jsonResponse({ success: true, spreadsheetId, spreadsheetName, webViewLink: spreadsheet.spreadsheetUrl, summaryCount, recipientEmails, isNpp, emailResult, shareResults }, 200, corsHeaders);
   } catch (error) {
     console.error("[export-npp-debt-sheet] Error", error);
-    return jsonResponse({ success: false, error: error instanceof Error ? error.message : "Unknown error" }, 500, corsHeaders);
+    const rawMessage = error instanceof Error ? error.message : "Unknown error";
+    return jsonResponse({ success: false, error: friendlyGoogleError(rawMessage) }, 500, corsHeaders);
   }
 });

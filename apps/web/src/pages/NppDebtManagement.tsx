@@ -258,11 +258,22 @@ export default function NppDebtManagement() {
 
   const buildExportMutation = (sendEmail: boolean) => ({
     mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke("export-npp-debt-sheet", {
-        body: { fromDate: dateFrom, toDate: dateTo, customerId: effectiveCustomerId, sendEmail },
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (sessionError || !accessToken) throw new Error("Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.");
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/export-npp-debt-sheet`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ fromDate: dateFrom, toDate: dateTo, customerId: effectiveCustomerId, sendEmail }),
       });
-      if (error) throw error;
-      if (!data?.success) throw new Error(data?.error || (sendEmail ? "Gửi công nợ thất bại" : "Export Google Sheet thất bại"));
+      const data = await response.json().catch(() => null) as DebtExportResponse | null;
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || (sendEmail ? "Gửi công nợ thất bại" : "Export Google Sheet thất bại"));
+      }
       return data;
     },
     onMutate: () => {
