@@ -84,9 +84,6 @@ type ManualRevenueForm = {
   quantity: string;
   unit_price: string;
   gross_revenue: string;
-  evidence_note: string;
-  evidence_url: string;
-  audit_note: string;
 };
 
 type ManualRevenuePayload = {
@@ -183,9 +180,6 @@ const buildManualRevenueForm = (period: string, channel: string, revenueDate: st
   quantity: "",
   unit_price: "6500",
   gross_revenue: "",
-  evidence_note: "",
-  evidence_url: "",
-  audit_note: "",
 });
 
 const ledgerSnapshot = (row: RevenueLine) => ({
@@ -542,14 +536,8 @@ export default function RevenueSourceDetail() {
       return;
     }
     const customerName = manualForm.customer_name.trim();
-    const evidenceNote = manualForm.evidence_note.trim();
-    const note = manualForm.audit_note.trim();
     if (!manualForm.revenue_date || !manualForm.channel || !customerName) {
       toast({ title: "Thiếu ngày, kênh hoặc khách hàng", variant: "destructive" });
-      return;
-    }
-    if (evidenceNote.length < 10 || note.length < 10) {
-      toast({ title: "Thiếu lý do/evidence", description: "Vui lòng nhập evidence và audit note tối thiểu 10 ký tự.", variant: "destructive" });
       return;
     }
 
@@ -559,24 +547,33 @@ export default function RevenueSourceDetail() {
       const unitPrice = toNumber(manualForm.unit_price);
       const grossRevenue = toNumber(manualForm.gross_revenue);
       if (quantity <= 0 || unitPrice < 0 || grossRevenue <= 0) throw new Error("Số lượng/doanh thu phải lớn hơn 0");
+      const productName = manualForm.product_name.trim();
+      const itemNote = manualForm.item_note.trim();
+      const autoNote = [
+        "Bổ sung doanh thu thủ công từ vận hành.",
+        `Khách: ${customerName}.`,
+        productName ? `Sản phẩm: ${productName}.` : null,
+        `SL ${quantity}, đơn giá ${unitPrice}, doanh thu ${grossRevenue}.`,
+        itemNote ? `Ghi chú: ${itemNote}.` : null,
+      ].filter(Boolean).join(" ");
       const payload: ManualRevenuePayload = {
         period: manualForm.revenue_date.slice(0, 7),
         revenue_date: manualForm.revenue_date,
         channel: manualForm.channel,
         customer_name: customerName,
-        product_name: manualForm.product_name.trim() || null,
-        item_note: manualForm.item_note.trim() || null,
+        product_name: productName || null,
+        item_note: itemNote || null,
         quantity,
         unit_price: unitPrice,
         gross_revenue: grossRevenue,
         manual_entry_type: "missing_po_email",
         reason_code: "staff_forgot_po_email",
-        evidence_note: evidenceNote,
-        evidence_url: manualForm.evidence_url.trim() || null,
+        evidence_note: autoNote,
+        evidence_url: null,
       };
       const { error: addError } = await db.rpc("add_manual_revenue_ledger_line", {
         _payload: payload,
-        _note: note,
+        _note: autoNote,
       });
       if (addError) throw addError;
       toast({ title: "Đã thêm dòng doanh thu thủ công và ghi audit log." });
@@ -865,15 +862,8 @@ export default function RevenueSourceDetail() {
         <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Thêm dòng doanh thu thủ công</DialogTitle>
-            <DialogDescription>
-              Dòng này sẽ vào Doanh thu đã kiểm soát và được ghi audit log. Không thay thế audit cuối tháng.
-            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
-            <div className="rounded-lg border border-amber-300/40 bg-amber-50 p-3 text-sm text-amber-800">
-              <div className="font-medium">Loại bổ sung: Thiếu PO/email</div>
-              <div>Áp dụng khi staff quên gửi mail đặt bánh cho đại lý làm PO parse thiếu so với thực tế vận hành.</div>
-            </div>
             <div className="grid gap-3 md:grid-cols-3">
               <div className="space-y-2">
                 <Label htmlFor="manual-revenue-date">Ngày doanh thu</Label>
@@ -915,20 +905,6 @@ export default function RevenueSourceDetail() {
                 <Input id="manual-item-note" value={manualForm.item_note} onChange={(e) => updateManualField("item_note", e.target.value)} placeholder="VD: Bổ sung công nợ vì thiếu email PO" />
               </div>
             </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="manual-evidence">Nguồn xác nhận / evidence</Label>
-                <Textarea id="manual-evidence" value={manualForm.evidence_note} onChange={(e) => updateManualField("evidence_note", e.target.value)} placeholder="VD: Quản lý vận hành xác nhận đại lý có nhận thêm 100 bánh ngày này..." />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="manual-audit-note">Lý do / audit note</Label>
-                <Textarea id="manual-audit-note" value={manualForm.audit_note} onChange={(e) => updateManualField("audit_note", e.target.value)} placeholder="VD: Thiếu PO/email do staff quên gửi mail, bổ sung theo xác nhận vận hành." />
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="manual-evidence-url">Link ảnh/tài liệu nếu có</Label>
-                <Input id="manual-evidence-url" value={manualForm.evidence_url} onChange={(e) => updateManualField("evidence_url", e.target.value)} placeholder="https://..." />
-              </div>
-            </div>
             {duplicateWarnings.length ? (
               <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
                 <div className="font-medium">Có {duplicateWarnings.length} dòng tương tự trong ngày này. Vui lòng kiểm tra để tránh cộng trùng công nợ.</div>
@@ -939,9 +915,6 @@ export default function RevenueSourceDetail() {
                 </div>
               </div>
             ) : null}
-            <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
-              Sau khi lưu: source_type = manual_entry, approval_status = approved, audit_status = adjusted, confidence_status = manual_review, review_status = resolved, reconciliation_status = manual_override.
-            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={closeManualAdd} disabled={saving}>Huỷ</Button>

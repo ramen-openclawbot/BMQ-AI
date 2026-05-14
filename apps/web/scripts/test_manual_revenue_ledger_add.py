@@ -44,15 +44,25 @@ def test_manual_revenue_ui_has_required_staff_flow() -> None:
         "add_manual_revenue_ledger_line",
         "+ Thêm dòng doanh thu",
         "Thiếu PO/email",
-        "Dòng này sẽ vào Doanh thu đã kiểm soát",
         "Thêm vào Doanh thu đã kiểm soát",
-        "evidence_note",
+        "Bổ sung doanh thu thủ công từ vận hành",
+        "evidence_note: autoNote",
         "duplicateWarnings",
         "manual_entry_type",
         "staff_forgot_po_email",
     ]
     for needle in required:
         assert needle in text, f"missing UI marker: {needle}"
+
+    removed_visible_fields = [
+        "Nguồn xác nhận / evidence",
+        "Lý do / audit note",
+        "Link ảnh/tài liệu nếu có",
+        "Sau khi lưu: source_type = manual_entry",
+        "Dòng này sẽ vào Doanh thu đã kiểm soát",
+    ]
+    for needle in removed_visible_fields:
+        assert needle not in text, f"manual add UI should not show operational clutter: {needle}"
 
 
 if __name__ == "__main__":
