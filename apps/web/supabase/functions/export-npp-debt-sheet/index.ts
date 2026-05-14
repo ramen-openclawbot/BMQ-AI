@@ -360,14 +360,14 @@ serve(async (req) => {
           ["SỔ CHI TIẾT CÔNG NỢ"],
           [`${group.name} • Từ ${vnDate(fromDate)} đến ${vnDate(toDate)}`],
           [],
-          ["Ngày", "Diễn giải", "Ghi chú", "Số lượng", "Đơn giá", "Thành tiền"],
-          ...group.lines.map((line) => [line.revenue_date, line.product_name || line.customer_name || "Bánh mì", line.item_note || getRouteCustomerName(line) || "", Number(line.quantity || 0), Number(line.unit_price || 0), Number(line.gross_revenue || 0)]),
+          ["Ngày", "Diễn giải", "Số lượng", "Đơn giá", "Thành tiền"],
+          ...group.lines.map((line) => [line.revenue_date, line.product_name || line.customer_name || "Bánh mì", Number(line.quantity || 0), Number(line.unit_price || 0), Number(line.gross_revenue || 0)]),
           [],
-          ["", "", "Tổng tiền bánh", "", "", group.gross],
-          ["", "", "Phí quản lí", "", "", -group.fee],
-          ["", "", "Công nợ phải thanh toán", "", "", group.payable],
+          ["", "", "Tổng tiền bánh", "", group.gross],
+          ["", "", "Phí quản lí", "", -group.fee],
+          ["", "", "Công nợ phải thanh toán", "", group.payable],
         ];
-        data.push({ range: sheetRange(title, "F", values.length), values });
+        data.push({ range: sheetRange(title, "E", values.length), values });
       }
     } else {
       const directLines = allLines.filter((line) => lineBelongsToCustomer(line, customer as Customer));
@@ -382,20 +382,19 @@ serve(async (req) => {
         [`${customerName} • Từ ${vnDate(fromDate)} đến ${vnDate(toDate)}`],
         [`Email CRM: ${recipientEmails.join(", ") || "Chưa có email trong CRM"}`],
         [],
-        ["Ngày", "Kênh", "Diễn giải", "Ghi chú", "Số lượng", "Đơn giá", "Công nợ"],
+        ["Ngày", "Kênh", "Diễn giải", "Số lượng", "Đơn giá", "Công nợ"],
         ...directLines.map((line) => [
           line.revenue_date,
           line.channel || "",
           line.product_name || line.customer_name || "Doanh thu",
-          line.item_note || getRouteCustomerName(line) || line.revenue_source_documents?.source_name || "",
           Number(line.quantity || 0),
           Number(line.unit_price || 0),
           Number(line.gross_revenue || 0),
         ]),
         [],
-        ["", "", "TỔNG", "", quantity, "", gross],
+        ["", "", "TỔNG", quantity, "", gross],
       ];
-      data.push({ range: `TOTAL!A1:G${values.length}`, values });
+      data.push({ range: `TOTAL!A1:F${values.length}`, values });
     }
 
     await googleJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
@@ -404,7 +403,7 @@ serve(async (req) => {
     });
 
     const totalSheetId = sheetIdByTitle(spreadsheet, "TOTAL") ?? await getSheetId(accessToken, spreadsheetId, "TOTAL");
-    const totalColumnCount = isNpp ? 5 : 7;
+    const totalColumnCount = isNpp ? 5 : 6;
     await googleJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
       method: "POST",
       body: JSON.stringify({
