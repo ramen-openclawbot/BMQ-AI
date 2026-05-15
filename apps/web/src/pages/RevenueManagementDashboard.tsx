@@ -59,10 +59,6 @@ type RevenueLine = {
   gross_revenue: number | null;
   source_type: string;
   approval_status: string;
-  audit_status: string;
-  confidence_status: string;
-  review_status: string;
-  reconciliation_status: string;
   raw_payload: unknown;
 };
 
@@ -188,7 +184,7 @@ async function fetchAllRevenueLines(period: string, controlledOnly: boolean) {
   for (let from = 0; ; from += pageSize) {
     let q = db
       .from("revenue_ledger_lines")
-      .select("id,period,revenue_date,channel,source_tab,customer_id,parent_customer_id,customer_name,quantity,gross_revenue,source_type,approval_status,audit_status,confidence_status,review_status,reconciliation_status,raw_payload,source_document:revenue_source_documents!inner(status)")
+      .select("id,period,revenue_date,channel,source_tab,customer_id,parent_customer_id,customer_name,quantity,gross_revenue,source_type,approval_status,raw_payload,source_document:revenue_source_documents!inner(status)")
       .eq("period", period)
       .order("revenue_date", { ascending: true })
       .range(from, from + pageSize - 1);
@@ -604,19 +600,18 @@ export default function RevenueManagementDashboard() {
       previousMap.set(rollup.key, cur);
     }
 
-    const map = new Map<string, { key: string; name: string; revenue: number; previousRevenue: number; qty: number; rows: number; review: number; sourceTypes: Set<string> }>();
+    const map = new Map<string, { key: string; name: string; revenue: number; previousRevenue: number; qty: number; rows: number; sourceTypes: Set<string> }>();
     for (const [key, prev] of previousMap) {
-      map.set(key, { key, name: prev.name, revenue: 0, previousRevenue: prev.revenue, qty: 0, rows: 0, review: 0, sourceTypes: new Set<string>() });
+      map.set(key, { key, name: prev.name, revenue: 0, previousRevenue: prev.revenue, qty: 0, rows: 0, sourceTypes: new Set<string>() });
     }
 
     for (const row of lines) {
       const rollup = resolveRollup(row);
-      const cur = map.get(rollup.key) || { key: rollup.key, name: rollup.name, revenue: 0, previousRevenue: previousMap.get(rollup.key)?.revenue || 0, qty: 0, rows: 0, review: 0, sourceTypes: new Set<string>() };
+      const cur = map.get(rollup.key) || { key: rollup.key, name: rollup.name, revenue: 0, previousRevenue: previousMap.get(rollup.key)?.revenue || 0, qty: 0, rows: 0, sourceTypes: new Set<string>() };
       cur.name = rollup.name || cur.name;
       cur.revenue += Number(row.gross_revenue || 0);
       cur.qty += Number(row.quantity || 0);
       cur.rows += 1;
-      if (row.review_status === "needs_manual_review" || row.audit_status === "needs_review") cur.review += Number(row.gross_revenue || 0);
       cur.sourceTypes.add(row.source_type);
       map.set(rollup.key, cur);
     }
@@ -653,8 +648,8 @@ export default function RevenueManagementDashboard() {
           </h1>
           <p className="max-w-3xl text-sm leading-6 text-stone-300/80 md:text-base">
             {isVi
-              ? "Dashboard production theo tháng, ngày, kênh và customer. Số chính lấy từ revenue ledger đã kiểm soát; PO/email parse là nguồn vận hành để kiểm tra và sửa khi sai."
-              : "Production dashboard by month, day, channel, and customer. The main numbers come from the controlled revenue ledger; parsed PO/email rows remain operational evidence for review and edits."}
+              ? "Dashboard production theo tháng, ngày, kênh và customer. Số chính lấy từ revenue ledger đã kiểm soát; PO/email parse là nguồn vận hành để đối chiếu và sửa khi sai."
+              : "Production dashboard by month, day, channel, and customer. The main numbers come from the controlled revenue ledger; parsed PO/email rows remain operational evidence for reconciliation and edits."}
           </p>
         </div>
         <div aria-label="Xem doanh thu theo tháng" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200/10 bg-gradient-to-br from-stone-900/80 to-stone-950/60 p-2 ring-1 ring-stone-200/5">
@@ -866,7 +861,7 @@ export default function RevenueManagementDashboard() {
               </CardHeader>
               <CardContent className="overflow-x-auto pt-4">
                 <Table>
-                  <TableHeader><TableRow className="border-b border-stone-700/50"><TableHead className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Customer / NPP</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Qty</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Revenue</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">MoM</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Cần kiểm tra</TableHead><TableHead className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Source</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Action</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow className="border-b border-stone-700/50"><TableHead className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Customer / NPP</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Qty</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Revenue</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">MoM</TableHead><TableHead className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Source</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Action</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {byCustomer.map((row) => (
                       <TableRow key={row.key} className="border-b border-stone-800/60 hover:bg-amber-400/[0.08]">
@@ -877,7 +872,6 @@ export default function RevenueManagementDashboard() {
                           <div className="font-medium">{vnd(row.delta)}</div>
                           <div className="text-xs text-stone-400">{row.pct === null ? "N/A" : `${row.pct >= 0 ? "+" : ""}${numberFmt(row.pct)}%`}</div>
                         </TableCell>
-                        <TableCell className="text-right">{row.review > 0 ? <Badge className="border border-rose-300/40 bg-rose-400/10 text-rose-100" variant="outline">{vnd(row.review)}</Badge> : <span className="text-stone-500">—</span>}</TableCell>
                         <TableCell>{row.sourceTypes.size > 0 ? Array.from(row.sourceTypes).map((s) => <Badge key={s} className="mr-1 border border-amber-300/25 bg-amber-400/[0.07] text-amber-100" variant="secondary">{sourceTypeLabel[s] || s}</Badge>) : <Badge className="border border-stone-500/50 bg-stone-800/70 text-stone-200" variant="secondary">Kỳ trước</Badge>}</TableCell>
                         <TableCell className="text-right"><Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100" size="sm" variant="outline" onClick={() => openSources({ customer_key: row.key })}>Chi tiết</Button></TableCell>
                       </TableRow>
