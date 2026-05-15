@@ -28,14 +28,45 @@ function validStrictIsoDate(value) {
 
 function requestedRevenueDate(query) {
   const value = query && query.revenueDate !== undefined ? query.revenueDate : query?.date;
-  if (value === undefined) return { ok: true, revenueDate: null };
+  if (value === undefined) return { ok: true, revenueDate: null, explicit: false };
   if (Array.isArray(value)) {
     if (value.length !== 1) return { ok: false, error: "Invalid revenueDate. Provide exactly one YYYY-MM-DD value." };
     return requestedRevenueDate({ revenueDate: value[0] });
   }
   const revenueDate = validStrictIsoDate(value);
   if (!revenueDate) return { ok: false, error: "Invalid revenueDate. Expected a real date in YYYY-MM-DD format." };
-  return { ok: true, revenueDate };
+  return { ok: true, revenueDate, explicit: true };
+}
+
+function shiftIsoDate(value, days) {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function vietnamDateParts(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now).reduce((acc, part) => ({ ...acc, [part.type]: part.value }), {});
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    hour: Number(parts.hour || 0),
+    minute: Number(parts.minute || 0),
+  };
+}
+
+function cronIntendedRevenueDate(now = new Date()) {
+  const vn = vietnamDateParts(now);
+  const localMinute = vn.hour * 60 + vn.minute;
+  // Vercel may invoke the 23:59 VN cron after midnight. Retry attempts until
+  // before 03:00 VN still belong to the previous business day.
+  return localMinute < 3 * 60 ? shiftIsoDate(vn.date, -1) : vn.date;
 }
 
 function safeReportSummary(upstreamPayload) {
@@ -49,6 +80,8 @@ function safeReportSummary(upstreamPayload) {
     poReceivedFrom: upstreamPayload.poReceivedFrom,
     poReceivedTo: upstreamPayload.poReceivedTo,
     revenueDateSource: upstreamPayload.revenueDateSource,
+    cronScheduledAttempt: upstreamPayload.cronScheduledAttempt,
+    skipped: upstreamPayload.skipped,
     explicitRevenueDate: upstreamPayload.explicitRevenueDate,
     manualRecovery: upstreamPayload.manualRecovery,
     noDoubleCountKey: upstreamPayload.noDoubleCountKey,
@@ -138,9 +171,12 @@ export default async function handler(req, res) {
     res.status(400).json({ error: parsedRevenueDate.error });
     return;
   }
+  const scheduledRevenueDate = parsedRevenueDate.revenueDate || cronIntendedRevenueDate();
   const upstreamBody = {
     action: "auto_daily_post",
-    ...(parsedRevenueDate.revenueDate ? { revenueDate: parsedRevenueDate.revenueDate } : {}),
+    revenueDate: scheduledRevenueDate,
+    trigger: parsedRevenueDate.explicit ? "manual_cron_proxy" : "vercel_cron",
+    cronScheduledAttempt: !parsedRevenueDate.explicit,
   };
 
   try {

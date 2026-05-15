@@ -1367,12 +1367,36 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
 
   const window = explicitRevenueDate ? explicitRevenueDateWindow(explicitRevenueDate) : autoDailyWindow();
   const noDoubleCountKey = `auto_daily_po_email_parse:${window.revenueDateFrom}`;
-  const revenueDateSource = explicitRevenueDate ? "explicit" : "auto_daily_window";
-  const manualRecovery = Boolean(explicitRevenueDate);
+  const trigger = String(body?.trigger || "vercel_cron");
+  const cronScheduledAttempt = body?.cronScheduledAttempt === true || trigger === "vercel_cron";
+  const revenueDateSource = explicitRevenueDate
+    ? (cronScheduledAttempt ? "scheduled_cron_proxy" : "explicit")
+    : "auto_daily_window";
+  const manualRecovery = Boolean(explicitRevenueDate) && !cronScheduledAttempt;
   const startedAt = new Date().toISOString();
   let runId: string | null = null;
 
   try {
+    if (cronScheduledAttempt) {
+      const existingReport = await fetchExistingAutoDailyReport(supabaseAdmin, window.revenueDateFrom);
+      if (existingReport) {
+        return jsonResponse(req, {
+          success: true,
+          action: "auto_daily_post",
+          skipped: true,
+          reason: "auto_daily_already_posted_for_revenue_date",
+          revenueDate: window.revenueDateFrom,
+          revenueDateSource,
+          cronScheduledAttempt,
+          manualRecovery,
+          noDoubleCountKey,
+          poReceivedFrom: window.poReceivedFrom,
+          poReceivedTo: window.poReceivedTo,
+          existingReport,
+        });
+      }
+    }
+
     await upsertAutoDailyParseLog(supabaseAdmin, {
       revenueDate: window.revenueDateFrom,
       period: window.period,
@@ -1380,7 +1404,7 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
       startedAt,
       poReceivedFrom: window.poReceivedFrom,
       poReceivedTo: window.poReceivedTo,
-      metadata: { revenueDateSource, manualRecovery, noDoubleCountKey, trigger: "vercel_cron" },
+      metadata: { revenueDateSource, manualRecovery, cronScheduledAttempt, noDoubleCountKey, trigger },
     });
 
     const preview = await runCurrentMonthPreview(req, supabaseAdmin, null, undefined, {
@@ -1389,7 +1413,7 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
       monthlyParseKind: "auto_daily_post",
       sourceTab: "PO/email auto daily parse",
       runSummary: {
-        triggered_by: "vercel_cron",
+        triggered_by: trigger,
         controlled_kind: "auto_daily_temporary_controlled_parse",
         temporary_controlled_revenue: true,
         trust_semantics: "not_trusted_month_end_audit_source",
@@ -1398,6 +1422,7 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
         revenue_date_source: revenueDateSource,
         explicit_revenue_date: explicitRevenueDate,
         manual_recovery: manualRecovery,
+        cron_scheduled_attempt: cronScheduledAttempt,
       },
       linePayloadMetadata: {
         controlled_kind: "auto_daily_temporary_controlled_parse",
@@ -1409,6 +1434,7 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
         revenue_date_source: revenueDateSource,
         explicit_revenue_date: explicitRevenueDate,
         manual_recovery: manualRecovery,
+        cron_scheduled_attempt: cronScheduledAttempt,
       },
     });
 
@@ -1440,7 +1466,7 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
       rowCount,
       grossTotal,
       reviewFlaggedLineCount,
-      metadata: { revenueDateSource, manualRecovery, noDoubleCountKey, gmailSyncSummary, postResult },
+      metadata: { revenueDateSource, manualRecovery, cronScheduledAttempt, noDoubleCountKey, gmailSyncSummary, postResult },
     });
 
     return jsonResponse(req, {
@@ -1448,6 +1474,7 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
       action: "auto_daily_post",
       revenueDate: window.revenueDateFrom,
       revenueDateSource,
+      cronScheduledAttempt,
       explicitRevenueDate: explicitRevenueDate,
       manualRecovery,
       noDoubleCountKey,
@@ -1469,7 +1496,7 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
       poReceivedFrom: window.poReceivedFrom,
       poReceivedTo: window.poReceivedTo,
       errorMessage: message,
-      metadata: { revenueDateSource, manualRecovery, noDoubleCountKey },
+      metadata: { revenueDateSource, manualRecovery, cronScheduledAttempt, noDoubleCountKey },
     });
     throw error;
   }

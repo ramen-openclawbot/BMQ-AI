@@ -25,9 +25,21 @@ def assert_contains(text: str, needle: str, label: str) -> None:
     assert needle in text, f"missing {label}: expected to find {needle!r}"
 
 
-def test_single_vercel_cron_at_2359_vietnam_time() -> None:
+def test_single_vercel_cron_after_business_day_close_vietnam_time() -> None:
     crons = vercel.get("crons", [])
-    assert crons == [{"path": "/api/po-sync-cron", "schedule": "59 16 * * *"}]
+    assert crons == [{"path": "/api/po-sync-cron", "schedule": "59 17 * * *"}]
+
+
+def test_proxy_uses_intended_vietnam_business_date() -> None:
+    for needle, label in [
+        ("function cronIntendedRevenueDate", "proxy computes intended business date"),
+        ("localMinute < 3 * 60", "post-midnight grace window"),
+        ("shiftIsoDate(vn.date, -1)", "after-midnight attempts target previous day"),
+        ("revenueDate: scheduledRevenueDate", "proxy always passes explicit date to edge function"),
+        ('trigger: parsedRevenueDate.explicit ? "manual_cron_proxy" : "vercel_cron"', "proxy distinguishes manual vs scheduled trigger"),
+        ("cronScheduledAttempt: !parsedRevenueDate.explicit", "scheduled attempt marker"),
+    ]:
+        assert_contains(cron_api, needle, label)
 
 
 def test_proxy_calls_revenue_auto_daily_action() -> None:
@@ -91,11 +103,13 @@ def test_explicit_revenue_date_cron_window_and_metadata() -> None:
         ("hasRevenueWindow: true", "explicit revenue window enabled"),
         ("Object.prototype.hasOwnProperty.call(body, \"revenueDate\")", "body-only explicit date detection"),
         ("Invalid revenueDate. Expected a real date in YYYY-MM-DD format.", "invalid explicit date 400 message"),
-        ('revenueDateSource = explicitRevenueDate ? "explicit" : "auto_daily_window"', "revenue date source metadata"),
+        ('? (cronScheduledAttempt ? "scheduled_cron_proxy" : "explicit")', "revenue date source metadata"),
         ("manualRecovery", "manual recovery response metadata"),
         ("explicitRevenueDate", "explicit date response metadata"),
         ("noDoubleCountKey", "response no-double-count key"),
         ("auto_daily_po_email_parse:${window.revenueDateFrom}", "stable date-based no-double-count key"),
+        ("fetchExistingAutoDailyReport(supabaseAdmin, window.revenueDateFrom)", "scheduled cron skips already posted dates"),
+        ('reason: "auto_daily_already_posted_for_revenue_date"', "skip reason for retries"),
         ("monthly_parse_kind: options.monthlyParseKind", "final run summary retains parse kind"),
         ("...(options.runSummary || {})", "run summary preserves explicit metadata"),
         ("revenue_date_source: revenueDateSource", "line payload explicit source metadata"),
@@ -115,7 +129,7 @@ def test_proxy_revenue_date_query_validation_and_pass_through() -> None:
         ("query.revenueDate !== undefined ? query.revenueDate : query?.date", "revenueDate preferred over date alias"),
         ("Array.isArray(value)", "array query values handled"),
         ("res.status(400).json({ error: parsedRevenueDate.error })", "invalid date returns 400"),
-        ("...(parsedRevenueDate.revenueDate ? { revenueDate: parsedRevenueDate.revenueDate } : {})", "explicit date upstream pass-through"),
+        ("revenueDate: scheduledRevenueDate", "validated date upstream pass-through"),
         ("JSON.stringify(upstreamBody)", "upstream uses validated body"),
         ("revenueDateSource: upstreamPayload.revenueDateSource", "report summary includes explicit source"),
         ("noDoubleCountKey: upstreamPayload.noDoubleCountKey", "report summary includes no-double-count key"),
