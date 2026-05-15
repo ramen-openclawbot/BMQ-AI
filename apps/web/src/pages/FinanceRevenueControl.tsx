@@ -55,15 +55,14 @@ const shiftLocalDate = (date: string, deltaDays: number) => {
   return isoDate(shifted);
 };
 
-const getCurrentMonthParseWindow = () => {
+const getDailyParseWindow = () => {
   const current = getVietnamDateParts();
   const period = `${current.year}-${String(current.month).padStart(2, "0")}`;
-  const revenueDateFrom = `${period}-01`;
-  const revenueDateTo = shiftLocalDate(current.date, -1);
-  const poReceivedFrom = shiftLocalDate(revenueDateFrom, -1);
-  const poReceivedTo = shiftLocalDate(revenueDateTo, -1);
-  const hasRevenueWindow = Date.parse(`${revenueDateTo}T00:00:00Z`) >= Date.parse(`${revenueDateFrom}T00:00:00Z`);
-  return { period, revenueDateFrom, revenueDateTo, poReceivedFrom, poReceivedTo, hasRevenueWindow };
+  const revenueDateFrom = current.date;
+  const revenueDateTo = current.date;
+  const poReceivedFrom = shiftLocalDate(current.date, -1);
+  const poReceivedTo = shiftLocalDate(current.date, -1);
+  return { period, revenueDateFrom, revenueDateTo, poReceivedFrom, poReceivedTo, hasRevenueWindow: true };
 };
 
 const formatDate = (value: string | null | undefined) => {
@@ -282,9 +281,8 @@ export default function FinanceRevenueControl() {
   const [automationRunMessage, setAutomationRunMessage] = useState<string | null>(null);
   const [parseProgress, setParseProgress] = useState<ParseProgressState>(() => emptyParseProgress());
   const [selectedAutoDailyLog, setSelectedAutoDailyLog] = useState<AutoDailyParseLogRow | null>(null);
-  const [manualParseOpen, setManualParseOpen] = useState(false);
 
-  const parseWindow = useMemo(() => getCurrentMonthParseWindow(), []);
+  const parseWindow = useMemo(() => getDailyParseWindow(), []);
 
   const { data: automationSchedule, isLoading: scheduleLoading } = useQuery<ScheduleRow | null>({
     queryKey: ["po-sync-schedule-foundation"],
@@ -470,20 +468,11 @@ export default function FinanceRevenueControl() {
   };
 
 
-  const runMonthlyPreview = async () => {
+  const runDailyPreview = async () => {
     if (!canRunAutomation) {
       toast({
         title: isVi ? "Không có quyền chạy parse" : "No permission to run parse",
-        description: isVi ? "Chỉ owner được parse và duyệt kết quả tháng." : "Only owners can parse and approve monthly results.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!parseWindow.hasRevenueWindow) {
-      toast({
-        title: isVi ? "Chưa có ngày doanh thu để parse" : "No revenue day to parse",
-        description: isVi ? "Hãy chạy từ ngày 02 trở đi để có dữ liệu từ đầu tháng đến hôm qua." : "Run from the 2nd day onward to parse month-to-yesterday data.",
+        description: isVi ? "Chỉ owner được parse và duyệt kết quả ngày." : "Only owners can parse and approve daily results.",
         variant: "destructive",
       });
       return;
@@ -500,18 +489,18 @@ export default function FinanceRevenueControl() {
     setParseProgress(emptyParseProgress());
 
     try {
-      const result = await callMonthlyParseFunctionStream({ action: "preview_current_month" });
-      const run = result.run && typeof result.run === "object" ? result.run as MonthlyPreviewRun : null;
-      const summary = isSummary(result.summary) ? result.summary : null;
-      const rawLines = Array.isArray(result.lines) ? result.lines : [];
-      setPreviewRun(run);
+      setParseProgress((prev) => ({ ...prev, stage: "daily_preview", message: "Đang parse PO/email theo ngày" }));
+      const { result } = await callMonthlyParseFunction({ action: "preview_daily_compare", revenueDate: parseWindow.revenueDateFrom });
+      const summary = isSummary(result.previewSummary) ? result.previewSummary : isSummary(result.summary) ? result.summary : null;
+      const runId = typeof result.runId === "string" ? result.runId : String(result.runId || "");
+      setPreviewRun(runId ? { id: runId, period: String(result.period || parseWindow.period), status: "preview_ready", summary: summary || undefined } : null);
       setPreviewSummary(summary);
-      setPreviewLines(rawLines.map(normalizeLine));
-      setPreviewTruncated(Boolean(result.truncated));
+      setPreviewLines([]);
+      setPreviewTruncated(false);
       setParseState("preview_ready");
     } catch (error) {
       setParseState("error");
-      toast({ title: isVi ? "Lỗi parse tháng" : "Monthly parse failed", description: getReadableError(error), variant: "destructive" });
+      toast({ title: isVi ? "Lỗi parse ngày" : "Daily parse failed", description: getReadableError(error), variant: "destructive" });
     }
   };
 
@@ -519,7 +508,7 @@ export default function FinanceRevenueControl() {
     if (!previewRun?.id) return;
     setParseState("approving");
     try {
-      const { response, result } = await callMonthlyParseFunction({ action: "approve_preview", runId: previewRun.id, overwrite });
+      const { response, result } = await callMonthlyParseFunction({ action: "confirm_daily_post", runId: previewRun.id, overwrite });
       if (response.status === 409 || result.requiresOverwriteConfirmation) {
         const existing = Array.isArray(result.existing) ? result.existing as ExistingParseInfo[] : [];
         setOverwritePrompt(existing);
@@ -531,8 +520,8 @@ export default function FinanceRevenueControl() {
       const postedRows = getNumber(summary.posted_line_count ?? summary.row_count ?? previewLedgerRows);
       const grossTotal = getNumber(summary.gross_total ?? previewDashboardGross);
       const message = isVi
-        ? `${String(summary.period || previewSummary?.period || parseWindow.period)}: đã ghi ${numberFmt(postedRows)} dòng / ${vnd(grossTotal)} vào ledger và Doanh thu đã kiểm soát. User có thể review/edit sau; cuối tháng audit riêng.`
-        : `${String(summary.period || previewSummary?.period || parseWindow.period)}: posted ${numberFmt(postedRows)} rows / ${vnd(grossTotal)} to the controlled revenue ledger.`;
+        ? `${formatDate(parseWindow.revenueDateFrom)}: đã ghi ${numberFmt(postedRows)} dòng / ${vnd(grossTotal)} vào ledger và Doanh thu đã kiểm soát.`
+        : `${formatDate(parseWindow.revenueDateFrom)}: posted ${numberFmt(postedRows)} rows / ${vnd(grossTotal)} to the controlled revenue ledger.`;
       setAutomationRunMessage(message);
       setParseState("approved");
       await Promise.all([
@@ -553,7 +542,7 @@ export default function FinanceRevenueControl() {
     }
     setParseState("rejecting");
     try {
-      await callMonthlyParseFunction({ action: "reject_preview", runId: previewRun.id });
+      await callMonthlyParseFunction({ action: "cancel_daily_preview", runId: previewRun.id });
       setPreviewRun(null);
       setPreviewSummary(null);
       setPreviewLines([]);
@@ -573,8 +562,8 @@ export default function FinanceRevenueControl() {
     : parseState === "approved"
       ? "Đã lưu kết quả parse"
       : overwritePrompt
-        ? "Đã có kết quả parse tháng này"
-        : "Kết quả parse từ đầu tháng";
+        ? "Đã có kết quả parse ngày này"
+        : "Kết quả parse theo ngày";
 
   return (
     <div className="space-y-5">
@@ -587,11 +576,12 @@ export default function FinanceRevenueControl() {
             <h1 className="font-display text-2xl font-semibold tracking-tight text-amber-50 md:text-4xl">
               Daily Auto-Parse Operations
             </h1>
-            <p className="max-w-3xl text-sm leading-6 text-stone-300/80">
-              Trung tâm parse PO/email thành kết quả vận hành đã kiểm soát. Owner xem preview trước khi lưu; nguồn audit cuối tháng sẽ là tính năng riêng.
-            </p>
           </div>
-          <Button variant="outline" className="border-amber-300/35 bg-amber-400/[0.08] text-amber-100 hover:bg-amber-400/[0.14]" onClick={() => window.location.assign("/finance-control/revenue") }>
+          <Button
+            variant="outline"
+            className="w-full border-amber-300/35 bg-amber-400/[0.08] text-amber-100 hover:bg-amber-400/[0.14] sm:w-auto"
+            onClick={() => window.location.assign("/finance-control/revenue") }
+          >
             <Eye className="mr-2 h-4 w-4" />Open dashboard
           </Button>
         </div>
@@ -601,7 +591,7 @@ export default function FinanceRevenueControl() {
         <Card className="border-amber-300/30 bg-amber-50/70">
           <CardContent className="flex items-start gap-3 p-4 text-sm text-amber-900">
             <CircleAlert className="mt-0.5 h-4 w-4" />
-            {isVi ? "Chỉ owner được parse và approve kết quả tháng. Sau approve, staff có thể review/edit doanh thu đã vào ledger." : "Only owners can parse and approve monthly results. After approval, staff can review/edit parsed revenue in the ledger."}
+            {isVi ? "Chỉ owner được parse và approve kết quả ngày. Sau approve, staff có thể review/edit doanh thu đã vào ledger." : "Only owners can parse and approve daily results. After approval, staff can review/edit parsed revenue in the ledger."}
           </CardContent>
         </Card>
       ) : null}
@@ -613,88 +603,95 @@ export default function FinanceRevenueControl() {
       ) : null}
 
       <Card>
-        <CardHeader className="space-y-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1">
-              <CardTitle>1/ Parse theo tháng thủ công</CardTitle>
-              <CardDescription>
-                Dùng khi cần parse T5/tháng hiện tại thủ công. Bấm mở để hiện box parse doanh thu tháng hiện tại.
-              </CardDescription>
+        <CardHeader className="pb-3">
+          <CardTitle>Parse theo ngày</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-amber-200/20 bg-stone-900 p-4 text-stone-100">
+              <div className="flex items-center gap-2 text-sm font-medium text-amber-100">
+                <CalendarDays className="h-4 w-4" />Ngày doanh thu
+              </div>
+              <div className="mt-2 text-xl font-semibold text-stone-100">
+                {formatDate(parseWindow.revenueDateFrom)}
+              </div>
             </div>
-            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setManualParseOpen((open) => !open)}>
-              {manualParseOpen ? "Ẩn thiết lập" : "Mở thiết lập parse"}
+            <div className="rounded-xl border border-stone-700 bg-stone-900 p-4 text-stone-100">
+              <div className="flex items-center gap-2 text-sm font-medium text-stone-200">
+                <ShieldCheck className="h-4 w-4" />PO/email
+              </div>
+              <div className="mt-2 text-xl font-semibold text-stone-100">
+                {formatDate(parseWindow.poReceivedFrom)}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => window.location.assign(`/finance-control/revenue?period=${parseWindow.period}`) }>
+              <Eye className="mr-2 h-4 w-4" />Ledger / Dashboard
+            </Button>
+            <Button
+              className="w-full border border-amber-300/60 bg-amber-400 text-stone-950 hover:bg-amber-300 disabled:opacity-60 sm:w-auto"
+              disabled={!canRunAutomation || actionBusy}
+              onClick={() => void runDailyPreview()}
+              title={canRunAutomation ? "Owner-only daily parse preview" : "Owner-only"}
+            >
+              {parseState === "running" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              {isVi ? "Parse ngày & xem preview" : "Parse day & preview"}
             </Button>
           </div>
-        </CardHeader>
-        {manualParseOpen ? (
-          <CardContent className="space-y-4 border-t pt-4">
-            <div>
-              <h2 className="text-lg font-semibold">Parse doanh thu tháng hiện tại</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Owner parse PO/email từ đầu tháng đến hôm qua. PO/email được lấy lùi 1 ngày, ví dụ doanh thu 01/05 dùng PO ngày 30/04. Kết quả chỉ được lưu sau khi owner xem preview và approve.
-              </p>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-xl border border-amber-200/20 bg-stone-900 p-4 text-stone-100">
-                <div className="flex items-center gap-2 text-sm font-medium text-amber-100">
-                  <CalendarDays className="h-4 w-4" />Kỳ doanh thu
-                </div>
-                <div className="mt-2 text-lg font-semibold text-stone-100">
-                  {formatDate(parseWindow.revenueDateFrom)} → {formatDate(parseWindow.revenueDateTo)}
-                </div>
-                <p className="mt-1 text-xs text-stone-400">Hiển thị từ đầu tháng đến thời điểm parse trước 1 ngày.</p>
-              </div>
-              <div className="rounded-xl border border-stone-700 bg-stone-900 p-4 text-stone-100">
-                <div className="flex items-center gap-2 text-sm font-medium text-stone-200">
-                  <ShieldCheck className="h-4 w-4" />Nguồn PO/email
-                </div>
-                <div className="mt-2 text-lg font-semibold text-stone-100">
-                  {formatDate(parseWindow.poReceivedFrom)} → {formatDate(parseWindow.poReceivedTo)}
-                </div>
-                <p className="mt-1 text-xs text-stone-400">Lùi 1 ngày để khớp ngày ghi nhận doanh thu.</p>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-xs leading-5 text-muted-foreground">
-                Approve sẽ ghi toàn bộ preview vào ledger và Doanh thu đã kiểm soát; user review/edit sau trên ledger, cuối tháng audit riêng.
-              </p>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Button variant="outline" className="w-full sm:w-auto" onClick={() => window.location.assign(`/finance-control/revenue?period=${parseWindow.period}`) }>
-                  <Eye className="mr-2 h-4 w-4" />Ledger / Dashboard
-                </Button>
-                <Button
-                  className="w-full border border-amber-300/60 bg-amber-400 text-stone-950 hover:bg-amber-300 disabled:opacity-60 sm:w-auto"
-                  disabled={!canRunAutomation || actionBusy || !parseWindow.hasRevenueWindow}
-                  onClick={() => void runMonthlyPreview()}
-                  title={canRunAutomation ? "Owner-only monthly parse preview" : "Owner-only"}
-                >
-                  {parseState === "running" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                  {isVi ? "Parse & xem preview T5" : "Parse & preview current month"}
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        ) : null}
+        </CardContent>
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>2/ Log parse tự động hằng ngày</CardTitle>
-          <CardDescription>
-            Mỗi ngày một dòng để theo dõi cron 23:59 VN. Bấm vào từng dòng để xem chi tiết run/source và lỗi nếu có.
-          </CardDescription>
+        <CardHeader className="pb-3">
+          <CardTitle>Log parse tự động hằng ngày</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-hidden rounded-xl border">
+          <div className="space-y-3 md:hidden">
+            {logsLoading ? (
+              <div className="rounded-xl border px-3 py-4 text-sm text-muted-foreground">Đang tải log...</div>
+            ) : autoDailyLogs.length > 0 ? autoDailyLogs.map((log) => (
+              <button
+                key={log.id}
+                type="button"
+                className="w-full rounded-xl border bg-card p-3 text-left shadow-sm transition hover:bg-amber-50/70"
+                onClick={() => setSelectedAutoDailyLog(log)}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-semibold tabular-nums">{formatDate(log.revenue_date)}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">Kết thúc: {formatDateTime(log.finished_at || log.updated_at)}</div>
+                  </div>
+                  <Badge className={log.status === "success" ? "border border-emerald-200 bg-emerald-50 text-emerald-700" : log.status === "failed" ? "border border-rose-200 bg-rose-50 text-rose-700" : "border border-amber-200 bg-amber-50 text-amber-700"}>
+                    {statusLabel(log.status)}
+                  </Badge>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-lg bg-muted/40 p-2">
+                    <div className="text-muted-foreground">Dòng</div>
+                    <div className="mt-1 font-medium">{numberFmt(Number(log.row_count || 0))}</div>
+                  </div>
+                  <div className="rounded-lg bg-muted/40 p-2">
+                    <div className="text-muted-foreground">Doanh thu</div>
+                    <div className="mt-1 truncate font-medium" title={vnd(Number(log.gross_total || 0))}>{vnd(Number(log.gross_total || 0))}</div>
+                  </div>
+                </div>
+                <div className="mt-3 text-right text-sm font-medium text-amber-700">Chi tiết</div>
+              </button>
+            )) : (
+              <div className="rounded-xl border px-3 py-4 text-sm text-muted-foreground">Chưa có log parse tự động hằng ngày.</div>
+            )}
+          </div>
+
+          <div className="hidden overflow-hidden rounded-xl border md:block">
             <div className="grid grid-cols-12 gap-2 border-b bg-muted/40 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-              <div className="col-span-3 md:col-span-2">Ngày</div>
-              <div className="col-span-3 md:col-span-2">Trạng thái</div>
-              <div className="col-span-3 md:col-span-2">Kết thúc</div>
-              <div className="hidden md:col-span-2 md:block">Dòng</div>
-              <div className="hidden md:col-span-3 md:block">Doanh thu</div>
-              <div className="col-span-3 md:col-span-1 text-right">Xem</div>
+              <div className="col-span-2">Ngày</div>
+              <div className="col-span-2">Trạng thái</div>
+              <div className="col-span-2">Kết thúc</div>
+              <div className="col-span-2">Dòng</div>
+              <div className="col-span-3">Doanh thu</div>
+              <div className="col-span-1 text-right">Xem</div>
             </div>
             <div className="divide-y">
               {logsLoading ? (
@@ -706,16 +703,16 @@ export default function FinanceRevenueControl() {
                   className="grid w-full grid-cols-12 items-center gap-2 px-3 py-3 text-left text-sm transition hover:bg-amber-50/70"
                   onClick={() => setSelectedAutoDailyLog(log)}
                 >
-                  <div className="col-span-3 md:col-span-2 font-medium tabular-nums">{formatDate(log.revenue_date)}</div>
-                  <div className="col-span-3 md:col-span-2">
+                  <div className="col-span-2 font-medium tabular-nums">{formatDate(log.revenue_date)}</div>
+                  <div className="col-span-2">
                     <Badge className={log.status === "success" ? "border border-emerald-200 bg-emerald-50 text-emerald-700" : log.status === "failed" ? "border border-rose-200 bg-rose-50 text-rose-700" : "border border-amber-200 bg-amber-50 text-amber-700"}>
                       {statusLabel(log.status)}
                     </Badge>
                   </div>
-                  <div className="col-span-3 md:col-span-2 truncate text-muted-foreground" title={formatDateTime(log.finished_at || log.updated_at)}>{formatDateTime(log.finished_at || log.updated_at)}</div>
-                  <div className="hidden md:col-span-2 md:block tabular-nums">{numberFmt(Number(log.row_count || 0))}</div>
-                  <div className="hidden md:col-span-3 md:block truncate font-medium" title={vnd(Number(log.gross_total || 0))}>{vnd(Number(log.gross_total || 0))}</div>
-                  <div className="col-span-3 md:col-span-1 text-right text-amber-700">Chi tiết</div>
+                  <div className="col-span-2 truncate text-muted-foreground" title={formatDateTime(log.finished_at || log.updated_at)}>{formatDateTime(log.finished_at || log.updated_at)}</div>
+                  <div className="col-span-2 tabular-nums">{numberFmt(Number(log.row_count || 0))}</div>
+                  <div className="col-span-3 truncate font-medium" title={vnd(Number(log.gross_total || 0))}>{vnd(Number(log.gross_total || 0))}</div>
+                  <div className="col-span-1 text-right text-amber-700">Chi tiết</div>
                 </button>
               )) : (
                 <div className="px-3 py-4 text-sm text-muted-foreground">Chưa có log parse tự động hằng ngày.</div>
@@ -782,7 +779,7 @@ export default function FinanceRevenueControl() {
           <DialogHeader>
             <DialogTitle className="text-amber-50">{dialogTitle}</DialogTitle>
             <DialogDescription className="text-stone-300">
-              Kỳ doanh thu {formatDate(parseWindow.revenueDateFrom)} → {formatDate(parseWindow.revenueDateTo)} • PO/email {formatDate(parseWindow.poReceivedFrom)} → {formatDate(parseWindow.poReceivedTo)}.
+              Ngày doanh thu {formatDate(parseWindow.revenueDateFrom)} • PO/email {formatDate(parseWindow.poReceivedFrom)}.
             </DialogDescription>
           </DialogHeader>
 
@@ -794,7 +791,7 @@ export default function FinanceRevenueControl() {
                 </div>
                 <div className="space-y-2">
                   <p className="font-medium text-amber-50">{parseProgress.message}</p>
-                  <p className="text-sm text-stone-400">Đang hiện realtime từng bước Gmail sync và parse theo channel. Chưa có dòng nào được lưu vào ledger trước khi approve.</p>
+                  <p className="text-sm text-stone-400">Đang parse PO/email cho ngày đã chọn. Chưa có dòng nào được lưu vào ledger trước khi approve.</p>
                 </div>
               </div>
 
@@ -803,7 +800,7 @@ export default function FinanceRevenueControl() {
                   { label: "Channel hiện tại", value: parseProgress.currentChannel || "Mailbox", helper: parseProgress.currentDate ? formatDate(parseProgress.currentDate) : "Đang chuẩn bị" },
                   { label: "Mail fetched", value: numberFmt(parseProgress.totalFetched), helper: parseProgress.synced ? `${numberFmt(parseProgress.totalSynced)} synced` : "Từ Gmail" },
                   { label: "Mail đã parse", value: numberFmt(parseProgress.totalParsedMails), helper: `${numberFmt(parseProgress.totalParsedLines)} dòng preview` },
-                  { label: "Ngày xử lý", value: parseProgress.totalDays ? `${numberFmt(parseProgress.dayIndex)}/${numberFmt(parseProgress.totalDays)}` : "—", helper: parseProgress.stage },
+                  { label: "Ngày xử lý", value: formatDate(parseWindow.revenueDateFrom), helper: parseProgress.stage },
                 ].map((item) => (
                   <div key={item.label} className="rounded-xl border border-stone-800 bg-stone-900 p-3">
                     <div className="text-[10px] uppercase tracking-[0.14em] text-stone-500">{item.label}</div>
@@ -815,11 +812,11 @@ export default function FinanceRevenueControl() {
 
               <div className="space-y-3">
                 <div className="flex items-center justify-between text-xs text-stone-400">
-                  <span>Tiến độ Gmail sync</span>
-                  <span>{parseProgress.totalDays ? `${numberFmt((parseProgress.dayIndex / parseProgress.totalDays) * 100)}%` : "Đang khởi động"}</span>
+                  <span>Tiến độ parse ngày</span>
+                  <span>Đang xử lý</span>
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-stone-800">
-                  <div className="h-full rounded-full bg-amber-300 transition-all" style={{ width: `${parseProgress.totalDays ? Math.min(100, Math.max(4, (parseProgress.dayIndex / parseProgress.totalDays) * 100)) : 12}%` }} />
+                  <div className="h-full w-1/3 animate-pulse rounded-full bg-amber-300 transition-all" />
                 </div>
               </div>
 
@@ -872,7 +869,7 @@ export default function FinanceRevenueControl() {
 
               {previewReviewFlags > 0 ? (
                 <div className="rounded-xl border border-amber-300/35 bg-amber-400/[0.08] p-4 text-sm text-amber-100">
-                  {numberFmt(previewReviewFlags)} dòng có parser flag để edit/audit sau. Các flag này không chặn approve: toàn bộ preview sẽ được ghi vào ledger và dashboard T5; cuối tháng có bước audit riêng.
+                  {numberFmt(previewReviewFlags)} dòng có parser flag để edit/audit sau. Các flag này không chặn approve: toàn bộ preview ngày sẽ được ghi vào ledger và dashboard.
                 </div>
               ) : null}
 
@@ -951,7 +948,7 @@ export default function FinanceRevenueControl() {
 
           {parseState === "approved" ? (
             <div className="rounded-xl border border-emerald-300/30 bg-emerald-400/[0.08] p-4 text-sm text-emerald-100">
-              <CheckCircle2 className="mb-2 h-5 w-5" />Đã ghi kết quả parse vào ledger ở trạng thái Doanh thu đã kiểm soát. Dashboard T5 cập nhật ngay; user có thể review/edit sau và cuối tháng audit riêng.
+              <CheckCircle2 className="mb-2 h-5 w-5" />Đã ghi kết quả parse ngày vào ledger ở trạng thái Doanh thu đã kiểm soát. Dashboard cập nhật ngay; user có thể review/edit sau.
             </div>
           ) : null}
 
@@ -973,7 +970,7 @@ export default function FinanceRevenueControl() {
                 )}
                 <Button className="bg-amber-400 text-stone-950 hover:bg-amber-300" onClick={() => void approvePreview(Boolean(overwritePrompt))} disabled={actionBusy || !previewRun?.id || !previewSummary || previewLedgerRows <= 0 || previewDashboardGross <= 0 || !canRunAutomation}>
                   {parseState === "approving" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
-                  {overwritePrompt ? "Replace bản T5 hiện tại & approve" : previewLedgerRows <= 0 ? "Không có dòng để approve" : "Approve & đưa vào dashboard T5"}
+                  {overwritePrompt ? "Replace bản hiện tại & approve" : previewLedgerRows <= 0 ? "Không có dòng để approve" : "Approve & đưa vào dashboard"}
                 </Button>
               </>
             ) : null}
