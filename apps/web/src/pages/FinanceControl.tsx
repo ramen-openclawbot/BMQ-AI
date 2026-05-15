@@ -719,9 +719,21 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
   const dateKey = format(selectedDate, "yyyy-MM-dd");
   const activeSlipScanLabel = activeSlipScan
     ? (isVi
-      ? `Đang upload & scan ${activeSlipScan.type.toUpperCase()}... ${activeSlipScan.fileCount} ảnh. Vui lòng chờ, hệ thống sẽ tự lưu sau khi scan xong.`
-      : `Uploading & scanning ${activeSlipScan.type.toUpperCase()}... ${activeSlipScan.fileCount} image(s). Please wait; the system will auto-save after scanning.`)
+      ? `Đang upload & scan ${activeSlipScan.type.toUpperCase()}... ${activeSlipScan.fileCount} ảnh. Vui lòng chờ; hệ thống sẽ hiện thông báo xác nhận sau khi tự lưu xong.`
+      : `Uploading & scanning ${activeSlipScan.type.toUpperCase()}... ${activeSlipScan.fileCount} image(s). Please wait; the system will show a confirmation after auto-save finishes.`)
     : null;
+  const isSuccessMessage = (message: string | null) => Boolean(
+    message && (
+      message.includes("Đã lưu khai báo CEO")
+      || message.includes("Đã scan và tự lưu khai báo CEO")
+      || message.toLowerCase().includes("saved")
+      || message.toLowerCase().includes("auto-saved")
+      || message.toLowerCase().includes("auto saved")
+    ),
+  );
+  const slipStatusClass = (message: string | null) => isSuccessMessage(message)
+    ? "border-green-500/30 bg-green-500/5 text-green-700 dark:text-green-300"
+    : "border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300";
 
   const persistedFolderTotal = Number(dailyDeclaration?.extraction_meta?.unc_folder_total || 0);
   const persistedFolderStatus = dailyDeclaration?.extraction_meta?.unc_folder_status as ("match" | "mismatch" | undefined);
@@ -1506,16 +1518,16 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         setPendingUncExtractedList(nextPendingUncExtractedList);
       }
 
-      setSlipUploadStatus((prev) => ({ ...prev, [slipType]: null }));
-
-      toast({
-        title: isVi ? "Đã scan slip — tự động lưu" : "Slip scanned — auto-saving",
-        description: `${slipType === "qtm" ? "QTM" : "UNC"}: +${vnd(batchSum)} (${batchResults.length} ảnh)`,
-      });
+      setSlipUploadStatus((prev) => ({
+        ...prev,
+        [slipType]: isVi
+          ? `Scan xong ${slipType.toUpperCase()}: +${vnd(batchSum)} (${batchResults.length} ảnh). Đang tự lưu khai báo CEO...`
+          : `${slipType.toUpperCase()} scanned: +${vnd(batchSum)} (${batchResults.length} image(s)). Auto-saving CEO declaration...`,
+      }));
 
       // Auto-save declaration after OCR using the freshly computed values,
       // avoiding stale React state during rapid UNC/QTM consecutive uploads.
-      await saveDeclaration(true, {
+      const autoSaved = await saveDeclaration(true, {
         uncTotalDeclared: nextUncTotalDeclared,
         cashFundTopupAmount: nextCashFundTopupAmount,
         pendingQtmImagesBase64: nextPendingQtmImagesBase64,
@@ -1523,6 +1535,25 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         pendingQtmExtractedList: nextPendingQtmExtractedList,
         pendingUncExtractedList: nextPendingUncExtractedList,
       });
+
+      if (autoSaved) {
+        const savedMessage = isVi
+          ? `Đã scan và tự lưu khai báo CEO: ${slipType.toUpperCase()} +${vnd(batchSum)} (${batchResults.length} ảnh). Không cần bấm Lưu khai báo.`
+          : `Scanned and auto-saved CEO declaration: ${slipType.toUpperCase()} +${vnd(batchSum)} (${batchResults.length} image(s)). No need to press Save declaration.`;
+        setDeclarationSaveMessage(savedMessage);
+        setSlipUploadStatus((prev) => ({ ...prev, [slipType]: savedMessage }));
+        toast({
+          title: isVi ? "Đã tự lưu khai báo CEO" : "CEO declaration auto-saved",
+          description: `${slipType === "qtm" ? "QTM" : "UNC"}: +${vnd(batchSum)} (${batchResults.length} ảnh)`,
+        });
+      } else {
+        setSlipUploadStatus((prev) => ({
+          ...prev,
+          [slipType]: isVi
+            ? `Scan xong ${slipType.toUpperCase()} nhưng tự lưu thất bại. Vui lòng kiểm tra thông báo lỗi bên dưới rồi bấm Lưu khai báo.`
+            : `${slipType.toUpperCase()} scanned, but auto-save failed. Check the error below, then press Save declaration.`,
+        }));
+      }
     } catch (e: any) {
       const statusText = e?.message
         ? `${isVi ? "Ảnh mới chưa được áp dụng:" : "New image not applied:"} ${e.message}`
@@ -2195,7 +2226,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                     {isVi ? "Hiện / tải lại slip đã lưu" : "Show / reload saved slips"}
                   </Button>
                   {slipUploadStatus.unc && (
-                    <div className="text-xs rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-amber-700 dark:text-amber-300">
+                    <div className={`text-xs rounded border px-2 py-1 ${slipStatusClass(slipUploadStatus.unc)}`}>
                       {slipUploadStatus.unc}
                     </div>
                   )}
@@ -2249,7 +2280,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                     {isVi ? "Hiện / tải lại slip đã lưu" : "Show / reload saved slips"}
                   </Button>
                   {slipUploadStatus.qtm && (
-                    <div className="text-xs rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-amber-700 dark:text-amber-300">
+                    <div className={`text-xs rounded border px-2 py-1 ${slipStatusClass(slipUploadStatus.qtm)}`}>
                       {slipUploadStatus.qtm}
                     </div>
                   )}
@@ -2292,7 +2323,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
 
               {extracting && <div className="text-sm text-muted-foreground animate-pulse">{isVi ? "Đang scan slip..." : "Scanning slips..."}</div>}
               {declarationSaveMessage && (
-                <div className={`text-sm ${declarationSaveMessage.includes("Đã lưu") || declarationSaveMessage.includes("saved") ? "text-green-600" : "text-amber-600"}`}>
+                <div className={`rounded-lg border px-3 py-2 text-sm font-medium ${isSuccessMessage(declarationSaveMessage) ? "border-green-500/30 bg-green-500/5 text-green-700 dark:text-green-300" : "border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300"}`}>
                   {declarationSaveMessage}
                 </div>
               )}
