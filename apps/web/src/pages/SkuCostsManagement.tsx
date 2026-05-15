@@ -988,15 +988,15 @@ export default function SkuCostsManagement() {
                 Dữ liệu đã đủ để tạo SKU. Anh kiểm tra lại và bấm Lưu SKU.
               </div>
             )}
-            <div className="grid md:grid-cols-4 gap-3">
-              <div className="md:col-span-1"><Label>Tên món</Label><Input value={skuForm.product_name || ""} onChange={(e) => setSkuForm({ ...skuForm, product_name: e.target.value })} /></div>
-              <div><Label>Mã SKU thành phẩm</Label><Input value={skuForm.sku_code || ""} onChange={(e) => setSkuForm({ ...skuForm, sku_code: e.target.value })} /></div>
-              <div><Label>Thành phẩm ĐVT</Label><Input value={skuForm.finished_output_unit || "cái"} onChange={(e) => setSkuForm({ ...skuForm, finished_output_unit: e.target.value })} /></div>
-              <div><Label>Sản lượng thành phẩm / mẻ</Label><Input type="number" min={1} value={skuForm.finished_output_qty ?? FORMULA_BASE_QTY} onChange={(e) => setSkuForm({ ...skuForm, finished_output_qty: Math.max(1, Number(e.target.value || FORMULA_BASE_QTY)) })} /></div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+              <div className="space-y-1 md:col-span-1"><Label>Tên món</Label><Input className="h-11" value={skuForm.product_name || ""} onChange={(e) => setSkuForm({ ...skuForm, product_name: e.target.value })} /></div>
+              <div className="space-y-1"><Label>Mã SKU thành phẩm</Label><Input className="h-11" value={skuForm.sku_code || ""} onChange={(e) => setSkuForm({ ...skuForm, sku_code: e.target.value })} /></div>
+              <div className="space-y-1"><Label>Thành phẩm ĐVT</Label><Input className="h-11" value={skuForm.finished_output_unit || "cái"} onChange={(e) => setSkuForm({ ...skuForm, finished_output_unit: e.target.value })} /></div>
+              <div className="space-y-1"><Label>Sản lượng thành phẩm / mẻ</Label><Input className="h-11" type="number" min={1} value={skuForm.finished_output_qty ?? FORMULA_BASE_QTY} onChange={(e) => setSkuForm({ ...skuForm, finished_output_qty: Math.max(1, Number(e.target.value || FORMULA_BASE_QTY)) })} /></div>
             </div>
 
             <div className="rounded border">
-              <Table>
+              <Table className="hidden md:table">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Loại</TableHead><TableHead>Tên NVL</TableHead><TableHead>Đơn giá (VNĐ)</TableHead><TableHead>Định lượng</TableHead><TableHead>Giá vốn (VNĐ)</TableHead><TableHead>Đơn giá vốn/cái (VNĐ)</TableHead><TableHead></TableHead>
@@ -1016,11 +1016,11 @@ export default function SkuCostsManagement() {
                     const perUnit = row.perUnit;
 
                     return (
-                      <TableRow key={`draft-${idx}`} className={isLevel1Row ? "" : "bg-muted/30"}>
+                      <TableRow key={`draft-table-${idx}`} className={isLevel1Row ? "" : "bg-muted/30"}>
                         <TableCell>{isLevel1Row ? "NVL cấp 1" : <span className="pl-5">↳ NVL cấp 2 ({r.level1_name || "-"})</span>}</TableCell>
                         <TableCell>
                           <Input
-                            list={isLevel1Row ? `level1-sku-options-${idx}` : `level2-sku-options-${idx}`}
+                            list={isLevel1Row ? `level1-sku-options-table-${idx}` : `level2-sku-options-table-${idx}`}
                             value={isLevel1Row ? (r.level1_name || "") : (r.level2_name || "")}
                             className={isLevel1Row ? "" : "ml-5"}
                             placeholder={isLevel1Row ? "Gõ để tìm NVL cấp 1" : "Gõ để tìm NVL cấp 2"}
@@ -1052,7 +1052,7 @@ export default function SkuCostsManagement() {
                               setImportedFormulaDraft(next);
                             }}
                           />
-                          <datalist id={isLevel1Row ? `level1-sku-options-${idx}` : `level2-sku-options-${idx}`}>
+                          <datalist id={isLevel1Row ? `level1-sku-options-table-${idx}` : `level2-sku-options-table-${idx}`}>
                             {ingredientSkus.map((s) => <option key={s.id} value={`${s.sku_code} - ${s.product_name}`} />)}
                           </datalist>
                         </TableCell>
@@ -1069,20 +1069,108 @@ export default function SkuCostsManagement() {
                   })}
                 </TableBody>
               </Table>
+
+              <div className="space-y-3 p-3 md:hidden">
+                {importedFormulaDraft.length === 0 && (
+                  <div className="text-sm text-muted-foreground">Chưa có dòng NVL. Anh bấm “+ Thêm NVL cấp 1” để nhập thủ công.</div>
+                )}
+                {importedDraftComputed.map((row, idx) => {
+                  const r = row;
+                  const isLevel1Row = row.isLevel1Row;
+                  const hasChildren = row.hasChildren;
+                  const displayUnitPrice = row.displayUnitPrice;
+                  const displayDosage = row.displayDosage;
+                  const lineCost = row.lineCost;
+                  const perUnit = row.perUnit;
+
+                  return (
+                    <div key={`draft-card-${idx}`} className={`rounded-lg border p-3 shadow-sm ${isLevel1Row ? "bg-background" : "bg-muted/30"}`}>
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                          {isLevel1Row ? "NVL cấp 1" : `NVL cấp 2 · ${r.level1_name || "-"}`}
+                        </span>
+                        <Button type="button" size="sm" variant="destructive" onClick={() => setImportedFormulaDraft((prev) => prev.filter((_, i) => i !== idx))}>Xóa</Button>
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label>Tên NVL</Label>
+                        <Input
+                          className="h-11"
+                          list={isLevel1Row ? `level1-sku-options-mobile-${idx}` : `level2-sku-options-mobile-${idx}`}
+                          value={isLevel1Row ? (r.level1_name || "") : (r.level2_name || "")}
+                          placeholder={isLevel1Row ? "Gõ để tìm NVL cấp 1" : "Gõ để tìm NVL cấp 2"}
+                          onChange={(e) => {
+                            const keyword = e.target.value;
+                            const picked = ingredientSkus.find((s) => `${s.sku_code} - ${s.product_name}` === keyword || s.product_name === keyword || s.sku_code === keyword);
+                            const next = [...importedFormulaDraft];
+
+                            if (isLevel1Row) {
+                              const level1Name = picked?.product_name || keyword;
+                              next[idx] = {
+                                ...next[idx],
+                                level1_sku_id: picked?.id || "",
+                                level1_name: level1Name,
+                                ingredient_name: level1Name,
+                              };
+                            } else {
+                              const level2Name = picked?.product_name || keyword;
+                              const unit = String(picked?.unit || r.unit || "g");
+                              next[idx] = {
+                                ...next[idx],
+                                ingredient_sku_id: picked?.id || "",
+                                level2_name: level2Name,
+                                ingredient_name: `${next[idx].level1_name || ""}${level2Name ? ` > ${level2Name}` : ""}`,
+                                unit,
+                              };
+                            }
+
+                            setImportedFormulaDraft(next);
+                          }}
+                        />
+                        <datalist id={isLevel1Row ? `level1-sku-options-mobile-${idx}` : `level2-sku-options-mobile-${idx}`}>
+                          {ingredientSkus.map((s) => <option key={s.id} value={`${s.sku_code} - ${s.product_name}`} />)}
+                        </datalist>
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label>Đơn giá (VNĐ)</Label>
+                          <Input className="h-11" disabled={hasChildren} value={hasChildren ? String(Math.round(displayUnitPrice * 1000) / 1000) : (r.unit_price_input ?? (toNumber(r.unit_price, 0) === 0 ? "" : String(toNumber(r.unit_price, 0))))} onChange={(e) => { const next = [...importedFormulaDraft]; const unit_price_input = e.target.value; const unit_price = unit_price_input === "" ? 0 : Number(unit_price_input); const dosage_qty = toNumber(next[idx].dosage_qty, 0); next[idx] = { ...next[idx], unit_price_input, unit_price: Number.isFinite(unit_price) ? unit_price : 0, line_cost: (Number.isFinite(unit_price) ? unit_price : 0) * dosage_qty }; setImportedFormulaDraft(next); }} />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Định lượng</Label>
+                          <Input className="h-11" value={displayDosage === 0 ? "" : String(displayDosage).replace(".", ",")} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_input = e.target.value; const dosage_qty = dosage_input === "" ? 0 : parseDosageGramInput(dosage_input, 0); const unit_price = toNumber(next[idx].unit_price, 0); next[idx] = { ...next[idx], dosage_input, dosage_qty, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} />
+                        </div>
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                        <div className="rounded-md bg-muted/50 p-2">
+                          <div className="text-xs text-muted-foreground">Giá vốn</div>
+                          <div className="font-semibold">{vnd(lineCost)}</div>
+                        </div>
+                        <div className="rounded-md bg-muted/50 p-2">
+                          <div className="text-xs text-muted-foreground">Đơn giá vốn/cái</div>
+                          <div className="font-semibold">{vnd(perUnit)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
             <div className="text-sm text-muted-foreground">Ghi chú: NVL được tính bằng Gram. Sản lượng thành phẩm / mẻ mặc định là 100 nhưng có thể chỉnh theo từng SKU. Chi phí NVL tổng hợp tự động cộng toàn bộ dòng NVL hợp lệ.</div>
 
-            <div className="grid md:grid-cols-3 gap-3 text-sm">
+            <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
               <div className="p-3 rounded border bg-muted/30">Chi phí NVL tổng hợp: <b>{vnd(importedMaterialSummary.total)}</b></div>
-              <div className="p-3 rounded border bg-muted/30 flex items-center gap-2">Dự phòng hao hụt/tăng giá (%): <Input className="h-8" type="number" value={toNumber(skuForm.cost_values?.material_provision_percent, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.material_provision_percent, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), material_provision_percent: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
+              <div className="space-y-2 p-3 rounded border bg-muted/30"><Label>Dự phòng hao hụt/tăng giá (%)</Label><Input className="h-11 md:h-8" type="number" value={toNumber(skuForm.cost_values?.material_provision_percent, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.material_provision_percent, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), material_provision_percent: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
               <div className="p-3 rounded border bg-yellow-50 text-yellow-900">Total cost NVL/cái: <b>{vnd((importedMaterialSummary.perUnit || 0) + ((importedMaterialSummary.perUnit || 0) * toNumber(skuForm.cost_values?.material_provision_percent, 0) / 100))}</b></div>
-              <div className="p-3 rounded border flex items-center gap-2">Cost bao bì/cái <Input className="h-8" type="number" value={toNumber(skuForm.cost_values?.packaging_cost, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.packaging_cost, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), packaging_cost: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
-              <div className="p-3 rounded border flex items-center gap-2">Cost nhân công/cái <Input className="h-8" type="number" value={toNumber(skuForm.cost_values?.labor_cost, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.labor_cost, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), labor_cost: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /> <Button type="button" variant="outline" size="sm" onClick={() => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), labor_cost: suggestedLaborCost } })}>Lấy từ quản trị</Button></div>
-              <div className="p-3 rounded border flex items-center gap-2">Delivery/cái <Input className="h-8" type="number" value={toNumber(skuForm.cost_values?.delivery_cost, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.delivery_cost, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), delivery_cost: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
-              <div className="p-3 rounded border flex items-center gap-2">Other production/cái <Input className="h-8" type="number" value={toNumber(skuForm.cost_values?.other_production_cost, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.other_production_cost, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), other_production_cost: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
-              <div className="p-3 rounded border flex items-center gap-2">BH&QL/cái <Input className="h-8" type="number" value={toNumber(skuForm.cost_values?.sga_cost, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.sga_cost, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), sga_cost: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
+              <div className="space-y-2 p-3 rounded border"><Label>Cost bao bì/cái</Label><Input className="h-11 md:h-8" type="number" value={toNumber(skuForm.cost_values?.packaging_cost, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.packaging_cost, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), packaging_cost: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
+              <div className="space-y-2 p-3 rounded border"><div className="flex flex-wrap items-center justify-between gap-2"><Label>Cost nhân công/cái</Label><Button type="button" variant="outline" size="sm" onClick={() => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), labor_cost: suggestedLaborCost } })}>Lấy từ quản trị</Button></div><Input className="h-11 md:h-8" type="number" value={toNumber(skuForm.cost_values?.labor_cost, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.labor_cost, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), labor_cost: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
+              <div className="space-y-2 p-3 rounded border"><Label>Delivery/cái</Label><Input className="h-11 md:h-8" type="number" value={toNumber(skuForm.cost_values?.delivery_cost, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.delivery_cost, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), delivery_cost: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
+              <div className="space-y-2 p-3 rounded border"><Label>Other production/cái</Label><Input className="h-11 md:h-8" type="number" value={toNumber(skuForm.cost_values?.other_production_cost, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.other_production_cost, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), other_production_cost: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
+              <div className="space-y-2 p-3 rounded border"><Label>BH&QL/cái</Label><Input className="h-11 md:h-8" type="number" value={toNumber(skuForm.cost_values?.sga_cost, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.sga_cost, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), sga_cost: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
               <div className="p-3 rounded border bg-red-50 text-red-700">Tổng cost/cái: <b>{vnd((importedMaterialSummary.perUnit || 0) * (1 + toNumber(skuForm.cost_values?.material_provision_percent, 0) / 100) + toNumber(skuForm.cost_values?.packaging_cost, 0) + toNumber(skuForm.cost_values?.labor_cost, 0) + toNumber(skuForm.cost_values?.delivery_cost, 0) + toNumber(skuForm.cost_values?.other_production_cost, 0) + toNumber(skuForm.cost_values?.sga_cost, 0))}</b></div>
-              <div className="p-3 rounded border flex items-center gap-2">Giá bán/cái <Input className="h-8" type="number" value={toNumber(skuForm.cost_values?.selling_price, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.selling_price, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), selling_price: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
+              <div className="space-y-2 p-3 rounded border"><Label>Giá bán/cái</Label><Input className="h-11 md:h-8" type="number" value={toNumber(skuForm.cost_values?.selling_price, 0) === 0 ? "" : String(toNumber(skuForm.cost_values?.selling_price, 0))} onChange={(e) => setSkuForm({ ...skuForm, cost_values: { ...(skuForm.cost_values || {}), selling_price: e.target.value === "" ? 0 : Number(e.target.value || 0) } })} /></div>
               <div className="p-3 rounded border bg-sky-50 text-sky-700">Net profit/cái: <b>{vnd(toNumber(skuForm.cost_values?.selling_price, 0) - ((importedMaterialSummary.perUnit || 0) * (1 + toNumber(skuForm.cost_values?.material_provision_percent, 0) / 100) + toNumber(skuForm.cost_values?.packaging_cost, 0) + toNumber(skuForm.cost_values?.labor_cost, 0) + toNumber(skuForm.cost_values?.delivery_cost, 0) + toNumber(skuForm.cost_values?.other_production_cost, 0) + toNumber(skuForm.cost_values?.sga_cost, 0)))}</b></div>
             </div>
           </div>
