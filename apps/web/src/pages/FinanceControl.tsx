@@ -59,6 +59,60 @@ const EMPTY_COST_CLASSIFICATION_MONTHLY_ROWS: CostClassificationMonthlySummary[]
 const EMPTY_COST_CLASSIFICATION_REVIEW_ROWS: CostClassificationReviewRow[] = [];
 const EMPTY_COST_CATEGORY_OPTIONS: CostCategoryOption[] = [];
 
+type JsonRecord = Record<string, unknown>;
+type SupabaseErrorLike = { message?: string } | null;
+type SupabaseResult<T = unknown> = { data: T | null; error: SupabaseErrorLike };
+type LooseQueryBuilder<T = JsonRecord[]> = PromiseLike<SupabaseResult<T>> & {
+  select: (columns?: string) => LooseQueryBuilder<T>;
+  update: (values: JsonRecord) => LooseQueryBuilder<T>;
+  upsert: (values: JsonRecord | JsonRecord[], options?: JsonRecord) => LooseQueryBuilder<T>;
+  insert: (values: JsonRecord | JsonRecord[]) => LooseQueryBuilder<T>;
+  delete: () => LooseQueryBuilder<T>;
+  eq: (column: string, value: unknown) => LooseQueryBuilder<T>;
+  in: (column: string, values: unknown[]) => LooseQueryBuilder<T>;
+  gte: (column: string, value: unknown) => LooseQueryBuilder<T>;
+  lt: (column: string, value: unknown) => LooseQueryBuilder<T>;
+  order: (column: string, options?: JsonRecord) => LooseQueryBuilder<T>;
+  range: (from: number, to: number) => LooseQueryBuilder<T>;
+  limit: (count: number) => LooseQueryBuilder<T>;
+  single: () => Promise<SupabaseResult<JsonRecord>>;
+  maybeSingle: () => Promise<SupabaseResult<JsonRecord>>;
+};
+type LooseSupabase = {
+  from: <T = JsonRecord[]>(table: string) => LooseQueryBuilder<T>;
+  rpc: (fn: string, args?: JsonRecord) => Promise<SupabaseResult>;
+};
+const looseSupabase = supabase as unknown as LooseSupabase;
+
+type MismatchResult = {
+  uncVariance?: number;
+  qtmClosingBalance?: number;
+  qtmClosing?: number;
+  qtmOpening?: number;
+  qtmDeclared?: number;
+  qtmSpent?: number;
+  status?: "match" | "mismatch";
+} | null;
+type DriveFileRow = { id: string; name?: string; mimeType?: string; base64?: string; webViewLink?: string };
+type ExtractedSlipItem = { amount?: number; confidence?: number; transfer_date?: string; reference?: string; provider?: string };
+type ReconciliationSnapshot = {
+  uncDrive?: number;
+  uncCEO?: number;
+  uncVariance?: number;
+  qtmOpening?: number;
+  qtmCEO?: number;
+  qtmDrive?: number;
+  qtmClosing?: number;
+  qtmVariance?: number;
+  status?: "match" | "mismatch";
+};
+
+const asRecord = (value: unknown): JsonRecord => (value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {});
+const getErrorMessage = (error: unknown, fallback: string) => {
+  const record = asRecord(error);
+  return typeof record.message === "string" && record.message.trim() ? record.message : fallback;
+};
+
 type ClassificationEdits = Record<string, string>;
 type ClassificationMonthlyDisplayRow = CostClassificationMonthlySummary & {
   review_status_counts: Record<string, number>;
@@ -157,7 +211,7 @@ const getLineDateLabel = (value: string | null | undefined) => {
 
 const getCostCategorySelectLabel = (code: string, label?: string) => label ? `${code} — ${label}` : code;
 
-const getOcrErrorMessage = (errorLike: any, fallbackMessage: string) => {
+const getOcrErrorMessage = (errorLike: unknown, fallbackMessage: string) => {
   if (typeof errorLike?.error === "string" && errorLike.error.trim()) return errorLike.error.trim();
   if (typeof errorLike?.detail === "string" && errorLike.detail.trim()) return errorLike.detail.trim();
   if (typeof errorLike?.message === "string" && errorLike.message.trim()) return errorLike.message.trim();
@@ -169,14 +223,14 @@ const getOcrTimeoutMessage = (isVi: boolean) => (
     : "Slip scanning timed out. Please try again."
 );
 
-const getQtmClosingFromMismatch = (result: any) => {
+const getQtmClosingFromMismatch = (result: MismatchResult) => {
   if (!result) return 0;
   if (Number.isFinite(Number(result.qtmClosingBalance))) return Number(result.qtmClosingBalance);
   if (Number.isFinite(Number(result.qtmClosing))) return Number(result.qtmClosing);
   return Number(result.qtmOpening || 0) + Number(result.qtmDeclared || 0) - Number(result.qtmSpent || 0);
 };
 
-const getMismatchCauseLabel = (result: any, isVi: boolean) => {
+const getMismatchCauseLabel = (result: MismatchResult, isVi: boolean) => {
   const uncVariance = Number(result?.uncVariance || 0);
   const qtmClosing = getQtmClosingFromMismatch(result);
   const uncMismatch = uncVariance !== 0;
@@ -253,7 +307,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
   // Close dialog state
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const [closeDialogStep, setCloseDialogStep] = useState<"preview" | "running" | "mismatch" | "done">("preview");
-  const [mismatchResult, setMismatchResult] = useState<any>(null);
+  const [mismatchResult, setMismatchResult] = useState<MismatchResult>(null);
   const [closeResultSnapshot, setCloseResultSnapshot] = useState<{ uncDrive: number; uncCEO: number; qtmDrive: number; qtmCEO: number; status: "match" | "mismatch" } | null>(null);
   const [previewUncFiles, setPreviewUncFiles] = useState<number>(0);
   const [previewQtmFiles, setPreviewQtmFiles] = useState<number>(0);
@@ -305,8 +359,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
           .from("app_settings")
           .select("key, value")
           .in("key", ["google_drive_receipts_unc_pattern", "google_drive_receipts_qtm_pattern"]);
-        const unc = data?.find((d: any) => d.key === "google_drive_receipts_unc_pattern")?.value;
-        const qtm = data?.find((d: any) => d.key === "google_drive_receipts_qtm_pattern")?.value;
+        const rows = (data || []) as Array<{ key: string; value?: string }>;
+        const unc = rows.find((d) => d.key === "google_drive_receipts_unc_pattern")?.value;
+        const qtm = rows.find((d) => d.key === "google_drive_receipts_qtm_pattern")?.value;
         if (unc) setUncPathTemplate(String(unc));
         if (qtm) setQtmPathTemplate(String(qtm));
       } catch (error) {
@@ -519,7 +574,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
           classification_source: "manual_override",
         };
 
-        const { error: updateError } = await (supabase as any)
+        const { error: updateError } = await looseSupabase
           .from("cost_line_classifications")
           .update({
             category_code: nextCode,
@@ -535,7 +590,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
           .eq("id", row.classification_id);
         if (updateError) throw updateError;
 
-        const { error: auditError } = await (supabase as any)
+        const { error: auditError } = await looseSupabase
           .from("cost_classification_audit_logs")
           .insert({
             classification_id: row.classification_id,
@@ -551,7 +606,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
 
         const productPattern = escapeCostRulePattern(row.product_name || row.product_code || "");
         if (productPattern) {
-          const { error: ruleError } = await (supabase as any)
+          const { error: ruleError } = await looseSupabase
             .from("cost_classification_rules")
             .upsert({
               priority: 20,
@@ -583,7 +638,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         title: isVi ? "Đã lưu phân loại" : "Classification saved",
         description: isVi ? "Hệ thống đã ghi nhớ nhóm để áp dụng cho PR/invoice sau." : "The category memory rule was saved for future PRs/invoices.",
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: isVi ? "Không lưu được phân loại" : "Could not save classification",
         description: error?.message || String(error),
@@ -635,14 +690,14 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
   const [uncSlipPreviews, setUncSlipPreviews] = useState<string[]>([]);
   const [pendingQtmImagesBase64, setPendingQtmImagesBase64] = useState<string[]>([]);
   const [pendingUncImagesBase64, setPendingUncImagesBase64] = useState<string[]>([]);
-  const [pendingQtmExtractedList, setPendingQtmExtractedList] = useState<any[]>([]);
-  const [pendingUncExtractedList, setPendingUncExtractedList] = useState<any[]>([]);
+  const [pendingQtmExtractedList, setPendingQtmExtractedList] = useState<ExtractedSlipItem[]>([]);
+  const [pendingUncExtractedList, setPendingUncExtractedList] = useState<ExtractedSlipItem[]>([]);
 
   const [closeDecision, setCloseDecision] = useState<"reject" | "conditional" | "approve">("reject");
   const [closeApprovalLocked, setCloseApprovalLocked] = useState(false);
   const [closeReason, setCloseReason] = useState("");
   const [closeActing, setCloseActing] = useState(false);
-  const [reconciliationAuditLogs, setReconciliationAuditLogs] = useState<Array<{ at: string; actor: string; action: string; detail?: string; snapshot?: any }>>([]);
+  const [reconciliationAuditLogs, setReconciliationAuditLogs] = useState<Array<{ at: string; actor: string; action: string; detail?: string; snapshot?: ReconciliationSnapshot }>>([]);
 
   useEffect(() => {
     // Guard against transient empty state while query is still loading/refetching,
@@ -664,7 +719,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     setCashFundTopupAmount(Number(dailyDeclaration?.qtm_extracted_amount || dailyDeclaration?.cash_fund_topup_amount || 0));
     setNotes(String(dailyDeclaration?.notes || ""));
     setCeoDeclarationLocked(Boolean(dailyDeclaration?.extraction_meta?.ceo_declaration_locked));
-    setCloseDecision((dailyDeclaration?.extraction_meta?.close_decision as any) || "reject");
+    setCloseDecision((dailyDeclaration?.extraction_meta?.close_decision as "reject" | "conditional" | "approve" | undefined) || "reject");
     setCloseApprovalLocked(Boolean(dailyDeclaration?.extraction_meta?.close_approval_locked));
     setCloseReason(String(dailyDeclaration?.extraction_meta?.close_reason || ""));
     setReconciliationAuditLogs(Array.isArray(dailyDeclaration?.extraction_meta?.reconciliation_audit_logs)
@@ -1002,7 +1057,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         }
       };
 
-      const downloadBase64File = async (f: any) => {
+      const downloadBase64File = async (f: DriveFileRow) => {
         const resp = await fetchWithTimeout(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-drive-folder`, {
           method: "POST",
           headers: {
@@ -1041,11 +1096,11 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       const qtmRawFiles = Array.isArray(qtmScanData?.files) ? qtmScanData.files : [];
       const preSkippedByServer = Number(uncScanData?.skippedProcessedCount || 0) + Number(qtmScanData?.skippedProcessedCount || 0);
 
-      const normalizeImageFiles = (rows: any[]) =>
-        (rows || []).filter((f: any) => !uncScanImagesOnly || String(f?.mimeType || "").startsWith("image/"));
+      const normalizeImageFiles = (rows: DriveFileRow[]) =>
+        (rows || []).filter((f: DriveFileRow) => !uncScanImagesOnly || String(f?.mimeType || "").startsWith("image/"));
 
-      let uncFiles = normalizeImageFiles(uncRawFiles);
-      let qtmFiles = normalizeImageFiles(qtmRawFiles);
+      const uncFiles = normalizeImageFiles(uncRawFiles);
+      const qtmFiles = normalizeImageFiles(qtmRawFiles);
 
       const uncTotalScannedCount = Number(uncScanData?.totalFilesFound ?? uncFiles.length);
       const qtmTotalScannedCount = Number(qtmScanData?.totalFilesFound ?? qtmFiles.length);
@@ -1072,11 +1127,11 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       // ── OCR cache lookup: reuse previously extracted amounts from drive_file_index ──
       const ocrCache = new Map<string, { amount: number; confidence: number }>();
       {
-        const allFileIds = [...targetUncFiles, ...targetQtmFiles].map((f: any) => f.id);
+        const allFileIds = [...targetUncFiles, ...targetQtmFiles].map((f: DriveFileRow) => f.id);
         const CHUNK = 500;
         for (let i = 0; i < allFileIds.length; i += CHUNK) {
           const chunk = allFileIds.slice(i, i + CHUNK);
-          const { data: cachedRows } = await (supabase as any)
+          const { data: cachedRows } = await looseSupabase
             .from("drive_file_index")
             .select("file_id, extracted_amount, extraction_confidence, processed_at")
             .in("file_id", chunk)
@@ -1094,8 +1149,8 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         }
       }
       const cachedCount = ocrCache.size;
-      const uncachedUncFiles = targetUncFiles.filter((f: any) => !ocrCache.has(f.id));
-      const uncachedQtmFiles = targetQtmFiles.filter((f: any) => !ocrCache.has(f.id));
+      const uncachedUncFiles = targetUncFiles.filter((f: DriveFileRow) => !ocrCache.has(f.id));
+      const uncachedQtmFiles = targetQtmFiles.filter((f: DriveFileRow) => !ocrCache.has(f.id));
       const processedSkippedCount = cachedCount;
       console.log(`[reconcile] OCR cache hit: ${cachedCount} files, need OCR: UNC ${uncachedUncFiles.length}, QTM ${uncachedQtmFiles.length}`);
 
@@ -1110,7 +1165,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       const BATCH_SIZE = 3;
 
       const processFileBatch = async (
-        files: any[],
+        files: DriveFileRow[],
         slipType: "unc" | "qtm",
       ): Promise<Array<{ amount: number; confidence: number; fileId: string; fileName: string } | null>> => {
         const results: Array<{ amount: number; confidence: number; fileId: string; fileName: string } | null> = [];
@@ -1245,7 +1300,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         if (!ocrAmountMap.has(fileId)) ocrAmountMap.set(fileId, cached);
       }
       const successfulOcrFileIds = new Set(Array.from(ocrAmountMap.keys()).map(String));
-      const processedRows = [...targetUncFiles, ...targetQtmFiles].map((f: any) => {
+      const processedRows = [...targetUncFiles, ...targetQtmFiles].map((f: DriveFileRow) => {
         const fileId = String(f.id);
         const ocr = ocrAmountMap.get(f.id) || ocrAmountMap.get(fileId);
         const ocrSucceeded = successfulOcrFileIds.has(fileId);
@@ -1265,7 +1320,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       });
 
       if (processedRows.length > 0) {
-        const { error: processedUpsertError } = await (supabase as any)
+        const { error: processedUpsertError } = await looseSupabase
           .from("drive_file_index")
           .upsert(processedRows, { onConflict: "file_id", ignoreDuplicates: false });
 
@@ -1301,7 +1356,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       };
       setUncReconSummary(uncSummary);
 
-      await (supabase as any)
+      await looseSupabase
         .from("ceo_daily_closing_declarations")
         .upsert({
           closing_date: dateKey,
@@ -1349,7 +1404,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         uncSummary,
       };
 
-    } catch (e: any) {
+    } catch (e: unknown) {
       const msg = e?.message || (isVi ? "Không thể đối soát UNC/QTM theo ngày" : "Failed reconciling UNC/QTM by date");
       setReconcileError(msg);
       setReconcileProgress((prev) => ({ ...prev, currentFile: "" }));
@@ -1385,7 +1440,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
 
       const scanData = await scanResponse.json();
       const files = (Array.isArray(scanData?.files) ? scanData.files : [])
-        .filter((f: any) => String(f?.mimeType || "").startsWith("image/"));
+        .filter((f: DriveFileRow) => String(f?.mimeType || "").startsWith("image/"));
 
       if (!files.length) {
         setQtmSpentFromFolder(0);
@@ -1410,7 +1465,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         title: isVi ? "Đã quét chi QTM" : "QTM scanned",
         description: `${isVi ? "Tổng chi" : "Spent"}: ${vnd(total)} • ${isVi ? "thiếu chứng từ/độ tin cậy thấp" : "low confidence"}: ${lowConfidence}`,
       });
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast({ title: isVi ? "Lỗi quét QTM" : "QTM scan error", description: e?.message || "Failed scanning QTM", variant: "destructive" });
     } finally {
       setQtmReconciling(false);
@@ -1452,7 +1507,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     setActiveSlipScan({ type: slipType, fileCount: files.length });
     setExtracting(true);
     try {
-      const batchResults: Array<{ imageBase64: string; extracted: any; file: File }> = [];
+      const batchResults: Array<{ imageBase64: string; extracted: ExtractedSlipItem; file: File }> = [];
       for (const file of files) {
         const result = await extractSlipAmount(file, slipType);
         const amount = Number(result?.extracted?.amount || 0);
@@ -1554,7 +1609,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
             : `${slipType.toUpperCase()} scanned, but auto-save failed. Check the error below, then press Save declaration.`,
         }));
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       const statusText = e?.message
         ? `${isVi ? "Ảnh mới chưa được áp dụng:" : "New image not applied:"} ${e.message}`
         : (isVi
@@ -1594,7 +1649,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       qtmCEO: Number(snapshotOverride?.qtmCEO ?? cashFundTopupAmount ?? 0),
       qtmDrive: Number(snapshotOverride?.qtmDrive ?? resolvedQtmDrive ?? 0),
       qtmClosing: Number(snapshotOverride?.qtmClosing ?? qtmClosingBalance ?? 0),
-      qtmVariance: Number(snapshotOverride?.qtmVariance ?? (resolvedQtmDrive - Number(cashFundTopupAmount || 0)) ?? 0),
+      qtmVariance: Number(snapshotOverride?.qtmVariance ?? (resolvedQtmDrive - Number(cashFundTopupAmount || 0))),
       status: (snapshotOverride?.status ?? resolvedStatus ?? "mismatch") as "match" | "mismatch",
     };
     const nextLog = {
@@ -1607,7 +1662,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
 
     const mergedLogs = [...reconciliationAuditLogs, nextLog];
 
-    const { error } = await (supabase as any)
+    const { error } = await looseSupabase
       .from("ceo_daily_closing_declarations")
       .upsert({
         closing_date: dateKey,
@@ -1650,7 +1705,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     setSaving(true);
     setDeclarationSaveMessage(null);
     try {
-      const { data: latestDecl, error: latestError } = await (supabase as any)
+      const { data: latestDecl, error: latestError } = await looseSupabase
         .from("ceo_daily_closing_declarations")
         .select("closing_date,unc_total_declared,unc_extracted_amount,cash_fund_topup_amount,qtm_extracted_amount,notes,extraction_meta")
         .eq("closing_date", dateKey)
@@ -1668,13 +1723,13 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       const currentQtmItems = Array.isArray(meta.qtm_items) ? meta.qtm_items : [];
       const currentUncItems = Array.isArray(meta.unc_items) ? meta.unc_items : [];
 
-      const nextQtmImages = slipType === "qtm" ? currentQtmImages.filter((_: any, i: number) => i !== index) : currentQtmImages;
-      const nextUncImages = slipType === "unc" ? currentUncImages.filter((_: any, i: number) => i !== index) : currentUncImages;
-      const nextQtmItems = slipType === "qtm" ? currentQtmItems.filter((_: any, i: number) => i !== index) : currentQtmItems;
-      const nextUncItems = slipType === "unc" ? currentUncItems.filter((_: any, i: number) => i !== index) : currentUncItems;
+      const nextQtmImages = slipType === "qtm" ? currentQtmImages.filter((_: unknown, i: number) => i !== index) : currentQtmImages;
+      const nextUncImages = slipType === "unc" ? currentUncImages.filter((_: unknown, i: number) => i !== index) : currentUncImages;
+      const nextQtmItems = slipType === "qtm" ? currentQtmItems.filter((_: unknown, i: number) => i !== index) : currentQtmItems;
+      const nextUncItems = slipType === "unc" ? currentUncItems.filter((_: unknown, i: number) => i !== index) : currentUncItems;
 
-      const nextQtmAmount = nextQtmItems.reduce((sum: number, item: any) => sum + Number(item?.amount || 0), 0);
-      const nextUncAmount = nextUncItems.reduce((sum: number, item: any) => sum + Number(item?.amount || 0), 0);
+      const nextQtmAmount = nextQtmItems.reduce((sum: number, item: ExtractedSlipItem) => sum + Number(item?.amount || 0), 0);
+      const nextUncAmount = nextUncItems.reduce((sum: number, item: ExtractedSlipItem) => sum + Number(item?.amount || 0), 0);
 
       const nextMeta = {
         ...meta,
@@ -1696,7 +1751,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         notes: latestDecl.notes || null,
       };
 
-      const { error } = await (supabase as any)
+      const { error } = await looseSupabase
         .from("ceo_daily_closing_declarations")
         .upsert(payload, { onConflict: "closing_date" });
       if (error) throw error;
@@ -1716,7 +1771,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         title: isVi ? "Đã xoá slip" : "Slip deleted",
         description: isVi ? "Khai báo CEO đã được cập nhật theo danh sách slip còn lại." : "CEO declaration has been recalculated from the remaining slips.",
       });
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast({
         title: isVi ? "Xoá slip thất bại" : "Failed to delete slip",
         description: e?.message || (isVi ? "Không thể xoá slip" : "Unable to delete slip"),
@@ -1734,14 +1789,14 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       cashFundTopupAmount?: number;
       pendingQtmImagesBase64?: string[];
       pendingUncImagesBase64?: string[];
-      pendingQtmExtractedList?: any[];
-      pendingUncExtractedList?: any[];
+      pendingQtmExtractedList?: ExtractedSlipItem[];
+      pendingUncExtractedList?: ExtractedSlipItem[];
     },
   ): Promise<boolean> => {
     setSaving(true);
     setDeclarationSaveMessage(null);
     try {
-      const { data: latestDecl } = await (supabase as any)
+      const { data: latestDecl } = await looseSupabase
         .from("ceo_daily_closing_declarations")
         .select("closing_date,unc_total_declared,unc_extracted_amount,cash_fund_topup_amount,qtm_extracted_amount,notes,extraction_meta")
         .eq("closing_date", dateKey)
@@ -1779,11 +1834,11 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
           qtm_images: finalQtmImages,
           unc_images: finalUncImages,
           qtm_items: [
-            ...((sourceDecl?.extraction_meta?.qtm_items as any[]) || []),
+            ...((sourceDecl?.extraction_meta?.qtm_items as ExtractedSlipItem[]) || []),
             ...nextPendingQtmExtractedList,
           ],
           unc_items: [
-            ...((sourceDecl?.extraction_meta?.unc_items as any[]) || []),
+            ...((sourceDecl?.extraction_meta?.unc_items as ExtractedSlipItem[]) || []),
             ...nextPendingUncExtractedList,
           ],
           ceo_declaration_locked: ceoDeclarationLocked,
@@ -1799,7 +1854,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         notes: notes || null,
       };
 
-      const { error } = await (supabase as any)
+      const { error } = await looseSupabase
         .from("ceo_daily_closing_declarations")
         .upsert(payload, { onConflict: "closing_date" });
 
@@ -1814,7 +1869,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       setPendingUncExtractedList([]);
       await refetchDeclaration();
       return true;
-    } catch (e: any) {
+    } catch (e: unknown) {
       setDeclarationSaveMessage(e?.message || (isVi ? "Không thể lưu khai báo" : "Failed to save declaration"));
       if (!silent) {
         toast({ title: "Error", description: e?.message || "Failed to save declaration", variant: "destructive" });
@@ -1846,7 +1901,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       // Overall status: UNC must match exactly; QTM only fails if closing balance goes negative
       const status: "match" | "mismatch" = (uncStatus === "match" && qtmStatus === "match") ? "match" : "mismatch";
 
-      const { error } = await (supabase as any)
+      const { error } = await looseSupabase
         .from("daily_reconciliations")
         .upsert({
           closing_date: dateKey,
@@ -1892,7 +1947,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         qtmOpening: effectiveOpeningBalance,
         qtmClosingBalance: qtmClosingBalanceFresh,
       };
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast({ title: "Error", description: e?.message || "Reconciliation failed", variant: "destructive" });
       return null;
     } finally {
@@ -1955,7 +2010,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
           setReconcileError(errors);
         }
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       setReconcileError(e?.message || (isVi ? "Không thể kết nối Drive" : "Cannot connect to Drive"));
     } finally {
       setPreviewLoading(false);
@@ -2064,7 +2119,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         variant: result?.status === "match" ? "default" : "destructive",
       });
       await refetchDeclaration();
-    } catch (e: any) {
+    } catch (e: unknown) {
       setReconcileError(e?.message || (isVi ? "Lỗi khi chốt ngày" : "Failed closing day"));
       setCloseDialogStep("preview"); // Go back to preview so user can retry or change settings
     } finally {
@@ -2104,7 +2159,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         variant: "destructive",
       });
       await refetchDeclaration();
-    } catch (e: any) {
+    } catch (e: unknown) {
       setReconcileError(e?.message || (isVi ? "Lỗi khi chốt ngày" : "Failed closing day"));
       setCloseDialogStep("mismatch");
     } finally {
@@ -2123,7 +2178,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         description: isVi ? "Anh có thể chỉnh và phê duyệt lại." : "You can edit and approve again.",
       });
       await refetchDeclaration();
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast({ title: isVi ? "Lỗi" : "Error", description: e?.message || (isVi ? "Không thể mở khoá" : "Failed to unlock"), variant: "destructive" });
     } finally {
       setCloseActing(false);
@@ -2444,7 +2499,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {monthlySummary?.rows?.map((r: any) => (
+                    {monthlySummary?.rows?.map((r: CostClassificationMonthlySummary) => (
                       <TableRow key={r.id}>
                         <TableCell className="whitespace-nowrap">{format(new Date(r.closing_date), "dd/MM/yyyy", { locale: vi })}</TableCell>
                         <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.unc_detail_amount || 0))}</TableCell>
@@ -2555,7 +2610,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                                 ))}
                               </Pie>
                               <Tooltip
-                                formatter={(value: number, _name, item: any) => [
+                                formatter={(value: number, _name, item: { payload?: ClassificationChartRow }) => [
                                   `${vnd(Number(value || 0))} · ${Number(item?.payload?.percentage || 0).toFixed(1)}%`,
                                   item?.payload?.category_label || item?.payload?.category_code,
                                 ]}
