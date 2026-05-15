@@ -742,6 +742,24 @@ const lineRevenueDate = (row: InboxRow, item: JsonRecord, poReceivedDate: string
   );
 };
 
+const isThuyDealerDateHeaderItem = (row: InboxRow, item: JsonRecord) => {
+  const raw = asRecord(row.raw_payload);
+  const poAutomation = asRecord(raw.po_automation);
+  const fromEmail = normalizeText(row.from_email);
+  const automationRule = normalizeText(poAutomation.rule, poAutomation.channel_scope);
+  const rawLine = normalizeText(item.raw_line, item.source_line, item.text);
+  const route = normalizeText(item.route, item.customer_name, item.route_name);
+  const subject = normalizeText(row.email_subject);
+
+  return (
+    fromEmail.includes("thuy@bmq.vn") &&
+    automationRule.includes("thuy") &&
+    rawLine.match(/^dat banh\s+\d{1,2}(?:[.,\/]\d{1,2})?$/) !== null &&
+    route === "dat banh" &&
+    subject.includes(rawLine)
+  );
+};
+
 const calcAmountFromRow = (row: InboxRow): number => {
   const raw = asRecord(row.raw_payload);
   const revenuePost = asRecord(raw.revenue_post);
@@ -796,6 +814,7 @@ const buildPreviewLines = (
 
     for (let itemIndex = 0; itemIndex < effectiveItems.length; itemIndex += 1) {
       const item = effectiveItems[itemIndex];
+      if (isThuyDealerDateHeaderItem(row, item)) continue;
       const revenueDate = lineRevenueDate(row, item, poReceivedDate);
       if (!revenueDate || revenueDate < revenueFrom || revenueDate > revenueTo) continue;
       const line = lineFromItem(item, effectiveItems.length === 1 ? fallbackAmount : 0);
