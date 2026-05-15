@@ -359,7 +359,7 @@ const autoDailyWindow = (now = new Date()) => {
   const revenueDateFrom = current.date;
   const revenueDateTo = current.date;
   const poReceivedFrom = shiftLocalDate(current.date, -1);
-  const poReceivedTo = current.date;
+  const poReceivedTo = shiftLocalDate(current.date, -1);
   return { period, revenueDateFrom, revenueDateTo, poReceivedFrom, poReceivedTo, hasRevenueWindow: true };
 };
 
@@ -368,7 +368,7 @@ const explicitRevenueDateWindow = (revenueDate: string) => ({
   revenueDateFrom: revenueDate,
   revenueDateTo: revenueDate,
   poReceivedFrom: shiftLocalDate(revenueDate, -1),
-  poReceivedTo: revenueDate,
+  poReceivedTo: shiftLocalDate(revenueDate, -1),
   hasRevenueWindow: true,
 });
 
