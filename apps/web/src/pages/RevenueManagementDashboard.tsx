@@ -814,42 +814,46 @@ export default function RevenueManagementDashboard() {
           </div>
         </CardHeader>
         <CardContent className="h-[280px] p-3 md:h-[340px] md:p-4">
-          <ChartContainer
-            config={{
-              ledger: { label: "Ledger", color: MOM_CURRENT_COLOR },
-              forecast: { label: "Forecast", color: FORECAST_REMAINDER_COLOR },
-            }}
-            className="h-full"
-          >
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trendChart} margin={{ top: 14, right: 12, bottom: 8, left: 0 }}>
-                <defs>
-                  <linearGradient id="ledgerTrendFill" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="5%" stopColor={MOM_CURRENT_COLOR} stopOpacity={0.36} />
-                    <stop offset="95%" stopColor={MOM_CURRENT_COLOR} stopOpacity={0.02} />
-                  </linearGradient>
-                  <linearGradient id="forecastTrendFill" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="5%" stopColor={FORECAST_REMAINDER_COLOR} stopOpacity={0.22} />
-                    <stop offset="95%" stopColor={FORECAST_REMAINDER_COLOR} stopOpacity={0.02} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke={TREND_GRID_COLOR} vertical={false} />
-                <XAxis dataKey="day" tickLine={false} axisLine={false} fontSize={11} interval="preserveStartEnd" tick={{ fill: "rgba(245,245,244,0.68)" }} />
-                <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`} tickLine={false} axisLine={false} width={42} tick={{ fill: "rgba(245,245,244,0.68)" }} />
-                <Tooltip
-                  cursor={{ stroke: "rgba(251,191,36,0.32)", strokeDasharray: "4 4" }}
-                  contentStyle={{ background: "#1c1917", border: "1px solid rgba(251,191,36,0.28)", borderRadius: "12px", color: "#fef3c7", boxShadow: "0 18px 36px rgba(0,0,0,0.38)" }}
-                  formatter={(value, name) => [vnd(Number(value)), name === "ledger" ? "Ledger" : "Forecast"]}
-                  labelFormatter={(label) => `Ngày ${label}/${period.slice(5)}`}
-                  labelStyle={{ color: "#fef3c7", fontWeight: 600 }}
-                />
-                <Legend wrapperStyle={{ color: "rgba(245,245,244,0.74)", fontSize: 12 }} />
-                <Area type="monotone" dataKey="forecast" stroke={FORECAST_REMAINDER_COLOR} strokeDasharray="5 5" strokeWidth={2} fill="url(#forecastTrendFill)" dot={false} activeDot={{ r: 4 }} />
-                <Area type="monotone" dataKey="ledger" stroke={MOM_CURRENT_COLOR} strokeWidth={3} fill="url(#ledgerTrendFill)" connectNulls={false} dot={false} activeDot={{ r: 5, stroke: "#052e16", strokeWidth: 2 }} />
-                <Line type="monotone" dataKey="current" stroke="#FEF3C7" strokeWidth={0} dot={{ r: 5, fill: "#FEF3C7", stroke: MOM_CURRENT_COLOR, strokeWidth: 3 }} legendType="none" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </ChartContainer>
+          <div className="h-full overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]" aria-label="Cuộn ngang để xem đủ xu hướng doanh thu trong tháng">
+            <div className="h-full min-w-[880px] md:min-w-0">
+              <ChartContainer
+                config={{
+                  ledger: { label: "Ledger", color: MOM_CURRENT_COLOR },
+                  forecast: { label: "Forecast", color: FORECAST_REMAINDER_COLOR },
+                }}
+                className="h-full"
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={trendChart} margin={{ top: 14, right: 12, bottom: 8, left: 0 }}>
+                    <defs>
+                      <linearGradient id="ledgerTrendFill" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="5%" stopColor={MOM_CURRENT_COLOR} stopOpacity={0.36} />
+                        <stop offset="95%" stopColor={MOM_CURRENT_COLOR} stopOpacity={0.02} />
+                      </linearGradient>
+                      <linearGradient id="forecastTrendFill" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="5%" stopColor={FORECAST_REMAINDER_COLOR} stopOpacity={0.22} />
+                        <stop offset="95%" stopColor={FORECAST_REMAINDER_COLOR} stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke={TREND_GRID_COLOR} vertical={false} />
+                    <XAxis dataKey="day" tickLine={false} axisLine={false} fontSize={11} interval="preserveStartEnd" tick={{ fill: "rgba(245,245,244,0.68)" }} />
+                    <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`} tickLine={false} axisLine={false} width={42} tick={{ fill: "rgba(245,245,244,0.68)" }} />
+                    <Tooltip
+                      cursor={{ stroke: "rgba(251,191,36,0.32)", strokeDasharray: "4 4" }}
+                      contentStyle={{ background: "#1c1917", border: "1px solid rgba(251,191,36,0.28)", borderRadius: "12px", color: "#fef3c7", boxShadow: "0 18px 36px rgba(0,0,0,0.38)" }}
+                      formatter={(value, name) => [vnd(Number(value)), name === "ledger" ? "Ledger" : "Forecast"]}
+                      labelFormatter={(label) => `Ngày ${label}/${period.slice(5)}`}
+                      labelStyle={{ color: "#fef3c7", fontWeight: 600 }}
+                    />
+                    <Legend wrapperStyle={{ color: "rgba(245,245,244,0.74)", fontSize: 12 }} />
+                    <Area type="monotone" dataKey="forecast" stroke={FORECAST_REMAINDER_COLOR} strokeDasharray="5 5" strokeWidth={2} fill="url(#forecastTrendFill)" dot={false} activeDot={{ r: 4 }} />
+                    <Area type="monotone" dataKey="ledger" stroke={MOM_CURRENT_COLOR} strokeWidth={3} fill="url(#ledgerTrendFill)" connectNulls={false} dot={false} activeDot={{ r: 5, stroke: "#052e16", strokeWidth: 2 }} />
+                    <Line type="monotone" dataKey="current" stroke="#FEF3C7" strokeWidth={0} dot={{ r: 5, fill: "#FEF3C7", stroke: MOM_CURRENT_COLOR, strokeWidth: 3 }} legendType="none" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </ChartContainer>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
