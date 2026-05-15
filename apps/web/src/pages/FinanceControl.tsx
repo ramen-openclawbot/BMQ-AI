@@ -1595,7 +1595,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         const savedMessage = isVi
           ? `Đã scan và tự lưu khai báo CEO: ${slipType.toUpperCase()} +${vnd(batchSum)} (${batchResults.length} ảnh). Không cần bấm Lưu khai báo.`
           : `Scanned and auto-saved CEO declaration: ${slipType.toUpperCase()} +${vnd(batchSum)} (${batchResults.length} image(s)). No need to press Save declaration.`;
-        setDeclarationSaveMessage(savedMessage);
+        // Keep auto-save confirmation in the slip section only.
+        // Do not also set declarationSaveMessage here: mobile users see both areas at once,
+        // which duplicates the same success notification.
         setSlipUploadStatus((prev) => ({ ...prev, [slipType]: savedMessage }));
         toast({
           title: isVi ? "Đã tự lưu khai báo CEO" : "CEO declaration auto-saved",

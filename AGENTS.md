@@ -51,6 +51,7 @@ Default sequence for this repo:
 - For PO/revenue flows, keep parse configuration separate from finance execution.
 - Respect current rollout gates such as Tier-1-first behavior unless the user explicitly asks to change them.
 - Preserve auditability and operator clarity over hidden automation.
+- For UX notifications, avoid duplicate confirmations: do not show the same success/error text in both a global message and a section-local status. Prefer one persistent inline message near the action, with toast only as transient support.
 
 ## 8. Success criteria
 Before saying a task is done, verify:
