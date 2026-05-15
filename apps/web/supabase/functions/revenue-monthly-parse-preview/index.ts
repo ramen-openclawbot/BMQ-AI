@@ -142,6 +142,20 @@ const jsonResponse = (req: Request, body: unknown, status = 200) =>
 const asRecord = (value: unknown): JsonRecord =>
   value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
 
+const errorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  const record = asRecord(error);
+  const message = record.message || record.error || record.details || record.hint;
+  if (typeof message === "string" && message.trim()) return message;
+  try {
+    const serialized = JSON.stringify(error);
+    if (serialized && serialized !== "{}") return serialized;
+  } catch {
+    // fall through
+  }
+  return "Unknown error";
+};
+
 const asArray = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 
 const stringValue = (...values: unknown[]) => {
@@ -1485,7 +1499,7 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
       postResult: data,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = errorMessage(error);
     await upsertAutoDailyParseLog(supabaseAdmin, {
       revenueDate: window.revenueDateFrom,
       period: window.period,
@@ -1515,7 +1529,7 @@ function streamCurrentMonthPreview(req: Request, supabaseAdmin: ReturnType<typeo
         const result = await runCurrentMonthPreview(req, supabaseAdmin, userId, send);
         send({ type: "done", stage: "preview_ready", ...result });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown error";
+        const message = errorMessage(error);
         send({ type: "error", stage: "error", error: message });
       } finally {
         controller.close();
@@ -1636,7 +1650,7 @@ serve(async (req) => {
     return jsonResponse(req, { error: `Unsupported action: ${action}` }, 400);
   } catch (error) {
     if (error instanceof Response) return error;
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = errorMessage(error);
     const status = message.startsWith("Forbidden:") ? 403 : 500;
     return jsonResponse(req, { error: message }, status);
   }
