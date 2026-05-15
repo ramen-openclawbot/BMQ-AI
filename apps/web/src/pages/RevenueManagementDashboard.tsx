@@ -2,7 +2,7 @@ import { type KeyboardEvent, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, CalendarDays, CheckCircle2, Loader2, Settings, Users } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,9 +26,21 @@ const compactVnd = (v: number) => {
   return vnd(v);
 };
 
+const formatDate = (value: string | null | undefined) => {
+  if (!value) return "—";
+  const [year, month, day] = value.split("-");
+  return `${day}/${month}/${year}`;
+};
+
+const periodLabel = (value: string) => {
+  const [year, month] = value.split("-");
+  return `Tháng ${month}/${year}`;
+};
+
 const MOM_PREVIOUS_COLOR = "#F2C15C";
 const MOM_CURRENT_COLOR = "#34D399";
 const FORECAST_REMAINDER_COLOR = "#F59E0B";
+const TREND_GRID_COLOR = "rgba(245,158,11,0.12)";
 
 const vietnamToday = () => {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -559,6 +571,34 @@ export default function RevenueManagementDashboard() {
     };
   }, [forecastBaseLines, forecastBasePeriod, lines, period, prevPeriod, previousLines, stats.total]);
 
+  const throughDate = dateForPeriodDay(period, forecast.cutoffDay || 1);
+  const forecastProgress = forecast.total > 0 ? clamp((forecast.actualControlled / forecast.total) * 100, 0, 100) : 0;
+
+  const trendChart = useMemo(() => {
+    const daily = new Map<number, number>();
+    for (const row of lines) {
+      const day = lineDateDay(row);
+      if (day > 0) daily.set(day, (daily.get(day) || 0) + lineRevenue(row));
+    }
+
+    let cumulative = 0;
+    return Array.from({ length: forecast.periodDays }, (_, index) => {
+      const day = index + 1;
+      cumulative += daily.get(day) || 0;
+      const isPastOrCurrent = day <= forecast.cutoffDay;
+      const remainingDays = Math.max(forecast.periodDays - forecast.cutoffDay, 1);
+      const projected = isPastOrCurrent
+        ? cumulative
+        : forecast.actualControlled + ((forecast.total - forecast.actualControlled) * (day - forecast.cutoffDay)) / remainingDays;
+      return {
+        day: String(day).padStart(2, "0"),
+        ledger: isPastOrCurrent ? cumulative : null,
+        forecast: projected,
+        current: day === forecast.cutoffDay ? cumulative : null,
+      };
+    });
+  }, [forecast.actualControlled, forecast.cutoffDay, forecast.periodDays, forecast.total, lines]);
+
   const byCustomer = useMemo(() => {
     const historicalParentByCustomerName = new Map<string, CustomerRollup>();
 
@@ -641,20 +681,23 @@ export default function RevenueManagementDashboard() {
 
   return (
     <div className="relative space-y-6 rounded-lg border border-amber-200/10 bg-stone-950/40 p-4 ring-1 ring-stone-200/5 md:p-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-3">
           <h1 className="font-display text-3xl font-semibold tracking-tight text-amber-50 md:text-4xl">
             {isVi ? "Quản lý doanh thu" : "Revenue Management"}
           </h1>
-          <p className="max-w-3xl text-sm leading-6 text-stone-300/80 md:text-base">
-            {isVi
-              ? "Dashboard production theo tháng, ngày, kênh và customer. Số chính lấy từ revenue ledger đã kiểm soát; PO/email parse là nguồn vận hành để đối chiếu và sửa khi sai."
-              : "Production dashboard by month, day, channel, and customer. The main numbers come from the controlled revenue ledger; parsed PO/email rows remain operational evidence for reconciliation and edits."}
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge className="border border-amber-300/25 bg-amber-400/[0.08] px-3 py-1 text-amber-100" variant="outline">
+              {periodLabel(period)}
+            </Badge>
+            <Badge className="border border-emerald-300/25 bg-emerald-400/[0.08] px-3 py-1 text-emerald-100" variant="outline">
+              Tính đến {formatDate(throughDate)}
+            </Badge>
+          </div>
         </div>
-        <div aria-label="Xem doanh thu theo tháng" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200/10 bg-gradient-to-br from-stone-900/80 to-stone-950/60 p-2 ring-1 ring-stone-200/5">
-          <Input type="month" value={period} onChange={(e) => setPeriod(e.target.value || monthNow())} className="w-[160px] border-stone-600/70 bg-stone-950/50 text-stone-100 hover:border-amber-300/40 focus-visible:ring-amber-300/30" />
-          <Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100" variant="outline" onClick={() => navigate("/finance-control/revenue/setup")}>
+        <div aria-label="Xem doanh thu theo tháng" className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Input type="month" value={period} onChange={(e) => setPeriod(e.target.value || monthNow())} className="h-10 w-full border-stone-600/70 bg-stone-950/50 text-stone-100 hover:border-amber-300/40 focus-visible:ring-amber-300/30 sm:w-[160px]" />
+          <Button className="h-10 w-full border border-amber-300/30 bg-transparent text-amber-100 hover:border-amber-300/50 hover:bg-amber-400/[0.08] sm:w-auto" variant="outline" onClick={() => navigate("/finance-control/revenue/setup")}>
             <Settings className="mr-2 h-4 w-4" />Thiết lập Parse
           </Button>
         </div>
@@ -668,144 +711,147 @@ export default function RevenueManagementDashboard() {
         </Card>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {metricCards.map((card) => {
-          const Icon = card.icon;
-          const value = card.key === "approved"
-            ? vnd(stats.approved)
-            : card.key === "qty"
-              ? numberFmt(stats.qty)
-              : String(stats.customers);
-          const helper = card.key === "approved" ? `${stats.rows} ${card.helper}` : card.helper;
+      <Card
+        role="button"
+        tabIndex={0}
+        aria-label="Đã vào ledger: Chạm để xem chi tiết"
+        onClick={() => openSources({ scope: "controlled_ledger" })}
+        onKeyDown={(event) => handleCardKeyDown(event, { scope: "controlled_ledger" })}
+        className="cursor-pointer overflow-hidden rounded-[1.35rem] border border-amber-200/15 bg-[radial-gradient(circle_at_top_right,rgba(245,158,11,0.22),transparent_32%),linear-gradient(135deg,rgba(41,28,20,0.96),rgba(12,10,9,0.98))] ring-1 ring-amber-100/10 transition duration-150 hover:border-amber-200/35 hover:shadow-[0_0_32px_rgba(245,158,11,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/45 active:scale-[0.99]"
+      >
+        <CardContent className="p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-stone-300/80">Đã vào ledger</div>
+                <Badge className="border border-emerald-300/25 bg-emerald-400/[0.1] text-emerald-100" variant="outline">Tạm từ PO</Badge>
+              </div>
+              <div className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(2rem,8.5vw,3.25rem)] font-semibold leading-none tabular-nums tracking-[-0.05em] text-emerald-100" title={vnd(stats.approved)}>
+                {isLoading ? <span className="inline-block h-10 w-48 animate-pulse rounded bg-stone-700/70 align-middle" /> : vnd(stats.approved)}
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-stone-300/75">
+                <span>{stats.rows} dòng đã kiểm soát</span>
+                <span className="text-stone-600">•</span>
+                <span>Đến ngày {formatDate(throughDate)}</span>
+              </div>
+            </div>
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-emerald-300/25 bg-emerald-400/[0.08] text-emerald-200">
+              <CheckCircle2 className="h-5 w-5" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
-          return (
-            <Card
-              key={card.key}
-              role="button"
-              tabIndex={0}
-              aria-label={`${card.label}: ${card.detailLabel}`}
-              onClick={() => openSources(card.params)}
-              onKeyDown={(event) => handleCardKeyDown(event, card.params)}
-              className={`cursor-pointer overflow-hidden rounded-xl border border-amber-100/10 bg-gradient-to-br ${card.cardTone} ring-1 ring-stone-200/5 transition duration-150 hover:border-amber-200/35 hover:shadow-[0_0_24px_rgba(245,158,11,0.16)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/45 active:scale-[0.99]`}
-            >
-              <CardContent className="p-4 pr-5">
-                <div className="flex min-w-0 items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1 space-y-2 pr-1">
-                    <div className="text-[11px] uppercase tracking-[0.18em] text-stone-300/80">{card.label}</div>
-                    <div
-                      className={`mt-2 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(1rem,3.8vw,1.35rem)] font-semibold leading-tight tabular-nums tracking-[-0.02em] sm:text-[clamp(1rem,2.4vw,1.35rem)] md:text-[clamp(0.95rem,1.7vw,1.25rem)] xl:text-[clamp(0.82rem,0.98vw,1.05rem)] 2xl:text-[clamp(0.98rem,0.9vw,1.18rem)] ${card.valueTone}`}
-                      title={value}
-                    >
-                      {isLoading ? <span className="inline-block h-6 w-24 animate-pulse rounded bg-stone-700/70 align-middle" /> : value}
-                    </div>
-                    <div className="mt-1 truncate text-xs text-stone-300/70" title={helper}>{helper}</div>
-                    <div className="text-[11px] font-medium text-amber-200/80">{card.detailLabel}</div>
-                  </div>
-                  <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border ${card.iconShell}`}>
-                    <Icon className="h-5 w-5" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Card
+          role="button"
+          tabIndex={0}
+          aria-label="Sản lượng: Chạm để xem chi tiết"
+          onClick={() => openSources({ scope: "controlled_ledger", focus: "quantity" })}
+          onKeyDown={(event) => handleCardKeyDown(event, { scope: "controlled_ledger", focus: "quantity" })}
+          className="cursor-pointer rounded-2xl border border-amber-100/10 bg-stone-950/60 ring-1 ring-stone-200/5 transition hover:border-amber-200/30 active:scale-[0.99]"
+        >
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Sản lượng</div>
+              <CalendarDays className="h-4 w-4 text-amber-300/75" />
+            </div>
+            <div className="mt-3 truncate text-2xl font-semibold tabular-nums text-amber-100" title={numberFmt(stats.qty)}>{isLoading ? "—" : numberFmt(stats.qty)}</div>
+          </CardContent>
+        </Card>
+
+        <Card
+          role="button"
+          tabIndex={0}
+          aria-label="Customer/NPP: Chạm để xem chi tiết"
+          onClick={() => openSources({ scope: "controlled_ledger", focus: "customers" })}
+          onKeyDown={(event) => handleCardKeyDown(event, { scope: "controlled_ledger", focus: "customers" })}
+          className="cursor-pointer rounded-2xl border border-amber-100/10 bg-stone-950/60 ring-1 ring-stone-200/5 transition hover:border-amber-200/30 active:scale-[0.99]"
+        >
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Customer/NPP</div>
+              <Users className="h-4 w-4 text-stone-300" />
+            </div>
+            <div className="mt-3 text-2xl font-semibold tabular-nums text-stone-100">{isLoading ? "—" : stats.customers}</div>
+          </CardContent>
+        </Card>
+
+        <Card className="col-span-2 rounded-2xl border border-amber-100/10 bg-gradient-to-br from-stone-900/90 via-stone-950/80 to-amber-950/20 ring-1 ring-stone-200/5">
+          <CardContent className="p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Forecast tháng</div>
+                <div className="mt-2 truncate text-2xl font-semibold tabular-nums text-amber-100" title={vnd(forecast.total)}>{compactVnd(forecast.total)}</div>
+                <div className="mt-1 text-xs text-stone-400">{numberFmt(forecastProgress)}% kế hoạch · tin cậy {forecast.confidenceLabel}</div>
+              </div>
+              <Badge className={`shrink-0 border ${forecast.confidenceTone}`} variant="outline">{forecast.confidenceLabel}</Badge>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-800">
+              <div className="h-full rounded-full bg-gradient-to-r from-emerald-300 to-amber-300" style={{ width: `${forecastProgress}%` }} />
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <Card className="border border-amber-100/10 bg-stone-950/45 ring-1 ring-stone-200/5">
         <CardContent className="flex flex-wrap items-center gap-2 p-3 text-xs text-stone-300">
           <span className="font-medium text-stone-200">Trạng thái số xuất:</span>
           <Badge variant="outline" className="border-amber-200/20 text-amber-100">Doanh thu tạm từ PO: {stats.dispatchTemporary}</Badge>
-          <Badge variant="outline" className="border-emerald-300/25 text-emerald-100">Đã xác nhận xuất thực tế: {stats.dispatchConfirmed}</Badge>
-          <Badge variant="outline" className="border-rose-300/25 text-rose-100">Cần phân bổ SKU thiếu: {stats.dispatchNeedsAllocation}</Badge>
+          <Badge variant="outline" className="border-emerald-300/25 text-emerald-100">Đã xác nhận: {stats.dispatchConfirmed}</Badge>
+          <Badge variant="outline" className="border-rose-300/25 text-rose-100">Cần SKU: {stats.dispatchNeedsAllocation}</Badge>
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-        <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/95 via-stone-950 to-amber-950/15 ring-1 ring-stone-200/5">
-          <CardHeader className="border-b border-amber-100/10 bg-stone-900/30">
-            <CardTitle className="text-amber-50">Dự báo vận hành doanh thu tháng hiện tại</CardTitle>
-            <CardDescription className="text-stone-300/75">
-              Dự báo vận hành từ Doanh thu đã kiểm soát hiện tại, đối chiếu baseline {forecastBasePeriod} và {prevPeriod}; không phải trusted/final hay số audit cuối tháng.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 p-4">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="min-w-0 rounded-lg border border-emerald-200/15 bg-emerald-400/[0.06] p-3">
-                <div className="text-xs uppercase tracking-[0.14em] text-stone-400">Doanh thu đã kiểm soát</div>
-                <div className="mt-2 whitespace-nowrap text-[clamp(1rem,1.35vw,1.35rem)] font-semibold leading-tight tabular-nums text-emerald-100" title={vnd(forecast.actualControlled)}>{compactVnd(forecast.actualControlled)}</div>
-                <div className="text-xs text-stone-400">Tới ngày {forecast.cutoffDay}/{forecast.periodDays}</div>
-              </div>
-              <div className="min-w-0 rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
-                <div className="text-xs uppercase tracking-[0.14em] text-stone-400">Dự báo vận hành</div>
-                <div className="mt-2 whitespace-nowrap text-[clamp(1rem,1.35vw,1.35rem)] font-semibold leading-tight tabular-nums text-amber-100" title={vnd(forecast.total)}>{compactVnd(forecast.total)}</div>
-                <div className="text-xs text-stone-400">Range {compactVnd(forecast.low)}–{compactVnd(forecast.high)}</div>
-              </div>
-              <div className="min-w-0 rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
-                <div className="text-xs uppercase tracking-[0.14em] text-stone-400">MoM vs {prevPeriod}</div>
-                <div className={`mt-2 whitespace-nowrap text-[clamp(1rem,1.35vw,1.35rem)] font-semibold leading-tight tabular-nums ${mom.delta >= 0 ? "text-emerald-100" : "text-rose-100"}`} title={vnd(mom.delta)}>
-                  {compactVnd(mom.delta)}
-                </div>
-                <div className="text-xs text-stone-400">{mom.pct === null ? "N/A" : `${mom.pct >= 0 ? "+" : ""}${numberFmt(mom.pct)}%`} · baseline avg {compactVnd(forecast.baselineAverage)}</div>
-              </div>
+      <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/95 via-stone-950 to-amber-950/15 ring-1 ring-stone-200/5">
+        <CardHeader className="border-b border-amber-100/10 bg-stone-900/30 pb-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-amber-50">Xu hướng doanh thu</CardTitle>
+              <CardDescription className="text-stone-300/70">Ledger thực tế và forecast đến cuối tháng.</CardDescription>
             </div>
-
-            <div className="rounded-lg border border-amber-100/10 bg-stone-950/45 p-3">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="text-xs uppercase tracking-[0.14em] text-stone-400">Giải thích dự báo V2</div>
-                  <div className="text-xs text-stone-400">Công thức: blend historical baseline có bounded channel/source adjustment + run-rate gần đây + lịch ngày còn lại; không phải số audit cuối tháng.</div>
-                </div>
-                <Badge className={`w-fit border ${forecast.confidenceTone}`} variant="outline">Độ tin cậy: {forecast.confidenceLabel}</Badge>
-              </div>
-              <ul className="mt-3 grid gap-2 text-xs leading-5 text-stone-300/85 lg:grid-cols-2">
-                {forecast.drivers.map((driver) => (
-                  <li key={driver} className="flex gap-2">
-                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300/80" />
-                    <span>{driver}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/95 via-stone-950 to-amber-950/15 ring-1 ring-stone-200/5">
-          <CardHeader className="border-b border-amber-100/10 bg-stone-900/30 pb-3">
-            <CardTitle className="text-amber-50">Dự báo lồng doanh thu parse hiện tại</CardTitle>
-            <CardDescription className="text-stone-300/75">
-              Cột {period} là dự báo vận hành tổng; phần xanh nằm trong cột là Doanh thu đã kiểm soát hiện tại, phần vàng là doanh thu còn dự báo.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="h-[260px] p-4">
-            <ChartContainer
-              config={{
-                baselineRevenue: { label: "Baseline T3/T4", color: MOM_PREVIOUS_COLOR },
-                controlledRevenue: { label: "Doanh thu đã kiểm soát", color: MOM_CURRENT_COLOR },
-                forecastRemaining: { label: "Dự báo vận hành còn lại", color: FORECAST_REMAINDER_COLOR },
-              }}
-              className="h-full"
-            >
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={forecast.chart} margin={{ top: 8, right: 18, bottom: 18, left: 8 }}>
-                  <CartesianGrid stroke="rgba(245,158,11,0.14)" vertical={false} />
-                  <XAxis dataKey="month" tickLine={false} axisLine={false} fontSize={12} tick={{ fill: "rgba(245,245,244,0.74)" }} />
-                  <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`} tickLine={false} axisLine={false} width={48} tick={{ fill: "rgba(245,245,244,0.74)" }} />
-                  <Tooltip
-                    cursor={{ fill: "rgba(251,191,36,0.08)" }}
-                    contentStyle={{ background: "#1c1917", border: "1px solid rgba(251,191,36,0.28)", borderRadius: "6px", color: "#fef3c7" }}
-                    formatter={(value, name) => [vnd(Number(value)), name === "baselineRevenue" ? "Baseline lịch sử" : name === "controlledRevenue" ? "Doanh thu đã kiểm soát" : "Dự báo vận hành còn lại"]}
-                    labelStyle={{ color: "#fef3c7", fontWeight: 600 }}
-                  />
-                  <Legend wrapperStyle={{ color: "rgba(245,245,244,0.74)", fontSize: 12 }} />
-                  <Bar dataKey="baselineRevenue" fill="var(--color-baselineRevenue)" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="controlledRevenue" stackId="forecast" fill="var(--color-controlledRevenue)" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="forecastRemaining" stackId="forecast" fill="var(--color-forecastRemaining)" fillOpacity={0.82} radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartContainer>
-          </CardContent>
-        </Card>
-      </div>
+            <Badge className="border border-emerald-300/25 bg-emerald-400/[0.08] text-emerald-100" variant="outline">{formatDate(throughDate)}</Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="h-[280px] p-3 md:h-[340px] md:p-4">
+          <ChartContainer
+            config={{
+              ledger: { label: "Ledger", color: MOM_CURRENT_COLOR },
+              forecast: { label: "Forecast", color: FORECAST_REMAINDER_COLOR },
+            }}
+            className="h-full"
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={trendChart} margin={{ top: 14, right: 12, bottom: 8, left: 0 }}>
+                <defs>
+                  <linearGradient id="ledgerTrendFill" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="5%" stopColor={MOM_CURRENT_COLOR} stopOpacity={0.36} />
+                    <stop offset="95%" stopColor={MOM_CURRENT_COLOR} stopOpacity={0.02} />
+                  </linearGradient>
+                  <linearGradient id="forecastTrendFill" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="5%" stopColor={FORECAST_REMAINDER_COLOR} stopOpacity={0.22} />
+                    <stop offset="95%" stopColor={FORECAST_REMAINDER_COLOR} stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke={TREND_GRID_COLOR} vertical={false} />
+                <XAxis dataKey="day" tickLine={false} axisLine={false} fontSize={11} interval="preserveStartEnd" tick={{ fill: "rgba(245,245,244,0.68)" }} />
+                <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`} tickLine={false} axisLine={false} width={42} tick={{ fill: "rgba(245,245,244,0.68)" }} />
+                <Tooltip
+                  cursor={{ stroke: "rgba(251,191,36,0.32)", strokeDasharray: "4 4" }}
+                  contentStyle={{ background: "#1c1917", border: "1px solid rgba(251,191,36,0.28)", borderRadius: "12px", color: "#fef3c7", boxShadow: "0 18px 36px rgba(0,0,0,0.38)" }}
+                  formatter={(value, name) => [vnd(Number(value)), name === "ledger" ? "Ledger" : "Forecast"]}
+                  labelFormatter={(label) => `Ngày ${label}/${period.slice(5)}`}
+                  labelStyle={{ color: "#fef3c7", fontWeight: 600 }}
+                />
+                <Legend wrapperStyle={{ color: "rgba(245,245,244,0.74)", fontSize: 12 }} />
+                <Area type="monotone" dataKey="forecast" stroke={FORECAST_REMAINDER_COLOR} strokeDasharray="5 5" strokeWidth={2} fill="url(#forecastTrendFill)" dot={false} activeDot={{ r: 4 }} />
+                <Area type="monotone" dataKey="ledger" stroke={MOM_CURRENT_COLOR} strokeWidth={3} fill="url(#ledgerTrendFill)" connectNulls={false} dot={false} activeDot={{ r: 5, stroke: "#052e16", strokeWidth: 2 }} />
+                <Line type="monotone" dataKey="current" stroke="#FEF3C7" strokeWidth={0} dot={{ r: 5, fill: "#FEF3C7", stroke: MOM_CURRENT_COLOR, strokeWidth: 3 }} legendType="none" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </ChartContainer>
+        </CardContent>
+      </Card>
 
       {isLoading ? (
         <div className="flex min-h-[240px] items-center justify-center rounded-md border border-amber-200/10 bg-gradient-to-br from-stone-900/75 to-stone-950/60 ring-1 ring-stone-200/5"><Loader2 className="h-8 w-8 animate-spin text-amber-300" /></div>
