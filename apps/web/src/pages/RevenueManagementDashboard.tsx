@@ -241,17 +241,6 @@ const metricCards = [
     cardTone: "from-stone-900/95 via-stone-950 to-stone-900/70",
   },
   {
-    key: "review",
-    label: "Cần kiểm tra",
-    helper: "Review queue",
-    detailLabel: "Chạm để xem chi tiết",
-    params: { scope: "controlled_ledger", review: "review_queue" },
-    icon: AlertTriangle,
-    valueTone: "text-rose-200",
-    iconShell: "border-rose-300/30 bg-rose-400/[0.08] text-rose-200",
-    cardTone: "from-stone-900/95 via-stone-950 to-stone-900/70",
-  },
-  {
     key: "qty",
     label: "Sản lượng",
     helper: "Quantity from ledger",
@@ -317,22 +306,19 @@ export default function RevenueManagementDashboard() {
     const total = lines.reduce((sum, r) => sum + Number(r.gross_revenue || 0), 0);
     const qty = lines.reduce((sum, r) => sum + Number(r.quantity || 0), 0);
     const approved = lines.filter((r) => r.approval_status === "approved").reduce((sum, r) => sum + Number(r.gross_revenue || 0), 0);
-    const pending = lines.filter((r) => r.approval_status === "pending").reduce((sum, r) => sum + Number(r.gross_revenue || 0), 0);
-    const review = lines.filter((r) => r.review_status === "needs_manual_review" || r.audit_status === "needs_review").reduce((sum, r) => sum + Number(r.gross_revenue || 0), 0);
     const customers = new Set(lines.map((r) => r.parent_customer_id || r.customer_id || r.customer_name)).size;
     const dispatchTemporary = lines.filter((r) => dispatchAmountBucket(r) === "temporary").length;
     const dispatchConfirmed = lines.filter((r) => dispatchAmountBucket(r) === "confirmed").length;
     const dispatchNeedsAllocation = lines.filter((r) => dispatchAmountBucket(r) === "needsAllocation").length;
-    return { total, qty, approved, pending, review, customers, rows: lines.length, dispatchTemporary, dispatchConfirmed, dispatchNeedsAllocation };
+    return { total, qty, approved, customers, rows: lines.length, dispatchTemporary, dispatchConfirmed, dispatchNeedsAllocation };
   }, [lines]);
 
   const byDay = useMemo(() => {
-    const map = new Map<string, { date: string; revenue: number; review: number }>();
+    const map = new Map<string, { date: string; revenue: number }>();
     for (const row of lines) {
       const key = row.revenue_date;
-      const cur = map.get(key) || { date: key.slice(5), revenue: 0, review: 0 };
+      const cur = map.get(key) || { date: key.slice(5), revenue: 0 };
       cur.revenue += Number(row.gross_revenue || 0);
-      if (row.review_status === "needs_manual_review" || row.audit_status === "needs_review") cur.review += Number(row.gross_revenue || 0);
       map.set(key, cur);
     }
     return Array.from(map.values());
@@ -687,11 +673,11 @@ export default function RevenueManagementDashboard() {
         </Card>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {metricCards.map((card) => {
           const Icon = card.icon;
-          const value = card.key === "approved" || card.key === "review"
-            ? vnd(stats[card.key])
+          const value = card.key === "approved"
+            ? vnd(stats.approved)
             : card.key === "qty"
               ? numberFmt(stats.qty)
               : String(stats.customers);
@@ -850,7 +836,7 @@ export default function RevenueManagementDashboard() {
                 ) : (
                   <div className="h-full overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
                     <div className="h-full min-w-[720px]">
-                      <ChartContainer config={{ revenue: { label: "Revenue", color: "#F2C15C" }, review: { label: "Review", color: "#E97878" } }} className="h-full">
+                      <ChartContainer config={{ revenue: { label: "Doanh thu", color: "#F2C15C" } }} className="h-full">
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart data={byDay} margin={{ top: 8, right: 18, bottom: 18, left: 8 }}>
                             <CartesianGrid stroke="rgba(245,158,11,0.14)" vertical={false} />
@@ -859,10 +845,9 @@ export default function RevenueManagementDashboard() {
                             <ChartTooltip content={<ChartTooltipContent formatter={(value) => vnd(Number(value))} className="border-amber-300/30 bg-stone-900 text-amber-50 shadow-xl" />} />
                             <Legend
                               wrapperStyle={{ color: "rgba(245,245,244,0.74)", fontSize: 12 }}
-                              formatter={(value) => (value === "revenue" ? "Doanh thu" : "Cần review")}
+                              formatter={() => "Doanh thu"}
                             />
                             <Bar dataKey="revenue" fill="var(--color-revenue)" radius={[2, 2, 0, 0]} />
-                            <Bar dataKey="review" fill="var(--color-review)" radius={[2, 2, 0, 0]} />
                           </BarChart>
                         </ResponsiveContainer>
                       </ChartContainer>
