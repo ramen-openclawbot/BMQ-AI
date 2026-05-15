@@ -33,8 +33,9 @@ def test_single_vercel_cron_after_business_day_close_vietnam_time() -> None:
 def test_proxy_uses_intended_vietnam_business_date() -> None:
     for needle, label in [
         ("function cronIntendedRevenueDate", "proxy computes intended business date"),
-        ("localMinute < 3 * 60", "post-midnight grace window"),
-        ("shiftIsoDate(vn.date, -1)", "after-midnight attempts target previous day"),
+        ("localMinute >= 23 * 60", "late-night cron targets next service date"),
+        ("shiftIsoDate(vn.date, 1)", "before-midnight attempts target tomorrow"),
+        ("return localMinute >= 23 * 60 ? shiftIsoDate(vn.date, 1) : vn.date", "after-midnight attempts target current date"),
         ("revenueDate: scheduledRevenueDate", "proxy always passes explicit date to edge function"),
         ('trigger: parsedRevenueDate.explicit ? "manual_cron_proxy" : "vercel_cron"', "proxy distinguishes manual vs scheduled trigger"),
         ("cronScheduledAttempt: !parsedRevenueDate.explicit", "scheduled attempt marker"),

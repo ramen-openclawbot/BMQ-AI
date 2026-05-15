@@ -64,9 +64,10 @@ function vietnamDateParts(now = new Date()) {
 function cronIntendedRevenueDate(now = new Date()) {
   const vn = vietnamDateParts(now);
   const localMinute = vn.hour * 60 + vn.minute;
-  // Vercel may invoke the 23:59 VN cron after midnight. Retry attempts until
-  // before 03:00 VN still belong to the previous business day.
-  return localMinute < 3 * 60 ? shiftIsoDate(vn.date, -1) : vn.date;
+  // PO is usually sent one day before the delivery/revenue date.
+  // If the cron fires late at night before midnight, post tomorrow's revenue date.
+  // If Vercel fires after midnight, post the current Vietnam date.
+  return localMinute >= 23 * 60 ? shiftIsoDate(vn.date, 1) : vn.date;
 }
 
 function safeReportSummary(upstreamPayload) {
