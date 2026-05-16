@@ -75,6 +75,33 @@ const aiActualCostMappings: Record<string, { canonicalName: string; actualPrice:
 
 const getAiActualCostMapping = (ingredientName: string) => aiActualCostMappings[normalizeIngredientName(ingredientName)];
 
+const inferPurchaseUnitDivisor = (ingredientName: string) => {
+  const n = normalizeIngredientName(ingredientName);
+  if (n.includes("2l x 6") || n.includes("thung dau huong duong")) return 12000;
+  if (n.includes("25kg") || n.includes("bot mi 888") || n.includes("sua bot beo") || n.includes("bot ngot veyu")) return 25000;
+  if (n.includes("20l") || n.includes("nuoc vihawa") || n.includes("nuoc uong vinh hao")) return 20000;
+  if (n.includes("400ml") || n.includes("giam gao")) return 400;
+  if (n.includes("500g") || n.includes("bico gold")) return 500;
+  if (n.includes("1kg") || n.includes("mauri") || n.includes("bico soft") || n.includes("lam mem banh bico")) return 1000;
+  if (n.includes("trung") || n.includes("egg")) return 60;
+  if (n.includes("bo buttery") || n.includes("bo imperial")) return 970;
+  if (n.includes("kg") || n.includes("cha bong") || n.includes("duong")) return 1000;
+  return 1;
+};
+
+const toFormulaUnitPurchasePrice = (purchasePrice: number, ingredientName: string) => {
+  const divisor = inferPurchaseUnitDivisor(ingredientName);
+  const converted = Number(purchasePrice || 0) / divisor;
+  return Number.isFinite(converted) && converted > 0 ? converted : null;
+};
+
+const averageConvertedPurchasePrice = (actualRows: any[], ingredientName: string) => {
+  const prices = actualRows
+    .map((purchase) => toFormulaUnitPurchasePrice(Number(purchase.unit_price || 0), ingredientName))
+    .filter((value): value is number => value !== null);
+  return prices.length ? prices.reduce((sum, value) => sum + value, 0) / prices.length : null;
+};
+
 const isPaidOrControlledCost = (purchase: any) => {
   if (purchase.source === "payment_request") {
     return purchase.payment_status === "paid" || purchase.status === "approved";
@@ -131,11 +158,8 @@ const buildSkuAnalysis = ({ sku, formulas, purchases, period }: { sku: any; form
   const rows = skuFormulas.map((row) => {
     const actualRows = row.ingredient_sku_id ? purchasesByIngredient.get(row.ingredient_sku_id) || [] : [];
     const aiMapping = getAiActualCostMapping(row.ingredient_name);
-    const actualPrice = aiMapping
-      ? aiMapping.actualPrice
-      : actualRows.length
-        ? actualRows.reduce((sum, purchase) => sum + Number(purchase.unit_price || 0), 0) / actualRows.length
-        : null;
+    const purchasePrice = averageConvertedPurchasePrice(actualRows, row.ingredient_name);
+    const actualPrice = purchasePrice ?? aiMapping?.actualPrice ?? null;
     const formulaPrice = Number(row.unit_price || 0);
     const dosage = Number(row.dosage_qty || 0) * (1 + Number(row.wastage_percent || 0) / 100);
     const diffCost = actualPrice === null ? null : (actualPrice - formulaPrice) * dosage;
@@ -148,14 +172,18 @@ const buildSkuAnalysis = ({ sku, formulas, purchases, period }: { sku: any; form
       unit: row.unit || "",
       diffPct,
       diffCost,
-      sampleCount: aiMapping ? Math.max(actualRows.length, 1) : actualRows.length,
+      sampleCount: purchasePrice !== null ? actualRows.length : aiMapping ? 1 : 0,
     };
   });
 
   const actualBatchCost = rows.reduce((sum, row) => sum + (row.actualPrice ?? row.formulaPrice) * row.dosage, 0);
   const dateKeys = Array.from(new Set(monthPurchases.map((purchase) => String(purchase.created_at || "").slice(0, 10)))).sort();
-  const chartRows = dateKeys.map((dateKey) => {
-    const upToDate = monthPurchases.filter((purchase) => String(purchase.created_at || "").slice(0, 10) <= dateKey);
+  const chartDateKeys = dateKeys.length ? dateKeys : [`${period}-01`];
+  const chartRows = chartDateKeys.map((dateKey) => {
+    const upToDate = purchases.filter((purchase) => {
+      if (!purchase.sku_id || !ingredientIds.has(purchase.sku_id)) return false;
+      return String(purchase.created_at || "").slice(0, 10) <= dateKey && isPaidOrControlledCost(purchase);
+    });
     const upToByIngredient = new Map<string, any[]>();
     upToDate.forEach((purchase) => {
       const key = String(purchase.sku_id);
@@ -164,11 +192,8 @@ const buildSkuAnalysis = ({ sku, formulas, purchases, period }: { sku: any; form
     const actualAtDate = skuFormulas.reduce((sum, row) => {
       const actualRows = row.ingredient_sku_id ? upToByIngredient.get(row.ingredient_sku_id) || [] : [];
       const aiMapping = getAiActualCostMapping(row.ingredient_name);
-      const price = aiMapping
-        ? aiMapping.actualPrice
-        : actualRows.length
-          ? actualRows.reduce((priceSum, purchase) => priceSum + Number(purchase.unit_price || 0), 0) / actualRows.length
-          : Number(row.unit_price || 0);
+      const purchasePrice = averageConvertedPurchasePrice(actualRows, row.ingredient_name);
+      const price = purchasePrice ?? aiMapping?.actualPrice ?? Number(row.unit_price || 0);
       const dosage = Number(row.dosage_qty || 0) * (1 + Number(row.wastage_percent || 0) / 100);
       return sum + price * dosage;
     }, 0);
@@ -338,8 +363,8 @@ export default function SkuCostsAnalysis() {
 
               <Card className="overflow-hidden border-amber-500/15 bg-card/95 shadow-sm">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-lg">Biến động theo đợt thanh toán trong tháng</CardTitle>
-                  <p className="text-sm text-muted-foreground">Đường cam là cost thực tế trung bình lũy kế theo từng đợt; đường xám là baseline công thức.</p>
+                  <CardTitle className="text-lg">Tổng cost NVL theo giá mua trong tháng</CardTitle>
+                  <p className="text-sm text-muted-foreground">Đường cam dùng giá mua PR/duyệt chi đã quy đổi về đơn vị công thức; đường xám là cost set ban đầu.</p>
                 </CardHeader>
                 <CardContent className="h-72">
                   {analysis.chartRows.length ? (
@@ -355,7 +380,7 @@ export default function SkuCostsAnalysis() {
                     </ResponsiveContainer>
                   ) : (
                     <div className="flex h-full items-center justify-center text-center text-sm text-muted-foreground">
-                      Chưa có đợt chi phí thực tế trong tháng này cho các NVL của SKU đã chọn.
+                      Chưa có PR/duyệt chi trong tháng; chart đang dùng giá mua gần nhất trước kỳ nếu có.
                     </div>
                   )}
                 </CardContent>
