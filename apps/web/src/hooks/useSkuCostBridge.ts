@@ -1,8 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { parseCostValues, toNumber } from "@/lib/sku-cost-template";
 
-type FormulaRow = {
+export type FormulaRow = {
   sku_id: string;
   ingredient_sku_id: string | null;
   ingredient_name: string;
@@ -10,6 +11,15 @@ type FormulaRow = {
   dosage_qty: number | null;
   wastage_percent: number | null;
   unit?: string | null;
+};
+
+export type ActualCostPurchase = {
+  sku_id: string | null;
+  unit_price: number | null;
+  created_at: string;
+  source: "payment_request" | "purchase_order";
+  payment_status?: string | null;
+  status?: string | null;
 };
 
 const sb = supabase as any;
@@ -51,7 +61,7 @@ export function useSkuCostBridge() {
           : Promise.resolve({ data: [] }),
         sb
           .from("payment_request_items")
-          .select("sku_id, unit_price, created_at")
+          .select("sku_id, unit_price, created_at, payment_requests(payment_status,status,approved_at,updated_at)")
           .not("sku_id", "is", null)
           .order("created_at", { ascending: true })
           .limit(500),
@@ -75,9 +85,23 @@ export function useSkuCostBridge() {
       ]);
 
       const formulas = (formulaRes.data || []) as FormulaRow[];
-      const purchases = [
-        ...((prRes.data || []) as Array<{ sku_id: string; unit_price: number; created_at: string }>),
-        ...((poRes.data || []) as Array<any>).map((x) => ({ sku_id: x.sku_id, unit_price: x.unit_price, created_at: x.purchase_orders?.order_date || x.created_at })),
+      const purchases: ActualCostPurchase[] = [
+        ...((prRes.data || []) as Array<any>).map((x) => ({
+          sku_id: x.sku_id,
+          unit_price: x.unit_price,
+          created_at: x.payment_requests?.approved_at || x.payment_requests?.updated_at || x.created_at,
+          source: "payment_request" as const,
+          payment_status: x.payment_requests?.payment_status || null,
+          status: x.payment_requests?.status || null,
+        })),
+        ...((poRes.data || []) as Array<any>).map((x) => ({
+          sku_id: x.sku_id,
+          unit_price: x.unit_price,
+          created_at: x.purchase_orders?.order_date || x.created_at,
+          source: "purchase_order" as const,
+          payment_status: null,
+          status: null,
+        })),
       ].sort((a, b) => +new Date(a.created_at) - +new Date(b.created_at));
       const inventories = (invRes.data || []) as Array<{ sku_id: string; quantity: number; received_date: string }>;
 
@@ -189,7 +213,7 @@ export function useSkuCostBridge() {
         });
       }
 
-      return { items, trendRows };
+      return { items, trendRows, formulas, purchases };
     },
   });
 }
