@@ -1118,6 +1118,9 @@ export type Database = {
           created_at: string
           created_by: string | null
           id: string
+          image_path: string | null
+          image_updated_at: string | null
+          image_url: string | null
           notes: string | null
           product_name: string
           sku_code: string
@@ -1132,6 +1135,9 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           id?: string
+          image_path?: string | null
+          image_updated_at?: string | null
+          image_url?: string | null
           notes?: string | null
           product_name: string
           sku_code: string
@@ -1146,6 +1152,9 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           id?: string
+          image_path?: string | null
+          image_updated_at?: string | null
+          image_url?: string | null
           notes?: string | null
           product_name?: string
           sku_code?: string

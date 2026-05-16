@@ -50,7 +50,7 @@ export function useSkuCostBridge() {
   return useQuery({
     queryKey: ["sku-cost-bridge"],
     queryFn: async () => {
-      const { data: skus } = await sb.from("product_skus").select("id,sku_code,product_name,category,unit,updated_at,cost_values,finished_output_qty,finished_output_unit").order("updated_at", { ascending: false });
+      const { data: skus } = await sb.from("product_skus").select("id,sku_code,product_name,category,unit,updated_at,cost_values,finished_output_qty,finished_output_unit,image_url,image_path,image_updated_at").order("updated_at", { ascending: false });
 
       const skuRows = (skus || []).filter((s: any) => isFinishedSku(String(s.category || "")));
       const skuIds = skuRows.map((s: any) => s.id);
@@ -157,6 +157,9 @@ export function useSkuCostBridge() {
           category: sku.category || "",
           unit: sku.unit || sku.finished_output_unit || "",
           updated_at: sku.updated_at,
+          image_url: sku.image_url || null,
+          image_path: sku.image_path || null,
+          image_updated_at: sku.image_updated_at || null,
           ingredient_cost: ingredientCost,
           packaging_cost: packagingCost,
           labor_cost: laborCost,
