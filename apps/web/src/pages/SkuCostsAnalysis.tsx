@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useMemo, useState } from "react";
+import { NavLink } from "react-router-dom";
 import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, Info } from "lucide-react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,11 @@ const toDayLabel = (date: string) => {
   return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
 };
 
-const tabs = ["Tổng quan giá vốn", "Xu hướng giá vốn", "Phân bổ chi phí", "Nhân công"];
+const skuCostNavItems = [
+  { to: "/sku-costs/dashboard", label: "Tổng quan giá vốn" },
+  { to: "/sku-costs/analysis", label: "Xu hướng giá vốn" },
+  { to: "/sku-costs/management", label: "Quản trị SKU" },
+];
 
 const normalizeIngredientName = (value: string) =>
   String(value || "")
@@ -350,10 +355,19 @@ export default function SkuCostsAnalysis() {
           </div>
 
           <nav className="mt-4 flex gap-5 overflow-x-auto border-b border-white/10 pb-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Điều hướng giá vốn">
-            {tabs.map((tab) => {
-              const active = tab === "Xu hướng giá vốn";
-              return <button key={tab} className={active ? "relative shrink-0 pb-3 text-[13px] font-extrabold text-amber-300 after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:rounded-full after:bg-amber-400" : "shrink-0 pb-3 text-[13px] font-semibold text-white/45"}>{tab}</button>;
-            })}
+            {skuCostNavItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  isActive
+                    ? "relative shrink-0 pb-3 text-[13px] font-extrabold text-amber-300 after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:rounded-full after:bg-amber-400"
+                    : "shrink-0 pb-3 text-[13px] font-semibold text-white/45 transition hover:text-white/80"
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
           </nav>
         </header>
 

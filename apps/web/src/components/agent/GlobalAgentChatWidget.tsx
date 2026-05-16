@@ -636,6 +636,7 @@ export function GlobalAgentChatWidget() {
 
   const routeContext = useMemo(() => getRouteContext(location.pathname), [location.pathname]);
   const isRevenueMobileContext = location.pathname.startsWith("/finance-control/revenue");
+  const isSkuCostsMobileContext = location.pathname.startsWith("/sku-costs");
 
   const pushAgent = (text: string) => setMessages((prev) => [...prev, { role: "agent", text }]);
 
@@ -1066,7 +1067,7 @@ export function GlobalAgentChatWidget() {
         className={cn(
           "fixed z-50 rounded-full shadow-lg",
           "bg-primary text-primary-foreground hover:bg-primary/90",
-          isRevenueMobileContext
+          isRevenueMobileContext || isSkuCostsMobileContext
             ? "bottom-[calc(5rem+env(safe-area-inset-bottom))] right-3 h-11 w-11 sm:bottom-[calc(1.5rem+env(safe-area-inset-bottom))] sm:right-6 sm:h-14 sm:w-14"
             : "right-6 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] h-14 w-14"
         )}

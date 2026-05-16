@@ -40,8 +40,8 @@ const sb = supabase as unknown as SupabaseSkuClient;
 const errorMessage = (error: unknown, fallback: string) => (error && typeof error === "object" && "message" in error ? String((error as { message?: unknown }).message || fallback) : fallback);
 
 const navItems = [
-  { to: "/sku-costs/dashboard", label: "Tổng quan", icon: BarChart3 },
-  { to: "/sku-costs/analysis", label: "Xu hướng SKU", icon: BarChart3 },
+  { to: "/sku-costs/dashboard", label: "Tổng quan giá vốn", icon: BarChart3 },
+  { to: "/sku-costs/analysis", label: "Xu hướng giá vốn", icon: BarChart3 },
   { to: "/sku-costs/management", label: "Quản trị SKU", icon: Package2 },
 ];
 
