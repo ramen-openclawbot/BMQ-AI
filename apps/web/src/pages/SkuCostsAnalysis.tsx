@@ -133,6 +133,8 @@ const inferPurchaseUnitDivisor = (ingredientName: string) => {
   const n = normalizeIngredientName(ingredientName);
   if (n.includes("2l x 6") || n.includes("thung dau huong duong")) return 12000;
   if (n.includes("0 5x10kg") || n.includes("men kho ngot mauripan") || n.includes("men kho")) return 10000;
+  if (n.includes("muoi say kho")) return 1000;
+  if (n.includes("whipping cream") || n.includes("whiping cream") || n.includes("kem sua whipping")) return 1000;
   if (n.includes("25kg") || n.includes("bot mi 888") || n.includes("sua bot beo") || n.includes("bot ngot veyu")) return 25000;
   if (n.includes("20l") || n.includes("nuoc vihawa") || n.includes("nuoc uong vinh hao")) return 20000;
   if (n.includes("400ml") || n.includes("giam gao")) return 400;
