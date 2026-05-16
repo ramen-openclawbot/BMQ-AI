@@ -4,21 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell } from "recharts";
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { FormulaRow, useSkuCostBridge } from "@/hooks/useSkuCostBridge";
-import { useLanguage } from "@/contexts/LanguageContext";
-import { ActualLaborCostPanel } from "@/components/sku-costs/ActualLaborCostPanel";
 import { SkuCostMenuBar } from "@/components/sku-costs/SkuCostMenuBar";
 
-const tabItems = [
-  { key: "overview", label: "Tổng quan giá vốn" },
-  { key: "trends", label: "Xu hướng giá vốn" },
-  { key: "overhead", label: "Phân bổ chi phí chung" },
-  { key: "actual-labor", label: "Nhân công thực tế" },
-];
-
-const COLORS = ["#16a34a", "#0ea5e9", "#f59e0b", "#ef4444", "#8b5cf6"];
 const money = (v: number) => new Intl.NumberFormat("vi-VN").format(Number(v || 0));
 const compactMoney = (v: number) => `${money(Math.round(Number(v || 0)))}đ`;
 const pct = (v: number) => `${v > 0 ? "+" : ""}${Number(v || 0).toFixed(1)}%`;
@@ -147,9 +136,6 @@ const buildSkuAnalysis = ({ sku, formulas, purchases, period }: { sku: any; form
 };
 
 export default function SkuCostsAnalysis() {
-  const { language } = useLanguage();
-  const [tab, setTab] = useState("overview");
-  const [search, setSearch] = useState("");
   const [period, setPeriod] = useState(todayMonth());
   const [selectedSkuId, setSelectedSkuId] = useState("");
   const [analysis, setAnalysis] = useState<SkuAnalysis | null>(null);
@@ -158,47 +144,10 @@ export default function SkuCostsAnalysis() {
   const items = useMemo(() => data?.items || [], [data?.items]);
   const formulas = useMemo(() => data?.formulas || [], [data?.formulas]);
   const purchases = useMemo(() => data?.purchases || [], [data?.purchases]);
-  const copy = {
-    filter: language === "vi" ? "Bộ lọc" : "Filters",
-    search: language === "vi" ? "Tìm kiếm SKU hoặc sản phẩm" : "Search SKU or product",
-    title: language === "vi" ? "Tính chi phí giá vốn hàng bán (SKU thành phẩm)" : "COGS calculation (finished SKUs)",
-    loading: language === "vi" ? "Đang tải dữ liệu..." : "Loading data...",
-    empty: language === "vi" ? "Chưa có dữ liệu." : "No data yet.",
-    breakdownTitle: language === "vi" ? "Tỷ trọng nhóm chi phí" : "Cost mix",
-    overheadTitle: language === "vi" ? "Phân bổ chi phí chung" : "Shared overhead allocation",
-    overheadDesc: language === "vi" ? "Delivery + Other Production + BH&QL đang được gom vào nhóm chi phí chung trong phân tích tổng quan." : "Delivery, other production, and SG&A are grouped into shared overhead in the overview analysis.",
-  };
-
   const selectedSku = useMemo(() => {
     if (!items.length) return null;
     return items.find((item: any) => item.id === selectedSkuId) || items.find((item: any) => String(item.product_name || "").toLowerCase().includes("chà bông")) || items[0];
   }, [items, selectedSkuId]);
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((c: any) => `${c.sku_code} ${c.product_name}`.toLowerCase().includes(q));
-  }, [items, search]);
-
-  const breakdown = useMemo(() => {
-    if (!filtered.length) return [];
-    const sum = filtered.reduce(
-      (acc: any, i: any) => {
-        acc.ingredient += i.ingredient_cost;
-        acc.packaging += i.packaging_cost;
-        acc.labor += i.labor_cost;
-        acc.overhead += i.delivery_cost + i.other_production_cost + i.sga_cost + i.extra_cost;
-        return acc;
-      },
-      { ingredient: 0, packaging: 0, labor: 0, overhead: 0 }
-    );
-    return [
-      { name: "Nguyên liệu", value: sum.ingredient },
-      { name: "Bao bì", value: sum.packaging },
-      { name: "Nhân công", value: sum.labor },
-      { name: "Chi phí khác", value: sum.overhead },
-    ];
-  }, [filtered]);
 
   const runAnalysis = () => {
     if (!selectedSku) return;
@@ -211,124 +160,44 @@ export default function SkuCostsAnalysis() {
   return (
     <div className="space-y-6">
       <SkuCostMenuBar />
-      <div className="flex gap-2 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch]">
-        {tabItems.map((t) => (
-          <Button key={t.key} variant={tab === t.key ? "default" : "outline"} onClick={() => setTab(t.key)} className="shrink-0 rounded-full">
-            {t.label}
-          </Button>
-        ))}
-      </div>
+      <div className="space-y-4 pb-24">
+          <section className="overflow-hidden rounded-2xl border border-white/10 bg-[#17120f] p-4 text-white shadow-xl md:p-5">
+            <div>
+              <h2 className="text-xl font-bold leading-tight md:text-2xl">Xu hướng giá vốn SKU</h2>
+              <p className="mt-1 text-sm leading-snug text-white/55">Chạy thủ công để so công thức với chi phí thực tế đã thanh toán/ghi nhận trong DB.</p>
+            </div>
 
-      {tab === "overview" && (
-        <div className="space-y-6">
-          <Card>
-            <CardHeader><CardTitle>{copy.filter}</CardTitle></CardHeader>
-            <CardContent><Input placeholder={copy.search} value={search} onChange={(e) => setSearch(e.target.value)} /></CardContent>
-          </Card>
+            <div className="mt-4 space-y-3">
+              <div className="space-y-1.5">
+                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-white/55">SKU</div>
+                <Select value={selectedSku?.id || ""} onValueChange={(value) => { setSelectedSkuId(value); setAnalysis(null); }}>
+                  <SelectTrigger className="h-11 rounded-xl border-white/10 bg-white/[0.06] text-white placeholder:text-white/40">
+                    <SelectValue placeholder="Chọn SKU thành phẩm" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {items.map((item: any) => (
+                      <SelectItem key={item.id} value={item.id}>{item.product_name} · {item.sku_code}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>{copy.title}</CardTitle>
-              <p className="text-sm text-muted-foreground">Tổng quan giá vốn theo SKU thành phẩm; chi tiết xu hướng từng SKU nằm ở tab “Xu hướng giá vốn”.</p>
-            </CardHeader>
-            <CardContent>
-              {!filtered.length ? (
-                <div className="text-sm text-muted-foreground">{isLoading ? copy.loading : copy.empty}</div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>SKU</TableHead>
-                        <TableHead>Nguyên liệu</TableHead>
-                        <TableHead>Bao bì</TableHead>
-                        <TableHead>Nhân công</TableHead>
-                        <TableHead>Delivery</TableHead>
-                        <TableHead>Other Prod.</TableHead>
-                        <TableHead>BH&QL</TableHead>
-                        <TableHead>Tổng/cái</TableHead>
-                        <TableHead>Thành phẩm</TableHead>
-                        <TableHead>Giá bán</TableHead>
-                        <TableHead>Biên LN</TableHead>
-                        <TableHead>Stock NVL</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filtered.map((c: any) => (
-                        <TableRow key={c.id}>
-                          <TableCell className="font-mono text-xs">{c.sku_code}<div className="text-muted-foreground">{c.product_name}</div></TableCell>
-                          <TableCell>{money(c.ingredient_cost)}</TableCell>
-                          <TableCell>{money(c.packaging_cost)}</TableCell>
-                          <TableCell>{money(c.labor_cost)}</TableCell>
-                          <TableCell>{money(c.delivery_cost)}</TableCell>
-                          <TableCell>{money(c.other_production_cost)}</TableCell>
-                          <TableCell>{money(c.sga_cost + c.extra_cost)}</TableCell>
-                          <TableCell className="font-semibold">{money(c.total_cost_per_unit)}</TableCell>
-                          <TableCell>{c.finished_output_qty} {c.finished_output_unit}</TableCell>
-                          <TableCell>{money(c.selling_price)}</TableCell>
-                          <TableCell>{c.margin_percentage?.toFixed?.(2)}%</TableCell>
-                          <TableCell>{money(c.estimated_ingredient_stock)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+              <div className="grid grid-cols-[minmax(0,1fr)_minmax(132px,0.55fr)] gap-2 md:grid-cols-[minmax(0,1fr)_160px_190px]">
+                <div className="min-w-0 overflow-hidden rounded-xl border border-white/10 bg-white/[0.06] md:col-start-2">
+                  <Input
+                    type="month"
+                    value={period}
+                    onChange={(event) => { setPeriod(event.target.value); setAnalysis(null); }}
+                    className="h-11 w-full min-w-0 border-0 bg-transparent px-3 text-sm text-white [color-scheme:dark] focus-visible:ring-1 focus-visible:ring-amber-300"
+                    aria-label="Chọn tháng phân tích"
+                  />
                 </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader><CardTitle>{copy.breakdownTitle}</CardTitle></CardHeader>
-            <CardContent className="h-64">
-              {breakdown.length ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={breakdown} dataKey="value" nameKey="name" innerRadius={50} outerRadius={90}>
-                      {breakdown.map((_: any, idx: number) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} />)}
-                    </Pie>
-                    <Tooltip formatter={(value: number) => compactMoney(value)} />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="text-sm text-muted-foreground">{copy.empty}</div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {tab === "trends" && (
-        <div className="space-y-4 pb-24">
-          <section className="overflow-hidden rounded-[1.5rem] border border-amber-400/20 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.22),transparent_34%),linear-gradient(135deg,hsl(25_25%_8%),hsl(25_20%_12%))] p-4 text-white shadow-2xl md:p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-200/80">Giá Vốn</p>
-                <h2 className="mt-1 text-2xl font-bold leading-tight md:text-3xl">Xu hướng giá vốn SKU</h2>
-                <p className="mt-2 text-sm text-amber-50/65">Chọn SKU + tháng, sau đó chạy phân tích thủ công để so công thức với chi phí thực tế trong DB.</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-white/10 px-3 py-2 text-right text-xs text-amber-50/80">
-                <div>Manual run</div>
-                <div className="font-semibold text-amber-200">DB paid/control</div>
+                <Button onClick={runAnalysis} disabled={!selectedSku || isLoading} className="h-11 w-full rounded-xl bg-amber-400 font-semibold text-stone-950 hover:bg-amber-300 md:col-start-3">
+                  Chạy phân tích SKU
+                </Button>
               </div>
             </div>
-
-            <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-black/20 p-3 backdrop-blur md:grid md:grid-cols-[1fr_150px_190px] md:space-y-0 md:gap-3">
-              <Select value={selectedSku?.id || ""} onValueChange={(value) => { setSelectedSkuId(value); setAnalysis(null); }}>
-                <SelectTrigger className="border-white/10 bg-white/10 text-white placeholder:text-white/50">
-                  <SelectValue placeholder="Chọn SKU thành phẩm" />
-                </SelectTrigger>
-                <SelectContent>
-                  {items.map((item: any) => (
-                    <SelectItem key={item.id} value={item.id}>{item.product_name} · {item.sku_code}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Input type="month" value={period} onChange={(event) => { setPeriod(event.target.value); setAnalysis(null); }} className="border-white/10 bg-white/10 text-white" />
-              <Button onClick={runAnalysis} disabled={!selectedSku || isLoading} className="w-full bg-amber-400 font-semibold text-stone-950 hover:bg-amber-300">
-                Chạy phân tích SKU
-              </Button>
-            </div>
-            <div className="mt-2 text-xs text-amber-50/55">Chưa tự động chạy · chỉ cập nhật khi bấm. {staleAnalysis ? "Thông số đã đổi, bấm chạy lại để cập nhật." : ""}</div>
+            <div className="mt-2 text-xs text-white/45">Chưa tự động chạy · chỉ cập nhật khi bấm. {staleAnalysis ? "Thông số đã đổi, bấm chạy lại để cập nhật." : ""}</div>
           </section>
 
           {!analysis ? (
@@ -436,19 +305,7 @@ export default function SkuCostsAnalysis() {
               </div>
             </>
           )}
-        </div>
-      )}
-
-      {tab === "overhead" && (
-        <Card>
-          <CardHeader><CardTitle>{copy.overheadTitle}</CardTitle></CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            {copy.overheadDesc}
-          </CardContent>
-        </Card>
-      )}
-
-      {tab === "actual-labor" && <ActualLaborCostPanel />}
+      </div>
     </div>
   );
 }
