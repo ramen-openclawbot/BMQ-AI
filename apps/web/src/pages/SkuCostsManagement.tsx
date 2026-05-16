@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { DEFAULT_SKU_COST_TEMPLATE, DEFAULT_SKU_COST_VALUES, parseCostTemplate, parseCostValues, toNumber } from "@/lib/sku-cost-template";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import { isFinishedSku } from "@/lib/skuType";
+import { SkuCostMenuBar } from "@/components/sku-costs/SkuCostMenuBar";
 
 type SKU = any;
 type FormulaRow = any;
@@ -900,7 +901,8 @@ export default function SkuCostsManagement() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Tính chi phí giá vốn hàng bán (SKU thành phẩm)</h1>
+      <SkuCostMenuBar />
+      <h1 className="text-2xl font-bold">Quản trị SKU thành phẩm</h1>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between"><CardTitle>Danh sách SKU thành phẩm</CardTitle><div className="flex gap-2"><Button onClick={openCreateSku}>Tạo SKU</Button></div></CardHeader>
         <CardContent>

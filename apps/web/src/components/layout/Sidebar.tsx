@@ -281,13 +281,6 @@ export function Sidebar() {
                   </div>
                 )}
 
-                {item.path === "/sku-costs" && !collapsed && (
-                  <div className="ml-10 mt-2 space-y-1">
-                    <NavLink to="/sku-costs/dashboard" className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground px-3 py-1.5 w-full rounded-md hover:bg-sidebar-accent/30 transition-colors">{t.skuCostDashboard}</NavLink>
-                    <NavLink to="/sku-costs/management" className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground px-3 py-1.5 w-full rounded-md hover:bg-sidebar-accent/30 transition-colors">{t.skuCostManagement}</NavLink>
-                    <NavLink to="/sku-costs/analysis" className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground px-3 py-1.5 w-full rounded-md hover:bg-sidebar-accent/30 transition-colors">{t.skuCostAnalysis}</NavLink>
-                  </div>
-                )}
               </div>
             );
           })}

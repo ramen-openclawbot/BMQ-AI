@@ -9,6 +9,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianG
 import { FormulaRow, useSkuCostBridge } from "@/hooks/useSkuCostBridge";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { ActualLaborCostPanel } from "@/components/sku-costs/ActualLaborCostPanel";
+import { SkuCostMenuBar } from "@/components/sku-costs/SkuCostMenuBar";
 
 const tabItems = [
   { key: "overview", label: "Tổng quan giá vốn" },
@@ -209,6 +210,7 @@ export default function SkuCostsAnalysis() {
 
   return (
     <div className="space-y-6">
+      <SkuCostMenuBar />
       <div className="flex gap-2 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch]">
         {tabItems.map((t) => (
           <Button key={t.key} variant={tab === t.key ? "default" : "outline"} onClick={() => setTab(t.key)} className="shrink-0 rounded-full">
@@ -296,35 +298,41 @@ export default function SkuCostsAnalysis() {
       )}
 
       {tab === "trends" && (
-        <div className="space-y-4 pb-20">
-          <Card className="border-primary/20 bg-card/95">
-            <CardHeader>
-              <CardTitle className="text-xl">Xu hướng giá vốn SKU</CardTitle>
-              <p className="text-sm text-muted-foreground">Chạy thủ công để so công thức với chi phí thực tế đã thanh toán/ghi nhận trong DB.</p>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid gap-3 md:grid-cols-[1fr_160px]">
-                <Select value={selectedSku?.id || ""} onValueChange={(value) => { setSelectedSkuId(value); setAnalysis(null); }}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Chọn SKU thành phẩm" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {items.map((item: any) => (
-                      <SelectItem key={item.id} value={item.id}>{item.product_name} · {item.sku_code}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input type="month" value={period} onChange={(event) => { setPeriod(event.target.value); setAnalysis(null); }} />
+        <div className="space-y-4 pb-24">
+          <section className="overflow-hidden rounded-[1.5rem] border border-amber-400/20 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.22),transparent_34%),linear-gradient(135deg,hsl(25_25%_8%),hsl(25_20%_12%))] p-4 text-white shadow-2xl md:p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-200/80">Giá Vốn</p>
+                <h2 className="mt-1 text-2xl font-bold leading-tight md:text-3xl">Xu hướng giá vốn SKU</h2>
+                <p className="mt-2 text-sm text-amber-50/65">Chọn SKU + tháng, sau đó chạy phân tích thủ công để so công thức với chi phí thực tế trong DB.</p>
               </div>
-              <Button onClick={runAnalysis} disabled={!selectedSku || isLoading} className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
+              <div className="rounded-2xl border border-white/10 bg-white/10 px-3 py-2 text-right text-xs text-amber-50/80">
+                <div>Manual run</div>
+                <div className="font-semibold text-amber-200">DB paid/control</div>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-black/20 p-3 backdrop-blur md:grid md:grid-cols-[1fr_150px_190px] md:space-y-0 md:gap-3">
+              <Select value={selectedSku?.id || ""} onValueChange={(value) => { setSelectedSkuId(value); setAnalysis(null); }}>
+                <SelectTrigger className="border-white/10 bg-white/10 text-white placeholder:text-white/50">
+                  <SelectValue placeholder="Chọn SKU thành phẩm" />
+                </SelectTrigger>
+                <SelectContent>
+                  {items.map((item: any) => (
+                    <SelectItem key={item.id} value={item.id}>{item.product_name} · {item.sku_code}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input type="month" value={period} onChange={(event) => { setPeriod(event.target.value); setAnalysis(null); }} className="border-white/10 bg-white/10 text-white" />
+              <Button onClick={runAnalysis} disabled={!selectedSku || isLoading} className="w-full bg-amber-400 font-semibold text-stone-950 hover:bg-amber-300">
                 Chạy phân tích SKU
               </Button>
-              <div className="text-xs text-muted-foreground">Chưa tự động chạy · chỉ cập nhật khi bấm. {staleAnalysis ? "Thông số đã đổi, bấm chạy lại để cập nhật." : ""}</div>
-            </CardContent>
-          </Card>
+            </div>
+            <div className="mt-2 text-xs text-amber-50/55">Chưa tự động chạy · chỉ cập nhật khi bấm. {staleAnalysis ? "Thông số đã đổi, bấm chạy lại để cập nhật." : ""}</div>
+          </section>
 
           {!analysis ? (
-            <Card className="border-dashed">
+            <Card className="border-dashed bg-card/80">
               <CardContent className="py-8 text-center text-sm text-muted-foreground">
                 Chọn SKU/tháng rồi bấm “Chạy phân tích SKU” để tạo mapping giá vốn và trend theo đợt thanh toán.
               </CardContent>
@@ -332,58 +340,64 @@ export default function SkuCostsAnalysis() {
           ) : (
             <>
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <Card>
+                <Card className="border-amber-500/20 bg-card/95 shadow-sm">
                   <CardContent className="p-4">
-                    <div className="text-xs text-muted-foreground">Cost công thức</div>
-                    <div className="mt-1 text-lg font-semibold">{compactMoney(analysis.formulaCost)}</div>
+                    <div className="text-xs font-medium text-muted-foreground">Cost công thức</div>
+                    <div className="mt-1 text-xl font-bold tracking-tight">{compactMoney(analysis.formulaCost)}</div>
                   </CardContent>
                 </Card>
-                <Card>
+                <Card className="border-amber-500/20 bg-card/95 shadow-sm">
                   <CardContent className="p-4">
-                    <div className="text-xs text-muted-foreground">Cost thực tế TB tháng</div>
-                    <div className="mt-1 text-lg font-semibold">{compactMoney(analysis.actualCost)}</div>
+                    <div className="text-xs font-medium text-muted-foreground">Cost thực tế TB tháng</div>
+                    <div className="mt-1 text-xl font-bold tracking-tight">{compactMoney(analysis.actualCost)}</div>
                   </CardContent>
                 </Card>
-                <Card className={analysis.diff <= 0 ? "border-emerald-500/40" : "border-red-500/40"}>
+                <Card className={analysis.diff <= 0 ? "border-emerald-500/40 bg-emerald-500/5 shadow-sm" : "border-red-500/40 bg-red-500/5 shadow-sm"}>
                   <CardContent className="p-4">
-                    <div className="text-xs text-muted-foreground">Chênh lệch</div>
-                    <div className={analysis.diff <= 0 ? "mt-1 text-lg font-semibold text-emerald-400" : "mt-1 text-lg font-semibold text-red-400"}>
+                    <div className="text-xs font-medium text-muted-foreground">Chênh lệch</div>
+                    <div className={analysis.diff <= 0 ? "mt-1 text-lg font-bold text-emerald-500" : "mt-1 text-lg font-bold text-red-500"}>
                       {analysis.diff > 0 ? "+" : ""}{compactMoney(analysis.diff)} · {pct(analysis.diffPct)}
                     </div>
                   </CardContent>
                 </Card>
-                <Card>
+                <Card className="border-amber-500/20 bg-card/95 shadow-sm">
                   <CardContent className="p-4">
-                    <div className="text-xs text-muted-foreground">Lần chạy gần nhất</div>
-                    <div className="mt-1 text-sm font-medium">{new Date(analysis.runAt).toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}</div>
-                    <div className="text-xs text-muted-foreground">{analysis.matchedRows}/{analysis.totalRows} NVL có giá TT</div>
+                    <div className="text-xs font-medium text-muted-foreground">Lần chạy gần nhất</div>
+                    <div className="mt-1 text-sm font-semibold">{new Date(analysis.runAt).toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}</div>
+                    <div className={analysis.matchedRows === 0 ? "text-xs font-semibold text-amber-500" : "text-xs text-muted-foreground"}>{analysis.matchedRows}/{analysis.totalRows} NVL có giá TT</div>
                   </CardContent>
                 </Card>
               </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Mapping công thức ↔ chi phí thực tế</CardTitle>
+              {analysis.matchedRows === 0 && (
+                <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-200">
+                  Chưa map được giá thực tế cho NVL trong tháng này. Tổng cost vẫn fallback theo giá công thức để không làm vỡ báo cáo.
+                </div>
+              )}
+
+              <Card className="overflow-hidden border-amber-500/15 bg-card/95 shadow-sm">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">Mapping công thức ↔ chi phí thực tế</CardTitle>
                   <p className="text-sm text-muted-foreground">Ưu tiên giá thực tế trung bình trong tháng; thiếu dữ liệu thì giữ giá công thức để không làm vỡ tổng cost.</p>
                 </CardHeader>
                 <CardContent className="space-y-2">
                   {analysis.rows.map((row) => {
                     const isDown = (row.diffPct || 0) <= 0;
                     return (
-                      <div key={`${row.name}-${row.dosage}`} className="rounded-xl border border-border/70 bg-muted/20 p-3">
+                      <div key={`${row.name}-${row.dosage}`} className="rounded-2xl border border-border/70 bg-muted/20 p-3 shadow-sm">
                         <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="font-medium leading-snug">{row.name}</div>
+                          <div className="min-w-0">
+                            <div className="truncate font-semibold leading-snug">{row.name}</div>
                             <div className="text-xs text-muted-foreground">{row.dosage.toFixed(2)} {row.unit} · {row.sampleCount} dòng chi phí</div>
                           </div>
-                          <div className={row.actualPrice === null ? "rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground" : isDown ? "rounded-full bg-emerald-500/15 px-2 py-1 text-xs font-semibold text-emerald-400" : "rounded-full bg-red-500/15 px-2 py-1 text-xs font-semibold text-red-400"}>
+                          <div className={row.actualPrice === null ? "rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground" : isDown ? "rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-semibold text-emerald-500" : "rounded-full bg-red-500/15 px-2.5 py-1 text-xs font-semibold text-red-500"}>
                             {row.diffPct === null ? "N/A" : pct(row.diffPct)}
                           </div>
                         </div>
                         <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
-                          <div><div className="text-xs text-muted-foreground">Giá CT</div><div>{money(row.formulaPrice)}</div></div>
-                          <div><div className="text-xs text-muted-foreground">Giá TT TB</div><div>{row.actualPrice === null ? "—" : money(row.actualPrice)}</div></div>
-                          <div><div className="text-xs text-muted-foreground">Δ cost</div><div className={row.diffCost === null ? "" : row.diffCost <= 0 ? "text-emerald-400" : "text-red-400"}>{row.diffCost === null ? "—" : `${row.diffCost > 0 ? "+" : ""}${compactMoney(row.diffCost)}`}</div></div>
+                          <div className="rounded-xl bg-background/70 p-2"><div className="text-[11px] text-muted-foreground">Giá CT</div><div className="font-semibold">{money(row.formulaPrice)}</div></div>
+                          <div className="rounded-xl bg-background/70 p-2"><div className="text-[11px] text-muted-foreground">Giá TT TB</div><div className="font-semibold">{row.actualPrice === null ? "—" : money(row.actualPrice)}</div></div>
+                          <div className="rounded-xl bg-background/70 p-2"><div className="text-[11px] text-muted-foreground">Δ cost</div><div className={row.diffCost === null ? "font-semibold" : row.diffCost <= 0 ? "font-semibold text-emerald-500" : "font-semibold text-red-500"}>{row.diffCost === null ? "—" : `${row.diffCost > 0 ? "+" : ""}${compactMoney(row.diffCost)}`}</div></div>
                         </div>
                       </div>
                     );
@@ -391,21 +405,21 @@ export default function SkuCostsAnalysis() {
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Biến động theo đợt thanh toán trong tháng</CardTitle>
+              <Card className="overflow-hidden border-amber-500/15 bg-card/95 shadow-sm">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg">Biến động theo đợt thanh toán trong tháng</CardTitle>
                   <p className="text-sm text-muted-foreground">Đường cam là cost thực tế trung bình lũy kế theo từng đợt; đường xám là baseline công thức.</p>
                 </CardHeader>
                 <CardContent className="h-72">
                   {analysis.chartRows.length ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={analysis.chartRows} margin={{ top: 8, right: 10, left: -16, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(245,158,11,0.18)" />
                         <XAxis dataKey="label" tick={{ fontSize: 12 }} />
                         <YAxis tick={{ fontSize: 12 }} tickFormatter={(value) => money(Number(value))} />
                         <Tooltip formatter={(value: number) => compactMoney(value)} labelFormatter={(label) => `Đợt ${label}`} />
                         <Line type="monotone" dataKey="baseline" name="Formula baseline" stroke="#94a3b8" strokeDasharray="5 5" dot={false} />
-                        <Line type="monotone" dataKey="actual" name="Actual paid avg" stroke="#f59e0b" strokeWidth={3} dot={{ r: 4 }} />
+                        <Line type="monotone" dataKey="actual" name="Actual paid avg" stroke="#f59e0b" strokeWidth={3} dot={{ r: 4, fill: "#f59e0b" }} />
                       </LineChart>
                     </ResponsiveContainer>
                   ) : (

@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import { parseCostValues, toNumber } from "@/lib/sku-cost-template";
 import { isFinishedSku } from "@/lib/skuType";
+import { SkuCostMenuBar } from "@/components/sku-costs/SkuCostMenuBar";
 
 export default function SkuCostsDjango() {
   const [skus, setSkus] = useState<any[]>([]);
@@ -33,6 +34,7 @@ export default function SkuCostsDjango() {
 
   return (
     <div className="space-y-4">
+      <SkuCostMenuBar />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">SKU thành phẩm</div><div className="text-xl font-semibold">{loading ? "..." : stats.count}</div></CardContent></Card>
         <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">Giá bán TB</div><div className="text-xl font-semibold">{loading ? "..." : vnd(stats.avgSelling)}</div></CardContent></Card>
