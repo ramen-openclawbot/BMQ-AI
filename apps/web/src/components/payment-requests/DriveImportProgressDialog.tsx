@@ -149,14 +149,40 @@ const MAX_BATCH_SCAN_FILES = 10;
 // Timeout for import initialization to prevent Safari deadlock
 const IMPORT_INIT_TIMEOUT = 25000;
 
-// Format "250125" -> "25/01/2025"
-const formatFolderDate = (dateStr: string): string => {
-  if (dateStr.length !== 6) return dateStr;
-  const day = dateStr.substring(0, 2);
-  const month = dateStr.substring(2, 4);
-  const year = dateStr.substring(4, 6);
-  return `${day}/${month}/20${year}`;
+// Format Drive receipt folder paths:
+// - "250125" -> "25/01/2025"
+// - "25012025" -> "25/01/2025"
+// - "2026/05/16/UNC" -> "16/05/2026"
+const formatReceiptFolderDate = (dateStr: string): string => {
+  const value = String(dateStr || '').trim();
+  const nestedDateMatch = value.match(/(?:^|\/)(20\d{2})\/(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])(?:\/|$)/);
+  if (nestedDateMatch) {
+    const [, year, month, day] = nestedDateMatch;
+    return `${day}/${month}/${year}`;
+  }
+
+  if (/^\d{8}$/.test(value)) {
+    const day = value.substring(0, 2);
+    const month = value.substring(2, 4);
+    const year = value.substring(4, 8);
+    return `${day}/${month}/${year}`;
+  }
+
+  if (/^\d{6}$/.test(value)) {
+    const day = value.substring(0, 2);
+    const month = value.substring(2, 4);
+    const year = value.substring(4, 6);
+    return `${day}/${month}/20${year}`;
+  }
+
+  if (/^20\d{2}$/.test(value)) {
+    return `folder năm ${value}`;
+  }
+
+  return value;
 };
+
+const formatFolderDate = formatReceiptFolderDate;
 
 const upsertDriveFileIndex = async (
   payload: {
@@ -740,6 +766,7 @@ export function DriveImportProgressDialog({
           body: JSON.stringify({
             folderUrl,
             mode: 'list_all_dates',
+            folderType: 'po',
           }),
         }
       );
@@ -778,6 +805,7 @@ export function DriveImportProgressDialog({
                   body: JSON.stringify({
                     folderUrl,
                     subfolderDate: dateInfo.date,
+                    folderType: 'po',
                   }),
                 }
               );
@@ -825,6 +853,8 @@ export function DriveImportProgressDialog({
       }
 
       setAvailableDates(datesWithNewFiles);
+      setSelectionMode('all');
+      setSelectedDates([]);
       setPhase('select_dates');
 
     } catch (err: any) {
@@ -1775,6 +1805,7 @@ export function DriveImportProgressDialog({
           body: JSON.stringify({
             folderUrl: url,
             mode: 'list_all_dates',
+            folderType: 'bank_slip',
           }),
         }
       );
@@ -1814,6 +1845,7 @@ export function DriveImportProgressDialog({
                   body: JSON.stringify({
                     folderUrl: url,
                     subfolderDate: dateInfo.date,
+                    folderType: 'bank_slip',
                   }),
                 }
               );
@@ -1863,6 +1895,8 @@ export function DriveImportProgressDialog({
       }
 
       setAvailableDates(datesWithNewFiles);
+      setSelectionMode('all');
+      setSelectedDates([]);
       setPhase('select_dates');
 
     } catch (err: any) {
@@ -1897,6 +1931,7 @@ export function DriveImportProgressDialog({
           body: JSON.stringify({
             folderUrl,
             mode: 'list_all_dates',
+            folderType: 'bank_slip',
           }),
         }
       );
@@ -1933,6 +1968,7 @@ export function DriveImportProgressDialog({
             body: JSON.stringify({
               folderUrl,
               subfolderDate: dateInfo.date,
+              folderType: 'bank_slip',
             }),
           }
         );
@@ -1969,6 +2005,8 @@ export function DriveImportProgressDialog({
       }
 
       setAvailableDates(datesWithNewFiles);
+      setSelectionMode('all');
+      setSelectedDates([]);
       setPhase('select_dates');
 
     } catch (err: any) {
@@ -3683,8 +3721,14 @@ export function DriveImportProgressDialog({
             onClick={importType === 'po' ? startProcessingSelectedDatesPO : startProcessingSelected}
             disabled={selectionMode === 'select' && selectedDates.length === 0}
           >
-            {importType === 'po' ? 'Quét' : 'Cập nhật'} {selectionMode === 'all' ? 'tất cả' : `${selectedDates.length} ngày`}
-            {totalSelectedFiles > 0 && ` (${totalSelectedFiles} file)`}
+            {selectionMode === 'select' && selectedDates.length === 0
+              ? 'Chọn ít nhất 1 ngày'
+              : (
+                <>
+                  {importType === 'po' ? 'Quét' : 'Cập nhật'} {selectionMode === 'all' ? 'tất cả' : `${selectedDates.length} ngày`}
+                  {totalSelectedFiles > 0 && ` (${totalSelectedFiles} file)`}
+                </>
+              )}
           </Button>
         </DialogFooter>
       );

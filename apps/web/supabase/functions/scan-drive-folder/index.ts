@@ -188,6 +188,135 @@ async function listImagesRecursiveOneLevel(folderId: string, accessToken: string
   };
 }
 
+interface DateFolderInfo {
+  date: string;
+  fileCount: number;
+  folderId: string;
+}
+
+interface AppSettingsClient {
+  from(table: 'app_settings'): {
+    select(columns: string): {
+      eq(column: string, value: string): {
+        maybeSingle(): Promise<{ data?: { value?: unknown } | null; error?: unknown }>;
+      };
+    };
+  };
+}
+
+async function getAppSetting(supabaseClient: AppSettingsClient, key: string): Promise<string | null> {
+  const { data, error } = await supabaseClient
+    .from('app_settings')
+    .select('value')
+    .eq('key', key)
+    .maybeSingle();
+
+  if (error || !data?.value) return null;
+  return String(data.value);
+}
+
+async function findChildFolder(parentFolderId: string, segment: string, accessToken: string): Promise<DriveFile | null> {
+  const children = await listChildFolders(parentFolderId, accessToken);
+  return children.find((folder) => folder.name === segment)
+    || children.find((folder) => folder.name.toLowerCase() === segment.toLowerCase())
+    || null;
+}
+
+function toReceiptDateComparable(datePath: string): string {
+  const nested = String(datePath || '').match(/(?:^|\/)(20\d{2})\/(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])(?:\/|$)/);
+  if (nested) return `${nested[1]}${nested[2]}${nested[3]}`;
+  if (/^\d{8}$/.test(datePath)) return datePath.slice(4, 8) + datePath.slice(2, 4) + datePath.slice(0, 2);
+  if (/^\d{6}$/.test(datePath)) return `20${datePath.slice(4, 6)}${datePath.slice(2, 4)}${datePath.slice(0, 2)}`;
+  return datePath;
+}
+
+async function listDirectDateFolders(rootFolderId: string, accessToken: string): Promise<DateFolderInfo[]> {
+  const subfolders = await listChildFolders(rootFolderId, accessToken);
+  const dateFolders = subfolders.filter((folder) => /^\d{6}$/.test(folder.name) || /^\d{8}$/.test(folder.name));
+  const dates: DateFolderInfo[] = [];
+
+  for (const folder of dateFolders) {
+    try {
+      const fileScan = await listImagesRecursiveOneLevel(folder.id, accessToken);
+      dates.push({
+        date: folder.name,
+        fileCount: fileScan.files.length,
+        folderId: folder.id,
+      });
+    } catch (err) {
+      console.error(`[scan-drive-folder] Error counting files in date folder ${folder.name}:`, err);
+    }
+  }
+
+  return dates;
+}
+
+async function listReceiptDateFoldersFromPattern(rootFolderId: string, pattern: string | null, accessToken: string): Promise<DateFolderInfo[]> {
+  const normalizedPattern = String(pattern || '').replace(/^\/+|\/+$/g, '');
+  const segments = normalizedPattern.split('/').map((segment) => segment.trim()).filter(Boolean);
+  const yearIndex = segments.indexOf('yyyy');
+  const monthIndex = segments.indexOf('MM');
+  const dayIndex = segments.indexOf('dd');
+
+  if (yearIndex < 0 || monthIndex < 0 || dayIndex < 0 || !(yearIndex < monthIndex && monthIndex < dayIndex)) {
+    return [];
+  }
+
+  const staticPrefix = segments.slice(0, yearIndex);
+  const leafSuffix = segments.slice(dayIndex + 1);
+  let baseFolderId = rootFolderId;
+  for (const prefixSegment of staticPrefix) {
+    const next = await findChildFolder(baseFolderId, prefixSegment, accessToken);
+    if (!next) return [];
+    baseFolderId = next.id;
+  }
+
+  const years = (await listChildFolders(baseFolderId, accessToken)).filter((folder) => /^20\d{2}$/.test(folder.name));
+  const dates: DateFolderInfo[] = [];
+
+  for (const yearFolder of years) {
+    const months = (await listChildFolders(yearFolder.id, accessToken)).filter((folder) => /^(0[1-9]|1[0-2])$/.test(folder.name));
+    for (const monthFolder of months) {
+      const days = (await listChildFolders(monthFolder.id, accessToken)).filter((folder) => /^(0[1-9]|[12]\d|3[01])$/.test(folder.name));
+      for (const dayFolder of days) {
+        let leafFolderId = dayFolder.id;
+        const leafPathParts = [yearFolder.name, monthFolder.name, dayFolder.name];
+        let missingLeaf = false;
+
+        for (const suffixSegment of leafSuffix) {
+          const next = await findChildFolder(leafFolderId, suffixSegment, accessToken);
+          if (!next) {
+            missingLeaf = true;
+            break;
+          }
+          leafFolderId = next.id;
+          leafPathParts.push(next.name);
+        }
+
+        if (missingLeaf) continue;
+
+        const leafPath = leafPathParts.join('/'); // yyyy/MM/dd/UNC
+        try {
+          const fileScan = await listImagesRecursiveOneLevel(leafFolderId, accessToken);
+          dates.push({
+            date: leafPath,
+            fileCount: fileScan.files.length,
+            folderId: leafFolderId,
+          });
+        } catch (err) {
+          console.error(`[scan-drive-folder] Error counting files in receipt folder ${leafPath}:`, err);
+        }
+      }
+    }
+  }
+
+  return dates;
+}
+
+function sortDateFoldersNewestFirst(dates: DateFolderInfo[]): DateFolderInfo[] {
+  return dates.sort((a, b) => toReceiptDateComparable(b.date).localeCompare(toReceiptDateComparable(a.date)));
+}
+
 serve(async (req) => {
   const startTime = Date.now();
   console.log("[scan-drive-folder] Request started");
@@ -292,82 +421,29 @@ serve(async (req) => {
       });
     }
 
-    // MODE: list_all_dates - List all subfolders with file counts
+    // MODE: list_all_dates - List all date folders with file counts.
+    // Bank slip receipts use the configured nested pattern yyyy/MM/dd/UNC;
+    // direct child folders named only "2026" are year containers, not dates.
     if (mode === 'list_all_dates') {
       console.log("[scan-drive-folder] Mode: list_all_dates");
-      const subfolderQuery = encodeURIComponent(
-        `'${rootFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
-      );
-      const subfolderUrl = `https://www.googleapis.com/drive/v3/files?q=${subfolderQuery}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
-      
-      const subfolderResponse = await fetchWithTimeout(subfolderUrl, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      }, 10000);
 
-      if (!subfolderResponse.ok) {
-        const errorText = await subfolderResponse.text();
-        console.error('[scan-drive-folder] Google Drive API error (list subfolders):', errorText);
-        return new Response(JSON.stringify({ 
-          error: 'Failed to list subfolders',
-          details: 'Token may have expired. Please reconnect Google Drive in Settings.'
-        }), {
-          status: 400,
-          headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
-        });
-      }
-
-      const subfolderData: DriveListResponse = await subfolderResponse.json();
-      
-      // Get file count for each subfolder
-      const dates: { date: string; fileCount: number; folderId: string }[] = [];
-      
-      for (const folder of subfolderData.files) {
-        const imageQuery = encodeURIComponent(
-          `'${folder.id}' in parents and (mimeType contains 'image/') and trashed = false`
-        );
-        const countUrl = `https://www.googleapis.com/drive/v3/files?q=${imageQuery}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
-        
-        try {
-          const countResponse = await fetchWithTimeout(countUrl, {
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-            },
-          }, 8000);
-          
-          if (countResponse.ok) {
-            const countData: DriveListResponse = await countResponse.json();
-            dates.push({
-              date: folder.name,
-              fileCount: countData.files.length,
-              folderId: folder.id,
-            });
-          }
-        } catch (err) {
-          console.error(`[scan-drive-folder] Error counting files in folder ${folder.name}:`, err);
+      let dates: DateFolderInfo[] = [];
+      if (folderType === 'bank_slip') {
+        const receiptPattern = await getAppSetting(supabaseAdmin, 'google_drive_receipts_unc_pattern');
+        dates = await listReceiptDateFoldersFromPattern(rootFolderId, receiptPattern, accessToken);
+        if (!dates.length) {
+          console.log('[scan-drive-folder] No nested receipt dates found; falling back to direct DDMMYY/DDMMYYYY folders');
+          dates = await listDirectDateFolders(rootFolderId, accessToken);
         }
+      } else {
+        dates = await listDirectDateFolders(rootFolderId, accessToken);
       }
-      
-      // Sort by date (newest first) - support both DDMMYY and DDMMYYYY
-      dates.sort((a, b) => {
-        const toComparable = (d: string) => {
-          if (/^\d{8}$/.test(d)) {
-            // ddmmyyyy => yyyymmdd
-            return d.slice(4, 8) + d.slice(2, 4) + d.slice(0, 2);
-          }
-          if (/^\d{6}$/.test(d)) {
-            // ddmmyy => yymmdd
-            return d.slice(4, 6) + d.slice(2, 4) + d.slice(0, 2);
-          }
-          return d;
-        };
-        return toComparable(b.date).localeCompare(toComparable(a.date));
-      });
+
+      sortDateFoldersNewestFirst(dates);
 
       console.log(`[scan-drive-folder] Found ${dates.length} date folders in ${Date.now() - startTime}ms`);
-      return new Response(JSON.stringify({ 
-        success: true, 
+      return new Response(JSON.stringify({
+        success: true,
         mode: 'list_all_dates',
         dates,
       }), {
