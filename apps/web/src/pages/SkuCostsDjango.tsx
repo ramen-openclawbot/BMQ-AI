@@ -1,5 +1,5 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { AlertCircle, BarChart3, Camera, ChevronRight, ImageIcon, Loader2, Package2, Search, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -121,6 +121,7 @@ function SkuImageThumb({ sku, uploading, onClick }: { sku: SkuRow; uploading?: b
 }
 
 export default function SkuCostsDjango() {
+  const navigate = useNavigate();
   const [skus, setSkus] = useState<SkuRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -207,6 +208,42 @@ export default function SkuCostsDjango() {
     setEditingSku(sku);
     setSelectedFile(null);
     setUploadError(null);
+  };
+
+  const openSkuDetail = (sku: SkuRow) => {
+    navigate(`/sku-costs/management?sku=${encodeURIComponent(sku.id)}`);
+  };
+
+  const exportSkuSheet = () => {
+    if (!filteredSkus.length) {
+      toast.info("Không có SKU để xuất");
+      return;
+    }
+
+    const escapeCell = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const headers = ["Mã SKU", "Tên SKU", "Đơn vị", "Giá bán", "Giá vốn", "LC %", "Trạng thái giá", "Cập nhật lúc"];
+    const rows = filteredSkus.map((sku) => [
+      sku.sku_code || sku.id,
+      sku.product_name,
+      sku.unit || "",
+      Math.round(sku.sellingPrice || 0),
+      Math.round(sku.totalCost || 0),
+      Number.isFinite(sku.marginPct) ? Math.round(sku.marginPct) : "",
+      sku.sellingPrice > 0 ? "Có giá" : "Chưa giá",
+      sku.updated_at || "",
+    ]);
+
+    const csv = [headers, ...rows].map((row) => row.map(escapeCell).join(",")).join("\n");
+    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `sku-gia-von-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    toast.success("Đã xuất sheet SKU", { description: `${filteredSkus.length} SKU trong file CSV.` });
   };
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -390,7 +427,7 @@ export default function SkuCostsDjango() {
                   return (
                     <article key={sku.id} className="flex items-center gap-3 rounded-[24px] border border-white/10 bg-[#14100d]/95 p-3 shadow-[0_14px_42px_rgba(0,0,0,0.28)]">
                       <SkuImageThumb sku={sku} uploading={uploadingSkuId === sku.id} onClick={() => openUploadModal(sku)} />
-                      <div className="min-w-0 flex-1">
+                      <button type="button" onClick={() => openSkuDetail(sku)} className="min-w-0 flex-1 text-left" aria-label={`Xem chi tiết ${sku.product_name}`}>
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <h3 className="truncate text-[14px] font-black leading-tight text-white">{sku.product_name}</h3>
@@ -412,7 +449,7 @@ export default function SkuCostsDjango() {
                             </span>
                           </div>
                         </div>
-                      </div>
+                      </button>
                     </article>
                   );
                 })}
@@ -423,8 +460,8 @@ export default function SkuCostsDjango() {
 
         <div className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[430px] bg-gradient-to-t from-[#070605] via-[#070605]/96 to-transparent px-4 pb-4 pt-8 md:max-w-[560px]">
           <div className="grid grid-cols-2 gap-3 rounded-[24px] border border-white/10 bg-[#14100d]/92 p-2 shadow-[0_-14px_48px_rgba(0,0,0,0.42)] backdrop-blur-xl">
-            <Button className="h-12 rounded-[18px] border border-white/10 bg-white/[0.06] text-[13px] font-extrabold text-white hover:bg-white/[0.1]">Xuất sheet SKU</Button>
-            <Button className="h-12 rounded-[18px] bg-amber-400 text-[13px] font-extrabold text-[#1b1004] shadow-[0_12px_26px_rgba(245,158,11,0.22)] hover:bg-amber-300">Cập nhật giá</Button>
+            <Button onClick={exportSkuSheet} className="h-12 rounded-[18px] border border-white/10 bg-white/[0.06] text-[13px] font-extrabold text-white hover:bg-white/[0.1]">Xuất sheet SKU</Button>
+            <Button onClick={() => navigate("/sku-costs/management")} className="h-12 rounded-[18px] bg-amber-400 text-[13px] font-extrabold text-[#1b1004] shadow-[0_12px_26px_rgba(245,158,11,0.22)] hover:bg-amber-300">Cập nhật giá</Button>
           </div>
         </div>
       </div>

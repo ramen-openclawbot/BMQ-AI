@@ -322,10 +322,13 @@ export default function SkuCostsManagement() {
     setInventoryMap(inv);
     setSkus(skuRes.data || []);
 
+    const requestedSkuId = new URLSearchParams(window.location.search).get("sku") || "";
     const firstFinishedSku = (skuRes.data || []).find((s: any) => isFinishedSku(s));
-    const currentSku = activeSkuId || firstFinishedSku?.id || skuRes.data?.[0]?.id;
+    const requestedSku = requestedSkuId ? (skuRes.data || []).find((s: SKU) => s.id === requestedSkuId) : null;
+    const currentSku = requestedSku?.id || activeSkuId || firstFinishedSku?.id || skuRes.data?.[0]?.id;
     if (currentSku) {
       setActiveSkuId(currentSku);
+      if (requestedSku?.id) setDetailOpen(true);
       const { data: fRows } = await sb.from("sku_formulations").select("*").eq("sku_id", currentSku).order("sort_order");
       setFormula(fRows || []);
     }
