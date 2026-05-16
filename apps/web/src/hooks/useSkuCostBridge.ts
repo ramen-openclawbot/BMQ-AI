@@ -15,6 +15,9 @@ export type FormulaRow = {
 
 export type ActualCostPurchase = {
   sku_id: string | null;
+  product_name?: string | null;
+  product_code?: string | null;
+  unit?: string | null;
   unit_price: number | null;
   created_at: string;
   source: "payment_request" | "purchase_order";
@@ -61,13 +64,13 @@ export function useSkuCostBridge() {
           : Promise.resolve({ data: [] }),
         sb
           .from("payment_request_items")
-          .select("sku_id, unit_price, created_at, payment_requests(payment_status,status,approved_at,updated_at)")
+          .select("sku_id, product_name, product_code, unit, unit_price, created_at, payment_requests(payment_status,status,approved_at,updated_at)")
           .not("sku_id", "is", null)
           .order("created_at", { ascending: true })
           .limit(500),
         sb
           .from("purchase_order_items")
-          .select("sku_id, unit_price, created_at, purchase_orders(order_date)")
+          .select("sku_id, product_name, unit, unit_price, created_at, purchase_orders(order_date)")
           .not("sku_id", "is", null)
           .order("created_at", { ascending: true })
           .limit(500),
@@ -88,6 +91,9 @@ export function useSkuCostBridge() {
       const purchases: ActualCostPurchase[] = [
         ...((prRes.data || []) as Array<any>).map((x) => ({
           sku_id: x.sku_id,
+          product_name: x.product_name || null,
+          product_code: x.product_code || null,
+          unit: x.unit || null,
           unit_price: x.unit_price,
           created_at: x.payment_requests?.approved_at || x.payment_requests?.updated_at || x.created_at,
           source: "payment_request" as const,
@@ -96,6 +102,9 @@ export function useSkuCostBridge() {
         })),
         ...((poRes.data || []) as Array<any>).map((x) => ({
           sku_id: x.sku_id,
+          product_name: x.product_name || null,
+          product_code: null,
+          unit: x.unit || null,
           unit_price: x.unit_price,
           created_at: x.purchase_orders?.order_date || x.created_at,
           source: "purchase_order" as const,
