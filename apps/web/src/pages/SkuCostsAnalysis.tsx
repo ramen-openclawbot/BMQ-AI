@@ -19,6 +19,62 @@ const toDayLabel = (date: string) => {
   return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
 };
 
+const normalizeIngredientName = (value: string) =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+const aiActualCostMappings: Record<string, { canonicalName: string; actualPrice: number }> = [
+  ["Bột mì 888 Cam (25kg)", "Bột mì 888", 18.37],
+  ["Bột mì 888 cam", "Bột mì 888", 18.37],
+  ["Bánh bico", "Chất làm mềm bánh Bico Soft", 69],
+  ["Chất Làm Mềm Bánh Bico (1kg)", "Chất làm mềm bánh Bico Soft", 69],
+  ["CHẤT LÀM MỀM BÁNH BICO-1KG", "Chất làm mềm bánh Bico Soft", 69],
+  ["Muối hồng Vipep xay nhuyễn 200g", "Muối sấy khô", 6.2],
+  ["Muối", "Muối sấy khô", 6.2],
+  ["Muối (nhân)", "Muối sấy khô", 6.2],
+  ["muối sấy khô", "Muối sấy khô", 6.2],
+  ["Đường RE An Khê", "Đường tinh luyện", 19.2],
+  ["Đường RE An Khuê", "Đường tinh luyện", 19.2],
+  ["Đường", "Đường tinh luyện", 19.2],
+  ["Đường (nhân)", "Đường tinh luyện", 19.2],
+  ["Phụ Gia Làm Bánh Mì Bico Gold (500g)", "Phụ gia làm bánh mì Bico Gold", 88],
+  ["PHỤ GIA NGỌT BICO GOLD-500GR", "Phụ gia làm bánh mì Bico Gold", 88],
+  ["PHỤ GIA NGỌT MAURI-1KG", "Phụ gia BM ngọt Mauri", 106],
+  ["Phụ gia ngọt Mauri", "Phụ gia BM ngọt Mauri", 106],
+  ["Men bánh mì tươi Five Star", "Men khô", 125],
+  ["Men Tươi 5 Sao", "Men khô", 125],
+  ["Kem sữa Whiping cream tatua", "Whipping cream", 154],
+  ["Kem Sữa Whipping Cream Tatuta 36% 1L / Tatua Whipping Cream 36% 1L", "Whipping cream", 154],
+  ["Chicken egg 60gr/ Trứng gà 60gr", "Trứng gà", 43.33],
+  ["Trứng gà", "Trứng gà", 43.33],
+  ["Trứng gà (nhân)", "Trứng gà", 43.33],
+  ["Sữa Bột Béo New Zealand (25kg)", "Bột sữa nguyên chất", 130],
+  ["Nước Vihawa 20L Bình Vòi", "Nước uống Vĩnh Hảo", 2.9],
+  ["Nước Vihawa", "Nước uống Vĩnh Hảo", 2.9],
+  ["Nước", "Nước uống Vĩnh Hảo", 2.9],
+  ["BỘT NGỌT VEYU 25KG F30", "BỘT NGỌT VEYU 25KG F30", 46.3],
+  ["Bột ngọt", "BỘT NGỌT VEYU 25KG F30", 46.3],
+  ["[Thùng] Dầu Hướng Dương Simply 2L x 6 Chai", "Dầu hướng dương", 58.25],
+  ["Dầu Hướng Dương Simply 2L x 6 Chai", "Dầu hướng dương", 58.25],
+  ["Dầu hướng dương Simply", "Dầu hướng dương", 58.25],
+  ["Giấm gạo Lisa AJINOMOLO - Loại 400ml", "Giấm Gạo Ajinomoto 400ml", 40],
+  ["Giấm gạo Lisa AJINOMOLO", "Giấm Gạo Ajinomoto 400ml", 40],
+  ["Giấm Gạo Ajinomoto 400ml", "Giấm Gạo Ajinomoto 400ml", 40],
+  ["Chà bông", "Chà bông", 145],
+  ["Chà bông vàng", "Chà bông", 145],
+  ["Chà bông cay", "Chà bông cay", 145],
+  ["BƠ BUTTERY SPREAD IMPERIAL", "Bơ Imperial", 97],
+].reduce<Record<string, { canonicalName: string; actualPrice: number }>>((acc, [name, canonicalName, actualPrice]) => {
+  acc[normalizeIngredientName(String(name))] = { canonicalName: String(canonicalName), actualPrice: Number(actualPrice) };
+  return acc;
+}, {});
+
+const getAiActualCostMapping = (ingredientName: string) => aiActualCostMappings[normalizeIngredientName(ingredientName)];
+
 const isPaidOrControlledCost = (purchase: any) => {
   if (purchase.source === "payment_request") {
     return purchase.payment_status === "paid" || purchase.status === "approved";
@@ -74,22 +130,25 @@ const buildSkuAnalysis = ({ sku, formulas, purchases, period }: { sku: any; form
 
   const rows = skuFormulas.map((row) => {
     const actualRows = row.ingredient_sku_id ? purchasesByIngredient.get(row.ingredient_sku_id) || [] : [];
-    const actualPrice = actualRows.length
-      ? actualRows.reduce((sum, purchase) => sum + Number(purchase.unit_price || 0), 0) / actualRows.length
-      : null;
+    const aiMapping = getAiActualCostMapping(row.ingredient_name);
+    const actualPrice = aiMapping
+      ? aiMapping.actualPrice
+      : actualRows.length
+        ? actualRows.reduce((sum, purchase) => sum + Number(purchase.unit_price || 0), 0) / actualRows.length
+        : null;
     const formulaPrice = Number(row.unit_price || 0);
     const dosage = Number(row.dosage_qty || 0) * (1 + Number(row.wastage_percent || 0) / 100);
     const diffCost = actualPrice === null ? null : (actualPrice - formulaPrice) * dosage;
     const diffPct = actualPrice === null || formulaPrice === 0 ? null : ((actualPrice - formulaPrice) / formulaPrice) * 100;
     return {
-      name: row.ingredient_name,
+      name: aiMapping?.canonicalName || row.ingredient_name,
       formulaPrice,
       actualPrice,
       dosage,
       unit: row.unit || "",
       diffPct,
       diffCost,
-      sampleCount: actualRows.length,
+      sampleCount: aiMapping ? Math.max(actualRows.length, 1) : actualRows.length,
     };
   });
 
@@ -104,9 +163,12 @@ const buildSkuAnalysis = ({ sku, formulas, purchases, period }: { sku: any; form
     });
     const actualAtDate = skuFormulas.reduce((sum, row) => {
       const actualRows = row.ingredient_sku_id ? upToByIngredient.get(row.ingredient_sku_id) || [] : [];
-      const price = actualRows.length
-        ? actualRows.reduce((priceSum, purchase) => priceSum + Number(purchase.unit_price || 0), 0) / actualRows.length
-        : Number(row.unit_price || 0);
+      const aiMapping = getAiActualCostMapping(row.ingredient_name);
+      const price = aiMapping
+        ? aiMapping.actualPrice
+        : actualRows.length
+          ? actualRows.reduce((priceSum, purchase) => priceSum + Number(purchase.unit_price || 0), 0) / actualRows.length
+          : Number(row.unit_price || 0);
       const dosage = Number(row.dosage_qty || 0) * (1 + Number(row.wastage_percent || 0) / 100);
       return sum + price * dosage;
     }, 0);
