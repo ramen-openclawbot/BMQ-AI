@@ -231,6 +231,22 @@ class CostClassificationPhase1Tests(unittest.TestCase):
             {"cost_line_classifications", "cost_classification_audit_logs"},
         )
 
+    def test_paid_payment_request_auto_classification_migration_contract(self) -> None:
+        migration = (SCRIPT_DIR.parent / "supabase" / "migrations" / "20260517160000_auto_classify_paid_payment_requests.sql").read_text()
+        hook = (SCRIPT_DIR.parent / "src" / "hooks" / "usePaymentRequests.ts").read_text()
+
+        self.assertIn("add column if not exists paid_at", migration)
+        self.assertIn("classify_paid_payment_request", migration)
+        self.assertIn("trg_classify_paid_payment_request", migration)
+        self.assertIn("payment_status = 'paid'", migration)
+        self.assertIn("existing_row.classification_source = 'manual_override'", migration)
+        self.assertIn("existing_row.review_status = 'approved'", migration)
+        self.assertIn("coalesce(pr.paid_at::date", migration)
+        self.assertIn("paid_payment_request_auto_classification", migration)
+        self.assertGreaterEqual(hook.count('paid_at: new Date().toISOString()'), 2)
+        self.assertIn('queryKey: ["cost-classification-monthly-summary"]', hook)
+        self.assertIn('queryKey: ["cost-classification-line-details"]', hook)
+
     def test_fixture_command_is_dry_run(self) -> None:
         completed = subprocess.run(
             [sys.executable, str(SCRIPT_DIR / "cost_classification_backfill.py"), "--fixture", "--dry-run"],
@@ -464,10 +480,10 @@ class CostClassificationPhase1Tests(unittest.TestCase):
         self.assertIn("canAccessModule(moduleKey)", app_routes)
         self.assertIn("Không có quyền truy cập", app_routes)
         self.assertIn('moduleKey="finance_cost"', app_routes)
-        self.assertIn('path="/finance-control/cost"', app_routes)
+        self.assertIn('path="/finance-control/classification"', app_routes)
         self.assertRegex(
             app_routes,
-            r'<Route path="/finance-control/cost" element=\{<ModuleRoute moduleKey="finance_cost">.*?<FinanceControl />.*?</ModuleRoute>\}',
+            r'<Route path="/finance-control/classification" element=\{<ModuleRoute moduleKey="finance_cost">.*?<FinanceControl mode="classification" />.*?</ModuleRoute>\}',
         )
 
 

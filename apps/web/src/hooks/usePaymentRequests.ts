@@ -266,7 +266,7 @@ export function useMarkPaid() {
     mutationFn: async (id: string) => {
       const { error } = await supabase
         .from("payment_requests")
-        .update({ payment_status: "paid" })
+        .update({ payment_status: "paid", paid_at: new Date().toISOString() })
         .eq("id", id);
 
       if (error) throw error;
@@ -276,6 +276,10 @@ export function useMarkPaid() {
       queryClient.invalidateQueries({ queryKey: ["payment-request"] });
       queryClient.invalidateQueries({ queryKey: ["payment-stats"] });
       queryClient.invalidateQueries({ queryKey: ["pending-invoice-count"] });
+      queryClient.invalidateQueries({ queryKey: ["cost-classification-monthly-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["cost-classification-category-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["cost-classification-review-queue"] });
+      queryClient.invalidateQueries({ queryKey: ["cost-classification-line-details"] });
     },
     onError: (error) => {
       console.error("Error marking as paid:", error);
@@ -291,7 +295,7 @@ export function useBulkMarkPaid() {
     mutationFn: async (ids: string[]) => {
       const { error } = await supabase
         .from("payment_requests")
-        .update({ payment_status: "paid" })
+        .update({ payment_status: "paid", paid_at: new Date().toISOString() })
         .in("id", ids);
 
       if (error) throw error;
@@ -300,6 +304,10 @@ export function useBulkMarkPaid() {
       queryClient.invalidateQueries({ queryKey: ["payment-requests"] });
       queryClient.invalidateQueries({ queryKey: ["payment-stats"] });
       queryClient.invalidateQueries({ queryKey: ["pending-invoice-count"] });
+      queryClient.invalidateQueries({ queryKey: ["cost-classification-monthly-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["cost-classification-category-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["cost-classification-review-queue"] });
+      queryClient.invalidateQueries({ queryKey: ["cost-classification-line-details"] });
     },
     onError: (error) => {
       console.error("Error bulk marking as paid:", error);

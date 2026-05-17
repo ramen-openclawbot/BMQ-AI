@@ -1012,6 +1012,7 @@ export type Database = {
           payment_method:
             | Database["public"]["Enums"]["payment_method_type"]
             | null
+          paid_at: string | null
           payment_status: Database["public"]["Enums"]["payment_status"]
           payment_type: Database["public"]["Enums"]["payment_type"] | null
           purchase_order_id: string | null
@@ -1040,6 +1041,7 @@ export type Database = {
           payment_method?:
             | Database["public"]["Enums"]["payment_method_type"]
             | null
+          paid_at?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"]
           payment_type?: Database["public"]["Enums"]["payment_type"] | null
           purchase_order_id?: string | null
@@ -1068,6 +1070,7 @@ export type Database = {
           payment_method?:
             | Database["public"]["Enums"]["payment_method_type"]
             | null
+          paid_at?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"]
           payment_type?: Database["public"]["Enums"]["payment_type"] | null
           purchase_order_id?: string | null
