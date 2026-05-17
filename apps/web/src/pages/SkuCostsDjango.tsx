@@ -304,7 +304,7 @@ export default function SkuCostsDjango() {
 
   return (
     <div className="-m-4 min-h-screen bg-[#0b0908] text-white md:-m-6">
-      <div className="mx-auto min-h-screen w-full max-w-[430px] bg-[radial-gradient(circle_at_50%_-8%,rgba(245,158,11,0.26),transparent_34%),linear-gradient(180deg,#17100c_0%,#0b0908_44%,#070605_100%)] px-4 pb-28 pt-3 shadow-2xl md:max-w-[560px] md:px-5">
+      <div className="mx-auto min-h-screen w-full max-w-[430px] bg-[radial-gradient(circle_at_50%_-8%,rgba(245,158,11,0.26),transparent_34%),linear-gradient(180deg,#17100c_0%,#0b0908_44%,#070605_100%)] px-4 pb-28 pt-3 shadow-2xl md:max-w-[560px] md:px-5 lg:hidden">
         <header className="sticky top-0 z-20 -mx-4 bg-gradient-to-b from-[#17100c]/98 via-[#17100c]/90 to-[#17100c]/70 px-4 pb-3 pt-2 backdrop-blur-xl md:-mx-5 md:px-5">
           <div className="flex items-center justify-between gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-amber-100 shadow-inner">
@@ -458,11 +458,200 @@ export default function SkuCostsDjango() {
           </section>
         </main>
 
-        <div className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[430px] bg-gradient-to-t from-[#070605] via-[#070605]/96 to-transparent px-4 pb-4 pt-8 md:max-w-[560px]">
+        <div className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[430px] bg-gradient-to-t from-[#070605] via-[#070605]/96 to-transparent px-4 pb-4 pt-8 md:max-w-[560px] lg:hidden">
           <div className="grid grid-cols-2 gap-3 rounded-[24px] border border-white/10 bg-[#14100d]/92 p-2 shadow-[0_-14px_48px_rgba(0,0,0,0.42)] backdrop-blur-xl">
             <Button onClick={exportSkuSheet} className="h-12 rounded-[18px] border border-white/10 bg-white/[0.06] text-[13px] font-extrabold text-white hover:bg-white/[0.1]">Xuất sheet SKU</Button>
             <Button onClick={() => navigate("/sku-costs/management")} className="h-12 rounded-[18px] bg-amber-400 text-[13px] font-extrabold text-[#1b1004] shadow-[0_12px_26px_rgba(245,158,11,0.22)] hover:bg-amber-300">Cập nhật giá</Button>
           </div>
+        </div>
+      </div>
+
+      <div className="hidden min-h-screen bg-[radial-gradient(circle_at_18%_-12%,rgba(245,158,11,0.18),transparent_34%),linear-gradient(180deg,#140f0c_0%,#0b0908_42%,#070605_100%)] px-8 py-8 lg:block">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+          <header className="rounded-[32px] border border-white/10 bg-white/[0.055] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.34)] backdrop-blur-xl">
+            <div className="flex items-start justify-between gap-6">
+              <div className="flex items-start gap-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-amber-300/20 bg-amber-300/10 text-amber-200 shadow-inner">
+                  <Package2 className="h-7 w-7" />
+                </div>
+                <div>
+                  <p className="text-xs font-extrabold uppercase tracking-[0.22em] text-amber-200/70">SKU Costs</p>
+                  <h1 className="mt-1 text-[34px] font-black leading-tight tracking-[-0.04em] text-white">Tổng quan giá vốn</h1>
+                  <p className="mt-2 max-w-2xl text-sm font-semibold text-white/45">Dashboard desktop cho toàn bộ SKU thành phẩm, giá bán, giá vốn và trạng thái ảnh sản phẩm.</p>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-3">
+                <Button onClick={exportSkuSheet} className="h-11 rounded-2xl border border-white/10 bg-white/[0.06] px-5 text-sm font-extrabold text-white hover:bg-white/[0.1]">Xuất sheet SKU</Button>
+                <Button onClick={() => navigate("/sku-costs/management")} className="h-11 rounded-2xl bg-amber-400 px-5 text-sm font-extrabold text-[#1b1004] shadow-[0_12px_28px_rgba(245,158,11,0.22)] hover:bg-amber-300">Cập nhật giá</Button>
+              </div>
+            </div>
+
+            <nav className="mt-6 flex flex-wrap gap-2" aria-label="Điều hướng giá vốn desktop">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    className={({ isActive }) =>
+                      cn(
+                        "inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-extrabold transition",
+                        isActive ? "bg-amber-400 text-[#1b1004] shadow-[0_10px_24px_rgba(245,158,11,0.22)]" : "border border-white/10 bg-white/[0.045] text-white/50 hover:text-white"
+                      )
+                    }
+                  >
+                    <Icon className="h-4 w-4" />
+                    {item.label}
+                  </NavLink>
+                );
+              })}
+            </nav>
+          </header>
+
+          <section className="grid grid-cols-4 gap-4">
+            {[
+              { label: "SKU thành phẩm", value: loading ? "..." : stats.count, sub: "đang quản lý", tone: "text-white" },
+              { label: "Giá bán TB", value: loading ? "..." : vnd(stats.avgSelling), sub: `${stats.pricedCount} SKU có giá`, tone: "text-amber-200" },
+              { label: "Giá cao nhất", value: loading ? "..." : vnd(stats.maxSelling), sub: "top giá bán", tone: "text-orange-200" },
+              { label: "Cập nhật", value: loading ? "..." : formatDateTime(stats.updatedAt), sub: "gần nhất", tone: "text-emerald-200" },
+            ].map((card) => (
+              <article key={card.label} className="rounded-[28px] border border-white/10 bg-[#14100d]/90 p-5 shadow-[0_18px_60px_rgba(0,0,0,0.28)]">
+                <p className="text-xs font-extrabold uppercase tracking-[0.15em] text-white/35">{card.label}</p>
+                <div className={cn("mt-4 text-[30px] font-black leading-none tracking-[-0.04em]", card.tone)}>{card.value}</div>
+                <p className="mt-3 text-sm font-bold text-white/38">{card.sub}</p>
+              </article>
+            ))}
+          </section>
+
+          <section className="grid grid-cols-[minmax(0,0.95fr)_minmax(0,1.35fr)] gap-5">
+            <article className="rounded-[30px] border border-white/10 bg-[#14100d]/92 p-5 shadow-[0_20px_70px_rgba(0,0,0,0.3)]">
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-black tracking-[-0.03em] text-white">Phân bổ giá bán SKU</h2>
+                  <p className="mt-1 text-sm font-semibold text-white/38">Dải giá toàn bộ SKU thành phẩm.</p>
+                </div>
+                <span className="rounded-full bg-amber-300/10 px-3 py-1.5 text-xs font-extrabold text-amber-200 ring-1 ring-amber-300/20">{stats.count} SKU</span>
+              </div>
+              <div className="space-y-4">
+                {stats.bandCounts.map((band) => (
+                  <div key={band.label} className="grid grid-cols-[64px_minmax(0,1fr)_40px] items-center gap-3">
+                    <span className="text-sm font-bold text-white/48">{band.label}</span>
+                    <div className="h-4 overflow-hidden rounded-full bg-white/[0.07]">
+                      <div className="h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-300" style={{ width: `${Math.max(6, (band.count / maxBand) * 100)}%` }} />
+                    </div>
+                    <span className="text-right text-sm font-black tabular-nums text-white">{loading ? "-" : band.count}</span>
+                  </div>
+                ))}
+              </div>
+            </article>
+
+            <article className="rounded-[30px] border border-white/10 bg-[#14100d]/92 p-5 shadow-[0_20px_70px_rgba(0,0,0,0.3)]">
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-black tracking-[-0.03em] text-white">Tình trạng dữ liệu</h2>
+                  <p className="mt-1 text-sm font-semibold text-white/38">Theo dõi giá bán và ảnh sản phẩm trước khi review COGS.</p>
+                </div>
+                <Camera className="h-5 w-5 text-amber-200/70" />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { label: "Có giá bán", value: stats.pricedCount, tone: "text-emerald-300" },
+                  { label: "Chưa có giá", value: stats.missingPrice, tone: stats.missingPrice ? "text-rose-300" : "text-white/70" },
+                  { label: "Có ảnh", value: stats.imageCount, tone: "text-amber-200" },
+                ].map((chip) => (
+                  <div key={chip.label} className="rounded-[24px] border border-white/10 bg-[#211915]/80 p-5 text-center">
+                    <div className={cn("text-[32px] font-black leading-none", chip.tone)}>{loading ? "..." : chip.value}</div>
+                    <div className="mt-3 text-xs font-extrabold uppercase tracking-[0.12em] text-white/38">{chip.label}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 rounded-[24px] border border-amber-300/15 bg-amber-300/[0.055] p-4 text-sm font-semibold leading-relaxed text-amber-50/68">
+                Desktop dùng cùng dữ liệu realtime với mobile. Upload ảnh, xuất sheet và mở quản trị SKU hoạt động chung một state.
+              </div>
+            </article>
+          </section>
+
+          <section className="rounded-[32px] border border-white/10 bg-[#14100d]/94 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.34)]">
+            <div className="mb-5 flex items-end justify-between gap-5">
+              <div>
+                <h2 className="text-2xl font-black tracking-[-0.03em] text-white">Toàn bộ SKU hiện có</h2>
+                <p className="mt-1 text-sm font-bold text-white/38">Bấm ảnh để upload/cập nhật hình; bấm dòng để mở quản trị SKU.</p>
+              </div>
+              <div className="flex min-w-[420px] items-center gap-3">
+                <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-white/10 bg-[#211915] px-3 py-2.5 shadow-inner">
+                  <Search className="h-4 w-4 shrink-0 text-white/35" />
+                  <Input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Tìm SKU theo tên hoặc mã"
+                    className="h-9 border-0 bg-transparent px-0 text-sm font-bold text-white placeholder:text-white/28 focus-visible:ring-0"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSortMode((mode) => (mode === "price" ? "updated" : "price"))}
+                  className="h-12 rounded-2xl border border-amber-300/20 bg-amber-300/[0.06] px-4 text-sm font-extrabold text-amber-200"
+                >
+                  Sort: {sortMode === "price" ? "Giá bán" : "Mới cập nhật"}
+                </button>
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="rounded-[24px] border border-white/10 bg-white/[0.04] px-4 py-12 text-center text-sm font-bold text-white/45">Đang tải SKU...</div>
+            ) : filteredSkus.length === 0 ? (
+              <div className="rounded-[24px] border border-dashed border-white/12 bg-white/[0.035] px-4 py-12 text-center text-sm font-bold text-white/45">Không tìm thấy SKU phù hợp.</div>
+            ) : (
+              <div className="overflow-hidden rounded-[26px] border border-white/10">
+                <table className="w-full border-collapse text-left">
+                  <thead className="bg-white/[0.045] text-xs font-extrabold uppercase tracking-[0.12em] text-white/38">
+                    <tr>
+                      <th className="px-4 py-3">SKU</th>
+                      <th className="px-4 py-3">Giá bán</th>
+                      <th className="px-4 py-3">Giá vốn</th>
+                      <th className="px-4 py-3">LC %</th>
+                      <th className="px-4 py-3">Trạng thái</th>
+                      <th className="px-4 py-3">Cập nhật</th>
+                      <th className="px-4 py-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/8">
+                    {filteredSkus.map((sku) => {
+                      const hasPrice = sku.sellingPrice > 0;
+                      return (
+                        <tr key={sku.id} className="group bg-[#120e0b]/72 transition hover:bg-white/[0.045]">
+                          <td className="px-4 py-3">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <SkuImageThumb sku={sku} uploading={uploadingSkuId === sku.id} onClick={() => openUploadModal(sku)} />
+                              <button type="button" onClick={() => openSkuDetail(sku)} className="min-w-0 text-left" aria-label={`Xem chi tiết ${sku.product_name}`}>
+                                <div className="max-w-[340px] truncate text-sm font-black text-white group-hover:text-amber-100">{sku.product_name}</div>
+                                <div className="mt-1 truncate font-mono text-xs font-bold text-white/35">{sku.sku_code || sku.id}</div>
+                              </button>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-sm font-black text-amber-300">{vnd(sku.sellingPrice)}</td>
+                          <td className="px-4 py-3 text-sm font-bold text-white/72">{vnd(sku.totalCost)}</td>
+                          <td className="px-4 py-3 text-sm font-black text-white">{Number.isFinite(sku.marginPct) ? `${Math.round(sku.marginPct)}%` : "—"}</td>
+                          <td className="px-4 py-3">
+                            <span className={cn("rounded-full px-2.5 py-1 text-xs font-extrabold ring-1", hasPrice ? "bg-emerald-400/10 text-emerald-300 ring-emerald-300/20" : "bg-rose-400/10 text-rose-300 ring-rose-300/20")}>
+                              {hasPrice ? "Có giá" : "Chưa giá"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm font-semibold text-white/45">{formatDateTime(sku.updated_at)}</td>
+                          <td className="px-4 py-3 text-right">
+                            <Button type="button" onClick={() => openSkuDetail(sku)} className="h-10 rounded-2xl bg-white/[0.06] px-4 text-xs font-extrabold text-white hover:bg-amber-300 hover:text-[#1b1004]">
+                              Mở chi tiết
+                              <ChevronRight className="ml-1.5 h-4 w-4" />
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
         </div>
       </div>
 
