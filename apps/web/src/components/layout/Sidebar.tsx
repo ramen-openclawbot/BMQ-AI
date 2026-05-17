@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   LayoutDashboard,
@@ -104,6 +104,7 @@ const navItems: NavItem[] = [
 
 export function Sidebar() {
   const { t } = useLanguage();
+  const { pathname } = useLocation();
   const { isOwner, canAccessModule } = useAuth();
   const sectionLabels: Record<NavItem["section"], string> = {
     execution: t.sectionExecution,
@@ -116,13 +117,19 @@ export function Sidebar() {
   const { data: draftPOCount } = useDraftPOCount();
 
   const [showDriveDialog, setShowDriveDialog] = useState(false);
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(max-width: 767px)").matches : false
+  );
   const [collapsed, setCollapsed] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia("(max-width: 767px)").matches : false
   );
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 767px)");
-    const syncMobileState = () => setCollapsed(media.matches);
+    const syncMobileState = () => {
+      setIsMobile(media.matches);
+      setCollapsed(media.matches);
+    };
 
     syncMobileState();
     media.addEventListener("change", syncMobileState);
@@ -154,16 +161,36 @@ export function Sidebar() {
     return true;
   };
 
+  const isChildActive = (child: NavItem) => {
+    if (!child.path) return false;
+    if (child.path === "/finance-control/revenue") {
+      return pathname === child.path || (
+        pathname.startsWith("/finance-control/revenue/") &&
+        !pathname.startsWith("/finance-control/revenue/debt")
+      );
+    }
+    return pathname === child.path;
+  };
+
   // Filter nav items by permission. Parent groups remain visible when any child is visible.
   const visibleItems = navItems
     .map((item) => item.children ? { ...item, children: item.children.filter(canViewItem) } : item)
     .filter((item) => (item.children ? item.children.length > 0 : canViewItem(item)));
 
   return (
-    <aside className={cn(
-      "fixed left-0 top-0 z-40 h-dvh bg-sidebar border-r border-sidebar-border transition-all duration-200",
-      collapsed ? "-translate-x-full w-16 md:translate-x-0" : "w-64"
-    )}>
+    <>
+      {isMobile && !collapsed && (
+        <button
+          type="button"
+          aria-label="Đóng sidebar"
+          className="fixed inset-0 z-30 bg-black/45 md:hidden"
+          onClick={() => setCollapsed(true)}
+        />
+      )}
+      <aside className={cn(
+        "fixed left-0 top-0 z-40 h-dvh bg-sidebar border-r border-sidebar-border transition-all duration-200",
+        collapsed ? "-translate-x-full w-16 md:translate-x-0" : "w-64"
+      )}>
       <div className="flex h-full flex-col">
         {/* Logo */}
         <div className={cn("flex items-center gap-3 border-b border-sidebar-border", collapsed ? "px-3 py-4" : "px-6 py-5")}>
@@ -213,26 +240,27 @@ export function Sidebar() {
                     </div>
                     {!collapsed && (
                       <div className="ml-10 mt-1 space-y-1">
-                        {item.children.map((child) => (
-                          <NavLink
-                            key={child.path}
-                            to={child.path || "#"}
-                            onClick={() => {
-                              if (window.matchMedia("(max-width: 767px)").matches) setCollapsed(true);
-                            }}
-                            className={({ isActive }) =>
-                              cn(
+                        {item.children.map((child) => {
+                          const childActive = isChildActive(child);
+                          return (
+                            <NavLink
+                              key={child.path}
+                              to={child.path || "#"}
+                              onClick={() => {
+                                if (window.matchMedia("(max-width: 767px)").matches) setCollapsed(true);
+                              }}
+                              className={cn(
                                 "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                                isActive
+                                childActive
                                   ? "bg-sidebar-accent/70 text-sidebar-primary"
                                   : "text-sidebar-foreground/65 hover:bg-sidebar-accent/30 hover:text-sidebar-foreground"
-                              )
-                            }
-                          >
-                            <child.icon className="h-3.5 w-3.5" />
-                            <span>{t[child.labelKey]}</span>
-                          </NavLink>
-                        ))}
+                              )}
+                            >
+                              <child.icon className="h-3.5 w-3.5" />
+                              <span>{t[child.labelKey]}</span>
+                            </NavLink>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -318,5 +346,6 @@ export function Sidebar() {
         importType="po"
       />
     </aside>
+    </>
   );
 }
