@@ -163,6 +163,10 @@ export default function NppDebtManagement() {
   });
 
   const activeCustomers = useMemo(() => customers.filter((c) => c.is_active !== false), [customers]);
+  const selectableCustomers = useMemo(
+    () => activeCustomers.filter((customer) => !customer.supplied_by_npp_customer_id),
+    [activeCustomers]
+  );
   const { data: customerRevenueLines = [] } = useQuery<LedgerLine[]>({
     queryKey: ["debt-customer-revenue-ranking", dateFrom, dateTo],
     enabled: Boolean(dateFrom && dateTo),
@@ -209,7 +213,7 @@ export default function NppDebtManagement() {
   const selectedDraftCustomer = useMemo(() => activeCustomers.find((c) => c.id === selectedCustomerId) || null, [activeCustomers, selectedCustomerId]);
   const filteredCustomers = useMemo(() => {
     const normalizedQuery = normalizeText(searchTerm);
-    const sorted = [...activeCustomers].sort((a, b) => {
+    const sorted = [...selectableCustomers].sort((a, b) => {
       const revenueA = customerRevenueById.get(a.id) || 0;
       const revenueB = customerRevenueById.get(b.id) || 0;
       if (revenueA !== revenueB) return revenueB - revenueA;
@@ -221,7 +225,7 @@ export default function NppDebtManagement() {
     return sorted
       .filter((customer) => normalizeText(customer.customer_name).includes(normalizedQuery))
       .slice(0, 12);
-  }, [activeCustomers, customerRevenueById, searchTerm]);
+  }, [customerRevenueById, searchTerm, selectableCustomers]);
   const effectiveCustomerId = viewCustomerId;
   const hasViewedDebt = Boolean(viewCustomerId);
   const selectedCustomer = useMemo(() => customers.find((c) => c.id === effectiveCustomerId) || null, [customers, effectiveCustomerId]);
@@ -433,7 +437,7 @@ export default function NppDebtManagement() {
       <Card>
         <CardHeader className="space-y-1 px-4 py-4 md:px-6 md:py-6">
           <CardTitle className="text-lg md:text-2xl">Bước 1: Chọn khách hàng</CardTitle>
-          <CardDescription className="text-xs md:text-sm">Box mặc định xếp khách hàng theo doanh số từ cao xuống thấp. Có thể tìm không dấu như “bach dang” để tìm “Bạch Đằng”.</CardDescription>
+          <CardDescription className="text-xs md:text-sm">Box mặc định xếp khách hàng theo doanh số từ cao xuống thấp; đại lý đã thuộc NPP sẽ nằm trong chi tiết NPP. Có thể tìm không dấu như “bach dang” để tìm “Bạch Đằng”.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 px-4 pb-4 md:px-6 md:pb-6">
           <div className="space-y-2">
