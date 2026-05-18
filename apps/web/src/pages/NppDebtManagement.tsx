@@ -1,12 +1,13 @@
 import { Fragment, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Download, Loader2, Mail, RefreshCw } from "lucide-react";
+import { Download, Loader2, Mail, RefreshCw, Search } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -19,9 +20,9 @@ const formatQty = (value: number) =>
   new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 3 }).format(Number(value || 0));
 
 const isoToday = () => new Date().toISOString().slice(0, 10);
-const isoDaysAgo = (days: number) => {
+const isoMonthStart = () => {
   const d = new Date();
-  d.setDate(d.getDate() - days);
+  d.setDate(1);
   return d.toISOString().slice(0, 10);
 };
 
@@ -141,9 +142,11 @@ const lineBelongsToCustomer = (line: LedgerLine, customer: Customer | null) => {
 
 export default function NppDebtManagement() {
   const { toast } = useToast();
-  const [dateFrom, setDateFrom] = useState(isoDaysAgo(7));
+  const [dateFrom, setDateFrom] = useState(isoMonthStart());
   const [dateTo, setDateTo] = useState(isoToday());
+  const [searchTerm, setSearchTerm] = useState("");
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
+  const [viewCustomerId, setViewCustomerId] = useState("");
   const [expandedAgencyId, setExpandedAgencyId] = useState<string | null>(null);
   const [exportStatus, setExportStatus] = useState<ExportStatus>({ kind: "idle", title: "" });
 
@@ -160,11 +163,21 @@ export default function NppDebtManagement() {
   });
 
   const activeCustomers = useMemo(() => customers.filter((c) => c.is_active !== false), [customers]);
-  const nppCustomers = useMemo(() => activeCustomers.filter((c) => Boolean(c.is_npp)), [activeCustomers]);
-  const effectiveCustomerId = useMemo(() => {
-    if (selectedCustomerId) return selectedCustomerId;
-    return nppCustomers.find((c) => normalizeText(c.customer_name) === normalizeText(DEFAULT_NPP_NAME))?.id || activeCustomers[0]?.id || "";
-  }, [activeCustomers, nppCustomers, selectedCustomerId]);
+  const selectedDraftCustomer = useMemo(() => activeCustomers.find((c) => c.id === selectedCustomerId) || null, [activeCustomers, selectedCustomerId]);
+  const filteredCustomers = useMemo(() => {
+    const normalizedQuery = normalizeText(searchTerm);
+    const sorted = [...activeCustomers].sort((a, b) => {
+      if (a.customer_name === DEFAULT_NPP_NAME) return -1;
+      if (b.customer_name === DEFAULT_NPP_NAME) return 1;
+      return a.customer_name.localeCompare(b.customer_name, "vi");
+    });
+    if (!normalizedQuery) return sorted.slice(0, 8);
+    return sorted
+      .filter((customer) => normalizeText(customer.customer_name).includes(normalizedQuery))
+      .slice(0, 12);
+  }, [activeCustomers, searchTerm]);
+  const effectiveCustomerId = viewCustomerId;
+  const hasViewedDebt = Boolean(viewCustomerId);
   const selectedCustomer = useMemo(() => customers.find((c) => c.id === effectiveCustomerId) || null, [customers, effectiveCustomerId]);
   const isSelectedNpp = Boolean(selectedCustomer?.is_npp);
 
@@ -175,7 +188,7 @@ export default function NppDebtManagement() {
 
   const { data: ledgerLines = [], isLoading: linesLoading, refetch } = useQuery<LedgerLine[]>({
     queryKey: ["debt-ledger-lines", effectiveCustomerId, dateFrom, dateTo],
-    enabled: Boolean(effectiveCustomerId && dateFrom && dateTo),
+    enabled: Boolean(hasViewedDebt && effectiveCustomerId && dateFrom && dateTo),
     queryFn: async () => {
       const { data, error } = await ledgerDb
         .from("revenue_ledger_lines")
@@ -306,7 +319,14 @@ export default function NppDebtManagement() {
   const exportMutation = useMutation(buildExportMutation(false));
   const sendDebtMutation = useMutation(buildExportMutation(true));
 
-  const isLoading = customersLoading || linesLoading;
+  const isLoading = customersLoading || (hasViewedDebt && linesLoading);
+  const canViewDebt = Boolean(selectedCustomerId && dateFrom && dateTo);
+  const handleViewDebt = () => {
+    if (!canViewDebt) return;
+    setViewCustomerId(selectedCustomerId);
+    setExpandedAgencyId(null);
+    setExportStatus({ kind: "idle", title: "" });
+  };
 
   return (
     <div className="space-y-4 md:space-y-6">
@@ -326,21 +346,23 @@ export default function NppDebtManagement() {
             </Badge>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap md:justify-end">
-          <Button className="h-10 px-3 text-xs sm:text-sm md:w-auto" variant="outline" onClick={() => refetch()} disabled={isLoading}>
-            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-            Làm mới
-          </Button>
-          <Button className="h-10 px-3 text-xs sm:text-sm md:w-auto" onClick={() => exportMutation.mutate()} disabled={!effectiveCustomerId || exportMutation.isPending || sendDebtMutation.isPending}>
-            {exportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-            <span className="md:hidden">Xuất Sheet</span>
-            <span className="hidden md:inline">Xuất Google Sheet</span>
-          </Button>
-          <Button className="col-span-2 h-10 px-3 text-xs sm:text-sm md:col-span-1 md:w-auto" onClick={() => sendDebtMutation.mutate()} disabled={!effectiveCustomerId || exportMutation.isPending || sendDebtMutation.isPending}>
-            {sendDebtMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
-            Gửi công nợ
-          </Button>
-        </div>
+        {hasViewedDebt && (
+          <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap md:justify-end">
+            <Button className="h-10 px-3 text-xs sm:text-sm md:w-auto" variant="outline" onClick={() => refetch()} disabled={isLoading}>
+              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              Làm mới
+            </Button>
+            <Button className="h-10 px-3 text-xs sm:text-sm md:w-auto" onClick={() => exportMutation.mutate()} disabled={!effectiveCustomerId || exportMutation.isPending || sendDebtMutation.isPending}>
+              {exportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+              <span className="md:hidden">Xuất Sheet</span>
+              <span className="hidden md:inline">Xuất Google Sheet</span>
+            </Button>
+            <Button className="col-span-2 h-10 px-3 text-xs sm:text-sm md:col-span-1 md:w-auto" onClick={() => sendDebtMutation.mutate()} disabled={!effectiveCustomerId || exportMutation.isPending || sendDebtMutation.isPending}>
+              {sendDebtMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
+              Gửi công nợ
+            </Button>
+          </div>
+        )}
       </div>
 
       {exportStatus.kind !== "idle" && (
@@ -364,37 +386,83 @@ export default function NppDebtManagement() {
 
       <Card>
         <CardHeader className="space-y-1 px-4 py-4 md:px-6 md:py-6">
-          <CardTitle className="text-lg md:text-2xl">Bộ lọc</CardTitle>
-          <CardDescription className="text-xs md:text-sm">Chọn khách hàng và kỳ công nợ cần xem.</CardDescription>
+          <CardTitle className="text-lg md:text-2xl">Bước 1: Chọn khách hàng</CardTitle>
+          <CardDescription className="text-xs md:text-sm">Tìm theo tên khách hàng, hỗ trợ nhập không dấu như “bach dang” để tìm “Bạch Đằng”.</CardDescription>
         </CardHeader>
-        <CardContent className="px-4 pb-4 md:px-6 md:pb-6">
-          <div className="grid gap-3 md:grid-cols-4 md:gap-4">
-            <div className="space-y-2 md:col-span-2">
-              <Label className="text-xs md:text-sm">Khách hàng</Label>
-              <select
-                className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm [color-scheme:dark] md:h-10"
-                value={effectiveCustomerId}
-                onChange={(e) => { setSelectedCustomerId(e.target.value); setExpandedAgencyId(null); }}
-              >
-                {activeCustomers.map((customer) => (
-                  <option key={customer.id} value={customer.id}>{customer.customer_name}{customer.is_npp ? " · NPP" : ""}</option>
-                ))}
-              </select>
-            </div>
-            <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 md:contents">
-              <div className="min-w-0 space-y-2">
-                <Label className="text-xs md:text-sm">Từ ngày</Label>
-                <Input className="h-11 w-full min-w-0 text-sm [color-scheme:dark] md:h-10" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-              </div>
-              <div className="min-w-0 space-y-2">
-                <Label className="text-xs md:text-sm">Đến ngày</Label>
-                <Input className="h-11 w-full min-w-0 text-sm [color-scheme:dark] md:h-10" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-              </div>
+        <CardContent className="space-y-4 px-4 pb-4 md:px-6 md:pb-6">
+          <div className="space-y-2">
+            <Label className="text-xs md:text-sm">Tìm khách hàng</Label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="h-11 pl-9 text-sm"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Nhập tên khách hàng: bach dang, anh thanh..."
+              />
             </div>
           </div>
+
+          <div className="grid gap-2 md:grid-cols-2">
+            {filteredCustomers.map((customer) => {
+              const active = selectedCustomerId === customer.id;
+              return (
+                <button
+                  key={customer.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedCustomerId(customer.id);
+                    setExpandedAgencyId(null);
+                    if (viewCustomerId && viewCustomerId !== customer.id) setViewCustomerId("");
+                  }}
+                  className={cn(
+                    "rounded-xl border p-3 text-left transition-colors",
+                    active ? "border-amber-500/60 bg-amber-500/10" : "border-border/70 bg-card/70 hover:bg-muted/40"
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold">{customer.customer_name}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">{customer.customer_group || "Khách hàng"}{customer.product_group ? ` • ${customer.product_group}` : ""}</div>
+                    </div>
+                    {customer.is_npp ? <Badge className="shrink-0">NPP</Badge> : null}
+                  </div>
+                </button>
+              );
+            })}
+            {filteredCustomers.length === 0 && (
+              <div className="rounded-xl border border-dashed border-border p-4 text-center text-sm text-muted-foreground md:col-span-2">
+                Không tìm thấy khách hàng phù hợp.
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 md:grid-cols-4">
+            <div className="min-w-0 space-y-2 md:col-span-1">
+              <Label className="text-xs md:text-sm">Từ ngày</Label>
+              <Input className="h-11 w-full min-w-0 text-sm [color-scheme:dark] md:h-10" type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setViewCustomerId(""); }} />
+            </div>
+            <div className="min-w-0 space-y-2 md:col-span-1">
+              <Label className="text-xs md:text-sm">Đến ngày</Label>
+              <Input className="h-11 w-full min-w-0 text-sm [color-scheme:dark] md:h-10" type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setViewCustomerId(""); }} />
+            </div>
+            <div className="min-w-0 md:col-span-2 md:flex md:items-end">
+              <Button className="h-11 w-full" onClick={handleViewDebt} disabled={!canViewDebt || customersLoading}>
+                {customersLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Xem công nợ
+              </Button>
+            </div>
+          </div>
+          {selectedDraftCustomer && !hasViewedDebt && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+              Đã chọn: {selectedDraftCustomer.customer_name}. Bấm “Xem công nợ” để tải dữ liệu và mở chức năng xuất/gửi mail.
+            </div>
+          )}
         </CardContent>
       </Card>
 
+      {hasViewedDebt && (
+        <>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
         <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">{isSelectedNpp ? "Số đại lý" : "Số dòng"}</CardDescription><CardTitle className="text-xl md:text-2xl">{isSelectedNpp ? childAgencies.length : totals.lines}</CardTitle></CardHeader></Card>
         <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">Số lượng</CardDescription><CardTitle className="text-xl md:text-2xl">{formatQty(totals.quantity)}</CardTitle></CardHeader></Card>
@@ -579,6 +647,8 @@ export default function NppDebtManagement() {
           )}
         </CardContent>
       </Card>
+        </>
+      )}
     </div>
   );
 }
