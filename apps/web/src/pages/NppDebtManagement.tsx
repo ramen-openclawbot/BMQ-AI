@@ -163,10 +163,56 @@ export default function NppDebtManagement() {
   });
 
   const activeCustomers = useMemo(() => customers.filter((c) => c.is_active !== false), [customers]);
+  const { data: customerRevenueLines = [] } = useQuery<LedgerLine[]>({
+    queryKey: ["debt-customer-revenue-ranking", dateFrom, dateTo],
+    enabled: Boolean(dateFrom && dateTo),
+    queryFn: async () => {
+      const { data, error } = await ledgerDb
+        .from("revenue_ledger_lines")
+        .select("id,revenue_date,channel,customer_id,parent_customer_id,customer_name,product_name,item_note,quantity,unit_price,gross_revenue,source_type,approval_status,raw_payload,revenue_source_documents(status,source_name)")
+        .eq("approval_status", "approved")
+        .gte("revenue_date", dateFrom)
+        .lte("revenue_date", dateTo)
+        .order("gross_revenue", { ascending: false })
+        .limit(10000);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+  const customerRevenueById = useMemo(() => {
+    const totals = new Map<string, number>();
+    const customerById = new Map(activeCustomers.map((customer) => [customer.id, customer]));
+    const customerByName = new Map(activeCustomers.map((customer) => [normalizeText(customer.customer_name), customer]));
+    const addRevenue = (customerId: string, amount: number, seenIds: Set<string>) => {
+      if (!customerId || !customerById.has(customerId) || seenIds.has(customerId)) return;
+      seenIds.add(customerId);
+      totals.set(customerId, (totals.get(customerId) || 0) + amount);
+    };
+
+    for (const line of customerRevenueLines) {
+      const gross = Number(line.gross_revenue || 0);
+      if (!gross) continue;
+      const seenIds = new Set<string>();
+      addRevenue(line.customer_id || "", gross, seenIds);
+      addRevenue(line.parent_customer_id || "", gross, seenIds);
+      addRevenue(getRouteCustomerId(line), gross, seenIds);
+
+      const routeCustomer = customerByName.get(normalizeText(getRouteCustomerName(line)));
+      addRevenue(routeCustomer?.id || "", gross, seenIds);
+
+      const ledgerCustomer = customerByName.get(normalizeText(line.customer_name));
+      addRevenue(ledgerCustomer?.id || "", gross, seenIds);
+    }
+
+    return totals;
+  }, [activeCustomers, customerRevenueLines]);
   const selectedDraftCustomer = useMemo(() => activeCustomers.find((c) => c.id === selectedCustomerId) || null, [activeCustomers, selectedCustomerId]);
   const filteredCustomers = useMemo(() => {
     const normalizedQuery = normalizeText(searchTerm);
     const sorted = [...activeCustomers].sort((a, b) => {
+      const revenueA = customerRevenueById.get(a.id) || 0;
+      const revenueB = customerRevenueById.get(b.id) || 0;
+      if (revenueA !== revenueB) return revenueB - revenueA;
       if (a.customer_name === DEFAULT_NPP_NAME) return -1;
       if (b.customer_name === DEFAULT_NPP_NAME) return 1;
       return a.customer_name.localeCompare(b.customer_name, "vi");
@@ -175,7 +221,7 @@ export default function NppDebtManagement() {
     return sorted
       .filter((customer) => normalizeText(customer.customer_name).includes(normalizedQuery))
       .slice(0, 12);
-  }, [activeCustomers, searchTerm]);
+  }, [activeCustomers, customerRevenueById, searchTerm]);
   const effectiveCustomerId = viewCustomerId;
   const hasViewedDebt = Boolean(viewCustomerId);
   const selectedCustomer = useMemo(() => customers.find((c) => c.id === effectiveCustomerId) || null, [customers, effectiveCustomerId]);
@@ -387,7 +433,7 @@ export default function NppDebtManagement() {
       <Card>
         <CardHeader className="space-y-1 px-4 py-4 md:px-6 md:py-6">
           <CardTitle className="text-lg md:text-2xl">Bước 1: Chọn khách hàng</CardTitle>
-          <CardDescription className="text-xs md:text-sm">Tìm theo tên khách hàng, hỗ trợ nhập không dấu như “bach dang” để tìm “Bạch Đằng”.</CardDescription>
+          <CardDescription className="text-xs md:text-sm">Box mặc định xếp khách hàng theo doanh số từ cao xuống thấp. Có thể tìm không dấu như “bach dang” để tìm “Bạch Đằng”.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 px-4 pb-4 md:px-6 md:pb-6">
           <div className="space-y-2">
@@ -406,6 +452,7 @@ export default function NppDebtManagement() {
           <div className="grid gap-2 md:grid-cols-2">
             {filteredCustomers.map((customer) => {
               const active = selectedCustomerId === customer.id;
+              const revenue = customerRevenueById.get(customer.id) || 0;
               return (
                 <button
                   key={customer.id}
@@ -424,6 +471,7 @@ export default function NppDebtManagement() {
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold">{customer.customer_name}</div>
                       <div className="mt-1 text-xs text-muted-foreground">{customer.customer_group || "Khách hàng"}{customer.product_group ? ` • ${customer.product_group}` : ""}</div>
+                      <div className="mt-2 text-xs font-medium text-amber-200">Doanh số: {formatVnd(revenue)}</div>
                     </div>
                     {customer.is_npp ? <Badge className="shrink-0">NPP</Badge> : null}
                   </div>
