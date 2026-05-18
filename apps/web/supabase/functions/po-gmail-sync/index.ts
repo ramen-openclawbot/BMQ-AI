@@ -654,6 +654,9 @@ const parseTonyThanhBodyLines = (
   const isReplyOrUpdate = /\b(re|fw|fwd)\b|cap nhat|bo sung|update|them/.test(subjectKey);
 
   for (const rawLine of splitOrderTextLines(body)) {
+    const lineKey = normalizeTextKey(rawLine);
+    if (/\bdu tinh\b/.test(lineKey)) continue;
+
     const match = rawLine.match(/^\s*(?:\d+[.)]\s*)?(.+?)\s+(\d+(?:[.,]\d+)?)\b(.*)$/i);
     if (!match) continue;
     const routeRaw = match[1].trim();

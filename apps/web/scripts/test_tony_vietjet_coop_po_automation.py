@@ -33,6 +33,7 @@ def test_tony_sender_rule_date_shift_and_quantities() -> None:
         ("ĐẠI LÝ TOP MARKET ÂU CƠ", "Top Market/Âu Cơ alias"),
         ('.replace(/Ð/g, "D")', "Tony malformed ÐVC character normalization"),
         ("reply/update/supplement semantics require manual reconciliation", "update/reply guardrail"),
+        ("/\\bdu tinh\\b/.test(lineKey)", "Tony Pate dự tính forecast/header lines skipped"),
     ]:
         assert_contains(sync, needle, label)
     assert_contains(spec, "ledger_date = po_order_date + 1 day", "locked Tony date rule in spec")
