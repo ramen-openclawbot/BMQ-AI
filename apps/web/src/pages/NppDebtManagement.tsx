@@ -381,14 +381,14 @@ export default function NppDebtManagement() {
                 ))}
               </select>
             </div>
-            <div className="grid grid-cols-2 gap-3 md:contents">
-              <div className="space-y-2">
+            <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 md:contents">
+              <div className="min-w-0 space-y-2">
                 <Label className="text-xs md:text-sm">Từ ngày</Label>
-                <Input className="h-11 text-sm [color-scheme:dark] md:h-10" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+                <Input className="h-11 w-full min-w-0 text-sm [color-scheme:dark] md:h-10" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
               </div>
-              <div className="space-y-2">
+              <div className="min-w-0 space-y-2">
                 <Label className="text-xs md:text-sm">Đến ngày</Label>
-                <Input className="h-11 text-sm [color-scheme:dark] md:h-10" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+                <Input className="h-11 w-full min-w-0 text-sm [color-scheme:dark] md:h-10" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
               </div>
             </div>
           </div>
