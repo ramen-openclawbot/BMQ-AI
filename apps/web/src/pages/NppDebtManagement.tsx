@@ -309,22 +309,34 @@ export default function NppDebtManagement() {
   const isLoading = customersLoading || linesLoading;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h1 className="text-3xl font-display font-bold">Quản lý công nợ khách hàng</h1>
-          <p className="text-muted-foreground">Theo dõi công nợ theo từng khách hàng: NPP, đại lý trực tiếp, B2B/Vietjet và các kênh doanh thu đã kiểm soát.</p>
+        <div className="space-y-2">
+          <h1 className="font-display text-2xl font-bold leading-tight md:text-3xl">Quản lý công nợ khách hàng</h1>
+          <p className="hidden text-muted-foreground md:block">Theo dõi công nợ theo từng khách hàng: NPP, đại lý trực tiếp, B2B/Vietjet và các kênh doanh thu đã kiểm soát.</p>
+          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground md:hidden">
+            <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-100">
+              {isSelectedNpp ? "NPP" : "Khách hàng"}
+            </Badge>
+            <Badge variant="outline" className="border-border/70 bg-card/70">
+              {dateFrom} → {dateTo}
+            </Badge>
+            <Badge variant="outline" className="border-border/70 bg-card/70">
+              {isSelectedNpp ? `${childAgencies.length} đại lý` : `${totals.lines} dòng`}
+            </Badge>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
+        <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap md:justify-end">
+          <Button className="h-10 px-3 text-xs sm:text-sm md:w-auto" variant="outline" onClick={() => refetch()} disabled={isLoading}>
             {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
             Làm mới
           </Button>
-          <Button onClick={() => exportMutation.mutate()} disabled={!effectiveCustomerId || exportMutation.isPending || sendDebtMutation.isPending}>
+          <Button className="h-10 px-3 text-xs sm:text-sm md:w-auto" onClick={() => exportMutation.mutate()} disabled={!effectiveCustomerId || exportMutation.isPending || sendDebtMutation.isPending}>
             {exportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-            Xuất Google Sheet
+            <span className="md:hidden">Xuất Sheet</span>
+            <span className="hidden md:inline">Xuất Google Sheet</span>
           </Button>
-          <Button onClick={() => sendDebtMutation.mutate()} disabled={!effectiveCustomerId || exportMutation.isPending || sendDebtMutation.isPending}>
+          <Button className="col-span-2 h-10 px-3 text-xs sm:text-sm md:col-span-1 md:w-auto" onClick={() => sendDebtMutation.mutate()} disabled={!effectiveCustomerId || exportMutation.isPending || sendDebtMutation.isPending}>
             {sendDebtMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
             Gửi công nợ
           </Button>
@@ -351,16 +363,16 @@ export default function NppDebtManagement() {
       )}
 
       <Card>
-        <CardHeader>
-          <CardTitle>Bộ lọc</CardTitle>
-          <CardDescription>Chọn khách hàng và kỳ công nợ cần xem.</CardDescription>
+        <CardHeader className="space-y-1 px-4 py-4 md:px-6 md:py-6">
+          <CardTitle className="text-lg md:text-2xl">Bộ lọc</CardTitle>
+          <CardDescription className="text-xs md:text-sm">Chọn khách hàng và kỳ công nợ cần xem.</CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-4">
+        <CardContent className="px-4 pb-4 md:px-6 md:pb-6">
+          <div className="grid gap-3 md:grid-cols-4 md:gap-4">
             <div className="space-y-2 md:col-span-2">
-              <Label>Khách hàng</Label>
+              <Label className="text-xs md:text-sm">Khách hàng</Label>
               <select
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm [color-scheme:dark] md:h-10"
                 value={effectiveCustomerId}
                 onChange={(e) => { setSelectedCustomerId(e.target.value); setExpandedAgencyId(null); }}
               >
@@ -369,128 +381,201 @@ export default function NppDebtManagement() {
                 ))}
               </select>
             </div>
-            <div className="space-y-2">
-              <Label>Từ ngày</Label>
-              <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Đến ngày</Label>
-              <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+            <div className="grid grid-cols-2 gap-3 md:contents">
+              <div className="space-y-2">
+                <Label className="text-xs md:text-sm">Từ ngày</Label>
+                <Input className="h-11 text-sm [color-scheme:dark] md:h-10" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs md:text-sm">Đến ngày</Label>
+                <Input className="h-11 text-sm [color-scheme:dark] md:h-10" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+              </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card><CardHeader className="pb-2"><CardDescription>{isSelectedNpp ? "Số đại lý" : "Số dòng"}</CardDescription><CardTitle>{isSelectedNpp ? childAgencies.length : totals.lines}</CardTitle></CardHeader></Card>
-        <Card><CardHeader className="pb-2"><CardDescription>Số lượng</CardDescription><CardTitle>{formatQty(totals.quantity)}</CardTitle></CardHeader></Card>
-        <Card><CardHeader className="pb-2"><CardDescription>Doanh thu kiểm soát</CardDescription><CardTitle>{formatVnd(totals.gross)}</CardTitle></CardHeader></Card>
-        <Card><CardHeader className="pb-2"><CardDescription>{isSelectedNpp ? "Công nợ sau phí" : "Công nợ phải thu"}</CardDescription><CardTitle>{formatVnd(totals.payable)}</CardTitle></CardHeader></Card>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
+        <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">{isSelectedNpp ? "Số đại lý" : "Số dòng"}</CardDescription><CardTitle className="text-xl md:text-2xl">{isSelectedNpp ? childAgencies.length : totals.lines}</CardTitle></CardHeader></Card>
+        <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">Số lượng</CardDescription><CardTitle className="text-xl md:text-2xl">{formatQty(totals.quantity)}</CardTitle></CardHeader></Card>
+        <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">Doanh thu kiểm soát</CardDescription><CardTitle className="break-words text-base leading-tight md:text-2xl">{formatVnd(totals.gross)}</CardTitle></CardHeader></Card>
+        <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">{isSelectedNpp ? "Công nợ sau phí" : "Công nợ phải thu"}</CardDescription><CardTitle className="break-words text-base leading-tight md:text-2xl">{formatVnd(totals.payable)}</CardTitle></CardHeader></Card>
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>{isSelectedNpp ? "Tổng công nợ NPP" : "Công nợ khách hàng"}</CardTitle>
-          <CardDescription>
+        <CardHeader className="space-y-1 px-4 py-4 md:px-6 md:py-6">
+          <CardTitle className="text-lg md:text-2xl">{isSelectedNpp ? "Tổng công nợ NPP" : "Công nợ khách hàng"}</CardTitle>
+          <CardDescription className="text-xs md:text-sm">
             {selectedCustomer?.customer_name || "Chưa chọn khách hàng"} • {isSelectedNpp ? "NPP" : "Khách hàng trực tiếp"} • {dateFrom} → {dateTo} • {totals.lines} dòng doanh thu đã kiểm soát
           </CardDescription>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
+        <CardContent className="px-4 pb-4 md:px-6 md:pb-6">
           {isSelectedNpp ? (
-            <Table className="min-w-[900px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Đại lý</TableHead>
-                  <TableHead className="text-right">Số dòng</TableHead>
-                  <TableHead className="text-right">Số lượng</TableHead>
-                  <TableHead className="text-right">Tổng tiền bánh</TableHead>
-                  <TableHead className="text-right">Phí quản lí</TableHead>
-                  <TableHead className="text-right">Công nợ</TableHead>
-                  <TableHead>Trạng thái</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              <div className="space-y-3 md:hidden">
                 {summaries.map((row) => (
-                  <Fragment key={row.id}>
-                    <TableRow key={row.id} className="cursor-pointer" onClick={() => setExpandedAgencyId(expandedAgencyId === row.id ? null : row.id)}>
-                      <TableCell className="font-medium">{row.name}</TableCell>
-                      <TableCell className="text-right">{row.lines.length}</TableCell>
-                      <TableCell className="text-right">{formatQty(row.quantity)}</TableCell>
-                      <TableCell className="text-right">{formatVnd(row.gross)}</TableCell>
-                      <TableCell className="text-right">{formatVnd(row.managementFee)}</TableCell>
-                      <TableCell className="text-right font-semibold">{formatVnd(row.payable)}</TableCell>
-                      <TableCell>{row.id === "unmapped" ? <Badge variant="destructive">Cần map</Badge> : <Badge>OK</Badge>}</TableCell>
-                    </TableRow>
+                  <div key={row.id} className="rounded-xl border border-border/70 bg-card/70 p-4 shadow-sm" onClick={() => setExpandedAgencyId(expandedAgencyId === row.id ? null : row.id)}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold">{row.name}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{row.lines.length} dòng • SL {formatQty(row.quantity)}</div>
+                      </div>
+                      {row.id === "unmapped" ? <Badge variant="destructive" className="shrink-0">Cần map</Badge> : <Badge className="shrink-0">OK</Badge>}
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <div className="text-xs text-muted-foreground">Tổng tiền bánh</div>
+                        <div className="font-medium">{formatVnd(row.gross)}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Phí quản lí</div>
+                        <div className="font-medium">{formatVnd(row.managementFee)}</div>
+                      </div>
+                      <div className="col-span-2 rounded-lg bg-amber-500/10 p-3">
+                        <div className="text-xs text-amber-100/80">Công nợ</div>
+                        <div className="text-lg font-semibold text-amber-100">{formatVnd(row.payable)}</div>
+                      </div>
+                    </div>
                     {expandedAgencyId === row.id && (
-                      <TableRow key={`${row.id}-detail`}>
-                        <TableCell colSpan={7} className="bg-muted/30 p-0">
-                          <div className="max-h-96 overflow-auto p-3">
-                            <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead>Ngày</TableHead>
-                                  <TableHead>Diễn giải</TableHead>
-                                  <TableHead>Ghi chú</TableHead>
-                                  <TableHead className="text-right">SL</TableHead>
-                                  <TableHead className="text-right">Đơn giá</TableHead>
-                                  <TableHead className="text-right">Thành tiền</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {row.lines.map((line) => (
-                                  <TableRow key={line.id}>
-                                    <TableCell>{line.revenue_date}</TableCell>
-                                    <TableCell>{line.product_name || line.customer_name || "Bánh mì"}</TableCell>
-                                    <TableCell>{line.item_note || getRouteCustomerName(line) || "-"}</TableCell>
-                                    <TableCell className="text-right">{formatQty(Number(line.quantity || 0))}</TableCell>
-                                    <TableCell className="text-right">{formatVnd(Number(line.unit_price || 0))}</TableCell>
-                                    <TableCell className="text-right">{formatVnd(Number(line.gross_revenue || 0))}</TableCell>
-                                  </TableRow>
-                                ))}
-                                {row.lines.length === 0 && <TableRow><TableCell colSpan={6} className="py-4 text-center text-muted-foreground">Chưa có dòng trong kỳ này.</TableCell></TableRow>}
-                              </TableBody>
-                            </Table>
+                      <div className="mt-4 space-y-2 border-t border-border/70 pt-3">
+                        {row.lines.map((line) => (
+                          <div key={line.id} className="rounded-lg bg-muted/30 p-3 text-sm">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="font-medium">{line.product_name || line.customer_name || "Bánh mì"}</div>
+                                <div className="mt-1 text-xs text-muted-foreground">{line.revenue_date} • {line.item_note || getRouteCustomerName(line) || "-"}</div>
+                              </div>
+                              <div className="shrink-0 text-right font-semibold">{formatVnd(Number(line.gross_revenue || 0))}</div>
+                            </div>
+                            <div className="mt-2 text-xs text-muted-foreground">SL {formatQty(Number(line.quantity || 0))} • Đơn giá {formatVnd(Number(line.unit_price || 0))}</div>
                           </div>
-                        </TableCell>
-                      </TableRow>
+                        ))}
+                        {row.lines.length === 0 && <div className="py-3 text-center text-sm text-muted-foreground">Chưa có dòng trong kỳ này.</div>}
+                      </div>
                     )}
-                  </Fragment>
+                  </div>
                 ))}
-                {summaries.length === 0 && (
-                  <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Chưa có dữ liệu công nợ cho NPP này.</TableCell></TableRow>
-                )}
-              </TableBody>
-            </Table>
+                {summaries.length === 0 && <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Chưa có dữ liệu công nợ cho NPP này.</div>}
+              </div>
+
+              <div className="hidden overflow-x-auto md:block">
+                <Table className="min-w-[900px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Đại lý</TableHead>
+                      <TableHead className="text-right">Số dòng</TableHead>
+                      <TableHead className="text-right">Số lượng</TableHead>
+                      <TableHead className="text-right">Tổng tiền bánh</TableHead>
+                      <TableHead className="text-right">Phí quản lí</TableHead>
+                      <TableHead className="text-right">Công nợ</TableHead>
+                      <TableHead>Trạng thái</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {summaries.map((row) => (
+                      <Fragment key={row.id}>
+                        <TableRow key={row.id} className="cursor-pointer" onClick={() => setExpandedAgencyId(expandedAgencyId === row.id ? null : row.id)}>
+                          <TableCell className="font-medium">{row.name}</TableCell>
+                          <TableCell className="text-right">{row.lines.length}</TableCell>
+                          <TableCell className="text-right">{formatQty(row.quantity)}</TableCell>
+                          <TableCell className="text-right">{formatVnd(row.gross)}</TableCell>
+                          <TableCell className="text-right">{formatVnd(row.managementFee)}</TableCell>
+                          <TableCell className="text-right font-semibold">{formatVnd(row.payable)}</TableCell>
+                          <TableCell>{row.id === "unmapped" ? <Badge variant="destructive">Cần map</Badge> : <Badge>OK</Badge>}</TableCell>
+                        </TableRow>
+                        {expandedAgencyId === row.id && (
+                          <TableRow key={`${row.id}-detail`}>
+                            <TableCell colSpan={7} className="bg-muted/30 p-0">
+                              <div className="max-h-96 overflow-auto p-3">
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow>
+                                      <TableHead>Ngày</TableHead>
+                                      <TableHead>Diễn giải</TableHead>
+                                      <TableHead>Ghi chú</TableHead>
+                                      <TableHead className="text-right">SL</TableHead>
+                                      <TableHead className="text-right">Đơn giá</TableHead>
+                                      <TableHead className="text-right">Thành tiền</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {row.lines.map((line) => (
+                                      <TableRow key={line.id}>
+                                        <TableCell>{line.revenue_date}</TableCell>
+                                        <TableCell>{line.product_name || line.customer_name || "Bánh mì"}</TableCell>
+                                        <TableCell>{line.item_note || getRouteCustomerName(line) || "-"}</TableCell>
+                                        <TableCell className="text-right">{formatQty(Number(line.quantity || 0))}</TableCell>
+                                        <TableCell className="text-right">{formatVnd(Number(line.unit_price || 0))}</TableCell>
+                                        <TableCell className="text-right">{formatVnd(Number(line.gross_revenue || 0))}</TableCell>
+                                      </TableRow>
+                                    ))}
+                                    {row.lines.length === 0 && <TableRow><TableCell colSpan={6} className="py-4 text-center text-muted-foreground">Chưa có dòng trong kỳ này.</TableCell></TableRow>}
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </Fragment>
+                    ))}
+                    {summaries.length === 0 && (
+                      <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Chưa có dữ liệu công nợ cho NPP này.</TableCell></TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           ) : (
-            <Table className="min-w-[860px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Ngày</TableHead>
-                  <TableHead>Kênh</TableHead>
-                  <TableHead>Diễn giải</TableHead>
-                  <TableHead>Ghi chú</TableHead>
-                  <TableHead className="text-right">Số lượng</TableHead>
-                  <TableHead className="text-right">Đơn giá</TableHead>
-                  <TableHead className="text-right">Công nợ</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              <div className="space-y-3 md:hidden">
                 {directLines.map((line) => (
-                  <TableRow key={line.id}>
-                    <TableCell>{line.revenue_date}</TableCell>
-                    <TableCell>{line.channel || "-"}</TableCell>
-                    <TableCell className="font-medium">{line.product_name || line.customer_name || "Doanh thu"}</TableCell>
-                    <TableCell>{line.item_note || line.revenue_source_documents?.source_name || "-"}</TableCell>
-                    <TableCell className="text-right">{formatQty(Number(line.quantity || 0))}</TableCell>
-                    <TableCell className="text-right">{formatVnd(Number(line.unit_price || 0))}</TableCell>
-                    <TableCell className="text-right font-semibold">{formatVnd(Number(line.gross_revenue || 0))}</TableCell>
-                  </TableRow>
+                  <div key={line.id} className="rounded-xl border border-border/70 bg-card/70 p-4 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-medium">{line.product_name || line.customer_name || "Doanh thu"}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{line.revenue_date} • {line.channel || "-"}</div>
+                      </div>
+                      <div className="shrink-0 text-right font-semibold text-amber-100">{formatVnd(Number(line.gross_revenue || 0))}</div>
+                    </div>
+                    <div className="mt-2 text-xs text-muted-foreground">{line.item_note || line.revenue_source_documents?.source_name || "-"}</div>
+                    <div className="mt-3 text-xs text-muted-foreground">SL {formatQty(Number(line.quantity || 0))} • Đơn giá {formatVnd(Number(line.unit_price || 0))}</div>
+                  </div>
                 ))}
-                {directLines.length === 0 && (
-                  <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Chưa có dữ liệu công nợ cho khách hàng này.</TableCell></TableRow>
-                )}
-              </TableBody>
-            </Table>
+                {directLines.length === 0 && <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Chưa có dữ liệu công nợ cho khách hàng này.</div>}
+              </div>
+
+              <div className="hidden overflow-x-auto md:block">
+                <Table className="min-w-[860px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Ngày</TableHead>
+                      <TableHead>Kênh</TableHead>
+                      <TableHead>Diễn giải</TableHead>
+                      <TableHead>Ghi chú</TableHead>
+                      <TableHead className="text-right">Số lượng</TableHead>
+                      <TableHead className="text-right">Đơn giá</TableHead>
+                      <TableHead className="text-right">Công nợ</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {directLines.map((line) => (
+                      <TableRow key={line.id}>
+                        <TableCell>{line.revenue_date}</TableCell>
+                        <TableCell>{line.channel || "-"}</TableCell>
+                        <TableCell className="font-medium">{line.product_name || line.customer_name || "Doanh thu"}</TableCell>
+                        <TableCell>{line.item_note || line.revenue_source_documents?.source_name || "-"}</TableCell>
+                        <TableCell className="text-right">{formatQty(Number(line.quantity || 0))}</TableCell>
+                        <TableCell className="text-right">{formatVnd(Number(line.unit_price || 0))}</TableCell>
+                        <TableCell className="text-right font-semibold">{formatVnd(Number(line.gross_revenue || 0))}</TableCell>
+                      </TableRow>
+                    ))}
+                    {directLines.length === 0 && (
+                      <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Chưa có dữ liệu công nợ cho khách hàng này.</TableCell></TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
