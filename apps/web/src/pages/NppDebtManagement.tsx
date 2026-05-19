@@ -1,14 +1,17 @@
 import { Fragment, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Download, Loader2, Mail, RefreshCw, Search } from "lucide-react";
+import { Download, Loader2, Mail, PencilLine, RefreshCw, Search } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 
 const DEFAULT_NPP_NAME = "Đại lý cấp 1 - Anh Thanh";
@@ -49,6 +52,7 @@ type Customer = {
 type LedgerLine = {
   id: string;
   revenue_date: string;
+  invoice_no?: string | null;
   channel: string | null;
   customer_id: string | null;
   parent_customer_id: string | null;
@@ -60,8 +64,42 @@ type LedgerLine = {
   gross_revenue: number | string | null;
   source_type: string | null;
   approval_status: string | null;
+  audit_status?: string | null;
+  confidence_status?: string | null;
+  review_status?: string | null;
+  reconciliation_status?: string | null;
   raw_payload: unknown;
   revenue_source_documents?: { status?: string | null; source_name?: string | null } | null;
+};
+
+
+type RevenueEditForm = {
+  revenue_date: string;
+  invoice_no: string;
+  customer_name: string;
+  product_name: string;
+  item_note: string;
+  quantity: string;
+  unit_price: string;
+  gross_revenue: string;
+  audit_note: string;
+};
+
+type RevenueUpdatePayload = {
+  revenue_date: string;
+  invoice_no: string | null;
+  customer_name: string;
+  product_name: string | null;
+  item_note: string | null;
+  quantity: number;
+  unit_price: number;
+  gross_revenue: number;
+  approval_status: string | null;
+  audit_status: "adjusted";
+  confidence_status: "manual_review";
+  review_status: "resolved";
+  reconciliation_status: "manual_override";
+  raw_payload: Record<string, unknown>;
 };
 
 type AgencySummary = {
@@ -89,6 +127,7 @@ type LedgerLineQuery = PromiseLike<{ data: LedgerLine[] | null; error: QueryErro
   limit: (count: number) => LedgerLineQuery;
 };
 type DebtExportResponse = { success?: boolean; error?: string; spreadsheetName?: string; webViewLink?: string; recipientEmails?: string[]; emailResult?: { sent?: boolean; skipped?: boolean; reason?: string } };
+type RpcQuery = PromiseLike<{ data: LedgerLine | null; error: QueryError }>;
 type ExportStatus = {
   kind: "idle" | "pending" | "success" | "error";
   title: string;
@@ -101,10 +140,48 @@ const debtDb = supabase as unknown as {
 };
 const ledgerDb = supabase as unknown as {
   from: (table: "revenue_ledger_lines") => LedgerLineQuery;
+  rpc: (fn: "edit_revenue_ledger_line", args: { _ledger_line_id: string; _patch: RevenueUpdatePayload; _note: string | null }) => RpcQuery;
 };
 
 const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+
+const toNumber = (value: string) => {
+  const normalized = value.replace(/,/g, "").trim();
+  if (!normalized) return 0;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) throw new Error("Invalid number");
+  return parsed;
+};
+
+const buildEditForm = (row: LedgerLine): RevenueEditForm => ({
+  revenue_date: row.revenue_date || "",
+  invoice_no: row.invoice_no || "",
+  customer_name: row.customer_name || getRouteCustomerName(row) || "",
+  product_name: row.product_name || "",
+  item_note: row.item_note || "",
+  quantity: String(row.quantity ?? 0),
+  unit_price: String(row.unit_price ?? 0),
+  gross_revenue: String(row.gross_revenue ?? 0),
+  audit_note: "",
+});
+
+const ledgerSnapshot = (row: LedgerLine) => ({
+  revenue_date: row.revenue_date,
+  invoice_no: row.invoice_no || null,
+  customer_name: row.customer_name,
+  product_name: row.product_name,
+  item_note: row.item_note,
+  quantity: row.quantity,
+  unit_price: row.unit_price,
+  gross_revenue: row.gross_revenue,
+  approval_status: row.approval_status,
+  audit_status: row.audit_status || null,
+  confidence_status: row.confidence_status || null,
+  review_status: row.review_status || null,
+  reconciliation_status: row.reconciliation_status || null,
+  raw_payload: row.raw_payload,
+});
 
 const getRouteCustomerId = (line: LedgerLine) => {
   const raw = asRecord(line.raw_payload);
@@ -142,6 +219,8 @@ const lineBelongsToCustomer = (line: LedgerLine, customer: Customer | null) => {
 
 export default function NppDebtManagement() {
   const { toast } = useToast();
+  const { canEditModule } = useAuth();
+  const canEditRevenue = canEditModule("finance_revenue");
   const [dateFrom, setDateFrom] = useState(isoMonthStart());
   const [dateTo, setDateTo] = useState(isoToday());
   const [searchTerm, setSearchTerm] = useState("");
@@ -149,6 +228,9 @@ export default function NppDebtManagement() {
   const [viewCustomerId, setViewCustomerId] = useState("");
   const [expandedAgencyId, setExpandedAgencyId] = useState<string | null>(null);
   const [exportStatus, setExportStatus] = useState<ExportStatus>({ kind: "idle", title: "" });
+  const [editingLine, setEditingLine] = useState<LedgerLine | null>(null);
+  const [editForm, setEditForm] = useState<RevenueEditForm | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const { data: customers = [], isLoading: customersLoading } = useQuery<Customer[]>({
     queryKey: ["npp-debt-customers"],
@@ -173,7 +255,7 @@ export default function NppDebtManagement() {
     queryFn: async () => {
       const { data, error } = await ledgerDb
         .from("revenue_ledger_lines")
-        .select("id,revenue_date,channel,customer_id,parent_customer_id,customer_name,product_name,item_note,quantity,unit_price,gross_revenue,source_type,approval_status,raw_payload,revenue_source_documents(status,source_name)")
+        .select("id,revenue_date,invoice_no,channel,customer_id,parent_customer_id,customer_name,product_name,item_note,quantity,unit_price,gross_revenue,source_type,approval_status,audit_status,confidence_status,review_status,reconciliation_status,raw_payload,revenue_source_documents(status,source_name)")
         .eq("approval_status", "approved")
         .gte("revenue_date", dateFrom)
         .lte("revenue_date", dateTo)
@@ -242,7 +324,7 @@ export default function NppDebtManagement() {
     queryFn: async () => {
       const { data, error } = await ledgerDb
         .from("revenue_ledger_lines")
-        .select("id,revenue_date,channel,customer_id,parent_customer_id,customer_name,product_name,item_note,quantity,unit_price,gross_revenue,source_type,approval_status,raw_payload,revenue_source_documents(status,source_name)")
+        .select("id,revenue_date,invoice_no,channel,customer_id,parent_customer_id,customer_name,product_name,item_note,quantity,unit_price,gross_revenue,source_type,approval_status,audit_status,confidence_status,review_status,reconciliation_status,raw_payload,revenue_source_documents(status,source_name)")
         .eq("approval_status", "approved")
         .gte("revenue_date", dateFrom)
         .lte("revenue_date", dateTo)
@@ -368,6 +450,109 @@ export default function NppDebtManagement() {
 
   const exportMutation = useMutation(buildExportMutation(false));
   const sendDebtMutation = useMutation(buildExportMutation(true));
+
+  const openEdit = (line: LedgerLine) => {
+    setEditingLine(line);
+    setEditForm(buildEditForm(line));
+  };
+
+  const closeEdit = () => {
+    if (savingEdit) return;
+    setEditingLine(null);
+    setEditForm(null);
+  };
+
+  const updateEditField = (key: keyof RevenueEditForm, value: string) => {
+    setEditForm((current) => current ? { ...current, [key]: value } : current);
+  };
+
+  const saveEdit = async () => {
+    if (!editingLine || !editForm) return;
+    if (!canEditRevenue) {
+      toast({ title: "Không có quyền sửa doanh thu", variant: "destructive" });
+      return;
+    }
+
+    const customerName = editForm.customer_name.trim();
+    const revenueDate = editForm.revenue_date.trim();
+    if (!customerName || !revenueDate) {
+      toast({ title: "Thiếu ngày doanh thu hoặc tên khách", variant: "destructive" });
+      return;
+    }
+
+    setSavingEdit(true);
+    try {
+      const quantity = toNumber(editForm.quantity);
+      const unitPrice = toNumber(editForm.unit_price);
+      const grossRevenue = toNumber(editForm.gross_revenue);
+      const note = editForm.audit_note.trim();
+      const { data: authData } = await supabase.auth.getUser();
+      const previousRaw = asRecord(editingLine.raw_payload);
+      const auditDecision = {
+        action: "debt_detail_edit",
+        note: note || null,
+        edited_at: new Date().toISOString(),
+        edited_by: authData?.user?.id || null,
+        before: ledgerSnapshot(editingLine),
+      };
+      const payload: RevenueUpdatePayload = {
+        revenue_date: revenueDate,
+        invoice_no: editForm.invoice_no.trim() || null,
+        customer_name: customerName,
+        product_name: editForm.product_name.trim() || null,
+        item_note: editForm.item_note.trim() || null,
+        quantity,
+        unit_price: unitPrice,
+        gross_revenue: grossRevenue,
+        approval_status: editingLine.approval_status,
+        audit_status: "adjusted",
+        confidence_status: "manual_review",
+        review_status: "resolved",
+        reconciliation_status: "manual_override",
+        raw_payload: {
+          ...previousRaw,
+          audit_decision: auditDecision,
+          audit_decisions: [...(Array.isArray(previousRaw.audit_decisions) ? previousRaw.audit_decisions : []), auditDecision],
+        },
+      };
+
+      const { error } = await ledgerDb.rpc("edit_revenue_ledger_line", {
+        _ledger_line_id: editingLine.id,
+        _patch: payload,
+        _note: note || null,
+      });
+      if (error) throw error;
+
+      toast({ title: "Đã lưu chỉnh sửa doanh thu" });
+      setEditingLine(null);
+      setEditForm(null);
+      await refetch();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Không lưu được chỉnh sửa";
+      toast({ title: "Không lưu được chỉnh sửa", description: message, variant: "destructive" });
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const renderEditButton = (line: LedgerLine, className?: string) => {
+    if (!canEditRevenue) return null;
+    return (
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className={cn("h-8 gap-1 px-2 text-xs", className)}
+        onClick={(event) => {
+          event.stopPropagation();
+          openEdit(line);
+        }}
+      >
+        <PencilLine className="h-3.5 w-3.5" />
+        Sửa
+      </Button>
+    );
+  };
 
   const isLoading = customersLoading || (hasViewedDebt && linesLoading);
   const canViewDebt = Boolean(selectedCustomerId && dateFrom && dateTo);
@@ -565,7 +750,10 @@ export default function NppDebtManagement() {
                                 <div className="font-medium">{line.product_name || line.customer_name || "Bánh mì"}</div>
                                 <div className="mt-1 text-xs text-muted-foreground">{line.revenue_date} • {line.item_note || getRouteCustomerName(line) || "-"}</div>
                               </div>
-                              <div className="shrink-0 text-right font-semibold">{formatVnd(Number(line.gross_revenue || 0))}</div>
+                              <div className="flex shrink-0 flex-col items-end gap-2 text-right">
+                                <div className="font-semibold">{formatVnd(Number(line.gross_revenue || 0))}</div>
+                                {renderEditButton(line)}
+                              </div>
                             </div>
                             <div className="mt-2 text-xs text-muted-foreground">SL {formatQty(Number(line.quantity || 0))} • Đơn giá {formatVnd(Number(line.unit_price || 0))}</div>
                           </div>
@@ -616,6 +804,7 @@ export default function NppDebtManagement() {
                                       <TableHead className="text-right">SL</TableHead>
                                       <TableHead className="text-right">Đơn giá</TableHead>
                                       <TableHead className="text-right">Thành tiền</TableHead>
+                                      <TableHead className="text-right">Thao tác</TableHead>
                                     </TableRow>
                                   </TableHeader>
                                   <TableBody>
@@ -627,9 +816,10 @@ export default function NppDebtManagement() {
                                         <TableCell className="text-right">{formatQty(Number(line.quantity || 0))}</TableCell>
                                         <TableCell className="text-right">{formatVnd(Number(line.unit_price || 0))}</TableCell>
                                         <TableCell className="text-right">{formatVnd(Number(line.gross_revenue || 0))}</TableCell>
+                                        <TableCell className="text-right">{renderEditButton(line, "ml-auto")}</TableCell>
                                       </TableRow>
                                     ))}
-                                    {row.lines.length === 0 && <TableRow><TableCell colSpan={6} className="py-4 text-center text-muted-foreground">Chưa có dòng trong kỳ này.</TableCell></TableRow>}
+                                    {row.lines.length === 0 && <TableRow><TableCell colSpan={7} className="py-4 text-center text-muted-foreground">Chưa có dòng trong kỳ này.</TableCell></TableRow>}
                                   </TableBody>
                                 </Table>
                               </div>
@@ -655,7 +845,10 @@ export default function NppDebtManagement() {
                         <div className="font-medium">{line.product_name || line.customer_name || "Doanh thu"}</div>
                         <div className="mt-1 text-xs text-muted-foreground">{line.revenue_date} • {line.channel || "-"}</div>
                       </div>
-                      <div className="shrink-0 text-right font-semibold text-amber-100">{formatVnd(Number(line.gross_revenue || 0))}</div>
+                      <div className="flex shrink-0 flex-col items-end gap-2 text-right">
+                        <div className="font-semibold text-amber-100">{formatVnd(Number(line.gross_revenue || 0))}</div>
+                        {renderEditButton(line)}
+                      </div>
                     </div>
                     <div className="mt-2 text-xs text-muted-foreground">{line.item_note || line.revenue_source_documents?.source_name || "-"}</div>
                     <div className="mt-3 text-xs text-muted-foreground">SL {formatQty(Number(line.quantity || 0))} • Đơn giá {formatVnd(Number(line.unit_price || 0))}</div>
@@ -675,6 +868,7 @@ export default function NppDebtManagement() {
                       <TableHead className="text-right">Số lượng</TableHead>
                       <TableHead className="text-right">Đơn giá</TableHead>
                       <TableHead className="text-right">Công nợ</TableHead>
+                      <TableHead className="text-right">Thao tác</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -687,10 +881,11 @@ export default function NppDebtManagement() {
                         <TableCell className="text-right">{formatQty(Number(line.quantity || 0))}</TableCell>
                         <TableCell className="text-right">{formatVnd(Number(line.unit_price || 0))}</TableCell>
                         <TableCell className="text-right font-semibold">{formatVnd(Number(line.gross_revenue || 0))}</TableCell>
+                        <TableCell className="text-right">{renderEditButton(line, "ml-auto")}</TableCell>
                       </TableRow>
                     ))}
                     {directLines.length === 0 && (
-                      <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Chưa có dữ liệu công nợ cho khách hàng này.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={8} className="py-8 text-center text-muted-foreground">Chưa có dữ liệu công nợ cho khách hàng này.</TableCell></TableRow>
                     )}
                   </TableBody>
                 </Table>
@@ -701,6 +896,60 @@ export default function NppDebtManagement() {
       </Card>
         </>
       )}
+
+      <Dialog open={Boolean(editingLine && editForm)} onOpenChange={(open) => { if (!open) closeEdit(); }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Chỉnh sửa doanh thu công nợ</DialogTitle>
+            <DialogDescription>
+              Staff được phép sửa khi doanh thu chưa đúng. Ghi chú không bắt buộc; hệ thống vẫn ghi audit log khi lưu.
+            </DialogDescription>
+          </DialogHeader>
+          {editForm ? (
+            <div className="grid gap-4 py-2 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Ngày doanh thu</Label>
+                <Input type="date" value={editForm.revenue_date} onChange={(event) => updateEditField("revenue_date", event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Mã hóa đơn / PO</Label>
+                <Input value={editForm.invoice_no} onChange={(event) => updateEditField("invoice_no", event.target.value)} placeholder="Không bắt buộc" />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label>Khách hàng / đại lý</Label>
+                <Input value={editForm.customer_name} onChange={(event) => updateEditField("customer_name", event.target.value)} />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label>Sản phẩm / diễn giải</Label>
+                <Input value={editForm.product_name} onChange={(event) => updateEditField("product_name", event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Số lượng</Label>
+                <Input inputMode="decimal" value={editForm.quantity} onChange={(event) => updateEditField("quantity", event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Đơn giá</Label>
+                <Input inputMode="decimal" value={editForm.unit_price} onChange={(event) => updateEditField("unit_price", event.target.value)} />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label>Thành tiền / doanh thu</Label>
+                <Input inputMode="decimal" value={editForm.gross_revenue} onChange={(event) => updateEditField("gross_revenue", event.target.value)} />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label>Ghi chú nội bộ (không bắt buộc)</Label>
+                <Textarea value={editForm.audit_note} onChange={(event) => updateEditField("audit_note", event.target.value)} placeholder="Ví dụ: sửa theo số giao thực tế" />
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={closeEdit} disabled={savingEdit}>Hủy</Button>
+            <Button type="button" onClick={saveEdit} disabled={savingEdit || !editForm}>
+              {savingEdit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Lưu chỉnh sửa
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
