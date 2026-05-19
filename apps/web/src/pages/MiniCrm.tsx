@@ -3275,90 +3275,77 @@ export default function MiniCrm() {
             )}
           </div>
 
-          <div className="hidden overflow-x-auto rounded-xl border bg-background/80 md:block">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/40">
-                  <TableHead className="min-w-[220px]">Khách hàng</TableHead>
-                  <TableHead className="min-w-[150px]">Phân loại</TableHead>
-                  <TableHead className="min-w-[260px]">Email</TableHead>
-                  <TableHead className="min-w-[220px]">NPP / Công nợ</TableHead>
-                  <TableHead className="min-w-[140px]">Trạng thái</TableHead>
-                  <TableHead className="min-w-[220px] text-right">Thao tác</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredCustomers.map((c) => {
-                  const npp = customers.find((x) => x.id === c.supplied_by_npp_customer_id);
-                  const recognitionEmails = (c.mini_crm_customer_emails || []).map((e) => e.email).join(", ") || "-";
-                  const debtEmails = formatEmailList(c.debt_emails) || "-";
-                  const kb = customerKnowledgeProfiles.find((x) => x.customer_id === c.id);
-                  const latestVer = knowledgeProfileVersions.find((v) => v.customer_id === c.id);
-                  return (
-                    <TableRow key={c.id} className="align-top">
-                      <TableCell>
-                        <div className="space-y-1">
-                          <div className="font-medium leading-tight">{c.customer_name}</div>
-                          <div className="flex flex-wrap gap-1">
-                            {c.is_npp ? <Badge>NPP</Badge> : <Badge variant="secondary">Khách hàng</Badge>}
-                            {kb ? (
-                              <Badge variant="outline" className="text-[10px]">
-                                {String(kb.po_mode || "") === "cumulative_snapshot" ? "KB cộng dồn" : "KB PO ngày"}
-                                {latestVer?.version_no ? ` · v${latestVer.version_no}` : ""}
-                              </Badge>
-                            ) : (
-                              <Badge variant="secondary" className="text-[10px]">Chưa KB</Badge>
-                            )}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <div>{GROUP_LABEL_MAP[c.customer_group] || c.customer_group}</div>
-                          <div className="text-xs text-muted-foreground">{PRODUCT_GROUP_LABEL_MAP[c.product_group] || c.product_group || "-"}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1 text-sm">
-                          <div className="break-words"><span className="text-xs text-muted-foreground">Nhận diện: </span>{recognitionEmails}</div>
-                          <div className="break-words"><span className="text-xs text-muted-foreground">Công nợ: </span>{debtEmails}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1 text-sm">
-                          <div>{npp?.customer_name || "-"}</div>
-                          <div className="text-xs text-muted-foreground">Phí QL: {formatVnd(Number(c.npp_management_fee_vnd || 0))}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>{c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button size="sm" variant="secondary" onClick={() => setViewCustomer(c)}>Xem</Button>
-                          <Button size="sm" variant="outline" onClick={() => startEditCustomer(c)}>
-                            <Pencil className="mr-1 h-4 w-4" />Sửa
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => {
-                              if (confirm(`Xoá khách hàng ${c.customer_name}?`)) deleteCustomerMutation.mutate({ customerId: c.id, customerName: c.customer_name });
-                            }}
-                            disabled={deleteCustomerMutation.isPending}
-                          >
-                            <Trash2 className="mr-1 h-4 w-4" />Xoá
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-                {filteredCustomers.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">{ui.noCustomers}</TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
+          <div className="hidden rounded-xl border bg-background/80 md:block">
+            <div className="grid grid-cols-[minmax(180px,1.25fr)_minmax(120px,0.8fr)_minmax(220px,1.35fr)_minmax(180px,1fr)_minmax(110px,0.55fr)_210px] items-center gap-4 border-b bg-muted/40 px-4 py-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <div>Khách hàng</div>
+              <div>Phân loại</div>
+              <div>Email</div>
+              <div>NPP / Công nợ</div>
+              <div>Trạng thái</div>
+              <div className="text-right">Thao tác</div>
+            </div>
+            <div className="divide-y">
+              {filteredCustomers.map((c) => {
+                const npp = customers.find((x) => x.id === c.supplied_by_npp_customer_id);
+                const recognitionEmails = (c.mini_crm_customer_emails || []).map((e) => e.email).join(", ") || "-";
+                const debtEmails = formatEmailList(c.debt_emails) || "-";
+                const kb = customerKnowledgeProfiles.find((x) => x.customer_id === c.id);
+                const latestVer = knowledgeProfileVersions.find((v) => v.customer_id === c.id);
+                return (
+                  <div
+                    key={c.id}
+                    className="grid grid-cols-[minmax(180px,1.25fr)_minmax(120px,0.8fr)_minmax(220px,1.35fr)_minmax(180px,1fr)_minmax(110px,0.55fr)_210px] items-start gap-4 px-4 py-4"
+                  >
+                    <div className="min-w-0 space-y-1">
+                      <div className="break-words font-medium leading-tight">{c.customer_name}</div>
+                      <div className="flex flex-wrap gap-1">
+                        {c.is_npp ? <Badge>NPP</Badge> : <Badge variant="secondary">Khách hàng</Badge>}
+                        {kb ? (
+                          <Badge variant="outline" className="text-[10px]">
+                            {String(kb.po_mode || "") === "cumulative_snapshot" ? "KB cộng dồn" : "KB PO ngày"}
+                            {latestVer?.version_no ? ` · v${latestVer.version_no}` : ""}
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="text-[10px]">Chưa KB</Badge>
+                        )}
+                      </div>
+                    </div>
+                    <div className="min-w-0 space-y-1 text-sm">
+                      <div>{GROUP_LABEL_MAP[c.customer_group] || c.customer_group}</div>
+                      <div className="text-xs text-muted-foreground">{PRODUCT_GROUP_LABEL_MAP[c.product_group] || c.product_group || "-"}</div>
+                    </div>
+                    <div className="min-w-0 space-y-1 text-sm">
+                      <div className="break-words"><span className="text-xs text-muted-foreground">Nhận diện: </span>{recognitionEmails}</div>
+                      <div className="break-words"><span className="text-xs text-muted-foreground">Công nợ: </span>{debtEmails}</div>
+                    </div>
+                    <div className="min-w-0 space-y-1 text-sm">
+                      <div className="break-words">{npp?.customer_name || "-"}</div>
+                      <div className="text-xs text-muted-foreground">Phí QL: {formatVnd(Number(c.npp_management_fee_vnd || 0))}</div>
+                    </div>
+                    <div>{c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}</div>
+                    <div className="flex justify-end gap-2">
+                      <Button size="sm" variant="secondary" onClick={() => setViewCustomer(c)}>Xem</Button>
+                      <Button size="sm" variant="outline" onClick={() => startEditCustomer(c)}>
+                        <Pencil className="mr-1 h-4 w-4" />Sửa
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => {
+                          if (confirm(`Xoá khách hàng ${c.customer_name}?`)) deleteCustomerMutation.mutate({ customerId: c.id, customerName: c.customer_name });
+                        }}
+                        disabled={deleteCustomerMutation.isPending}
+                      >
+                        <Trash2 className="mr-1 h-4 w-4" />Xoá
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+              {filteredCustomers.length === 0 && (
+                <div className="py-8 text-center text-sm text-muted-foreground">{ui.noCustomers}</div>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
