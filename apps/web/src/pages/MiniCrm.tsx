@@ -3206,7 +3206,7 @@ export default function MiniCrm() {
             </div>
           )}
 
-          <div className="space-y-3 lg:hidden">
+          <div className="space-y-3 xl:hidden">
             {filteredCustomers.map((c) => {
               const npp = customers.find((x) => x.id === c.supplied_by_npp_customer_id);
               const recognitionEmails = (c.mini_crm_customer_emails || []).map((e) => e.email).join(", ") || "-";
@@ -3275,8 +3275,8 @@ export default function MiniCrm() {
             )}
           </div>
 
-          <div className="hidden rounded-xl border bg-background/80 lg:block">
-            <div className="grid grid-cols-[minmax(150px,1.2fr)_minmax(95px,0.7fr)_minmax(180px,1.3fr)_minmax(140px,1fr)_86px_184px] items-center gap-3 border-b bg-muted/40 px-3 py-3 text-xs font-medium uppercase tracking-wide text-muted-foreground xl:grid-cols-[minmax(180px,1.25fr)_minmax(120px,0.8fr)_minmax(220px,1.35fr)_minmax(180px,1fr)_minmax(110px,0.55fr)_210px] xl:gap-4 xl:px-4">
+          <div className="hidden rounded-xl border bg-background/80 xl:block">
+            <div className="grid grid-cols-[minmax(180px,1.25fr)_minmax(120px,0.8fr)_minmax(220px,1.35fr)_minmax(180px,1fr)_minmax(110px,0.55fr)_160px] items-center gap-4 border-b bg-muted/40 px-4 py-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               <div>Khách hàng</div>
               <div>Phân loại</div>
               <div>Email</div>
@@ -3294,7 +3294,7 @@ export default function MiniCrm() {
                 return (
                   <div
                     key={c.id}
-                    className="grid grid-cols-[minmax(150px,1.2fr)_minmax(95px,0.7fr)_minmax(180px,1.3fr)_minmax(140px,1fr)_86px_184px] items-start gap-3 px-3 py-4 xl:grid-cols-[minmax(180px,1.25fr)_minmax(120px,0.8fr)_minmax(220px,1.35fr)_minmax(180px,1fr)_minmax(110px,0.55fr)_210px] xl:gap-4 xl:px-4"
+                    className="grid grid-cols-[minmax(180px,1.25fr)_minmax(120px,0.8fr)_minmax(220px,1.35fr)_minmax(180px,1fr)_minmax(110px,0.55fr)_160px] items-start gap-4 px-4 py-4"
                   >
                     <div className="min-w-0 space-y-1">
                       <div className="break-words font-medium leading-tight">{c.customer_name}</div>
@@ -3323,15 +3323,15 @@ export default function MiniCrm() {
                       <div className="text-xs text-muted-foreground">Phí QL: {formatVnd(Number(c.npp_management_fee_vnd || 0))}</div>
                     </div>
                     <div className="min-w-0">{c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}</div>
-                    <div className="flex min-w-0 flex-nowrap justify-end gap-1.5 whitespace-nowrap">
-                      <Button size="sm" variant="secondary" className="h-8 shrink-0 px-2 text-xs" onClick={() => setViewCustomer(c)}>Xem</Button>
-                      <Button size="sm" variant="outline" className="h-8 shrink-0 px-2 text-xs" onClick={() => startEditCustomer(c)}>
+                    <div className="grid w-full min-w-0 grid-cols-2 gap-1">
+                      <Button size="sm" variant="secondary" className="h-8 w-full px-1.5 text-xs" onClick={() => setViewCustomer(c)}>Xem</Button>
+                      <Button size="sm" variant="outline" className="h-8 w-full px-1.5 text-xs" onClick={() => startEditCustomer(c)}>
                         <Pencil className="mr-1 h-3.5 w-3.5" />Sửa
                       </Button>
                       <Button
                         size="sm"
                         variant="destructive"
-                        className="h-8 shrink-0 px-2 text-xs"
+                        className="col-span-2 h-8 w-full px-1.5 text-xs"
                         onClick={() => {
                           if (confirm(`Xoá khách hàng ${c.customer_name}?`)) deleteCustomerMutation.mutate({ customerId: c.id, customerName: c.customer_name });
                         }}
