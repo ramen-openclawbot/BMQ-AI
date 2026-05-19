@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, RefreshCw, Pencil, Save, X, Trash2 } from "lucide-react";
+import { Loader2, RefreshCw, Pencil, Save, X, Trash2, Search } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -3020,9 +3020,6 @@ export default function MiniCrm() {
 
       {!isSalesPoPage && (
       <> 
-      <div className="flex justify-end">
-        <Button onClick={() => setSetupModalOpen(true)}>{ui.customersSetup}</Button>
-      </div>
 
       <Dialog open={setupModalOpen} onOpenChange={setSetupModalOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -3166,25 +3163,38 @@ export default function MiniCrm() {
         </DialogContent>
       </Dialog>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{ui.customersList}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-3 flex items-center gap-2">
-            <Input
-              value={customerSearch}
-              onChange={(e) => setCustomerSearch(e.target.value)}
-              placeholder={ui.customerSearch}
-              className="max-w-md"
-            />
+      <Card className="border-border/70 bg-gradient-to-b from-background to-muted/20 shadow-sm">
+        <CardHeader className="space-y-4 pb-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div className="space-y-1">
+              <CardTitle className="text-2xl">{ui.customersList}</CardTitle>
+              <CardDescription>
+                {filteredCustomers.length} / {customers.length} khách hàng sau lọc
+              </CardDescription>
+            </div>
+            <Button onClick={() => setSetupModalOpen(true)}>
+              Thiết lập khách hàng
+            </Button>
+          </div>
+          <div className="flex flex-col gap-2 rounded-xl border bg-background/80 p-3 md:flex-row md:items-center">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={customerSearch}
+                onChange={(e) => setCustomerSearch(e.target.value)}
+                placeholder={ui.customerSearch}
+                className="pl-9"
+              />
+            </div>
             {customerSearch && (
               <Button type="button" variant="ghost" size="sm" onClick={() => setCustomerSearch("")}>{ui.clear}</Button>
             )}
           </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
           {editFeedback && (
             <div
-              className={`mb-3 rounded-md border px-3 py-2 text-sm ${
+              className={`rounded-md border px-3 py-2 text-sm ${
                 editFeedback.startsWith("Lưu thất bại")
                   ? "border-destructive/30 bg-destructive/10 text-destructive"
                   : editFeedback.startsWith("Đã lưu")
@@ -3195,80 +3205,161 @@ export default function MiniCrm() {
               {editFeedback}
             </div>
           )}
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Tên</TableHead>
-                <TableHead>Nhóm</TableHead>
-                <TableHead>Nhóm sản phẩm</TableHead>
-                <TableHead>Email nhận diện</TableHead>
-                <TableHead>Email nhận công nợ</TableHead>
-                <TableHead>NPP</TableHead>
-                <TableHead>Lấy qua NPP</TableHead>
-                <TableHead>Phí QL</TableHead>
-                <TableHead>Knowledge</TableHead>
-                <TableHead>Trạng thái</TableHead>
-                <TableHead className="text-right">Thao tác</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredCustomers.map((c: any) => {
-                return (
-                  <TableRow key={c.id}>
-                    <TableCell>{c.customer_name}</TableCell>
-                    <TableCell>{GROUP_LABEL_MAP[c.customer_group] || c.customer_group}</TableCell>
-                    <TableCell>{PRODUCT_GROUP_LABEL_MAP[c.product_group] || c.product_group || "-"}</TableCell>
-                    <TableCell>{(c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"}</TableCell>
-                    <TableCell>{formatEmailList(c.debt_emails) || "-"}</TableCell>
-                    <TableCell>{c.is_npp ? <Badge variant="default">Yes</Badge> : <Badge variant="secondary">No</Badge>}</TableCell>
-                    <TableCell>{(() => { const npp = customers.find((x: any) => x.id === c.supplied_by_npp_customer_id); return npp?.customer_name || "-"; })()}</TableCell>
-                    <TableCell>{formatVnd(Number(c.npp_management_fee_vnd || 0))}</TableCell>
-                    <TableCell>
-                      {(() => {
-                        const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === c.id);
-                        const latestVer = knowledgeProfileVersions.find((v: any) => v.customer_id === c.id);
-                        if (!kb) return <span className="text-xs text-muted-foreground">Chưa cấu hình</span>;
-                        return (
-                          <div className="space-y-1">
-                            <div className="text-xs font-medium">{kb.profile_name || "Default"}</div>
-                            <div className="flex gap-1 flex-wrap">
-                              <Badge variant="outline" className="text-[10px]">
-                                {String(kb.po_mode || "") === "cumulative_snapshot" ? "Cộng dồn (delta)" : "PO ngày"}
-                              </Badge>
-                              {latestVer?.version_no && (
-                                <Badge variant="secondary" className="text-[10px]">KB v{latestVer.version_no}</Badge>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })()}
-                    </TableCell>
-                    <TableCell>{c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button size="sm" variant="secondary" onClick={() => setViewCustomer(c)}>Xem</Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => {
-                            if (confirm(`Xoá khách hàng ${c.customer_name}?`)) deleteCustomerMutation.mutate({ customerId: c.id, customerName: c.customer_name });
-                          }}
-                          disabled={deleteCustomerMutation.isPending}
-                        >
-                          <Trash2 className="h-4 w-4 mr-1" />Xoá
-                        </Button>
+
+          <div className="space-y-3 md:hidden">
+            {filteredCustomers.map((c) => {
+              const npp = customers.find((x) => x.id === c.supplied_by_npp_customer_id);
+              const recognitionEmails = (c.mini_crm_customer_emails || []).map((e) => e.email).join(", ") || "-";
+              const debtEmails = formatEmailList(c.debt_emails) || "-";
+              const kb = customerKnowledgeProfiles.find((x) => x.customer_id === c.id);
+              const latestVer = knowledgeProfileVersions.find((v) => v.customer_id === c.id);
+              return (
+                <div key={c.id} className="rounded-xl border bg-background/80 p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-1">
+                      <div className="truncate text-base font-semibold">{c.customer_name}</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        <Badge variant="outline">{GROUP_LABEL_MAP[c.customer_group] || c.customer_group}</Badge>
+                        <Badge variant="secondary">{PRODUCT_GROUP_LABEL_MAP[c.product_group] || c.product_group || "-"}</Badge>
+                        {c.is_npp ? <Badge>NPP</Badge> : null}
                       </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-              {filteredCustomers.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={10} className="text-center text-muted-foreground py-6">{ui.noCustomers}</TableCell>
+                    </div>
+                    {c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}
+                  </div>
+                  <div className="mt-3 grid gap-2 text-sm text-muted-foreground">
+                    <div>
+                      <span className="font-medium text-foreground">Email nhận diện: </span>
+                      <span className="break-words">{recognitionEmails}</span>
+                    </div>
+                    <div>
+                      <span className="font-medium text-foreground">Email công nợ: </span>
+                      <span className="break-words">{debtEmails}</span>
+                    </div>
+                    <div>
+                      <span className="font-medium text-foreground">Lấy qua NPP: </span>
+                      {npp?.customer_name || "-"}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Badge variant="outline">Phí QL {formatVnd(Number(c.npp_management_fee_vnd || 0))}</Badge>
+                      {kb ? (
+                        <Badge variant="outline">
+                          {String(kb.po_mode || "") === "cumulative_snapshot" ? "KB cộng dồn" : "KB PO ngày"}
+                          {latestVer?.version_no ? ` · v${latestVer.version_no}` : ""}
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary">Chưa cấu hình KB</Badge>
+                      )}
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-3 gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => setViewCustomer(c)}>Xem</Button>
+                    <Button size="sm" variant="outline" onClick={() => startEditCustomer(c)}>
+                      <Pencil className="mr-1 h-4 w-4" />Sửa
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => {
+                        if (confirm(`Xoá khách hàng ${c.customer_name}?`)) deleteCustomerMutation.mutate({ customerId: c.id, customerName: c.customer_name });
+                      }}
+                      disabled={deleteCustomerMutation.isPending}
+                    >
+                      <Trash2 className="mr-1 h-4 w-4" />Xoá
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+            {filteredCustomers.length === 0 && (
+              <div className="rounded-xl border bg-background/80 py-8 text-center text-sm text-muted-foreground">{ui.noCustomers}</div>
+            )}
+          </div>
+
+          <div className="hidden overflow-x-auto rounded-xl border bg-background/80 md:block">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40">
+                  <TableHead className="min-w-[220px]">Khách hàng</TableHead>
+                  <TableHead className="min-w-[150px]">Phân loại</TableHead>
+                  <TableHead className="min-w-[260px]">Email</TableHead>
+                  <TableHead className="min-w-[220px]">NPP / Công nợ</TableHead>
+                  <TableHead className="min-w-[140px]">Trạng thái</TableHead>
+                  <TableHead className="min-w-[190px] text-right">Thao tác</TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filteredCustomers.map((c) => {
+                  const npp = customers.find((x) => x.id === c.supplied_by_npp_customer_id);
+                  const recognitionEmails = (c.mini_crm_customer_emails || []).map((e) => e.email).join(", ") || "-";
+                  const debtEmails = formatEmailList(c.debt_emails) || "-";
+                  const kb = customerKnowledgeProfiles.find((x) => x.customer_id === c.id);
+                  const latestVer = knowledgeProfileVersions.find((v) => v.customer_id === c.id);
+                  return (
+                    <TableRow key={c.id} className="align-top">
+                      <TableCell>
+                        <div className="space-y-1">
+                          <div className="font-medium leading-tight">{c.customer_name}</div>
+                          <div className="flex flex-wrap gap-1">
+                            {c.is_npp ? <Badge>NPP</Badge> : <Badge variant="secondary">Khách hàng</Badge>}
+                            {kb ? (
+                              <Badge variant="outline" className="text-[10px]">
+                                {String(kb.po_mode || "") === "cumulative_snapshot" ? "KB cộng dồn" : "KB PO ngày"}
+                                {latestVer?.version_no ? ` · v${latestVer.version_no}` : ""}
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary" className="text-[10px]">Chưa KB</Badge>
+                            )}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <div>{GROUP_LABEL_MAP[c.customer_group] || c.customer_group}</div>
+                          <div className="text-xs text-muted-foreground">{PRODUCT_GROUP_LABEL_MAP[c.product_group] || c.product_group || "-"}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-1 text-sm">
+                          <div className="break-words"><span className="text-xs text-muted-foreground">Nhận diện: </span>{recognitionEmails}</div>
+                          <div className="break-words"><span className="text-xs text-muted-foreground">Công nợ: </span>{debtEmails}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-1 text-sm">
+                          <div>{npp?.customer_name || "-"}</div>
+                          <div className="text-xs text-muted-foreground">Phí QL: {formatVnd(Number(c.npp_management_fee_vnd || 0))}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell>{c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button size="sm" variant="secondary" onClick={() => setViewCustomer(c)}>Xem</Button>
+                          <Button size="sm" variant="outline" onClick={() => startEditCustomer(c)}>
+                            <Pencil className="mr-1 h-4 w-4" />Sửa
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => {
+                              if (confirm(`Xoá khách hàng ${c.customer_name}?`)) deleteCustomerMutation.mutate({ customerId: c.id, customerName: c.customer_name });
+                            }}
+                            disabled={deleteCustomerMutation.isPending}
+                          >
+                            <Trash2 className="mr-1 h-4 w-4" />Xoá
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {filteredCustomers.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">{ui.noCustomers}</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 
