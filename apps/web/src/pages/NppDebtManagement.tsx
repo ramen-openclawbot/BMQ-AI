@@ -168,17 +168,31 @@ const toNumber = (value: string) => {
   return parsed;
 };
 
-const buildEditForm = (row: LedgerLine): RevenueEditForm => ({
-  revenue_date: row.revenue_date || "",
-  invoice_no: row.invoice_no || "",
-  customer_name: row.customer_name || getRouteCustomerName(row) || "",
-  product_name: row.product_name || "",
-  item_note: row.item_note || "",
-  quantity: String(row.quantity ?? 0),
-  unit_price: String(row.unit_price ?? 0),
-  gross_revenue: String(row.gross_revenue ?? 0),
-  audit_note: "",
-});
+const formatNumberInput = (value: number) => Number.isInteger(value) ? String(value) : String(Number(value.toFixed(3)));
+
+const calculateGrossRevenueInput = (quantity: string, unitPrice: string) => {
+  try {
+    return formatNumberInput(toNumber(quantity) * toNumber(unitPrice));
+  } catch {
+    return null;
+  }
+};
+
+const buildEditForm = (row: LedgerLine): RevenueEditForm => {
+  const quantity = String(row.quantity ?? 0);
+  const unitPrice = String(row.unit_price ?? 0);
+  return {
+    revenue_date: row.revenue_date || "",
+    invoice_no: row.invoice_no || "",
+    customer_name: row.customer_name || getRouteCustomerName(row) || "",
+    product_name: row.product_name || "",
+    item_note: row.item_note || "",
+    quantity,
+    unit_price: unitPrice,
+    gross_revenue: calculateGrossRevenueInput(quantity, unitPrice) ?? String(row.gross_revenue ?? 0),
+    audit_note: "",
+  };
+};
 
 const ledgerSnapshot = (row: LedgerLine) => ({
   revenue_date: row.revenue_date,
@@ -495,7 +509,15 @@ export default function NppDebtManagement() {
   };
 
   const updateEditField = (key: keyof RevenueEditForm, value: string) => {
-    setEditForm((current) => current ? { ...current, [key]: value } : current);
+    setEditForm((current) => {
+      if (!current) return current;
+      const next = { ...current, [key]: value };
+      if (key === "quantity" || key === "unit_price") {
+        const calculatedGross = calculateGrossRevenueInput(next.quantity, next.unit_price);
+        if (calculatedGross !== null) next.gross_revenue = calculatedGross;
+      }
+      return next;
+    });
   };
 
   const saveEdit = async () => {
@@ -992,7 +1014,14 @@ export default function NppDebtManagement() {
               </div>
               <div className="space-y-2 md:col-span-2">
                 <Label>Thành tiền / doanh thu</Label>
-                <Input inputMode="decimal" value={editForm.gross_revenue} onChange={(event) => updateEditField("gross_revenue", event.target.value)} />
+                <Input
+                  inputMode="decimal"
+                  value={editForm.gross_revenue}
+                  readOnly
+                  aria-readonly="true"
+                  className="bg-muted/40"
+                />
+                <p className="text-xs text-muted-foreground">Tự tính = Số lượng × Đơn giá để tránh lệch công nợ.</p>
               </div>
               <div className="space-y-2 md:col-span-2">
                 <Label>Ghi chú nội bộ (không bắt buộc)</Label>
