@@ -3216,11 +3216,8 @@ export default function MiniCrm() {
               return (
                 <div key={c.id} className="rounded-xl border bg-background/80 p-4 shadow-sm">
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 space-y-2">
+                    <div className="min-w-0 space-y-1">
                       <div className="truncate text-base font-semibold">{c.customer_name}</div>
-                      <Button size="sm" className="h-8 px-3" onClick={() => startEditCustomer(c)}>
-                        <Pencil className="mr-1 h-4 w-4" />Sửa khách hàng
-                      </Button>
                       <div className="flex flex-wrap gap-1.5">
                         <Badge variant="outline">{GROUP_LABEL_MAP[c.customer_group] || c.customer_group}</Badge>
                         <Badge variant="secondary">{PRODUCT_GROUP_LABEL_MAP[c.product_group] || c.product_group || "-"}</Badge>
@@ -3282,12 +3279,12 @@ export default function MiniCrm() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/40">
-                  <TableHead className="min-w-[260px]">Khách hàng</TableHead>
+                  <TableHead className="min-w-[220px]">Khách hàng</TableHead>
                   <TableHead className="min-w-[150px]">Phân loại</TableHead>
                   <TableHead className="min-w-[260px]">Email</TableHead>
                   <TableHead className="min-w-[220px]">NPP / Công nợ</TableHead>
                   <TableHead className="min-w-[140px]">Trạng thái</TableHead>
-                  <TableHead className="sticky right-0 z-10 min-w-[190px] bg-muted/40 text-right shadow-[-8px_0_12px_-12px_hsl(var(--foreground))]">Thao tác</TableHead>
+                  <TableHead className="min-w-[220px] text-right">Thao tác</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -3300,11 +3297,8 @@ export default function MiniCrm() {
                   return (
                     <TableRow key={c.id} className="align-top">
                       <TableCell>
-                        <div className="space-y-2">
+                        <div className="space-y-1">
                           <div className="font-medium leading-tight">{c.customer_name}</div>
-                          <Button size="sm" className="h-8 px-3" onClick={() => startEditCustomer(c)}>
-                            <Pencil className="mr-1 h-4 w-4" />Sửa khách hàng
-                          </Button>
                           <div className="flex flex-wrap gap-1">
                             {c.is_npp ? <Badge>NPP</Badge> : <Badge variant="secondary">Khách hàng</Badge>}
                             {kb ? (
@@ -3337,7 +3331,7 @@ export default function MiniCrm() {
                         </div>
                       </TableCell>
                       <TableCell>{c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}</TableCell>
-                      <TableCell className="sticky right-0 z-10 bg-background/95 text-right shadow-[-8px_0_12px_-12px_hsl(var(--foreground))]">
+                      <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
                           <Button size="sm" variant="secondary" onClick={() => setViewCustomer(c)}>Xem</Button>
                           <Button size="sm" variant="outline" onClick={() => startEditCustomer(c)}>
