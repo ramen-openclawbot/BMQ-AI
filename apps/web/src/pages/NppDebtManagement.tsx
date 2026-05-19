@@ -126,7 +126,7 @@ type LedgerLineQuery = PromiseLike<{ data: LedgerLine[] | null; error: QueryErro
   order: (column: string, options: { ascending: boolean }) => LedgerLineQuery;
   limit: (count: number) => LedgerLineQuery;
 };
-type DebtExportResponse = { success?: boolean; error?: string; spreadsheetName?: string; webViewLink?: string; recipientEmails?: string[]; emailResult?: { sent?: boolean; skipped?: boolean; reason?: string } };
+type DebtExportResponse = { success?: boolean; error?: string; spreadsheetName?: string; webViewLink?: string | null; recipientEmails?: string[]; attachmentName?: string | null; emailResult?: { sent?: boolean; skipped?: boolean; reason?: string; attachmentName?: string } };
 type RpcQuery = PromiseLike<{ data: LedgerLine | null; error: QueryError }>;
 type ExportStatus = {
   kind: "idle" | "pending" | "success" | "error";
@@ -428,21 +428,24 @@ export default function NppDebtManagement() {
         title,
         message: `${selectedCustomer?.customer_name || "Khách hàng"} • ${dateFrom} → ${dateTo}`,
       });
-      toast({ title, description: "Hệ thống đang tạo file, vui lòng chờ trong giây lát." });
+      toast({ title, description: sendEmail ? "Hệ thống đang tạo file Excel đính kèm, vui lòng chờ trong giây lát." : "Hệ thống đang tạo file, vui lòng chờ trong giây lát." });
     },
     onSuccess: (data: DebtExportResponse) => {
       const emails = data?.recipientEmails || [];
       const title = sendEmail ? "Đã gửi công nợ" : "Đã xuất Google Sheet";
-      const message = emails.length
-        ? `${data?.spreadsheetName || "Công nợ khách hàng"} • Email CRM: ${emails.join(", ")}`
-        : `${data?.spreadsheetName || "Công nợ khách hàng"} • Chưa có email CRM`;
-      setExportStatus({ kind: "success", title, message, webViewLink: data?.webViewLink });
+      const baseName = data?.spreadsheetName || "Công nợ khách hàng";
+      const message = sendEmail
+        ? `${data?.attachmentName || `${baseName}.xlsx`} • file Excel đính kèm • Email CRM: ${emails.join(", ")}`
+        : emails.length
+          ? `${baseName} • Email CRM: ${emails.join(", ")}`
+          : `${baseName} • Chưa có email CRM`;
+      setExportStatus({ kind: "success", title, message, webViewLink: sendEmail ? undefined : data?.webViewLink || undefined });
       toast({ title, description: message });
-      if (data?.webViewLink) window.open(data.webViewLink, "_blank", "noopener,noreferrer");
+      if (!sendEmail && data?.webViewLink) window.open(data.webViewLink, "_blank", "noopener,noreferrer");
     },
     onError: (error: Error) => {
       const title = sendEmail ? "Gửi email thất bại" : "Export thất bại";
-      const message = error?.message || "Không thể tạo Google Sheet";
+      const message = error?.message || (sendEmail ? "Không thể gửi file Excel công nợ" : "Không thể tạo Google Sheet");
       setExportStatus({ kind: "error", title, message });
       toast({ title, description: message, variant: "destructive" });
     },

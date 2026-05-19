@@ -1,8 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
+import * as XLSX from "npm:xlsx@0.18.5";
+import SparkMD5 from "npm:spark-md5@3.0.2";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 
 const DEFAULT_PARENT_FOLDER_ID = "1Add8Lj3NiOUel-7h-0wpWUU1-qXzgwdi";
+const DEFAULT_COMPOSIO_BASE_URL = "https://backend.composio.dev";
+const CUSTOMER_DEBT_GMAIL_SENDER = "no-reply@bmq.vn";
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 type DbClient = ReturnType<typeof createClient>;
 type QueryError = { message?: string } | null;
@@ -41,6 +46,7 @@ type DebtGroup = {
   fee: number;
   payable: number;
 };
+type SheetData = { range: string; values: unknown[][] };
 
 const jsonResponse = (body: unknown, status = 200, corsHeaders?: Record<string, string>) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -191,50 +197,147 @@ const escapeHtml = (value: unknown) =>
 const formatVnd = (value: number) =>
   new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(Number(value || 0));
 
-async function shareSheetWithRecipients(accessToken: string, spreadsheetId: string, emails: string[]) {
-  const results = [];
-  for (const email of emails) {
-    try {
-      const result = await googleJson(accessToken, `https://www.googleapis.com/drive/v3/files/${spreadsheetId}/permissions?sendNotificationEmail=false&supportsAllDrives=true&fields=id`, {
-        method: "POST",
-        body: JSON.stringify({ type: "user", role: "reader", emailAddress: email }),
-      });
-      results.push({ email, ok: true, permissionId: result?.id || null });
-    } catch (error) {
-      results.push({ email, ok: false, error: error instanceof Error ? error.message : "share_failed" });
-    }
-  }
-  return results;
-}
-
-async function sendDebtEmail(input: { to: string[]; customerName: string; fromDate: string; toDate: string; spreadsheetName: string; webViewLink: string; payable: number; lineCount: number; isNpp: boolean }) {
-  const emailEnabled = (Deno.env.get("CUSTOMER_DEBT_EMAIL_ENABLED") || "true").toLowerCase() !== "false";
-  if (!emailEnabled) return { skipped: true, reason: "CUSTOMER_DEBT_EMAIL_ENABLED=false" };
-  const apiKey = Deno.env.get("RESEND_API_KEY");
-  if (!apiKey) throw new Error("RESEND_API_KEY missing");
-  const from = Deno.env.get("CUSTOMER_DEBT_EMAIL_FROM") || Deno.env.get("FINANCE_REPORT_FROM") || "BMQ Finance <ramen@bmq.vn>";
-  const subject = `BMQ - Công nợ ${input.customerName} ${vnDate(input.fromDate)}-${vnDate(input.toDate)}`;
-  const html = `
-    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#1f2937">
-      <p>Kính gửi Quý khách,</p>
-      <p>BMQ gửi bảng công nợ của <strong>${escapeHtml(input.customerName)}</strong> cho kỳ <strong>${vnDate(input.fromDate)} đến ${vnDate(input.toDate)}</strong>.</p>
-      <ul>
-        <li>Loại khách hàng: ${input.isNpp ? "NPP / đại lý cấp 1" : "Khách hàng trực tiếp"}</li>
-        <li>Số dòng công nợ: ${input.lineCount}</li>
-        <li>Tổng công nợ: <strong>${formatVnd(input.payable)}</strong></li>
-      </ul>
-      <p>Link Google Sheet: <a href="${escapeHtml(input.webViewLink)}">${escapeHtml(input.spreadsheetName)}</a></p>
-      <p>Trân trọng,<br/>BMQ Finance</p>
-    </div>`;
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to: input.to, subject, html }),
+async function composioJson(path: string, init: RequestInit = {}) {
+  const apiKey = Deno.env.get("COMPOSIO_API_KEY");
+  if (!apiKey) throw new Error("COMPOSIO_API_KEY missing");
+  const baseUrl = (Deno.env.get("COMPOSIO_BASE_URL") || DEFAULT_COMPOSIO_BASE_URL).replace(/\/$/, "");
+  const response = await fetch(`${baseUrl}${path}`, {
+    ...init,
+    headers: { "x-api-key": apiKey, "Content-Type": "application/json", ...(init.headers || {}) },
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(`Resend error ${response.status}: ${text}`);
-  return { sent: true, provider: "resend", subject, response: text };
+  const data = parseGoogleJson(text);
+  if (!response.ok) throw new Error(`composio_api_error:${response.status}:${text}`);
+  return data as Record<string, unknown>;
 }
+
+function bytesToBinaryString(bytes: Uint8Array) {
+  let output = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    output += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return output;
+}
+
+function parseRangeTitle(range: string) {
+  const quoted = range.match(/^'((?:''|[^'])+)'!/);
+  if (quoted) return quoted[1].replace(/''/g, "'");
+  const plain = range.match(/^([^!]+)!/);
+  return plain?.[1] || "TOTAL";
+}
+
+function safeExcelSheetTitle(name: string, used: Set<string>) {
+  const base = String(name || "Sheet")
+    .replace(/[\\/?*\[\]:]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 31) || "Sheet";
+  let title = base;
+  let counter = 2;
+  while (used.has(title)) {
+    const suffix = ` ${counter}`;
+    title = `${base.slice(0, 31 - suffix.length)}${suffix}`;
+    counter += 1;
+  }
+  used.add(title);
+  return title;
+}
+
+function buildDebtWorkbookBytes(sheets: SheetData[]) {
+  const workbook = XLSX.utils.book_new();
+  const usedTitles = new Set<string>();
+  for (const sheet of sheets) {
+    const title = safeExcelSheetTitle(parseRangeTitle(sheet.range), usedTitles);
+    const worksheet = XLSX.utils.aoa_to_sheet(sheet.values);
+    worksheet["!cols"] = Array.from({ length: Math.max(...sheet.values.map((row) => row.length), 1) }, (_unused, index) => ({ wch: index === 0 ? 28 : 18 }));
+    XLSX.utils.book_append_sheet(workbook, worksheet, title);
+  }
+  const bytes = XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+  return new Uint8Array(bytes);
+}
+
+function buildDebtEmailHtml(input: { customerName: string; fromDate: string; toDate: string; payable: number; lineCount: number; isNpp: boolean; attachmentName: string }) {
+  return `
+    <div style="font-family:Arial,sans-serif;line-height:1.55;color:#1f2937">
+      <p>Kính gửi Quý khách hàng: <strong>${escapeHtml(input.customerName)}</strong>,</p>
+      <p>BMQ gửi Anh/Chị file công nợ đính kèm trong kỳ <strong>${vnDate(input.fromDate)} đến ${vnDate(input.toDate)}</strong>.</p>
+      <table style="border-collapse:collapse;margin:12px 0">
+        <tr><td style="padding:4px 12px 4px 0">Loại khách hàng</td><td><strong>${input.isNpp ? "NPP / đại lý cấp 1" : "Khách hàng trực tiếp"}</strong></td></tr>
+        <tr><td style="padding:4px 12px 4px 0">Tổng số dòng doanh thu</td><td><strong>${input.lineCount}</strong></td></tr>
+        <tr><td style="padding:4px 12px 4px 0">Tổng công nợ cần đối soát</td><td><strong>${formatVnd(input.payable)}</strong></td></tr>
+      </table>
+      <p>File đính kèm: <strong>${escapeHtml(input.attachmentName)}</strong></p>
+      <p>Anh/Chị vui lòng kiểm tra số liệu trong file đính kèm. Nếu có chênh lệch, phản hồi lại email này để BMQ đối soát và điều chỉnh.</p>
+      <p>Trân trọng,<br/>BMQ Finance</p>
+    </div>`;
+}
+
+async function uploadComposioAttachment(bytes: Uint8Array, filename: string) {
+  const md5 = SparkMD5.hashBinary(bytesToBinaryString(bytes));
+  const uploadRequest = await composioJson("/api/v3/files/upload/request", {
+    method: "POST",
+    body: JSON.stringify({ toolkit_slug: "gmail", tool_slug: "GMAIL_SEND_EMAIL", filename, mimetype: XLSX_MIME, md5 }),
+  });
+  const uploadUrl = String(uploadRequest.new_presigned_url || uploadRequest.newPresignedUrl || "");
+  const s3key = String(uploadRequest.key || "");
+  if (!uploadUrl || !s3key) throw new Error("composio_upload_url_missing");
+  const uploadHeaders: Record<string, string> = { "Content-Type": XLSX_MIME };
+  const metadata = asRecord(uploadRequest.metadata);
+  if (metadata.storage_backend === "azure_blob_storage") uploadHeaders["x-ms-blob-type"] = "BlockBlob";
+  const uploadResponse = await fetch(uploadUrl, { method: "PUT", headers: uploadHeaders, body: bytes });
+  if (!uploadResponse.ok) throw new Error(`composio_upload_failed:${uploadResponse.status}:${await uploadResponse.text()}`);
+  return { name: filename, mimetype: XLSX_MIME, s3key };
+}
+
+async function verifyComposioGmailSender(connectedAccountId: string, expectedEmail: string) {
+  const result = await composioJson("/api/v3/tools/execute/GMAIL_GET_PROFILE", {
+    method: "POST",
+    body: JSON.stringify({
+      connected_account_id: connectedAccountId,
+      version: "latest",
+      arguments: { user_id: "me" },
+    }),
+  });
+  const data = asRecord(result.data);
+  const emailAddress = String(data.emailAddress || data.email || "").toLowerCase();
+  if (emailAddress !== expectedEmail.toLowerCase()) throw new Error(`composio_sender_mismatch:${emailAddress || "unknown"}`);
+}
+
+async function sendDebtEmail(input: { to: string[]; customerName: string; fromDate: string; toDate: string; spreadsheetName: string; payable: number; lineCount: number; isNpp: boolean; workbookBytes: Uint8Array }) {
+  const emailEnabled = (Deno.env.get("CUSTOMER_DEBT_EMAIL_ENABLED") || "true").toLowerCase() !== "false";
+  if (!emailEnabled) return { skipped: true, reason: "CUSTOMER_DEBT_EMAIL_ENABLED=false" };
+  const connectedAccountId = Deno.env.get("COMPOSIO_GMAIL_CONNECTED_ACCOUNT_ID");
+  if (!connectedAccountId) throw new Error("COMPOSIO_GMAIL_CONNECTED_ACCOUNT_ID missing");
+  const senderEmail = Deno.env.get("CUSTOMER_DEBT_GMAIL_SENDER") || CUSTOMER_DEBT_GMAIL_SENDER;
+  await verifyComposioGmailSender(connectedAccountId, senderEmail);
+  const attachmentName = `${input.spreadsheetName}.xlsx`;
+  const attachment = await uploadComposioAttachment(input.workbookBytes, attachmentName);
+  const subject = `BMQ - Công nợ ${input.customerName} ${vnDate(input.fromDate)}-${vnDate(input.toDate)}`;
+  const html = buildDebtEmailHtml({ ...input, attachmentName });
+  const result = await composioJson("/api/v3/tools/execute/GMAIL_SEND_EMAIL", {
+    method: "POST",
+    body: JSON.stringify({
+      connected_account_id: connectedAccountId,
+      version: "latest",
+      arguments: {
+        user_id: "me",
+        from_email: senderEmail,
+        recipient_email: input.to[0],
+        extra_recipients: input.to.slice(1),
+        cc: [],
+        bcc: [],
+        subject,
+        body: html,
+        is_html: true,
+        attachment,
+      },
+    }),
+  });
+  if (result.successful === false) throw new Error(`composio_gmail_send_failed:${JSON.stringify(result.error || result)}`);
+  return { sent: true, provider: "composio_gmail", from: senderEmail, subject, attachmentName, response: result.data || result };
+}
+
 
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
@@ -299,15 +402,9 @@ serve(async (req) => {
     const isNpp = Boolean(customer.is_npp);
     const allLines = (lines || []) as LedgerLine[];
     const childRows = (children || []) as Customer[];
-    const data: Array<{ range: string; values: unknown[][] }> = [];
-    const accessToken = await getAccessToken(supabaseAdmin);
+    const data: SheetData[] = [];
     const customerName = String(customer.customer_name || "Khách hàng");
     const spreadsheetName = `${customerName.replace(/^Đại lý cấp 1\s*-\s*/i, "").trim()} ${formatRangeName(fromDate, toDate)} Công nợ`;
-    const spreadsheet = await googleJson(accessToken, "https://sheets.googleapis.com/v4/spreadsheets?fields=spreadsheetId,spreadsheetUrl,properties(title),sheets(properties(sheetId,title))", {
-      method: "POST",
-      body: JSON.stringify({ properties: { title: spreadsheetName }, sheets: [{ properties: { title: "TOTAL" } }] }),
-    });
-    const spreadsheetId = spreadsheet.spreadsheetId;
 
     let summaryCount = 0;
     let emailLineCount = 0;
@@ -338,9 +435,6 @@ serve(async (req) => {
       summaryCount = summaries.length;
       emailLineCount = summaries.reduce((s, g) => s + g.lines.length, 0);
       emailPayable = summaries.reduce((s, g) => s + g.payable, 0);
-
-      const addSheetRequests = summaries.filter((g) => g.id !== "unmapped").map((g) => ({ addSheet: { properties: { title: safeSheetTitle(g.name) } } }));
-      if (addSheetRequests.length) await googleJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, { method: "POST", body: JSON.stringify({ requests: addSheetRequests }) });
 
       const totalValues = [
         ["BMQ - Lầu 4 - Tòa Nhà 212 Pasteur - Quận 3 - TPHCM"],
@@ -397,51 +491,68 @@ serve(async (req) => {
       data.push({ range: `TOTAL!A1:F${values.length}`, values });
     }
 
-    await googleJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
-      method: "POST",
-      body: JSON.stringify({ valueInputOption: "USER_ENTERED", data }),
-    });
-
-    const totalSheetId = sheetIdByTitle(spreadsheet, "TOTAL") ?? await getSheetId(accessToken, spreadsheetId, "TOTAL");
-    const totalColumnCount = isNpp ? 5 : 6;
-    await googleJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
-      method: "POST",
-      body: JSON.stringify({
-        requests: [
-          { repeatCell: { range: { sheetId: totalSheetId, startRowIndex: 0, endRowIndex: 4 }, cell: { userEnteredFormat: { textFormat: { bold: true }, horizontalAlignment: "CENTER" } }, fields: "userEnteredFormat(textFormat,horizontalAlignment)" } },
-          { repeatCell: { range: { sheetId: totalSheetId, startRowIndex: 5, endRowIndex: 6 }, cell: { userEnteredFormat: { textFormat: { bold: true }, backgroundColor: { red: 0.85, green: 0.47, blue: 0.04 } } }, fields: "userEnteredFormat(textFormat,backgroundColor)" } },
-          { autoResizeDimensions: { dimensions: { sheetId: totalSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: totalColumnCount } } },
-        ],
-      }),
-    });
-
-    try {
-      await googleJson(accessToken, `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${encodeURIComponent(parentFolderId)}&fields=id,parents,webViewLink&supportsAllDrives=true`, { method: "PATCH", body: JSON.stringify({}) });
-    } catch (moveError) {
-      console.warn("[export-npp-debt-sheet] move to folder skipped", moveError);
-    }
-
+    const workbookBytes = buildDebtWorkbookBytes(data);
+    let spreadsheetId: string | null = null;
+    let webViewLink: string | null = null;
     let shareResults: Array<{ email: string; ok: boolean; permissionId?: string | null; error?: string }> = [];
     let emailResult: unknown = null;
+    let attachmentName: string | null = null;
+
     if (shouldSendEmail) {
       if (!recipientEmails.length) throw new Error("customer_email_missing_in_crm");
-      shareResults = await shareSheetWithRecipients(accessToken, spreadsheetId, recipientEmails);
-      const failedShare = shareResults.filter((row) => !row.ok);
-      if (failedShare.length) throw new Error(`share_sheet_failed:${failedShare.map((row) => row.email).join(",")}`);
       emailResult = await sendDebtEmail({
         to: recipientEmails,
         customerName,
         fromDate,
         toDate,
         spreadsheetName,
-        webViewLink: spreadsheet.spreadsheetUrl,
         payable: emailPayable,
         lineCount: emailLineCount,
         isNpp,
+        workbookBytes,
       });
+      attachmentName = String(asRecord(emailResult).attachmentName || `${spreadsheetName}.xlsx`);
+    } else {
+      const accessToken = await getAccessToken(supabaseAdmin);
+      const spreadsheet = await googleJson(accessToken, "https://sheets.googleapis.com/v4/spreadsheets?fields=spreadsheetId,spreadsheetUrl,properties(title),sheets(properties(sheetId,title))", {
+        method: "POST",
+        body: JSON.stringify({ properties: { title: spreadsheetName }, sheets: [{ properties: { title: "TOTAL" } }] }),
+      });
+      spreadsheetId = String(spreadsheet.spreadsheetId || "");
+      webViewLink = String(spreadsheet.spreadsheetUrl || "");
+
+      if (isNpp) {
+        const sheetTitles = data.map((sheet) => parseRangeTitle(sheet.range)).filter((title) => title !== "TOTAL");
+        const addSheetRequests = sheetTitles.map((title) => ({ addSheet: { properties: { title: safeSheetTitle(title) } } }));
+        if (addSheetRequests.length) await googleJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, { method: "POST", body: JSON.stringify({ requests: addSheetRequests }) });
+      }
+
+      await googleJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+        method: "POST",
+        body: JSON.stringify({ valueInputOption: "USER_ENTERED", data }),
+      });
+
+      const totalSheetId = sheetIdByTitle(spreadsheet, "TOTAL") ?? await getSheetId(accessToken, spreadsheetId, "TOTAL");
+      const totalColumnCount = isNpp ? 5 : 6;
+      await googleJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
+        method: "POST",
+        body: JSON.stringify({
+          requests: [
+            { repeatCell: { range: { sheetId: totalSheetId, startRowIndex: 0, endRowIndex: 4 }, cell: { userEnteredFormat: { textFormat: { bold: true }, horizontalAlignment: "CENTER" } }, fields: "userEnteredFormat(textFormat,horizontalAlignment)" } },
+            { repeatCell: { range: { sheetId: totalSheetId, startRowIndex: 5, endRowIndex: 6 }, cell: { userEnteredFormat: { textFormat: { bold: true }, backgroundColor: { red: 0.85, green: 0.47, blue: 0.04 } } }, fields: "userEnteredFormat(textFormat,backgroundColor)" } },
+            { autoResizeDimensions: { dimensions: { sheetId: totalSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: totalColumnCount } } },
+          ],
+        }),
+      });
+
+      try {
+        await googleJson(accessToken, `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${encodeURIComponent(parentFolderId)}&fields=id,parents,webViewLink&supportsAllDrives=true`, { method: "PATCH", body: JSON.stringify({}) });
+      } catch (moveError) {
+        console.warn("[export-npp-debt-sheet] move to folder skipped", moveError);
+      }
     }
 
-    return jsonResponse({ success: true, spreadsheetId, spreadsheetName, webViewLink: spreadsheet.spreadsheetUrl, summaryCount, recipientEmails, isNpp, emailResult, shareResults }, 200, corsHeaders);
+    return jsonResponse({ success: true, spreadsheetId, spreadsheetName, webViewLink, summaryCount, recipientEmails, isNpp, emailResult, shareResults, attachmentName }, 200, corsHeaders);
   } catch (error) {
     console.error("[export-npp-debt-sheet] Error", error);
     const rawMessage = error instanceof Error ? error.message : "Unknown error";
