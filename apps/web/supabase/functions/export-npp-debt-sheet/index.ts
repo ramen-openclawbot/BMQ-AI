@@ -206,7 +206,14 @@ async function composioJson(path: string, init: RequestInit = {}) {
   const baseUrl = (Deno.env.get("COMPOSIO_BASE_URL") || DEFAULT_COMPOSIO_BASE_URL).replace(/\/$/, "");
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
-    headers: { "x-user-api-key": apiKey, "x-org-id": orgId, "x-project-id": projectId, "Content-Type": "application/json", ...(init.headers || {}) },
+    headers: {
+      "x-user-api-key": apiKey,
+      "x-org-id": orgId,
+      "x-project-id": projectId,
+      "Content-Type": "application/json",
+      "User-Agent": "Mozilla/5.0",
+      ...(init.headers || {}),
+    },
   });
   const text = await response.text();
   const data = parseGoogleJson(text);
