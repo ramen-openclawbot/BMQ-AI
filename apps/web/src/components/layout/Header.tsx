@@ -27,7 +27,7 @@ export function Header() {
       >
         <Menu className="h-5 w-5 text-muted-foreground" />
       </Button>
-      <div className="flex items-center gap-2 sm:gap-4">
+      <div className="ml-auto flex items-center gap-2 sm:gap-4">
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="h-5 w-5 text-muted-foreground" />
         </Button>
