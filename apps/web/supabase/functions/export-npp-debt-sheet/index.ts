@@ -199,11 +199,14 @@ const formatVnd = (value: number) =>
 
 async function composioJson(path: string, init: RequestInit = {}) {
   const apiKey = Deno.env.get("COMPOSIO_API_KEY");
+  const orgId = Deno.env.get("COMPOSIO_ORG_ID");
+  const projectId = Deno.env.get("COMPOSIO_PROJECT_ID");
   if (!apiKey) throw new Error("COMPOSIO_API_KEY missing");
+  if (!orgId || !projectId) throw new Error("COMPOSIO_ORG_ID_OR_PROJECT_ID missing");
   const baseUrl = (Deno.env.get("COMPOSIO_BASE_URL") || DEFAULT_COMPOSIO_BASE_URL).replace(/\/$/, "");
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
-    headers: { "x-api-key": apiKey, "Content-Type": "application/json", ...(init.headers || {}) },
+    headers: { "x-user-api-key": apiKey, "x-org-id": orgId, "x-project-id": projectId, "Content-Type": "application/json", ...(init.headers || {}) },
   });
   const text = await response.text();
   const data = parseGoogleJson(text);
@@ -290,11 +293,12 @@ async function uploadComposioAttachment(bytes: Uint8Array, filename: string) {
   return { name: filename, mimetype: XLSX_MIME, s3key };
 }
 
-async function verifyComposioGmailSender(connectedAccountId: string, expectedEmail: string) {
+async function verifyComposioGmailSender(connectedAccountId: string, composioUserId: string, expectedEmail: string) {
   const result = await composioJson("/api/v3/tools/execute/GMAIL_GET_PROFILE", {
     method: "POST",
     body: JSON.stringify({
       connected_account_id: connectedAccountId,
+      user_id: composioUserId,
       version: "latest",
       arguments: { user_id: "me" },
     }),
@@ -310,7 +314,9 @@ async function sendDebtEmail(input: { to: string[]; customerName: string; fromDa
   const connectedAccountId = Deno.env.get("COMPOSIO_GMAIL_CONNECTED_ACCOUNT_ID");
   if (!connectedAccountId) throw new Error("COMPOSIO_GMAIL_CONNECTED_ACCOUNT_ID missing");
   const senderEmail = Deno.env.get("CUSTOMER_DEBT_GMAIL_SENDER") || CUSTOMER_DEBT_GMAIL_SENDER;
-  await verifyComposioGmailSender(connectedAccountId, senderEmail);
+  const composioUserId = Deno.env.get("COMPOSIO_USER_ID");
+  if (!composioUserId) throw new Error("COMPOSIO_USER_ID missing");
+  await verifyComposioGmailSender(connectedAccountId, composioUserId, senderEmail);
   const attachmentName = `${input.spreadsheetName}.xlsx`;
   const attachment = await uploadComposioAttachment(input.workbookBytes, attachmentName);
   const subject = `BMQ - Công nợ ${input.customerName} ${vnDate(input.fromDate)}-${vnDate(input.toDate)}`;
@@ -319,6 +325,7 @@ async function sendDebtEmail(input: { to: string[]; customerName: string; fromDa
     method: "POST",
     body: JSON.stringify({
       connected_account_id: connectedAccountId,
+      user_id: composioUserId,
       version: "latest",
       arguments: {
         user_id: "me",
