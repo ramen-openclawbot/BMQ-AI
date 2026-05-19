@@ -7,6 +7,11 @@ import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 const DEFAULT_PARENT_FOLDER_ID = "1Add8Lj3NiOUel-7h-0wpWUU1-qXzgwdi";
 const DEFAULT_COMPOSIO_BASE_URL = "https://backend.composio.dev";
 const CUSTOMER_DEBT_GMAIL_SENDER = "no-reply@bmq.vn";
+const CUSTOMER_DEBT_DEFAULT_CC = "ketoantruong@bmq.vn";
+const COMPANY_HEADER_LINES = [
+  "CÔNG TY CỔ PHẦN THỰC PHẨM BMQ MST: 0311840107",
+  "Địa chỉ: Tầng 2, 68 Nguyễn Huệ, phường Sài Gòn, Thành phố Hồ Chí Minh",
+];
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 type DbClient = ReturnType<typeof createClient>;
@@ -339,7 +344,7 @@ async function sendDebtEmail(input: { to: string[]; customerName: string; fromDa
         from_email: senderEmail,
         recipient_email: input.to[0],
         extra_recipients: input.to.slice(1),
-        cc: [],
+        cc: [CUSTOMER_DEBT_DEFAULT_CC],
         bcc: [],
         subject,
         body: html,
@@ -451,7 +456,7 @@ serve(async (req) => {
       emailPayable = summaries.reduce((s, g) => s + g.payable, 0);
 
       const totalValues = [
-        ["BMQ - Lầu 4 - Tòa Nhà 212 Pasteur - Quận 3 - TPHCM"],
+        ...COMPANY_HEADER_LINES.map((line) => [line]),
         ["SỔ CHI TIẾT CÔNG NỢ"],
         [`${customerName} • Từ ${vnDate(fromDate)} đến ${vnDate(toDate)}`],
         [`Email CRM: ${recipientEmails.join(", ") || "Chưa có email trong CRM"}`],
@@ -464,7 +469,7 @@ serve(async (req) => {
       for (const group of summaries.filter((x) => x.id !== "unmapped")) {
         const title = safeSheetTitle(group.name);
         const values = [
-          ["BMQ - Lầu 4 - Tòa Nhà 212 Pasteur - Quận 3 - TPHCM"],
+          ...COMPANY_HEADER_LINES.map((line) => [line]),
           ["SỔ CHI TIẾT CÔNG NỢ"],
           [`${group.name} • Từ ${vnDate(fromDate)} đến ${vnDate(toDate)}`],
           [],
@@ -485,7 +490,7 @@ serve(async (req) => {
       emailLineCount = directLines.length;
       emailPayable = gross;
       const values = [
-        ["BMQ - Lầu 4 - Tòa Nhà 212 Pasteur - Quận 3 - TPHCM"],
+        ...COMPANY_HEADER_LINES.map((line) => [line]),
         ["SỔ CHI TIẾT CÔNG NỢ"],
         [`${customerName} • Từ ${vnDate(fromDate)} đến ${vnDate(toDate)}`],
         [`Email CRM: ${recipientEmails.join(", ") || "Chưa có email trong CRM"}`],
@@ -552,8 +557,8 @@ serve(async (req) => {
         method: "POST",
         body: JSON.stringify({
           requests: [
-            { repeatCell: { range: { sheetId: totalSheetId, startRowIndex: 0, endRowIndex: 4 }, cell: { userEnteredFormat: { textFormat: { bold: true }, horizontalAlignment: "CENTER" } }, fields: "userEnteredFormat(textFormat,horizontalAlignment)" } },
-            { repeatCell: { range: { sheetId: totalSheetId, startRowIndex: 5, endRowIndex: 6 }, cell: { userEnteredFormat: { textFormat: { bold: true }, backgroundColor: { red: 0.85, green: 0.47, blue: 0.04 } } }, fields: "userEnteredFormat(textFormat,backgroundColor)" } },
+            { repeatCell: { range: { sheetId: totalSheetId, startRowIndex: 0, endRowIndex: 5 }, cell: { userEnteredFormat: { textFormat: { bold: true }, horizontalAlignment: "CENTER" } }, fields: "userEnteredFormat(textFormat,horizontalAlignment)" } },
+            { repeatCell: { range: { sheetId: totalSheetId, startRowIndex: 6, endRowIndex: 7 }, cell: { userEnteredFormat: { textFormat: { bold: true }, backgroundColor: { red: 0.85, green: 0.47, blue: 0.04 } } }, fields: "userEnteredFormat(textFormat,backgroundColor)" } },
             { autoResizeDimensions: { dimensions: { sheetId: totalSheetId, dimension: "COLUMNS", startIndex: 0, endIndex: totalColumnCount } } },
           ],
         }),

@@ -118,6 +118,8 @@ type DailyRevenueSheetExportResponse = {
 
 type RevenueQuery = PromiseLike<{ data: RevenueLine[] | null; error: { message?: string } | null }> & {
   eq: (column: string, value: string) => RevenueQuery;
+  gte: (column: string, value: string) => RevenueQuery;
+  lte: (column: string, value: string) => RevenueQuery;
   in: (column: string, values: string[]) => RevenueQuery;
   or: (filters: string) => RevenueQuery;
   order: (column: string, options: { ascending: boolean }) => RevenueQuery;
@@ -127,6 +129,8 @@ type RevenueQuery = PromiseLike<{ data: RevenueLine[] | null; error: { message?:
 type RevenueChannelRow = { channel: string | null };
 type RevenueChannelQuery = PromiseLike<{ data: RevenueChannelRow[] | null; error: { message?: string } | null }> & {
   eq: (column: string, value: string) => RevenueChannelQuery;
+  gte: (column: string, value: string) => RevenueChannelQuery;
+  lte: (column: string, value: string) => RevenueChannelQuery;
   in: (column: string, values: string[]) => RevenueChannelQuery;
   or: (filters: string) => RevenueChannelQuery;
   order: (column: string, options: { ascending: boolean }) => RevenueChannelQuery;
@@ -215,12 +219,14 @@ const ledgerSnapshot = (row: RevenueLine) => ({
 
 const applyRevenueSourceFilters = <T extends RevenueQuery | RevenueChannelQuery>(
   query: T,
-  { period, channel, review, sourceDocumentId, revenueDate, scope }: {
+  { period, channel, review, sourceDocumentId, revenueDate, dateFrom, dateTo, scope }: {
     period: string;
     channel?: string;
     review: string;
     sourceDocumentId: string;
     revenueDate: string;
+    dateFrom: string;
+    dateTo: string;
     scope: string;
   }
 ): T => {
@@ -228,7 +234,12 @@ const applyRevenueSourceFilters = <T extends RevenueQuery | RevenueChannelQuery>
   const isControlledLedgerScope = scope === "controlled_ledger";
 
   if (sourceDocumentId) next = next.eq("source_document_id", sourceDocumentId) as T;
-  if (revenueDate) next = next.eq("revenue_date", revenueDate) as T;
+  if (dateFrom || dateTo) {
+    if (dateFrom) next = next.gte("revenue_date", dateFrom) as T;
+    if (dateTo) next = next.lte("revenue_date", dateTo) as T;
+  } else if (revenueDate) {
+    next = next.eq("revenue_date", revenueDate) as T;
+  }
   if (isControlledLedgerScope) {
     next = next.in("source_document.status", ["controlled", "trusted"]).eq("approval_status", "approved") as T;
   } else if (sourceDocumentId || revenueDate) {
@@ -246,7 +257,7 @@ const applyRevenueSourceFilters = <T extends RevenueQuery | RevenueChannelQuery>
   return next;
 };
 
-async function fetchAllRevenueSourceLines(period: string, channel: string, review: string, sourceDocumentId: string, revenueDate: string, scope: string) {
+async function fetchAllRevenueSourceLines(period: string, channel: string, review: string, sourceDocumentId: string, revenueDate: string, dateFrom: string, dateTo: string, scope: string) {
   const pageSize = 1000;
   const rows: RevenueLine[] = [];
 
@@ -257,7 +268,7 @@ async function fetchAllRevenueSourceLines(period: string, channel: string, revie
       .order("revenue_date", { ascending: true })
       .order("source_row_number", { ascending: true })
       .range(from, from + pageSize - 1);
-    const query = applyRevenueSourceFilters(baseQuery, { period, channel, review, sourceDocumentId, revenueDate, scope });
+    const query = applyRevenueSourceFilters(baseQuery, { period, channel, review, sourceDocumentId, revenueDate, dateFrom, dateTo, scope });
 
     const { data, error } = await query;
     if (error) throw error;
@@ -267,7 +278,7 @@ async function fetchAllRevenueSourceLines(period: string, channel: string, revie
   }
 }
 
-async function fetchRevenueSourceChannels(period: string, review: string, sourceDocumentId: string, revenueDate: string, scope: string) {
+async function fetchRevenueSourceChannels(period: string, review: string, sourceDocumentId: string, revenueDate: string, dateFrom: string, dateTo: string, scope: string) {
   const pageSize = 1000;
   const channels = new Set<string>();
 
@@ -277,7 +288,7 @@ async function fetchRevenueSourceChannels(period: string, review: string, source
       .select("channel,source_document:revenue_source_documents!inner(status)")
       .order("channel", { ascending: true })
       .range(from, from + pageSize - 1) as unknown as RevenueChannelQuery;
-    const query = applyRevenueSourceFilters(baseQuery, { period, review, sourceDocumentId, revenueDate, scope });
+    const query = applyRevenueSourceFilters(baseQuery, { period, review, sourceDocumentId, revenueDate, dateFrom, dateTo, scope });
 
     const { data, error } = await query;
     if (error) throw error;
@@ -359,6 +370,10 @@ export default function RevenueSourceDetail() {
   const focus = params.get("focus") || "";
   const sourceDocumentId = params.get("sourceDocumentId") || "";
   const revenueDate = params.get("revenue_date") || "";
+  const dateFrom = params.get("date_from") || "";
+  const dateTo = params.get("date_to") || "";
+  const dateFromInput = dateFrom || revenueDate;
+  const dateToInput = dateTo || revenueDate;
   const isControlledLedgerScope = scope === "controlled_ledger";
   const isQuantityFocus = focus === "quantity";
   const isCustomersFocus = focus === "customers";
@@ -376,16 +391,16 @@ export default function RevenueSourceDetail() {
   const [sheetExportMessage, setSheetExportMessage] = useState<string | null>(null);
 
   const { data: lines = [], isLoading, error, refetch } = useQuery<RevenueLine[]>({
-    queryKey: ["revenue-source-detail", period, channel, customerKey, review, scope, focus, sourceDocumentId, revenueDate],
+    queryKey: ["revenue-source-detail", period, channel, customerKey, review, scope, focus, sourceDocumentId, revenueDate, dateFrom, dateTo],
     queryFn: async () => {
-      return fetchAllRevenueSourceLines(period, channel, review, sourceDocumentId, revenueDate, scope);
+      return fetchAllRevenueSourceLines(period, channel, review, sourceDocumentId, revenueDate, dateFrom, dateTo, scope);
     },
   });
 
   const { data: channelOptions = [] } = useQuery<string[]>({
-    queryKey: ["revenue-source-channels", period, review, scope, focus, sourceDocumentId, revenueDate],
+    queryKey: ["revenue-source-channels", period, review, scope, focus, sourceDocumentId, revenueDate, dateFrom, dateTo],
     queryFn: async () => {
-      return fetchRevenueSourceChannels(period, review, sourceDocumentId, revenueDate, scope);
+      return fetchRevenueSourceChannels(period, review, sourceDocumentId, revenueDate, dateFrom, dateTo, scope);
     },
   });
 
@@ -461,6 +476,17 @@ export default function RevenueSourceDetail() {
     if (value) next.set("period", value); else next.delete("period");
     const activeDate = next.get("revenue_date") || "";
     if (activeDate && value && !activeDate.startsWith(`${value}-`)) next.delete("revenue_date");
+    const activeDateFrom = next.get("date_from") || "";
+    const activeDateTo = next.get("date_to") || "";
+    if (activeDateFrom && value && !activeDateFrom.startsWith(`${value}-`)) next.delete("date_from");
+    if (activeDateTo && value && !activeDateTo.startsWith(`${value}-`)) next.delete("date_to");
+    setParams(next);
+  };
+
+  const updateDateRangeFilter = (key: "date_from" | "date_to", value: string) => {
+    const next = new URLSearchParams(params);
+    next.delete("revenue_date");
+    if (value) next.set(key, value); else next.delete(key);
     setParams(next);
   };
 
@@ -468,6 +494,8 @@ export default function RevenueSourceDetail() {
     const next = new URLSearchParams(params);
     next.delete("channel");
     next.delete("revenue_date");
+    next.delete("date_from");
+    next.delete("date_to");
     next.delete("review");
     setParams(next);
     setQ("");
@@ -744,7 +772,7 @@ export default function RevenueSourceDetail() {
             {reviewLabel ? <Badge variant="outline">{reviewLabel}</Badge> : null}
             {channel ? <Badge variant="outline">{channel}</Badge> : null}
             {sourceDocumentId ? <Badge variant="outline">Auto daily source</Badge> : null}
-            {revenueDate ? <Badge variant="outline">{revenueDate}</Badge> : null}
+            {dateFrom || dateTo ? <Badge variant="outline">{dateFrom || "…"} → {dateTo || "…"}</Badge> : revenueDate ? <Badge variant="outline">{revenueDate}</Badge> : null}
           </div>
           <h1 className="text-3xl font-display font-bold">{isVi ? "Chi tiết nguồn doanh thu" : "Revenue source detail"}</h1>
           <p className="max-w-3xl text-muted-foreground">
@@ -819,7 +847,7 @@ export default function RevenueSourceDetail() {
               <CardTitle>Ledger source lines</CardTitle>
               <CardDescription>{sourceLinesDescription}</CardDescription>
             </div>
-            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-6">
+            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-7">
               <div className="space-y-1">
                 <Label htmlFor="ledger-period-filter" className="text-xs text-muted-foreground">Tháng</Label>
                 <Input
@@ -831,13 +859,23 @@ export default function RevenueSourceDetail() {
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="ledger-date-filter" className="text-xs text-muted-foreground">Ngày</Label>
+                <Label htmlFor="ledger-date-from-filter" className="text-xs text-muted-foreground">Từ ngày</Label>
                 <Input
-                  id="ledger-date-filter"
+                  id="ledger-date-from-filter"
                   type="date"
-                  value={revenueDate}
-                  onChange={(e) => updateParam("revenue_date", e.target.value)}
-                  title="Lọc ledger theo ngày doanh thu"
+                  value={dateFromInput}
+                  onChange={(e) => updateDateRangeFilter("date_from", e.target.value)}
+                  title="Lọc ledger từ ngày doanh thu"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="ledger-date-to-filter" className="text-xs text-muted-foreground">Đến ngày</Label>
+                <Input
+                  id="ledger-date-to-filter"
+                  type="date"
+                  value={dateToInput}
+                  onChange={(e) => updateDateRangeFilter("date_to", e.target.value)}
+                  title="Lọc ledger đến ngày doanh thu"
                 />
               </div>
               <div className="space-y-1">

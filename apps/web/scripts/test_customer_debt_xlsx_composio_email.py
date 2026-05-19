@@ -18,6 +18,9 @@ def test_edge_function_uses_xlsx_attachment_and_composio_gmail():
     assert 'COMPOSIO_PROJECT_ID' in source
     assert 'COMPOSIO_USER_ID' in source
     assert 'no-reply@bmq.vn' in source
+    assert 'ketoantruong@bmq.vn' in source
+    assert 'CÔNG TY CỔ PHẦN THỰC PHẨM BMQ MST: 0311840107' in source
+    assert 'Tầng 2, 68 Nguyễn Huệ, phường Sài Gòn, Thành phố Hồ Chí Minh' in source
     assert 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' in source
     assert 'Link Google Sheet' not in source
     assert 'api.resend.com/emails' not in source
