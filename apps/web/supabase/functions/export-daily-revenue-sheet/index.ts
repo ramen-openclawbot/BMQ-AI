@@ -3,6 +3,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 
 const DEFAULT_PARENT_FOLDER_ID = "1Add8Lj3NiOUel-7h-0wpWUU1-qXzgwdi";
+const DEFAULT_DRIVE_OWNER_EMAIL = "no-reply@bmq.vn";
 
 const jsonResponse = (body: unknown, status = 200, corsHeaders?: Record<string, string>) =>
   new Response(JSON.stringify(body), {
@@ -117,6 +118,37 @@ async function ensureDateFolder(accessToken: string, parentFolderId: string, fol
     }),
   });
   return { id: data.id, name: data.name, webViewLink: data.webViewLink, created: true };
+}
+
+async function getGoogleUserInfo(accessToken: string): Promise<{ email: string }> {
+  const response = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : {};
+  if (!response.ok) throw new Error(`google_userinfo_failed:${response.status}:${text}`);
+  return { email: String(data.email || "").toLowerCase() };
+}
+
+async function verifyDriveOwner(accessToken: string) {
+  const expectedEmail = (Deno.env.get("DAILY_REVENUE_DRIVE_OWNER_EMAIL") || DEFAULT_DRIVE_OWNER_EMAIL).toLowerCase();
+  const profile = await getGoogleUserInfo(accessToken);
+  if (profile.email !== expectedEmail) throw new Error(`google_drive_owner_mismatch:${profile.email || "unknown"}:expected:${expectedEmail}`);
+  return profile;
+}
+
+async function shareSheetWithUser(accessToken: string, fileId: string, userEmail: string) {
+  const email = String(userEmail || "").trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("login_user_email_missing");
+  const permission = await driveJson(
+    accessToken,
+    `https://www.googleapis.com/drive/v3/files/${fileId}/permissions?fields=id,emailAddress,role&supportsAllDrives=true&sendNotificationEmail=false`,
+    {
+      method: "POST",
+      body: JSON.stringify({ type: "user", role: "reader", emailAddress: email }),
+    }
+  );
+  return { email, permissionId: permission.id || null, role: permission.role || "reader" };
 }
 
 async function uploadCsvAsGoogleSheet(accessToken: string, folderId: string, fileName: string, csv: string) {
@@ -326,11 +358,13 @@ serve(async (req) => {
     };
 
     const accessToken = await getAccessToken(supabaseAdmin);
+    const driveOwner = await verifyDriveOwner(accessToken);
     const folderName = dateFolderName(revenueDate);
     const folder = await ensureDateFolder(accessToken, parentFolderId, folderName);
     const fileName = `BMQ Báo cáo doanh thu ngày ${folderName}`;
     const sheet = await uploadCsvAsGoogleSheet(accessToken, folder.id, fileName, toCsv(accountingRows));
     await styleAccountingSheet(accessToken, sheet.id, sheetLayout);
+    const shareResult = await shareSheetWithUser(accessToken, sheet.id, user.email || "");
 
     return jsonResponse({
       success: true,
@@ -341,6 +375,10 @@ serve(async (req) => {
       fileId: sheet.id,
       fileName: sheet.name,
       webViewLink: sheet.webViewLink,
+      driveOwnerEmail: driveOwner.email,
+      sharedWithEmail: shareResult.email,
+      sharePermissionId: shareResult.permissionId,
+      shareRole: shareResult.role,
       rowCount: lines.length,
       grossRevenue: totalGrossRevenue,
     }, 200, corsHeaders);
@@ -349,7 +387,9 @@ serve(async (req) => {
     const rawMessage = error instanceof Error ? error.message : String(error);
     const message = rawMessage.includes("ACCESS_TOKEN_SCOPE_INSUFFICIENT") || rawMessage.includes("insufficient authentication scopes")
       ? "Google Drive đang kết nối bằng quyền read-only. Vào Cài đặt hệ thống → Tích hợp Google Drive → Ngắt kết nối/Kết nối lại để cấp quyền tạo thư mục và Google Sheet, rồi export lại."
-      : rawMessage;
+      : rawMessage.includes("google_drive_owner_mismatch")
+        ? "Google Drive export phải dùng tài khoản no-reply@bmq.vn. Vào Cài đặt hệ thống → Tích hợp Google Drive → Ngắt kết nối/Kết nối lại bằng no-reply@bmq.vn rồi export lại."
+        : rawMessage;
     return jsonResponse({ error: message }, 500, getCorsHeaders(req));
   }
 });

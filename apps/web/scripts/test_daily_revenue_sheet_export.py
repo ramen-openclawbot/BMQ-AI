@@ -44,6 +44,15 @@ def test_edge_function_exports_to_google_sheet_in_date_folder() -> None:
             "mergeCells",
             "setBasicFilter",
             "autoResizeDimensions",
+            "no-reply@bmq.vn",
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            "google_drive_owner_mismatch",
+            "shareSheetWithUser",
+            "files/${fileId}/permissions",
+            "role: \"reader\"",
+            "emailAddress: email",
+            "sharedWithEmail",
+            "sharePermissionId",
         ],
     )
     text = EDGE_FN.read_text(encoding="utf-8")
