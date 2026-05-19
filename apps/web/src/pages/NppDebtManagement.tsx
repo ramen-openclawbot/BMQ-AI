@@ -455,10 +455,10 @@ export default function NppDebtManagement() {
       const title = sendEmail ? "Đã gửi công nợ" : "Đã xuất Google Sheet";
       const baseName = data?.spreadsheetName || "Công nợ khách hàng";
       const message = sendEmail
-        ? `${data?.attachmentName || `${baseName}.xlsx`} • file Excel đính kèm • Email CRM: ${emails.join(", ")}`
+        ? `${data?.attachmentName || `${baseName}.xlsx`} • file Excel đính kèm • Email nhận công nợ: ${emails.join(", ")}`
         : emails.length
-          ? `${baseName} • Email CRM: ${emails.join(", ")}`
-          : `${baseName} • Chưa có email CRM`;
+          ? `${baseName} • Email nhận công nợ: ${emails.join(", ")}`
+          : `${baseName} • Chưa có email nhận công nợ`;
       setExportStatus({ kind: "success", title, message, webViewLink: sendEmail ? undefined : data?.webViewLink || undefined });
       toast({ title, description: message });
       if (!sendEmail && data?.webViewLink) window.open(data.webViewLink, "_blank", "noopener,noreferrer");

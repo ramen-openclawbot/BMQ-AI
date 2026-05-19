@@ -22,9 +22,9 @@ type Customer = {
   is_npp?: boolean | null;
   supplied_by_npp_customer_id?: string | null;
   npp_management_fee_vnd?: number | string | null;
+  debt_emails?: string[] | null;
   is_active?: boolean | null;
 };
-type CustomerEmail = { email: string | null; customer_id?: string | null };
 type LedgerLine = {
   id: string;
   revenue_date: string;
@@ -128,6 +128,9 @@ const parseGoogleJson = (text: string) => {
 };
 
 const friendlyGoogleError = (message: string) => {
+  if (message.includes("customer_debt_email_missing")) {
+    return "Khách hàng chưa có Email nhận công nợ. Vào CRM khách hàng → Sửa khách hàng → nhập Email nhận công nợ rồi gửi lại.";
+  }
   if (message.includes("ACCESS_TOKEN_SCOPE_INSUFFICIENT") || message.includes("insufficient authentication scopes")) {
     return "Google Drive đang kết nối bằng quyền read-only. Vào Cài đặt hệ thống → Tích hợp Google Drive → Ngắt kết nối/Kết nối lại để cấp quyền tạo Google Sheet, rồi export lại.";
   }
@@ -429,20 +432,14 @@ serve(async (req) => {
 
     const { data: customer, error: customerError } = await supabaseAdmin
       .from("mini_crm_customers")
-      .select("id,customer_name,is_npp,supplied_by_npp_customer_id,npp_management_fee_vnd,is_active")
+      .select("id,customer_name,is_npp,supplied_by_npp_customer_id,npp_management_fee_vnd,debt_emails,is_active")
       .eq("id", customerId)
       .maybeSingle();
     if (customerError) throw customerError;
     if (!customer) throw new Error("customer_not_found");
 
-    const { data: emailRows, error: emailError } = await supabaseAdmin
-      .from("mini_crm_customer_emails")
-      .select("email,customer_id")
-      .eq("customer_id", customerId)
-      .order("email", { ascending: true });
-    if (emailError) throw emailError;
-    const recipientEmails: string[] = Array.from(new Set((emailRows || [])
-      .map((row: CustomerEmail) => String(row.email || "").trim().toLowerCase())
+    const recipientEmails: string[] = Array.from(new Set((Array.isArray(customer.debt_emails) ? customer.debt_emails : [])
+      .map((email: string) => String(email || "").trim().toLowerCase())
       .filter((email: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))));
 
     const { data: children, error: childError } = await supabaseAdmin
@@ -503,7 +500,7 @@ serve(async (req) => {
         ...COMPANY_HEADER_LINES.map((line) => [line]),
         ["SỔ CHI TIẾT CÔNG NỢ"],
         [`${customerName} • Từ ${vnDate(fromDate)} đến ${vnDate(toDate)}`],
-        [`Email CRM: ${recipientEmails.join(", ") || "Chưa có email trong CRM"}`],
+        [`Email nhận công nợ: ${recipientEmails.join(", ") || "Chưa có email nhận công nợ"}`],
         [],
         ["Đại lý", "Số lượng", "Tổng tiền bánh", "Phí quản lí", "Công nợ phải thanh toán"],
         ...summaries.map((g) => [g.name, g.quantity, g.gross, g.fee, g.payable]),
@@ -537,7 +534,7 @@ serve(async (req) => {
         ...COMPANY_HEADER_LINES.map((line) => [line]),
         ["SỔ CHI TIẾT CÔNG NỢ"],
         [`${customerName} • Từ ${vnDate(fromDate)} đến ${vnDate(toDate)}`],
-        [`Email CRM: ${recipientEmails.join(", ") || "Chưa có email trong CRM"}`],
+        [`Email nhận công nợ: ${recipientEmails.join(", ") || "Chưa có email nhận công nợ"}`],
         [],
         ["Ngày", "Kênh", "Diễn giải", "Số lượng", "Đơn giá", "Công nợ"],
         ...directLines.map((line) => [
@@ -560,9 +557,10 @@ serve(async (req) => {
     let shareResults: Array<{ email: string; ok: boolean; permissionId?: string | null; error?: string }> = [];
     let emailResult: unknown = null;
     let attachmentName: string | null = null;
+    let overwrittenExisting = false;
 
     if (shouldSendEmail) {
-      if (!recipientEmails.length) throw new Error("customer_email_missing_in_crm");
+      if (!recipientEmails.length) throw new Error("customer_debt_email_missing");
       emailResult = await sendDebtEmail({
         to: recipientEmails,
         customerName,
@@ -596,6 +594,7 @@ serve(async (req) => {
         spreadsheetId = existingFile.id;
         webViewLink = existingFile.webViewLink || null;
         spreadsheet = await prepareSpreadsheetForOverwrite(accessToken, spreadsheetId, desiredSheetTitles);
+        overwrittenExisting = true;
         webViewLink = String(spreadsheet.spreadsheetUrl || webViewLink || "");
       } else {
         spreadsheet = await googleJson(accessToken, "https://sheets.googleapis.com/v4/spreadsheets?fields=spreadsheetId,spreadsheetUrl,properties(title),sheets(properties(sheetId,title))", {

@@ -83,6 +83,17 @@ const KB_PO_SOURCE_LABEL: Record<string, string> = {
 
 const PO_PAGE_SIZE = 20;
 
+const normalizeEmailList = (raw: string) =>
+  Array.from(new Set(
+    String(raw || "")
+      .split(/[;,\n]+/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean)
+  ));
+
+const formatEmailList = (emails: unknown) =>
+  Array.isArray(emails) ? emails.map((email) => String(email || "").trim()).filter(Boolean).join(", ") : "";
+
 const stripKbSystemMarkers = (note?: string | null) =>
   stripKbAiMarkers(
     String(note || "")
@@ -399,6 +410,7 @@ export default function MiniCrm() {
   const [customerGroup, setCustomerGroup] = useState("banhmi_point");
   const [productGroup, setProductGroup] = useState("banhmi");
   const [emailsInput, setEmailsInput] = useState("");
+  const [debtEmailsInput, setDebtEmailsInput] = useState("");
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
   const [editCustomerName, setEditCustomerName] = useState("");
   const [editCustomerGroup, setEditCustomerGroup] = useState("banhmi_point");
@@ -406,6 +418,7 @@ export default function MiniCrm() {
   const [editIsActive, setEditIsActive] = useState(true);
   const [editAddress, setEditAddress] = useState("");
   const [editEmailsInput, setEditEmailsInput] = useState("");
+  const [editDebtEmailsInput, setEditDebtEmailsInput] = useState("");
   const [editOriginalEmailsInput, setEditOriginalEmailsInput] = useState("");
   const [editFeedback, setEditFeedback] = useState<string>("");
   const [templateFileName, setTemplateFileName] = useState<string>("");
@@ -644,6 +657,7 @@ export default function MiniCrm() {
     setEditNppManagementFee(String(Number(c.npp_management_fee_vnd || 0) || ""));
     const emails = (c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ");
     setEditEmailsInput(emails);
+    setEditDebtEmailsInput(formatEmailList(c.debt_emails) || emails);
     setEditOriginalEmailsInput(emails);
     setTemplateFileName("");
     setTemplatePreview(null);
@@ -688,6 +702,7 @@ export default function MiniCrm() {
     setEditUsesNpp(false);
     setEditSuppliedByNppCustomerId("");
     setEditEmailsInput("");
+    setEditDebtEmailsInput("");
     setEditOriginalEmailsInput("");
     setTemplateFileName("");
     setTemplatePreview(null);
@@ -923,24 +938,23 @@ export default function MiniCrm() {
       const trimmedName = customerName.trim();
       if (!trimmedName) throw new Error("Vui lòng nhập tên khách hàng");
 
+      const recognitionEmails = normalizeEmailList(emailsInput);
+      const debtEmails = normalizeEmailList(debtEmailsInput || emailsInput);
+
       const { data: created, error: createError } = await (supabase as any)
         .from("mini_crm_customers")
         .insert({
           customer_name: trimmedName,
           customer_group: customerGroup,
           product_group: productGroup,
+          debt_emails: debtEmails,
         })
         .select("id")
         .single();
 
       if (createError) throw createError;
 
-      const emails = Array.from(new Set(
-        emailsInput
-          .split(/[;,\n]+/)
-          .map((s) => s.trim().toLowerCase())
-          .filter(Boolean)
-      ));
+      const emails = recognitionEmails;
 
       if (emails.length) {
         const { error: emailError } = await (supabase as any)
@@ -953,6 +967,7 @@ export default function MiniCrm() {
       setCustomerName("");
       setProductGroup("banhmi");
       setEmailsInput("");
+      setDebtEmailsInput("");
       await queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] });
       toast({ title: "Thêm khách hàng thành công", description: "Mini-CRM đã cập nhật." });
     },
@@ -968,17 +983,16 @@ export default function MiniCrm() {
       if (!trimmedName) throw new Error("Vui lòng nhập tên khách hàng");
       if (!setupIsNpp && setupUsesNpp && !setupSuppliedByNppCustomerId) throw new Error("Vui lòng chọn nhà phân phối cung cấp hàng");
 
+      const debtEmails = normalizeEmailList(debtEmailsInput || emailsInput);
       const { data: created, error: createError } = await (supabase as any)
         .from("mini_crm_customers")
-        .insert({ customer_name: trimmedName, customer_group: customerGroup, product_group: productGroup, is_npp: setupIsNpp, supplied_by_npp_customer_id: setupIsNpp ? null : (setupUsesNpp ? (setupSuppliedByNppCustomerId || null) : null), npp_management_fee_vnd: Number(String(setupNppManagementFee || "0").replace(/[^0-9]/g, "")) || 0 })
+        .insert({ customer_name: trimmedName, customer_group: customerGroup, product_group: productGroup, debt_emails: debtEmails, is_npp: setupIsNpp, supplied_by_npp_customer_id: setupIsNpp ? null : (setupUsesNpp ? (setupSuppliedByNppCustomerId || null) : null), npp_management_fee_vnd: Number(String(setupNppManagementFee || "0").replace(/[^0-9]/g, "")) || 0 })
         .select("id")
         .single();
       if (createError) throw createError;
 
       const customerId = created.id;
-      const emails = Array.from(new Set(
-        emailsInput.split(/[;,\n]+/).map((s) => s.trim().toLowerCase()).filter(Boolean)
-      ));
+      const emails = normalizeEmailList(emailsInput);
       if (emails.length) {
         const { error: emailError } = await (supabase as any)
           .from("mini_crm_customer_emails")
@@ -1065,6 +1079,7 @@ export default function MiniCrm() {
       setCustomerGroup("banhmi_point");
       setProductGroup("banhmi");
       setEmailsInput("");
+      setDebtEmailsInput("");
       setSetupContractFile(null);
       setSetupPriceRows([{ skuId: "", price: "" }]);
       setSetupEmailBodyTemplate("");
@@ -1314,6 +1329,7 @@ export default function MiniCrm() {
         product_group: editProductGroup,
         is_active: editIsActive,
         address: editAddress.trim() || null,
+        debt_emails: normalizeEmailList(editDebtEmailsInput || editEmailsInput),
         is_npp: editIsNpp,
         supplied_by_npp_customer_id: editIsNpp ? null : (editUsesNpp ? (editSuppliedByNppCustomerId || null) : null),
         npp_management_fee_vnd: Number(String(editNppManagementFee || "0").replace(/[^0-9]/g, "")) || 0,
@@ -1333,16 +1349,8 @@ export default function MiniCrm() {
         throw new Error("Không cập nhật được khách hàng (có thể do quyền RLS hoặc bản ghi không tồn tại)");
       }
 
-      const normalizeEmails = (raw: string) =>
-        Array.from(new Set(
-          String(raw || "")
-            .split(/[;,\n]+/)
-            .map((s) => s.trim().toLowerCase())
-            .filter(Boolean)
-        ));
-
-      const emails = normalizeEmails(editEmailsInput);
-      const oldEmails = normalizeEmails(editOriginalEmailsInput);
+      const emails = normalizeEmailList(editEmailsInput);
+      const oldEmails = normalizeEmailList(editOriginalEmailsInput);
       const emailChanged = JSON.stringify(emails) !== JSON.stringify(oldEmails);
       const warnings: string[] = [];
 
@@ -2073,7 +2081,8 @@ export default function MiniCrm() {
       const group = normalizeVietnameseText(GROUP_LABEL_MAP[c?.customer_group] || c?.customer_group || "");
       const productGroup = normalizeVietnameseText(PRODUCT_GROUP_LABEL_MAP[c?.product_group] || c?.product_group || "");
       const emails = normalizeVietnameseText((c?.mini_crm_customer_emails || []).map((e: any) => e?.email).join(" "));
-      const haystack = `${name} ${group} ${productGroup} ${emails}`;
+      const debtEmails = normalizeVietnameseText(formatEmailList(c?.debt_emails));
+      const haystack = `${name} ${group} ${productGroup} ${emails} ${debtEmails}`;
       return haystack.includes(keyword);
     });
   }, [customers, customerSearch]);
@@ -3043,6 +3052,11 @@ export default function MiniCrm() {
               <Label>Email nhận diện (phân tách dấu phẩy)</Label>
               <Input value={emailsInput} onChange={(e) => setEmailsInput(e.target.value)} placeholder="buyer@agency.com, order@agency.com" />
             </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Email nhận công nợ</Label>
+              <Input value={debtEmailsInput} onChange={(e) => setDebtEmailsInput(e.target.value)} placeholder="Để trống sẽ tự copy Email nhận diện" />
+              <p className="text-xs text-muted-foreground">Dùng mặc định khi gửi mail công nợ. Có thể nhập email khác nếu khách muốn nhận công nợ riêng.</p>
+            </div>
             <div className="space-y-2">
               <Label>NPP (yes/no)</Label>
               <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={setupIsNpp ? "yes" : "no"} onChange={(e) => {
@@ -3187,7 +3201,8 @@ export default function MiniCrm() {
                 <TableHead>Tên</TableHead>
                 <TableHead>Nhóm</TableHead>
                 <TableHead>Nhóm sản phẩm</TableHead>
-                <TableHead>Email</TableHead>
+                <TableHead>Email nhận diện</TableHead>
+                <TableHead>Email nhận công nợ</TableHead>
                 <TableHead>NPP</TableHead>
                 <TableHead>Lấy qua NPP</TableHead>
                 <TableHead>Phí QL</TableHead>
@@ -3204,6 +3219,7 @@ export default function MiniCrm() {
                     <TableCell>{GROUP_LABEL_MAP[c.customer_group] || c.customer_group}</TableCell>
                     <TableCell>{PRODUCT_GROUP_LABEL_MAP[c.product_group] || c.product_group || "-"}</TableCell>
                     <TableCell>{(c.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"}</TableCell>
+                    <TableCell>{formatEmailList(c.debt_emails) || "-"}</TableCell>
                     <TableCell>{c.is_npp ? <Badge variant="default">Yes</Badge> : <Badge variant="secondary">No</Badge>}</TableCell>
                     <TableCell>{(() => { const npp = customers.find((x: any) => x.id === c.supplied_by_npp_customer_id); return npp?.customer_name || "-"; })()}</TableCell>
                     <TableCell>{formatVnd(Number(c.npp_management_fee_vnd || 0))}</TableCell>
@@ -3631,7 +3647,8 @@ export default function MiniCrm() {
                 <div><b>Nhóm:</b> {GROUP_LABEL_MAP[viewCustomer.customer_group] || viewCustomer.customer_group}</div>
                 <div><b>Nhóm sản phẩm:</b> {PRODUCT_GROUP_LABEL_MAP[viewCustomer.product_group] || viewCustomer.product_group || "-"}</div>
                 <div><b>Trạng thái:</b> {viewCustomer.is_active ? "Active" : "Tạm ngưng"}</div>
-                <div><b>Email:</b> {(viewCustomer.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"}</div>
+                <div><b>Email nhận diện:</b> {(viewCustomer.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"}</div>
+                <div><b>Email nhận công nợ:</b> {formatEmailList(viewCustomer.debt_emails) || "-"}</div>
                 <div><b>Hợp đồng:</b> {(customerContracts.find((x: any) => x.customer_id === viewCustomer.id)?.file_name) || "Chưa có"}</div>
                 <div>
                   <b>Bảng giá:</b>
@@ -3726,6 +3743,11 @@ export default function MiniCrm() {
             <div className="space-y-2 md:col-span-2">
               <Label>Email nhận diện</Label>
               <Input value={editEmailsInput} onChange={(e) => setEditEmailsInput(e.target.value)} />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Email nhận công nợ</Label>
+              <Input value={editDebtEmailsInput} onChange={(e) => setEditDebtEmailsInput(e.target.value)} placeholder="Để trống sẽ tự copy Email nhận diện" />
+              <p className="text-xs text-muted-foreground">Hệ thống gửi mail công nợ theo danh sách này, không phụ thuộc email nhận diện PO.</p>
             </div>
             <div className="space-y-2 md:col-span-2">
               <Label>Địa chỉ giao hàng</Label>

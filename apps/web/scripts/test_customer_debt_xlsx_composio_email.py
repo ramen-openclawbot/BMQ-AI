@@ -4,6 +4,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 EDGE = ROOT / "supabase/functions/export-npp-debt-sheet/index.ts"
 UI = ROOT / "src/pages/NppDebtManagement.tsx"
+CRM = ROOT / "src/pages/MiniCrm.tsx"
+MIGRATION = ROOT / "supabase/migrations/20260519130000_customer_debt_emails.sql"
 
 
 def read(path: Path) -> str:
@@ -56,6 +58,23 @@ def test_google_sheet_export_prompts_before_overwrite():
     assert 'Ghi đè' in ui
     assert 'Huỷ' in ui
     assert 'exportMutation.mutate({ overwrite: true })' in ui
+
+
+def test_customer_debt_email_recipients_are_separate_from_recognition_emails():
+    edge = read(EDGE)
+    crm = read(CRM)
+    migration = read(MIGRATION)
+    assert 'debt_emails text[]' in migration
+    assert 'FROM public.mini_crm_customer_emails' in migration
+    assert 'COALESCE(array_length(c.debt_emails, 1), 0) = 0' in migration
+    assert 'debt_emails' in edge
+    assert '.from("mini_crm_customer_emails")' not in edge
+    assert 'customer_debt_email_missing' in edge
+    assert 'Email nhận công nợ' in edge
+    assert 'Email nhận công nợ' in crm
+    assert 'setEditDebtEmailsInput(formatEmailList(c.debt_emails) || emails)' in crm
+    assert 'const debtEmails = normalizeEmailList(debtEmailsInput || emailsInput)' in crm
+    assert 'debt_emails: normalizeEmailList(editDebtEmailsInput || editEmailsInput)' in crm
 
 
 if __name__ == "__main__":
