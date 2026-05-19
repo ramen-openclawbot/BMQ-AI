@@ -126,7 +126,21 @@ type LedgerLineQuery = PromiseLike<{ data: LedgerLine[] | null; error: QueryErro
   order: (column: string, options: { ascending: boolean }) => LedgerLineQuery;
   limit: (count: number) => LedgerLineQuery;
 };
-type DebtExportResponse = { success?: boolean; error?: string; spreadsheetName?: string; webViewLink?: string | null; recipientEmails?: string[]; attachmentName?: string | null; emailResult?: { sent?: boolean; skipped?: boolean; reason?: string; attachmentName?: string } };
+type DebtExportResponse = {
+  success?: boolean;
+  code?: string;
+  error?: string;
+  spreadsheetName?: string;
+  webViewLink?: string | null;
+  recipientEmails?: string[];
+  attachmentName?: string | null;
+  existingFileId?: string | null;
+  existingWebViewLink?: string | null;
+  emailResult?: { sent?: boolean; skipped?: boolean; reason?: string; attachmentName?: string };
+};
+type DebtExportOptions = { overwrite?: boolean };
+type PendingOverwrite = { spreadsheetName: string; existingWebViewLink?: string | null };
+type DebtExportError = Error & { code?: string; spreadsheetName?: string; existingWebViewLink?: string | null };
 type RpcQuery = PromiseLike<{ data: LedgerLine | null; error: QueryError }>;
 type ExportStatus = {
   kind: "idle" | "pending" | "success" | "error";
@@ -228,6 +242,7 @@ export default function NppDebtManagement() {
   const [viewCustomerId, setViewCustomerId] = useState("");
   const [expandedAgencyId, setExpandedAgencyId] = useState<string | null>(null);
   const [exportStatus, setExportStatus] = useState<ExportStatus>({ kind: "idle", title: "" });
+  const [pendingOverwrite, setPendingOverwrite] = useState<PendingOverwrite | null>(null);
   const [editingLine, setEditingLine] = useState<LedgerLine | null>(null);
   const [editForm, setEditForm] = useState<RevenueEditForm | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
@@ -402,7 +417,7 @@ export default function NppDebtManagement() {
   }, [directLines, isSelectedNpp, summaries]);
 
   const buildExportMutation = (sendEmail: boolean) => ({
-    mutationFn: async () => {
+    mutationFn: async (options?: DebtExportOptions) => {
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       const accessToken = sessionData.session?.access_token;
       if (sessionError || !accessToken) throw new Error("Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.");
@@ -413,16 +428,21 @@ export default function NppDebtManagement() {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ fromDate: dateFrom, toDate: dateTo, customerId: effectiveCustomerId, sendEmail }),
+        body: JSON.stringify({ fromDate: dateFrom, toDate: dateTo, customerId: effectiveCustomerId, sendEmail, overwrite: Boolean(options?.overwrite) }),
       });
       const data = await response.json().catch(() => null) as DebtExportResponse | null;
       if (!response.ok || !data?.success) {
-        throw new Error(data?.error || (sendEmail ? "Gửi công nợ thất bại" : "Export Google Sheet thất bại"));
+        const error = new Error(data?.error || (sendEmail ? "Gửi công nợ thất bại" : "Export Google Sheet thất bại")) as DebtExportError;
+        error.code = data?.code;
+        error.spreadsheetName = data?.spreadsheetName;
+        error.existingWebViewLink = data?.existingWebViewLink;
+        throw error;
       }
       return data;
     },
-    onMutate: () => {
-      const title = sendEmail ? "Đang gửi công nợ" : "Đang xuất Google Sheet";
+    onMutate: (options?: DebtExportOptions) => {
+      const title = sendEmail ? "Đang gửi công nợ" : (options?.overwrite ? "Đang ghi đè Google Sheet" : "Đang xuất Google Sheet");
+      setPendingOverwrite(null);
       setExportStatus({
         kind: "pending",
         title,
@@ -443,7 +463,16 @@ export default function NppDebtManagement() {
       toast({ title, description: message });
       if (!sendEmail && data?.webViewLink) window.open(data.webViewLink, "_blank", "noopener,noreferrer");
     },
-    onError: (error: Error) => {
+    onError: (error: DebtExportError) => {
+      if (!sendEmail && error.code === "debt_sheet_exists") {
+        const spreadsheetName = error.spreadsheetName || "File công nợ";
+        setPendingOverwrite({ spreadsheetName, existingWebViewLink: error.existingWebViewLink });
+        setExportStatus({
+          kind: "idle",
+          title: "",
+        });
+        return;
+      }
       const title = sendEmail ? "Gửi email thất bại" : "Export thất bại";
       const message = error?.message || (sendEmail ? "Không thể gửi file Excel công nợ" : "Không thể tạo Google Sheet");
       setExportStatus({ kind: "error", title, message });
@@ -564,6 +593,7 @@ export default function NppDebtManagement() {
     setViewCustomerId(selectedCustomerId);
     setExpandedAgencyId(null);
     setExportStatus({ kind: "idle", title: "" });
+    setPendingOverwrite(null);
   };
 
   return (
@@ -590,18 +620,44 @@ export default function NppDebtManagement() {
               {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
               Làm mới
             </Button>
-            <Button className="h-10 px-3 text-xs sm:text-sm md:w-auto" onClick={() => exportMutation.mutate()} disabled={!effectiveCustomerId || exportMutation.isPending || sendDebtMutation.isPending}>
+            <Button className="h-10 px-3 text-xs sm:text-sm md:w-auto" onClick={() => exportMutation.mutate({})} disabled={!effectiveCustomerId || exportMutation.isPending || sendDebtMutation.isPending}>
               {exportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
               <span className="md:hidden">Xuất Sheet</span>
               <span className="hidden md:inline">Xuất Google Sheet</span>
             </Button>
-            <Button className="col-span-2 h-10 px-3 text-xs sm:text-sm md:col-span-1 md:w-auto" onClick={() => sendDebtMutation.mutate()} disabled={!effectiveCustomerId || exportMutation.isPending || sendDebtMutation.isPending}>
+            <Button className="col-span-2 h-10 px-3 text-xs sm:text-sm md:col-span-1 md:w-auto" onClick={() => sendDebtMutation.mutate({})} disabled={!effectiveCustomerId || exportMutation.isPending || sendDebtMutation.isPending}>
               {sendDebtMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
               Gửi công nợ
             </Button>
           </div>
         )}
       </div>
+
+      <Dialog open={Boolean(pendingOverwrite)} onOpenChange={(open) => { if (!open) setPendingOverwrite(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>File công nợ này đã tồn tại</DialogTitle>
+            <DialogDescription>
+              {pendingOverwrite?.spreadsheetName || "File công nợ"} đã có trên Google Drive. Anh muốn ghi đè file cũ hay huỷ thao tác xuất?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-50">
+            Ghi đè sẽ xoá dữ liệu cũ trong file Google Sheet này và ghi lại số liệu công nợ mới cho {selectedCustomer?.customer_name || "khách hàng"} • {dateFrom} → {dateTo}.
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setPendingOverwrite(null)} disabled={exportMutation.isPending}>Huỷ</Button>
+            {pendingOverwrite?.existingWebViewLink ? (
+              <Button asChild variant="secondary" disabled={exportMutation.isPending}>
+                <a href={pendingOverwrite.existingWebViewLink} target="_blank" rel="noreferrer">Mở file cũ</a>
+              </Button>
+            ) : null}
+            <Button onClick={() => exportMutation.mutate({ overwrite: true })} disabled={exportMutation.isPending}>
+              {exportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Ghi đè
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {exportStatus.kind !== "idle" && (
         <Card className={exportStatus.kind === "error" ? "border-destructive/60 bg-destructive/5" : "border-amber-500/40 bg-amber-500/5"}>

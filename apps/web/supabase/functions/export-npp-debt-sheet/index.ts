@@ -52,6 +52,7 @@ type DebtGroup = {
   payable: number;
 };
 type SheetData = { range: string; values: unknown[][] };
+type DriveFile = { id: string; name?: string; webViewLink?: string | null; modifiedTime?: string | null };
 
 const jsonResponse = (body: unknown, status = 200, corsHeaders?: Record<string, string>) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -144,6 +145,20 @@ async function googleJson(accessToken: string, url: string, init: RequestInit = 
   return data;
 }
 
+const escapeDriveQueryValue = (value: string) => value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+
+async function findExistingDebtSheet(accessToken: string, parentFolderId: string, spreadsheetName: string): Promise<DriveFile | null> {
+  const query = [
+    `name = '${escapeDriveQueryValue(spreadsheetName)}'`,
+    `'${escapeDriveQueryValue(parentFolderId)}' in parents`,
+    "mimeType = 'application/vnd.google-apps.spreadsheet'",
+    "trashed = false",
+  ].join(" and ");
+  const result = await googleJson(accessToken, `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,webViewLink,modifiedTime)&orderBy=modifiedTime desc&supportsAllDrives=true&includeItemsFromAllDrives=true&pageSize=1`);
+  const files = Array.isArray(result?.files) ? result.files as DriveFile[] : [];
+  return files[0] || null;
+}
+
 function sheetIdByTitle(spreadsheet: { sheets?: Array<{ properties?: { sheetId?: number; title?: string | null } }> }, title: string) {
   return spreadsheet.sheets?.find((sheet) => sheet.properties?.title === title)?.properties?.sheetId;
 }
@@ -153,6 +168,34 @@ async function getSheetId(accessToken: string, spreadsheetId: string, title: str
   const sheetId = sheetIdByTitle(spreadsheet, title);
   if (sheetId == null) throw new Error(`sheet_id_missing:${title}`);
   return sheetId;
+}
+
+async function prepareSpreadsheetForOverwrite(accessToken: string, spreadsheetId: string, desiredTitles: string[]) {
+  let spreadsheet = await googleJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=spreadsheetId,spreadsheetUrl,properties(title),sheets(properties(sheetId,title))`);
+  const existingSheets = Array.isArray(spreadsheet?.sheets) ? spreadsheet.sheets as Array<{ properties?: { sheetId?: number; title?: string | null } }> : [];
+  const existingTitles = new Set(existingSheets.map((sheet) => String(sheet.properties?.title || "")).filter(Boolean));
+  const desired = new Set(desiredTitles);
+  const requests: unknown[] = [];
+
+  for (const title of desiredTitles) {
+    if (!existingTitles.has(title)) requests.push({ addSheet: { properties: { title } } });
+  }
+  for (const sheet of existingSheets) {
+    const title = String(sheet.properties?.title || "");
+    const sheetId = sheet.properties?.sheetId;
+    if (sheetId != null && title && !desired.has(title)) requests.push({ deleteSheet: { sheetId } });
+  }
+
+  if (requests.length) {
+    await googleJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, { method: "POST", body: JSON.stringify({ requests }) });
+    spreadsheet = await googleJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=spreadsheetId,spreadsheetUrl,properties(title),sheets(properties(sheetId,title))`);
+  }
+
+  await googleJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchClear`, {
+    method: "POST",
+    body: JSON.stringify({ ranges: desiredTitles.map((title) => `'${title.replace(/'/g, "''")}'!A:Z`) }),
+  });
+  return spreadsheet;
 }
 
 async function canExportRevenue(supabaseAdmin: DbClient, userId: string): Promise<boolean> {
@@ -382,6 +425,7 @@ serve(async (req) => {
     if (!customerId) throw new Error("customer_id_required");
     const parentFolderId = String(body.parentFolderId || DEFAULT_PARENT_FOLDER_ID).trim();
     const shouldSendEmail = body.sendEmail === true || body.send_email === true;
+    const overwriteExisting = body.overwrite === true || body.overwrite_existing === true;
 
     const { data: customer, error: customerError } = await supabaseAdmin
       .from("mini_crm_customers")
@@ -533,17 +577,40 @@ serve(async (req) => {
       attachmentName = String(asRecord(emailResult).attachmentName || `${spreadsheetName}.xlsx`);
     } else {
       const accessToken = await getAccessToken(supabaseAdmin);
-      const spreadsheet = await googleJson(accessToken, "https://sheets.googleapis.com/v4/spreadsheets?fields=spreadsheetId,spreadsheetUrl,properties(title),sheets(properties(sheetId,title))", {
-        method: "POST",
-        body: JSON.stringify({ properties: { title: spreadsheetName }, sheets: [{ properties: { title: "TOTAL" } }] }),
-      });
-      spreadsheetId = String(spreadsheet.spreadsheetId || "");
-      webViewLink = String(spreadsheet.spreadsheetUrl || "");
+      const desiredSheetTitles = data.map((sheet) => safeSheetTitle(parseRangeTitle(sheet.range)));
+      const existingFile = await findExistingDebtSheet(accessToken, parentFolderId, spreadsheetName);
+      let spreadsheet: { spreadsheetId?: string; spreadsheetUrl?: string; sheets?: Array<{ properties?: { sheetId?: number; title?: string | null } }> };
 
-      if (isNpp) {
-        const sheetTitles = data.map((sheet) => parseRangeTitle(sheet.range)).filter((title) => title !== "TOTAL");
-        const addSheetRequests = sheetTitles.map((title) => ({ addSheet: { properties: { title: safeSheetTitle(title) } } }));
-        if (addSheetRequests.length) await googleJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, { method: "POST", body: JSON.stringify({ requests: addSheetRequests }) });
+      if (existingFile && !overwriteExisting) {
+        return jsonResponse({
+          success: false,
+          code: "debt_sheet_exists",
+          error: "File công nợ này đã tồn tại. Anh muốn ghi đè hay huỷ?",
+          spreadsheetName,
+          existingFileId: existingFile.id,
+          existingWebViewLink: existingFile.webViewLink || null,
+        }, 409, corsHeaders);
+      }
+
+      if (existingFile && overwriteExisting) {
+        spreadsheetId = existingFile.id;
+        webViewLink = existingFile.webViewLink || null;
+        spreadsheet = await prepareSpreadsheetForOverwrite(accessToken, spreadsheetId, desiredSheetTitles);
+        webViewLink = String(spreadsheet.spreadsheetUrl || webViewLink || "");
+      } else {
+        spreadsheet = await googleJson(accessToken, "https://sheets.googleapis.com/v4/spreadsheets?fields=spreadsheetId,spreadsheetUrl,properties(title),sheets(properties(sheetId,title))", {
+          method: "POST",
+          body: JSON.stringify({ properties: { title: spreadsheetName }, sheets: [{ properties: { title: "TOTAL" } }] }),
+        });
+        spreadsheetId = String(spreadsheet.spreadsheetId || "");
+        webViewLink = String(spreadsheet.spreadsheetUrl || "");
+
+        const sheetTitles = desiredSheetTitles.filter((title) => title !== "TOTAL");
+        const addSheetRequests = sheetTitles.map((title) => ({ addSheet: { properties: { title } } }));
+        if (addSheetRequests.length) {
+          await googleJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, { method: "POST", body: JSON.stringify({ requests: addSheetRequests }) });
+          spreadsheet = await googleJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=spreadsheetId,spreadsheetUrl,properties(title),sheets(properties(sheetId,title))`);
+        }
       }
 
       await googleJson(accessToken, `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
@@ -571,7 +638,7 @@ serve(async (req) => {
       }
     }
 
-    return jsonResponse({ success: true, spreadsheetId, spreadsheetName, webViewLink, summaryCount, recipientEmails, isNpp, emailResult, shareResults, attachmentName }, 200, corsHeaders);
+    return jsonResponse({ success: true, spreadsheetId, spreadsheetName, webViewLink, summaryCount, recipientEmails, isNpp, emailResult, shareResults, attachmentName, overwrittenExisting }, 200, corsHeaders);
   } catch (error) {
     console.error("[export-npp-debt-sheet] Error", error);
     const rawMessage = error instanceof Error ? error.message : "Unknown error";

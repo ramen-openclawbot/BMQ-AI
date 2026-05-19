@@ -42,6 +42,22 @@ def test_ui_reports_excel_attachment_for_send_debt():
     assert 'window.open(data.webViewLink' in source
 
 
+def test_google_sheet_export_prompts_before_overwrite():
+    edge = read(EDGE)
+    ui = read(UI)
+    assert 'overwrite' in edge
+    assert 'debt_sheet_exists' in edge
+    assert 'File công nợ này đã tồn tại. Anh muốn ghi đè hay huỷ?' in edge
+    assert 'https://www.googleapis.com/drive/v3/files?q=' in edge
+    assert 'prepareSpreadsheetForOverwrite' in edge
+    assert 'values:batchClear' in edge
+    assert 'deleteSheet' in edge
+    assert 'File công nợ này đã tồn tại' in ui
+    assert 'Ghi đè' in ui
+    assert 'Huỷ' in ui
+    assert 'exportMutation.mutate({ overwrite: true })' in ui
+
+
 if __name__ == "__main__":
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     for test in tests:
