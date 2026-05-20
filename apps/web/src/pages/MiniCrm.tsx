@@ -3239,7 +3239,20 @@ export default function MiniCrm() {
               const kb = customerKnowledgeProfiles.find((x) => x.customer_id === c.id);
               const latestVer = knowledgeProfileVersions.find((v) => v.customer_id === c.id);
               return (
-                <div key={c.id} className="rounded-xl border bg-background/80 p-4 shadow-sm">
+                <div
+                  key={c.id}
+                  role="button"
+                  tabIndex={0}
+                  className="rounded-xl border bg-background/80 p-4 shadow-sm cursor-pointer transition-colors hover:bg-muted/40 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  onClick={() => setViewCustomer(c)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setViewCustomer(c);
+                    }
+                  }}
+                  aria-label={`Xem thông tin khách hàng ${c.customer_name}`}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 space-y-1">
                       <div className="truncate text-base font-semibold">{c.customer_name}</div>
@@ -3276,22 +3289,6 @@ export default function MiniCrm() {
                       )}
                     </div>
                   </div>
-                  <div className="mt-4 grid grid-cols-3 gap-2">
-                    <Button size="sm" variant="secondary" onClick={() => setViewCustomer(c)}>Xem</Button>
-                    <Button size="sm" variant="outline" onClick={() => startEditCustomer(c)}>
-                      <Pencil className="mr-1 h-4 w-4" />Sửa
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => {
-                        if (confirm(`Xoá khách hàng ${c.customer_name}?`)) deleteCustomerMutation.mutate({ customerId: c.id, customerName: c.customer_name });
-                      }}
-                      disabled={deleteCustomerMutation.isPending}
-                    >
-                      <Trash2 className="mr-1 h-4 w-4" />Xoá
-                    </Button>
-                  </div>
                 </div>
               );
             })}
@@ -3301,13 +3298,12 @@ export default function MiniCrm() {
           </div>
 
           <div className="hidden overflow-x-auto rounded-xl border bg-background/80 xl:block">
-            <div className="grid min-w-[1160px] grid-cols-[minmax(200px,1.2fr)_minmax(150px,0.75fr)_minmax(240px,1.25fr)_minmax(190px,0.95fr)_minmax(120px,0.55fr)_190px] items-center gap-4 border-b bg-muted/40 px-4 py-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="grid min-w-[980px] grid-cols-[minmax(220px,1.25fr)_minmax(170px,0.8fr)_minmax(260px,1.3fr)_minmax(200px,0.95fr)_minmax(120px,0.55fr)] items-center gap-4 border-b bg-muted/40 px-4 py-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               <div>Khách hàng</div>
               <div>Phân loại</div>
               <div>Email</div>
               <div>NPP / Công nợ</div>
               <div>Trạng thái</div>
-              <div className="text-right">Thao tác</div>
             </div>
             <div className="divide-y">
               {filteredCustomers.map((c) => {
@@ -3319,7 +3315,17 @@ export default function MiniCrm() {
                 return (
                   <div
                     key={c.id}
-                    className="grid min-w-[1160px] grid-cols-[minmax(200px,1.2fr)_minmax(150px,0.75fr)_minmax(240px,1.25fr)_minmax(190px,0.95fr)_minmax(120px,0.55fr)_190px] items-start gap-4 px-4 py-4"
+                    role="button"
+                    tabIndex={0}
+                    className="grid min-w-[980px] cursor-pointer grid-cols-[minmax(220px,1.25fr)_minmax(170px,0.8fr)_minmax(260px,1.3fr)_minmax(200px,0.95fr)_minmax(120px,0.55fr)] items-start gap-4 px-4 py-4 transition-colors hover:bg-muted/40 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary/40"
+                    onClick={() => setViewCustomer(c)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setViewCustomer(c);
+                      }
+                    }}
+                    aria-label={`Xem thông tin khách hàng ${c.customer_name}`}
                   >
                     <div className="min-w-0 space-y-1">
                       <div className="break-words font-medium leading-tight">{c.customer_name}</div>
@@ -3348,23 +3354,6 @@ export default function MiniCrm() {
                       <div className="text-xs text-muted-foreground">Phí QL: {formatVnd(Number(c.npp_management_fee_vnd || 0))}</div>
                     </div>
                     <div className="min-w-0">{c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}</div>
-                    <div className="grid w-[190px] grid-cols-2 gap-1">
-                      <Button size="sm" variant="secondary" className="h-8 w-full px-1.5 text-xs" onClick={() => setViewCustomer(c)}>Xem</Button>
-                      <Button size="sm" variant="outline" className="h-8 w-full px-1.5 text-xs" onClick={() => startEditCustomer(c)}>
-                        <Pencil className="mr-1 h-3.5 w-3.5" />Sửa
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        className="col-span-2 h-8 w-full px-1.5 text-xs"
-                        onClick={() => {
-                          if (confirm(`Xoá khách hàng ${c.customer_name}?`)) deleteCustomerMutation.mutate({ customerId: c.id, customerName: c.customer_name });
-                        }}
-                        disabled={deleteCustomerMutation.isPending}
-                      >
-                        <Trash2 className="mr-1 h-3.5 w-3.5" />Xoá
-                      </Button>
-                    </div>
                   </div>
                 );
               })}
@@ -3734,9 +3723,22 @@ export default function MiniCrm() {
           {viewCustomer && (
             <>
               <DialogHeader>
-                <DialogTitle>Xem khách hàng: {viewCustomer.customer_name}</DialogTitle>
+                <DialogTitle>Xem thông tin khách hàng: {viewCustomer.customer_name}</DialogTitle>
               </DialogHeader>
-              <div className="flex justify-end">
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => {
+                    if (confirm(`Xoá khách hàng ${viewCustomer.customer_name}?`)) {
+                      deleteCustomerMutation.mutate({ customerId: viewCustomer.id, customerName: viewCustomer.customer_name });
+                      setViewCustomer(null);
+                    }
+                  }}
+                  disabled={deleteCustomerMutation.isPending}
+                >
+                  <Trash2 className="h-4 w-4 mr-1" />Xoá khách hàng
+                </Button>
                 <Button
                   size="sm"
                   onClick={() => {
