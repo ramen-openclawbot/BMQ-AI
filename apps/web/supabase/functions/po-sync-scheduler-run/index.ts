@@ -209,7 +209,7 @@ async function ensureAuthorized(supabaseAdmin: any, userId: string) {
 const AUTOMATION_LOCK_KEY = "po_sync_scheduler_default";
 const CRON_TRIGGERED_BY = "vercel-cron";
 const CRON_SECRET_ENV_KEY = "PO_SYNC_CRON_SECRET";
-const THUY_DIRECT_DEALER_SENDER = "thuy@bmq.vn";
+const THUY_DIRECT_DEALER_SENDER = "mi@bmq.vn";
 const TONY_THANH_SENDER = "tonythanh@hotmail.com";
 const DAM_XESG_SENDER = "damvovan33@gmail.com";
 const COOPMART_SENDERS = ["mai-hnp@saigonco-op.com.vn", "tram-nht@saigonco-op.com.vn"] as const;

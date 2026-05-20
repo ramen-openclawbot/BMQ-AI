@@ -353,7 +353,7 @@ ERROR: 42P10: there is no unique or exclusion constraint matching the ON CONFLIC
 ```
 
 ### Context
-- Attempted data repair for `thuy@bmq.vn` role/permission mismatch.
+- Attempted data repair for `mi@bmq.vn` role/permission mismatch.
 - Existing schema appears to allow multiple `user_roles` rows per user (or lacks unique index on `user_id`).
 
 ### Suggested Fix

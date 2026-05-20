@@ -118,7 +118,7 @@ type DispatchConfirmationMap = Map<string, DispatchRevenueConfirmation>;
 const TIME_ZONE = "Asia/Ho_Chi_Minh";
 const REVENUE_CRON_SECRET_ENV_KEY = "REVENUE_CRON_SECRET";
 const LEGACY_PO_CRON_SECRET_ENV_KEY = "PO_SYNC_CRON_SECRET";
-const THUY_DIRECT_DEALER_SENDER = "thuy@bmq.vn";
+const THUY_DIRECT_DEALER_SENDER = "mi@bmq.vn";
 const AUTOMATION_REVIEW_STATUSES = new Set([
   "cancel_signal",
   "pdf_only_needs_review",
@@ -752,7 +752,7 @@ const isThuyDealerDateHeaderItem = (row: InboxRow, item: JsonRecord) => {
   const subject = normalizeText(row.email_subject);
 
   return (
-    fromEmail.includes("thuy@bmq.vn") &&
+    fromEmail.includes("mi@bmq.vn") &&
     automationRule.includes("thuy") &&
     rawLine.match(/^dat banh\s+\d{1,2}(?:[.,\/]\d{1,2})?$/) !== null &&
     route === "dat banh" &&

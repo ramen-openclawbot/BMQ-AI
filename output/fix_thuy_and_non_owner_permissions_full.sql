@@ -1,7 +1,7 @@
 -- ============================================================================
 -- BMQ-AI | RBAC Data Repair Script (safe, no ON CONFLICT on user_roles)
 -- Purpose:
---   1) Fix thuy@bmq.vn mapping (profiles/user_roles/user_module_permissions)
+--   1) Fix mi@bmq.vn mapping (profiles/user_roles/user_module_permissions)
 --   2) Audit all non-owner users
 --   3) Re-apply default permissions for all non-owner users
 -- Notes:
@@ -12,14 +12,14 @@
 begin;
 
 -- ============================================================================
--- A) FIX SPECIFIC USER: thuy@bmq.vn
+-- A) FIX SPECIFIC USER: mi@bmq.vn
 -- ============================================================================
 
 -- A1) Snapshot ids for target user
 create temp table tmp_fix_target as
 select
-  (select id from auth.users where lower(email) = 'thuy@bmq.vn' limit 1) as auth_user_id,
-  (select user_id from public.profiles where lower(email) = 'thuy@bmq.vn' limit 1) as profile_user_id;
+  (select id from auth.users where lower(email) = 'mi@bmq.vn' limit 1) as auth_user_id,
+  (select user_id from public.profiles where lower(email) = 'mi@bmq.vn' limit 1) as profile_user_id;
 
 -- A2) Sanity check: must have auth user
 -- (If auth_user_id is null, stop and create/invite user first)
@@ -29,7 +29,7 @@ select * from tmp_fix_target;
 update public.profiles p
 set user_id = t.auth_user_id
 from tmp_fix_target t
-where lower(p.email) = 'thuy@bmq.vn'
+where lower(p.email) = 'mi@bmq.vn'
   and t.auth_user_id is not null
   and p.user_id is distinct from t.auth_user_id;
 
@@ -208,7 +208,7 @@ where not exists (
     and x.module_key = d.module_key
 );
 
--- C4) Final verification for thuy@bmq.vn
+-- C4) Final verification for mi@bmq.vn
 select
   au.id as auth_user_id,
   au.email,
@@ -219,7 +219,7 @@ select
 from auth.users au
 left join public.user_roles ur on ur.user_id = au.id
 left join public.user_module_permissions ump on ump.user_id = au.id
-where lower(au.email) = 'thuy@bmq.vn'
+where lower(au.email) = 'mi@bmq.vn'
 order by ump.module_key;
 
 commit;

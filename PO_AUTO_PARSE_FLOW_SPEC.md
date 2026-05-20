@@ -132,7 +132,7 @@ Trial-period rule outputs/config live in `apps/web/supabase/po-automation-rules/
 - Accounting guardrail: KFM PO parse is operational evidence. Trusted revenue ledger remains accounting truth.
 
 ### Thúy / direct company dealer aggregation text
-- Sender: `thuy@bmq.vn`.
+- Sender: `mi@bmq.vn`.
 - User-confirmed channel scope: this is **kênh đại lý trực tiếp của công ty, không qua NPP**. Do not map these lines under Tony/Anh Thanh or any other NPP parent.
 - Subject pattern: `Đặt bánh đại lý D.M` or `Đặt bánh đại lý D.M.YYYY`; subject date is the delivery/service date. If the subject omits year, use the email received year.
 - Body format is numbered or unnumbered route/customer lines, for example:

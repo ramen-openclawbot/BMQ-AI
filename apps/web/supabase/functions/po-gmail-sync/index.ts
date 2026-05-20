@@ -194,7 +194,7 @@ const DAM_XESG_AUTOMATION = {
 } as const;
 
 const THUY_DIRECT_DEALER_AUTOMATION = {
-  sender: "thuy@bmq.vn",
+  sender: "mi@bmq.vn",
   rule: "thuy_direct_dealer_text",
   parser: "po-gmail-sync:thuy-direct-dealer-text:v1",
   unitPrice: 6500,

@@ -39,7 +39,7 @@
     {
       "id": "thuy_direct_dealer_text",
       "customer": "Thuy direct company dealers",
-      "sender": "thuy@bmq.vn",
+      "sender": "mi@bmq.vn",
       "channel_scope": "direct_company_dealer_not_npp",
       "accepted_gap_rule": "If a day is missing from Thuy email evidence but exists in the trusted April ledger, accept it as ledger-only for accounting truth instead of treating it as parser failure.",
       "posting_rule": "Line-level parser output is manual revenue evidence only; Quản lý doanh thu/trusted ledger controls accounting revenue."

@@ -21,7 +21,7 @@ def assert_contains(text: str, needle: str, label: str) -> None:
 def test_thuy_sender_text_parser_and_direct_dealer_scope() -> None:
     for needle, label in [
         ("THUY_DIRECT_DEALER_AUTOMATION", "Thuy automation constants"),
-        ("thuy@bmq.vn", "Thuy sender"),
+        ("mi@bmq.vn", "Thuy sender"),
         ("thuy_direct_dealer_text", "Thuy rule id"),
         ("direct_company_dealer_not_npp", "direct dealer scope"),
         ("manual_revenue_management_required: true", "manual revenue path"),
