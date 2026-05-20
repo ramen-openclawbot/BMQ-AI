@@ -514,14 +514,20 @@ serve(async (req) => {
           ["SỔ CHI TIẾT CÔNG NỢ"],
           [`${group.name} • Từ ${vnDate(fromDate)} đến ${vnDate(toDate)}`],
           [],
-          ["Ngày", "Số lượng", "Đơn giá", "Thành tiền"],
-          ...group.lines.map((line) => [line.revenue_date, Number(line.quantity || 0), Number(line.unit_price || 0), Number(line.gross_revenue || 0)]),
+          ["Ngày", "Sản phẩm", "Số lượng", "Đơn giá", "Thành tiền"],
+          ...group.lines.map((line) => [
+            line.revenue_date,
+            line.product_name || line.item_note || line.customer_name || "Doanh thu",
+            Number(line.quantity || 0),
+            Number(line.unit_price || 0),
+            Number(line.gross_revenue || 0),
+          ]),
           [],
-          ["", "Tổng tiền bánh", "", group.gross],
-          ["", "Phí quản lí", "", -group.fee],
-          ["", "Công nợ phải thanh toán", "", group.payable],
+          ["", "", "Tổng tiền bánh", "", group.gross],
+          ["", "", "Phí quản lí", "", -group.fee],
+          ["", "", "Công nợ phải thanh toán", "", group.payable],
         ];
-        data.push({ range: sheetRange(title, "D", values.length), values });
+        data.push({ range: sheetRange(title, "E", values.length), values });
       }
     } else {
       const directLines = allLines.filter((line) => lineBelongsToCustomer(line, customer as Customer));
@@ -536,7 +542,7 @@ serve(async (req) => {
         [`${customerName} • Từ ${vnDate(fromDate)} đến ${vnDate(toDate)}`],
         [`Email nhận công nợ: ${recipientEmails.join(", ") || "Chưa có email nhận công nợ"}`],
         [],
-        ["Ngày", "Kênh", "Diễn giải", "Số lượng", "Đơn giá", "Công nợ"],
+        ["Ngày", "Kênh", "Sản phẩm", "Số lượng", "Đơn giá", "Công nợ"],
         ...directLines.map((line) => [
           line.revenue_date,
           line.channel || "",

@@ -71,6 +71,18 @@ const PRODUCT_GROUP_LABEL_MAP: Record<string, string> = PRODUCT_GROUP_OPTIONS.re
   return acc;
 }, {} as Record<string, string>);
 
+type BusinessSkuOption = { id?: string | null; sku_code?: string | null; product_name?: string | null };
+
+const getSkuLabel = (sku: BusinessSkuOption) => [sku?.sku_code, sku?.product_name].map((part) => String(part || "").trim()).filter(Boolean).join(" - ");
+
+const getBusinessProductLabel = (value: unknown, skuRows: BusinessSkuOption[] = []) => {
+  const key = String(value || "").trim();
+  if (!key) return "-";
+  const sku = skuRows.find((item) => String(item?.id || "") === key || String(item?.sku_code || "") === key);
+  if (sku) return getSkuLabel(sku) || key;
+  return PRODUCT_GROUP_LABEL_MAP[key] || key;
+};
+
 const KB_PO_MODE_LABEL: Record<string, string> = {
   daily_new_po: "PO mới theo ngày",
   cumulative_snapshot: "PO cộng dồn (delta)",
@@ -533,6 +545,18 @@ export default function MiniCrm() {
     },
     enabled: !isSalesPoPage,
   });
+
+  const businessProductOptions = useMemo(() => {
+    const skuOptions = (finishedSkus as BusinessSkuOption[])
+      .map((sku) => ({ value: String(sku?.id || sku?.sku_code || ""), label: getSkuLabel(sku) }))
+      .filter((option: { value: string; label: string }) => option.value && option.label);
+    return [
+      ...PRODUCT_GROUP_OPTIONS.map((option) => ({ ...option, label: `${option.label} (nhóm cũ)` })),
+      ...skuOptions,
+    ];
+  }, [finishedSkus]);
+
+  const renderBusinessProductLabel = (value: unknown) => getBusinessProductLabel(value, finishedSkus as BusinessSkuOption[]);
 
   const { data: customerContracts = [] } = useQuery({
     queryKey: ["mini-crm-customer-contracts"],
@@ -2079,13 +2103,13 @@ export default function MiniCrm() {
     return customers.filter((c: any) => {
       const name = normalizeVietnameseText(c?.customer_name);
       const group = normalizeVietnameseText(GROUP_LABEL_MAP[c?.customer_group] || c?.customer_group || "");
-      const productGroup = normalizeVietnameseText(PRODUCT_GROUP_LABEL_MAP[c?.product_group] || c?.product_group || "");
+      const productGroup = normalizeVietnameseText(getBusinessProductLabel(c?.product_group, finishedSkus as BusinessSkuOption[]));
       const emails = normalizeVietnameseText((c?.mini_crm_customer_emails || []).map((e: any) => e?.email).join(" "));
       const debtEmails = normalizeVietnameseText(formatEmailList(c?.debt_emails));
       const haystack = `${name} ${group} ${productGroup} ${emails} ${debtEmails}`;
       return haystack.includes(keyword);
     });
-  }, [customers, customerSearch]);
+  }, [customers, customerSearch, finishedSkus]);
 
   const pendingDeltaReviewCount = useMemo(() => {
     return filteredPoInbox.filter((row: any) => Boolean(row?.raw_payload?.revenue_post?.requires_review)).length;
@@ -3040,9 +3064,10 @@ export default function MiniCrm() {
               </select>
             </div>
             <div className="space-y-2">
-              <Label>Nhóm sản phẩm</Label>
+              <Label>Sản phẩm kinh doanh</Label>
               <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={productGroup} onChange={(e) => setProductGroup(e.target.value)}>
-                {PRODUCT_GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {businessProductOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {productGroup && !businessProductOptions.some((o) => o.value === productGroup) ? <option value={productGroup}>{renderBusinessProductLabel(productGroup)}</option> : null}
               </select>
             </div>
             <div className="space-y-2 md:col-span-2">
@@ -3220,7 +3245,7 @@ export default function MiniCrm() {
                       <div className="truncate text-base font-semibold">{c.customer_name}</div>
                       <div className="flex flex-wrap gap-1.5">
                         <Badge variant="outline">{GROUP_LABEL_MAP[c.customer_group] || c.customer_group}</Badge>
-                        <Badge variant="secondary">{PRODUCT_GROUP_LABEL_MAP[c.product_group] || c.product_group || "-"}</Badge>
+                        <Badge variant="secondary">{renderBusinessProductLabel(c.product_group)}</Badge>
                         {c.is_npp ? <Badge>NPP</Badge> : null}
                       </div>
                     </div>
@@ -3275,8 +3300,8 @@ export default function MiniCrm() {
             )}
           </div>
 
-          <div className="hidden rounded-xl border bg-background/80 xl:block">
-            <div className="grid grid-cols-[minmax(180px,1.25fr)_minmax(120px,0.8fr)_minmax(220px,1.35fr)_minmax(180px,1fr)_minmax(110px,0.55fr)_160px] items-center gap-4 border-b bg-muted/40 px-4 py-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <div className="hidden overflow-x-auto rounded-xl border bg-background/80 xl:block">
+            <div className="grid min-w-[1160px] grid-cols-[minmax(200px,1.2fr)_minmax(150px,0.75fr)_minmax(240px,1.25fr)_minmax(190px,0.95fr)_minmax(120px,0.55fr)_190px] items-center gap-4 border-b bg-muted/40 px-4 py-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               <div>Khách hàng</div>
               <div>Phân loại</div>
               <div>Email</div>
@@ -3294,7 +3319,7 @@ export default function MiniCrm() {
                 return (
                   <div
                     key={c.id}
-                    className="grid grid-cols-[minmax(180px,1.25fr)_minmax(120px,0.8fr)_minmax(220px,1.35fr)_minmax(180px,1fr)_minmax(110px,0.55fr)_160px] items-start gap-4 px-4 py-4"
+                    className="grid min-w-[1160px] grid-cols-[minmax(200px,1.2fr)_minmax(150px,0.75fr)_minmax(240px,1.25fr)_minmax(190px,0.95fr)_minmax(120px,0.55fr)_190px] items-start gap-4 px-4 py-4"
                   >
                     <div className="min-w-0 space-y-1">
                       <div className="break-words font-medium leading-tight">{c.customer_name}</div>
@@ -3312,7 +3337,7 @@ export default function MiniCrm() {
                     </div>
                     <div className="min-w-0 space-y-1 text-sm">
                       <div>{GROUP_LABEL_MAP[c.customer_group] || c.customer_group}</div>
-                      <div className="text-xs text-muted-foreground">{PRODUCT_GROUP_LABEL_MAP[c.product_group] || c.product_group || "-"}</div>
+                      <div className="text-xs text-muted-foreground">{renderBusinessProductLabel(c.product_group)}</div>
                     </div>
                     <div className="min-w-0 space-y-1 text-sm">
                       <div className="break-words"><span className="text-xs text-muted-foreground">Nhận diện: </span>{recognitionEmails}</div>
@@ -3323,7 +3348,7 @@ export default function MiniCrm() {
                       <div className="text-xs text-muted-foreground">Phí QL: {formatVnd(Number(c.npp_management_fee_vnd || 0))}</div>
                     </div>
                     <div className="min-w-0">{c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}</div>
-                    <div className="grid w-full min-w-0 grid-cols-2 gap-1">
+                    <div className="grid w-[190px] grid-cols-2 gap-1">
                       <Button size="sm" variant="secondary" className="h-8 w-full px-1.5 text-xs" onClick={() => setViewCustomer(c)}>Xem</Button>
                       <Button size="sm" variant="outline" className="h-8 w-full px-1.5 text-xs" onClick={() => startEditCustomer(c)}>
                         <Pencil className="mr-1 h-3.5 w-3.5" />Sửa
@@ -3724,7 +3749,7 @@ export default function MiniCrm() {
               </div>
               <div className="space-y-3 text-sm">
                 <div><b>Nhóm:</b> {GROUP_LABEL_MAP[viewCustomer.customer_group] || viewCustomer.customer_group}</div>
-                <div><b>Nhóm sản phẩm:</b> {PRODUCT_GROUP_LABEL_MAP[viewCustomer.product_group] || viewCustomer.product_group || "-"}</div>
+                <div><b>Sản phẩm kinh doanh:</b> {renderBusinessProductLabel(viewCustomer.product_group)}</div>
                 <div><b>Trạng thái:</b> {viewCustomer.is_active ? "Active" : "Tạm ngưng"}</div>
                 <div><b>Email nhận diện:</b> {(viewCustomer.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"}</div>
                 <div><b>Email nhận công nợ:</b> {formatEmailList(viewCustomer.debt_emails) || "-"}</div>
@@ -3758,7 +3783,12 @@ export default function MiniCrm() {
       </Dialog>
 
       <Dialog open={Boolean(editingCustomerId)} onOpenChange={(open) => !open && cancelEditCustomer()}>
-        <DialogContent aria-describedby={undefined} className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          aria-describedby={undefined}
+          className="max-w-4xl max-h-[90vh] overflow-y-auto"
+          onPointerDownOutside={cancelEditCustomer}
+          onEscapeKeyDown={cancelEditCustomer}
+        >
           <DialogHeader>
             <DialogTitle>Sửa khách hàng</DialogTitle>
           </DialogHeader>
@@ -3775,9 +3805,10 @@ export default function MiniCrm() {
               </select>
             </div>
             <div className="space-y-2">
-              <Label>Nhóm sản phẩm</Label>
+              <Label>Sản phẩm kinh doanh</Label>
               <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editProductGroup} onChange={(e) => setEditProductGroup(e.target.value)}>
-                {PRODUCT_GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {businessProductOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {editProductGroup && !businessProductOptions.some((o) => o.value === editProductGroup) ? <option value={editProductGroup}>{renderBusinessProductLabel(editProductGroup)}</option> : null}
               </select>
             </div>
             <div className="space-y-2">
