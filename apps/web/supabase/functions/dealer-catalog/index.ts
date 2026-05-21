@@ -15,10 +15,26 @@ type ProductSku = {
   sku_code: string;
   product_name: string;
   category: string | null;
+  sku_type?: "raw_material" | "finished_good" | null;
   unit: string | null;
   unit_price: number | null;
   notes: string | null;
   image_url?: string | null;
+  image_path?: string | null;
+  image_updated_at?: string | null;
+};
+
+const normalizeSkuText = (value: string | null | undefined) =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/đ/g, "d");
+
+const isFinishedSku = (sku: ProductSku) => {
+  if (sku.sku_type) return sku.sku_type === "finished_good";
+  const category = normalizeSkuText(sku.category);
+  return category.includes("thanh pham") || category.includes("finished");
 };
 
 serve(async (req) => {
@@ -42,8 +58,7 @@ serve(async (req) => {
 
     const { data: skus, error: skuError } = await supabase
       .from("product_skus")
-      .select("id, sku_code, product_name, category, unit, unit_price, notes, image_url")
-      .eq("sku_type", "finished_good")
+      .select("id, sku_code, product_name, category, sku_type, unit, unit_price, notes, image_url, image_path, image_updated_at")
       .order("sku_code", { ascending: true });
 
     if (skuError) throw skuError;
@@ -63,7 +78,7 @@ serve(async (req) => {
       });
     }
 
-    const products = ((skus || []) as ProductSku[]).map((sku) => {
+    const products = ((skus || []) as ProductSku[]).filter(isFinishedSku).map((sku) => {
       const override = priceOverrides.get(sku.id);
       const price = override ?? Number(sku.unit_price || 0);
 
@@ -78,6 +93,8 @@ serve(async (req) => {
         price_source: override === undefined ? "sku_unit_price" : "customer_override",
         notes: sku.notes,
         image_url: sku.image_url ?? null,
+        image_path: sku.image_path ?? null,
+        image_updated_at: sku.image_updated_at ?? null,
       };
     });
 

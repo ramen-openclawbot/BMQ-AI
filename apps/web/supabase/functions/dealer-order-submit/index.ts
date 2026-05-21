@@ -19,8 +19,23 @@ type ProductSku = {
   id: string;
   sku_code: string;
   product_name: string;
+  category?: string | null;
+  sku_type?: "raw_material" | "finished_good" | null;
   unit: string | null;
   unit_price: number | null;
+};
+
+const normalizeSkuText = (value: string | null | undefined) =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/đ/g, "d");
+
+const isFinishedSku = (sku: ProductSku) => {
+  if (sku.sku_type) return sku.sku_type === "finished_good";
+  const category = normalizeSkuText(sku.category);
+  return category.includes("thanh pham") || category.includes("finished");
 };
 
 serve(async (req) => {
@@ -62,14 +77,13 @@ serve(async (req) => {
     const skuIds = items.map((item) => item.sku_id);
     const { data: skus, error: skuError } = await supabase
       .from("product_skus")
-      .select("id, sku_code, product_name, unit, unit_price")
-      .eq("sku_type", "finished_good")
+      .select("id, sku_code, product_name, category, sku_type, unit, unit_price")
       .in("id", skuIds);
 
     if (skuError) throw skuError;
 
     const skuMap = new Map<string, ProductSku>();
-    ((skus || []) as ProductSku[]).forEach((sku) => skuMap.set(sku.id, sku));
+    ((skus || []) as ProductSku[]).filter(isFinishedSku).forEach((sku) => skuMap.set(sku.id, sku));
 
     if (skuMap.size !== skuIds.length) {
       return errorResponse(req, "Một hoặc nhiều SKU không hợp lệ hoặc chưa thuộc nhóm thành phẩm.", 400, "invalid_sku");

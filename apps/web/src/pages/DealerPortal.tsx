@@ -9,6 +9,7 @@ import {
   ClipboardList,
   HelpCircle,
   Home,
+  ImageIcon,
   Loader2,
   LogOut,
   MapPin,
@@ -581,6 +582,21 @@ export default function DealerPortal() {
                 return (
                   <Card key={product.id} className="rounded-md">
                     <CardContent className="flex h-full flex-col gap-4 p-4">
+                      <div className="overflow-hidden rounded-md border bg-muted/40">
+                        {product.imageUrl ? (
+                          <img
+                            src={product.imageUrl}
+                            alt={product.name}
+                            loading="lazy"
+                            className="h-32 w-full object-cover sm:h-36"
+                          />
+                        ) : (
+                          <div className="flex h-32 w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-primary/10 via-background to-muted text-muted-foreground sm:h-36">
+                            <ImageIcon className="h-6 w-6" />
+                            <span className="text-xs">Chưa có ảnh SKU</span>
+                          </div>
+                        )}
+                      </div>
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <Badge variant="secondary" className="mb-2 rounded-md">
