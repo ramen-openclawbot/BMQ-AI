@@ -20,6 +20,7 @@ import PurchaseOrders from "@/pages/PurchaseOrders";
 import Settings from "@/pages/Settings";
 import Auth from "@/pages/Auth";
 import NotFound from "@/pages/NotFound";
+import DealerPortal from "@/pages/DealerPortal";
 import SkuCostsProducts from "@/pages/SkuCostsProducts";
 import SkuCostsIngredients from "@/pages/SkuCostsIngredients";
 import SkuCostsEmployees from "@/pages/SkuCostsEmployees";
@@ -47,6 +48,12 @@ const WarehouseDispatch = lazy(() => import("@/pages/WarehouseDispatch"));
 const StockReport = lazy(() => import("@/pages/StockReport"));
 const AttendanceManagement = lazy(() => import("@/pages/AttendanceManagement"));
 const PayrollManagement = lazy(() => import("@/pages/PayrollManagement"));
+
+const DEALER_ORDERING_HOST = "dathang.banhmique.vn";
+
+function isDealerOrderingHost() {
+  return window.location.hostname === DEALER_ORDERING_HOST;
+}
 
 function AppLoadingFallback() {
   return (
@@ -137,6 +144,28 @@ function ModuleRoute({ moduleKey, children }: { moduleKey: string; children: Rea
 
 export function AppRoutes() {
   const { loading } = useAuth();
+  const location = useLocation();
+  const dealerHost = isDealerOrderingHost();
+  const dealerPath = location.pathname === "/dealer" || location.pathname.startsWith("/dealer/");
+
+  if (dealerHost) {
+    return (
+      <Routes>
+        <Route path="/" element={<DealerPortal />} />
+        <Route path="/dealer/*" element={<DealerPortal />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    );
+  }
+
+  if (dealerPath) {
+    return (
+      <Routes>
+        <Route path="/dealer/*" element={<DealerPortal />} />
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    );
+  }
 
   if (loading) {
     return <AppLoadingFallback />;

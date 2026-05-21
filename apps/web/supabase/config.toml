@@ -86,6 +86,18 @@ verify_jwt = false
 [functions.migration-storage-manifest]
 verify_jwt = false
 
+[functions.dealer-auth-start]
+verify_jwt = false
+
+[functions.dealer-auth-verify]
+verify_jwt = false
+
+[functions.dealer-catalog]
+verify_jwt = false
+
+[functions.dealer-order-submit]
+verify_jwt = false
+
 # ──────────────────────────────────────────────────────────
 # Functions with JWT verification DISABLED
 # Reason: OAuth callbacks (no JWT available) or Cron jobs (use x-cron-secret)
@@ -136,4 +148,3 @@ verify_jwt = false
 # verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
 # Auth is enforced inside the function via requireAuth().
 verify_jwt = false
-
