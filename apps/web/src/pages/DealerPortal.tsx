@@ -48,7 +48,7 @@ type Product = {
   note: string;
   cutoff: string;
   imageUrl?: string | null;
-  priceSource?: "sku_unit_price" | "customer_override";
+  priceSource?: "cost_values_selling_price" | "customer_override";
 };
 
 type DealerCustomer = {
@@ -67,7 +67,7 @@ type CatalogProductResponse = {
   unit?: string | null;
   price_vnd?: number | string | null;
   unit_price?: number | string | null;
-  price_source?: "sku_unit_price" | "customer_override";
+  price_source?: "cost_values_selling_price" | "customer_override";
   notes?: string | null;
   image_url?: string | null;
 };
@@ -80,50 +80,6 @@ type CatalogResponse = {
 };
 
 const DEALER_SESSION_STORAGE_KEY = "bmq_dealer_session_token";
-const MOCK_CATALOG_MESSAGE = "Đang dùng catalog mẫu vì API dealer-catalog chưa khả dụng.";
-
-const mockProducts: Product[] = [
-  {
-    id: "classic",
-    name: "Bánh mì que pate",
-    unit: "khay 20 cây",
-    packSize: "Tối thiểu 2 khay",
-    price: 110000,
-    tag: "Bán chạy",
-    note: "Vỏ giòn, pate BMQ, phù hợp tủ nóng đại lý.",
-    cutoff: "Chốt trước 20:00",
-  },
-  {
-    id: "spicy",
-    name: "Bánh mì que gà cay",
-    unit: "khay 20 cây",
-    packSize: "Tối thiểu 2 khay",
-    price: 126000,
-    tag: "Mới",
-    note: "Vị cay nhẹ, dễ upsell combo nước.",
-    cutoff: "Chốt trước 20:00",
-  },
-  {
-    id: "plain",
-    name: "Vỏ bánh mì que",
-    unit: "thùng 100 cây",
-    packSize: "Tối thiểu 1 thùng",
-    price: 250000,
-    tag: "Tủ đông",
-    note: "Dành cho điểm tự hoàn thiện nhân tại quầy.",
-    cutoff: "Chốt trước 18:00",
-  },
-  {
-    id: "sauce",
-    name: "Sốt pate BMQ",
-    unit: "túi 1kg",
-    packSize: "Tối thiểu 3 túi",
-    price: 68000,
-    tag: "Bổ sung",
-    note: "Đồng bộ vị cho các điểm bán tự nướng.",
-    cutoff: "Chốt trước 18:00",
-  },
-];
 
 const navItems = [
   { id: "home", label: "Trang chủ", icon: Home, target: "dealer-top" },
@@ -141,7 +97,7 @@ const formatVnd = (value: number) =>
 
 const mapCatalogProduct = (product: CatalogProductResponse): Product => {
   const price = Number(product.price_vnd ?? product.unit_price ?? 0) || 0;
-  const priceSource = product.price_source || "sku_unit_price";
+  const priceSource = product.price_source || "cost_values_selling_price";
 
   return {
     id: product.id,
@@ -180,9 +136,9 @@ export default function DealerPortal() {
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [activeNav, setActiveNav] = useState("order");
-  const [catalogProducts, setCatalogProducts] = useState<Product[]>(mockProducts);
-  const [catalogStatus, setCatalogStatus] = useState<"loading" | "live" | "mock">("loading");
-  const [catalogMessage, setCatalogMessage] = useState(MOCK_CATALOG_MESSAGE);
+  const [catalogProducts, setCatalogProducts] = useState<Product[]>([]);
+  const [catalogStatus, setCatalogStatus] = useState<"idle" | "loading" | "live" | "error">("idle");
+  const [catalogMessage, setCatalogMessage] = useState("Đăng nhập để tải sản phẩm, giá bán và ảnh từ Tổng quan giá vốn.");
   const [announcements, setAnnouncements] = useState<CatalogResponse["announcements"]>([]);
   const [dealerCustomer, setDealerCustomer] = useState<DealerCustomer | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
@@ -191,18 +147,15 @@ export default function DealerPortal() {
   const [orderSubmitting, setOrderSubmitting] = useState(false);
   const [orderMessage, setOrderMessage] = useState("");
   const [orderError, setOrderError] = useState("");
-  const [quantities, setQuantities] = useState<Record<string, number>>({
-    classic: 2,
-    spicy: 1,
-  });
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
 
   const loadCatalog = useCallback(async (token?: string) => {
     if (!token) {
-      setCatalogProducts(mockProducts);
+      setCatalogProducts([]);
       setAnnouncements([]);
       setDealerCustomer(null);
-      setCatalogStatus("mock");
-      setCatalogMessage("Đăng nhập để tải catalog và giá bán theo hồ sơ đại lý.");
+      setCatalogStatus("idle");
+      setCatalogMessage("Đăng nhập để tải sản phẩm, giá bán và ảnh từ Tổng quan giá vốn.");
       return;
     }
 
@@ -222,15 +175,15 @@ export default function DealerPortal() {
       setCatalogStatus("live");
       setCatalogMessage(
         nextProducts.length
-          ? "Catalog đã đồng bộ từ hệ thống BMQ."
-          : "Catalog thật đang trống. Vui lòng liên hệ vận hành để bật SKU thành phẩm.",
+          ? "Sản phẩm, giá bán và ảnh đã đồng bộ từ Tổng quan giá vốn."
+          : "Chưa có SKU thành phẩm đang bật cho trang đặt hàng.",
       );
     } catch (error) {
-      const message = await getFunctionErrorMessage(error, MOCK_CATALOG_MESSAGE);
-      setCatalogProducts(mockProducts);
+      const message = await getFunctionErrorMessage(error, "Không tải được danh sách sản phẩm từ Tổng quan giá vốn.");
+      setCatalogProducts([]);
       setAnnouncements([]);
-      setCatalogStatus("mock");
-      setCatalogMessage(message || MOCK_CATALOG_MESSAGE);
+      setCatalogStatus("error");
+      setCatalogMessage(message || "Không tải được danh sách sản phẩm từ Tổng quan giá vốn.");
     }
   }, []);
 
@@ -576,6 +529,13 @@ export default function DealerPortal() {
             ) : null}
 
             <div className="grid gap-3 md:grid-cols-2">
+              {catalogProducts.length === 0 ? (
+                <div className="rounded-md border border-dashed bg-card p-5 text-sm text-muted-foreground md:col-span-2">
+                  {catalogStatus === "loading"
+                    ? "Đang tải sản phẩm từ Tổng quan giá vốn..."
+                    : "Chưa có sản phẩm để đặt. Vui lòng đăng nhập hoặc kiểm tra SKU thành phẩm chưa bị ẩn khỏi trang đặt hàng."}
+                </div>
+              ) : null}
               {catalogProducts.map((product) => {
                 const quantity = quantities[product.id] || 0;
 

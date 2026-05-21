@@ -18,10 +18,12 @@ type ProductSku = {
   sku_type?: "raw_material" | "finished_good" | null;
   unit: string | null;
   unit_price: number | null;
+  cost_values?: Record<string, unknown> | null;
   notes: string | null;
   image_url?: string | null;
   image_path?: string | null;
   image_updated_at?: string | null;
+  hide_from_dealer_portal?: boolean | null;
 };
 
 const normalizeSkuText = (value: string | null | undefined) =>
@@ -35,6 +37,12 @@ const isFinishedSku = (sku: ProductSku) => {
   if (sku.sku_type) return sku.sku_type === "finished_good";
   const category = normalizeSkuText(sku.category);
   return category.includes("thanh pham") || category.includes("finished");
+};
+
+const numberFromCostValues = (costValues: ProductSku["cost_values"], key: string) => {
+  const value = costValues && typeof costValues === "object" ? costValues[key] : null;
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : 0;
 };
 
 serve(async (req) => {
@@ -58,7 +66,7 @@ serve(async (req) => {
 
     const { data: skus, error: skuError } = await supabase
       .from("product_skus")
-      .select("id, sku_code, product_name, category, sku_type, unit, unit_price, notes, image_url, image_path, image_updated_at")
+      .select("id, sku_code, product_name, category, sku_type, unit, unit_price, cost_values, notes, image_url, image_path, image_updated_at, hide_from_dealer_portal")
       .order("sku_code", { ascending: true });
 
     if (skuError) throw skuError;
@@ -78,9 +86,10 @@ serve(async (req) => {
       });
     }
 
-    const products = ((skus || []) as ProductSku[]).filter(isFinishedSku).map((sku) => {
+    const products = ((skus || []) as ProductSku[]).filter((sku) => isFinishedSku(sku) && !sku.hide_from_dealer_portal).map((sku) => {
       const override = priceOverrides.get(sku.id);
-      const price = override ?? Number(sku.unit_price || 0);
+      const skuSellingPrice = numberFromCostValues(sku.cost_values, "selling_price");
+      const price = override ?? skuSellingPrice;
 
       return {
         id: sku.id,
@@ -88,9 +97,9 @@ serve(async (req) => {
         product_name: sku.product_name,
         category: sku.category,
         unit: sku.unit,
-        unit_price: Number(sku.unit_price || 0),
+        unit_price: skuSellingPrice,
         price_vnd: price,
-        price_source: override === undefined ? "sku_unit_price" : "customer_override",
+        price_source: override === undefined ? "cost_values_selling_price" : "customer_override",
         notes: sku.notes,
         image_url: sku.image_url ?? null,
         image_path: sku.image_path ?? null,

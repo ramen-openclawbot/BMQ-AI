@@ -1120,6 +1120,7 @@ export type Database = {
           sku_type: Database["public"]["Enums"]["sku_type"]
           created_at: string
           created_by: string | null
+          hide_from_dealer_portal: boolean
           id: string
           image_path: string | null
           image_updated_at: string | null
@@ -1137,6 +1138,7 @@ export type Database = {
           sku_type?: Database["public"]["Enums"]["sku_type"]
           created_at?: string
           created_by?: string | null
+          hide_from_dealer_portal?: boolean
           id?: string
           image_path?: string | null
           image_updated_at?: string | null
@@ -1154,6 +1156,7 @@ export type Database = {
           sku_type?: Database["public"]["Enums"]["sku_type"]
           created_at?: string
           created_by?: string | null
+          hide_from_dealer_portal?: boolean
           id?: string
           image_path?: string | null
           image_updated_at?: string | null

@@ -285,7 +285,7 @@ export default function SkuCostsManagement() {
   const [skuForm, setSkuForm] = useState<any>({
     id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100,
     finished_output_qty: FORMULA_BASE_QTY, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES,
-    cost_widgets: {},
+    cost_widgets: {}, hide_from_dealer_portal: false,
   });
 
 
@@ -298,7 +298,7 @@ export default function SkuCostsManagement() {
 
   const loadAll = async () => {
     const [skuRes, poRes, prRes, invRes] = await Promise.all([
-      sb.from("product_skus").select("id,sku_code,product_name,category,unit,unit_price,updated_at,supplier_id,sku_type,notes,cost_values,cost_widgets,cost_template,finished_output_qty,finished_output_unit,created_at,created_by").order("updated_at", { ascending: false }),
+      sb.from("product_skus").select("id,sku_code,product_name,category,unit,unit_price,updated_at,supplier_id,sku_type,notes,cost_values,cost_widgets,cost_template,finished_output_qty,finished_output_unit,created_at,created_by,hide_from_dealer_portal").order("updated_at", { ascending: false }),
       sb.from("purchase_order_items").select("sku_id, unit_price, created_at, purchase_order_id, purchase_orders(po_number, order_date)").not("sku_id", "is", null).limit(500),
       sb.from("payment_request_items").select("sku_id, unit_price, created_at, payment_request_id, payment_requests(request_number)").not("sku_id", "is", null).limit(500),
       sb.from("inventory_batches").select("sku_id, quantity").not("sku_id", "is", null).limit(500),
@@ -337,7 +337,6 @@ export default function SkuCostsManagement() {
   useEffect(() => {
     (async () => {
       try { await sb.rpc("snapshot_sku_costs_daily", { p_snapshot_date: new Date().toISOString().slice(0, 10) }); } catch (_) {}
-      try { await ensureBmcbSampleSku(); } catch (e) { console.error("ensureBmcbSampleSku failed", e); }
       loadAll();
     })();
     /* eslint-disable-next-line */
@@ -514,7 +513,7 @@ export default function SkuCostsManagement() {
     };
   }, [activeSku.finished_output_qty, formulaComputed]);
 
-  const openCreateSku = () => { setScanSkuMessage(""); setSaveSkuError(""); setImportedFormulaDraft([]); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: FORMULA_BASE_QTY, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {} }); setDialogOpen(true); };
+  const openCreateSku = () => { setScanSkuMessage(""); setSaveSkuError(""); setImportedFormulaDraft([]); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: FORMULA_BASE_QTY, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {}, hide_from_dealer_portal: false }); setDialogOpen(true); };
   const openSkuDetail = (sku: SKU) => { setActiveSkuId(sku.id); setDetailOpen(true); };
 
   const buildFormulaRowsFromDraft = (skuId: string) => {
@@ -587,7 +586,7 @@ export default function SkuCostsManagement() {
 
   const openEditSku = async (sku: SKU) => {
     setSaveSkuError("");
-    setSkuForm({ ...sku, cost_template: parseCostTemplate(sku.cost_template), cost_values: parseCostValues(sku.cost_values), cost_widgets: parseWidgets(sku.cost_widgets) });
+    setSkuForm({ ...sku, hide_from_dealer_portal: Boolean(sku.hide_from_dealer_portal), cost_template: parseCostTemplate(sku.cost_template), cost_values: parseCostValues(sku.cost_values), cost_widgets: parseWidgets(sku.cost_widgets) });
     const { data } = await sb.from("sku_formulations").select("*").eq("sku_id", sku.id).order("sort_order");
     setImportedFormulaDraft(buildDraftFromStoredRows(data || []));
     setDialogOpen(true);
@@ -671,64 +670,6 @@ export default function SkuCostsManagement() {
 
   const openCreateSkuFromImage = () => {
     skuImageInputRef.current?.click();
-  };
-
-  const ensureBmcbSampleSku = async () => {
-    const skuCode = "bmcb-2026-v1";
-    const { data: existing } = await sb.from("product_skus").select("id").eq("sku_code", skuCode).maybeSingle();
-    if (existing?.id) return;
-
-    const { data: created, error } = await sb.from("product_skus").insert({
-      sku_code: skuCode,
-      product_name: "Bánh mì chà bông",
-      unit: "cái",
-      unit_price: 0,
-      category: "Thành phẩm",
-      sku_type: "finished_good",
-      base_unit: "cái",
-      yield_percent: 100,
-      finished_output_qty: FORMULA_BASE_QTY,
-      finished_output_unit: "cái",
-      cost_template: DEFAULT_SKU_COST_TEMPLATE,
-      cost_values: {
-        ...DEFAULT_SKU_COST_VALUES,
-        material_provision_percent: 10,
-        packaging_cost: 1280,
-        labor_cost: 3077,
-        delivery_cost: 1000,
-        other_production_cost: 1100,
-        sga_cost: 1100,
-        selling_price: 11000,
-      },
-      cost_widgets: {},
-    }).select("id").single();
-
-    if (error || !created?.id) return;
-
-    const sampleRows = [
-      ["Bột mì 888 cam", 18, 2662], ["Chất Làm Mềm Bánh Bico (1kg)", 69, 17], ["Muối", 6, 35], ["Đường", 20, 482],
-      ["Phụ Gia Làm Bánh Mì Bico Gold (500g)", 88, 17], ["Phụ gia ngọt Mauri", 106, 17], ["Men bánh mì tươi Five Star", 150, 70],
-      ["Kem sữa Whiping cream tatua", 149, 158], ["Trứng gà", 51, 333], ["Sữa Bột Béo New Zealand", 130, 149], ["Nước", 3, 1226],
-      ["Trứng gà (nhân)", 51, 180], ["Bột ngọt", 48, 2], ["Muối (nhân)", 6, 6], ["Đường (nhân)", 20, 23],
-      ["Dầu hướng dương Simply", 60, 1303], ["Giấm gạo Lisa AJINOMOLO", 51, 16], ["Chà bông vàng", 140, 1250],
-    ];
-
-    await sb.from("sku_formulations").insert(sampleRows.map(([name, unitPrice, dosage], idx) => ({
-      sku_id: created.id,
-      ingredient_name: String(name),
-      unit: "g",
-      unit_price: Number(unitPrice),
-      dosage_qty: Number(dosage),
-      wastage_percent: 0,
-      sort_order: idx + 1,
-    })));
-
-    await sb.from("sku_trace_documents").insert({
-      sku_id: created.id,
-      document_type: "audit",
-      document_name: `CREATE_SAMPLE_${new Date().toISOString()}`,
-      document_url: `audit://sku/${created.id}/create-sample`,
-    });
   };
 
   const addDraftMaterialRow = () => {
@@ -909,9 +850,9 @@ export default function SkuCostsManagement() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between"><CardTitle>Danh sách SKU thành phẩm</CardTitle><div className="flex gap-2"><Button onClick={openCreateSku}>Tạo SKU</Button></div></CardHeader>
         <CardContent>
-          <Table><TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Tên</TableHead><TableHead>Giá bán</TableHead><TableHead>Chỉnh sửa lúc</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>
-            {finishedSkus.map((s) => <TableRow key={s.id}><TableCell className="font-mono">{s.sku_code}</TableCell><TableCell><button className="text-left underline decoration-dotted underline-offset-4 hover:text-primary transition-colors" onClick={() => openSkuDetail(s)}>{s.product_name}</button></TableCell><TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell><TableCell className="text-xs">{s.updated_at ? new Date(s.updated_at).toLocaleString("vi-VN") : "-"}</TableCell><TableCell><div className="flex gap-2 justify-end"><Button variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button><Button variant="destructive" size="sm" onClick={() => removeSku(s)}>Xóa</Button></div></TableCell></TableRow>)}
-            {finishedSkus.length === 0 && <TableRow><TableCell colSpan={5} className="text-muted-foreground">Chưa có SKU thành phẩm.</TableCell></TableRow>}
+          <Table><TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Tên</TableHead><TableHead>Giá bán</TableHead><TableHead>Trang đặt hàng</TableHead><TableHead>Chỉnh sửa lúc</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>
+            {finishedSkus.map((s) => <TableRow key={s.id}><TableCell className="font-mono">{s.sku_code}</TableCell><TableCell><button className="text-left underline decoration-dotted underline-offset-4 hover:text-primary transition-colors" onClick={() => openSkuDetail(s)}>{s.product_name}</button></TableCell><TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell><TableCell className="text-xs">{s.hide_from_dealer_portal ? <span className="rounded bg-muted px-2 py-1 text-muted-foreground">Đang ẩn</span> : <span className="rounded bg-emerald-100 px-2 py-1 text-emerald-800">Đang hiện</span>}</TableCell><TableCell className="text-xs">{s.updated_at ? new Date(s.updated_at).toLocaleString("vi-VN") : "-"}</TableCell><TableCell><div className="flex gap-2 justify-end"><Button variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button><Button variant="destructive" size="sm" onClick={() => removeSku(s)}>Xóa</Button></div></TableCell></TableRow>)}
+            {finishedSkus.length === 0 && <TableRow><TableCell colSpan={6} className="text-muted-foreground">Chưa có SKU thành phẩm.</TableCell></TableRow>}
           </TableBody></Table>
         </CardContent>
       </Card>
@@ -999,6 +940,18 @@ export default function SkuCostsManagement() {
               <div className="space-y-1"><Label>Thành phẩm ĐVT</Label><Input className="h-11" value={skuForm.finished_output_unit || "cái"} onChange={(e) => setSkuForm({ ...skuForm, finished_output_unit: e.target.value })} /></div>
               <div className="space-y-1"><Label>Sản lượng thành phẩm / mẻ</Label><Input className="h-11" type="number" min={1} value={skuForm.finished_output_qty ?? FORMULA_BASE_QTY} onChange={(e) => setSkuForm({ ...skuForm, finished_output_qty: Math.max(1, Number(e.target.value || FORMULA_BASE_QTY)) })} /></div>
             </div>
+            <label className="flex items-start gap-3 rounded border bg-muted/30 p-3 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 accent-primary"
+                checked={Boolean(skuForm.hide_from_dealer_portal)}
+                onChange={(event) => setSkuForm({ ...skuForm, hide_from_dealer_portal: event.target.checked })}
+              />
+              <span>
+                <span className="block font-medium">Ẩn SKU này trên trang đặt hàng đại lý</span>
+                <span className="mt-1 block text-muted-foreground">Khi bật, SKU vẫn còn trong Giá vốn nhưng không xuất hiện trên dathang.banhmique.vn.</span>
+              </span>
+            </label>
 
             <div className="rounded border">
               <Table className="hidden md:table">
