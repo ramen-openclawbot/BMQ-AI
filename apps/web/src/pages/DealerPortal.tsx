@@ -434,18 +434,20 @@ export default function DealerPortal() {
         </section>
       ) : (
         <section id="dealer-top" className="border-b bg-[#16110d] text-amber-50">
-          <div className="mx-auto max-w-6xl px-4 py-4 pb-6">
-            <div className="relative overflow-hidden rounded-[28px] border border-amber-400/20 bg-gradient-to-br from-[#3b210d] via-[#25160e] to-[#120d09] p-4 shadow-2xl shadow-black/35">
-              <div className="absolute inset-0 opacity-70">
+          <div className="mx-auto max-w-6xl px-4 py-4 pb-6 md:py-6">
+            <div className="overflow-hidden rounded-[28px] border border-amber-400/20 bg-gradient-to-br from-[#3b210d] via-[#25160e] to-[#120d09] shadow-2xl shadow-black/35 md:grid md:grid-cols-[minmax(0,0.98fr)_minmax(360px,1.02fr)] md:items-stretch">
+              <div className="relative order-1 aspect-[16/10] overflow-hidden bg-[#24150d] md:order-2 md:aspect-auto md:min-h-[420px]">
                 {landingBannerUrl ? (
                   <img src={landingBannerUrl} alt="Banner khuyến mãi BMQ" className="h-full w-full object-cover" />
                 ) : (
                   <div className="h-full w-full bg-[radial-gradient(circle_at_78%_18%,rgba(245,178,65,0.42),transparent_28%),linear-gradient(135deg,rgba(197,121,19,0.36),transparent_48%)]" />
                 )}
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-[#1b1208]/45 to-transparent md:hidden" />
+                <div className="pointer-events-none absolute inset-y-0 left-0 hidden w-24 bg-gradient-to-r from-[#25160e] to-transparent md:block" />
               </div>
-              <div className="absolute inset-0 bg-gradient-to-br from-black/70 via-black/42 to-[#c57913]/18" />
-              <div className="relative z-10 flex min-h-[360px] flex-col justify-between gap-8 p-2 sm:min-h-[420px] sm:p-5">
-                <div className="space-y-3">
+
+              <div className="order-2 flex flex-col justify-between gap-6 p-5 sm:p-6 md:order-1 md:min-h-[420px] md:p-8">
+                <div className="space-y-4">
                   <Badge className="rounded-full border border-amber-300/40 bg-amber-400/15 px-3 py-1 text-amber-100 hover:bg-amber-400/15">
                     <Sparkles className="h-3.5 w-3.5" />
                     Khuyến mãi tháng này
