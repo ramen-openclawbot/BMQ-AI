@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
 import {
   AlertCircle,
+  BadgePercent,
   BellRing,
   Building2,
   CalendarDays,
@@ -10,7 +11,9 @@ import {
   HelpCircle,
   Home,
   ImageIcon,
+  KeyRound,
   Loader2,
+  LockKeyhole,
   LogOut,
   MapPin,
   MessageCircle,
@@ -21,6 +24,8 @@ import {
   Send,
   ShieldCheck,
   ShoppingCart,
+  Sparkles,
+  Timer,
   Truck,
   UserRound,
   WalletCards,
@@ -77,6 +82,14 @@ type CatalogResponse = {
   products?: CatalogProductResponse[];
   announcements?: Array<{ id: string; title: string; body: string; severity?: string }>;
   customer?: DealerCustomer | null;
+};
+
+type DealerPublicConfigResponse = {
+  success?: boolean;
+  landing?: {
+    banner_url?: string | null;
+    banner_path?: string | null;
+  };
 };
 
 const DEALER_SESSION_STORAGE_KEY = "bmq_dealer_session_token";
@@ -139,6 +152,7 @@ export default function DealerPortal() {
   const [catalogProducts, setCatalogProducts] = useState<Product[]>([]);
   const [catalogStatus, setCatalogStatus] = useState<"idle" | "loading" | "live" | "error">("idle");
   const [catalogMessage, setCatalogMessage] = useState("Đăng nhập để tải sản phẩm, giá bán và ảnh từ Tổng quan giá vốn.");
+  const [landingBannerUrl, setLandingBannerUrl] = useState("");
   const [announcements, setAnnouncements] = useState<CatalogResponse["announcements"]>([]);
   const [dealerCustomer, setDealerCustomer] = useState<DealerCustomer | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
@@ -148,6 +162,24 @@ export default function DealerPortal() {
   const [orderMessage, setOrderMessage] = useState("");
   const [orderError, setOrderError] = useState("");
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+
+  const loadLandingConfig = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke<DealerPublicConfigResponse>("dealer-public-config", {
+        body: {},
+      });
+
+      if (error) throw error;
+      setLandingBannerUrl(data?.landing?.banner_url || "");
+    } catch (error) {
+      console.warn("Không tải được banner landing đại lý", error);
+      setLandingBannerUrl("");
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadLandingConfig();
+  }, [loadLandingConfig]);
 
   const loadCatalog = useCallback(async (token?: string) => {
     if (!token) {
@@ -311,6 +343,7 @@ export default function DealerPortal() {
 
   const totalItems = selectedLines.reduce((sum, product) => sum + product.quantity, 0);
   const cartTotal = selectedLines.reduce((sum, product) => sum + product.lineTotal, 0);
+  const isCatalogUnlocked = loginStep === "catalog" && Boolean(sessionToken);
 
   const updateQuantity = (productId: string, delta: number) => {
     setQuantities((current) => ({
@@ -342,66 +375,110 @@ export default function DealerPortal() {
         </div>
       </header>
 
-      <section
-        id="dealer-top"
-        className="border-b bg-gradient-to-br from-primary/15 via-background to-emerald-50/80 dark:to-emerald-950/20"
-      >
-        <div className="mx-auto grid max-w-6xl gap-4 px-4 py-5 md:grid-cols-[1.2fr_0.8fr] md:py-7">
-          <div className="space-y-3">
-            <Badge variant="secondary" className="rounded-md">
-              Cổng đặt hàng đại lý
-            </Badge>
-            <div>
-              <h1 className="text-2xl font-display font-bold leading-tight text-foreground md:text-4xl">
-                Đặt bánh nhanh cho đại lý BMQ
-              </h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground md:text-base">
-                Chốt đơn theo ngày, xem nhanh khung giao, tổng tiền tạm tính và trạng thái xác thực trước khi gửi đơn thật.
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-xs md:max-w-xl md:grid-cols-4">
-              <div className="rounded-md border bg-card/80 p-3">
-                <div className="font-semibold">20:00</div>
-                <div className="text-muted-foreground">Cutoff hôm nay</div>
-              </div>
-              <div className="rounded-md border bg-card/80 p-3">
-                <div className="font-semibold">Sáng mai</div>
-                <div className="text-muted-foreground">Khung giao chính</div>
-              </div>
-              <div className="rounded-md border bg-card/80 p-3">
-                <div className="font-semibold">ZNS OTP</div>
-                <div className="text-muted-foreground">Xác thực số điện thoại</div>
-              </div>
-              <div className="rounded-md border bg-card/80 p-3">
-                <div className="font-semibold">COD / công nợ</div>
-                <div className="text-muted-foreground">Theo hồ sơ đại lý</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-md border bg-card/85 p-4 shadow-sm">
-            <div className="flex items-start gap-3">
-              <div className="rounded-md bg-primary/10 p-2 text-primary">
-                <Building2 className="h-5 w-5" />
-              </div>
+      {isCatalogUnlocked ? (
+        <section
+          id="dealer-top"
+          className="border-b bg-gradient-to-br from-primary/15 via-background to-emerald-50/80 dark:to-emerald-950/20"
+        >
+          <div className="mx-auto grid max-w-6xl gap-4 px-4 py-5 md:grid-cols-[1.2fr_0.8fr] md:py-7">
+            <div className="space-y-3">
+              <Badge variant="secondary" className="rounded-md">
+                Cổng đặt hàng đại lý
+              </Badge>
               <div>
-                <div className="font-semibold">BMQ Company Ordering</div>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  Đăng nhập bằng số điện thoại đã đăng ký trong CRM, xác thực Zalo ZNS OTP và gửi đơn trực tiếp cho vận hành BMQ.
+                <h1 className="text-2xl font-display font-bold leading-tight text-foreground md:text-4xl">
+                  Đặt bánh nhanh cho đại lý BMQ
+                </h1>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground md:text-base">
+                  Chốt đơn theo ngày, xem nhanh khung giao, tổng tiền tạm tính và trạng thái xác thực trước khi gửi đơn thật.
                 </p>
               </div>
+              <div className="grid grid-cols-2 gap-2 text-xs md:max-w-xl md:grid-cols-4">
+                <div className="rounded-md border bg-card/80 p-3">
+                  <div className="font-semibold">20:00</div>
+                  <div className="text-muted-foreground">Cutoff hôm nay</div>
+                </div>
+                <div className="rounded-md border bg-card/80 p-3">
+                  <div className="font-semibold">Sáng mai</div>
+                  <div className="text-muted-foreground">Khung giao chính</div>
+                </div>
+                <div className="rounded-md border bg-card/80 p-3">
+                  <div className="font-semibold">ZNS OTP</div>
+                  <div className="text-muted-foreground">Xác thực số điện thoại</div>
+                </div>
+                <div className="rounded-md border bg-card/80 p-3">
+                  <div className="font-semibold">COD / công nợ</div>
+                  <div className="text-muted-foreground">Theo hồ sơ đại lý</div>
+                </div>
+              </div>
             </div>
-            <div className="mt-4 flex items-center gap-2 rounded-md border border-dashed bg-background/70 p-3 text-sm">
-              <ShieldCheck className="h-4 w-4 shrink-0 text-success" />
-              <span className="text-muted-foreground">Đơn chỉ gửi khi phiên đại lý đã xác thực OTP và catalog thật tải thành công.</span>
+
+            <div className="rounded-md border bg-card/85 p-4 shadow-sm">
+              <div className="flex items-start gap-3">
+                <div className="rounded-md bg-primary/10 p-2 text-primary">
+                  <Building2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="font-semibold">BMQ Company Ordering</div>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                    Đăng nhập bằng số điện thoại đã đăng ký trong CRM, xác thực Zalo ZNS OTP và gửi đơn trực tiếp cho vận hành BMQ.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 flex items-center gap-2 rounded-md border border-dashed bg-background/70 p-3 text-sm">
+                <ShieldCheck className="h-4 w-4 shrink-0 text-success" />
+                <span className="text-muted-foreground">Đơn chỉ gửi khi phiên đại lý đã xác thực OTP và catalog thật tải thành công.</span>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      ) : (
+        <section id="dealer-top" className="border-b bg-[#16110d] text-amber-50">
+          <div className="mx-auto max-w-6xl px-4 py-4 pb-6">
+            <div className="relative overflow-hidden rounded-[28px] border border-amber-400/20 bg-gradient-to-br from-[#3b210d] via-[#25160e] to-[#120d09] p-4 shadow-2xl shadow-black/35">
+              <div className="absolute inset-0 opacity-70">
+                {landingBannerUrl ? (
+                  <img src={landingBannerUrl} alt="Banner khuyến mãi BMQ" className="h-full w-full object-cover" />
+                ) : (
+                  <div className="h-full w-full bg-[radial-gradient(circle_at_78%_18%,rgba(245,178,65,0.42),transparent_28%),linear-gradient(135deg,rgba(197,121,19,0.36),transparent_48%)]" />
+                )}
+              </div>
+              <div className="absolute inset-0 bg-gradient-to-br from-black/70 via-black/42 to-[#c57913]/18" />
+              <div className="relative z-10 flex min-h-[360px] flex-col justify-between gap-8 p-2 sm:min-h-[420px] sm:p-5">
+                <div className="space-y-3">
+                  <Badge className="rounded-full border border-amber-300/40 bg-amber-400/15 px-3 py-1 text-amber-100 hover:bg-amber-400/15">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Khuyến mãi tháng này
+                  </Badge>
+                  <div className="max-w-lg space-y-3">
+                    <h1 className="text-3xl font-display font-bold leading-[1.05] tracking-tight text-white sm:text-5xl">
+                      Ưu đãi đơn sỉ cho đại lý BMQ
+                    </h1>
+                    <p className="max-w-md text-sm leading-6 text-amber-50/82 sm:text-base">
+                      Đăng nhập để xem giá riêng, chương trình đang áp dụng và gửi đơn xác nhận cho vận hành BMQ.
+                    </p>
+                  </div>
+                </div>
 
-      <main className="mx-auto grid max-w-6xl gap-4 px-4 pb-40 pt-4 lg:grid-cols-[minmax(0,1fr)_340px] lg:pb-12">
+                <div className="space-y-3">
+                  <Button
+                    className="h-12 w-full rounded-2xl bg-amber-500 text-base font-semibold text-[#1b1208] shadow-lg shadow-amber-950/30 hover:bg-amber-400 sm:w-auto sm:px-6"
+                    onClick={() => document.getElementById("dealer-login")?.scrollIntoView({ behavior: "smooth", block: "center" })}
+                  >
+                    <Phone className="h-4 w-4" />
+                    Đăng nhập để đặt hàng
+                  </Button>
+                  <div className="text-center text-xs text-amber-50/75 sm:text-left">Cần hỗ trợ? Gọi CSKH / Zalo OA BMQ</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      <main className={cn("mx-auto grid max-w-6xl gap-4 px-4 pt-4", isCatalogUnlocked ? "pb-40 lg:grid-cols-[minmax(0,1fr)_340px] lg:pb-12" : "pb-28")}>
         <div className="space-y-4">
-          <Card className="rounded-md">
+          <Card id="dealer-login" className="scroll-mt-24 rounded-md">
             <CardHeader className="p-4 pb-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -504,6 +581,8 @@ export default function DealerPortal() {
             </CardContent>
           </Card>
 
+          {isCatalogUnlocked ? (
+            <div className="contents">
           <section id="quick-order" className="scroll-mt-24 space-y-3">
             <div className="flex items-end justify-between gap-3">
               <div>
@@ -660,40 +739,66 @@ export default function DealerPortal() {
               </div>
             </div>
           </section>
+            </div>
+          ) : (
+            <PublicLandingSupport />
+          )}
         </div>
 
-        <aside className="hidden lg:block">
-          <div className="sticky top-20">
+        {isCatalogUnlocked ? (
+          <aside className="hidden lg:block">
+            <div className="sticky top-20">
+              <CartSummary
+                selectedLines={selectedLines}
+                totalItems={totalItems}
+                cartTotal={cartTotal}
+                canSubmit={Boolean(sessionToken) && catalogStatus === "live" && selectedLines.length > 0}
+                submitting={orderSubmitting}
+                onSubmit={handleSubmitOrder}
+              />
+            </div>
+          </aside>
+        ) : null}
+      </main>
+
+      {isCatalogUnlocked ? (
+        <div className="fixed inset-x-0 bottom-14 z-30 border-t bg-card/95 px-4 py-3 shadow-lg backdrop-blur lg:hidden">
+          <div className="mx-auto max-w-6xl">
             <CartSummary
               selectedLines={selectedLines}
               totalItems={totalItems}
               cartTotal={cartTotal}
+              compact
               canSubmit={Boolean(sessionToken) && catalogStatus === "live" && selectedLines.length > 0}
               submitting={orderSubmitting}
               onSubmit={handleSubmitOrder}
             />
           </div>
-        </aside>
-      </main>
-
-      <div className="fixed inset-x-0 bottom-14 z-30 border-t bg-card/95 px-4 py-3 shadow-lg backdrop-blur lg:hidden">
-        <div className="mx-auto max-w-6xl">
-          <CartSummary
-            selectedLines={selectedLines}
-            totalItems={totalItems}
-            cartTotal={cartTotal}
-            compact
-            canSubmit={Boolean(sessionToken) && catalogStatus === "live" && selectedLines.length > 0}
-            submitting={orderSubmitting}
-            onSubmit={handleSubmitOrder}
-          />
         </div>
-      </div>
+      ) : (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-amber-400/20 bg-[#16110d]/95 px-4 py-3 text-amber-50 shadow-2xl backdrop-blur lg:hidden">
+          <div className="mx-auto flex max-w-md items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold">Đăng nhập / OTP</div>
+              <div className="truncate text-xs text-amber-50/65">Phiên bảo mật 30 ngày</div>
+            </div>
+            <Button
+              size="sm"
+              className="shrink-0 rounded-xl bg-amber-500 text-[#1b1208] hover:bg-amber-400"
+              onClick={() => document.getElementById("dealer-login")?.scrollIntoView({ behavior: "smooth", block: "center" })}
+            >
+              <KeyRound className="h-4 w-4" />
+              Đăng nhập
+            </Button>
+          </div>
+        </div>
+      )}
 
-      <nav
-        className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 px-2 pt-1 backdrop-blur lg:hidden"
-        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.25rem)" }}
-      >
+      {isCatalogUnlocked ? (
+        <nav
+          className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 px-2 pt-1 backdrop-blur lg:hidden"
+          style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.25rem)" }}
+        >
         <div className="mx-auto grid max-w-md grid-cols-4">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -716,6 +821,78 @@ export default function DealerPortal() {
           })}
         </div>
       </nav>
+      ) : null}
+    </div>
+  );
+}
+
+function PublicLandingSupport() {
+  const benefits = [
+    { icon: BadgePercent, title: "Giá đại lý riêng", description: "Giá bán và chương trình chỉ mở sau khi xác thực đúng hồ sơ đại lý." },
+    { icon: Timer, title: "Chốt đơn nhanh", description: "Gửi đơn theo khung vận hành BMQ, hạn chế gọi lại thủ công." },
+    { icon: ShieldCheck, title: "Theo dõi xác nhận", description: "Đơn được ghi nhận để đội vận hành kiểm tra và xác nhận." },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <Card className="overflow-hidden rounded-2xl border-amber-200/40 bg-gradient-to-br from-amber-50 via-card to-card shadow-sm dark:border-amber-500/20 dark:from-amber-950/25">
+        <CardContent className="space-y-4 p-4">
+          <div className="flex items-start gap-3">
+            <div className="rounded-2xl bg-amber-500/15 p-3 text-amber-700 dark:text-amber-300">
+              <LockKeyhole className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-base font-semibold">Sản phẩm & giá bán chỉ hiển thị sau khi đăng nhập đại lý.</div>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                Landing page public chỉ dùng để giới thiệu chương trình và đăng nhập. Catalog, giá riêng và nút đặt hàng sẽ được mở sau OTP.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <section className="space-y-3">
+        <h2 className="text-xl font-display font-bold">Quyền lợi đại lý</h2>
+        <div className="grid gap-3 md:grid-cols-3">
+          {benefits.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Card key={item.title} className="rounded-2xl">
+                <CardContent className="space-y-3 p-4">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="font-semibold">{item.title}</div>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">{item.description}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-xl font-display font-bold">Cách đặt hàng</h2>
+        <div className="grid gap-3 md:grid-cols-3">
+          {[
+            ["1", "Nhập SĐT", "Dùng số điện thoại đại lý đã đăng ký trong CRM."],
+            ["2", "Xác thực OTP", "Nhận và nhập mã OTP qua Zalo ZNS."],
+            ["3", "Đặt hàng", "Xem catalog, chọn số lượng và gửi đơn xác nhận."],
+          ].map(([step, title, description]) => (
+            <div key={step} className="rounded-2xl border bg-card p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">{step}</div>
+                <div>
+                  <div className="font-semibold">{title}</div>
+                  <div className="mt-1 text-sm leading-5 text-muted-foreground">{description}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
