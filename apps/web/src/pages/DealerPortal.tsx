@@ -473,9 +473,9 @@ export default function DealerPortal() {
         <section id="dealer-top" className="border-b bg-[#16110d] text-amber-50">
           <div className="mx-auto max-w-6xl px-4 py-4 pb-6 md:py-5">
             <div className="overflow-hidden rounded-[28px] border border-amber-400/20 bg-gradient-to-br from-[#3b210d] via-[#25160e] to-[#120d09] shadow-2xl shadow-black/35">
-              <div className="relative aspect-[16/10] overflow-hidden bg-[#24150d] md:aspect-[16/6]">
+              <div className="relative aspect-[16/10] overflow-hidden bg-[#24150d] md:aspect-[16/8]">
                 {activeLandingBannerUrl ? (
-                  <img src={activeLandingBannerUrl} alt={activeLandingBanner?.eventLabel || "Banner khuyến mãi BMQ"} className="h-full w-full object-cover" />
+                  <img src={activeLandingBannerUrl} alt={activeLandingBanner?.eventLabel || "Banner khuyến mãi BMQ"} className="h-full w-full object-contain" />
                 ) : (
                   <div className="h-full w-full bg-[radial-gradient(circle_at_78%_18%,rgba(245,178,65,0.42),transparent_28%),linear-gradient(135deg,rgba(197,121,19,0.36),transparent_48%)]" />
                 )}
