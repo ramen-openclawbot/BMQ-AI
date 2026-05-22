@@ -84,11 +84,20 @@ type CatalogResponse = {
   customer?: DealerCustomer | null;
 };
 
+type DealerLandingBanner = {
+  id?: string;
+  eventLabel?: string;
+  url?: string | null;
+  path?: string | null;
+  enabled?: boolean;
+};
+
 type DealerPublicConfigResponse = {
   success?: boolean;
   landing?: {
     banner_url?: string | null;
     banner_path?: string | null;
+    banners?: DealerLandingBanner[];
   };
 };
 
@@ -153,6 +162,8 @@ export default function DealerPortal() {
   const [catalogStatus, setCatalogStatus] = useState<"idle" | "loading" | "live" | "error">("idle");
   const [catalogMessage, setCatalogMessage] = useState("Đăng nhập để tải sản phẩm, giá bán và ảnh từ Tổng quan giá vốn.");
   const [landingBannerUrl, setLandingBannerUrl] = useState("");
+  const [landingBanners, setLandingBanners] = useState<DealerLandingBanner[]>([]);
+  const [activeLandingBannerIndex, setActiveLandingBannerIndex] = useState(0);
   const [announcements, setAnnouncements] = useState<CatalogResponse["announcements"]>([]);
   const [dealerCustomer, setDealerCustomer] = useState<DealerCustomer | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
@@ -170,7 +181,12 @@ export default function DealerPortal() {
       });
 
       if (error) throw error;
-      setLandingBannerUrl(data?.landing?.banner_url || "");
+      const nextBanners = Array.isArray(data?.landing?.banners)
+        ? data.landing.banners.filter((banner) => banner?.enabled !== false && Boolean(banner?.url)).slice(0, 3)
+        : [];
+      setLandingBanners(nextBanners);
+      setActiveLandingBannerIndex(0);
+      setLandingBannerUrl(nextBanners[0]?.url || data?.landing?.banner_url || "");
     } catch (error) {
       console.warn("Không tải được banner landing đại lý", error);
       setLandingBannerUrl("");
@@ -180,6 +196,16 @@ export default function DealerPortal() {
   useEffect(() => {
     void loadLandingConfig();
   }, [loadLandingConfig]);
+
+  useEffect(() => {
+    if (landingBanners.length <= 1) return undefined;
+
+    const timer = window.setInterval(() => {
+      setActiveLandingBannerIndex((current) => (current + 1) % landingBanners.length);
+    }, 5200);
+
+    return () => window.clearInterval(timer);
+  }, [landingBanners.length]);
 
   const loadCatalog = useCallback(async (token?: string) => {
     if (!token) {
@@ -344,6 +370,8 @@ export default function DealerPortal() {
   const totalItems = selectedLines.reduce((sum, product) => sum + product.quantity, 0);
   const cartTotal = selectedLines.reduce((sum, product) => sum + product.lineTotal, 0);
   const isCatalogUnlocked = loginStep === "catalog" && Boolean(sessionToken);
+  const activeLandingBanner = landingBanners[activeLandingBannerIndex] || landingBanners[0];
+  const activeLandingBannerUrl = activeLandingBanner?.url || landingBannerUrl;
 
   const updateQuantity = (productId: string, delta: number) => {
     setQuantities((current) => ({
@@ -437,13 +465,26 @@ export default function DealerPortal() {
           <div className="mx-auto max-w-6xl px-4 py-4 pb-6 md:py-6">
             <div className="overflow-hidden rounded-[28px] border border-amber-400/20 bg-gradient-to-br from-[#3b210d] via-[#25160e] to-[#120d09] shadow-2xl shadow-black/35 md:grid md:grid-cols-[minmax(0,0.98fr)_minmax(360px,1.02fr)] md:items-stretch">
               <div className="relative order-1 aspect-[16/10] overflow-hidden bg-[#24150d] md:order-2 md:aspect-auto md:min-h-[420px]">
-                {landingBannerUrl ? (
-                  <img src={landingBannerUrl} alt="Banner khuyến mãi BMQ" className="h-full w-full object-cover" />
+                {activeLandingBannerUrl ? (
+                  <img src={activeLandingBannerUrl} alt={activeLandingBanner?.eventLabel || "Banner khuyến mãi BMQ"} className="h-full w-full object-cover" />
                 ) : (
                   <div className="h-full w-full bg-[radial-gradient(circle_at_78%_18%,rgba(245,178,65,0.42),transparent_28%),linear-gradient(135deg,rgba(197,121,19,0.36),transparent_48%)]" />
                 )}
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-[#1b1208]/45 to-transparent md:hidden" />
                 <div className="pointer-events-none absolute inset-y-0 left-0 hidden w-24 bg-gradient-to-r from-[#25160e] to-transparent md:block" />
+                {landingBanners.length > 1 ? (
+                  <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/20 px-2 py-1 backdrop-blur-sm">
+                    {landingBanners.map((banner, index) => (
+                      <button
+                        key={banner.id || index}
+                        type="button"
+                        className={cn("h-1.5 rounded-full transition-all", index === activeLandingBannerIndex ? "w-5 bg-white" : "w-1.5 bg-white/55")}
+                        aria-label={`Xem banner ${index + 1}`}
+                        onClick={() => setActiveLandingBannerIndex(index)}
+                      />
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
               <div className="order-2 flex flex-col justify-between gap-6 p-5 sm:p-6 md:order-1 md:min-h-[420px] md:p-8">

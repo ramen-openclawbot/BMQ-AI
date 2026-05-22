@@ -4,8 +4,56 @@ import { createServiceClient, errorResponse, jsonResponse } from "../_shared/dea
 
 const BANNER_URL_KEY = "dealer_landing_banner_url";
 const BANNER_PATH_KEY = "dealer_landing_banner_path";
+const BANNERS_KEY = "dealer_landing_banners";
+const MAX_EVENT_BANNERS = 3;
 
-serve(async (req) => {
+type DealerLandingBanner = {
+  id: string;
+  eventLabel: string;
+  url: string;
+  path: string;
+  enabled: boolean;
+};
+
+const normalizeBanners = (raw: string | null | undefined, fallbackUrl: string | null, fallbackPath: string | null): DealerLandingBanner[] => {
+  let parsed: DealerLandingBanner[] = [];
+
+  if (raw) {
+    try {
+      const value = JSON.parse(raw);
+      if (Array.isArray(value)) {
+        parsed = value
+          .slice(0, MAX_EVENT_BANNERS)
+          .map((item, index) => ({
+            id: typeof item?.id === "string" && item.id ? item.id : `event-${index + 1}`,
+            eventLabel: typeof item?.eventLabel === "string" && item.eventLabel ? item.eventLabel : `Sự kiện ${index + 1}`,
+            url: typeof item?.url === "string" ? item.url : "",
+            path: typeof item?.path === "string" ? item.path : "",
+            enabled: item?.enabled !== false,
+          }))
+          .filter((item) => item.enabled && item.url);
+      }
+    } catch (_error) {
+      parsed = [];
+    }
+  }
+
+  if (!parsed.length && fallbackUrl) {
+    parsed = [
+      {
+        id: "event-1",
+        eventLabel: "Banner chính",
+        url: fallbackUrl,
+        path: fallbackPath || "",
+        enabled: true,
+      },
+    ];
+  }
+
+  return parsed.slice(0, MAX_EVENT_BANNERS);
+};
+
+serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return corsPreflightResponse(req);
   }
@@ -19,18 +67,22 @@ serve(async (req) => {
     const { data, error } = await supabase
       .from("app_settings")
       .select("key, value")
-      .in("key", [BANNER_URL_KEY, BANNER_PATH_KEY]);
+      .in("key", [BANNER_URL_KEY, BANNER_PATH_KEY, BANNERS_KEY]);
 
     if (error) throw error;
 
     const bannerUrl = data?.find((row: { key: string; value: string }) => row.key === BANNER_URL_KEY)?.value || null;
     const bannerPath = data?.find((row: { key: string; value: string }) => row.key === BANNER_PATH_KEY)?.value || null;
+    const bannersRaw = data?.find((row: { key: string; value: string }) => row.key === BANNERS_KEY)?.value || null;
+    const banners = normalizeBanners(bannersRaw, bannerUrl, bannerPath);
+    const primaryBanner = banners[0] || null;
 
     return jsonResponse(req, {
       success: true,
       landing: {
-        banner_url: bannerUrl,
-        banner_path: bannerPath,
+        banner_url: primaryBanner?.url || bannerUrl,
+        banner_path: primaryBanner?.path || bannerPath,
+        banners,
       },
     });
   } catch (error) {
