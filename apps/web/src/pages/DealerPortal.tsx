@@ -473,7 +473,7 @@ export default function DealerPortal() {
         <section id="dealer-top" className="border-b bg-[#16110d] text-amber-50">
           <div className="mx-auto max-w-6xl px-4 py-4 pb-6 md:py-5">
             <div className="overflow-hidden rounded-[28px] border border-amber-400/20 bg-gradient-to-br from-[#3b210d] via-[#25160e] to-[#120d09] shadow-2xl shadow-black/35">
-              <div className="relative aspect-[16/10] overflow-hidden bg-[#24150d] md:aspect-[16/8]">
+              <div className="relative h-[210px] overflow-hidden bg-[#24150d] sm:h-[240px] md:h-[300px] lg:h-[340px]">
                 {activeLandingBannerUrl ? (
                   <img src={activeLandingBannerUrl} alt={activeLandingBanner?.eventLabel || "Banner khuyến mãi BMQ"} className="h-full w-full object-contain" />
                 ) : (
@@ -490,7 +490,7 @@ export default function DealerPortal() {
                   </a>
                 </Button>
                 {landingBanners.length > 1 ? (
-                  <div className="absolute bottom-4 left-4 flex items-center gap-1.5 rounded-full bg-black/20 px-2 py-1 backdrop-blur-sm">
+                  <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/20 px-2 py-1 backdrop-blur-sm">
                     {landingBanners.map((banner, index) => (
                       <button
                         key={banner.id || index}
