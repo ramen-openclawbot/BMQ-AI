@@ -90,6 +90,12 @@ type DealerLandingBanner = {
   url?: string | null;
   path?: string | null;
   enabled?: boolean;
+  contentTitle?: string;
+  contentIntro?: string;
+  contentHighlights?: string[];
+  contentTerms?: string;
+  contentNote?: string;
+  published?: boolean;
 };
 
 type DealerPublicConfigResponse = {
@@ -372,6 +378,9 @@ export default function DealerPortal() {
   const isCatalogUnlocked = loginStep === "catalog" && Boolean(sessionToken);
   const activeLandingBanner = landingBanners[activeLandingBannerIndex] || landingBanners[0];
   const activeLandingBannerUrl = activeLandingBanner?.url || landingBannerUrl;
+  const activePromotionPath = window.location.hostname === "dathang.banhmique.vn"
+    ? `/promotion/${activeLandingBanner?.id || "event-1"}`
+    : `/dealer/promotion/${activeLandingBanner?.id || "event-1"}`;
 
   const updateQuantity = (productId: string, delta: number) => {
     setQuantities((current) => ({
@@ -463,17 +472,25 @@ export default function DealerPortal() {
       ) : (
         <section id="dealer-top" className="border-b bg-[#16110d] text-amber-50">
           <div className="mx-auto max-w-6xl px-4 py-4 pb-6 md:py-5">
-            <div className="overflow-hidden rounded-[28px] border border-amber-400/20 bg-gradient-to-br from-[#3b210d] via-[#25160e] to-[#120d09] shadow-2xl shadow-black/35 md:relative md:min-h-[300px]">
-              <div className="relative order-1 aspect-[16/10] overflow-hidden bg-[#24150d] md:absolute md:inset-0 md:aspect-auto md:h-full">
+            <div className="overflow-hidden rounded-[28px] border border-amber-400/20 bg-gradient-to-br from-[#3b210d] via-[#25160e] to-[#120d09] shadow-2xl shadow-black/35">
+              <div className="relative aspect-[16/10] overflow-hidden bg-[#24150d] md:aspect-[16/6]">
                 {activeLandingBannerUrl ? (
                   <img src={activeLandingBannerUrl} alt={activeLandingBanner?.eventLabel || "Banner khuyến mãi BMQ"} className="h-full w-full object-cover" />
                 ) : (
                   <div className="h-full w-full bg-[radial-gradient(circle_at_78%_18%,rgba(245,178,65,0.42),transparent_28%),linear-gradient(135deg,rgba(197,121,19,0.36),transparent_48%)]" />
                 )}
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-[#1b1208]/45 to-transparent md:hidden" />
-                <div className="pointer-events-none absolute inset-0 hidden bg-gradient-to-r from-[#1b1208]/95 via-[#1b1208]/72 to-[#1b1208]/12 md:block" />
+                <Button
+                  asChild
+                  size="sm"
+                  className="absolute bottom-3 right-3 h-9 rounded-full bg-amber-500/95 px-4 text-sm font-semibold text-[#1b1208] shadow-lg shadow-black/25 hover:bg-amber-400"
+                >
+                  <a href={activePromotionPath}>
+                    Xem ngay
+                    <ChevronRight className="h-4 w-4" />
+                  </a>
+                </Button>
                 {landingBanners.length > 1 ? (
-                  <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/20 px-2 py-1 backdrop-blur-sm">
+                  <div className="absolute bottom-4 left-4 flex items-center gap-1.5 rounded-full bg-black/20 px-2 py-1 backdrop-blur-sm">
                     {landingBanners.map((banner, index) => (
                       <button
                         key={banner.id || index}
@@ -487,31 +504,31 @@ export default function DealerPortal() {
                 ) : null}
               </div>
 
-              <div className="order-2 flex flex-col justify-between gap-6 p-5 sm:p-6 md:relative md:z-10 md:min-h-[300px] md:max-w-[600px] md:p-7 lg:p-8">
-                <div className="space-y-4">
+              <div className="flex flex-col gap-4 p-5 sm:p-6 md:flex-row md:items-end md:justify-between md:p-7 lg:p-8">
+                <div className="space-y-3">
                   <Badge className="rounded-full border border-amber-300/40 bg-amber-400/15 px-3 py-1 text-amber-100 hover:bg-amber-400/15">
                     <Sparkles className="h-3.5 w-3.5" />
                     Khuyến mãi tháng này
                   </Badge>
-                  <div className="max-w-xl space-y-3">
-                    <h1 className="text-3xl font-display font-bold leading-[1.05] tracking-tight text-white sm:text-5xl md:text-4xl lg:text-[2.75rem]">
+                  <div className="max-w-2xl space-y-2">
+                    <h1 className="text-3xl font-display font-bold leading-[1.05] tracking-tight text-white sm:text-4xl md:text-[2.5rem]">
                       Ưu đãi đơn sỉ cho đại lý BMQ
                     </h1>
-                    <p className="max-w-lg text-sm leading-6 text-amber-50/82 sm:text-base md:text-sm lg:text-base">
+                    <p className="max-w-xl text-sm leading-6 text-amber-50/82 sm:text-base">
                       Đăng nhập để xem giá riêng, chương trình đang áp dụng và gửi đơn xác nhận cho vận hành BMQ.
                     </p>
                   </div>
                 </div>
 
-                <div className="space-y-3 md:flex md:items-center md:gap-4 md:space-y-0">
+                <div className="space-y-3 md:min-w-[240px] md:text-right">
                   <Button
-                    className="h-12 w-full rounded-2xl bg-amber-500 text-base font-semibold text-[#1b1208] shadow-lg shadow-amber-950/30 hover:bg-amber-400 sm:w-auto sm:px-6"
+                    className="h-12 w-full rounded-2xl bg-amber-500 text-base font-semibold text-[#1b1208] shadow-lg shadow-amber-950/30 hover:bg-amber-400 md:w-auto md:px-6"
                     onClick={() => document.getElementById("dealer-login")?.scrollIntoView({ behavior: "smooth", block: "center" })}
                   >
                     <Phone className="h-4 w-4" />
                     Đăng nhập để đặt hàng
                   </Button>
-                  <div className="text-center text-xs text-amber-50/75 sm:text-left">Cần hỗ trợ? Gọi CSKH / Zalo OA BMQ</div>
+                  <div className="text-center text-xs text-amber-50/75 md:text-right">Cần hỗ trợ? Gọi CSKH / Zalo OA BMQ</div>
                 </div>
               </div>
             </div>
@@ -1047,4 +1064,3 @@ function CartSummary({
     </Card>
   );
 }
-

@@ -21,6 +21,7 @@ import Settings from "@/pages/Settings";
 import Auth from "@/pages/Auth";
 import NotFound from "@/pages/NotFound";
 import DealerPortal from "@/pages/DealerPortal";
+import DealerPromotionDetail from "@/pages/DealerPromotionDetail";
 import SkuCostsProducts from "@/pages/SkuCostsProducts";
 import SkuCostsIngredients from "@/pages/SkuCostsIngredients";
 import SkuCostsEmployees from "@/pages/SkuCostsEmployees";
@@ -152,6 +153,8 @@ export function AppRoutes() {
     return (
       <Routes>
         <Route path="/" element={<DealerPortal />} />
+        <Route path="/promotion/:bannerId" element={<DealerPromotionDetail />} />
+        <Route path="/dealer/promotion/:bannerId" element={<DealerPromotionDetail />} />
         <Route path="/dealer/*" element={<DealerPortal />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
@@ -161,6 +164,7 @@ export function AppRoutes() {
   if (dealerPath) {
     return (
       <Routes>
+        <Route path="/dealer/promotion/:bannerId" element={<DealerPromotionDetail />} />
         <Route path="/dealer/*" element={<DealerPortal />} />
         <Route path="*" element={<NotFound />} />
       </Routes>

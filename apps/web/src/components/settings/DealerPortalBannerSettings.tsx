@@ -21,6 +21,12 @@ type DealerLandingBanner = {
   url: string;
   path: string;
   enabled: boolean;
+  contentTitle: string;
+  contentIntro: string;
+  contentHighlights: string[];
+  contentTerms: string;
+  contentNote: string;
+  published: boolean;
 };
 
 const createEmptyBanner = (index: number): DealerLandingBanner => ({
@@ -29,6 +35,12 @@ const createEmptyBanner = (index: number): DealerLandingBanner => ({
   url: "",
   path: "",
   enabled: index === 0,
+  contentTitle: "",
+  contentIntro: "",
+  contentHighlights: [],
+  contentTerms: "",
+  contentNote: "",
+  published: index === 0,
 });
 
 const normalizeBanners = (raw: unknown, fallbackUrl = "", fallbackPath = "") => {
@@ -46,6 +58,14 @@ const normalizeBanners = (raw: unknown, fallbackUrl = "", fallbackPath = "") => 
             url: typeof item?.url === "string" ? item.url : "",
             path: typeof item?.path === "string" ? item.path : "",
             enabled: item?.enabled !== false,
+            contentTitle: typeof item?.contentTitle === "string" ? item.contentTitle : "",
+            contentIntro: typeof item?.contentIntro === "string" ? item.contentIntro : "",
+            contentHighlights: Array.isArray(item?.contentHighlights)
+              ? item.contentHighlights.filter((line: unknown) => typeof line === "string" && line.trim()).slice(0, 6)
+              : [],
+            contentTerms: typeof item?.contentTerms === "string" ? item.contentTerms : "",
+            contentNote: typeof item?.contentNote === "string" ? item.contentNote : "",
+            published: item?.published !== false,
           }));
       }
     } catch {
@@ -54,7 +74,7 @@ const normalizeBanners = (raw: unknown, fallbackUrl = "", fallbackPath = "") => 
   }
 
   if (!parsed.length && fallbackUrl) {
-    parsed = [{ ...createEmptyBanner(0), eventLabel: "Banner chính", url: fallbackUrl, path: fallbackPath, enabled: true }];
+    parsed = [{ ...createEmptyBanner(0), eventLabel: "Banner chính", url: fallbackUrl, path: fallbackPath, enabled: true, published: true }];
   }
 
   while (parsed.length < MAX_EVENT_BANNERS) {
@@ -258,16 +278,83 @@ export function DealerPortalBannerSettings() {
                       />
                     </div>
 
-                    <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3 text-sm">
-                      <span className="text-muted-foreground">Hiển thị banner này</span>
-                      <input
-                        type="checkbox"
-                        checked={banner.enabled}
-                        disabled={!banner.url && !bannerFiles[index]}
-                        onChange={(event) => updateBanner(index, { enabled: event.target.checked })}
-                        className="h-4 w-4 accent-primary"
-                        aria-label={`Bật banner ${index + 1}`}
-                      />
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3 text-sm">
+                        <span className="text-muted-foreground">Hiển thị banner này</span>
+                        <input
+                          type="checkbox"
+                          checked={banner.enabled}
+                          disabled={!banner.url && !bannerFiles[index]}
+                          onChange={(event) => updateBanner(index, { enabled: event.target.checked })}
+                          className="h-4 w-4 accent-primary"
+                          aria-label={`Bật banner ${index + 1}`}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3 text-sm">
+                        <span className="text-muted-foreground">Post nội dung</span>
+                        <input
+                          type="checkbox"
+                          checked={banner.published}
+                          onChange={(event) => updateBanner(index, { published: event.target.checked })}
+                          className="h-4 w-4 accent-primary"
+                          aria-label={`Post nội dung banner ${index + 1}`}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+                      <div className="space-y-2">
+                        <Label htmlFor={`dealer-banner-content-title-${index}`}>Tiêu đề trang nội dung</Label>
+                        <Input
+                          id={`dealer-banner-content-title-${index}`}
+                          value={banner.contentTitle}
+                          maxLength={90}
+                          onChange={(event) => updateBanner(index, { contentTitle: event.target.value })}
+                          placeholder="VD: Ưu đãi khai trương dành cho đại lý"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`dealer-banner-content-intro-${index}`}>Mô tả ngắn</Label>
+                        <textarea
+                          id={`dealer-banner-content-intro-${index}`}
+                          value={banner.contentIntro}
+                          maxLength={260}
+                          onChange={(event) => updateBanner(index, { contentIntro: event.target.value })}
+                          placeholder="Tóm tắt chương trình trong 1-2 câu."
+                          className="min-h-[76px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`dealer-banner-highlights-${index}`}>Điểm nổi bật (mỗi dòng một ý)</Label>
+                        <textarea
+                          id={`dealer-banner-highlights-${index}`}
+                          value={banner.contentHighlights.join("\n")}
+                          onChange={(event) => updateBanner(index, { contentHighlights: event.target.value.split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 6) })}
+                          placeholder={'Giá sỉ theo hồ sơ đại lý\nChương trình áp dụng trong tháng\nHỗ trợ vận hành xác nhận đơn'}
+                          className="min-h-[104px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`dealer-banner-terms-${index}`}>Điều kiện áp dụng</Label>
+                        <textarea
+                          id={`dealer-banner-terms-${index}`}
+                          value={banner.contentTerms}
+                          maxLength={360}
+                          onChange={(event) => updateBanner(index, { contentTerms: event.target.value })}
+                          placeholder="Áp dụng theo khu vực, hồ sơ đại lý và chính sách BMQ tại thời điểm đặt hàng."
+                          className="min-h-[76px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`dealer-banner-note-${index}`}>Ghi chú</Label>
+                        <Input
+                          id={`dealer-banner-note-${index}`}
+                          value={banner.contentNote}
+                          maxLength={160}
+                          onChange={(event) => updateBanner(index, { contentNote: event.target.value })}
+                          placeholder="VD: Cần hỗ trợ vui lòng liên hệ CSKH / Zalo OA BMQ."
+                        />
+                      </div>
                     </div>
 
                     <div className="space-y-2">

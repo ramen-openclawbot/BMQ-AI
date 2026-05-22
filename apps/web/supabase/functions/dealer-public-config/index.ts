@@ -13,6 +13,12 @@ type DealerLandingBanner = {
   url: string;
   path: string;
   enabled: boolean;
+  contentTitle: string;
+  contentIntro: string;
+  contentHighlights: string[];
+  contentTerms: string;
+  contentNote: string;
+  published: boolean;
 };
 
 const normalizeBanners = (raw: string | null | undefined, fallbackUrl: string | null, fallbackPath: string | null): DealerLandingBanner[] => {
@@ -30,6 +36,14 @@ const normalizeBanners = (raw: string | null | undefined, fallbackUrl: string | 
             url: typeof item?.url === "string" ? item.url : "",
             path: typeof item?.path === "string" ? item.path : "",
             enabled: item?.enabled !== false,
+            contentTitle: typeof item?.contentTitle === "string" && item.published !== false ? item.contentTitle : "",
+            contentIntro: typeof item?.contentIntro === "string" && item.published !== false ? item.contentIntro : "",
+            contentHighlights: Array.isArray(item?.contentHighlights) && item.published !== false
+              ? item.contentHighlights.filter((line: unknown) => typeof line === "string" && line.trim()).slice(0, 6)
+              : [],
+            contentTerms: typeof item?.contentTerms === "string" && item.published !== false ? item.contentTerms : "",
+            contentNote: typeof item?.contentNote === "string" && item.published !== false ? item.contentNote : "",
+            published: item?.published !== false,
           }))
           .filter((item) => item.enabled && item.url);
       }
@@ -46,6 +60,12 @@ const normalizeBanners = (raw: string | null | undefined, fallbackUrl: string | 
         url: fallbackUrl,
         path: fallbackPath || "",
         enabled: true,
+        contentTitle: "",
+        contentIntro: "",
+        contentHighlights: [],
+        contentTerms: "",
+        contentNote: "",
+        published: true,
       },
     ];
   }
