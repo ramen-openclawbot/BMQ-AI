@@ -1,34 +1,27 @@
-import { useState, useMemo } from "react";
-import { format, isToday } from "date-fns";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { useMemo, useState } from "react";
+import { format } from "date-fns";
 import { vi } from "date-fns/locale";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
-import { useLanguage } from "@/contexts/LanguageContext";
 import {
-  Factory,
-  Plus,
-  Eye,
-  Loader2,
-  CalendarDays,
-  Package,
-  CheckCircle,
-  Clock,
   AlertCircle,
+  CalendarDays,
+  CheckCircle,
+  ClipboardCheck,
+  Clock,
+  Factory,
+  FilePlus2,
+  Loader2,
+  Monitor,
+  Package,
   Zap,
-  ChevronDown,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { toast } from "sonner";
+
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -36,16 +29,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ProductionItem {
   product_name: string;
@@ -118,33 +105,56 @@ interface CreateProductionOrderInput {
   notes: string;
 }
 
+interface AggregatedPlanItem {
+  key: string;
+  product_name: string;
+  qty: number;
+  unit: string;
+  channelCount: number;
+  poCount: number;
+  earliestDate: string | null;
+  sourceNames: string[];
+}
+
+const productGradientClassNames = [
+  "from-amber-200 via-orange-300 to-orange-700",
+  "from-yellow-100 via-amber-300 to-red-700",
+  "from-orange-100 via-yellow-300 to-amber-700",
+  "from-amber-100 via-orange-200 to-stone-700",
+];
+
+const todayInputValue = () => format(new Date(), "yyyy-MM-dd");
+
 export default function ProductionPlanning() {
   const { language } = useLanguage();
   const isVi = language === "vi";
   const locale = isVi ? vi : undefined;
   const queryClient = useQueryClient();
 
-  // Dialog states
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [expandedPoId, setExpandedPoId] = useState<string | null>(null);
+  const [tvModeOpen, setTvModeOpen] = useState(false);
+  const [selectedPoForCreation, setSelectedPoForCreation] = useState<CustomerPoInbox | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
-  const [selectedPoForCreation, setSelectedPoForCreation] =
-    useState<CustomerPoInbox | null>(null);
-
-  // Form states for creation
   const [formData, setFormData] = useState<{
-    items: Array<{ product_name: string; original_qty: number; planned_qty: number; unit: string; unit_price: number; line_total: number; date: string }>;
+    items: Array<{
+      product_name: string;
+      original_qty: number;
+      planned_qty: number;
+      unit: string;
+      unit_price: number;
+      line_total: number;
+      date: string;
+    }>;
     planned_start_date: string;
     planned_end_date: string;
     notes: string;
   }>({
     items: [],
-    planned_start_date: "",
-    planned_end_date: "",
+    planned_start_date: todayInputValue(),
+    planned_end_date: todayInputValue(),
     notes: "",
   });
 
-  // Fetch unapproved POs (awaiting production)
   const { data: pendingPos = [], isLoading: loadingPos } = useQuery({
     queryKey: ["pending-pos"],
     queryFn: async () => {
@@ -157,19 +167,14 @@ export default function ProductionPlanning() {
 
         if (posError) throw posError;
 
-        // Get all POs already linked to production orders
         const { data: linkedPos, error: linkedError } = await (supabase as any)
           .from("production_orders")
           .select("source_po_inbox_id");
 
         if (linkedError) throw linkedError;
 
-        const linkedPoIds = new Set(linkedPos.map((p: any) => p.source_po_inbox_id));
-
-        // Filter out linked POs
-        return (allPos || []).filter(
-          (po: any) => !linkedPoIds.has(po.id)
-        ) as CustomerPoInbox[];
+        const linkedPoIds = new Set((linkedPos || []).map((p: any) => p.source_po_inbox_id));
+        return (allPos || []).filter((po: any) => !linkedPoIds.has(po.id)) as CustomerPoInbox[];
       } catch (error) {
         console.error("Error fetching pending POs:", error);
         toast.error(isVi ? "Không thể tải danh sách PO" : "Failed to load POs");
@@ -178,7 +183,6 @@ export default function ProductionPlanning() {
     },
   });
 
-  // Fetch production orders
   const { data: productionOrders = [], isLoading: loadingOrders } = useQuery({
     queryKey: ["production-orders"],
     queryFn: async () => {
@@ -190,7 +194,6 @@ export default function ProductionPlanning() {
 
         if (ordersError) throw ordersError;
 
-        // Fetch items for each order
         const ordersWithItems = await Promise.all(
           (orders || []).map(async (order: any) => {
             const { data: items, error: itemsError } = await (supabase as any)
@@ -199,26 +202,19 @@ export default function ProductionPlanning() {
               .eq("production_order_id", order.id);
 
             if (itemsError) console.error("Error fetching order items:", itemsError);
-
-            return {
-              ...order,
-              items_count: (items || []).length,
-            };
+            return { ...order, items_count: (items || []).length };
           })
         );
 
         return ordersWithItems as ProductionOrder[];
       } catch (error) {
         console.error("Error fetching production orders:", error);
-        toast.error(
-          isVi ? "Không thể tải danh sách lệnh sản xuất" : "Failed to load production orders"
-        );
+        toast.error(isVi ? "Không thể tải danh sách lệnh sản xuất" : "Failed to load production orders");
         return [];
       }
     },
   });
 
-  // Fetch production order items
   const { data: orderItems = {} } = useQuery({
     queryKey: ["production-order-items", expandedOrderId],
     queryFn: async () => {
@@ -232,7 +228,6 @@ export default function ProductionPlanning() {
           .order("created_at");
 
         if (error) throw error;
-
         return { [expandedOrderId]: items || [] };
       } catch (error) {
         console.error("Error fetching order items:", error);
@@ -242,15 +237,12 @@ export default function ProductionPlanning() {
     enabled: !!expandedOrderId,
   });
 
-  // Create production order mutation
   const createProductionOrderMutation = useMutation({
     mutationFn: async (input: CreateProductionOrderInput) => {
       try {
-        // Generate production number: SX-YYYYMMDD-NNN
         const now = new Date();
         const dateStr = format(now, "yyyyMMdd");
 
-        // Get count of orders created today to generate sequence
         const { data: todayOrders, error: countError } = await (supabase as any)
           .from("production_orders")
           .select("id", { count: "exact", head: true })
@@ -260,10 +252,8 @@ export default function ProductionPlanning() {
         if (countError) throw countError;
 
         const sequence = ((todayOrders || []).length || 0) + 1;
-        const sequenceStr = String(sequence).padStart(3, "0");
-        const productionNumber = `SX-${dateStr}-${sequenceStr}`;
+        const productionNumber = `SX-${dateStr}-${String(sequence).padStart(3, "0")}`;
 
-        // Insert production order
         const { data: newOrder, error: orderError } = await (supabase as any)
           .from("production_orders")
           .insert({
@@ -279,7 +269,6 @@ export default function ProductionPlanning() {
 
         if (orderError) throw orderError;
 
-        // Insert order items
         const itemsToInsert = input.items.map((item) => ({
           production_order_id: newOrder.id,
           product_name: item.product_name,
@@ -290,7 +279,7 @@ export default function ProductionPlanning() {
           line_total: item.line_total,
           line_complete: false,
           delivery_date: item.date,
-          notes: null,
+          notes: item.planned_qty !== item.original_qty ? "Đã điều chỉnh số lượng trước khi xác nhận" : null,
         }));
 
         const { error: itemsError } = await (supabase as any)
@@ -298,16 +287,12 @@ export default function ProductionPlanning() {
           .insert(itemsToInsert);
 
         if (itemsError) {
-          // Rollback order if items failed
-          await (supabase as any)
-            .from("production_orders")
-            .delete()
-            .eq("id", newOrder.id);
+          await (supabase as any).from("production_orders").delete().eq("id", newOrder.id);
           throw itemsError;
         }
 
         return newOrder;
-      } catch (error: any) {
+      } catch (error) {
         console.error("Error creating production order:", error);
         throw error;
       }
@@ -317,85 +302,92 @@ export default function ProductionPlanning() {
       queryClient.invalidateQueries({ queryKey: ["production-orders"] });
       toast.success(
         isVi
-          ? `Tạo lệnh sản xuất ${order.production_number} thành công`
-          : `Production order ${order.production_number} created successfully`
+          ? `Đã tạo lệnh sản xuất ${order.production_number}. Cần liên kết BOM/NVL để tự sinh phiếu xuất kho.`
+          : `Production order ${order.production_number} created. BOM/material issue integration is still required.`
       );
       setCreateDialogOpen(false);
       setSelectedPoForCreation(null);
-      setFormData({ items: [], planned_start_date: "", planned_end_date: "", notes: "" });
+      setFormData({
+        items: [],
+        planned_start_date: todayInputValue(),
+        planned_end_date: todayInputValue(),
+        notes: "",
+      });
     },
     onError: (error: any) => {
       console.error("Mutation error:", error);
-      toast.error(
-        isVi
-          ? "Không thể tạo lệnh sản xuất. Vui lòng thử lại."
-          : "Failed to create production order. Please try again."
-      );
+      toast.error(isVi ? "Không thể tạo lệnh sản xuất. Vui lòng thử lại." : "Failed to create production order. Please try again.");
     },
   });
 
-  // Format date function
   const formatDate = (dateString: string | null) => {
     if (!dateString) return "-";
     try {
       const date = new Date(dateString);
-      if (isNaN(date.getTime())) return "-";
+      if (Number.isNaN(date.getTime())) return "-";
       return format(date, "dd/MM/yyyy", { locale });
     } catch {
       return "-";
     }
   };
 
-  // Get status badge
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "draft":
-        return (
-          <Badge variant="secondary">
-            <Clock className="h-3 w-3 mr-1" />
-            {isVi ? "Nháp" : "Draft"}
-          </Badge>
-        );
+        return <Badge variant="secondary"><Clock className="mr-1 h-3 w-3" />{isVi ? "Nháp" : "Draft"}</Badge>;
       case "planned":
-        return (
-          <Badge className="bg-blue-500">
-            <CalendarDays className="h-3 w-3 mr-1" />
-            {isVi ? "Đã lên kế hoạch" : "Planned"}
-          </Badge>
-        );
+        return <Badge className="bg-blue-500"><CalendarDays className="mr-1 h-3 w-3" />{isVi ? "Đã lên kế hoạch" : "Planned"}</Badge>;
       case "in_progress":
-        return (
-          <Badge className="bg-amber-500">
-            <Zap className="h-3 w-3 mr-1" />
-            {isVi ? "Đang thực hiện" : "In Progress"}
-          </Badge>
-        );
+        return <Badge className="bg-amber-500"><Zap className="mr-1 h-3 w-3" />{isVi ? "Đang sản xuất" : "In Progress"}</Badge>;
       case "completed":
-        return (
-          <Badge className="bg-green-500">
-            <CheckCircle className="h-3 w-3 mr-1" />
-            {isVi ? "Hoàn thành" : "Completed"}
-          </Badge>
-        );
+        return <Badge className="bg-green-500"><CheckCircle className="mr-1 h-3 w-3" />{isVi ? "Hoàn thành" : "Completed"}</Badge>;
       case "cancelled":
-        return (
-          <Badge variant="destructive">
-            <AlertCircle className="h-3 w-3 mr-1" />
-            {isVi ? "Hủy" : "Cancelled"}
-          </Badge>
-        );
+        return <Badge variant="destructive"><AlertCircle className="mr-1 h-3 w-3" />{isVi ? "Hủy" : "Cancelled"}</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
   };
 
-  // Calculate stats
+  const aggregatedPlanItems = useMemo<AggregatedPlanItem[]>(() => {
+    const map = new Map<string, AggregatedPlanItem>();
+
+    pendingPos.forEach((po) => {
+      (po.production_items || []).forEach((item) => {
+        const key = `${item.product_name}__${item.unit}`;
+        const current = map.get(key) || {
+          key,
+          product_name: item.product_name,
+          qty: 0,
+          unit: item.unit,
+          channelCount: 0,
+          poCount: 0,
+          earliestDate: item.date || po.delivery_date || null,
+          sourceNames: [],
+        };
+
+        current.qty += Number(item.qty || 0);
+        current.poCount += 1;
+        if (po.from_name && !current.sourceNames.includes(po.from_name)) current.sourceNames.push(po.from_name);
+        if (item.date && (!current.earliestDate || new Date(item.date) < new Date(current.earliestDate))) {
+          current.earliestDate = item.date;
+        }
+        map.set(key, current);
+      });
+    });
+
+    return Array.from(map.values())
+      .map((item) => ({ ...item, channelCount: item.sourceNames.length }))
+      .sort((a, b) => b.qty - a.qty);
+  }, [pendingPos]);
+
   const stats = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     return {
       pendingPos: pendingPos.length,
+      plannedSkuCount: aggregatedPlanItems.length,
+      plannedQty: aggregatedPlanItems.reduce((sum, item) => sum + item.qty, 0),
       inProgressOrders: productionOrders.filter((o) => o.status === "in_progress").length,
       completedToday: productionOrders.filter((o) => {
         if (o.status !== "completed" || !o.completed_at) return false;
@@ -404,9 +396,8 @@ export default function ProductionPlanning() {
         return completedDate.getTime() === today.getTime();
       }).length,
     };
-  }, [pendingPos, productionOrders]);
+  }, [aggregatedPlanItems, pendingPos.length, productionOrders]);
 
-  // Handle create production order click
   const handleCreateClick = (po: CustomerPoInbox) => {
     setSelectedPoForCreation(po);
     const items = (po.production_items || []).map((item) => ({
@@ -420,14 +411,13 @@ export default function ProductionPlanning() {
     }));
     setFormData({
       items,
-      planned_start_date: "",
-      planned_end_date: "",
+      planned_start_date: todayInputValue(),
+      planned_end_date: todayInputValue(),
       notes: "",
     });
     setCreateDialogOpen(true);
   };
 
-  // Handle form submission
   const handleSubmitCreate = async () => {
     if (!selectedPoForCreation) return;
 
@@ -435,7 +425,6 @@ export default function ProductionPlanning() {
       toast.error(isVi ? "Vui lòng chọn ngày bắt đầu" : "Please select start date");
       return;
     }
-
     if (!formData.planned_end_date) {
       toast.error(isVi ? "Vui lòng chọn ngày kết thúc" : "Please select end date");
       return;
@@ -452,490 +441,433 @@ export default function ProductionPlanning() {
     });
   };
 
+  const changePlannedQty = (idx: number, nextQty: number) => {
+    const newItems = [...formData.items];
+    const safeQty = Math.max(0, Number.isFinite(nextQty) ? nextQty : 0);
+    newItems[idx].planned_qty = safeQty;
+    newItems[idx].line_total = safeQty * newItems[idx].unit_price;
+    setFormData({ ...formData, items: newItems });
+  };
+
   const pendingPosEmpty = !loadingPos && pendingPos.length === 0;
   const ordersEmpty = !loadingOrders && productionOrders.length === 0;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-display font-bold text-foreground">
-            {isVi ? "Lập kế hoạch sản xuất" : "Production Planning"}
-          </h1>
-          <p className="text-muted-foreground">
-            {isVi
-              ? "Quản lý đơn hàng khách và tạo lệnh sản xuất"
-              : "Manage customer orders and create production orders"}
-          </p>
+    <div className="min-h-screen space-y-5 bg-gradient-to-br from-amber-50/70 via-background to-orange-50/50 p-0 md:p-1">
+      <div className="rounded-[2rem] border border-amber-100/80 bg-white/80 p-4 shadow-sm backdrop-blur md:p-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="space-y-2">
+            <Badge className="w-fit bg-amber-100 text-amber-900 hover:bg-amber-100">
+              {isVi ? "Tự động từ PO đã parse" : "Auto from parsed POs"}
+            </Badge>
+            <div>
+              <h1 className="font-display text-3xl font-bold tracking-tight text-foreground md:text-4xl">
+                {isVi ? "Kế hoạch sản xuất hôm nay" : "Today Production Plan"}
+              </h1>
+              <p className="mt-1 max-w-3xl text-base text-muted-foreground md:text-lg">
+                {isVi
+                  ? "Danh sách sản phẩm cần làm trong ngày, tối ưu cho màn hình cảm ứng và TV xưởng. Chỉ hiển thị nội dung vận hành, không lộ công thức hoặc số tiền."
+                  : "Touch-first daily production view. Shows operational quantities without recipes or financial details."}
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:flex">
+            <Button variant="outline" size="lg" className="h-12 rounded-2xl text-base" onClick={() => setTvModeOpen(true)}>
+              <Monitor className="mr-2 h-5 w-5" />
+              {isVi ? "Màn hình TV" : "TV View"}
+            </Button>
+            <Button
+              size="lg"
+              className="h-12 rounded-2xl bg-emerald-600 text-base hover:bg-emerald-700"
+              disabled={pendingPos.length === 0}
+              onClick={() => pendingPos[0] && handleCreateClick(pendingPos[0])}
+            >
+              <ClipboardCheck className="mr-2 h-5 w-5" />
+              {isVi ? "Xác nhận" : "Confirm"}
+            </Button>
+          </div>
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-3 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{isVi ? "PO chờ sản xuất" : "POs Awaiting Production"}</CardDescription>
-            <CardTitle className="text-2xl flex items-center gap-2">
-              {loadingPos ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                stats.pendingPos
-              )}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Card className="rounded-3xl border-amber-200 bg-gradient-to-br from-amber-50 to-orange-100 shadow-sm">
+          <CardHeader className="space-y-1 p-4">
+            <CardDescription className="text-sm font-medium text-amber-900/70">{isVi ? "Tổng cần sản xuất" : "Planned quantity"}</CardDescription>
+            <CardTitle className="text-4xl font-black tracking-tight text-amber-950">
+              {loadingPos ? <Loader2 className="h-7 w-7 animate-spin" /> : stats.plannedQty.toLocaleString("vi-VN")}
             </CardTitle>
           </CardHeader>
         </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{isVi ? "Lệnh SX đang thực hiện" : "Orders In Progress"}</CardDescription>
-            <CardTitle className="text-2xl text-amber-600">
-              {stats.inProgressOrders}
-            </CardTitle>
+        <Card className="rounded-3xl shadow-sm">
+          <CardHeader className="space-y-1 p-4">
+            <CardDescription>{isVi ? "SKU hôm nay" : "Today's SKUs"}</CardDescription>
+            <CardTitle className="text-4xl font-black">{stats.plannedSkuCount}</CardTitle>
           </CardHeader>
         </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{isVi ? "Hoàn thành hôm nay" : "Completed Today"}</CardDescription>
-            <CardTitle className="text-2xl text-green-600">
-              {stats.completedToday}
-            </CardTitle>
+        <Card className="rounded-3xl shadow-sm">
+          <CardHeader className="space-y-1 p-4">
+            <CardDescription>{isVi ? "PO chờ xác nhận" : "POs pending"}</CardDescription>
+            <CardTitle className="text-4xl font-black text-orange-600">{loadingPos ? "..." : stats.pendingPos}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card className="rounded-3xl shadow-sm">
+          <CardHeader className="space-y-1 p-4">
+            <CardDescription>{isVi ? "Đang sản xuất" : "In progress"}</CardDescription>
+            <CardTitle className="text-4xl font-black text-emerald-600">{stats.inProgressOrders}</CardTitle>
           </CardHeader>
         </Card>
       </div>
 
-      {/* Section 1: Pending POs */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Package className="h-5 w-5" />
-            {isVi ? "PO bán hàng chờ sản xuất" : "Sales POs Awaiting Production"}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
+      <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
+        <section className="space-y-4">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-2xl font-black tracking-tight">{isVi ? "Sản phẩm cần làm" : "Products to make"}</h2>
+              <p className="text-muted-foreground">
+                {isVi ? "Tổng hợp theo sản phẩm từ toàn bộ PO đã parse tự động." : "Aggregated by product across parsed POs."}
+              </p>
+            </div>
+            <Badge variant="outline" className="w-fit rounded-full px-3 py-1 text-sm">
+              {format(new Date(), "dd/MM/yyyy")}
+            </Badge>
+          </div>
+
           {loadingPos ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <div className="flex min-h-[320px] items-center justify-center rounded-3xl border bg-white/70">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
           ) : pendingPosEmpty ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <Package className="h-12 w-12 text-muted-foreground mb-2" />
-              <p className="text-muted-foreground">
-                {isVi ? "Không có PO nào chờ sản xuất" : "No POs awaiting production"}
+            <div className="flex min-h-[320px] flex-col items-center justify-center rounded-3xl border bg-white/70 text-center">
+              <Package className="mb-3 h-14 w-14 text-muted-foreground" />
+              <h3 className="text-xl font-bold">{isVi ? "Chưa có PO chờ sản xuất" : "No POs awaiting production"}</h3>
+              <p className="mt-1 max-w-md text-muted-foreground">
+                {isVi ? "Khi parser ghi nhận PO đã duyệt, sản phẩm sẽ hiện ở đây." : "Parsed and approved POs will appear here."}
               </p>
             </div>
           ) : (
-            <ScrollArea className="w-full">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{isVi ? "Mã PO" : "PO Number"}</TableHead>
-                    <TableHead>{isVi ? "Khách hàng" : "Customer"}</TableHead>
-                    <TableHead>{isVi ? "Ngày giao" : "Delivery Date"}</TableHead>
-                    <TableHead>{isVi ? "Số lượng loại" : "Items"}</TableHead>
-                    <TableHead>{isVi ? "Tổng tiền" : "Total Amount"}</TableHead>
-                    <TableHead>{isVi ? "Thao tác" : "Actions"}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pendingPos.map((po) => (
-                    <TableRow key={po.id}>
-                      <TableCell className="font-mono font-medium">{po.po_number}</TableCell>
-                      <TableCell>{po.from_name}</TableCell>
-                      <TableCell>{formatDate(po.delivery_date)}</TableCell>
-                      <TableCell>
-                        {(po.production_items || []).length}{" "}
-                        {isVi ? "loại" : "items"}
-                      </TableCell>
-                      <TableCell className="font-medium">
-                        {(po.total_amount || 0).toLocaleString("vi-VN", {
-                          style: "currency",
-                          currency: "VND",
-                          minimumFractionDigits: 0,
-                        })}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() =>
-                              setExpandedPoId(expandedPoId === po.id ? null : po.id)
-                            }
-                          >
-                            <Eye className="h-4 w-4 mr-1" />
-                            {isVi ? "Xem" : "View"}
-                          </Button>
-                          <Button
-                            size="sm"
-                            onClick={() => handleCreateClick(po)}
-                            disabled={createProductionOrderMutation.isPending}
-                          >
-                            <Plus className="h-4 w-4 mr-1" />
-                            {isVi ? "Tạo SX" : "Create"}
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </ScrollArea>
-          )}
-
-          {/* Expanded PO Details */}
-          {expandedPoId && (
-            <div className="border-t p-4 bg-muted/50">
-              <h4 className="font-semibold mb-3">
-                {isVi ? "Chi tiết hàng hóa" : "Order Items"}
-              </h4>
-              <div className="space-y-2">
-                {(
-                  pendingPos.find((p) => p.id === expandedPoId)
-                    ?.production_items || []
-                ).map((item, idx) => (
-                  <div
-                    key={idx}
-                    className="flex justify-between items-center text-sm p-2 bg-background rounded"
-                  >
-                    <div>
-                      <p className="font-medium">{item.product_name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {isVi ? "Giao dịch ngày" : "Delivery"}:{" "}
-                        {formatDate(item.date)}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-medium">
-                        {item.qty} {item.unit}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {(item.line_total || 0).toLocaleString("vi-VN", {
-                          style: "currency",
-                          currency: "VND",
-                          minimumFractionDigits: 0,
-                        })}
-                      </p>
+            <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+              {aggregatedPlanItems.map((item, index) => (
+                <article
+                  key={item.key}
+                  className="group rounded-[1.75rem] border border-amber-100 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                >
+                  <div className={`relative mb-4 h-24 overflow-hidden rounded-3xl bg-gradient-to-br ${productGradientClassNames[index % productGradientClassNames.length]}`}>
+                    <div className="absolute left-6 right-6 top-9 h-6 rotate-[-7deg] rounded-full bg-gradient-to-r from-orange-700 via-yellow-200 to-amber-700 shadow-[0_14px_0_rgba(154,73,24,0.9),0_-13px_0_rgba(255,231,160,0.95)]" />
+                    <div className="absolute right-3 top-3 rounded-full bg-white/80 px-3 py-1 text-xs font-bold text-orange-900">
+                      {item.poCount} PO
                     </div>
                   </div>
+                  <div className="space-y-3">
+                    <h3 className="min-h-[3.25rem] text-xl font-black leading-tight text-foreground">{item.product_name}</h3>
+                    <div className="flex items-end justify-between gap-3">
+                      <div>
+                        <div className="text-5xl font-black leading-none tracking-tight text-foreground">{item.qty.toLocaleString("vi-VN")}</div>
+                        <div className="text-base font-bold uppercase text-muted-foreground">{item.unit}</div>
+                      </div>
+                      <div className="text-right text-sm text-muted-foreground">
+                        <div>{isVi ? "Giao" : "Delivery"}</div>
+                        <div className="font-bold text-foreground">{formatDate(item.earliestDate)}</div>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {item.sourceNames.slice(0, 2).map((source) => (
+                        <span key={source} className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-900">
+                          {source}
+                        </span>
+                      ))}
+                      {item.channelCount > 2 && (
+                        <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">+{item.channelCount - 2}</span>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
+          <Card className="rounded-[1.75rem] border-emerald-100 bg-white shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-2xl font-black">
+                <ClipboardCheck className="h-6 w-6 text-emerald-600" />
+                {isVi ? "Xác nhận sản xuất" : "Confirm production"}
+              </CardTitle>
+              <CardDescription className="text-base">
+                {isVi
+                  ? "Chọn từng PO để xác nhận. Có thể chỉnh số lượng trong bước xác nhận trước khi tạo lệnh."
+                  : "Confirm each PO. Quantities can be adjusted before creating the order."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Alert className="rounded-2xl border-amber-200 bg-amber-50">
+                <AlertDescription className="text-sm leading-6 text-amber-900">
+                  {isVi
+                    ? "Backend hiện tạo lệnh sản xuất từ PO. Bước tự sinh phiếu xuất kho NVL theo BOM cần nối tiếp với bảng giá vốn/NVL ở phase sau."
+                    : "Current backend creates production orders from POs. Material issue slips from BOM need the next integration phase."}
+                </AlertDescription>
+              </Alert>
+              <div className="grid gap-2">
+                {pendingPos.slice(0, 6).map((po) => (
+                  <button
+                    key={po.id}
+                    type="button"
+                    onClick={() => handleCreateClick(po)}
+                    className="flex min-h-20 w-full items-center justify-between gap-3 rounded-2xl border bg-background p-3 text-left transition hover:border-emerald-300 hover:bg-emerald-50/50"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate font-mono text-sm font-black">{po.po_number}</div>
+                      <div className="truncate text-sm text-muted-foreground">{po.from_name}</div>
+                      <div className="text-xs text-muted-foreground">{formatDate(po.delivery_date)}</div>
+                    </div>
+                    <div className="shrink-0 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-black text-white">
+                      {isVi ? "Xác nhận" : "Confirm"}
+                    </div>
+                  </button>
                 ))}
               </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
 
-      {/* Section 2: Production Orders */}
-      <Card>
+          <Card className="rounded-[1.75rem] bg-zinc-950 text-white shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-2xl font-black">
+                <Monitor className="h-6 w-6 text-amber-300" />
+                {isVi ? "Màn hình đang sản xuất" : "Production TV"}
+              </CardTitle>
+              <CardDescription className="text-zinc-300">
+                {isVi ? "Chỉ hiển thị sản phẩm và số lượng; không lộ công thức, giá vốn, tiền." : "Shows products and quantities only."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button className="h-14 w-full rounded-2xl bg-amber-400 text-base font-black text-zinc-950 hover:bg-amber-300" onClick={() => setTvModeOpen(true)}>
+                {isVi ? "Mở chế độ TV" : "Open TV mode"}
+              </Button>
+            </CardContent>
+          </Card>
+        </aside>
+      </div>
+
+      <Card className="rounded-[1.75rem] shadow-sm">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Factory className="h-5 w-5" />
+          <CardTitle className="flex items-center gap-2 text-2xl font-black">
+            <Factory className="h-6 w-6" />
             {isVi ? "Lệnh sản xuất" : "Production Orders"}
           </CardTitle>
+          <CardDescription>{isVi ? "Theo dõi lệnh đã tạo và trạng thái sản xuất." : "Track created orders and production status."}</CardDescription>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="space-y-3">
           {loadingOrders ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
+            <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
           ) : ordersEmpty ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <Factory className="h-12 w-12 text-muted-foreground mb-2" />
-              <p className="text-muted-foreground">
-                {isVi ? "Chưa có lệnh sản xuất nào" : "No production orders yet"}
-              </p>
+            <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed py-12 text-center">
+              <Factory className="mb-2 h-12 w-12 text-muted-foreground" />
+              <p className="font-semibold text-muted-foreground">{isVi ? "Chưa có lệnh sản xuất nào" : "No production orders yet"}</p>
             </div>
           ) : (
-            <ScrollArea className="w-full">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{isVi ? "Mã LSX" : "Production #"}</TableHead>
-                    <TableHead>{isVi ? "PO nguồn" : "Source PO"}</TableHead>
-                    <TableHead>{isVi ? "Khách hàng" : "Customer"}</TableHead>
-                    <TableHead>{isVi ? "Trạng thái" : "Status"}</TableHead>
-                    <TableHead>{isVi ? "Ngày dự kiến" : "Planned Date"}</TableHead>
-                    <TableHead>{isVi ? "Số mục" : "Items"}</TableHead>
-                    <TableHead>{isVi ? "Thao tác" : "Actions"}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {productionOrders.map((order) => (
-                    <TableRow key={order.id}>
-                      <TableCell className="font-mono font-medium">
-                        <div className="flex items-center gap-2">
-                          {order.production_number}
-                          {order.revenue_draft_id && (
-                            <Badge variant="outline" className="text-[10px] font-sans text-blue-600 border-blue-300 px-1 py-0">
-                              Duyệt DT
-                            </Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">
-                        {order.po_number || "-"}
-                      </TableCell>
-                      <TableCell>{order.customer_name || "-"}</TableCell>
-                      <TableCell>{getStatusBadge(order.status)}</TableCell>
-                      <TableCell>
-                        {order.planned_start_date
-                          ? `${formatDate(
-                              order.planned_start_date
-                            )} - ${formatDate(
-                              order.planned_end_date
-                            )}`
-                          : "-"}
-                      </TableCell>
-                      <TableCell>{order.items_count || 0}</TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() =>
-                            setExpandedOrderId(
-                              expandedOrderId === order.id ? null : order.id
-                            )
-                          }
-                        >
-                          <ChevronDown
-                            className="h-4 w-4"
-                            style={{
-                              transform:
-                                expandedOrderId === order.id
-                                  ? "rotate(180deg)"
-                                  : "",
-                              transition: "transform 0.2s",
-                            }}
-                          />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </ScrollArea>
-          )}
-
-          {/* Expanded Order Items */}
-          {expandedOrderId && (
-            <div className="border-t p-4 bg-muted/50">
-              <h4 className="font-semibold mb-3">
-                {isVi ? "Chi tiết hàng sản xuất" : "Production Items"}
-              </h4>
-              <div className="space-y-3">
-                {((orderItems[expandedOrderId] as ProductionOrderItem[]) || []).length >
-                0 ? (
-                  ((orderItems[expandedOrderId] as ProductionOrderItem[]) || []).map(
-                    (item) => (
-                      <div
-                        key={item.id}
-                        className="p-3 bg-background rounded border"
-                      >
-                        <div className="flex justify-between items-start mb-2">
-                          <div>
-                            <p className="font-medium">{item.product_name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {isVi ? "Giao dịch ngày" : "Delivery"}:{" "}
-                              {formatDate(item.delivery_date)}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-medium">
-                              {item.planned_qty} {item.unit}
-                            </p>
-                            {Number(item.actual_qty || 0) > 0 && (
-                              <p className="text-xs text-green-600">
-                                ✓ Thực tế: {Number(item.actual_qty || 0)} {item.unit}
-                              </p>
-                            )}
-                            {/* Deficit indicator */}
-                            {Number(item.actual_qty || 0) < item.planned_qty && item.planned_qty > 0 && (
-                              <p className="text-xs text-red-600 font-medium flex items-center gap-1 justify-end mt-0.5">
-                                <AlertCircle className="h-3 w-3" />
-                                Thiếu {(item.planned_qty - Number(item.actual_qty || 0)).toLocaleString("vi-VN")} {item.unit}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        {item.notes && (
-                          <p className="text-xs text-muted-foreground italic">
-                            {item.notes}
-                          </p>
-                        )}
+            <div className="grid gap-3 lg:grid-cols-2">
+              {productionOrders.map((order) => (
+                <div key={order.id} className="rounded-3xl border bg-background p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-lg font-black">{order.production_number}</span>
+                        {getStatusBadge(order.status)}
+                        {order.revenue_draft_id && <Badge variant="outline" className="text-blue-600">Duyệt DT</Badge>}
                       </div>
-                    )
-                  )
-                ) : (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    {isVi ? "Không có hàng nào" : "No items"}
-                  </p>
-                )}
-              </div>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {order.po_number || "-"} · {order.customer_name || "-"}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {order.planned_start_date ? `${formatDate(order.planned_start_date)} - ${formatDate(order.planned_end_date)}` : "-"}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      className="h-12 rounded-2xl"
+                      onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
+                    >
+                      {isVi ? "Xem hàng" : "Items"} · {order.items_count || 0}
+                    </Button>
+                  </div>
+                  {expandedOrderId === order.id && (
+                    <div className="mt-4 grid gap-2 border-t pt-4">
+                      {((orderItems[expandedOrderId] as ProductionOrderItem[]) || []).length > 0 ? (
+                        ((orderItems[expandedOrderId] as ProductionOrderItem[]) || []).map((item) => (
+                          <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white p-3">
+                            <div>
+                              <p className="font-bold leading-tight">{item.product_name}</p>
+                              <p className="text-sm text-muted-foreground">{formatDate(item.delivery_date)}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-2xl font-black">{item.planned_qty.toLocaleString("vi-VN")}</p>
+                              <p className="text-xs font-bold uppercase text-muted-foreground">{item.unit}</p>
+                              {Number(item.actual_qty || 0) > 0 && (
+                                <p className="text-xs font-semibold text-emerald-600">✓ {Number(item.actual_qty || 0).toLocaleString("vi-VN")}</p>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="py-3 text-center text-sm text-muted-foreground">{isVi ? "Không có hàng nào" : "No items"}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Create Production Order Dialog */}
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto rounded-3xl">
           <DialogHeader>
-            <DialogTitle>
-              {isVi ? "Tạo lệnh sản xuất" : "Create Production Order"}
+            <DialogTitle className="text-2xl font-black">
+              {isVi ? "Xác nhận / điều chỉnh kế hoạch" : "Confirm / adjust plan"}
             </DialogTitle>
           </DialogHeader>
 
           {selectedPoForCreation && (
-            <div className="space-y-4">
-              {/* PO Info */}
-              <div className="bg-muted p-3 rounded">
-                <p className="text-sm font-semibold">
-                  {isVi ? "PO:" : "PO:"} {selectedPoForCreation.po_number}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {selectedPoForCreation.from_name}
-                </p>
+            <div className="space-y-5">
+              <div className="rounded-3xl bg-amber-50 p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-mono text-lg font-black">{selectedPoForCreation.po_number}</p>
+                    <p className="text-muted-foreground">{selectedPoForCreation.from_name}</p>
+                  </div>
+                  <Badge className="w-fit bg-amber-200 text-amber-950 hover:bg-amber-200">
+                    {isVi ? "Nguồn PO đã parse" : "Parsed PO source"}
+                  </Badge>
+                </div>
               </div>
 
-              {/* Items */}
-              <div>
-                <Label className="text-base font-semibold">
-                  {isVi ? "Hàng hóa sản xuất" : "Production Items"}
-                </Label>
-                <div className="space-y-3 mt-2">
-                  {formData.items.map((item, idx) => (
-                    <div
-                      key={idx}
-                      className="border rounded p-3 space-y-2"
-                    >
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div>
-                          <p className="font-medium">{item.product_name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {formatDate(item.date)}
+              <div className="grid gap-3 md:grid-cols-2">
+                {formData.items.map((item, idx) => {
+                  const adjusted = item.planned_qty !== item.original_qty;
+                  return (
+                    <div key={`${item.product_name}-${idx}`} className="rounded-3xl border bg-background p-4">
+                      <div className="mb-4 flex gap-3">
+                        <div className={`h-20 w-24 shrink-0 rounded-2xl bg-gradient-to-br ${productGradientClassNames[idx % productGradientClassNames.length]}`} />
+                        <div className="min-w-0">
+                          <h3 className="text-lg font-black leading-tight">{item.product_name}</h3>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {isVi ? "Khách đặt" : "Ordered"}: {item.original_qty.toLocaleString("vi-VN")} {item.unit}
                           </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-muted-foreground text-xs">
-                            {isVi ? "Giá" : "Price"}:{" "}
-                            {(item.unit_price || 0).toLocaleString("vi-VN")}
-                          </p>
+                          {adjusted && <Badge variant="outline" className="mt-2 border-orange-300 text-orange-700">{isVi ? "Đã điều chỉnh" : "Adjusted"}</Badge>}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Label className="text-xs">
-                          {isVi ? "Số lượng dự kiến" : "Planned Qty"}
-                        </Label>
+
+                      <div className="grid grid-cols-[56px_1fr_56px] items-center gap-2">
+                        <Button variant="outline" size="icon" className="h-14 w-14 rounded-2xl text-2xl" onClick={() => changePlannedQty(idx, item.planned_qty - 1)}>
+                          −
+                        </Button>
                         <Input
                           type="number"
                           min="0"
                           value={item.planned_qty}
-                          onChange={(e) => {
-                            const newItems = [...formData.items];
-                            newItems[idx].planned_qty = parseInt(e.target.value) || 0;
-                            newItems[idx].line_total =
-                              newItems[idx].planned_qty * item.unit_price;
-                            setFormData({
-                              ...formData,
-                              items: newItems,
-                            });
-                          }}
-                          className="w-24"
+                          onChange={(e) => changePlannedQty(idx, Number.parseInt(e.target.value, 10) || 0)}
+                          className="h-14 rounded-2xl text-center text-2xl font-black"
                         />
-                        <span className="text-sm">{item.unit}</span>
-                        <span className="text-sm font-medium ml-auto">
-                          {(item.line_total || 0).toLocaleString("vi-VN", {
-                            style: "currency",
-                            currency: "VND",
-                            minimumFractionDigits: 0,
-                          })}
-                        </span>
+                        <Button variant="outline" size="icon" className="h-14 w-14 rounded-2xl text-2xl" onClick={() => changePlannedQty(idx, item.planned_qty + 1)}>
+                          +
+                        </Button>
                       </div>
                     </div>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
 
-              {/* Dates */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <Label htmlFor="start-date">
-                    {isVi ? "Ngày bắt đầu dự kiến" : "Planned Start Date"}
-                  </Label>
+                  <Label htmlFor="start-date">{isVi ? "Ngày bắt đầu" : "Start date"}</Label>
                   <Input
                     id="start-date"
                     type="date"
                     value={formData.planned_start_date}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        planned_start_date: e.target.value,
-                      })
-                    }
-                    className="mt-1"
+                    onChange={(e) => setFormData({ ...formData, planned_start_date: e.target.value })}
+                    className="mt-1 h-12 rounded-2xl"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="end-date">
-                    {isVi ? "Ngày kết thúc dự kiến" : "Planned End Date"}
-                  </Label>
+                  <Label htmlFor="end-date">{isVi ? "Ngày kết thúc" : "End date"}</Label>
                   <Input
                     id="end-date"
                     type="date"
                     value={formData.planned_end_date}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        planned_end_date: e.target.value,
-                      })
-                    }
-                    className="mt-1"
+                    onChange={(e) => setFormData({ ...formData, planned_end_date: e.target.value })}
+                    className="mt-1 h-12 rounded-2xl"
                   />
                 </div>
               </div>
 
-              {/* Notes */}
               <div>
                 <Label htmlFor="notes">
-                  {isVi ? "Ghi chú" : "Notes"}
+                  {isVi ? "Lý do điều chỉnh / ghi chú" : "Adjustment reason / notes"}
                 </Label>
                 <Textarea
                   id="notes"
-                  placeholder={isVi ? "Nhập ghi chú..." : "Enter notes..."}
+                  placeholder={isVi ? "Ví dụ: thiếu NVL ca sáng, sản xuất bù ca chiều..." : "Example: material shortage in morning shift..."}
                   value={formData.notes}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      notes: e.target.value,
-                    })
-                  }
-                  className="mt-1"
-                  rows={3}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  className="mt-1 min-h-24 rounded-2xl"
                 />
               </div>
 
-              {/* Buttons */}
-              <div className="flex gap-2 justify-end pt-4">
-                <Button
-                  variant="outline"
-                  onClick={() => setCreateDialogOpen(false)}
-                  disabled={createProductionOrderMutation.isPending}
-                >
+              <Alert className="rounded-2xl border-emerald-200 bg-emerald-50">
+                <FilePlus2 className="h-4 w-4 text-emerald-700" />
+                <AlertDescription className="text-emerald-900">
+                  {isVi
+                    ? "Sau khi xác nhận: tạo lệnh sản xuất và giữ link audit về PO nguồn. Phiếu xuất kho NVL sẽ được tự động hóa khi nối BOM/NVL."
+                    : "After confirmation: production order is created and linked to source PO for audit. Material issue slip automation needs BOM integration."}
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button variant="outline" className="h-12 rounded-2xl" onClick={() => setCreateDialogOpen(false)} disabled={createProductionOrderMutation.isPending}>
                   {isVi ? "Hủy" : "Cancel"}
                 </Button>
-                <Button
-                  onClick={handleSubmitCreate}
-                  disabled={createProductionOrderMutation.isPending}
-                >
-                  {createProductionOrderMutation.isPending && (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  )}
-                  {isVi ? "Tạo lệnh SX" : "Create Order"}
+                <Button className="h-12 rounded-2xl bg-emerald-600 font-black hover:bg-emerald-700" onClick={handleSubmitCreate} disabled={createProductionOrderMutation.isPending}>
+                  {createProductionOrderMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+                  {isVi ? "Xác nhận tạo lệnh SX" : "Confirm production order"}
                 </Button>
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={tvModeOpen} onOpenChange={setTvModeOpen}>
+        <DialogContent className="max-h-[92vh] max-w-6xl overflow-hidden rounded-[2rem] border-zinc-800 bg-zinc-950 p-0 text-white">
+          <div className="space-y-6 p-6 md:p-8">
+            <div className="flex flex-col gap-4 border-b border-white/10 pb-5 md:flex-row md:items-center md:justify-between">
+              <div>
+                <DialogTitle className="text-4xl font-black md:text-5xl">
+                  {isVi ? "Đang sản xuất hôm nay" : "Production in progress"}
+                </DialogTitle>
+                <p className="mt-2 text-lg text-zinc-300">
+                  {isVi ? "Màn hình cho xưởng, quản lý và đối tác xem nhanh." : "Display for workshop, managers and partners."}
+                </p>
+              </div>
+              <div className="rounded-3xl bg-amber-300 px-6 py-4 text-right text-zinc-950">
+                <div className="text-sm font-black uppercase">{isVi ? "Tổng" : "Total"}</div>
+                <div className="text-5xl font-black">{stats.plannedQty.toLocaleString("vi-VN")}</div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {aggregatedPlanItems.slice(0, 6).map((item, idx) => (
+                <div key={item.key} className="rounded-[2rem] border border-white/10 bg-white/[0.06] p-5">
+                  <div className={`mb-5 h-28 rounded-3xl bg-gradient-to-br ${productGradientClassNames[idx % productGradientClassNames.length]}`} />
+                  <h3 className="min-h-[4rem] text-3xl font-black leading-tight">{item.product_name}</h3>
+                  <div className="mt-4 flex items-end justify-between gap-4">
+                    <div className="text-6xl font-black leading-none text-amber-300">{item.qty.toLocaleString("vi-VN")}</div>
+                    <div className="pb-2 text-xl font-bold uppercase text-zinc-300">{item.unit}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
