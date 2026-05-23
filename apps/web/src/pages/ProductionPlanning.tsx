@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -14,6 +14,7 @@ import {
   Loader2,
   Monitor,
   Package,
+  ImageIcon,
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -110,6 +111,7 @@ interface AggregatedPlanItem {
   product_name: string;
   qty: number;
   unit: string;
+  image_url?: string | null;
   channelCount: number;
   poCount: number;
   earliestDate: string | null;
@@ -117,11 +119,85 @@ interface AggregatedPlanItem {
 }
 
 const productGradientClassNames = [
-  "from-amber-200 via-orange-300 to-orange-700",
-  "from-yellow-100 via-amber-300 to-red-700",
-  "from-orange-100 via-yellow-300 to-amber-700",
-  "from-amber-100 via-orange-200 to-stone-700",
+  "from-amber-500/30 via-orange-500/20 to-stone-950",
+  "from-yellow-400/25 via-amber-500/20 to-red-950",
+  "from-orange-400/24 via-yellow-500/16 to-stone-950",
+  "from-amber-300/18 via-orange-500/18 to-zinc-950",
 ];
+
+type ProductSkuImageRow = {
+  id: string;
+  sku_code: string | null;
+  product_name: string;
+  unit: string | null;
+  image_url?: string | null;
+};
+
+const normalizeSkuText = (value: string | null | undefined) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[đĐ]/g, "d")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const scoreSkuImageMatch = (itemName: string, itemUnit: string, sku: ProductSkuImageRow) => {
+  const item = normalizeSkuText(itemName);
+  const skuName = normalizeSkuText(sku.product_name);
+  if (!item || !skuName) return 0;
+
+  let score = 0;
+  if (item === skuName) score += 120;
+  else if (skuName.includes(item) || item.includes(skuName)) score += 90;
+  else {
+    const itemTokens = item.split(" ").filter(Boolean);
+    const skuTokens = skuName.split(" ").filter(Boolean);
+    const overlap = itemTokens.filter((token) => skuTokens.includes(token)).length;
+    if (overlap) score += Math.round((overlap / Math.max(itemTokens.length, skuTokens.length)) * 70);
+  }
+
+  const unit = normalizeSkuText(itemUnit);
+  const skuUnit = normalizeSkuText(sku.unit);
+  if (unit && skuUnit && unit === skuUnit) score += 12;
+  return score;
+};
+
+const resolveSkuImageUrl = (productName: string, unit: string, skus: ProductSkuImageRow[]) => {
+  const best = skus
+    .filter((sku) => !!sku.image_url)
+    .map((sku) => ({ sku, score: scoreSkuImageMatch(productName, unit, sku) }))
+    .sort((a, b) => b.score - a.score)[0];
+  return best && best.score >= 65 ? best.sku.image_url || null : null;
+};
+
+const ProductVisual = ({
+  imageUrl,
+  productName,
+  className = "",
+  gradientClassName,
+  children,
+}: {
+  imageUrl?: string | null;
+  productName: string;
+  className?: string;
+  gradientClassName: string;
+  children?: ReactNode;
+}) => (
+  <div className={`relative overflow-hidden rounded-3xl bg-gradient-to-br ${gradientClassName} ${className}`}>
+    {imageUrl ? (
+      <img src={imageUrl} alt={productName} className="h-full w-full object-cover" loading="lazy" />
+    ) : (
+      <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-amber-100/45">
+        <ImageIcon className="h-6 w-6" />
+        <span className="text-[10px] font-extrabold uppercase tracking-wide">Chưa có ảnh</span>
+      </div>
+    )}
+    <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-white/5" />
+    {children}
+  </div>
+);
 
 const todayInputValue = () => format(new Date(), "yyyy-MM-dd");
 
@@ -181,6 +257,24 @@ export default function ProductionPlanning() {
         return [];
       }
     },
+  });
+
+  const { data: skuImageRows = [] } = useQuery({
+    queryKey: ["production-sku-images"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("product_skus")
+        .select("id,sku_code,product_name,unit,image_url")
+        .not("image_url", "is", null);
+
+      if (error) {
+        console.error("Error fetching SKU images:", error);
+        return [] as ProductSkuImageRow[];
+      }
+
+      return (data || []) as ProductSkuImageRow[];
+    },
+    staleTime: 30000,
   });
 
   const { data: productionOrders = [], isLoading: loadingOrders } = useQuery({
@@ -359,6 +453,7 @@ export default function ProductionPlanning() {
           product_name: item.product_name,
           qty: 0,
           unit: item.unit,
+          image_url: resolveSkuImageUrl(item.product_name, item.unit, skuImageRows),
           channelCount: 0,
           poCount: 0,
           earliestDate: item.date || po.delivery_date || null,
@@ -378,7 +473,7 @@ export default function ProductionPlanning() {
     return Array.from(map.values())
       .map((item) => ({ ...item, channelCount: item.sourceNames.length }))
       .sort((a, b) => b.qty - a.qty);
-  }, [pendingPos]);
+  }, [pendingPos, skuImageRows]);
 
   const stats = useMemo(() => {
     const today = new Date();
@@ -453,18 +548,18 @@ export default function ProductionPlanning() {
   const ordersEmpty = !loadingOrders && productionOrders.length === 0;
 
   return (
-    <div className="min-h-screen space-y-5 bg-gradient-to-br from-amber-50/70 via-background to-orange-50/50 p-0 md:p-1">
-      <div className="rounded-[2rem] border border-amber-100/80 bg-white/80 p-4 shadow-sm backdrop-blur md:p-5">
+    <div className="-m-4 min-h-screen space-y-5 bg-[radial-gradient(circle_at_18%_-12%,rgba(245,158,11,0.18),transparent_34%),linear-gradient(180deg,#140f0c_0%,#0b0908_42%,#070605_100%)] p-4 text-white md:-m-6 md:p-6">
+      <div className="rounded-[2rem] border border-white/10 bg-white/[0.055] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.34)] backdrop-blur-xl md:p-5">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="space-y-2">
             <Badge className="w-fit bg-amber-100 text-amber-900 hover:bg-amber-100">
               {isVi ? "Tự động từ PO đã parse" : "Auto from parsed POs"}
             </Badge>
             <div>
-              <h1 className="font-display text-3xl font-bold tracking-tight text-foreground md:text-4xl">
+              <h1 className="font-display text-3xl font-bold tracking-tight text-white md:text-4xl">
                 {isVi ? "Kế hoạch sản xuất hôm nay" : "Today Production Plan"}
               </h1>
-              <p className="mt-1 max-w-3xl text-base text-muted-foreground md:text-lg">
+              <p className="mt-1 max-w-3xl text-base font-semibold text-white/48 md:text-lg">
                 {isVi
                   ? "Danh sách sản phẩm cần làm trong ngày, tối ưu cho màn hình cảm ứng và TV xưởng. Chỉ hiển thị nội dung vận hành, không lộ công thức hoặc số tiền."
                   : "Touch-first daily production view. Shows operational quantities without recipes or financial details."}
@@ -472,13 +567,13 @@ export default function ProductionPlanning() {
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:flex">
-            <Button variant="outline" size="lg" className="h-12 rounded-2xl text-base" onClick={() => setTvModeOpen(true)}>
+            <Button variant="outline" size="lg" className="h-12 rounded-2xl border-white/10 bg-white/[0.06] text-base text-white hover:bg-white/[0.1] hover:text-white" onClick={() => setTvModeOpen(true)}>
               <Monitor className="mr-2 h-5 w-5" />
               {isVi ? "Màn hình TV" : "TV View"}
             </Button>
             <Button
               size="lg"
-              className="h-12 rounded-2xl bg-emerald-600 text-base hover:bg-emerald-700"
+              className="h-12 rounded-2xl bg-amber-400 text-base font-black text-[#1b1004] shadow-[0_12px_28px_rgba(245,158,11,0.22)] hover:bg-amber-300"
               disabled={pendingPos.length === 0}
               onClick={() => pendingPos[0] && handleCreateClick(pendingPos[0])}
             >
@@ -490,27 +585,27 @@ export default function ProductionPlanning() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Card className="rounded-3xl border-amber-200 bg-gradient-to-br from-amber-50 to-orange-100 shadow-sm">
+        <Card className="rounded-3xl border-amber-300/20 bg-amber-300/10 text-white shadow-sm">
           <CardHeader className="space-y-1 p-4">
-            <CardDescription className="text-sm font-medium text-amber-900/70">{isVi ? "Tổng cần sản xuất" : "Planned quantity"}</CardDescription>
-            <CardTitle className="text-4xl font-black tracking-tight text-amber-950">
+            <CardDescription className="text-sm font-medium text-amber-100/70">{isVi ? "Tổng cần sản xuất" : "Planned quantity"}</CardDescription>
+            <CardTitle className="text-4xl font-black tracking-tight text-amber-100">
               {loadingPos ? <Loader2 className="h-7 w-7 animate-spin" /> : stats.plannedQty.toLocaleString("vi-VN")}
             </CardTitle>
           </CardHeader>
         </Card>
-        <Card className="rounded-3xl shadow-sm">
+        <Card className="rounded-3xl border-white/10 bg-[#14100d]/90 text-white shadow-sm">
           <CardHeader className="space-y-1 p-4">
             <CardDescription>{isVi ? "SKU hôm nay" : "Today's SKUs"}</CardDescription>
             <CardTitle className="text-4xl font-black">{stats.plannedSkuCount}</CardTitle>
           </CardHeader>
         </Card>
-        <Card className="rounded-3xl shadow-sm">
+        <Card className="rounded-3xl border-white/10 bg-[#14100d]/90 text-white shadow-sm">
           <CardHeader className="space-y-1 p-4">
             <CardDescription>{isVi ? "PO chờ xác nhận" : "POs pending"}</CardDescription>
             <CardTitle className="text-4xl font-black text-orange-600">{loadingPos ? "..." : stats.pendingPos}</CardTitle>
           </CardHeader>
         </Card>
-        <Card className="rounded-3xl shadow-sm">
+        <Card className="rounded-3xl border-white/10 bg-[#14100d]/90 text-white shadow-sm">
           <CardHeader className="space-y-1 p-4">
             <CardDescription>{isVi ? "Đang sản xuất" : "In progress"}</CardDescription>
             <CardTitle className="text-4xl font-black text-emerald-600">{stats.inProgressOrders}</CardTitle>
@@ -522,22 +617,22 @@ export default function ProductionPlanning() {
         <section className="space-y-4">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 className="text-2xl font-black tracking-tight">{isVi ? "Sản phẩm cần làm" : "Products to make"}</h2>
-              <p className="text-muted-foreground">
+              <h2 className="text-2xl font-black tracking-tight text-white">{isVi ? "Sản phẩm cần làm" : "Products to make"}</h2>
+              <p className="font-semibold text-white/45">
                 {isVi ? "Tổng hợp theo sản phẩm từ toàn bộ PO đã parse tự động." : "Aggregated by product across parsed POs."}
               </p>
             </div>
-            <Badge variant="outline" className="w-fit rounded-full px-3 py-1 text-sm">
+            <Badge variant="outline" className="w-fit rounded-full border-white/10 bg-white/[0.045] px-3 py-1 text-sm text-white/70">
               {format(new Date(), "dd/MM/yyyy")}
             </Badge>
           </div>
 
           {loadingPos ? (
-            <div className="flex min-h-[320px] items-center justify-center rounded-3xl border bg-white/70">
+            <div className="flex min-h-[320px] items-center justify-center rounded-3xl border border-white/10 bg-white/[0.04]">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
           ) : pendingPosEmpty ? (
-            <div className="flex min-h-[320px] flex-col items-center justify-center rounded-3xl border bg-white/70 text-center">
+            <div className="flex min-h-[320px] flex-col items-center justify-center rounded-3xl border border-white/10 bg-white/[0.04] text-center">
               <Package className="mb-3 h-14 w-14 text-muted-foreground" />
               <h3 className="text-xl font-bold">{isVi ? "Chưa có PO chờ sản xuất" : "No POs awaiting production"}</h3>
               <p className="mt-1 max-w-md text-muted-foreground">
@@ -549,34 +644,38 @@ export default function ProductionPlanning() {
               {aggregatedPlanItems.map((item, index) => (
                 <article
                   key={item.key}
-                  className="group rounded-[1.75rem] border border-amber-100 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                  className="group rounded-[1.75rem] border border-white/10 bg-[#14100d]/94 p-4 shadow-[0_18px_60px_rgba(0,0,0,0.28)] transition hover:-translate-y-0.5 hover:border-amber-300/30"
                 >
-                  <div className={`relative mb-4 h-24 overflow-hidden rounded-3xl bg-gradient-to-br ${productGradientClassNames[index % productGradientClassNames.length]}`}>
-                    <div className="absolute left-6 right-6 top-9 h-6 rotate-[-7deg] rounded-full bg-gradient-to-r from-orange-700 via-yellow-200 to-amber-700 shadow-[0_14px_0_rgba(154,73,24,0.9),0_-13px_0_rgba(255,231,160,0.95)]" />
-                    <div className="absolute right-3 top-3 rounded-full bg-white/80 px-3 py-1 text-xs font-bold text-orange-900">
+                  <ProductVisual
+                    imageUrl={item.image_url}
+                    productName={item.product_name}
+                    className="mb-4 h-28"
+                    gradientClassName={productGradientClassNames[index % productGradientClassNames.length]}
+                  >
+                    <div className="absolute right-3 top-3 rounded-full bg-black/58 px-3 py-1 text-xs font-bold text-amber-100 backdrop-blur">
                       {item.poCount} PO
                     </div>
-                  </div>
+                  </ProductVisual>
                   <div className="space-y-3">
-                    <h3 className="min-h-[3.25rem] text-xl font-black leading-tight text-foreground">{item.product_name}</h3>
+                    <h3 className="min-h-[3.25rem] text-xl font-black leading-tight text-white">{item.product_name}</h3>
                     <div className="flex items-end justify-between gap-3">
                       <div>
-                        <div className="text-5xl font-black leading-none tracking-tight text-foreground">{item.qty.toLocaleString("vi-VN")}</div>
-                        <div className="text-base font-bold uppercase text-muted-foreground">{item.unit}</div>
+                        <div className="text-5xl font-black leading-none tracking-tight text-amber-200">{item.qty.toLocaleString("vi-VN")}</div>
+                        <div className="text-base font-bold uppercase text-white/42">{item.unit}</div>
                       </div>
-                      <div className="text-right text-sm text-muted-foreground">
+                      <div className="text-right text-sm text-white/45">
                         <div>{isVi ? "Giao" : "Delivery"}</div>
-                        <div className="font-bold text-foreground">{formatDate(item.earliestDate)}</div>
+                        <div className="font-bold text-white">{formatDate(item.earliestDate)}</div>
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {item.sourceNames.slice(0, 2).map((source) => (
-                        <span key={source} className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-900">
+                        <span key={source} className="rounded-full bg-amber-300/10 px-3 py-1 text-xs font-bold text-amber-100 ring-1 ring-amber-300/15">
                           {source}
                         </span>
                       ))}
                       {item.channelCount > 2 && (
-                        <span className="rounded-full bg-muted px-3 py-1 text-xs font-bold text-muted-foreground">+{item.channelCount - 2}</span>
+                        <span className="rounded-full bg-white/[0.06] px-3 py-1 text-xs font-bold text-white/50">+{item.channelCount - 2}</span>
                       )}
                     </div>
                   </div>
@@ -587,7 +686,7 @@ export default function ProductionPlanning() {
         </section>
 
         <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
-          <Card className="rounded-[1.75rem] border-emerald-100 bg-white shadow-sm">
+          <Card className="rounded-[1.75rem] border-white/10 bg-[#14100d]/94 text-white shadow-sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-2xl font-black">
                 <ClipboardCheck className="h-6 w-6 text-emerald-600" />
@@ -600,8 +699,8 @@ export default function ProductionPlanning() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Alert className="rounded-2xl border-amber-200 bg-amber-50">
-                <AlertDescription className="text-sm leading-6 text-amber-900">
+              <Alert className="rounded-2xl border-amber-300/20 bg-amber-300/10">
+                <AlertDescription className="text-sm leading-6 text-amber-100/78">
                   {isVi
                     ? "Backend hiện tạo lệnh sản xuất từ PO. Bước tự sinh phiếu xuất kho NVL theo BOM cần nối tiếp với bảng giá vốn/NVL ở phase sau."
                     : "Current backend creates production orders from POs. Material issue slips from BOM need the next integration phase."}
@@ -613,14 +712,14 @@ export default function ProductionPlanning() {
                     key={po.id}
                     type="button"
                     onClick={() => handleCreateClick(po)}
-                    className="flex min-h-20 w-full items-center justify-between gap-3 rounded-2xl border bg-background p-3 text-left transition hover:border-emerald-300 hover:bg-emerald-50/50"
+                    className="flex min-h-20 w-full items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-left transition hover:border-amber-300/30 hover:bg-amber-300/[0.06]"
                   >
                     <div className="min-w-0">
                       <div className="truncate font-mono text-sm font-black">{po.po_number}</div>
                       <div className="truncate text-sm text-muted-foreground">{po.from_name}</div>
                       <div className="text-xs text-muted-foreground">{formatDate(po.delivery_date)}</div>
                     </div>
-                    <div className="shrink-0 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-black text-white">
+                    <div className="shrink-0 rounded-xl bg-amber-400 px-3 py-2 text-sm font-black text-[#1b1004]">
                       {isVi ? "Xác nhận" : "Confirm"}
                     </div>
                   </button>
@@ -629,7 +728,7 @@ export default function ProductionPlanning() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-[1.75rem] bg-zinc-950 text-white shadow-sm">
+          <Card className="rounded-[1.75rem] border-white/10 bg-[#0b0908] text-white shadow-sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-2xl font-black">
                 <Monitor className="h-6 w-6 text-amber-300" />
@@ -648,7 +747,7 @@ export default function ProductionPlanning() {
         </aside>
       </div>
 
-      <Card className="rounded-[1.75rem] shadow-sm">
+      <Card className="rounded-[1.75rem] border-white/10 bg-[#14100d]/94 text-white shadow-sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-2xl font-black">
             <Factory className="h-6 w-6" />
@@ -667,7 +766,7 @@ export default function ProductionPlanning() {
           ) : (
             <div className="grid gap-3 lg:grid-cols-2">
               {productionOrders.map((order) => (
-                <div key={order.id} className="rounded-3xl border bg-background p-4">
+                <div key={order.id} className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
@@ -694,7 +793,7 @@ export default function ProductionPlanning() {
                     <div className="mt-4 grid gap-2 border-t pt-4">
                       {((orderItems[expandedOrderId] as ProductionOrderItem[]) || []).length > 0 ? (
                         ((orderItems[expandedOrderId] as ProductionOrderItem[]) || []).map((item) => (
-                          <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white p-3">
+                          <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl bg-[#211915]/80 p-3">
                             <div>
                               <p className="font-bold leading-tight">{item.product_name}</p>
                               <p className="text-sm text-muted-foreground">{formatDate(item.delivery_date)}</p>
@@ -721,7 +820,7 @@ export default function ProductionPlanning() {
       </Card>
 
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto rounded-3xl">
+        <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto rounded-3xl border-white/10 bg-[#14100d] text-white">
           <DialogHeader>
             <DialogTitle className="text-2xl font-black">
               {isVi ? "Xác nhận / điều chỉnh kế hoạch" : "Confirm / adjust plan"}
@@ -730,13 +829,13 @@ export default function ProductionPlanning() {
 
           {selectedPoForCreation && (
             <div className="space-y-5">
-              <div className="rounded-3xl bg-amber-50 p-4">
+              <div className="rounded-3xl border border-amber-300/20 bg-amber-300/10 p-4">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-mono text-lg font-black">{selectedPoForCreation.po_number}</p>
-                    <p className="text-muted-foreground">{selectedPoForCreation.from_name}</p>
+                    <p className="font-semibold text-white/45">{selectedPoForCreation.from_name}</p>
                   </div>
-                  <Badge className="w-fit bg-amber-200 text-amber-950 hover:bg-amber-200">
+                  <Badge className="w-fit bg-amber-400 text-[#1b1004] hover:bg-amber-400">
                     {isVi ? "Nguồn PO đã parse" : "Parsed PO source"}
                   </Badge>
                 </div>
@@ -746,9 +845,14 @@ export default function ProductionPlanning() {
                 {formData.items.map((item, idx) => {
                   const adjusted = item.planned_qty !== item.original_qty;
                   return (
-                    <div key={`${item.product_name}-${idx}`} className="rounded-3xl border bg-background p-4">
+                    <div key={`${item.product_name}-${idx}`} className="rounded-3xl border border-white/10 bg-[#14100d]/94 p-4">
                       <div className="mb-4 flex gap-3">
-                        <div className={`h-20 w-24 shrink-0 rounded-2xl bg-gradient-to-br ${productGradientClassNames[idx % productGradientClassNames.length]}`} />
+                        <ProductVisual
+                          imageUrl={resolveSkuImageUrl(item.product_name, item.unit, skuImageRows)}
+                          productName={item.product_name}
+                          className="h-20 w-24 shrink-0 rounded-2xl"
+                          gradientClassName={productGradientClassNames[idx % productGradientClassNames.length]}
+                        />
                         <div className="min-w-0">
                           <h3 className="text-lg font-black leading-tight">{item.product_name}</h3>
                           <p className="mt-1 text-sm text-muted-foreground">
@@ -814,9 +918,9 @@ export default function ProductionPlanning() {
                 />
               </div>
 
-              <Alert className="rounded-2xl border-emerald-200 bg-emerald-50">
-                <FilePlus2 className="h-4 w-4 text-emerald-700" />
-                <AlertDescription className="text-emerald-900">
+              <Alert className="rounded-2xl border-emerald-300/20 bg-emerald-400/10">
+                <FilePlus2 className="h-4 w-4 text-emerald-300" />
+                <AlertDescription className="text-emerald-100/80">
                   {isVi
                     ? "Sau khi xác nhận: tạo lệnh sản xuất và giữ link audit về PO nguồn. Phiếu xuất kho NVL sẽ được tự động hóa khi nối BOM/NVL."
                     : "After confirmation: production order is created and linked to source PO for audit. Material issue slip automation needs BOM integration."}
@@ -827,7 +931,7 @@ export default function ProductionPlanning() {
                 <Button variant="outline" className="h-12 rounded-2xl" onClick={() => setCreateDialogOpen(false)} disabled={createProductionOrderMutation.isPending}>
                   {isVi ? "Hủy" : "Cancel"}
                 </Button>
-                <Button className="h-12 rounded-2xl bg-emerald-600 font-black hover:bg-emerald-700" onClick={handleSubmitCreate} disabled={createProductionOrderMutation.isPending}>
+                <Button className="h-12 rounded-2xl bg-amber-400 font-black text-[#1b1004] hover:bg-amber-300" onClick={handleSubmitCreate} disabled={createProductionOrderMutation.isPending}>
                   {createProductionOrderMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
                   {isVi ? "Xác nhận tạo lệnh SX" : "Confirm production order"}
                 </Button>
@@ -858,7 +962,12 @@ export default function ProductionPlanning() {
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {aggregatedPlanItems.slice(0, 6).map((item, idx) => (
                 <div key={item.key} className="rounded-[2rem] border border-white/10 bg-white/[0.06] p-5">
-                  <div className={`mb-5 h-28 rounded-3xl bg-gradient-to-br ${productGradientClassNames[idx % productGradientClassNames.length]}`} />
+                  <ProductVisual
+                    imageUrl={item.image_url}
+                    productName={item.product_name}
+                    className="mb-5 h-28"
+                    gradientClassName={productGradientClassNames[idx % productGradientClassNames.length]}
+                  />
                   <h3 className="min-h-[4rem] text-3xl font-black leading-tight">{item.product_name}</h3>
                   <div className="mt-4 flex items-end justify-between gap-4">
                     <div className="text-6xl font-black leading-none text-amber-300">{item.qty.toLocaleString("vi-VN")}</div>
