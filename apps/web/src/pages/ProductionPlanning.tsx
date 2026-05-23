@@ -218,7 +218,25 @@ const ProductVisual = ({
   </div>
 );
 
-const todayInputValue = () => format(new Date(), "yyyy-MM-dd");
+const vietnamDateParts = () =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .formatToParts(new Date())
+    .reduce<Record<string, string>>((acc, part) => {
+      acc[part.type] = part.value;
+      return acc;
+    }, {});
+
+const vietnamTodayInputValue = () => {
+  const parts = vietnamDateParts();
+  return `${parts.year}-${parts.month}-${parts.day}`;
+};
+
+const todayInputValue = vietnamTodayInputValue;
 
 const vietnamDayUtcStartIso = () => {
   const vietnamNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
@@ -259,15 +277,18 @@ export default function ProductionPlanning() {
     notes: "",
   });
 
+  const planDateIso = useMemo(() => vietnamTodayInputValue(), []);
+  const planDayStartIso = useMemo(() => vietnamDayUtcStartIso(), []);
+
   const { data: pendingPos = [], isLoading: loadingPos } = useQuery({
-    queryKey: ["pending-pos"],
+    queryKey: ["pending-pos", planDateIso, planDayStartIso],
     queryFn: async () => {
       try {
         const { data: allPos, error: posError } = await (supabase as any)
           .from("customer_po_inbox")
           .select("*")
           .in("match_status", ["approved", "pending_approval"])
-          .gte("created_at", vietnamDayUtcStartIso())
+          .or(`delivery_date.eq.${planDateIso},created_at.gte.${planDayStartIso}`)
           .order("created_at", { ascending: false });
 
         if (posError) throw posError;
@@ -817,7 +838,7 @@ export default function ProductionPlanning() {
               </p>
             </div>
             <Badge variant="outline" className="w-fit rounded-full border-white/10 bg-white/[0.045] px-3 py-1 text-sm text-white/70">
-              {format(new Date(), "dd/MM/yyyy")}
+              {format(new Date(`${planDateIso}T00:00:00`), "dd/MM/yyyy")}
             </Badge>
           </div>
 
