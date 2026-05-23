@@ -35,6 +35,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { isFinishedSku } from "@/lib/skuType";
 
 interface ProductionItem {
   product_name: string;
@@ -130,6 +131,8 @@ type ProductSkuImageRow = {
   id: string;
   sku_code: string | null;
   product_name: string;
+  category?: string | null;
+  sku_type?: "raw_material" | "finished_good" | null;
   unit: string | null;
   image_url?: string | null;
 };
@@ -277,7 +280,7 @@ export default function ProductionPlanning() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("product_skus")
-        .select("id,sku_code,product_name,unit,image_url")
+        .select("id,sku_code,product_name,category,sku_type,unit,image_url")
         .order("product_name", { ascending: true });
 
       if (error) {
@@ -285,7 +288,7 @@ export default function ProductionPlanning() {
         return [] as ProductSkuImageRow[];
       }
 
-      return (data || []) as ProductSkuImageRow[];
+      return ((data || []) as ProductSkuImageRow[]).filter((sku) => isFinishedSku(sku));
     },
     staleTime: 30000,
   });
@@ -724,24 +727,27 @@ export default function ProductionPlanning() {
                 {skuImageRows.map((sku, idx) => {
                   const enabled = enabledSkuIds.has(sku.id);
                   return (
-                    <label key={sku.id} className={`flex cursor-pointer items-center gap-3 rounded-3xl border p-3 transition ${enabled ? "border-amber-300/30 bg-amber-300/[0.08]" : "border-white/10 bg-white/[0.04] hover:bg-white/[0.06]"}`}>
+                    <label
+                      key={sku.id}
+                      className={`grid min-h-[104px] cursor-pointer grid-cols-[72px_minmax(0,1fr)_28px] items-center gap-3 rounded-3xl border p-3 transition ${enabled ? "border-amber-300/30 bg-amber-300/[0.08]" : "border-white/10 bg-white/[0.04] hover:bg-white/[0.06]"}`}
+                    >
                       <ProductVisual
                         imageUrl={sku.image_url}
                         productName={sku.product_name}
-                        className="h-20 w-20 shrink-0 rounded-[18px]"
+                        className="h-[72px] w-[72px] rounded-[18px]"
                         gradientClassName={productGradientClassNames[idx % productGradientClassNames.length]}
                       />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-black text-white">{sku.product_name}</p>
-                        <p className="mt-1 truncate font-mono text-xs font-bold text-white/35">{sku.sku_code || sku.id}</p>
-                        <p className="mt-1 text-xs font-bold uppercase text-white/35">{sku.unit || "-"}</p>
+                      <div className="min-w-0 overflow-hidden">
+                        <p className="line-clamp-2 break-words text-[13px] font-black leading-snug text-white">{sku.product_name}</p>
+                        <p className="mt-1 truncate font-mono text-[10px] font-bold leading-tight text-white/35">{sku.sku_code || sku.id}</p>
+                        <p className="mt-1 w-fit rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-bold uppercase text-white/45">{sku.unit || "-"}</p>
                       </div>
                       <input
                         type="checkbox"
                         checked={enabled}
                         disabled={!canEditLocation || toggleLocationSkuMutation.isPending}
                         onChange={(event) => toggleLocationSkuMutation.mutate({ skuId: sku.id, enabled: event.target.checked })}
-                        className="h-5 w-5 accent-amber-400"
+                        className="h-5 w-5 justify-self-end accent-amber-400 disabled:opacity-50"
                       />
                     </label>
                   );
