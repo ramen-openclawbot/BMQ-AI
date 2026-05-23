@@ -212,10 +212,25 @@ const TONY_THANH_AUTOMATION = {
 const VIETJET_AUTOMATION = {
   senderDomain: "vietjetair.com",
   rule: "vietjet_cumulative_xlsx",
-  parser: "po-gmail-sync:vietjet-cumulative-xlsx:v1",
-  unitPrice: 25000,
-  productCode: "40000294",
-  productName: "Bánh mì",
+  parser: "po-gmail-sync:vietjet-cumulative-xlsx:v2",
+  products: [
+    {
+      unitPrice: 25000,
+      productCode: "40000294",
+      productName: "Bánh mì",
+      unit: "cái",
+      fallbackColumnIndex: 18,
+      headerNeedles: ["40000294", "banh mi"],
+    },
+    {
+      unitPrice: 22000,
+      productCode: "KF-CROISSANT-40G-T0526",
+      productName: "Croissant (40g)",
+      unit: "hộp",
+      fallbackColumnIndex: null,
+      headerNeedles: ["croissant", "40", "22000"],
+    },
+  ],
 } as const;
 
 const COOPMART_AUTOMATION = {
@@ -713,6 +728,23 @@ const parseTonyThanhBodyLines = (
   return { items, needsReview, parent };
 };
 
+const normalizeVietjetHeaderText = (value: unknown) => normalizeTextKey(String(value ?? ""));
+
+const findVietjetQtyColumn = (rows: any[][], totalRowIndex: number, product: typeof VIETJET_AUTOMATION.products[number]) => {
+  if (typeof product.fallbackColumnIndex === "number") return product.fallbackColumnIndex;
+
+  const maxColumns = rows.reduce((max, row) => Math.max(max, Array.isArray(row) ? row.length : 0), 0);
+  const scanStart = Math.max(0, totalRowIndex - 12);
+  const scanRows = rows.slice(scanStart, totalRowIndex + 1);
+  for (let col = 0; col < maxColumns; col += 1) {
+    const headerText = normalizeVietjetHeaderText(scanRows.map((row) => row?.[col]).filter(Boolean).join(" "));
+    if (product.headerNeedles.every((needle) => headerText.includes(normalizeVietjetHeaderText(needle)))) {
+      return col;
+    }
+  }
+  return -1;
+};
+
 const parseVietjetCumulativeXlsx = (bytes: Uint8Array, meta: { messageId: string; subject: string; timestamp: string; filename: string }) => {
   const workbook = XLSX.read(bytes, { type: "array", cellDates: false });
   const items: any[] = [];
@@ -723,31 +755,42 @@ const parseVietjetCumulativeXlsx = (bytes: Uint8Array, meta: { messageId: string
       if (normalizeTextKey(String(row?.[0] || "")) !== normalizeTextKey("TỔNG CỘNG THEO NGÀY")) continue;
       const previous = rows[i - 1] || [];
       const serviceDate = excelSerialToIsoDate(previous?.[1] || row?.[1]);
-      const qty = toNum(row?.[18]);
-      if (!serviceDate || qty <= 0) continue;
-      items.push({
-        evidence_type: "vietjet_cumulative_xlsx_day_total",
-        source_channel: "vietjet_cumulative_schedule",
-        service_date: serviceDate,
-        date: serviceDate,
-        product_code: VIETJET_AUTOMATION.productCode,
-        product_name: VIETJET_AUTOMATION.productName,
-        qty,
-        ordered_qty: qty,
-        revenue_qty: qty,
-        unit_price: VIETJET_AUTOMATION.unitPrice,
-        line_total: qty * VIETJET_AUTOMATION.unitPrice,
-        line_amount: qty * VIETJET_AUTOMATION.unitPrice,
-        dedupe_key: `${serviceDate}:${VIETJET_AUTOMATION.productCode}`,
-        dedupe_strategy: "keep_latest_gmail_timestamp_per_service_date_product",
-        source_sheet: sheetName,
-        source_filename: meta.filename,
-        source_column_name: "vietjet_total_by_day_col_19_product_40000294",
-        gmail_message_id: meta.messageId,
-        email_subject: meta.subject,
-        received_at: meta.timestamp,
-        confidence: 0.92,
-      });
+      if (!serviceDate) continue;
+
+      for (const product of VIETJET_AUTOMATION.products) {
+        const qtyColumn = findVietjetQtyColumn(rows, i, product);
+        if (qtyColumn < 0) continue;
+        const qty = toNum(row?.[qtyColumn]);
+        if (qty <= 0) continue;
+        items.push({
+          evidence_type: "vietjet_cumulative_xlsx_day_total",
+          source_channel: "vietjet_cumulative_schedule",
+          service_date: serviceDate,
+          date: serviceDate,
+          product_code: product.productCode,
+          sku_code: product.productCode,
+          sku: product.productCode,
+          product_name: product.productName,
+          qty,
+          ordered_qty: qty,
+          revenue_qty: qty,
+          unit: product.unit,
+          unit_price: product.unitPrice,
+          line_total: qty * product.unitPrice,
+          line_amount: qty * product.unitPrice,
+          dedupe_key: `${serviceDate}:${product.productCode}`,
+          dedupe_strategy: "keep_latest_gmail_timestamp_per_service_date_product",
+          source_sheet: sheetName,
+          source_filename: meta.filename,
+          source_column_name: product.fallbackColumnIndex === 18
+            ? "vietjet_total_by_day_col_19_product_40000294"
+            : `vietjet_total_by_day_col_${qtyColumn + 1}_${product.productCode}`,
+          gmail_message_id: meta.messageId,
+          email_subject: meta.subject,
+          received_at: meta.timestamp,
+          confidence: product.fallbackColumnIndex === 18 ? 0.92 : 0.9,
+        });
+      }
     }
   }
   return items;
@@ -1267,12 +1310,12 @@ serve(async (req) => {
           sender_domain: VIETJET_AUTOMATION.senderDomain,
           source: "gmail_xlsx_attachment_cumulative_schedule",
           service_date_rule: "xlsx_total_by_day_rows_deduped_by_service_date_product_keep_latest",
-          product_code: VIETJET_AUTOMATION.productCode,
-          product_name: VIETJET_AUTOMATION.productName,
+          product_codes: VIETJET_AUTOMATION.products.map((product) => product.productCode),
+          product_names: VIETJET_AUTOMATION.products.map((product) => product.productName),
           item_count: vietjetItems.length,
           total_qty: totalQty,
           total_amount: totalAmount,
-          unit_price: VIETJET_AUTOMATION.unitPrice,
+          unit_prices: VIETJET_AUTOMATION.products.map((product) => product.unitPrice),
           automation_status: vietjetItems.length > 0 && parseErrors.length === 0 ? "vietjet_cumulative_evidence_only" : "parse_failed_needs_review",
           reason: vietjetItems.length > 0 && parseErrors.length === 0
             ? "Vietjet cumulative XLSX schedule parsed; monthly preview must dedupe by service_date/product and keep latest Gmail timestamp"
@@ -1364,7 +1407,7 @@ serve(async (req) => {
             service_date: null,
             delivery_date: null,
             date_mapping: "xlsx_service_date_per_line_deduped_by_service_date_product_keep_latest",
-            product_code: VIETJET_AUTOMATION.productCode,
+            product_codes: VIETJET_AUTOMATION.products.map((product) => product.productCode),
             item_count: Number(vietjetAutomation.item_count || 0),
             total_qty: Number(vietjetAutomation.total_qty || 0),
             subtotal: parsedSubtotal,
