@@ -855,44 +855,41 @@ export default function ProductionPlanning() {
               </p>
             </div>
           ) : (
-            <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+            <div className="grid gap-2.5 md:grid-cols-2 2xl:grid-cols-3">
               {aggregatedPlanItems.map((item, index) => (
                 <article
                   key={item.key}
-                  className="group rounded-[1.75rem] border border-white/10 bg-[#14100d]/94 p-4 shadow-[0_18px_60px_rgba(0,0,0,0.28)] transition hover:-translate-y-0.5 hover:border-amber-300/30"
+                  className="group flex min-h-[96px] items-center gap-3 rounded-[24px] border border-white/10 bg-[#14100d]/95 p-3 shadow-[0_14px_42px_rgba(0,0,0,0.28)] transition hover:border-amber-300/30 hover:bg-white/[0.045] md:min-h-[104px]"
                 >
                   <ProductVisual
                     imageUrl={item.image_url}
                     productName={item.product_name}
-                    className="mb-4 h-28"
+                    className="h-[72px] w-[72px] shrink-0 rounded-[18px]"
                     gradientClassName={productGradientClassNames[index % productGradientClassNames.length]}
-                  >
-                    <div className="absolute right-3 top-3 rounded-full bg-black/58 px-3 py-1 text-xs font-bold text-amber-100 backdrop-blur">
-                      {item.poCount} PO
-                    </div>
-                  </ProductVisual>
-                  <div className="space-y-3">
-                    <h3 className="min-h-[3.25rem] text-xl font-black leading-tight text-white">{item.product_name}</h3>
-                    <div className="flex items-end justify-between gap-3">
-                      <div>
-                        <div className="text-5xl font-black leading-none tracking-tight text-amber-200">{item.qty.toLocaleString("vi-VN")}</div>
-                        <div className="text-base font-bold uppercase text-white/42">{item.unit}</div>
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <h3 className="line-clamp-2 text-[14px] font-black leading-tight text-white md:text-[15px]">{item.product_name}</h3>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <span className="rounded-full bg-amber-300/10 px-2 py-0.5 text-[10px] font-extrabold text-amber-100 ring-1 ring-amber-300/15">
+                            {item.poCount} PO
+                          </span>
+                          <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-bold text-white/50">
+                            {formatDate(item.earliestDate)}
+                          </span>
+                        </div>
                       </div>
-                      <div className="text-right text-sm text-white/45">
-                        <div>{isVi ? "Giao" : "Delivery"}</div>
-                        <div className="font-bold text-white">{formatDate(item.earliestDate)}</div>
+                      <div className="shrink-0 text-right">
+                        <div className="text-[30px] font-black leading-none tracking-[-0.04em] text-amber-200 md:text-[34px]">{item.qty.toLocaleString("vi-VN")}</div>
+                        <div className="mt-1 text-[10px] font-extrabold uppercase text-white/42">{item.unit}</div>
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {item.sourceNames.slice(0, 2).map((source) => (
-                        <span key={source} className="rounded-full bg-amber-300/10 px-3 py-1 text-xs font-bold text-amber-100 ring-1 ring-amber-300/15">
-                          {source}
-                        </span>
-                      ))}
-                      {item.channelCount > 2 && (
-                        <span className="rounded-full bg-white/[0.06] px-3 py-1 text-xs font-bold text-white/50">+{item.channelCount - 2}</span>
-                      )}
-                    </div>
+                    {item.sourceNames.length > 0 && (
+                      <p className="mt-2 truncate text-[10px] font-bold text-white/35">
+                        {item.sourceNames.slice(0, 2).join(" · ")}{item.channelCount > 2 ? ` · +${item.channelCount - 2}` : ""}
+                      </p>
+                    )}
                   </div>
                 </article>
               ))}
