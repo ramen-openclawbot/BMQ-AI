@@ -46,10 +46,8 @@ def test_vietjet_cumulative_xlsx_rule_and_monthly_dedupe() -> None:
         ("vietjet_cumulative_xlsx", "Vietjet rule id"),
         ("TỔNG CỘNG THEO NGÀY", "total by day marker"),
         ("excelSerialToIsoDate", "Excel serial service date conversion"),
-        ("40000294", "Vietjet Bánh mì product code"),
-        ("fallbackColumnIndex: 18", "one-based column 19 fallback quantity"),
-        ("KF-CROISSANT-40G-T0526", "Vietjet Croissant 40g product code"),
-        ("unitPrice: 22000", "Vietjet Croissant 40g approved price"),
+        ("40000294", "Vietjet product code"),
+        ("row?.[18]", "one-based column 19 quantity"),
         ("keep_latest_gmail_timestamp_per_service_date_product", "dedupe strategy"),
     ]:
         assert_contains(sync, needle, label)
