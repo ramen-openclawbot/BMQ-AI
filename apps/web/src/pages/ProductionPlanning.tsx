@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -33,6 +33,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 
 interface ProductionItem {
@@ -133,6 +134,14 @@ type ProductSkuImageRow = {
   image_url?: string | null;
 };
 
+type ProductionLocationSkuSetting = {
+  sku_id: string;
+  is_enabled: boolean;
+};
+
+const PRODUCTION_LOCATION_CODE = "q7";
+const PRODUCTION_LOCATION_MODULE_KEY = "production_q7";
+
 const normalizeSkuText = (value: string | null | undefined) =>
   String(value || "")
     .normalize("NFD")
@@ -164,13 +173,15 @@ const scoreSkuImageMatch = (itemName: string, itemUnit: string, sku: ProductSkuI
   return score;
 };
 
-const resolveSkuImageUrl = (productName: string, unit: string, skus: ProductSkuImageRow[]) => {
+const resolveSkuMatch = (productName: string, unit: string, skus: ProductSkuImageRow[]) => {
   const best = skus
-    .filter((sku) => !!sku.image_url)
     .map((sku) => ({ sku, score: scoreSkuImageMatch(productName, unit, sku) }))
     .sort((a, b) => b.score - a.score)[0];
-  return best && best.score >= 65 ? best.sku.image_url || null : null;
+  return best && best.score >= 65 ? best.sku : null;
 };
+
+const resolveSkuImageUrl = (productName: string, unit: string, skus: ProductSkuImageRow[]) =>
+  resolveSkuMatch(productName, unit, skus)?.image_url || null;
 
 const ProductVisual = ({
   imageUrl,
@@ -202,12 +213,15 @@ const todayInputValue = () => format(new Date(), "yyyy-MM-dd");
 
 export default function ProductionPlanning() {
   const { language } = useLanguage();
+  const { canEditModule } = useAuth();
   const isVi = language === "vi";
   const locale = isVi ? vi : undefined;
+  const canEditLocation = canEditModule(PRODUCTION_LOCATION_MODULE_KEY);
   const queryClient = useQueryClient();
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [tvModeOpen, setTvModeOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"plan" | "settings">("plan");
   const [selectedPoForCreation, setSelectedPoForCreation] = useState<CustomerPoInbox | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [formData, setFormData] = useState<{
@@ -258,13 +272,13 @@ export default function ProductionPlanning() {
     },
   });
 
-  const { data: skuImageRows = [] } = useQuery({
+  const { data: skuImageRows = [], isLoading: loadingSkus } = useQuery({
     queryKey: ["production-sku-images"],
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("product_skus")
         .select("id,sku_code,product_name,unit,image_url")
-        .not("image_url", "is", null);
+        .order("product_name", { ascending: true });
 
       if (error) {
         console.error("Error fetching SKU images:", error);
@@ -274,6 +288,48 @@ export default function ProductionPlanning() {
       return (data || []) as ProductSkuImageRow[];
     },
     staleTime: 30000,
+  });
+
+  const { data: locationSkuSettings = [], isLoading: loadingLocationSettings } = useQuery({
+    queryKey: ["production-location-sku-settings", PRODUCTION_LOCATION_CODE],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("production_location_sku_settings")
+        .select("sku_id,is_enabled")
+        .eq("location_code", PRODUCTION_LOCATION_CODE);
+
+      if (error) {
+        console.error("Error fetching production location SKU settings:", error);
+        toast.error(isVi ? "Không thể tải thiết lập SKU xưởng" : "Failed to load workshop SKU settings");
+        return [] as ProductionLocationSkuSetting[];
+      }
+
+      return (data || []) as ProductionLocationSkuSetting[];
+    },
+  });
+
+  const toggleLocationSkuMutation = useMutation({
+    mutationFn: async ({ skuId, enabled }: { skuId: string; enabled: boolean }) => {
+      const { error } = await (supabase as any)
+        .from("production_location_sku_settings")
+        .upsert(
+          {
+            location_code: PRODUCTION_LOCATION_CODE,
+            sku_id: skuId,
+            is_enabled: enabled,
+          },
+          { onConflict: "location_code,sku_id" }
+        );
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["production-location-sku-settings", PRODUCTION_LOCATION_CODE] });
+    },
+    onError: (error: any) => {
+      console.error("Error updating production location SKU setting:", error);
+      toast.error(isVi ? "Không thể cập nhật thiết lập SKU" : "Failed to update SKU setting");
+    },
   });
 
   const { data: productionOrders = [], isLoading: loadingOrders } = useQuery({
@@ -329,6 +385,27 @@ export default function ProductionPlanning() {
     },
     enabled: !!expandedOrderId,
   });
+
+  const enabledSkuIds = useMemo(() => {
+    return new Set(locationSkuSettings.filter((row) => row.is_enabled).map((row) => row.sku_id));
+  }, [locationSkuSettings]);
+
+  const isProductionItemEnabledForLocation = useCallback(
+    (item: ProductionItem) => {
+      const matchedSku = resolveSkuMatch(item.product_name, item.unit, skuImageRows);
+      return !!matchedSku && enabledSkuIds.has(matchedSku.id);
+    },
+    [enabledSkuIds, skuImageRows]
+  );
+
+  const visiblePendingPos = useMemo<CustomerPoInbox[]>(() => {
+    return pendingPos
+      .map((po) => ({
+        ...po,
+        production_items: (po.production_items || []).filter(isProductionItemEnabledForLocation),
+      }))
+      .filter((po) => po.production_items.length > 0);
+  }, [pendingPos, isProductionItemEnabledForLocation]);
 
   const createProductionOrderMutation = useMutation({
     mutationFn: async (input: CreateProductionOrderInput) => {
@@ -444,7 +521,7 @@ export default function ProductionPlanning() {
   const aggregatedPlanItems = useMemo<AggregatedPlanItem[]>(() => {
     const map = new Map<string, AggregatedPlanItem>();
 
-    pendingPos.forEach((po) => {
+    visiblePendingPos.forEach((po) => {
       (po.production_items || []).forEach((item) => {
         const key = `${item.product_name}__${item.unit}`;
         const current = map.get(key) || {
@@ -472,14 +549,14 @@ export default function ProductionPlanning() {
     return Array.from(map.values())
       .map((item) => ({ ...item, channelCount: item.sourceNames.length }))
       .sort((a, b) => b.qty - a.qty);
-  }, [pendingPos, skuImageRows]);
+  }, [visiblePendingPos, skuImageRows]);
 
   const stats = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     return {
-      pendingPos: pendingPos.length,
+      pendingPos: visiblePendingPos.length,
       plannedSkuCount: aggregatedPlanItems.length,
       plannedQty: aggregatedPlanItems.reduce((sum, item) => sum + item.qty, 0),
       inProgressOrders: productionOrders.filter((o) => o.status === "in_progress").length,
@@ -490,11 +567,19 @@ export default function ProductionPlanning() {
         return completedDate.getTime() === today.getTime();
       }).length,
     };
-  }, [aggregatedPlanItems, pendingPos.length, productionOrders]);
+  }, [aggregatedPlanItems, visiblePendingPos.length, productionOrders]);
 
   const handleCreateClick = (po: CustomerPoInbox) => {
-    setSelectedPoForCreation(po);
-    const items = (po.production_items || []).map((item) => ({
+    if (!canEditLocation) {
+      toast.error(isVi ? "Bạn cần quyền Sửa của Xưởng Q7 để xác nhận sản xuất" : "Edit permission for Q7 Workshop is required to confirm production");
+      return;
+    }
+    const allowedItems = (po.production_items || []).filter(isProductionItemEnabledForLocation);
+    if (allowedItems.length === 0) {
+      toast.error(isVi ? "PO này không có SKU được bật cho Xưởng Q7" : "This PO has no enabled SKUs for Q7 Workshop");
+      return;
+    }
+    const items = allowedItems.map((item) => ({
       product_name: item.product_name,
       original_qty: item.qty,
       planned_qty: item.qty,
@@ -503,6 +588,7 @@ export default function ProductionPlanning() {
       line_total: item.line_total,
       date: item.date,
     }));
+    setSelectedPoForCreation(po);
     setFormData({
       items,
       planned_start_date: todayInputValue(),
@@ -514,6 +600,10 @@ export default function ProductionPlanning() {
 
   const handleSubmitCreate = async () => {
     if (!selectedPoForCreation) return;
+    if (!canEditLocation) {
+      toast.error(isVi ? "Bạn cần quyền Sửa của Xưởng Q7 để xác nhận sản xuất" : "Edit permission for Q7 Workshop is required to confirm production");
+      return;
+    }
 
     if (!formData.planned_start_date) {
       toast.error(isVi ? "Vui lòng chọn ngày bắt đầu" : "Please select start date");
@@ -543,7 +633,7 @@ export default function ProductionPlanning() {
     setFormData({ ...formData, items: newItems });
   };
 
-  const pendingPosEmpty = !loadingPos && pendingPos.length === 0;
+  const pendingPosEmpty = !loadingPos && visiblePendingPos.length === 0;
   const ordersEmpty = !loadingOrders && productionOrders.length === 0;
 
   return (
@@ -556,28 +646,112 @@ export default function ProductionPlanning() {
             </Badge>
             <div>
               <h1 className="font-display text-3xl font-bold tracking-tight text-white md:text-4xl">
-                {isVi ? "Kế hoạch sản xuất hôm nay" : "Today Production Plan"}
+                {isVi ? "Kế hoạch sản xuất - Xưởng Q7" : "Q7 Workshop Production Plan"}
               </h1>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:flex">
-            <Button variant="outline" size="lg" className="h-12 rounded-2xl border-white/10 bg-white/[0.06] text-base text-white hover:bg-white/[0.1] hover:text-white" onClick={() => setTvModeOpen(true)}>
-              <Monitor className="mr-2 h-5 w-5" />
-              {isVi ? "Màn hình TV" : "TV View"}
+            <Button
+              variant="outline"
+              size="lg"
+              className={`h-12 rounded-2xl border-white/10 text-base ${activeTab === "plan" ? "bg-amber-400 text-[#1b1004] hover:bg-amber-300 hover:text-[#1b1004]" : "bg-white/[0.06] text-white hover:bg-white/[0.1] hover:text-white"}`}
+              onClick={() => setActiveTab("plan")}
+            >
+              {isVi ? "Kế hoạch" : "Plan"}
             </Button>
             <Button
+              variant="outline"
               size="lg"
-              className="h-12 rounded-2xl bg-amber-400 text-base font-black text-[#1b1004] shadow-[0_12px_28px_rgba(245,158,11,0.22)] hover:bg-amber-300"
-              disabled={pendingPos.length === 0}
-              onClick={() => pendingPos[0] && handleCreateClick(pendingPos[0])}
+              className={`h-12 rounded-2xl border-white/10 text-base ${activeTab === "settings" ? "bg-amber-400 text-[#1b1004] hover:bg-amber-300 hover:text-[#1b1004]" : "bg-white/[0.06] text-white hover:bg-white/[0.1] hover:text-white"}`}
+              onClick={() => setActiveTab("settings")}
             >
-              <ClipboardCheck className="mr-2 h-5 w-5" />
-              {isVi ? "Xác nhận" : "Confirm"}
+              {isVi ? "Thiết lập SX" : "Production setup"}
             </Button>
+            {activeTab === "plan" && (
+              <>
+                <Button variant="outline" size="lg" className="h-12 rounded-2xl border-white/10 bg-white/[0.06] text-base text-white hover:bg-white/[0.1] hover:text-white" onClick={() => setTvModeOpen(true)}>
+                  <Monitor className="mr-2 h-5 w-5" />
+                  {isVi ? "Màn hình TV" : "TV View"}
+                </Button>
+                <Button
+                  size="lg"
+                  className="h-12 rounded-2xl bg-amber-400 text-base font-black text-[#1b1004] shadow-[0_12px_28px_rgba(245,158,11,0.22)] hover:bg-amber-300"
+                  disabled={!canEditLocation || visiblePendingPos.length === 0}
+                  onClick={() => visiblePendingPos[0] && handleCreateClick(visiblePendingPos[0])}
+                >
+                  <ClipboardCheck className="mr-2 h-5 w-5" />
+                  {isVi ? "Xác nhận" : "Confirm"}
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </div>
 
+      {activeTab === "settings" ? (
+        <Card className="rounded-[1.75rem] border-white/10 bg-[#14100d]/94 text-white shadow-sm">
+          <CardHeader>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <CardTitle className="text-2xl font-black">{isVi ? "Thiết lập SKU sản xuất - Xưởng Q7" : "Q7 production SKU setup"}</CardTitle>
+                <CardDescription className="mt-1 text-white/45">
+                  {isVi ? "Chỉ SKU được check mới hiển thị trong kế hoạch sản xuất khi PO đẩy về xưởng này." : "Only checked SKUs appear in this workshop production plan when POs arrive."}
+                </CardDescription>
+              </div>
+              <Badge className="w-fit bg-amber-400 text-[#1b1004] hover:bg-amber-400">
+                {enabledSkuIds.size}/{skuImageRows.length} {isVi ? "SKU bật" : "enabled"}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {!canEditLocation && (
+              <Alert className="rounded-2xl border-amber-300/20 bg-amber-300/10">
+                <AlertDescription className="text-sm text-amber-100/80">
+                  {isVi ? "Bạn chỉ có quyền xem. Cần quyền Sửa của module Xưởng Q7 để thay đổi thiết lập SKU." : "View only. Edit permission for Q7 Workshop is required to change SKU settings."}
+                </AlertDescription>
+              </Alert>
+            )}
+            {loadingSkus || loadingLocationSettings ? (
+              <div className="flex min-h-[240px] items-center justify-center rounded-3xl border border-white/10 bg-white/[0.04]">
+                <Loader2 className="h-8 w-8 animate-spin text-white/45" />
+              </div>
+            ) : skuImageRows.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-white/15 bg-white/[0.04] p-10 text-center text-white/45">
+                {isVi ? "Chưa có SKU nào trong hệ thống." : "No SKUs found."}
+              </div>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {skuImageRows.map((sku, idx) => {
+                  const enabled = enabledSkuIds.has(sku.id);
+                  return (
+                    <label key={sku.id} className={`flex cursor-pointer items-center gap-3 rounded-3xl border p-3 transition ${enabled ? "border-amber-300/30 bg-amber-300/[0.08]" : "border-white/10 bg-white/[0.04] hover:bg-white/[0.06]"}`}>
+                      <ProductVisual
+                        imageUrl={sku.image_url}
+                        productName={sku.product_name}
+                        className="h-20 w-20 shrink-0 rounded-[18px]"
+                        gradientClassName={productGradientClassNames[idx % productGradientClassNames.length]}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-black text-white">{sku.product_name}</p>
+                        <p className="mt-1 truncate font-mono text-xs font-bold text-white/35">{sku.sku_code || sku.id}</p>
+                        <p className="mt-1 text-xs font-bold uppercase text-white/35">{sku.unit || "-"}</p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={enabled}
+                        disabled={!canEditLocation || toggleLocationSkuMutation.isPending}
+                        onChange={(event) => toggleLocationSkuMutation.mutate({ skuId: sku.id, enabled: event.target.checked })}
+                        className="h-5 w-5 accent-amber-400"
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        <>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Card className="rounded-3xl border-amber-300/20 bg-amber-300/10 text-white shadow-sm">
           <CardHeader className="space-y-1 p-4">
@@ -701,12 +875,13 @@ export default function ProductionPlanning() {
                 </AlertDescription>
               </Alert>
               <div className="grid gap-2">
-                {pendingPos.slice(0, 6).map((po) => (
+                {visiblePendingPos.slice(0, 6).map((po) => (
                   <button
                     key={po.id}
                     type="button"
+                    disabled={!canEditLocation}
                     onClick={() => handleCreateClick(po)}
-                    className="flex min-h-20 w-full items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-left transition hover:border-amber-300/30 hover:bg-amber-300/[0.06]"
+                    className="flex min-h-20 w-full items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-left transition hover:border-amber-300/30 hover:bg-amber-300/[0.06] disabled:cursor-not-allowed disabled:opacity-55"
                   >
                     <div className="min-w-0">
                       <div className="truncate font-mono text-sm font-black">{po.po_number}</div>
@@ -812,6 +987,8 @@ export default function ProductionPlanning() {
           )}
         </CardContent>
       </Card>
+        </>
+      )}
 
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
         <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto rounded-3xl border-white/10 bg-[#14100d] text-white">
@@ -857,7 +1034,7 @@ export default function ProductionPlanning() {
                       </div>
 
                       <div className="grid grid-cols-[56px_1fr_56px] items-center gap-2">
-                        <Button variant="outline" size="icon" className="h-14 w-14 rounded-2xl text-2xl" onClick={() => changePlannedQty(idx, item.planned_qty - 1)}>
+                        <Button variant="outline" size="icon" className="h-14 w-14 rounded-2xl text-2xl" disabled={!canEditLocation} onClick={() => changePlannedQty(idx, item.planned_qty - 1)}>
                           −
                         </Button>
                         <Input
@@ -866,8 +1043,9 @@ export default function ProductionPlanning() {
                           value={item.planned_qty}
                           onChange={(e) => changePlannedQty(idx, Number.parseInt(e.target.value, 10) || 0)}
                           className="h-14 rounded-2xl text-center text-2xl font-black"
+                          disabled={!canEditLocation}
                         />
-                        <Button variant="outline" size="icon" className="h-14 w-14 rounded-2xl text-2xl" onClick={() => changePlannedQty(idx, item.planned_qty + 1)}>
+                        <Button variant="outline" size="icon" className="h-14 w-14 rounded-2xl text-2xl" disabled={!canEditLocation} onClick={() => changePlannedQty(idx, item.planned_qty + 1)}>
                           +
                         </Button>
                       </div>
@@ -909,6 +1087,7 @@ export default function ProductionPlanning() {
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                   className="mt-1 min-h-24 rounded-2xl"
+                  disabled={!canEditLocation}
                 />
               </div>
 
@@ -925,7 +1104,7 @@ export default function ProductionPlanning() {
                 <Button variant="outline" className="h-12 rounded-2xl" onClick={() => setCreateDialogOpen(false)} disabled={createProductionOrderMutation.isPending}>
                   {isVi ? "Hủy" : "Cancel"}
                 </Button>
-                <Button className="h-12 rounded-2xl bg-amber-400 font-black text-[#1b1004] hover:bg-amber-300" onClick={handleSubmitCreate} disabled={createProductionOrderMutation.isPending}>
+                <Button className="h-12 rounded-2xl bg-amber-400 font-black text-[#1b1004] hover:bg-amber-300" onClick={handleSubmitCreate} disabled={!canEditLocation || createProductionOrderMutation.isPending}>
                   {createProductionOrderMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
                   {isVi ? "Xác nhận tạo lệnh SX" : "Confirm production order"}
                 </Button>

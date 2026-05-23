@@ -218,7 +218,8 @@ export function AppRoutes() {
         <Route path="/mini-crm" element={<Suspense fallback={<AppLoadingFallback />}><MiniCrm /></Suspense>} />
         <Route path="/sales-po-inbox" element={<Suspense fallback={<AppLoadingFallback />}><MiniCrm /></Suspense>} />
         {/* Production routes */}
-        <Route path="/production/planning" element={<Suspense fallback={<AppLoadingFallback />}><ProductionPlanning /></Suspense>} />
+        <Route path="/production/planning" element={<Navigate to="/production/planning/q7" replace />} />
+        <Route path="/production/planning/q7" element={<ModuleRoute moduleKey="production_q7"><Suspense fallback={<AppLoadingFallback />}><ProductionPlanning /></Suspense></ModuleRoute>} />
         <Route path="/production/shifts" element={<Suspense fallback={<AppLoadingFallback />}><ProductionShifts /></Suspense>} />
         <Route path="/production/qa" element={<Suspense fallback={<AppLoadingFallback />}><QAInspection /></Suspense>} />
         <Route path="/attendance" element={<Suspense fallback={<AppLoadingFallback />}><AttendanceManagement /></Suspense>} />

@@ -84,7 +84,15 @@ const navItems: NavItem[] = [
   { icon: Inbox, labelKey: "poSales", path: "/sales-po-inbox", section: "finance", moduleKey: "sales_po_inbox" },
   { icon: ShoppingCart, labelKey: "poPurchasing", path: "/purchase-orders", section: "finance", showPOBadge: true, moduleKey: "purchase_orders" },
 
-  { icon: Factory, labelKey: "productionPlanning", path: "/production/planning", section: "production", moduleKey: "production" },
+  {
+    icon: Factory,
+    labelKey: "productionPlanning",
+    section: "production",
+    moduleKey: "production_q7",
+    children: [
+      { icon: Factory, labelKey: "productionQ7", path: "/production/planning/q7", section: "production", moduleKey: "production_q7" },
+    ],
+  },
   { icon: CalendarClock, labelKey: "productionShifts", path: "/production/shifts", section: "production", moduleKey: "production" },
   { icon: ClipboardCheck, labelKey: "qaInspection", path: "/production/qa", section: "production", moduleKey: "production" },
 

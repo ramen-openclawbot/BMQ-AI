@@ -41,6 +41,7 @@ export const ALL_MODULES: { key: string; labelEn: string; labelVi: string }[] = 
   { key: "crm", labelEn: "CRM", labelVi: "CRM" },
   { key: "sales_po_inbox", labelEn: "Sales PO Inbox", labelVi: "PO (Bán hàng)" },
   { key: "purchase_orders", labelEn: "Purchase Orders", labelVi: "Đơn đặt hàng" },
+  { key: "production_q7", labelEn: "Production Planning - Q7 Workshop", labelVi: "Kế hoạch SX - Xưởng Q7" },
   { key: "attendance", labelEn: "Attendance", labelVi: "Chấm công" },
   { key: "payroll", labelEn: "Payroll", labelVi: "Bảng lương" },
   { key: "inventory", labelEn: "Inventory", labelVi: "Kho hàng" },
@@ -286,19 +287,19 @@ export function useInviteUser() {
 // Default permission sets per role (mirrors the SQL seed logic)
 // ---------------------------------------------------------------------------
 const DEFAULT_VIEW: Record<string, string[]> = {
-  staff: ["dashboard","finance_cost","finance_revenue","crm","sales_po_inbox","purchase_orders","attendance","inventory","goods_receipts","sku_costs","suppliers","invoices","payment_requests","low_stock","settings"],
+  staff: ["dashboard","finance_cost","finance_revenue","crm","sales_po_inbox","purchase_orders","production_q7","attendance","inventory","goods_receipts","sku_costs","suppliers","invoices","payment_requests","low_stock","settings"],
   warehouse: ["dashboard","purchase_orders","inventory","goods_receipts","suppliers","invoices","low_stock","settings"],
   viewer: ["dashboard","inventory","low_stock","settings"],
 };
 const DEFAULT_EDIT: Record<string, string[]> = {
-  staff: ["dashboard","finance_cost","finance_revenue","crm","sales_po_inbox","purchase_orders","attendance","suppliers","invoices","payment_requests"],
+  staff: ["dashboard","finance_cost","finance_revenue","crm","sales_po_inbox","purchase_orders","production_q7","attendance","suppliers","invoices","payment_requests"],
   warehouse: ["inventory","goods_receipts"],
   viewer: [],
 };
 
 const ALL_MODULE_KEYS = [
   "dashboard","finance_cost","finance_revenue","crm",
-  "sales_po_inbox","purchase_orders","attendance","payroll","inventory","kitchen_inventory","goods_receipts","sku_costs",
+  "sales_po_inbox","purchase_orders","production_q7","attendance","payroll","inventory","kitchen_inventory","goods_receipts","sku_costs",
   "suppliers","invoices","payment_requests","low_stock","settings",
 ];
 
