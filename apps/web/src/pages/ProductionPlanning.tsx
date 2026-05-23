@@ -1212,7 +1212,7 @@ export default function ProductionPlanning() {
                   <ProductVisual
                     imageUrl={item.image_url}
                     productName={item.product_name}
-                    className="mb-3 h-16 shrink-0 md:h-24 lg:h-28"
+                    className="mb-3 aspect-square h-16 shrink-0 self-center md:h-24 lg:h-28"
                     gradientClassName={productGradientClassNames[idx % productGradientClassNames.length]}
                   />
                   <h3 className="line-clamp-2 min-h-0 flex-1 text-xl font-black leading-tight md:text-3xl">{item.product_name}</h3>
