@@ -173,22 +173,10 @@ const normalizeProductionProductName = (value: string | null | undefined) =>
     .replace(/\s+/g, " ")
     .trim();
 
-const meaningfulProductionTokens = (value: string) =>
-  value.split(" ").filter((token) => token.length > 1 && !["bmq"].includes(token));
-
 const isStrictProductionSkuMatch = (itemName: string, skuName: string) => {
   const item = normalizeProductionProductName(itemName);
   const sku = normalizeProductionProductName(skuName);
-  if (!item || !sku) return false;
-  if (item === sku) return true;
-
-  const itemTokens = meaningfulProductionTokens(item);
-  const skuTokens = meaningfulProductionTokens(sku);
-  if (itemTokens.length < 3 || skuTokens.length < 3) return false;
-
-  const itemIsContained = sku.includes(item) && itemTokens.every((token) => skuTokens.includes(token));
-  const skuIsContained = item.includes(sku) && skuTokens.every((token) => itemTokens.includes(token));
-  return itemIsContained || skuIsContained;
+  return !!item && !!sku && item === sku;
 };
 
 const resolveSkuMatch = (item: ProductionItem, skus: ProductSkuImageRow[]) => {
@@ -232,6 +220,12 @@ const ProductVisual = ({
 
 const todayInputValue = () => format(new Date(), "yyyy-MM-dd");
 
+const vietnamDayUtcStartIso = () => {
+  const vietnamNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
+  vietnamNow.setHours(0, 0, 0, 0);
+  return new Date(vietnamNow.getTime() - 7 * 60 * 60 * 1000).toISOString();
+};
+
 export default function ProductionPlanning() {
   const { language } = useLanguage();
   const { canEditModule } = useAuth();
@@ -272,7 +266,8 @@ export default function ProductionPlanning() {
         const { data: allPos, error: posError } = await (supabase as any)
           .from("customer_po_inbox")
           .select("*")
-          .eq("match_status", "approved")
+          .in("match_status", ["approved", "pending_approval"])
+          .gte("created_at", vietnamDayUtcStartIso())
           .order("created_at", { ascending: false });
 
         if (posError) throw posError;
@@ -558,15 +553,15 @@ export default function ProductionPlanning() {
           image_url: matchedSku.image_url || null,
           channelCount: 0,
           poCount: 0,
-          earliestDate: item.date || po.delivery_date || null,
+          earliestDate: po.delivery_date || null,
           sourceNames: [],
         };
 
         current.qty += Number(item.qty || 0);
         current.poCount += 1;
         if (po.from_name && !current.sourceNames.includes(po.from_name)) current.sourceNames.push(po.from_name);
-        if (item.date && (!current.earliestDate || new Date(item.date) < new Date(current.earliestDate))) {
-          current.earliestDate = item.date;
+        if (po.delivery_date && (!current.earliestDate || new Date(po.delivery_date) < new Date(current.earliestDate))) {
+          current.earliestDate = po.delivery_date;
         }
         map.set(key, current);
       });
