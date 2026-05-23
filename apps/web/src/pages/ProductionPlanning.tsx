@@ -44,6 +44,8 @@ interface ProductionItem {
   unit_price: number;
   line_total: number;
   date: string;
+  sku?: string | null;
+  sku_code?: string | null;
 }
 
 interface CustomerPoInbox {
@@ -54,6 +56,14 @@ interface CustomerPoInbox {
   production_items: ProductionItem[];
   total_amount: number;
   match_status: string;
+}
+
+interface ResolvedProductionItem extends ProductionItem {
+  matched_sku: ProductSkuImageRow;
+}
+
+interface VisibleCustomerPoInbox extends Omit<CustomerPoInbox, "production_items"> {
+  production_items: ResolvedProductionItem[];
 }
 
 interface ProductionOrder {
@@ -155,36 +165,44 @@ const normalizeSkuText = (value: string | null | undefined) =>
     .replace(/\s+/g, " ")
     .trim();
 
-const scoreSkuImageMatch = (itemName: string, itemUnit: string, sku: ProductSkuImageRow) => {
-  const item = normalizeSkuText(itemName);
-  const skuName = normalizeSkuText(sku.product_name);
-  if (!item || !skuName) return 0;
+const normalizeProductionProductName = (value: string | null | undefined) =>
+  normalizeSkuText(value)
+    .replace(/\bbmq\b/g, " ")
+    .replace(/\b\d+(?:[.,]\d+)?\s*(?:g|gr|gram|grams|kg|ml|l|lit|litre|hop|cai|goi|thung)\b/g, " ")
+    .replace(/\b\d+\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
-  let score = 0;
-  if (item === skuName) score += 120;
-  else if (skuName.includes(item) || item.includes(skuName)) score += 90;
-  else {
-    const itemTokens = item.split(" ").filter(Boolean);
-    const skuTokens = skuName.split(" ").filter(Boolean);
-    const overlap = itemTokens.filter((token) => skuTokens.includes(token)).length;
-    if (overlap) score += Math.round((overlap / Math.max(itemTokens.length, skuTokens.length)) * 70);
+const meaningfulProductionTokens = (value: string) =>
+  value.split(" ").filter((token) => token.length > 1 && !["bmq"].includes(token));
+
+const isStrictProductionSkuMatch = (itemName: string, skuName: string) => {
+  const item = normalizeProductionProductName(itemName);
+  const sku = normalizeProductionProductName(skuName);
+  if (!item || !sku) return false;
+  if (item === sku) return true;
+
+  const itemTokens = meaningfulProductionTokens(item);
+  const skuTokens = meaningfulProductionTokens(sku);
+  if (itemTokens.length < 3 || skuTokens.length < 3) return false;
+
+  const itemIsContained = sku.includes(item) && itemTokens.every((token) => skuTokens.includes(token));
+  const skuIsContained = item.includes(sku) && skuTokens.every((token) => itemTokens.includes(token));
+  return itemIsContained || skuIsContained;
+};
+
+const resolveSkuMatch = (item: ProductionItem, skus: ProductSkuImageRow[]) => {
+  const itemSkuCode = normalizeSkuText(item.sku_code || item.sku);
+  if (itemSkuCode) {
+    const byCode = skus.find((sku) => normalizeSkuText(sku.sku_code) === itemSkuCode);
+    if (byCode) return byCode;
   }
 
-  const unit = normalizeSkuText(itemUnit);
-  const skuUnit = normalizeSkuText(sku.unit);
-  if (unit && skuUnit && unit === skuUnit) score += 12;
-  return score;
+  return skus.find((sku) => isStrictProductionSkuMatch(item.product_name, sku.product_name)) || null;
 };
 
-const resolveSkuMatch = (productName: string, unit: string, skus: ProductSkuImageRow[]) => {
-  const best = skus
-    .map((sku) => ({ sku, score: scoreSkuImageMatch(productName, unit, sku) }))
-    .sort((a, b) => b.score - a.score)[0];
-  return best && best.score >= 65 ? best.sku : null;
-};
-
-const resolveSkuImageUrl = (productName: string, unit: string, skus: ProductSkuImageRow[]) =>
-  resolveSkuMatch(productName, unit, skus)?.image_url || null;
+const resolveSkuImageUrl = (productName: string, skus: ProductSkuImageRow[]) =>
+  skus.find((sku) => isStrictProductionSkuMatch(productName, sku.product_name))?.image_url || null;
 
 const ProductVisual = ({
   imageUrl,
@@ -393,22 +411,25 @@ export default function ProductionPlanning() {
     return new Set(locationSkuSettings.filter((row) => row.is_enabled).map((row) => row.sku_id));
   }, [locationSkuSettings]);
 
-  const isProductionItemEnabledForLocation = useCallback(
-    (item: ProductionItem) => {
-      const matchedSku = resolveSkuMatch(item.product_name, item.unit, skuImageRows);
-      return !!matchedSku && enabledSkuIds.has(matchedSku.id);
+  const resolveEnabledProductionItem = useCallback(
+    (item: ProductionItem): ResolvedProductionItem | null => {
+      const matchedSku = resolveSkuMatch(item, skuImageRows);
+      if (!matchedSku || !enabledSkuIds.has(matchedSku.id)) return null;
+      return { ...item, matched_sku: matchedSku };
     },
     [enabledSkuIds, skuImageRows]
   );
 
-  const visiblePendingPos = useMemo<CustomerPoInbox[]>(() => {
+  const visiblePendingPos = useMemo<VisibleCustomerPoInbox[]>(() => {
     return pendingPos
       .map((po) => ({
         ...po,
-        production_items: (po.production_items || []).filter(isProductionItemEnabledForLocation),
+        production_items: (po.production_items || [])
+          .map(resolveEnabledProductionItem)
+          .filter((item): item is ResolvedProductionItem => !!item),
       }))
       .filter((po) => po.production_items.length > 0);
-  }, [pendingPos, isProductionItemEnabledForLocation]);
+  }, [pendingPos, resolveEnabledProductionItem]);
 
   const createProductionOrderMutation = useMutation({
     mutationFn: async (input: CreateProductionOrderInput) => {
@@ -526,13 +547,15 @@ export default function ProductionPlanning() {
 
     visiblePendingPos.forEach((po) => {
       (po.production_items || []).forEach((item) => {
-        const key = `${item.product_name}__${item.unit}`;
+        const matchedSku = item.matched_sku;
+        const displayUnit = matchedSku.unit || item.unit;
+        const key = matchedSku.id;
         const current = map.get(key) || {
           key,
-          product_name: item.product_name,
+          product_name: matchedSku.product_name,
           qty: 0,
-          unit: item.unit,
-          image_url: resolveSkuImageUrl(item.product_name, item.unit, skuImageRows),
+          unit: displayUnit,
+          image_url: matchedSku.image_url || null,
           channelCount: 0,
           poCount: 0,
           earliestDate: item.date || po.delivery_date || null,
@@ -552,7 +575,7 @@ export default function ProductionPlanning() {
     return Array.from(map.values())
       .map((item) => ({ ...item, channelCount: item.sourceNames.length }))
       .sort((a, b) => b.qty - a.qty);
-  }, [visiblePendingPos, skuImageRows]);
+  }, [visiblePendingPos]);
 
   const stats = useMemo(() => {
     const today = new Date();
@@ -577,16 +600,18 @@ export default function ProductionPlanning() {
       toast.error(isVi ? "Bạn cần quyền Sửa của Xưởng Q7 để xác nhận sản xuất" : "Edit permission for Q7 Workshop is required to confirm production");
       return;
     }
-    const allowedItems = (po.production_items || []).filter(isProductionItemEnabledForLocation);
+    const allowedItems = (po.production_items || [])
+      .map(resolveEnabledProductionItem)
+      .filter((item): item is ResolvedProductionItem => !!item);
     if (allowedItems.length === 0) {
       toast.error(isVi ? "PO này không có SKU được bật cho Xưởng Q7" : "This PO has no enabled SKUs for Q7 Workshop");
       return;
     }
     const items = allowedItems.map((item) => ({
-      product_name: item.product_name,
+      product_name: item.matched_sku.product_name,
       original_qty: item.qty,
       planned_qty: item.qty,
-      unit: item.unit,
+      unit: item.matched_sku.unit || item.unit,
       unit_price: item.unit_price,
       line_total: item.line_total,
       date: item.date,
@@ -1025,7 +1050,7 @@ export default function ProductionPlanning() {
                     <div key={`${item.product_name}-${idx}`} className="rounded-3xl border border-white/10 bg-[#14100d]/94 p-4">
                       <div className="mb-4 flex gap-3">
                         <ProductVisual
-                          imageUrl={resolveSkuImageUrl(item.product_name, item.unit, skuImageRows)}
+                          imageUrl={resolveSkuImageUrl(item.product_name, skuImageRows)}
                           productName={item.product_name}
                           className="h-20 w-24 shrink-0 rounded-2xl"
                           gradientClassName={productGradientClassNames[idx % productGradientClassNames.length]}
