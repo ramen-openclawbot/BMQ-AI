@@ -1180,25 +1180,25 @@ export default function ProductionPlanning() {
       </Dialog>
 
       {tvModeOpen && (
-        <div className="fixed inset-0 z-50 h-screen w-screen overflow-auto bg-[radial-gradient(circle_at_18%_-12%,rgba(245,158,11,0.22),transparent_34%),linear-gradient(180deg,#140f0c_0%,#0b0908_42%,#050403_100%)] text-white">
-          <div className="flex min-h-screen flex-col gap-6 p-6 md:p-10">
-            <div className="flex flex-col gap-4 border-b border-white/10 pb-5 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h2 className="text-4xl font-black md:text-6xl">
+        <div className="fixed inset-0 z-50 h-screen w-screen overflow-hidden bg-[radial-gradient(circle_at_18%_-12%,rgba(245,158,11,0.22),transparent_34%),linear-gradient(180deg,#140f0c_0%,#0b0908_42%,#050403_100%)] text-white">
+          <div className="flex h-full min-h-0 flex-col gap-3 p-4 md:gap-4 md:p-6">
+            <div className="flex shrink-0 flex-col gap-3 border-b border-white/10 pb-3 md:flex-row md:items-center md:justify-between">
+              <div className="min-w-0">
+                <h2 className="text-3xl font-black leading-none md:text-5xl">
                   {isVi ? "Đang sản xuất hôm nay" : "Production in progress"}
                 </h2>
-                <p className="mt-2 text-lg text-zinc-300 md:text-2xl">
+                <p className="mt-1 text-sm text-zinc-300 md:text-lg">
                   {isVi ? "Màn hình cho xưởng, quản lý và đối tác xem nhanh." : "Display for workshop, managers and partners."}
                 </p>
               </div>
-              <div className="flex items-stretch gap-3">
-                <div className="rounded-3xl bg-amber-300 px-6 py-4 text-right text-zinc-950">
-                  <div className="text-sm font-black uppercase">{isVi ? "Tổng" : "Total"}</div>
-                  <div className="text-5xl font-black md:text-6xl">{stats.plannedQty.toLocaleString("vi-VN")}</div>
+              <div className="flex shrink-0 items-stretch gap-2 md:gap-3">
+                <div className="rounded-2xl bg-amber-300 px-4 py-2 text-right text-zinc-950 md:rounded-3xl md:px-5 md:py-3">
+                  <div className="text-xs font-black uppercase md:text-sm">{isVi ? "Tổng" : "Total"}</div>
+                  <div className="text-4xl font-black leading-none md:text-5xl">{stats.plannedQty.toLocaleString("vi-VN")}</div>
                 </div>
                 <Button
                   variant="outline"
-                  className="h-auto rounded-3xl border-white/15 bg-white/[0.06] px-5 font-black text-white hover:bg-white/[0.12] hover:text-white"
+                  className="h-auto rounded-2xl border-white/15 bg-white/[0.06] px-4 font-black text-white hover:bg-white/[0.12] hover:text-white md:rounded-3xl"
                   onClick={() => handleTvModeOpenChange(false)}
                 >
                   {isVi ? "Đóng" : "Close"}
@@ -1206,19 +1206,19 @@ export default function ProductionPlanning() {
               </div>
             </div>
 
-            <div className="grid flex-1 auto-rows-fr gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-3 gap-3 md:grid-cols-3 md:grid-rows-2 md:gap-4">
               {aggregatedPlanItems.slice(0, 6).map((item, idx) => (
-                <div key={item.key} className="flex min-h-[260px] flex-col rounded-[2rem] border border-white/10 bg-white/[0.06] p-5 md:min-h-[300px]">
+                <div key={item.key} className="flex min-h-0 flex-col rounded-3xl border border-white/10 bg-white/[0.06] p-3 md:rounded-[2rem] md:p-4">
                   <ProductVisual
                     imageUrl={item.image_url}
                     productName={item.product_name}
-                    className="mb-5 h-32 shrink-0 md:h-40"
+                    className="mb-3 h-16 shrink-0 md:h-24 lg:h-28"
                     gradientClassName={productGradientClassNames[idx % productGradientClassNames.length]}
                   />
-                  <h3 className="min-h-[4rem] flex-1 text-3xl font-black leading-tight md:text-4xl">{item.product_name}</h3>
-                  <div className="mt-4 flex items-end justify-between gap-4">
-                    <div className="text-6xl font-black leading-none text-amber-300 md:text-7xl">{item.qty.toLocaleString("vi-VN")}</div>
-                    <div className="pb-2 text-xl font-bold uppercase text-zinc-300 md:text-2xl">{item.unit}</div>
+                  <h3 className="line-clamp-2 min-h-0 flex-1 text-xl font-black leading-tight md:text-3xl">{item.product_name}</h3>
+                  <div className="mt-2 flex shrink-0 items-end justify-between gap-3">
+                    <div className="text-4xl font-black leading-none text-amber-300 md:text-6xl">{item.qty.toLocaleString("vi-VN")}</div>
+                    <div className="pb-1 text-base font-bold uppercase text-zinc-300 md:text-xl">{item.unit}</div>
                   </div>
                 </div>
               ))}
