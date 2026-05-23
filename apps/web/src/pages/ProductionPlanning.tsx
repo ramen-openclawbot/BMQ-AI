@@ -1208,17 +1208,24 @@ export default function ProductionPlanning() {
 
             <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-3 gap-3 md:grid-cols-3 md:grid-rows-2 md:gap-4">
               {aggregatedPlanItems.slice(0, 6).map((item, idx) => (
-                <div key={item.key} className="flex min-h-0 flex-col rounded-3xl border border-white/10 bg-white/[0.06] p-3 md:rounded-[2rem] md:p-4">
-                  <ProductVisual
-                    imageUrl={item.image_url}
-                    productName={item.product_name}
-                    className="mb-3 aspect-square h-16 shrink-0 self-center md:h-24 lg:h-28"
-                    gradientClassName={productGradientClassNames[idx % productGradientClassNames.length]}
-                  />
-                  <h3 className="line-clamp-2 min-h-0 flex-1 text-xl font-black leading-tight md:text-3xl">{item.product_name}</h3>
-                  <div className="mt-2 flex shrink-0 items-end justify-between gap-3">
-                    <div className="text-4xl font-black leading-none text-amber-300 md:text-6xl">{item.qty.toLocaleString("vi-VN")}</div>
-                    <div className="pb-1 text-base font-bold uppercase text-zinc-300 md:text-xl">{item.unit}</div>
+                <div key={item.key} className="relative min-h-0 overflow-hidden rounded-3xl border border-white/10 bg-[#231913] md:rounded-[2rem]">
+                  {item.image_url ? (
+                    <img
+                      src={item.image_url}
+                      alt={item.product_name}
+                      className="absolute inset-0 h-full w-full scale-105 object-cover object-center opacity-80 blur-[1px]"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className={`absolute inset-0 bg-gradient-to-br ${productGradientClassNames[idx % productGradientClassNames.length]}`} />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/38 to-black/18" />
+                  <div className="relative z-10 flex h-full min-h-0 flex-col justify-end p-4 text-white md:p-5">
+                    <h3 className="line-clamp-2 text-2xl font-black leading-tight drop-shadow-[0_3px_10px_rgba(0,0,0,0.85)] md:text-4xl">{item.product_name}</h3>
+                    <div className="mt-3 flex shrink-0 items-end justify-between gap-3">
+                      <div className="text-5xl font-black leading-none text-amber-300 drop-shadow-[0_4px_12px_rgba(0,0,0,0.9)] md:text-7xl">{item.qty.toLocaleString("vi-VN")}</div>
+                      <div className="pb-1 text-lg font-black uppercase text-white drop-shadow-[0_3px_10px_rgba(0,0,0,0.85)] md:text-2xl">{item.unit}</div>
+                    </div>
                   </div>
                 </div>
               ))}
