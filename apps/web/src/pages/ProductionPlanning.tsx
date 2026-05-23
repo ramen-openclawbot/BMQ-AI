@@ -800,7 +800,7 @@ export default function ProductionPlanning() {
         </Card>
         <Card className="rounded-3xl border-white/10 bg-[#14100d]/90 text-white shadow-sm">
           <CardHeader className="space-y-1 p-4">
-            <CardDescription>{isVi ? "PO chờ xác nhận" : "POs pending"}</CardDescription>
+            <CardDescription>{isVi ? "PO có SKU bật" : "POs with enabled SKUs"}</CardDescription>
             <CardTitle className="text-4xl font-black text-orange-600">{loadingPos ? "..." : stats.pendingPos}</CardTitle>
           </CardHeader>
         </Card>
