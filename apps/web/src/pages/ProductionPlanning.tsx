@@ -185,16 +185,15 @@ const ProductVisual = ({
   gradientClassName: string;
   children?: ReactNode;
 }) => (
-  <div className={`relative overflow-hidden rounded-3xl bg-gradient-to-br ${gradientClassName} ${className}`}>
+  <div className={`relative overflow-hidden rounded-3xl border border-white/10 bg-[#231913] shadow-inner ${className}`}>
     {imageUrl ? (
-      <img src={imageUrl} alt={productName} className="h-full w-full object-cover" loading="lazy" />
+      <img src={imageUrl} alt={productName} className="h-full w-full object-cover object-center" loading="lazy" />
     ) : (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-amber-100/45">
+      <div className={`flex h-full w-full flex-col items-center justify-center gap-1 bg-gradient-to-br ${gradientClassName} text-amber-100/45`}>
         <ImageIcon className="h-6 w-6" />
         <span className="text-[10px] font-extrabold uppercase tracking-wide">Chưa có ảnh</span>
       </div>
     )}
-    <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-white/5" />
     {children}
   </div>
 );
@@ -559,11 +558,6 @@ export default function ProductionPlanning() {
               <h1 className="font-display text-3xl font-bold tracking-tight text-white md:text-4xl">
                 {isVi ? "Kế hoạch sản xuất hôm nay" : "Today Production Plan"}
               </h1>
-              <p className="mt-1 max-w-3xl text-base font-semibold text-white/48 md:text-lg">
-                {isVi
-                  ? "Danh sách sản phẩm cần làm trong ngày, tối ưu cho màn hình cảm ứng và TV xưởng. Chỉ hiển thị nội dung vận hành, không lộ công thức hoặc số tiền."
-                  : "Touch-first daily production view. Shows operational quantities without recipes or financial details."}
-              </p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:flex">
