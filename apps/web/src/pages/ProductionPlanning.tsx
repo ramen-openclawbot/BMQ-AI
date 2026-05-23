@@ -677,6 +677,27 @@ export default function ProductionPlanning() {
     setFormData({ ...formData, items: newItems });
   };
 
+  const handleOpenTvMode = useCallback(() => {
+    setTvModeOpen(true);
+
+    if (typeof document === "undefined") return;
+
+    const fullscreenTarget = document.documentElement;
+    if (!document.fullscreenElement && fullscreenTarget.requestFullscreen) {
+      void fullscreenTarget.requestFullscreen().catch(() => {
+        toast.info(isVi ? "Trình duyệt chặn fullscreen, vui lòng bấm F11 nếu cần." : "Fullscreen was blocked by the browser. Press F11 if needed.");
+      });
+    }
+  }, [isVi]);
+
+  const handleTvModeOpenChange = useCallback((open: boolean) => {
+    setTvModeOpen(open);
+
+    if (!open && typeof document !== "undefined" && document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => undefined);
+    }
+  }, []);
+
   const pendingPosEmpty = !loadingPos && visiblePendingPos.length === 0;
   const ordersEmpty = !loadingOrders && productionOrders.length === 0;
 
@@ -713,7 +734,7 @@ export default function ProductionPlanning() {
             </Button>
             {activeTab === "plan" && (
               <>
-                <Button variant="outline" size="lg" className="h-12 rounded-2xl border-white/10 bg-white/[0.06] text-base text-white hover:bg-white/[0.1] hover:text-white" onClick={() => setTvModeOpen(true)}>
+                <Button variant="outline" size="lg" className="h-12 rounded-2xl border-white/10 bg-white/[0.06] text-base text-white hover:bg-white/[0.1] hover:text-white" onClick={handleOpenTvMode}>
                   <Monitor className="mr-2 h-5 w-5" />
                   {isVi ? "Màn hình TV" : "TV View"}
                 </Button>
@@ -952,7 +973,7 @@ export default function ProductionPlanning() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button className="h-14 w-full rounded-2xl bg-amber-400 text-base font-black text-zinc-950 hover:bg-amber-300" onClick={() => setTvModeOpen(true)}>
+              <Button className="h-14 w-full rounded-2xl bg-amber-400 text-base font-black text-zinc-950 hover:bg-amber-300" onClick={handleOpenTvMode}>
                 {isVi ? "Mở chế độ TV" : "Open TV mode"}
               </Button>
             </CardContent>
@@ -1158,7 +1179,7 @@ export default function ProductionPlanning() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={tvModeOpen} onOpenChange={setTvModeOpen}>
+      <Dialog open={tvModeOpen} onOpenChange={handleTvModeOpenChange}>
         <DialogContent className="max-h-[92vh] max-w-6xl overflow-hidden rounded-[2rem] border-zinc-800 bg-zinc-950 p-0 text-white">
           <div className="space-y-6 p-6 md:p-8">
             <div className="flex flex-col gap-4 border-b border-white/10 pb-5 md:flex-row md:items-center md:justify-between">
