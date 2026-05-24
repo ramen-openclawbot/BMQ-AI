@@ -544,15 +544,13 @@ export default function ProductionPlanning() {
   const createProductionOrderMutation = useMutation({
     mutationFn: async (input: CreateProductionOrderInput) => {
       try {
-        const dateStr = vietnamTodayInputValue().replace(/-/g, "");
-        const todayStartIso = vietnamDayUtcStartIso();
-        const tomorrowStartIso = vietnamDayUtcStartIso(1);
+        const productionDateIso = normalizeDateForDb(input.planned_start_date) || vietnamTodayInputValue();
+        const dateStr = productionDateIso.replace(/-/g, "");
 
         const { count, error: countError } = await (supabase as any)
           .from("production_orders")
           .select("id", { count: "exact", head: true })
-          .gte("created_at", todayStartIso)
-          .lt("created_at", tomorrowStartIso);
+          .like("production_number", `SX-${dateStr}-%`);
 
         if (countError) throw countError;
 
