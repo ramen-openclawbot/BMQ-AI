@@ -847,14 +847,6 @@ export default function ProductionPlanning() {
             <Button
               variant="outline"
               size="lg"
-              className={`h-12 rounded-2xl border-white/10 text-base ${activeTab === "plan" ? "bg-amber-400 text-[#1b1004] hover:bg-amber-300 hover:text-[#1b1004]" : "bg-white/[0.06] text-white hover:bg-white/[0.1] hover:text-white"}`}
-              onClick={() => setActiveTab("plan")}
-            >
-              {isVi ? "Kế hoạch" : "Plan"}
-            </Button>
-            <Button
-              variant="outline"
-              size="lg"
               className={`h-12 rounded-2xl border-white/10 text-base ${activeTab === "settings" ? "bg-amber-400 text-[#1b1004] hover:bg-amber-300 hover:text-[#1b1004]" : "bg-white/[0.06] text-white hover:bg-white/[0.1] hover:text-white"}`}
               onClick={() => setActiveTab("settings")}
             >
