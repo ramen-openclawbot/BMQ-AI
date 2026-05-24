@@ -1,7 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { type ReactNode, useCallback, useMemo, useState } from "react";
-import { format } from "date-fns";
-import { vi } from "date-fns/locale";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -218,8 +216,11 @@ const ProductVisual = ({
   </div>
 );
 
-const vietnamDateParts = () =>
-  new Intl.DateTimeFormat("en-CA", {
+const formatDateInputFromParts = (year: number, month: number, day: number) =>
+  `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+const vietnamDateInputValue = (offsetDays = 0) => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Ho_Chi_Minh",
     year: "numeric",
     month: "2-digit",
@@ -231,17 +232,26 @@ const vietnamDateParts = () =>
       return acc;
     }, {});
 
-const vietnamTodayInputValue = () => {
-  const parts = vietnamDateParts();
-  return `${parts.year}-${parts.month}-${parts.day}`;
+  const utcDate = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) + offsetDays));
+  return formatDateInputFromParts(utcDate.getUTCFullYear(), utcDate.getUTCMonth() + 1, utcDate.getUTCDate());
 };
+
+const vietnamTodayInputValue = () => vietnamDateInputValue();
+const vietnamProductionTargetInputValue = () => vietnamDateInputValue(1);
 
 const todayInputValue = vietnamTodayInputValue;
 
-const vietnamDayUtcStartIso = () => {
-  const vietnamNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
-  vietnamNow.setHours(0, 0, 0, 0);
-  return new Date(vietnamNow.getTime() - 7 * 60 * 60 * 1000).toISOString();
+const vietnamDayUtcStartIso = (offsetDays = 0) => {
+  const [year, month, day] = vietnamDateInputValue(offsetDays).split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day) - 7 * 60 * 60 * 1000).toISOString();
+};
+
+const formatDateOnly = (value: string | null | undefined) => {
+  if (!value) return "-";
+  const isoDate = normalizeDateForDb(value);
+  if (!isoDate) return "-";
+  const [year, month, day] = isoDate.split("-");
+  return `${day}/${month}/${year}`;
 };
 
 const normalizeDateForDb = (value: string | null | undefined) => {
@@ -256,14 +266,13 @@ const normalizeDateForDb = (value: string | null | undefined) => {
 
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
-  return format(parsed, "yyyy-MM-dd");
+  return formatDateInputFromParts(parsed.getUTCFullYear(), parsed.getUTCMonth() + 1, parsed.getUTCDate());
 };
 
 export default function ProductionPlanning() {
   const { language } = useLanguage();
   const { canEditModule } = useAuth();
   const isVi = language === "vi";
-  const locale = isVi ? vi : undefined;
   const canEditLocation = canEditModule(PRODUCTION_LOCATION_MODULE_KEY);
   const queryClient = useQueryClient();
 
@@ -292,7 +301,7 @@ export default function ProductionPlanning() {
     notes: "",
   });
 
-  const planDateIso = useMemo(() => vietnamTodayInputValue(), []);
+  const planDateIso = useMemo(() => vietnamProductionTargetInputValue(), []);
   const planDayStartIso = useMemo(() => vietnamDayUtcStartIso(), []);
 
   const { data: pendingPos = [], isLoading: loadingPos } = useQuery({
@@ -303,7 +312,7 @@ export default function ProductionPlanning() {
           .from("customer_po_inbox")
           .select("*")
           .in("match_status", ["approved", "pending_approval"])
-          .or(`delivery_date.eq.${planDateIso},created_at.gte.${planDayStartIso}`)
+          .or(`delivery_date.eq.${planDateIso},and(delivery_date.is.null,created_at.gte.${planDayStartIso})`)
           .order("created_at", { ascending: false });
 
         if (posError) throw posError;
@@ -457,26 +466,32 @@ export default function ProductionPlanning() {
         ...po,
         production_items: (po.production_items || [])
           .map(resolveEnabledProductionItem)
-          .filter((item): item is ResolvedProductionItem => !!item),
+          .filter((item): item is ResolvedProductionItem => {
+            if (!item) return false;
+            if (po.delivery_date) return normalizeDateForDb(po.delivery_date) === planDateIso;
+            const itemDate = normalizeDateForDb((item as any).service_date || item.date);
+            return itemDate === planDateIso;
+          }),
       }))
       .filter((po) => po.production_items.length > 0);
-  }, [pendingPos, resolveEnabledProductionItem]);
+  }, [pendingPos, planDateIso, resolveEnabledProductionItem]);
 
   const createProductionOrderMutation = useMutation({
     mutationFn: async (input: CreateProductionOrderInput) => {
       try {
-        const now = new Date();
-        const dateStr = format(now, "yyyyMMdd");
+        const dateStr = vietnamTodayInputValue().replace(/-/g, "");
+        const todayStartIso = vietnamDayUtcStartIso();
+        const tomorrowStartIso = vietnamDayUtcStartIso(1);
 
-        const { data: todayOrders, error: countError } = await (supabase as any)
+        const { count, error: countError } = await (supabase as any)
           .from("production_orders")
           .select("id", { count: "exact", head: true })
-          .gte("created_at", format(now, "yyyy-MM-dd'T'00:00:00"))
-          .lte("created_at", format(now, "yyyy-MM-dd'T'23:59:59"));
+          .gte("created_at", todayStartIso)
+          .lt("created_at", tomorrowStartIso);
 
         if (countError) throw countError;
 
-        const sequence = ((todayOrders || []).length || 0) + 1;
+        const sequence = (count || 0) + 1;
         const productionNumber = `SX-${dateStr}-${String(sequence).padStart(3, "0")}`;
 
         const { data: newOrder, error: orderError } = await (supabase as any)
@@ -542,16 +557,7 @@ export default function ProductionPlanning() {
     },
   });
 
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return "-";
-    try {
-      const date = new Date(dateString);
-      if (Number.isNaN(date.getTime())) return "-";
-      return format(date, "dd/MM/yyyy", { locale });
-    } catch {
-      return "-";
-    }
-  };
+  const formatDate = (dateString: string | null) => formatDateOnly(dateString);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -630,7 +636,12 @@ export default function ProductionPlanning() {
     }
     const allowedItems = (po.production_items || [])
       .map(resolveEnabledProductionItem)
-      .filter((item): item is ResolvedProductionItem => !!item);
+      .filter((item): item is ResolvedProductionItem => {
+        if (!item) return false;
+        if (po.delivery_date) return normalizeDateForDb(po.delivery_date) === planDateIso;
+        const itemDate = normalizeDateForDb((item as any).service_date || item.date);
+        return itemDate === planDateIso;
+      });
     if (allowedItems.length === 0) {
       toast.error(isVi ? "PO này không có SKU được bật cho Xưởng Q7" : "This PO has no enabled SKUs for Q7 Workshop");
       return;
@@ -642,7 +653,7 @@ export default function ProductionPlanning() {
       unit: item.matched_sku.unit || item.unit,
       unit_price: item.unit_price,
       line_total: item.line_total,
-      date: po.delivery_date || item.date,
+      date: po.delivery_date || (item as any).service_date || item.date,
     }));
     setSelectedPoForCreation(po);
     setFormData({
@@ -843,7 +854,7 @@ export default function ProductionPlanning() {
         </Card>
         <Card className="rounded-3xl border-white/10 bg-[#14100d]/90 text-white shadow-sm">
           <CardHeader className="space-y-1 p-4">
-            <CardDescription>{isVi ? "SKU hôm nay" : "Today's SKUs"}</CardDescription>
+            <CardDescription>{isVi ? "SKU ngày giao" : "Delivery-date SKUs"}</CardDescription>
             <CardTitle className="text-4xl font-black">{stats.plannedSkuCount}</CardTitle>
           </CardHeader>
         </Card>
@@ -865,13 +876,13 @@ export default function ProductionPlanning() {
         <section className="space-y-4">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 className="text-2xl font-black tracking-tight text-white">{isVi ? "Sản phẩm cần làm" : "Products to make"}</h2>
+              <h2 className="text-2xl font-black tracking-tight text-white">{isVi ? "Sản phẩm cần làm cho ngày giao" : "Products to make for delivery"}</h2>
               <p className="font-semibold text-white/45">
-                {isVi ? "Tổng hợp theo sản phẩm từ toàn bộ PO đã parse tự động." : "Aggregated by product across parsed POs."}
+                {isVi ? "Tổng hợp theo sản phẩm từ PO đã parse, dùng ngày vận hành Việt Nam." : "Aggregated by product across parsed POs, using Vietnam business date."}
               </p>
             </div>
             <Badge variant="outline" className="w-fit rounded-full border-white/10 bg-white/[0.045] px-3 py-1 text-sm text-white/70">
-              {format(new Date(`${planDateIso}T00:00:00`), "dd/MM/yyyy")}
+              {formatDateOnly(planDateIso)}
             </Badge>
           </div>
 
@@ -882,7 +893,7 @@ export default function ProductionPlanning() {
           ) : pendingPosEmpty ? (
             <div className="flex min-h-[320px] flex-col items-center justify-center rounded-3xl border border-white/10 bg-white/[0.04] text-center">
               <Package className="mb-3 h-14 w-14 text-muted-foreground" />
-              <h3 className="text-xl font-bold">{isVi ? "Chưa có PO chờ sản xuất" : "No POs awaiting production"}</h3>
+              <h3 className="text-xl font-bold">{isVi ? "Chưa có PO chờ sản xuất cho ngày giao này" : "No POs awaiting production for this delivery date"}</h3>
               <p className="mt-1 max-w-md text-muted-foreground">
                 {isVi ? "Khi parser ghi nhận PO đã duyệt, sản phẩm sẽ hiện ở đây." : "Parsed and approved POs will appear here."}
               </p>
