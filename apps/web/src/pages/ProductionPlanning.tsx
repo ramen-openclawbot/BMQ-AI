@@ -78,6 +78,7 @@ interface ProductionOrder {
   notes: string | null;
   created_at: string;
   items_count?: number;
+  items?: ProductionOrderItem[];
   revenue_draft_id?: string | null;
   sales_po_doc_id?: string | null;
 }
@@ -86,12 +87,9 @@ interface ProductionOrderItem {
   id: string;
   production_order_id: string;
   product_name: string;
+  ordered_qty?: number | null;
   planned_qty: number;
-  completed_qty: number;
   unit: string;
-  unit_price: number;
-  line_total: number;
-  line_complete: boolean;
   delivery_date: string;
   actual_qty?: number | null;
   notes: string | null;
@@ -404,19 +402,31 @@ export default function ProductionPlanning() {
 
         if (ordersError) throw ordersError;
 
-        const ordersWithItems = await Promise.all(
-          (orders || []).map(async (order: any) => {
-            const { data: items, error: itemsError } = await (supabase as any)
-              .from("production_order_items")
-              .select("*")
-              .eq("production_order_id", order.id);
+        const orderIds = (orders || []).map((order: any) => order.id);
+        const itemsByOrderId = new Map<string, ProductionOrderItem[]>();
 
-            if (itemsError) console.error("Error fetching order items:", itemsError);
-            return { ...order, items_count: (items || []).length };
-          })
-        );
+        if (orderIds.length > 0) {
+          const { data: items, error: itemsError } = await (supabase as any)
+            .from("production_order_items")
+            .select("*")
+            .in("production_order_id", orderIds)
+            .order("created_at");
 
-        return ordersWithItems as ProductionOrder[];
+          if (itemsError) {
+            console.error("Error fetching order items:", itemsError);
+          }
+
+          ((items || []) as ProductionOrderItem[]).forEach((item) => {
+            const orderItems = itemsByOrderId.get(item.production_order_id) || [];
+            orderItems.push(item);
+            itemsByOrderId.set(item.production_order_id, orderItems);
+          });
+        }
+
+        return (orders || []).map((order: any) => {
+          const items = itemsByOrderId.get(order.id) || [];
+          return { ...order, items, items_count: items.length };
+        }) as ProductionOrder[];
       } catch (error) {
         console.error("Error fetching production orders:", error);
         toast.error(isVi ? "Không thể tải danh sách lệnh sản xuất" : "Failed to load production orders");
@@ -499,7 +509,7 @@ export default function ProductionPlanning() {
           .insert({
             production_number: productionNumber,
             source_po_inbox_id: input.po_id,
-            status: "draft",
+            status: "in_progress",
             planned_start_date: input.planned_start_date || null,
             planned_end_date: input.planned_end_date || null,
             notes: input.notes || null,
@@ -611,6 +621,53 @@ export default function ProductionPlanning() {
       .sort((a, b) => b.qty - a.qty);
   }, [visiblePendingPos]);
 
+  const tvProductionItems = useMemo<AggregatedPlanItem[]>(() => {
+    const activeStatuses = new Set<ProductionOrder["status"]>(["draft", "planned", "in_progress"]);
+    const map = new Map<string, AggregatedPlanItem>();
+
+    productionOrders
+      .filter((order) => activeStatuses.has(order.status))
+      .forEach((order) => {
+        (order.items || []).forEach((item) => {
+          if (normalizeDateForDb(item.delivery_date) !== planDateIso) return;
+
+          const imageUrl = resolveSkuImageUrl(item.product_name, skuImageRows);
+          const key = `${item.product_name}__${item.unit || ""}`;
+          const current = map.get(key) || {
+            key,
+            product_name: item.product_name,
+            qty: 0,
+            unit: item.unit,
+            image_url: imageUrl,
+            channelCount: 0,
+            poCount: 0,
+            earliestDate: item.delivery_date || null,
+            sourceNames: [],
+          };
+
+          current.qty += Number(item.planned_qty || item.ordered_qty || 0);
+          current.poCount += 1;
+          if (order.production_number && !current.sourceNames.includes(order.production_number)) {
+            current.sourceNames.push(order.production_number);
+          }
+          if (!current.image_url && imageUrl) current.image_url = imageUrl;
+          if (item.delivery_date && (!current.earliestDate || item.delivery_date < current.earliestDate)) {
+            current.earliestDate = item.delivery_date;
+          }
+          map.set(key, current);
+        });
+      });
+
+    return Array.from(map.values())
+      .map((item) => ({ ...item, channelCount: item.sourceNames.length }))
+      .sort((a, b) => b.qty - a.qty);
+  }, [planDateIso, productionOrders, skuImageRows]);
+
+  const tvProductionQty = useMemo(
+    () => tvProductionItems.reduce((sum, item) => sum + item.qty, 0),
+    [tvProductionItems]
+  );
+
   const stats = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -619,7 +676,9 @@ export default function ProductionPlanning() {
       pendingPos: visiblePendingPos.length,
       plannedSkuCount: aggregatedPlanItems.length,
       plannedQty: aggregatedPlanItems.reduce((sum, item) => sum + item.qty, 0),
-      inProgressOrders: productionOrders.filter((o) => o.status === "in_progress").length,
+      inProgressOrders: productionOrders.filter((o) =>
+        o.status === "in_progress" && (o.items || []).some((item) => normalizeDateForDb(item.delivery_date) === planDateIso)
+      ).length,
       completedToday: productionOrders.filter((o) => {
         if (o.status !== "completed" || !o.completed_at) return false;
         const completedDate = new Date(o.completed_at);
@@ -627,7 +686,7 @@ export default function ProductionPlanning() {
         return completedDate.getTime() === today.getTime();
       }).length,
     };
-  }, [aggregatedPlanItems, visiblePendingPos.length, productionOrders]);
+  }, [aggregatedPlanItems, planDateIso, visiblePendingPos.length, productionOrders]);
 
   const handleCreateClick = (po: CustomerPoInbox) => {
     if (!canEditLocation) {
@@ -1208,7 +1267,7 @@ export default function ProductionPlanning() {
             <div className="flex shrink-0 flex-col gap-3 border-b border-white/10 pb-3 md:flex-row md:items-center md:justify-between">
               <div className="min-w-0">
                 <h2 className="text-3xl font-black leading-none md:text-5xl">
-                  {isVi ? "Đang sản xuất hôm nay" : "Production in progress"}
+                  {isVi ? "Đang sản xuất cho ngày giao" : "Production in progress"}
                 </h2>
                 <p className="mt-1 text-sm text-zinc-300 md:text-lg">
                   {isVi ? "Màn hình cho xưởng, quản lý và đối tác xem nhanh." : "Display for workshop, managers and partners."}
@@ -1217,7 +1276,7 @@ export default function ProductionPlanning() {
               <div className="flex shrink-0 items-stretch gap-2 md:gap-3">
                 <div className="rounded-2xl bg-amber-300 px-4 py-2 text-right text-zinc-950 md:rounded-3xl md:px-5 md:py-3">
                   <div className="text-xs font-black uppercase md:text-sm">{isVi ? "Tổng" : "Total"}</div>
-                  <div className="text-4xl font-black leading-none md:text-5xl">{stats.plannedQty.toLocaleString("vi-VN")}</div>
+                  <div className="text-4xl font-black leading-none md:text-5xl">{tvProductionQty.toLocaleString("vi-VN")}</div>
                 </div>
                 <Button
                   variant="outline"
@@ -1229,8 +1288,19 @@ export default function ProductionPlanning() {
               </div>
             </div>
 
+            {tvProductionItems.length === 0 ? (
+              <div className="flex min-h-0 flex-1 flex-col items-center justify-center rounded-[2rem] border border-dashed border-white/15 bg-white/[0.04] text-center">
+                <Factory className="mb-3 h-16 w-16 text-white/25" />
+                <h3 className="text-3xl font-black text-white/80">
+                  {isVi ? "Chưa có lệnh đang sản xuất" : "No active production orders"}
+                </h3>
+                <p className="mt-2 max-w-xl text-lg font-semibold text-white/40">
+                  {isVi ? "Sau khi bấm Xác nhận sản xuất, sản phẩm của ngày giao này sẽ hiện ở đây." : "After confirming production, delivery-date items will appear here."}
+                </p>
+              </div>
+            ) : (
             <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-3 gap-3 md:grid-cols-3 md:grid-rows-2 md:gap-4">
-              {aggregatedPlanItems.slice(0, 6).map((item, idx) => (
+              {tvProductionItems.slice(0, 6).map((item, idx) => (
                 <div key={item.key} className="relative min-h-0 overflow-hidden rounded-3xl border border-white/10 bg-[#231913] md:rounded-[2rem]">
                   {item.image_url ? (
                     <img
@@ -1253,6 +1323,7 @@ export default function ProductionPlanning() {
                 </div>
               ))}
             </div>
+            )}
           </div>
         </div>
       )}
