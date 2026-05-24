@@ -244,6 +244,21 @@ const vietnamDayUtcStartIso = () => {
   return new Date(vietnamNow.getTime() - 7 * 60 * 60 * 1000).toISOString();
 };
 
+const normalizeDateForDb = (value: string | null | undefined) => {
+  if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+
+  const slashMatch = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashMatch) {
+    const [, month, day, year] = slashMatch;
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return format(parsed, "yyyy-MM-dd");
+};
+
 export default function ProductionPlanning() {
   const { language } = useLanguage();
   const { canEditModule } = useAuth();
@@ -482,13 +497,10 @@ export default function ProductionPlanning() {
         const itemsToInsert = input.items.map((item) => ({
           production_order_id: newOrder.id,
           product_name: item.product_name,
+          ordered_qty: item.original_qty,
           planned_qty: item.planned_qty,
-          completed_qty: 0,
           unit: item.unit,
-          unit_price: item.unit_price,
-          line_total: item.line_total,
-          line_complete: false,
-          delivery_date: item.date,
+          delivery_date: normalizeDateForDb(item.date),
           notes: item.planned_qty !== item.original_qty ? "Đã điều chỉnh số lượng trước khi xác nhận" : null,
         }));
 
@@ -630,7 +642,7 @@ export default function ProductionPlanning() {
       unit: item.matched_sku.unit || item.unit,
       unit_price: item.unit_price,
       line_total: item.line_total,
-      date: item.date,
+      date: po.delivery_date || item.date,
     }));
     setSelectedPoForCreation(po);
     setFormData({
