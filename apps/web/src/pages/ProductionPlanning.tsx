@@ -10,6 +10,7 @@ import {
   Factory,
   FilePlus2,
   Loader2,
+  MailCheck,
   Monitor,
   Package,
   ImageIcon,
@@ -237,8 +238,6 @@ const vietnamDateInputValue = (offsetDays = 0) => {
 const vietnamTodayInputValue = () => vietnamDateInputValue();
 const vietnamProductionTargetInputValue = () => vietnamDateInputValue(1);
 
-const todayInputValue = vietnamTodayInputValue;
-
 const vietnamDayUtcStartIso = (offsetDays = 0) => {
   const [year, month, day] = vietnamDateInputValue(offsetDays).split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, day) - 7 * 60 * 60 * 1000).toISOString();
@@ -279,6 +278,11 @@ export default function ProductionPlanning() {
   const [activeTab, setActiveTab] = useState<"plan" | "settings">("plan");
   const [selectedPoForCreation, setSelectedPoForCreation] = useState<CustomerPoInbox | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
+  const productionPoDateIso = useMemo(() => vietnamProductionTargetInputValue(), []);
+  const tvProductionDateIso = useMemo(() => vietnamTodayInputValue(), []);
+  const planDayStartIso = useMemo(() => vietnamDayUtcStartIso(), []);
+  const nextDayStartIso = useMemo(() => vietnamDayUtcStartIso(1), []);
+
   const [formData, setFormData] = useState<{
     items: Array<{
       product_name: string;
@@ -294,23 +298,20 @@ export default function ProductionPlanning() {
     notes: string;
   }>({
     items: [],
-    planned_start_date: todayInputValue(),
-    planned_end_date: todayInputValue(),
+    planned_start_date: productionPoDateIso,
+    planned_end_date: productionPoDateIso,
     notes: "",
   });
 
-  const planDateIso = useMemo(() => vietnamProductionTargetInputValue(), []);
-  const planDayStartIso = useMemo(() => vietnamDayUtcStartIso(), []);
-
   const { data: pendingPos = [], isLoading: loadingPos } = useQuery({
-    queryKey: ["pending-pos", planDateIso, planDayStartIso],
+    queryKey: ["pending-pos", productionPoDateIso, planDayStartIso],
     queryFn: async () => {
       try {
         const { data: allPos, error: posError } = await (supabase as any)
           .from("customer_po_inbox")
           .select("*")
           .in("match_status", ["approved", "pending_approval"])
-          .or(`delivery_date.eq.${planDateIso},and(delivery_date.is.null,created_at.gte.${planDayStartIso})`)
+          .or(`delivery_date.eq.${productionPoDateIso},and(delivery_date.is.null,created_at.gte.${planDayStartIso})`)
           .order("created_at", { ascending: false });
 
         if (posError) throw posError;
@@ -457,6 +458,51 @@ export default function ProductionPlanning() {
     enabled: !!expandedOrderId,
   });
 
+  const checkPoMutation = useMutation({
+    mutationFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error(isVi ? "Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại." : "Session expired. Please sign in again.");
+      }
+
+      const fromEpoch = Math.floor(new Date(planDayStartIso).getTime() / 1000);
+      const toEpoch = Math.floor(new Date(nextDayStartIso).getTime() / 1000);
+      const query = `in:anywhere deliveredto:po@bmq.vn after:${fromEpoch} before:${toEpoch}`;
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-gmail-sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ mode: "import", maxResults: 100, query, includeOnlyCrm: true }),
+      });
+
+      const rawText = await response.text();
+      let result: any = {};
+      try {
+        result = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        result = { raw: rawText };
+      }
+
+      if (!response.ok) {
+        throw new Error(result?.error || result?.message || result?.raw || rawText || "Không thể kiểm tra PO");
+      }
+
+      return { ...result, query };
+    },
+    onSuccess: async (result: any) => {
+      await queryClient.invalidateQueries({ queryKey: ["pending-pos"] });
+      await queryClient.invalidateQueries({ queryKey: ["production-orders"] });
+      toast.success(isVi ? `Đã kiểm tra PO: nhập ${result?.synced || 0} email mới.` : `PO check done: imported ${result?.synced || 0} new emails.`);
+    },
+    onError: (error: any) => {
+      console.error("Error checking PO email:", error);
+      toast.error(error?.message || (isVi ? "Không thể kiểm tra PO" : "Failed to check POs"));
+    },
+  });
+
   const enabledSkuIds = useMemo(() => {
     return new Set(locationSkuSettings.filter((row) => row.is_enabled).map((row) => row.sku_id));
   }, [locationSkuSettings]);
@@ -478,13 +524,13 @@ export default function ProductionPlanning() {
           .map(resolveEnabledProductionItem)
           .filter((item): item is ResolvedProductionItem => {
             if (!item) return false;
-            if (po.delivery_date) return normalizeDateForDb(po.delivery_date) === planDateIso;
+            if (po.delivery_date) return normalizeDateForDb(po.delivery_date) === productionPoDateIso;
             const itemDate = normalizeDateForDb((item as any).service_date || item.date);
-            return itemDate === planDateIso;
+            return itemDate === productionPoDateIso;
           }),
       }))
       .filter((po) => po.production_items.length > 0);
-  }, [pendingPos, planDateIso, resolveEnabledProductionItem]);
+  }, [pendingPos, productionPoDateIso, resolveEnabledProductionItem]);
 
   const createProductionOrderMutation = useMutation({
     mutationFn: async (input: CreateProductionOrderInput) => {
@@ -556,8 +602,8 @@ export default function ProductionPlanning() {
       setSelectedPoForCreation(null);
       setFormData({
         items: [],
-        planned_start_date: todayInputValue(),
-        planned_end_date: todayInputValue(),
+        planned_start_date: productionPoDateIso,
+        planned_end_date: productionPoDateIso,
         notes: "",
       });
     },
@@ -629,7 +675,7 @@ export default function ProductionPlanning() {
       .filter((order) => activeStatuses.has(order.status))
       .forEach((order) => {
         (order.items || []).forEach((item) => {
-          if (normalizeDateForDb(item.delivery_date) !== planDateIso) return;
+          if (normalizeDateForDb(item.delivery_date) !== tvProductionDateIso) return;
 
           const imageUrl = resolveSkuImageUrl(item.product_name, skuImageRows);
           const key = `${item.product_name}__${item.unit || ""}`;
@@ -661,7 +707,7 @@ export default function ProductionPlanning() {
     return Array.from(map.values())
       .map((item) => ({ ...item, channelCount: item.sourceNames.length }))
       .sort((a, b) => b.qty - a.qty);
-  }, [planDateIso, productionOrders, skuImageRows]);
+  }, [productionOrders, skuImageRows, tvProductionDateIso]);
 
   const tvProductionQty = useMemo(
     () => tvProductionItems.reduce((sum, item) => sum + item.qty, 0),
@@ -677,7 +723,7 @@ export default function ProductionPlanning() {
       plannedSkuCount: aggregatedPlanItems.length,
       plannedQty: aggregatedPlanItems.reduce((sum, item) => sum + item.qty, 0),
       inProgressOrders: productionOrders.filter((o) =>
-        o.status === "in_progress" && (o.items || []).some((item) => normalizeDateForDb(item.delivery_date) === planDateIso)
+        o.status === "in_progress" && (o.items || []).some((item) => normalizeDateForDb(item.delivery_date) === tvProductionDateIso)
       ).length,
       completedToday: productionOrders.filter((o) => {
         if (o.status !== "completed" || !o.completed_at) return false;
@@ -686,7 +732,7 @@ export default function ProductionPlanning() {
         return completedDate.getTime() === today.getTime();
       }).length,
     };
-  }, [aggregatedPlanItems, planDateIso, visiblePendingPos.length, productionOrders]);
+  }, [aggregatedPlanItems, productionOrders, tvProductionDateIso, visiblePendingPos.length]);
 
   const handleCreateClick = (po: CustomerPoInbox) => {
     if (!canEditLocation) {
@@ -697,9 +743,9 @@ export default function ProductionPlanning() {
       .map(resolveEnabledProductionItem)
       .filter((item): item is ResolvedProductionItem => {
         if (!item) return false;
-        if (po.delivery_date) return normalizeDateForDb(po.delivery_date) === planDateIso;
+        if (po.delivery_date) return normalizeDateForDb(po.delivery_date) === productionPoDateIso;
         const itemDate = normalizeDateForDb((item as any).service_date || item.date);
-        return itemDate === planDateIso;
+        return itemDate === productionPoDateIso;
       });
     if (allowedItems.length === 0) {
       toast.error(isVi ? "PO này không có SKU được bật cho Xưởng Q7" : "This PO has no enabled SKUs for Q7 Workshop");
@@ -717,8 +763,8 @@ export default function ProductionPlanning() {
     setSelectedPoForCreation(po);
     setFormData({
       items,
-      planned_start_date: todayInputValue(),
-      planned_end_date: todayInputValue(),
+      planned_start_date: productionPoDateIso,
+      planned_end_date: productionPoDateIso,
       notes: "",
     });
     setCreateDialogOpen(true);
@@ -816,6 +862,16 @@ export default function ProductionPlanning() {
             </Button>
             {activeTab === "plan" && (
               <>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="h-12 rounded-2xl border-white/10 bg-white/[0.06] text-base text-white hover:bg-white/[0.1] hover:text-white"
+                  disabled={checkPoMutation.isPending}
+                  onClick={() => checkPoMutation.mutate()}
+                >
+                  {checkPoMutation.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <MailCheck className="mr-2 h-5 w-5" />}
+                  {isVi ? "Kiểm tra PO" : "Check POs"}
+                </Button>
                 <Button variant="outline" size="lg" className="h-12 rounded-2xl border-white/10 bg-white/[0.06] text-base text-white hover:bg-white/[0.1] hover:text-white" onClick={handleOpenTvMode}>
                   <Monitor className="mr-2 h-5 w-5" />
                   {isVi ? "Màn hình TV" : "TV View"}
@@ -913,7 +969,7 @@ export default function ProductionPlanning() {
         </Card>
         <Card className="rounded-3xl border-white/10 bg-[#14100d]/90 text-white shadow-sm">
           <CardHeader className="space-y-1 p-4">
-            <CardDescription>{isVi ? "SKU ngày giao" : "Delivery-date SKUs"}</CardDescription>
+            <CardDescription>{isVi ? "SKU ngày giao ngày mai" : "Tomorrow delivery SKUs"}</CardDescription>
             <CardTitle className="text-4xl font-black">{stats.plannedSkuCount}</CardTitle>
           </CardHeader>
         </Card>
@@ -935,13 +991,13 @@ export default function ProductionPlanning() {
         <section className="space-y-4">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 className="text-2xl font-black tracking-tight text-white">{isVi ? "Sản phẩm cần làm cho ngày giao" : "Products to make for delivery"}</h2>
+              <h2 className="text-2xl font-black tracking-tight text-white">{isVi ? "PO cần xác nhận cho ngày giao ngày mai" : "POs to confirm for tomorrow delivery"}</h2>
               <p className="font-semibold text-white/45">
-                {isVi ? "Tổng hợp theo sản phẩm từ PO đã parse, dùng ngày vận hành Việt Nam." : "Aggregated by product across parsed POs, using Vietnam business date."}
+                {isVi ? "Buổi sáng bấm Kiểm tra PO, xác nhận để lập lệnh SX cho ngày giao kế tiếp." : "Morning PO check confirms tomorrow-delivery production orders."}
               </p>
             </div>
             <Badge variant="outline" className="w-fit rounded-full border-white/10 bg-white/[0.045] px-3 py-1 text-sm text-white/70">
-              {formatDateOnly(planDateIso)}
+              {formatDateOnly(productionPoDateIso)}
             </Badge>
           </div>
 
@@ -1267,10 +1323,10 @@ export default function ProductionPlanning() {
             <div className="flex shrink-0 flex-col gap-3 border-b border-white/10 pb-3 md:flex-row md:items-center md:justify-between">
               <div className="min-w-0">
                 <h2 className="text-3xl font-black leading-none md:text-5xl">
-                  {isVi ? "Đang sản xuất cho ngày giao" : "Production in progress"}
+                  {isVi ? "Đang sản xuất hôm nay" : "Production in progress today"}
                 </h2>
                 <p className="mt-1 text-sm text-zinc-300 md:text-lg">
-                  {isVi ? "Màn hình cho xưởng, quản lý và đối tác xem nhanh." : "Display for workshop, managers and partners."}
+                  {isVi ? `Màn hình cho xưởng, quản lý và đối tác xem nhanh · Ngày SX ${formatDateOnly(tvProductionDateIso)}` : `Display for workshop, managers and partners · Production date ${formatDateOnly(tvProductionDateIso)}`}
                 </p>
               </div>
               <div className="flex shrink-0 items-stretch gap-2 md:gap-3">
@@ -1295,7 +1351,7 @@ export default function ProductionPlanning() {
                   {isVi ? "Chưa có lệnh đang sản xuất" : "No active production orders"}
                 </h3>
                 <p className="mt-2 max-w-xl text-lg font-semibold text-white/40">
-                  {isVi ? "Sau khi bấm Xác nhận sản xuất, sản phẩm của ngày giao này sẽ hiện ở đây." : "After confirming production, delivery-date items will appear here."}
+                  {isVi ? "TV hiển thị lệnh SX của hôm nay, thường đã được xác nhận từ hôm qua." : "TV shows today's production orders, usually confirmed yesterday."}
                 </p>
               </div>
             ) : (
