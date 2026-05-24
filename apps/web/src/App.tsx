@@ -1,6 +1,16 @@
 import { RecoveryScreen } from "@/components/RecoveryScreen";
 import AppInner from "./AppInner";
 
+const DEALER_ORDERING_HOST = "dathang.banhmique.vn";
+const ADMIN_APP_TITLE = "BMQ AI Quản Trị";
+const DEALER_APP_TITLE = "BMQ Đặt Hàng";
+
+function applyHostDocumentTitle(): void {
+  document.title = window.location.hostname === DEALER_ORDERING_HOST
+    ? DEALER_APP_TITLE
+    : ADMIN_APP_TITLE;
+}
+
 /**
  * SIMPLIFIED: Direct import of AppInner (no lazy loading)
  * 
@@ -19,6 +29,8 @@ function isRecoveryRoute(): boolean {
 }
 
 function App() {
+  applyHostDocumentTitle();
+
   // CRITICAL: Check recovery route FIRST before any other logic
   if (isRecoveryRoute()) {
     return <RecoveryScreen />;
