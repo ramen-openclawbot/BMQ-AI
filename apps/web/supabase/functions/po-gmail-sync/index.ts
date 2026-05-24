@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import * as XLSX from "npm:xlsx@0.18.5";
+import pdfParse from "npm:pdf-parse@1.1.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireCronSecret } from "../_shared/auth.ts";
 
@@ -425,6 +426,174 @@ function parseKingfoodXlsx(bytes: Uint8Array) {
     qtyDiff,
     itemCountDiff,
     isValid: best.items.length > 0 && subtotalDiff <= 1 && qtyDiff <= 1 && itemCountDiff <= 0,
+  };
+}
+
+const KINGFOOD_PDF_UNITS = new Set(["cái", "cai", "pcs", "pc", "ea", "hộp", "hop", "thùng", "thung", "gói", "goi"]);
+
+const normalizePdfToken = (value: unknown) => String(value ?? "").trim().replace(/\s+/g, " ");
+const normalizePdfKey = (value: unknown) => normalizeTextKey(String(value ?? ""));
+
+const prettifyKingfoodPdfProductName = (value: string) => {
+  const compact = normalizePdfKey(value).replace(/\s+/g, "");
+  if (compact.includes("croissant160g40gx4cai")) return "Croissant (40g)";
+  if (compact.includes("croissant50g")) return "BMQ - BÁNH CROISSANT 50G";
+  if (compact.includes("crossbunnho180g")) return "BMQ - BÁNH CROSS BUN NHỎ 180G";
+  if (compact.includes("cuaphomai90g")) return "BMQ - BÁNH CUA PHÔ MAI 90G";
+  if (compact.includes("chabongcay70g")) return "BMQ - BÁNH MÌ CHÀ BÔNG CAY 70G";
+  if (compact.includes("chabong70g")) return "BMQ - BÁNH MÌ CHÀ BÔNG 70G";
+  return value
+    .replace(/^BMQ[-\s]*/i, "BMQ - ")
+    .replace(/([a-zà-ỹ])([A-ZÀ-Ỹ])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+async function extractPdfTextLines(bytes: Uint8Array) {
+  const parsed = await (pdfParse as any)(bytes);
+  return String(parsed?.text || "")
+    .split(/\r?\n/)
+    .map((line) => normalizePdfToken(line))
+    .filter(Boolean);
+}
+
+function parseKingfoodPdfLines(lines: string[], subject: string) {
+  const deliveryDate = extractDeliveryDate(subject || "");
+  const items: any[] = [];
+
+  for (const rawLine of lines) {
+    const line = normalizePdfToken(rawLine);
+    const compactLine = line.replace(/\s+/g, "");
+    const numericBarcodeMatch = compactLine.match(/^\d(\d{5,})(BMQ.*?)(C[ÁA]I|CAI|H[ỘO]P|HOP|PCS|EA)(\d{1,4})(\d{2,3}[.,]\d{3})0%/i);
+    if (numericBarcodeMatch) {
+      const sku = numericBarcodeMatch[1].toUpperCase();
+      const rawProduct = prettifyKingfoodPdfProductName(numericBarcodeMatch[2]);
+      const qty = toNum(numericBarcodeMatch[4]);
+      const unitPrice = toNum(numericBarcodeMatch[5]);
+      const amountTail = compactLine.slice((numericBarcodeMatch.index || 0) + numericBarcodeMatch[0].length);
+      const amounts = Array.from(amountTail.matchAll(/\d{1,3}(?:[.,]\d{3})+/g)).map((match) => toNum(match[0]));
+      const lineTotal = amounts.length >= 2 ? amounts[amounts.length - 2] : qty * unitPrice;
+      if (rawProduct && qty > 0) {
+        items.push({
+          date: deliveryDate || "",
+          service_date: deliveryDate,
+          product_name: rawProduct,
+          source_column_name: "kingfood_pdf_row_item",
+          sku,
+          qty,
+          unit: numericBarcodeMatch[3],
+          unit_price: unitPrice,
+          line_total: lineTotal,
+          amount_includes_vat: true,
+          amount_source: "kingfood_pdf_line_total_vat_included",
+          vat_handling: "no_extra_multiplier",
+          raw_line: line,
+        });
+        continue;
+      }
+    }
+
+    const compactMatch = compactLine.match(/^\d*(SP\d+)(.*?)(C[ÁA]I|CAI|H[ỘO]P|HOP|PCS|EA)(\d{1,4})(\d{2,3}[.,]\d{3})0%/i);
+    if (compactMatch) {
+      const sku = compactMatch[1].toUpperCase();
+      const rawProduct = prettifyKingfoodPdfProductName(compactMatch[2]);
+      const qty = toNum(compactMatch[4]);
+      const unitPrice = toNum(compactMatch[5]);
+      const amountTail = compactLine.slice((compactMatch.index || 0) + compactMatch[0].length);
+      const amounts = Array.from(amountTail.matchAll(/\d{1,3}(?:[.,]\d{3})+/g)).map((match) => toNum(match[0]));
+      const lineTotal = amounts.length >= 2 ? amounts[amounts.length - 2] : qty * unitPrice;
+      if (rawProduct && qty > 0) {
+        items.push({
+          date: deliveryDate || "",
+          service_date: deliveryDate,
+          product_name: rawProduct,
+          source_column_name: "kingfood_pdf_row_item",
+          sku,
+          qty,
+          unit: compactMatch[3],
+          unit_price: unitPrice,
+          line_total: lineTotal,
+          amount_includes_vat: true,
+          amount_source: "kingfood_pdf_line_total_vat_included",
+          vat_handling: "no_extra_multiplier",
+          raw_line: line,
+        });
+        continue;
+      }
+    }
+
+    const tokens = line.split(/\s+/).filter(Boolean);
+    const skuIndex = tokens.findIndex((token) => /^\d*SP\d+/i.test(token));
+    if (skuIndex < 0) continue;
+
+    const sku = (tokens[skuIndex].match(/SP\d+/i)?.[0] || "").toUpperCase();
+    const afterSku = tokens.slice(skuIndex + 1);
+    const unitIndex = afterSku.findIndex((token) => KINGFOOD_PDF_UNITS.has(normalizePdfKey(token)));
+    const numericIndexes = afterSku
+      .map((token, index) => ({ index, value: toNum(token) }))
+      .filter((entry) => entry.value > 0);
+
+    const qtyEntry = unitIndex >= 0
+      ? numericIndexes.find((entry) => entry.index > unitIndex)
+      : numericIndexes[0];
+    if (!qtyEntry) continue;
+
+    const productTokens = unitIndex >= 0
+      ? afterSku.slice(0, unitIndex)
+      : afterSku.slice(0, qtyEntry.index);
+    const productName = productTokens.join(" ").trim();
+    if (!productName) continue;
+
+    const amountEntries = numericIndexes.filter((entry) => entry.index > qtyEntry.index);
+    const qty = qtyEntry.value;
+    const unitPrice = amountEntries[0]?.value || 0;
+    const explicitLineTotal = amountEntries.length >= 2 ? amountEntries[amountEntries.length - 1].value : 0;
+
+    items.push({
+      date: deliveryDate || "",
+      service_date: deliveryDate,
+      product_name: productName,
+      source_column_name: "kingfood_pdf_row_item",
+      sku,
+      qty,
+      unit: unitIndex >= 0 ? afterSku[unitIndex] : "Cái",
+      unit_price: unitPrice,
+      line_total: explicitLineTotal || qty * unitPrice,
+      amount_includes_vat: true,
+      amount_source: "kingfood_pdf_line_total_vat_included",
+      vat_handling: "no_extra_multiplier",
+      raw_line: line,
+    });
+  }
+
+  const itemSubtotal = items.reduce((sum, item) => sum + Number(item.line_total || 0), 0);
+  const itemQty = items.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+  const vat = sanitizeVat(itemSubtotal, 0);
+
+  return {
+    sheetName: "PDF",
+    items,
+    subtotal: itemSubtotal,
+    vat,
+    total: sanitizeTotal(itemSubtotal, vat, 0),
+    totalQty: itemQty,
+    itemCount: items.length,
+    itemSubtotal,
+    itemQty,
+    subtotalDiff: 0,
+    qtyDiff: 0,
+    itemCountDiff: 0,
+    isValid: items.length > 0,
+  };
+}
+
+async function parseKingfoodPdf(bytes: Uint8Array, subject: string) {
+  const lines = await extractPdfTextLines(bytes);
+  const parsed = parseKingfoodPdfLines(lines, subject);
+  return {
+    ...parsed,
+    textLineCount: lines.length,
+    sourceLines: lines.filter((line) => /SP\d+/i.test(line)).slice(0, 12),
   };
 }
 
@@ -1062,12 +1231,44 @@ serve(async (req) => {
             reason: parseError instanceof Error ? parseError.message : "Kingfood XLSX parse failed",
           };
         }
-      } else if (isKingfoodSender && pdfFile && kingfoodAutomation) {
-        kingfoodAutomation = {
-          ...kingfoodAutomation,
-          automation_status: "pdf_only_needs_review",
-          reason: "Kingfood email has PDF but no Export-PO-Data.xlsx; PDF parser/manual review required",
-        };
+      } else if (isKingfoodSender && pdfFile?.attachmentId && kingfoodAutomation) {
+        try {
+          const attachment = await gmailApi(accessToken, `messages/${m.id}/attachments/${pdfFile.attachmentId}`);
+          const parsed = await parseKingfoodPdf(decodeBase64UrlToBytes(String(attachment?.data || "")), subject || "");
+          parsedItems = parsed.items;
+          parsedSubtotal = parsed.subtotal || null;
+          parsedVat = parsed.vat || 0;
+          parsedTotal = parsed.total || parsed.subtotal || null;
+          kingfoodAutomation = {
+            ...kingfoodAutomation,
+            automation_status: parsed.isValid ? "parsed_needs_review" : "pdf_only_needs_review",
+            reason: parsed.isValid
+              ? "Kingfood PDF parsed into production items; needs review because PDF totals are less structured than Export-PO-Data.xlsx"
+              : "Kingfood email has PDF but product rows could not be parsed; manual review required",
+            source_sheet: parsed.sheetName,
+            parser: "kingfood_pdf_text:v1",
+            item_count: parsed.items.length,
+            subtotal: parsed.subtotal,
+            vat_amount: parsed.vat,
+            total_amount: parsed.total,
+            amount_includes_vat: true,
+            amount_source: "kingfood_pdf_total_vat_included",
+            vat_handling: "no_extra_multiplier",
+            item_subtotal: parsed.itemSubtotal,
+            item_qty: parsed.itemQty,
+            subtotal_diff: parsed.subtotalDiff,
+            qty_diff: parsed.qtyDiff,
+            item_count_diff: parsed.itemCountDiff,
+            text_line_count: parsed.textLineCount,
+            source_lines: parsed.sourceLines,
+          };
+        } catch (parseError) {
+          kingfoodAutomation = {
+            ...kingfoodAutomation,
+            automation_status: "pdf_only_needs_review",
+            reason: parseError instanceof Error ? parseError.message : "Kingfood PDF parse failed; manual review required",
+          };
+        }
       }
 
       if (isDamXesgSender) {

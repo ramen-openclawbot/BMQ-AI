@@ -39,6 +39,9 @@ def test_kingfood_gmail_sync_sender_rule_and_xlsx_parse() -> None:
 def test_kingfood_cancel_and_pdf_only_guardrails() -> None:
     assert_contains(sync, "cancel_signal", "cancel signal status")
     assert_contains(sync, "pdf_only_needs_review", "PDF-only review status")
+    assert_contains(sync, "parseKingfoodPdf", "Kingfood PDF parser")
+    assert_contains(sync, "kingfood_pdf_text:v1", "Kingfood PDF text parser marker")
+    assert_contains(sync, "kingfood_pdf_row_item", "Kingfood PDF production row marker")
     assert_contains(sync, "parsed_valid", "valid XLSX parsed status")
     assert_contains(sync, "automation_status", "automation status metadata")
 
