@@ -266,6 +266,15 @@ const normalizeDateForDb = (value: string | null | undefined) => {
   return formatDateInputFromParts(parsed.getUTCFullYear(), parsed.getUTCMonth() + 1, parsed.getUTCDate());
 };
 
+const getProductionOrderDisplayStatus = (order: ProductionOrder, productionDateIso: string): ProductionOrder["status"] => {
+  if (order.status === "completed" || order.status === "cancelled") return order.status;
+
+  const hasTodayItems = (order.items || []).some((item) => normalizeDateForDb(item.delivery_date) === productionDateIso);
+  if (hasTodayItems) return "in_progress";
+
+  return "draft";
+};
+
 export default function ProductionPlanning() {
   const { language } = useLanguage();
   const { canEditModule } = useAuth();
@@ -555,7 +564,7 @@ export default function ProductionPlanning() {
           .insert({
             production_number: productionNumber,
             source_po_inbox_id: input.po_id,
-            status: "in_progress",
+            status: "draft",
             planned_start_date: input.planned_start_date || null,
             planned_end_date: input.planned_end_date || null,
             notes: input.notes || null,
@@ -722,9 +731,7 @@ export default function ProductionPlanning() {
       pendingPos: visiblePendingPos.length,
       plannedSkuCount: aggregatedPlanItems.length,
       plannedQty: aggregatedPlanItems.reduce((sum, item) => sum + item.qty, 0),
-      inProgressOrders: productionOrders.filter((o) =>
-        o.status === "in_progress" && (o.items || []).some((item) => normalizeDateForDb(item.delivery_date) === tvProductionDateIso)
-      ).length,
+      inProgressOrders: productionOrders.filter((o) => getProductionOrderDisplayStatus(o, tvProductionDateIso) === "in_progress").length,
       completedToday: productionOrders.filter((o) => {
         if (o.status !== "completed" || !o.completed_at) return false;
         const completedDate = new Date(o.completed_at);
@@ -1135,7 +1142,7 @@ export default function ProductionPlanning() {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-mono text-lg font-black">{order.production_number}</span>
-                        {getStatusBadge(order.status)}
+                        {getStatusBadge(getProductionOrderDisplayStatus(order, tvProductionDateIso))}
                         {order.revenue_draft_id && <Badge variant="outline" className="text-blue-600">Duyệt DT</Badge>}
                       </div>
                       <p className="mt-1 text-sm text-muted-foreground">
