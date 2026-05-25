@@ -168,6 +168,23 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
     }
   };
 
+  const TOKEN_ERROR_MESSAGE = "Lỗi Token. Liên hệ với bộ phận quản trị hệ thống!";
+
+  const getScanErrorMessage = (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error || "");
+    const normalized = message.toLowerCase();
+    const isTokenOrQuotaError =
+      normalized.includes("rate limit") ||
+      normalized.includes("rate_limit") ||
+      normalized.includes("quota") ||
+      normalized.includes("insufficient_quota") ||
+      normalized.includes("token") ||
+      normalized.includes("429") ||
+      normalized.includes("too many requests");
+
+    return isTokenOrQuotaError ? TOKEN_ERROR_MESSAGE : (message || "Lỗi khi scan ảnh");
+  };
+
   const scanSinglePOFile = async (file: File, token: string): Promise<ScannedPOData> => {
     const base64 = await new Promise<string>((resolve) => {
       const reader = new FileReader();
@@ -265,8 +282,8 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
           );
           if (matchedSupplier) form.setValue("supplier_id", matchedSupplier.id);
         }
-        if (scanned.order_date) { try { form.setValue("order_date", new Date(scanned.order_date)); } catch {} }
-        if (scanned.expected_date) { try { form.setValue("expected_date", new Date(scanned.expected_date)); } catch {} }
+        if (scanned.order_date) { try { form.setValue("order_date", new Date(scanned.order_date)); } catch { /* ignore invalid scanned date */ } }
+        if (scanned.expected_date) { try { form.setValue("expected_date", new Date(scanned.expected_date)); } catch { /* ignore invalid scanned date */ } }
         if (scanned.notes) form.setValue("notes", scanned.notes);
         if (scanned.vat_amount) form.setValue("vat_amount", scanned.vat_amount);
         if (scanned.items?.length) replace(scanned.items.map((item) => ({ sku_id: "", product_name: item.product_name || "", quantity: item.quantity || 1, unit: item.unit || "kg", unit_price: item.unit_price || 0, notes: item.notes || "" })));
@@ -278,21 +295,26 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
         const previewUrls = await Promise.all(files.map((f) => new Promise<string>((resolve) => { const r = new FileReader(); r.onloadend = () => resolve(r.result as string); r.readAsDataURL(f); })));
         setSelectedImagePreviews(previewUrls.slice(0, 3));
         const scans: ScannedPOData[] = [];
+        const scanErrors: unknown[] = [];
         for (const f of files) {
           try {
             const scanned = await scanSinglePOFile(f, token);
             scans.push(scanned);
           } catch (e) {
+            scanErrors.push(e);
             console.error(`[po-scan] fail ${f.name}`, e);
           }
         }
 
-        if (!scans.length) throw new Error("Không scan được file nào trong batch");
+        if (!scans.length) {
+          const tokenOrQuotaError = scanErrors.find((scanError) => getScanErrorMessage(scanError) === TOKEN_ERROR_MESSAGE);
+          throw tokenOrQuotaError ? new Error(TOKEN_ERROR_MESSAGE) : new Error("Không scan được file nào trong batch");
+        }
 
-        setScannedData({ items: mergeScannedPOItems(scans) as any, supplier_name: scans[0]?.supplier_name, vat_amount: scans.reduce((x, y) => x + Number(y.vat_amount || 0), 0), total_amount: scans.reduce((x, y) => x + Number(y.total_amount || 0), 0), notes: `Batch scan ${files.length} ảnh` });
+        setScannedData({ items: mergeScannedPOItems(scans), supplier_name: scans[0]?.supplier_name, vat_amount: scans.reduce((x, y) => x + Number(y.vat_amount || 0), 0), total_amount: scans.reduce((x, y) => x + Number(y.total_amount || 0), 0), notes: `Batch scan ${files.length} ảnh` });
 
         const mergedItems = mergeScannedPOItems(scans);
-        replace(mergedItems as any);
+        replace(mergedItems);
 
         const supplierNames = scans.map((x) => x.supplier_name).filter(Boolean) as string[];
         const firstSupplier = supplierNames[0];
@@ -305,7 +327,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
       }
     } catch (error) {
       console.error("[po-scan] error:", error);
-      toast.error(error instanceof Error ? error.message : "Lỗi khi scan ảnh");
+      toast.error(getScanErrorMessage(error));
     } finally {
       setIsScanning(false);
       event.currentTarget.value = "";
