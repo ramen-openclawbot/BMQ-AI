@@ -100,6 +100,8 @@ interface ProductionOrderItem {
   created_at: string;
 }
 
+type ProductionOrderDisplayStatus = ProductionOrder["status"] | "upcoming";
+
 interface CreateProductionOrderInput {
   po_id: string;
   po_number: string;
@@ -300,11 +302,24 @@ const normalizeDateForDb = (value: string | null | undefined) => {
   return formatDateInputFromParts(parsed.getUTCFullYear(), parsed.getUTCMonth() + 1, parsed.getUTCDate());
 };
 
-const getProductionOrderDisplayStatus = (order: ProductionOrder, productionDateIso: string): ProductionOrder["status"] => {
+const getProductionOrderDateIso = (order: ProductionOrder) => {
+  const itemDates = (order.items || [])
+    .map((item) => normalizeDateForDb(item.delivery_date))
+    .filter((date): date is string => Boolean(date));
+
+  return normalizeDateForDb(order.planned_start_date) || itemDates.sort()[0] || null;
+};
+
+const getProductionOrderDisplayStatus = (order: ProductionOrder, productionDateIso: string): ProductionOrderDisplayStatus => {
   if (order.status === "completed" || order.status === "cancelled") return order.status;
 
+  const orderDateIso = getProductionOrderDateIso(order);
+  if (orderDateIso && orderDateIso < productionDateIso) return "completed";
+
   const hasTodayItems = (order.items || []).some((item) => normalizeDateForDb(item.delivery_date) === productionDateIso);
-  if (hasTodayItems) return "in_progress";
+  if (hasTodayItems || orderDateIso === productionDateIso) return "in_progress";
+
+  if (orderDateIso && orderDateIso > productionDateIso) return "upcoming";
 
   return "draft";
 };
@@ -656,16 +671,18 @@ export default function ProductionPlanning() {
 
   const formatDate = (dateString: string | null) => formatDateOnly(dateString);
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: ProductionOrderDisplayStatus) => {
     switch (status) {
       case "draft":
         return <Badge className="bg-emerald-500 text-white hover:bg-emerald-500"><CheckCircle className="mr-1 h-3 w-3" />{isVi ? "Đã xác nhận" : "Confirmed"}</Badge>;
+      case "upcoming":
+        return <Badge className="bg-sky-500 text-white hover:bg-sky-500"><CalendarDays className="mr-1 h-3 w-3" />{isVi ? "Sắp sản xuất" : "Upcoming"}</Badge>;
       case "planned":
         return <Badge className="bg-blue-500"><CalendarDays className="mr-1 h-3 w-3" />{isVi ? "Đã lên kế hoạch" : "Planned"}</Badge>;
       case "in_progress":
         return <Badge className="bg-amber-500"><Zap className="mr-1 h-3 w-3" />{isVi ? "Đang sản xuất" : "In Progress"}</Badge>;
       case "completed":
-        return <Badge className="bg-green-500"><CheckCircle className="mr-1 h-3 w-3" />{isVi ? "Hoàn thành" : "Completed"}</Badge>;
+        return <Badge className="bg-green-500"><CheckCircle className="mr-1 h-3 w-3" />{isVi ? "Đã hoàn thành" : "Completed"}</Badge>;
       case "cancelled":
         return <Badge variant="destructive"><AlertCircle className="mr-1 h-3 w-3" />{isVi ? "Hủy" : "Cancelled"}</Badge>;
       default:
