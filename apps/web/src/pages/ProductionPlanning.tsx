@@ -6,7 +6,6 @@ import {
   CalendarDays,
   CheckCircle,
   ClipboardCheck,
-  Clock,
   Factory,
   FilePlus2,
   Loader2,
@@ -625,7 +624,7 @@ export default function ProductionPlanning() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "draft":
-        return <Badge variant="secondary"><Clock className="mr-1 h-3 w-3" />{isVi ? "Nháp" : "Draft"}</Badge>;
+        return <Badge className="bg-emerald-500 text-white hover:bg-emerald-500"><CheckCircle className="mr-1 h-3 w-3" />{isVi ? "Đã xác nhận" : "Confirmed"}</Badge>;
       case "planned":
         return <Badge className="bg-blue-500"><CalendarDays className="mr-1 h-3 w-3" />{isVi ? "Đã lên kế hoạch" : "Planned"}</Badge>;
       case "in_progress":
