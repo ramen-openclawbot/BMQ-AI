@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -11,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Truck, Plus, Loader2, PackageCheck, AlertTriangle, RefreshCw } from "lucide-react";
+import { Truck, Plus, Loader2, PackageCheck, AlertTriangle, RefreshCw, Brain, Camera, FileSpreadsheet, PackageSearch } from "lucide-react";
 import { format, subDays } from "date-fns";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -130,6 +131,7 @@ export default function WarehouseDispatch() {
   const dispatchRevenueDate = params.get("revenueDate") || "";
   const dispatchReason = params.get("reason") || "";
   const [activeTab, setActiveTab] = useState<DispatchStatus | "all">("all");
+  const [activeWorkflow, setActiveWorkflow] = useState<"finished" | "materials">("finished");
   const [createOpen, setCreateOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selected, setSelected] = useState<Dispatch | null>(null);
@@ -282,7 +284,7 @@ export default function WarehouseDispatch() {
     if (po.delivery_date) setDispatchDate(po.delivery_date);
     // Auto-fill delivery address from CRM customer profile (only if not already filled)
     if (po.customer_address) setDeliveryAddress(po.customer_address);
-  }, [deliveryAddress, finishedInventory, salesPOs]);
+  }, [finishedInventory, salesPOs]);
 
   useEffect(() => {
     if (!autoOpenDispatchFromLedger || !dispatchPoId) return;
@@ -559,6 +561,17 @@ export default function WarehouseDispatch() {
 
   const selectedPO = salesPOs.find((p) => p.id === selectedPoId);
   const totalDispatchQty = formItems.reduce((s, i) => s + i.dispatch_qty, 0);
+  const totalBillableQty = formItems.reduce((s, i) => s + i.billable_qty, 0);
+  const materialRows = [
+    { item: "Chà bông gà", source: "3 SKU thành phẩm", standard: "18.4 kg", count: "2.1 kg", purchased: "20.0 kg", variance: "+0.5 kg", status: "good" },
+    { item: "Sốt pate", source: "2 SKU thành phẩm", standard: "11.8 kg", count: "1.2 kg", purchased: "10.0 kg", variance: "-0.6 kg", status: "warn" },
+    { item: "Dưa leo", source: "5 SKU thành phẩm", standard: "42.0 kg", count: "5.0 kg", purchased: "44.0 kg", variance: "+1.0 kg", status: "good" },
+  ];
+  const mappingRows = [
+    { raw: "Chà bông cay loại 1", mapped: "Chà bông gà cay", confidence: 92, status: "Tin cậy" },
+    { raw: "Rau leo Đà Lạt", mapped: "Dưa leo", confidence: 86, status: "Tin cậy" },
+    { raw: "Sốt đặc biệt BMQ", mapped: "Cần anh xác nhận", confidence: 58, status: "Cần duyệt" },
+  ];
 
   const openDetail = (d: any) => {
     setSelected({ ...d, items: allDispatchItems.filter((i: any) => i.dispatch_id === d.id) });
@@ -574,90 +587,307 @@ export default function WarehouseDispatch() {
   );
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="min-h-[calc(100vh-4rem)] space-y-6 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.14),transparent_34%),linear-gradient(135deg,#120d0a,#1f160f_48%,#100b08)] p-4 text-white md:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Truck className="h-6 w-6 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold">Xuất kho</h1>
-            <p className="text-sm text-muted-foreground">Tạo phiếu xuất kho từ đơn hàng bán → giao khách</p>
+      <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#1b120e]/90 shadow-2xl shadow-black/30">
+        <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:p-6">
+          <div className="space-y-5">
+            <div className="inline-flex items-center gap-2 rounded-full border border-amber-300/25 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-100">
+              <Truck className="h-3.5 w-3.5" />
+              Trang xuất kho mới · giữ nguyên header và sidebar
+            </div>
+            <div className="space-y-2">
+              <h1 className="font-display text-3xl font-bold tracking-tight md:text-4xl">Xuất kho</h1>
+              <p className="max-w-3xl text-sm leading-6 text-white/65 md:text-base">
+                Tách rõ phiếu xuất thành phẩm để tính công nợ/đối chiếu PO và phiếu xuất nguyên vật liệu để theo dõi tiêu hao theo định lượng SKU, tồn kiểm tay và mua hàng.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Button
+                type="button"
+                onClick={() => setActiveWorkflow("finished")}
+                className={activeWorkflow === "finished"
+                  ? "rounded-2xl bg-amber-500 px-4 py-6 font-bold text-stone-950 hover:bg-amber-400"
+                  : "rounded-2xl border border-white/10 bg-white/5 px-4 py-6 font-bold text-white hover:bg-white/10"}
+              >
+                <PackageCheck className="mr-2 h-5 w-5" /> Thành phẩm
+              </Button>
+              <Button
+                type="button"
+                onClick={() => setActiveWorkflow("materials")}
+                className={activeWorkflow === "materials"
+                  ? "rounded-2xl bg-amber-500 px-4 py-6 font-bold text-stone-950 hover:bg-amber-400"
+                  : "rounded-2xl border border-white/10 bg-white/5 px-4 py-6 font-bold text-white hover:bg-white/10"}
+              >
+                <PackageSearch className="mr-2 h-5 w-5" /> Nguyên vật liệu
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+              <p className="text-xs text-white/55">Phiếu TP</p>
+              <p className="mt-2 text-3xl font-bold">{dispatches.length}</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+              <p className="text-xs text-white/55">Chờ xuất</p>
+              <p className="mt-2 text-3xl font-bold text-amber-200">{stats.pending}</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+              <p className="text-xs text-white/55">Đã xuất</p>
+              <p className="mt-2 text-3xl font-bold text-emerald-200">{stats.dispatched}</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+              <p className="text-xs text-white/55">Mapping chờ duyệt</p>
+              <p className="mt-2 text-3xl font-bold text-sky-200">18</p>
+            </div>
           </div>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" /> Tạo phiếu xuất kho
-        </Button>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {(["pending", "picked", "dispatched", "delivered"] as DispatchStatus[]).map((s) => (
-          <Card key={s} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setActiveTab(s)}>
-            <CardHeader className="pb-1 pt-4 px-4">
-              <CardTitle className="text-xs text-muted-foreground font-normal">{statusConfig[s].label}</CardTitle>
+      {activeWorkflow === "finished" ? (
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="space-y-5">
+            <Card className="border-white/10 bg-[#1b120e]/90 text-white shadow-xl shadow-black/20">
+              <CardHeader className="gap-4 pb-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-2xl">
+                    <PackageCheck className="h-6 w-6 text-amber-300" /> Phiếu xuất thành phẩm
+                  </CardTitle>
+                  <p className="mt-1 text-sm text-white/55">PO bán hàng → số xuất thực tế → số tính công nợ.</p>
+                </div>
+                <Button onClick={() => setCreateOpen(true)} className="rounded-xl bg-amber-500 font-bold text-stone-950 hover:bg-amber-400">
+                  <Plus className="mr-2 h-4 w-4" /> Tạo phiếu thành phẩm
+                </Button>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  {(["pending", "picked", "dispatched", "delivered"] as DispatchStatus[]).map((s) => (
+                    <button
+                      type="button"
+                      key={s}
+                      className={`rounded-2xl border p-4 text-left transition ${activeTab === s ? "border-amber-300/60 bg-amber-500/15" : "border-white/10 bg-white/[0.04] hover:bg-white/[0.07]"}`}
+                      onClick={() => setActiveTab(s)}
+                    >
+                      <p className="text-xs text-white/55">{statusConfig[s].label}</p>
+                      <p className="mt-2 text-2xl font-bold">{stats[s]}</p>
+                    </button>
+                  ))}
+                </div>
+
+                <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
+                  <TabsList className="flex h-auto flex-wrap justify-start gap-2 bg-white/5 p-1">
+                    <TabsTrigger value="all">Tất cả ({dispatches.length})</TabsTrigger>
+                    <TabsTrigger value="pending">Chờ xuất ({stats.pending})</TabsTrigger>
+                    <TabsTrigger value="picked">Đang lấy ({stats.picked})</TabsTrigger>
+                    <TabsTrigger value="dispatched">Đã xuất ({stats.dispatched})</TabsTrigger>
+                    <TabsTrigger value="delivered">Đã giao ({stats.delivered})</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+
+                {filtered.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-white/15 py-12 text-center text-white/50">
+                    <Truck className="mx-auto mb-3 h-10 w-10 opacity-40" />
+                    <p>Không có phiếu xuất thành phẩm nào</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 md:hidden">
+                    {filtered.map((d: any) => (
+                      <button key={d.id} type="button" onClick={() => openDetail(d)} className="w-full rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-left">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="font-mono text-sm font-bold text-amber-100">{d.dispatch_number}</p>
+                            <p className="mt-1 text-sm text-white/60">{d.customer_name ?? d.customer_id ?? "Chưa có khách hàng"}</p>
+                          </div>
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[d.status as DispatchStatus]}`}>
+                            {statusConfig[d.status as DispatchStatus]?.label ?? d.status}
+                          </span>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-white/55">
+                          <span>Ngày xuất: {d.dispatch_date ? format(new Date(d.dispatch_date), "dd/MM/yyyy") : "—"}</span>
+                          <span>Ngày giao: {d.delivered_date ? format(new Date(d.delivered_date), "dd/MM/yyyy") : "—"}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {filtered.length > 0 && (
+                  <div className="hidden overflow-hidden rounded-2xl border border-white/10 md:block">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-white/10 bg-white/[0.04] hover:bg-white/[0.04]">
+                          <TableHead className="text-white/55">Mã phiếu XK</TableHead>
+                          <TableHead className="text-white/55">Khách hàng</TableHead>
+                          <TableHead className="text-white/55">Ngày xuất</TableHead>
+                          <TableHead className="text-white/55">Ngày giao</TableHead>
+                          <TableHead className="text-white/55">Trạng thái</TableHead>
+                          <TableHead className="text-white/55">Ghi chú</TableHead>
+                          <TableHead className="text-right text-white/55">Thao tác</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filtered.map((d: any) => (
+                          <TableRow key={d.id} className="cursor-pointer border-white/10 hover:bg-white/[0.04]" onClick={() => openDetail(d)}>
+                            <TableCell className="font-mono font-medium text-amber-100">{d.dispatch_number}</TableCell>
+                            <TableCell className="text-sm text-white/65">{d.customer_name ?? d.customer_id ?? "—"}</TableCell>
+                            <TableCell>{d.dispatch_date ? format(new Date(d.dispatch_date), "dd/MM/yyyy") : "—"}</TableCell>
+                            <TableCell>{d.delivered_date ? format(new Date(d.delivered_date), "dd/MM/yyyy") : "—"}</TableCell>
+                            <TableCell>
+                              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[d.status as DispatchStatus]}`}>
+                                {statusConfig[d.status as DispatchStatus]?.label ?? d.status}
+                              </span>
+                            </TableCell>
+                            <TableCell className="max-w-[200px] truncate text-sm text-white/55">{d.notes ?? "—"}</TableCell>
+                            <TableCell className="text-right">
+                              <Button variant="ghost" size="sm" className="text-white hover:bg-white/10 hover:text-white" onClick={(e) => { e.stopPropagation(); openDetail(d); }}>Chi tiết</Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="space-y-5">
+            <Card className="border-white/10 bg-[#1b120e]/90 text-white shadow-xl shadow-black/20">
+              <CardHeader>
+                <CardTitle className="text-xl">Nguyên tắc công nợ</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm text-white/65">
+                <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-emerald-50">Công nợ lấy theo <b>số tính tiền đã xác nhận</b>, không lấy mù theo PO nếu có thiếu/lỗi.</div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">PO → Phiếu xuất thành phẩm → Xác nhận doanh thu/công nợ → Đối chiếu cuối tháng.</div>
+                <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4 text-amber-50">Nếu thiếu hàng, bắt buộc chọn SKU thiếu và lý do để tránh cộng trùng công nợ.</div>
+              </CardContent>
+            </Card>
+            <Card className="border-white/10 bg-[#1b120e]/90 text-white shadow-xl shadow-black/20">
+              <CardHeader>
+                <CardTitle className="text-xl">Phiếu đang nhập</CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"><p className="text-white/55">Tổng xuất</p><b className="text-2xl">{totalDispatchQty.toLocaleString("vi-VN")}</b></div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"><p className="text-white/55">Tính công nợ</p><b className="text-2xl">{totalBillableQty.toLocaleString("vi-VN")}</b></div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      ) : (
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+          <Card className="border-white/10 bg-[#1b120e]/90 text-white shadow-xl shadow-black/20">
+            <CardHeader className="gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-2xl">
+                  <PackageSearch className="h-6 w-6 text-amber-300" /> Phiếu xuất nguyên vật liệu
+                </CardTitle>
+                <p className="mt-1 text-sm text-white/55">Tính NVL chuẩn theo định lượng SKU, rồi đối chiếu mua hàng và tồn kiểm tay sau 1 tuần.</p>
+              </div>
+              <Badge variant="outline" className="border-amber-300/35 bg-amber-500/10 text-amber-100">UI phase · chưa tự trừ NVL</Badge>
             </CardHeader>
-            <CardContent className="px-4 pb-4">
-              <span className="text-2xl font-bold">{stats[s]}</span>
+            <CardContent className="space-y-5">
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                  <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-xl bg-amber-500/15 text-amber-200">1</div>
+                  <b>Lấy sản lượng thành phẩm</b>
+                  <p className="mt-2 text-sm text-white/55">Từ phiếu xuất thành phẩm hoặc lệnh sản xuất đã xác nhận.</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                  <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-xl bg-amber-500/15 text-amber-200">2</div>
+                  <b>Nhân định lượng SKU</b>
+                  <p className="mt-2 text-sm text-white/55">NVL chuẩn cần dùng = sản lượng × công thức giá vốn/BOM.</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                  <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-xl bg-amber-500/15 text-amber-200">3</div>
+                  <b>Đối chiếu thực tế</b>
+                  <p className="mt-2 text-sm text-white/55">Nhập tồn kiểm tay + ảnh xác nhận, so với mua hàng đã mapping.</p>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-2xl border border-white/10">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-white/10 bg-white/[0.04] hover:bg-white/[0.04]">
+                      <TableHead className="text-white/55">NVL chuẩn</TableHead>
+                      <TableHead className="text-white/55">Nguồn định lượng</TableHead>
+                      <TableHead className="text-right text-white/55">Cần dùng</TableHead>
+                      <TableHead className="text-right text-white/55">Tồn kiểm tay</TableHead>
+                      <TableHead className="text-right text-white/55">Mua vào</TableHead>
+                      <TableHead className="text-white/55">Chênh lệch</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {materialRows.map((row) => (
+                      <TableRow key={row.item} className="border-white/10 hover:bg-white/[0.04]">
+                        <TableCell className="font-medium text-amber-100">{row.item}</TableCell>
+                        <TableCell className="text-sm text-white/60">{row.source}</TableCell>
+                        <TableCell className="text-right">{row.standard}</TableCell>
+                        <TableCell className="text-right">{row.count}</TableCell>
+                        <TableCell className="text-right">{row.purchased}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={row.status === "good" ? "border-emerald-300/30 bg-emerald-500/10 text-emerald-100" : "border-amber-300/30 bg-amber-500/10 text-amber-100"}>{row.variance}</Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-3">
+                <Button variant="outline" className="rounded-xl border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white">
+                  <Camera className="mr-2 h-4 w-4" /> Nhập tồn + ảnh
+                </Button>
+                <Button variant="outline" className="rounded-xl border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white">
+                  <FileSpreadsheet className="mr-2 h-4 w-4" /> Xuất Excel mapping
+                </Button>
+                <Button disabled className="rounded-xl bg-amber-500 font-bold text-stone-950 opacity-70">
+                  Tạo báo cáo NVL tuần
+                </Button>
+              </div>
+              <div className="rounded-2xl border border-amber-300/20 bg-amber-500/10 p-4 text-sm text-amber-50">
+                Bản này trình bày logic đúng trước: AI chỉ đề xuất mapping hóa đơn. Khi anh xác nhận Excel, hệ thống mới dùng mapping đó cho báo cáo mua hàng và tiêu hao NVL.
+              </div>
             </CardContent>
           </Card>
-        ))}
-      </div>
 
-      {/* Tabs + Table */}
-      <Card>
-        <CardHeader className="pb-0">
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
-            <TabsList>
-              <TabsTrigger value="all">Tất cả ({dispatches.length})</TabsTrigger>
-              <TabsTrigger value="pending">Chờ xuất ({stats.pending})</TabsTrigger>
-              <TabsTrigger value="picked">Đang lấy ({stats.picked})</TabsTrigger>
-              <TabsTrigger value="dispatched">Đã xuất ({stats.dispatched})</TabsTrigger>
-              <TabsTrigger value="delivered">Đã giao ({stats.delivered})</TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </CardHeader>
-        <CardContent className="pt-4">
-          {filtered.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <Truck className="h-10 w-10 mx-auto mb-3 opacity-30" />
-              <p>Không có phiếu xuất kho nào</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Mã phiếu XK</TableHead>
-                  <TableHead>Khách hàng</TableHead>
-                  <TableHead>Ngày xuất</TableHead>
-                  <TableHead>Ngày giao</TableHead>
-                  <TableHead>Trạng thái</TableHead>
-                  <TableHead>Ghi chú</TableHead>
-                  <TableHead className="text-right">Thao tác</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((d: any) => (
-                  <TableRow key={d.id} className="cursor-pointer hover:bg-muted/30" onClick={() => openDetail(d)}>
-                    <TableCell className="font-mono font-medium">{d.dispatch_number}</TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{d.customer_id ?? "—"}</TableCell>
-                    <TableCell>{d.dispatch_date ? format(new Date(d.dispatch_date), "dd/MM/yyyy") : "—"}</TableCell>
-                    <TableCell>{d.delivered_date ? format(new Date(d.delivered_date), "dd/MM/yyyy") : "—"}</TableCell>
-                    <TableCell>
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[d.status as DispatchStatus]}`}>
-                        {statusConfig[d.status as DispatchStatus]?.label ?? d.status}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{d.notes ?? "—"}</TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); openDetail(d); }}>Chi tiết</Button>
-                    </TableCell>
-                  </TableRow>
+          <div className="space-y-5">
+            <Card className="border-sky-300/20 bg-[#111827]/90 text-white shadow-xl shadow-black/20">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-xl"><Brain className="h-5 w-5 text-sky-200" /> AI mapping hóa đơn</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {mappingRows.map((row) => (
+                  <div key={row.raw} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">“{row.raw}”</p>
+                        <p className="text-sm text-white/55">→ {row.mapped}</p>
+                      </div>
+                      <Badge variant="outline" className={row.confidence >= 80 ? "border-emerald-300/30 bg-emerald-500/10 text-emerald-100" : "border-amber-300/30 bg-amber-500/10 text-amber-100"}>{row.confidence}%</Badge>
+                    </div>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+                      <div className={row.confidence >= 80 ? "h-full rounded-full bg-emerald-400" : "h-full rounded-full bg-amber-400"} style={{ width: `${row.confidence}%` }} />
+                    </div>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+              </CardContent>
+            </Card>
+
+            <Card className="border-white/10 bg-[#1b120e]/90 text-white shadow-xl shadow-black/20">
+              <CardHeader>
+                <CardTitle className="text-xl">Báo cáo sau 1 tuần</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.04] p-4"><span className="text-white/60">Định lượng cần dùng</span><b>184.2 kg</b></div>
+                <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.04] p-4"><span className="text-white/60">Mua hàng đã map</span><b>191.0 kg</b></div>
+                <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.04] p-4"><span className="text-white/60">Tồn cuối kỳ kiểm tay</span><b>8.9 kg</b></div>
+                <div className="flex items-center justify-between rounded-2xl border border-amber-300/20 bg-amber-500/10 p-4 text-amber-50"><span>Chênh lệch cần xem</span><b>-2.3 kg</b></div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
 
       {/* ── Create Dialog ────────────────────────────────────────────────── */}
       <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (!o) resetForm(); }}>
