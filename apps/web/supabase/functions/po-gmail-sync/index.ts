@@ -392,14 +392,14 @@ function parseKingfoodXlsx(bytes: Uint8Array) {
           vat_handling: "no_extra_multiplier",
         };
       })
-      .filter((item) => /^SP\d+/i.test(item.sku) && item.product_name && item.qty > 0);
+      .filter((item) => /^(?:SP\d+|\d{3,})$/i.test(item.sku) && item.product_name && item.qty > 0);
 
     const firstItemRow = rows.find((row) => /^SP\d+/i.test(String(row?.[14] || "").trim())) || [];
-    const subtotal = toNum(firstItemRow?.[33]);
-    const vat = toNum(firstItemRow?.[34]);
-    const total = toNum(firstItemRow?.[35]);
-    const totalQty = toNum(firstItemRow?.[37]);
-    const itemCount = toNum(firstItemRow?.[38]);
+    const subtotal = toNum(firstItemRow?.[32]);
+    const vat = toNum(firstItemRow?.[33]);
+    const total = toNum(firstItemRow?.[34]);
+    const totalQty = toNum(firstItemRow?.[36]);
+    const itemCount = toNum(firstItemRow?.[37]);
 
     if (items.length > best.items.length) {
       best = { sheetName, items, subtotal, vat, total, totalQty, itemCount };

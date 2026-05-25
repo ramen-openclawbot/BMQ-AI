@@ -50,6 +50,10 @@ interface CustomerPoInbox {
   id: string;
   po_number: string;
   from_name: string;
+  from_email?: string | null;
+  email_subject?: string | null;
+  received_at?: string | null;
+  created_at?: string | null;
   delivery_date: string;
   production_items: ProductionItem[];
   total_amount: number;
@@ -187,6 +191,37 @@ const resolveSkuMatch = (item: ProductionItem, skus: ProductSkuImageRow[]) => {
 
 const resolveSkuImageUrl = (productName: string, skus: ProductSkuImageRow[]) =>
   skus.find((sku) => isStrictProductionSkuMatch(productName, sku.product_name))?.image_url || null;
+
+const isKingfoodPo = (po: Pick<CustomerPoInbox, "from_email" | "email_subject" | "from_name">) => {
+  const marker = normalizeSkuText(`${po.from_email || ""} ${po.email_subject || ""} ${po.from_name || ""}`);
+  return marker.includes("kingfoodmart") || marker.includes("kingfood");
+};
+
+const latestReplacementKeyForPo = (po: CustomerPoInbox) => {
+  const deliveryDate = normalizeDateForDb(po.delivery_date) || "no-date";
+  if (isKingfoodPo(po)) return `kingfood:${deliveryDate}`;
+  return null;
+};
+
+const keepLatestReplacementPos = <T extends CustomerPoInbox>(pos: T[]) => {
+  const latestByKey = new Map<string, T>();
+  const passthrough: T[] = [];
+
+  pos.forEach((po) => {
+    const key = latestReplacementKeyForPo(po);
+    if (!key) {
+      passthrough.push(po);
+      return;
+    }
+
+    const current = latestByKey.get(key);
+    const poTime = new Date(po.received_at || po.created_at || 0).getTime();
+    const currentTime = current ? new Date(current.received_at || current.created_at || 0).getTime() : -Infinity;
+    if (!current || poTime >= currentTime) latestByKey.set(key, po);
+  });
+
+  return [...latestByKey.values(), ...passthrough];
+};
 
 const ProductVisual = ({
   imageUrl,
@@ -525,7 +560,7 @@ export default function ProductionPlanning() {
   );
 
   const visiblePendingPos = useMemo<VisibleCustomerPoInbox[]>(() => {
-    return pendingPos
+    return keepLatestReplacementPos(pendingPos)
       .map((po) => ({
         ...po,
         production_items: (po.production_items || [])
