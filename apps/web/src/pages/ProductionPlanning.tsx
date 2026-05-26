@@ -310,6 +310,9 @@ const getProductionOrderDateIso = (order: ProductionOrder) => {
   return normalizeDateForDb(order.planned_start_date) || itemDates.sort()[0] || null;
 };
 
+const getProductionOrderTotalQty = (order: ProductionOrder) =>
+  (order.items || []).reduce((sum, item) => sum + Number(item.planned_qty ?? item.ordered_qty ?? 0), 0);
+
 const getProductionOrderDisplayStatus = (order: ProductionOrder, productionDateIso: string): ProductionOrderDisplayStatus => {
   if (order.status === "completed" || order.status === "cancelled") return order.status;
 
@@ -1185,7 +1188,9 @@ export default function ProductionPlanning() {
             </div>
           ) : (
             <div className="grid gap-3 lg:grid-cols-2">
-              {productionOrders.map((order) => (
+              {productionOrders.map((order) => {
+                const totalQty = getProductionOrderTotalQty(order);
+                return (
                 <div key={order.id} className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
@@ -1201,13 +1206,19 @@ export default function ProductionPlanning() {
                         {order.planned_start_date ? `${formatDate(order.planned_start_date)} - ${formatDate(order.planned_end_date)}` : "-"}
                       </p>
                     </div>
-                    <Button
-                      variant="outline"
-                      className="h-12 rounded-2xl"
-                      onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
-                    >
-                      {isVi ? "Xem hàng" : "Items"} · {order.items_count || 0}
-                    </Button>
+                    <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+                      <div className="rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-2 text-right">
+                        <div className="text-[10px] font-black uppercase tracking-[0.16em] text-amber-100/55">{isVi ? "Tổng số" : "Total qty"}</div>
+                        <div className="text-2xl font-black leading-none text-amber-100">{totalQty.toLocaleString("vi-VN")}</div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        className="h-12 rounded-2xl"
+                        onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
+                      >
+                        {isVi ? "Xem hàng" : "Items"} · {order.items_count || 0}
+                      </Button>
+                    </div>
                   </div>
                   {expandedOrderId === order.id && (
                     <div className="mt-4 grid gap-2 border-t pt-4">
@@ -1233,7 +1244,8 @@ export default function ProductionPlanning() {
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>
