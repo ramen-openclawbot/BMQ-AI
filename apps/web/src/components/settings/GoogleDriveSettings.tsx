@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { FolderOpen, Save, Check, X, Loader2, TestTube, Link2, Unlink, RefreshCw, Clock } from "lucide-react";
+import { FolderOpen, Save, Check, X, Loader2, TestTube, Link2, Unlink, RefreshCw, Clock, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,6 +19,9 @@ export function GoogleDriveSettings() {
   const [receiptsUncPattern, setReceiptsUncPattern] = useState("yyyy/MM/dd/UNC");
   const [receiptsQtmPattern, setReceiptsQtmPattern] = useState("yyyy/MM/dd/QTM");
   const [gmailConnectedEmail, setGmailConnectedEmail] = useState<string | null>(null);
+  const [debtEmailSender, setDebtEmailSender] = useState("no-reply@bmq.vn");
+  const [debtEmailCc, setDebtEmailCc] = useState("ketoantruong@bmq.vn");
+  const [debtEmailComposioAccountId, setDebtEmailComposioAccountId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -36,7 +39,7 @@ export function GoogleDriveSettings() {
         const { data } = await supabase
           .from("app_settings")
           .select("key, value")
-          .in("key", ["google_drive_po_folder", "google_drive_receipts_folder", "google_drive_receipts_unc_pattern", "google_drive_receipts_qtm_pattern", "google_drive_connected_email", "google_gmail_connected_email"]);
+          .in("key", ["google_drive_po_folder", "google_drive_receipts_folder", "google_drive_receipts_unc_pattern", "google_drive_receipts_qtm_pattern", "google_drive_connected_email", "google_gmail_connected_email", "customer_debt_gmail_sender", "customer_debt_default_cc", "composio_customer_debt_gmail_connected_account_id"]);
 
         if (data) {
           const poFolder = data.find(d => d.key === "google_drive_po_folder");
@@ -45,6 +48,9 @@ export function GoogleDriveSettings() {
           const qtmPatternSetting = data.find(d => d.key === "google_drive_receipts_qtm_pattern");
           const emailSetting = data.find(d => d.key === "google_drive_connected_email");
           const gmailEmailSetting = data.find(d => d.key === "google_gmail_connected_email");
+          const debtSenderSetting = data.find(d => d.key === "customer_debt_gmail_sender");
+          const debtCcSetting = data.find(d => d.key === "customer_debt_default_cc");
+          const debtComposioAccountSetting = data.find(d => d.key === "composio_customer_debt_gmail_connected_account_id");
           
           if (poFolder?.value) {
             setPoFolderUrl(poFolder.value);
@@ -62,6 +68,9 @@ export function GoogleDriveSettings() {
           if (gmailEmailSetting?.value) {
             setGmailConnectedEmail(gmailEmailSetting.value);
           }
+          if (debtSenderSetting?.value) setDebtEmailSender(String(debtSenderSetting.value));
+          if (debtCcSetting?.value) setDebtEmailCc(String(debtCcSetting.value));
+          if (debtComposioAccountSetting?.value) setDebtEmailComposioAccountId(String(debtComposioAccountSetting.value));
         }
       } catch (error) {
         console.error("Failed to fetch Google Drive settings:", error);
@@ -116,6 +125,12 @@ export function GoogleDriveSettings() {
     return url.includes("drive.google.com") && url.includes("/folders/");
   };
 
+  const getErrorMessage = (error: unknown, fallback = "Vui lòng thử lại") =>
+    error instanceof Error ? error.message : fallback;
+
+  const getErrorCode = (error: unknown) =>
+    typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code || "") : "";
+
   const handleConnect = async () => {
     setConnecting(true);
     
@@ -144,10 +159,10 @@ export function GoogleDriveSettings() {
         });
         setConnecting(false);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("Connect error:", error);
       toast.error("Lỗi kết nối", {
-        description: error.message || "Không thể bắt đầu quá trình kết nối"
+        description: getErrorMessage(error, "Không thể bắt đầu quá trình kết nối")
       });
       setConnecting(false);
     }
@@ -177,10 +192,10 @@ export function GoogleDriveSettings() {
 
       setConnectedEmail(null);
       toast.success("Đã ngắt kết nối Google Drive");
-    } catch (error: any) {
+    } catch (error) {
       console.error("Disconnect error:", error);
       toast.error("Không thể ngắt kết nối", {
-        description: error.message
+        description: getErrorMessage(error)
       });
     } finally {
       setDisconnecting(false);
@@ -204,8 +219,8 @@ export function GoogleDriveSettings() {
       } else if (result.error) {
         toast.error("Không thể kết nối Gmail", { description: result.error });
       }
-    } catch (error: any) {
-      toast.error("Lỗi kết nối Gmail", { description: error.message || "Không thể bắt đầu quá trình kết nối" });
+    } catch (error) {
+      toast.error("Lỗi kết nối Gmail", { description: getErrorMessage(error, "Không thể bắt đầu quá trình kết nối") });
     } finally {
       setGmailConnecting(false);
     }
@@ -218,8 +233,8 @@ export function GoogleDriveSettings() {
       await supabase.from("app_settings").delete().eq("key", "google_gmail_connected_email");
       setGmailConnectedEmail(null);
       toast.success("Đã ngắt kết nối Gmail PO");
-    } catch (error: any) {
-      toast.error("Không thể ngắt Gmail", { description: error.message });
+    } catch (error) {
+      toast.error("Không thể ngắt Gmail", { description: getErrorMessage(error) });
     } finally {
       setGmailDisconnecting(false);
     }
@@ -305,10 +320,10 @@ export function GoogleDriveSettings() {
           description: result.error || "Không thể truy cập folder"
         });
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("Test connection error:", error);
       toast.error("Lỗi kết nối", {
-        description: error.message || "Không thể kiểm tra kết nối"
+        description: getErrorMessage(error, "Không thể kiểm tra kết nối")
       });
     } finally {
       setTesting(false);
@@ -370,15 +385,38 @@ export function GoogleDriveSettings() {
         .upsert({ key: "google_drive_receipts_qtm_pattern", value: receiptsQtmPattern.trim() || "yyyy/MM/dd/QTM", updated_at: new Date().toISOString() }, { onConflict: 'key' });
       if (qtmPatternError) throw qtmPatternError;
 
+      const { error: debtSenderError } = await supabase
+        .from("app_settings")
+        .upsert({ key: "customer_debt_gmail_sender", value: debtEmailSender.trim() || "no-reply@bmq.vn", updated_at: new Date().toISOString() }, { onConflict: 'key' });
+      if (debtSenderError) throw debtSenderError;
+
+      const { error: debtCcError } = await supabase
+        .from("app_settings")
+        .upsert({ key: "customer_debt_default_cc", value: debtEmailCc.trim() || "ketoantruong@bmq.vn", updated_at: new Date().toISOString() }, { onConflict: 'key' });
+      if (debtCcError) throw debtCcError;
+
+      const debtComposioValue = debtEmailComposioAccountId.trim();
+      if (debtComposioValue) {
+        const { error: debtComposioError } = await supabase
+          .from("app_settings")
+          .upsert({ key: "composio_customer_debt_gmail_connected_account_id", value: debtComposioValue, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+        if (debtComposioError) throw debtComposioError;
+      } else {
+        const { error: debtComposioClearError } = await supabase
+          .from("app_settings")
+          .upsert({ key: "composio_customer_debt_gmail_connected_account_id", value: "", updated_at: new Date().toISOString() }, { onConflict: 'key' });
+        if (debtComposioClearError) throw debtComposioClearError;
+      }
+
       setPoFolderSaved(true);
       setReceiptsFolderSaved(true);
       
       toast.success("Đã lưu cấu hình Google Drive");
-    } catch (error: any) {
+    } catch (error) {
       console.error("Failed to save Google Drive settings:", error);
       
-      let errorMessage = error?.message || "Vui lòng thử lại";
-      if (error?.code === "42501") {
+      let errorMessage = getErrorMessage(error);
+      if (getErrorCode(error) === "42501") {
         errorMessage = "Bạn không có quyền thực hiện thao tác này. Vui lòng đăng nhập với tài khoản Owner.";
       }
       
@@ -556,6 +594,54 @@ export function GoogleDriveSettings() {
               </Button>
             </div>
           )}
+        </div>
+
+        {/* Debt Email Sender */}
+        <div className="p-4 border border-border rounded-lg bg-card space-y-3">
+          <Label className="flex items-center gap-2">
+            <Mail className="h-4 w-4" />
+            Email gửi công nợ
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            Cấu hình này chỉ dùng khi gửi file Excel công nợ cho NPP/khách hàng. Không dùng tài khoản này để quét Drive UNC/QTM.
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="debt-email-sender">Email gửi</Label>
+              <Input
+                id="debt-email-sender"
+                type="email"
+                value={debtEmailSender}
+                onChange={(e) => setDebtEmailSender(e.target.value)}
+                placeholder="no-reply@bmq.vn"
+              />
+              <p className="text-xs text-muted-foreground">Khuyến nghị: <code>no-reply@bmq.vn</code></p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="debt-email-cc">CC mặc định</Label>
+              <Input
+                id="debt-email-cc"
+                type="text"
+                value={debtEmailCc}
+                onChange={(e) => setDebtEmailCc(e.target.value)}
+                placeholder="ketoantruong@bmq.vn"
+              />
+              <p className="text-xs text-muted-foreground">Có thể nhập nhiều email, phân tách bằng dấu phẩy.</p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="debt-email-composio-account">Composio Gmail connected account ID</Label>
+            <Input
+              id="debt-email-composio-account"
+              type="text"
+              value={debtEmailComposioAccountId}
+              onChange={(e) => setDebtEmailComposioAccountId(e.target.value)}
+              placeholder="Để trống để dùng Supabase secret hiện tại"
+            />
+            <p className="text-xs text-muted-foreground">
+              Dùng khi muốn pin riêng tài khoản Gmail gửi công nợ. Nếu để trống, hệ thống dùng <code>COMPOSIO_GMAIL_CONNECTED_ACCOUNT_ID</code> trong Supabase secrets.
+            </p>
+          </div>
         </div>
 
         {/* PO Folder */}
