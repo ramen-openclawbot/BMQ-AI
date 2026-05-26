@@ -13,11 +13,23 @@ import {
   Monitor,
   Package,
   ImageIcon,
+  Pencil,
+  Trash2,
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -119,6 +131,20 @@ interface CreateProductionOrderInput {
   planned_end_date: string;
   notes: string;
 }
+
+type EditProductionOrderForm = {
+  planned_start_date: string;
+  planned_end_date: string;
+  notes: string;
+  items: Array<{
+    id: string;
+    product_name: string;
+    planned_qty: number;
+    unit: string;
+    delivery_date: string;
+    notes: string;
+  }>;
+};
 
 interface AggregatedPlanItem {
   key: string;
@@ -329,7 +355,7 @@ const getProductionOrderDisplayStatus = (order: ProductionOrder, productionDateI
 
 export default function ProductionPlanning() {
   const { language } = useLanguage();
-  const { canEditModule } = useAuth();
+  const { canEditModule, isOwner } = useAuth();
   const isVi = language === "vi";
   const canEditLocation = canEditModule(PRODUCTION_LOCATION_MODULE_KEY);
   const queryClient = useQueryClient();
@@ -339,6 +365,14 @@ export default function ProductionPlanning() {
   const [activeTab, setActiveTab] = useState<"plan" | "settings">("plan");
   const [selectedPoForCreation, setSelectedPoForCreation] = useState<CustomerPoInbox | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
+  const [editingOrder, setEditingOrder] = useState<ProductionOrder | null>(null);
+  const [deleteOrder, setDeleteOrder] = useState<ProductionOrder | null>(null);
+  const [editForm, setEditForm] = useState<EditProductionOrderForm>({
+    planned_start_date: "",
+    planned_end_date: "",
+    notes: "",
+    items: [],
+  });
   const productionPoDateIso = useMemo(() => vietnamProductionTargetInputValue(), []);
   const tvProductionDateIso = useMemo(() => vietnamTodayInputValue(), []);
   const planDayStartIso = useMemo(() => vietnamDayUtcStartIso(), []);
@@ -519,6 +553,35 @@ export default function ProductionPlanning() {
     enabled: !!expandedOrderId,
   });
 
+  const openEditOrder = (order: ProductionOrder) => {
+    setEditingOrder(order);
+    setEditForm({
+      planned_start_date: normalizeDateForDb(order.planned_start_date) || "",
+      planned_end_date: normalizeDateForDb(order.planned_end_date) || normalizeDateForDb(order.planned_start_date) || "",
+      notes: order.notes || "",
+      items: (order.items || []).map((item) => ({
+        id: item.id,
+        product_name: item.product_name,
+        planned_qty: Number(item.planned_qty ?? item.ordered_qty ?? 0),
+        unit: item.unit,
+        delivery_date: normalizeDateForDb(item.delivery_date) || "",
+        notes: item.notes || "",
+      })),
+    });
+  };
+
+  const updateEditItem = (index: number, updates: Partial<EditProductionOrderForm["items"][number]>) => {
+    setEditForm((current) => ({
+      ...current,
+      items: current.items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...updates } : item)),
+    }));
+  };
+
+  const closeEditOrder = () => {
+    setEditingOrder(null);
+    setEditForm({ planned_start_date: "", planned_end_date: "", notes: "", items: [] });
+  };
+
   const checkPoMutation = useMutation({
     mutationFn: async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -669,6 +732,70 @@ export default function ProductionPlanning() {
     onError: (error: any) => {
       console.error("Mutation error:", error);
       toast.error(isVi ? "Không thể tạo lệnh sản xuất. Vui lòng thử lại." : "Failed to create production order. Please try again.");
+    },
+  });
+
+  const updateProductionOrderMutation = useMutation({
+    mutationFn: async ({ orderId, form }: { orderId: string; form: EditProductionOrderForm }) => {
+      const { error: orderError } = await (supabase as any)
+        .from("production_orders")
+        .update({
+          planned_start_date: form.planned_start_date || null,
+          planned_end_date: form.planned_end_date || null,
+          notes: form.notes || null,
+        })
+        .eq("id", orderId);
+
+      if (orderError) throw orderError;
+
+      await Promise.all(
+        form.items.map((item) =>
+          (supabase as any)
+            .from("production_order_items")
+            .update({
+              planned_qty: Number(item.planned_qty || 0),
+              delivery_date: item.delivery_date || null,
+              notes: item.notes || null,
+            })
+            .eq("id", item.id)
+            .then(({ error }: { error: any }) => {
+              if (error) throw error;
+            })
+        )
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["production-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["production-order-items"] });
+      toast.success(isVi ? "Đã cập nhật lệnh sản xuất" : "Production order updated");
+      closeEditOrder();
+    },
+    onError: (error: any) => {
+      console.error("Error updating production order:", error);
+      toast.error(isVi ? "Không thể cập nhật lệnh sản xuất" : "Failed to update production order");
+    },
+  });
+
+  const deleteProductionOrderMutation = useMutation({
+    mutationFn: async (orderId: string) => {
+      if (!isOwner) throw new Error("Owner permission required");
+      const { error } = await (supabase as any)
+        .from("production_orders")
+        .delete()
+        .eq("id", orderId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pending-pos"] });
+      queryClient.invalidateQueries({ queryKey: ["production-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["production-order-items"] });
+      toast.success(isVi ? "Đã xoá lệnh sản xuất" : "Production order deleted");
+      setDeleteOrder(null);
+      if (expandedOrderId === deleteOrder?.id) setExpandedOrderId(null);
+    },
+    onError: (error: any) => {
+      console.error("Error deleting production order:", error);
+      toast.error(isVi ? "Không thể xoá lệnh sản xuất" : "Failed to delete production order");
     },
   });
 
@@ -1218,6 +1345,29 @@ export default function ProductionPlanning() {
                       >
                         {isVi ? "Xem hàng" : "Items"} · {order.items_count || 0}
                       </Button>
+                      <div className="grid w-full grid-cols-2 gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-11 rounded-2xl"
+                          disabled={!canEditLocation}
+                          onClick={() => openEditOrder(order)}
+                        >
+                          <Pencil className="mr-1 h-4 w-4" />
+                          {isVi ? "Sửa" : "Edit"}
+                        </Button>
+                        {isOwner && (
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            className="h-11 rounded-2xl"
+                            onClick={() => setDeleteOrder(order)}
+                          >
+                            <Trash2 className="mr-1 h-4 w-4" />
+                            {isVi ? "Xoá" : "Delete"}
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
                   {expandedOrderId === order.id && (
@@ -1376,6 +1526,140 @@ export default function ProductionPlanning() {
           )}
         </DialogContent>
       </Dialog>
+
+      <Dialog open={!!editingOrder} onOpenChange={(open) => !open && closeEditOrder()}>
+        <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto rounded-3xl border-white/10 bg-[#14100d] text-white">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-black">
+              {isVi ? "Sửa lệnh sản xuất" : "Edit production order"} {editingOrder?.production_number}
+            </DialogTitle>
+          </DialogHeader>
+
+          {editingOrder && (
+            <div className="space-y-5">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <Label htmlFor="edit-start-date">{isVi ? "Ngày bắt đầu" : "Start date"}</Label>
+                  <Input
+                    id="edit-start-date"
+                    type="date"
+                    value={editForm.planned_start_date}
+                    onChange={(e) => setEditForm({ ...editForm, planned_start_date: e.target.value })}
+                    className="mt-1 h-12 rounded-2xl"
+                    disabled={!canEditLocation || updateProductionOrderMutation.isPending}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-end-date">{isVi ? "Ngày kết thúc" : "End date"}</Label>
+                  <Input
+                    id="edit-end-date"
+                    type="date"
+                    value={editForm.planned_end_date}
+                    onChange={(e) => setEditForm({ ...editForm, planned_end_date: e.target.value })}
+                    className="mt-1 h-12 rounded-2xl"
+                    disabled={!canEditLocation || updateProductionOrderMutation.isPending}
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-3">
+                {editForm.items.map((item, idx) => (
+                  <div key={item.id} className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="text-base font-black leading-tight">{item.product_name}</h3>
+                        <p className="text-xs font-bold uppercase text-white/45">{item.unit}</p>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-[160px_180px_minmax(0,1fr)]">
+                      <div>
+                        <Label>{isVi ? "Số lượng" : "Quantity"}</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={item.planned_qty}
+                          onChange={(e) => updateEditItem(idx, { planned_qty: Number.parseFloat(e.target.value) || 0 })}
+                          className="mt-1 h-12 rounded-2xl text-xl font-black"
+                          disabled={!canEditLocation || updateProductionOrderMutation.isPending}
+                        />
+                      </div>
+                      <div>
+                        <Label>{isVi ? "Ngày giao/SX" : "Delivery date"}</Label>
+                        <Input
+                          type="date"
+                          value={item.delivery_date}
+                          onChange={(e) => updateEditItem(idx, { delivery_date: e.target.value })}
+                          className="mt-1 h-12 rounded-2xl"
+                          disabled={!canEditLocation || updateProductionOrderMutation.isPending}
+                        />
+                      </div>
+                      <div>
+                        <Label>{isVi ? "Ghi chú dòng" : "Line note"}</Label>
+                        <Input
+                          value={item.notes}
+                          onChange={(e) => updateEditItem(idx, { notes: e.target.value })}
+                          className="mt-1 h-12 rounded-2xl"
+                          placeholder={isVi ? "Lý do chỉnh số lượng..." : "Adjustment reason..."}
+                          disabled={!canEditLocation || updateProductionOrderMutation.isPending}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <Label htmlFor="edit-notes">{isVi ? "Ghi chú lệnh" : "Order notes"}</Label>
+                <Textarea
+                  id="edit-notes"
+                  value={editForm.notes}
+                  onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                  className="mt-1 min-h-24 rounded-2xl"
+                  disabled={!canEditLocation || updateProductionOrderMutation.isPending}
+                />
+              </div>
+
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button variant="outline" className="h-12 rounded-2xl" onClick={closeEditOrder} disabled={updateProductionOrderMutation.isPending}>
+                  {isVi ? "Hủy" : "Cancel"}
+                </Button>
+                <Button
+                  className="h-12 rounded-2xl bg-amber-400 font-black text-[#1b1004] hover:bg-amber-300"
+                  onClick={() => updateProductionOrderMutation.mutate({ orderId: editingOrder.id, form: editForm })}
+                  disabled={!canEditLocation || updateProductionOrderMutation.isPending}
+                >
+                  {updateProductionOrderMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+                  {isVi ? "Lưu thay đổi" : "Save changes"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deleteOrder} onOpenChange={(open) => !open && setDeleteOrder(null)}>
+        <AlertDialogContent className="border-white/10 bg-[#14100d] text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{isVi ? "Xoá lệnh sản xuất?" : "Delete production order?"}</AlertDialogTitle>
+            <AlertDialogDescription className="text-white/60">
+              {isVi
+                ? `Owner sẽ xoá lệnh ${deleteOrder?.production_number || "SX"} và toàn bộ dòng hàng liên quan. Hành động này không thể hoàn tác.`
+                : `Owner will delete order ${deleteOrder?.production_number || "SX"} and all related line items. This cannot be undone.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteProductionOrderMutation.isPending}>{isVi ? "Hủy" : "Cancel"}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={!isOwner || deleteProductionOrderMutation.isPending}
+              onClick={() => deleteOrder && deleteProductionOrderMutation.mutate(deleteOrder.id)}
+            >
+              {deleteProductionOrderMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              {isVi ? "Xoá lệnh" : "Delete order"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {tvModeOpen && (
         <div className="fixed inset-0 z-50 h-screen w-screen overflow-hidden bg-[radial-gradient(circle_at_18%_-12%,rgba(245,158,11,0.22),transparent_34%),linear-gradient(180deg,#140f0c_0%,#0b0908_42%,#050403_100%)] text-white">
