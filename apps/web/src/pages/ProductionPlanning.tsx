@@ -1345,29 +1345,32 @@ export default function ProductionPlanning() {
                       >
                         {isVi ? "Xem hàng" : "Items"} · {order.items_count || 0}
                       </Button>
-                      <div className="grid w-full grid-cols-2 gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-11 rounded-2xl"
-                          disabled={!canEditLocation}
-                          onClick={() => openEditOrder(order)}
-                        >
-                          <Pencil className="mr-1 h-4 w-4" />
-                          {isVi ? "Sửa" : "Edit"}
-                        </Button>
-                        {isOwner && (
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            className="h-11 rounded-2xl"
-                            onClick={() => setDeleteOrder(order)}
-                          >
-                            <Trash2 className="mr-1 h-4 w-4" />
-                            {isVi ? "Xoá" : "Delete"}
-                          </Button>
-                        )}
-                      </div>
+                      {(canEditLocation || isOwner) && (
+                        <div className={`grid w-full gap-2 ${canEditLocation && isOwner ? "grid-cols-2" : "grid-cols-1"}`}>
+                          {canEditLocation && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-11 rounded-2xl"
+                              onClick={() => openEditOrder(order)}
+                            >
+                              <Pencil className="mr-1 h-4 w-4" />
+                              {isVi ? "Sửa" : "Edit"}
+                            </Button>
+                          )}
+                          {isOwner && (
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              className="h-11 rounded-2xl"
+                              onClick={() => setDeleteOrder(order)}
+                            >
+                              <Trash2 className="mr-1 h-4 w-4" />
+                              {isVi ? "Xoá" : "Delete"}
+                            </Button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                   {expandedOrderId === order.id && (
