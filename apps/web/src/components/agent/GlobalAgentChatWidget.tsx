@@ -484,6 +484,17 @@ type RevenueDailyCompare = {
   period: string;
   existingReport: RevenueDailyReport | null;
   previewSummary: RevenueDailyReport["summary"];
+  requiresCancellationConfirmation?: boolean;
+  dailyCancellationResolution?: {
+    enabled?: boolean;
+    hasCancellationSignal?: boolean;
+    requiresConfirmation?: boolean;
+    cancelSignals?: Array<Record<string, unknown>>;
+    excludedRows?: Array<Record<string, unknown>>;
+    replacementRows?: Array<Record<string, unknown>>;
+    unresolvedCancelSignals?: Array<Record<string, unknown>>;
+    message?: string;
+  } | null;
   comparison: {
     totals: {
       current: { lineCount: number; grossRevenue: number; quantity: number; reviewCount: number };
@@ -696,6 +707,8 @@ export function GlobalAgentChatWidget() {
         period: result.period,
         existingReport: result.existingReport || null,
         previewSummary: result.previewSummary,
+        requiresCancellationConfirmation: result.requiresCancellationConfirmation === true,
+        dailyCancellationResolution: result.dailyCancellationResolution || null,
         comparison: result.comparison,
       });
     } catch (error) {
@@ -710,8 +723,14 @@ export function GlobalAgentChatWidget() {
     setIsPostingDailyCompare(true);
     setDailyReportError(null);
     try {
-      await invokeRevenueDailyAction({ action: "confirm_daily_overwrite", runId: dailyCompare.runId });
-      pushAgent(`Đã ghi daily revenue ngày ${dailyCompare.revenueDate} vào ledger tạm kiểm soát. Số liệu vẫn là controlled/not trusted cho đến kỳ audit cuối tháng.`);
+      await invokeRevenueDailyAction({
+        action: "confirm_daily_overwrite",
+        runId: dailyCompare.runId,
+        ...(dailyCompare.requiresCancellationConfirmation ? { confirmCancelReplacement: true } : {}),
+      });
+      pushAgent(dailyCompare.requiresCancellationConfirmation
+        ? `Đã xác nhận huỷ PO cũ và ghi PO mới cho daily revenue ngày ${dailyCompare.revenueDate}. Số liệu vẫn là controlled/not trusted cho đến kỳ audit cuối tháng.`
+        : `Đã ghi daily revenue ngày ${dailyCompare.revenueDate} vào ledger tạm kiểm soát. Số liệu vẫn là controlled/not trusted cho đến kỳ audit cuối tháng.`);
       setDailyCompare(null);
       await loadDailyReport();
     } catch (error) {
@@ -1185,6 +1204,25 @@ export function GlobalAgentChatWidget() {
                         ? "Xác nhận sẽ overwrite daily revenue cũ bằng preview mới."
                         : "Xác nhận sẽ ghi vào ledger cho ngày này và cộng vào tháng hiện tại."}
                     </div>
+                    {dailyCompare.requiresCancellationConfirmation ? (
+                      <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 space-y-1">
+                        <div className="font-semibold">Phát hiện email huỷ + PO mới trong ngày</div>
+                        <div>{dailyCompare.dailyCancellationResolution?.message || "Cần xác nhận huỷ PO cũ và ghi PO mới trước khi post ledger."}</div>
+                        <div>
+                          Huỷ: {dailyCompare.dailyCancellationResolution?.cancelSignals?.length || 0} mail · Loại PO cũ: {dailyCompare.dailyCancellationResolution?.excludedRows?.length || 0} · PO mới: {dailyCompare.dailyCancellationResolution?.replacementRows?.length || 0}
+                        </div>
+                        {dailyCompare.dailyCancellationResolution?.excludedRows?.slice(0, 2).map((row, index) => (
+                          <div key={`excluded-${index}`} className="text-amber-800">
+                            Huỷ {String(row.poNumber || "PO cũ")} · {String(row.subject || "")}
+                          </div>
+                        ))}
+                        {dailyCompare.dailyCancellationResolution?.replacementRows?.slice(0, 2).map((row, index) => (
+                          <div key={`replacement-${index}`} className="text-amber-800">
+                            Ghi mới {String(row.poNumber || "PO mới")} · {Number(row.totalAmount || 0).toLocaleString("vi-VN")}đ
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="rounded-md bg-muted/40 p-2">
                         <div className="text-muted-foreground">Gross delta</div>
@@ -1210,7 +1248,13 @@ export function GlobalAgentChatWidget() {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <Button type="button" size="sm" onClick={confirmDailyCompare} disabled={isPostingDailyCompare}>
-                        {isPostingDailyCompare ? <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />Đang ghi</> : dailyCompare.existingReport ? "Confirm overwrite" : "Confirm ghi ledger"}
+                        {isPostingDailyCompare
+                          ? <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />Đang ghi</>
+                          : dailyCompare.requiresCancellationConfirmation
+                          ? "Confirm huỷ PO cũ & ghi PO mới"
+                          : dailyCompare.existingReport
+                          ? "Confirm overwrite"
+                          : "Confirm ghi ledger"}
                       </Button>
                       <Button type="button" size="sm" variant="outline" onClick={cancelDailyCompare} disabled={isPostingDailyCompare}>
                         Hủy

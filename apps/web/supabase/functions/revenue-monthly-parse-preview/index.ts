@@ -75,6 +75,19 @@ type PreviewOptions = {
   linePayloadMetadata?: JsonRecord;
 };
 
+type DailyCancellationResolution = {
+  enabled: boolean;
+  hasCancellationSignal: boolean;
+  requiresConfirmation: boolean;
+  cancelSignals: JsonRecord[];
+  excludedRows: JsonRecord[];
+  replacementRows: JsonRecord[];
+  unresolvedCancelSignals: JsonRecord[];
+  originalRowCount: number;
+  filteredRowCount: number;
+  message?: string;
+};
+
 type DispatchRevenueConfirmationLine = {
   id: string;
   confirmation_id: string;
@@ -373,7 +386,10 @@ const autoDailyWindow = (now = new Date()) => {
   const revenueDateFrom = current.date;
   const revenueDateTo = current.date;
   const poReceivedFrom = shiftLocalDate(current.date, -1);
-  const poReceivedTo = shiftLocalDate(current.date, -1);
+  // Same-day correction guardrail: by the time the owner manually re-runs daily parse,
+  // cancellation emails and replacement POs can arrive on the revenue date itself.
+  // Line-level service_date filtering still prevents tomorrow's POs received today from posting.
+  const poReceivedTo = current.date;
   return { period, revenueDateFrom, revenueDateTo, poReceivedFrom, poReceivedTo, hasRevenueWindow: true };
 };
 
@@ -382,7 +398,7 @@ const explicitRevenueDateWindow = (revenueDate: string) => ({
   revenueDateFrom: revenueDate,
   revenueDateTo: revenueDate,
   poReceivedFrom: shiftLocalDate(revenueDate, -1),
-  poReceivedTo: shiftLocalDate(revenueDate, -1),
+  poReceivedTo: revenueDate,
   hasRevenueWindow: true,
 });
 
@@ -690,6 +706,128 @@ async function fetchInboxRows(supabaseAdmin: ReturnType<typeof createClient>, re
   await fetchPages();
   await fetchPages((query) => query.eq("from_email", THUY_DIRECT_DEALER_SENDER));
   return Array.from(rowsById.values());
+}
+
+const inboxRowPoNumber = (row: InboxRow) =>
+  stringValue(row.po_number, extractPoNumberFromSubject(row.email_subject))?.toUpperCase() || null;
+
+const inboxRowExplicitServiceDate = (row: InboxRow) => {
+  const raw = asRecord(row.raw_payload);
+  const parseMeta = asRecord(raw.parse_meta);
+  return firstNormalizedRevenueDate(
+    parseMeta.service_date,
+    parseMeta.delivery_date,
+    row.delivery_date,
+  );
+};
+
+const inboxRowServiceDate = (row: InboxRow) => {
+  const receivedDate = localDateFromTimestamp(row.received_at);
+  return firstNormalizedRevenueDate(
+    inboxRowExplicitServiceDate(row),
+    receivedDate ? shiftLocalDate(receivedDate, 1) : null,
+  );
+};
+
+const isCancellationInboxRow = (row: InboxRow) => {
+  const raw = asRecord(row.raw_payload);
+  const poAutomation = asRecord(raw.po_automation);
+  const automationStatus = String(poAutomation.automation_status || "");
+  if (automationStatus === "cancel_signal") return true;
+  const normalizedSubject = normalizeText(row.email_subject);
+  return /(^|\s)(huy|huy don|thong bao huy|cancel|cancellation)(\s|$)/.test(normalizedSubject);
+};
+
+const summarizeInboxRowForCancellation = (row: InboxRow): JsonRecord => ({
+  inboxRowId: row.id,
+  poNumber: inboxRowPoNumber(row),
+  receivedAt: row.received_at || null,
+  serviceDate: inboxRowServiceDate(row),
+  fromEmail: row.from_email || null,
+  subject: row.email_subject || null,
+  customerId: row.matched_customer_id || null,
+  customerName: row.mini_crm_customers?.customer_name || null,
+  totalAmount: row.total_amount || row.subtotal_amount || null,
+  itemCount: asArray(row.production_items).length,
+});
+
+function resolveDailyCancellationReplacements(rows: InboxRow[], window: ParseWindow): { rows: InboxRow[]; resolution: DailyCancellationResolution } {
+  const cancelRows = rows.filter((row) => {
+    if (!isCancellationInboxRow(row)) return false;
+    const serviceDate = inboxRowExplicitServiceDate(row);
+    return !serviceDate || (serviceDate >= window.revenueDateFrom && serviceDate <= window.revenueDateTo);
+  });
+
+  const cancelByPo = new Map<string, InboxRow>();
+  const unresolvedCancelSignals: JsonRecord[] = [];
+  for (const row of cancelRows) {
+    const poNumber = inboxRowPoNumber(row);
+    if (!poNumber) {
+      unresolvedCancelSignals.push(summarizeInboxRowForCancellation(row));
+      continue;
+    }
+    const existing = cancelByPo.get(poNumber);
+    const existingReceived = String(existing?.received_at || "");
+    const currentReceived = String(row.received_at || "");
+    if (!existing || currentReceived >= existingReceived) cancelByPo.set(poNumber, row);
+  }
+
+  const excludedRows: JsonRecord[] = [];
+  const filteredRows = rows.filter((row) => {
+    if (cancelRows.some((cancelRow) => cancelRow.id === row.id)) return false;
+    const poNumber = inboxRowPoNumber(row);
+    const cancelRow = poNumber ? cancelByPo.get(poNumber) : null;
+    if (!cancelRow) return true;
+    const rowReceived = String(row.received_at || "");
+    const cancelReceived = String(cancelRow.received_at || "");
+    if (!rowReceived || !cancelReceived || rowReceived <= cancelReceived) {
+      excludedRows.push({
+        ...summarizeInboxRowForCancellation(row),
+        cancelledByInboxRowId: cancelRow.id,
+        cancelledByReceivedAt: cancelRow.received_at || null,
+      });
+      return false;
+    }
+    return true;
+  });
+
+  const replacementRows = filteredRows
+    .filter((row) => {
+      if (isCancellationInboxRow(row)) return false;
+      const serviceDate = inboxRowServiceDate(row);
+      if (!serviceDate || serviceDate < window.revenueDateFrom || serviceDate > window.revenueDateTo) return false;
+      return cancelRows.some((cancelRow) => {
+        if (row.id === cancelRow.id) return false;
+        if (row.from_email && cancelRow.from_email && row.from_email !== cancelRow.from_email) return false;
+        if (row.matched_customer_id && cancelRow.matched_customer_id && row.matched_customer_id !== cancelRow.matched_customer_id) return false;
+        const rowPo = inboxRowPoNumber(row);
+        const cancelPo = inboxRowPoNumber(cancelRow);
+        if (rowPo && cancelPo && rowPo === cancelPo) return false;
+        const rowReceived = String(row.received_at || "");
+        const cancelReceived = String(cancelRow.received_at || "");
+        return !rowReceived || !cancelReceived || rowReceived >= cancelReceived;
+      });
+    })
+    .map(summarizeInboxRowForCancellation);
+
+  const requiresConfirmation = cancelRows.length > 0 && (excludedRows.length > 0 || replacementRows.length > 0 || unresolvedCancelSignals.length > 0);
+  return {
+    rows: filteredRows,
+    resolution: {
+      enabled: true,
+      hasCancellationSignal: cancelRows.length > 0,
+      requiresConfirmation,
+      cancelSignals: cancelRows.map(summarizeInboxRowForCancellation),
+      excludedRows,
+      replacementRows,
+      unresolvedCancelSignals,
+      originalRowCount: rows.length,
+      filteredRowCount: filteredRows.length,
+      message: requiresConfirmation
+        ? "Phát hiện email huỷ trong window daily. Preview đã loại PO cũ bị huỷ; cần owner xác nhận huỷ PO cũ và ghi PO mới trước khi post ledger."
+        : undefined,
+    },
+  };
 }
 
 async function fetchDispatchRevenueConfirmations(
@@ -1068,9 +1206,22 @@ async function runCurrentMonthPreview(
     emit?.({ type: "progress", stage: "inbox_fetch_start", channel: "Mailbox", message: "Đang đọc inbox đã sync để chia theo channel" });
     const rows = await fetchInboxRows(supabaseAdmin, receivedFrom, receivedTo);
     emit?.({ type: "progress", stage: "inbox_fetch_done", channel: "Mailbox", inboxRows: rows.length, message: `Đã lấy ${rows.length} mail trong inbox, bắt đầu parse theo kênh` });
-    const dispatchConfirmations = await fetchDispatchRevenueConfirmations(supabaseAdmin, rows.map((row) => row.id));
+    const { rows: rowsAfterCancellationResolution, resolution: dailyCancellationResolution } = resolveDailyCancellationReplacements(rows, window);
+    if (dailyCancellationResolution.hasCancellationSignal) {
+      emit?.({
+        type: "progress",
+        stage: "daily_cancellation_resolution",
+        channel: "Mailbox",
+        cancelSignals: dailyCancellationResolution.cancelSignals.length,
+        excludedRows: dailyCancellationResolution.excludedRows.length,
+        replacementRows: dailyCancellationResolution.replacementRows.length,
+        requiresConfirmation: dailyCancellationResolution.requiresConfirmation,
+        message: dailyCancellationResolution.message || "Đã kiểm tra email huỷ trong window daily",
+      });
+    }
+    const dispatchConfirmations = await fetchDispatchRevenueConfirmations(supabaseAdmin, rowsAfterCancellationResolution.map((row) => row.id));
     emit?.({ type: "progress", stage: "dispatch_confirmation_fetch_done", rows: dispatchConfirmations.size, message: `Đã lấy ${dispatchConfirmations.size} xác nhận xuất kho/doanh thu` });
-    const lines = buildPreviewLines(String(run.id), window.period, window.revenueDateFrom, window.revenueDateTo, rows, dispatchConfirmations, emit, {
+    const lines = buildPreviewLines(String(run.id), window.period, window.revenueDateFrom, window.revenueDateTo, rowsAfterCancellationResolution, dispatchConfirmations, emit, {
       monthlyParseKind: options.monthlyParseKind,
       sourceTab: options.sourceTab,
       linePayloadMetadata: options.linePayloadMetadata,
@@ -1078,6 +1229,8 @@ async function runCurrentMonthPreview(
     const summary = {
       ...summarizeLines(lines, window),
       monthly_parse_kind: options.monthlyParseKind || "manual_current_month_to_yesterday",
+      dailyCancellationResolution,
+      daily_cancellation_replacement_confirmation_required: dailyCancellationResolution.requiresConfirmation,
       ...(options.runSummary || {}),
       gmailSync: syncResults,
     };
@@ -1337,6 +1490,8 @@ async function previewDailyCompare(req: Request, supabaseAdmin: ReturnType<typeo
     runId: String(asRecord(preview.run).id || ""),
     existingReport,
     previewSummary: preview.summary,
+    dailyCancellationResolution: asRecord(preview.summary).dailyCancellationResolution || null,
+    requiresCancellationConfirmation: asRecord(preview.summary).daily_cancellation_replacement_confirmation_required === true,
     comparison: compareDailySummaries(existingReport ? asRecord(asRecord(existingReport).summary) : null, asRecord(preview.summary)),
   });
 }
@@ -1626,6 +1781,14 @@ serve(async (req) => {
         runSummary.chat_safe_preview_compare !== true
       ) {
         return jsonResponse(req, { error: "Invalid daily preview run for confirm." }, 400);
+      }
+      if (runSummary.daily_cancellation_replacement_confirmation_required === true && body?.confirmCancelReplacement !== true) {
+        return jsonResponse(req, {
+          success: false,
+          error: "Daily parse detected cancellation/replacement evidence. Confirm cancel old PO and post replacement PO before writing ledger.",
+          code: "requires_cancel_replacement_confirmation",
+          dailyCancellationResolution: runSummary.dailyCancellationResolution || null,
+        }, 409);
       }
       const { data, error } = await supabaseAdmin.rpc("auto_post_revenue_daily_parse", { _run_id: runId });
       if (error) throw error;
