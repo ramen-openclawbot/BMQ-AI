@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Truck, Plus, Loader2, PackageCheck, AlertTriangle, RefreshCw, Brain, Camera, FileSpreadsheet, PackageSearch } from "lucide-react";
+import { Truck, Plus, Loader2, PackageCheck, AlertTriangle, RefreshCw, Brain, Camera, FileSpreadsheet, PackageSearch, FilePlus2, CheckCircle2 } from "lucide-react";
 import { format, subDays } from "date-fns";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -89,6 +89,94 @@ interface Dispatch {
   source_po_number?: string;
   customer_name?: string;
 }
+
+type ProductionOrderForMaterials = {
+  id: string;
+  production_number: string;
+  source_po_inbox_id: string | null;
+  status: string;
+  planned_start_date: string | null;
+  planned_end_date: string | null;
+  created_at: string;
+  notes: string | null;
+};
+
+type ProductionOrderItemForMaterials = {
+  id: string;
+  production_order_id: string;
+  sku_id: string | null;
+  product_name: string;
+  ordered_qty: number | null;
+  planned_qty: number | null;
+  actual_qty: number | null;
+  unit: string | null;
+  delivery_date: string | null;
+};
+
+type MaterialSkuRow = {
+  id: string;
+  sku_code: string | null;
+  product_name: string;
+  unit: string | null;
+  sku_type?: string | null;
+};
+
+type SkuFormulaRow = {
+  id: string;
+  sku_id: string;
+  ingredient_sku_id: string | null;
+  ingredient_name: string;
+  unit: string | null;
+  unit_price: number | null;
+  dosage_qty: number | null;
+  wastage_percent: number | null;
+  sort_order: number | null;
+};
+
+type KitchenItemRow = {
+  id: string;
+  product_sku_id: string | null;
+  name: string;
+  unit: string;
+  standard_unit_cost: number | null;
+  active: boolean;
+};
+
+type ProductionMaterialIssue = {
+  id: string;
+  issue_number: string;
+  production_order_id: string;
+  issue_date: string;
+  status: string;
+  total_amount: number;
+  created_at: string;
+};
+
+type ProductionMaterialIssueItem = {
+  id: string;
+  material_issue_id: string;
+  ingredient_name: string;
+  planned_finished_qty: number;
+  dosage_qty: number;
+  wastage_percent: number;
+  required_qty: number;
+  unit: string;
+  unit_cost: number;
+  amount: number;
+};
+
+type MaterialPreviewRow = {
+  key: string;
+  production_item_name: string;
+  finished_qty: number;
+  ingredient_name: string;
+  required_qty: number;
+  unit: string;
+  unit_cost: number;
+  amount: number;
+  source: string;
+  status: "ready" | "missing_finished_sku" | "missing_formula" | "missing_kitchen_item";
+};
 
 const statusConfig: Record<DispatchStatus, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   pending:    { label: "Chờ xuất kho",   variant: "secondary" },
@@ -233,6 +321,108 @@ export default function WarehouseDispatch() {
       ).map((inv: any) => ({ ...inv }));
     },
     enabled: createOpen || Boolean(dispatchPoId),
+  });
+
+  const { data: materialOrders = [], isLoading: loadingMaterialOrders } = useQuery<ProductionOrderForMaterials[]>({
+    queryKey: ["production_orders_for_material_issue"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("production_orders")
+        .select("id,production_number,source_po_inbox_id,status,planned_start_date,planned_end_date,created_at,notes")
+        .in("status", ["draft", "planned", "in_progress"])
+        .order("created_at", { ascending: false })
+        .limit(8);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: activeWorkflow === "materials",
+  });
+
+  const materialOrderIds = materialOrders.map((order) => order.id);
+
+  const { data: materialOrderItems = [] } = useQuery<ProductionOrderItemForMaterials[]>({
+    queryKey: ["production_order_items_for_material_issue", materialOrderIds.join(",")],
+    queryFn: async () => {
+      if (!materialOrderIds.length) return [];
+      const { data, error } = await (supabase as any)
+        .from("production_order_items")
+        .select("id,production_order_id,sku_id,product_name,ordered_qty,planned_qty,actual_qty,unit,delivery_date")
+        .in("production_order_id", materialOrderIds)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: activeWorkflow === "materials" && materialOrderIds.length > 0,
+  });
+
+  const { data: materialSkus = [] } = useQuery<MaterialSkuRow[]>({
+    queryKey: ["material_issue_product_skus"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("product_skus")
+        .select("id,sku_code,product_name,unit,sku_type")
+        .order("product_name", { ascending: true });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: activeWorkflow === "materials",
+  });
+
+  const { data: skuFormulations = [] } = useQuery<SkuFormulaRow[]>({
+    queryKey: ["material_issue_sku_formulations"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("sku_formulations")
+        .select("id,sku_id,ingredient_sku_id,ingredient_name,unit,unit_price,dosage_qty,wastage_percent,sort_order")
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: activeWorkflow === "materials",
+  });
+
+  const { data: kitchenItems = [] } = useQuery<KitchenItemRow[]>({
+    queryKey: ["material_issue_kitchen_items"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("kitchen_inventory_items")
+        .select("id,product_sku_id,name,unit,standard_unit_cost,active")
+        .eq("active", true)
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: activeWorkflow === "materials",
+  });
+
+  const { data: materialIssues = [] } = useQuery<ProductionMaterialIssue[]>({
+    queryKey: ["production_material_issues"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("production_material_issues")
+        .select("id,issue_number,production_order_id,issue_date,status,total_amount,created_at")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: activeWorkflow === "materials",
+  });
+
+  const { data: materialIssueItems = [] } = useQuery<ProductionMaterialIssueItem[]>({
+    queryKey: ["production_material_issue_items", materialIssues.map((issue) => issue.id).join(",")],
+    queryFn: async () => {
+      const issueIds = materialIssues.map((issue) => issue.id);
+      if (!issueIds.length) return [];
+      const { data, error } = await (supabase as any)
+        .from("production_material_issue_items")
+        .select("id,material_issue_id,ingredient_name,planned_finished_qty,dosage_qty,wastage_percent,required_qty,unit,unit_cost,amount")
+        .in("material_issue_id", issueIds)
+        .order("ingredient_name", { ascending: true });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: activeWorkflow === "materials" && materialIssues.length > 0,
   });
 
   // ── Handlers ─────────────────────────────────────────────────────────────
@@ -486,6 +676,38 @@ export default function WarehouseDispatch() {
     },
   });
 
+  const createMaterialIssueMutation = useMutation({
+    mutationFn: async (productionOrderId: string) => {
+      const order = materialOrders.find((item) => item.id === productionOrderId);
+      const issueDate = order?.planned_start_date || format(new Date(), "yyyy-MM-dd");
+      const { data, error } = await (supabase as any).rpc("create_production_material_issue", {
+        p_production_order_id: productionOrderId,
+        p_issue_date: issueDate,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (result: any) => {
+      queryClient.invalidateQueries({ queryKey: ["production_material_issues"] });
+      queryClient.invalidateQueries({ queryKey: ["production_material_issue_items"] });
+      if (result?.status === "posted") {
+        toast({
+          title: "Đã tạo phiếu xuất NVL",
+          description: `${result.issue_number} · ${result.item_count || 0} dòng định lượng`,
+        });
+        return;
+      }
+      toast({
+        title: "Chưa thể post PXK NVL",
+        description: "Thiếu mapping SKU/BOM/kho bếp. Bảng bên dưới vẫn đang hiển thị preview từ data thật để anh kiểm tra.",
+        variant: "destructive",
+      });
+    },
+    onError: (e: any) => {
+      toast({ title: "Lỗi tạo PXK NVL", description: e?.message, variant: "destructive" });
+    },
+  });
+
   const updateStatusMutation = useMutation({
     mutationFn: async ({ dispatchId, newStatus }: { dispatchId: string; newStatus: DispatchStatus }) => {
       const updateData: any = { status: newStatus };
@@ -562,11 +784,85 @@ export default function WarehouseDispatch() {
   const selectedPO = salesPOs.find((p) => p.id === selectedPoId);
   const totalDispatchQty = formItems.reduce((s, i) => s + i.dispatch_qty, 0);
   const totalBillableQty = formItems.reduce((s, i) => s + i.billable_qty, 0);
-  const materialRows = [
-    { item: "Chà bông gà", source: "3 SKU thành phẩm", standard: "18.4 kg", count: "2.1 kg", purchased: "20.0 kg", variance: "+0.5 kg", status: "good" },
-    { item: "Sốt pate", source: "2 SKU thành phẩm", standard: "11.8 kg", count: "1.2 kg", purchased: "10.0 kg", variance: "-0.6 kg", status: "warn" },
-    { item: "Dưa leo", source: "5 SKU thành phẩm", standard: "42.0 kg", count: "5.0 kg", purchased: "44.0 kg", variance: "+1.0 kg", status: "good" },
-  ];
+  const selectedMaterialOrder = materialOrders[0] || null;
+  const selectedMaterialIssue = selectedMaterialOrder
+    ? materialIssues.find((issue) => issue.production_order_id === selectedMaterialOrder.id) || null
+    : null;
+  const selectedMaterialIssueItems = selectedMaterialIssue
+    ? materialIssueItems.filter((item) => item.material_issue_id === selectedMaterialIssue.id)
+    : [];
+
+  const normalizeMaterialName = (value: string | null | undefined) => String(value || "").trim().toLowerCase();
+  const materialPreviewRows: MaterialPreviewRow[] = selectedMaterialOrder
+    ? materialOrderItems
+        .filter((item) => item.production_order_id === selectedMaterialOrder.id)
+        .flatMap((orderItem) => {
+          const finishedSku = orderItem.sku_id
+            ? materialSkus.find((sku) => sku.id === orderItem.sku_id)
+            : materialSkus.filter((sku) => normalizeMaterialName(sku.product_name) === normalizeMaterialName(orderItem.product_name));
+          const resolvedFinishedSku = Array.isArray(finishedSku) ? (finishedSku.length === 1 ? finishedSku[0] : null) : finishedSku;
+          const finishedQty = Number(orderItem.planned_qty || orderItem.ordered_qty || 0);
+
+          if (!resolvedFinishedSku) {
+            return [{
+              key: `${orderItem.id}:missing-sku`,
+              production_item_name: orderItem.product_name,
+              finished_qty: finishedQty,
+              ingredient_name: "Chưa match SKU thành phẩm",
+              required_qty: 0,
+              unit: orderItem.unit || "",
+              unit_cost: 0,
+              amount: 0,
+              source: "production_order_items → product_skus",
+              status: "missing_finished_sku" as const,
+            }];
+          }
+
+          const formulas = skuFormulations.filter((row) => row.sku_id === resolvedFinishedSku.id);
+          if (!formulas.length) {
+            return [{
+              key: `${orderItem.id}:missing-formula`,
+              production_item_name: orderItem.product_name,
+              finished_qty: finishedQty,
+              ingredient_name: "Chưa có định lượng/BOM",
+              required_qty: 0,
+              unit: resolvedFinishedSku.unit || orderItem.unit || "",
+              unit_cost: 0,
+              amount: 0,
+              source: "sku_formulations",
+              status: "missing_formula" as const,
+            }];
+          }
+
+          return formulas.map((formula) => {
+            const kitchenMatch = formula.ingredient_sku_id
+              ? kitchenItems.find((item) => item.product_sku_id === formula.ingredient_sku_id)
+              : kitchenItems.find((item) => normalizeMaterialName(item.name) === normalizeMaterialName(formula.ingredient_name));
+            const requiredQty = finishedQty * Number(formula.dosage_qty || 0) * (1 + Number(formula.wastage_percent || 0) / 100);
+            const unitCost = Number(formula.unit_price || kitchenMatch?.standard_unit_cost || 0);
+            return {
+              key: `${orderItem.id}:${formula.id}`,
+              production_item_name: orderItem.product_name,
+              finished_qty: finishedQty,
+              ingredient_name: formula.ingredient_name,
+              required_qty: requiredQty,
+              unit: formula.unit || kitchenMatch?.unit || "",
+              unit_cost: unitCost,
+              amount: requiredQty * unitCost,
+              source: kitchenMatch ? "BOM + kho bếp" : "BOM · thiếu mapping kho bếp",
+              status: kitchenMatch ? "ready" as const : "missing_kitchen_item" as const,
+            };
+          });
+        })
+    : [];
+
+  const materialReadyRows = selectedMaterialIssue ? selectedMaterialIssueItems : materialPreviewRows.filter((row) => row.status === "ready");
+  const materialMissingRows = materialPreviewRows.filter((row) => row.status !== "ready");
+  const materialStandardQty = (selectedMaterialIssue ? selectedMaterialIssueItems : materialPreviewRows)
+    .reduce((sum, row: any) => sum + Number(row.required_qty || 0), 0);
+  const materialStandardAmount = (selectedMaterialIssue ? selectedMaterialIssueItems : materialPreviewRows)
+    .reduce((sum, row: any) => sum + Number(row.amount || 0), 0);
+
   const mappingRows = [
     { raw: "Chà bông cay loại 1", mapped: "Chà bông gà cay", confidence: 92, status: "Tin cậy" },
     { raw: "Rau leo Đà Lạt", mapped: "Dưa leo", confidence: 86, status: "Tin cậy" },
@@ -782,76 +1078,138 @@ export default function WarehouseDispatch() {
                 <CardTitle className="flex items-center gap-2 text-2xl">
                   <PackageSearch className="h-6 w-6 text-amber-300" /> Phiếu xuất nguyên vật liệu
                 </CardTitle>
-                <p className="mt-1 text-sm text-white/55">Tính NVL chuẩn theo định lượng SKU, rồi đối chiếu mua hàng và tồn kiểm tay sau 1 tuần.</p>
+                <p className="mt-1 text-sm text-white/55">
+                  Tự lấy lệnh sản xuất mới nhất đã xác nhận, nhân BOM/định lượng thật để tạo PXK NVL.
+                </p>
               </div>
-              <Badge variant="outline" className="border-amber-300/35 bg-amber-500/10 text-amber-100">UI phase · chưa tự trừ NVL</Badge>
+              <Badge variant="outline" className={selectedMaterialIssue ? "border-emerald-300/35 bg-emerald-500/10 text-emerald-100" : "border-amber-300/35 bg-amber-500/10 text-amber-100"}>
+                {selectedMaterialIssue ? `Đã có ${selectedMaterialIssue.issue_number}` : "Preview data thật"}
+              </Badge>
             </CardHeader>
             <CardContent className="space-y-5">
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                  <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-xl bg-amber-500/15 text-amber-200">1</div>
-                  <b>Lấy sản lượng thành phẩm</b>
-                  <p className="mt-2 text-sm text-white/55">Từ phiếu xuất thành phẩm hoặc lệnh sản xuất đã xác nhận.</p>
+              {loadingMaterialOrders ? (
+                <div className="flex min-h-[220px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04]">
+                  <Loader2 className="h-8 w-8 animate-spin text-white/45" />
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                  <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-xl bg-amber-500/15 text-amber-200">2</div>
-                  <b>Nhân định lượng SKU</b>
-                  <p className="mt-2 text-sm text-white/55">NVL chuẩn cần dùng = sản lượng × công thức giá vốn/BOM.</p>
+              ) : !selectedMaterialOrder ? (
+                <div className="rounded-2xl border border-dashed border-white/15 py-12 text-center text-white/50">
+                  <PackageSearch className="mx-auto mb-3 h-10 w-10 opacity-40" />
+                  <p>Chưa có lệnh sản xuất đã xác nhận để tạo PXK NVL.</p>
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                  <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-xl bg-amber-500/15 text-amber-200">3</div>
-                  <b>Đối chiếu thực tế</b>
-                  <p className="mt-2 text-sm text-white/55">Nhập tồn kiểm tay + ảnh xác nhận, so với mua hàng đã mapping.</p>
-                </div>
-              </div>
+              ) : (
+                <>
+                  <div className="grid gap-3 md:grid-cols-4">
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:col-span-2">
+                      <p className="text-xs text-white/55">Lệnh SX mới nhất</p>
+                      <p className="mt-2 font-mono text-xl font-bold text-amber-100">{selectedMaterialOrder.production_number}</p>
+                      <p className="mt-1 text-sm text-white/55">
+                        Ngày SX: {selectedMaterialOrder.planned_start_date ? format(new Date(selectedMaterialOrder.planned_start_date), "dd/MM/yyyy") : "—"}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                      <p className="text-xs text-white/55">Dòng NVL</p>
+                      <p className="mt-2 text-3xl font-bold text-emerald-200">{materialReadyRows.length}</p>
+                      <p className="text-xs text-white/45">{materialMissingRows.length} dòng cần mapping</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                      <p className="text-xs text-white/55">Giá trị chuẩn</p>
+                      <p className="mt-2 text-2xl font-bold text-sky-200">{Math.round(materialStandardAmount).toLocaleString("vi-VN")}đ</p>
+                      <p className="text-xs text-white/45">{materialStandardQty.toLocaleString("vi-VN", { maximumFractionDigits: 2 })} đơn vị NVL</p>
+                    </div>
+                  </div>
 
-              <div className="overflow-hidden rounded-2xl border border-white/10">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-white/10 bg-white/[0.04] hover:bg-white/[0.04]">
-                      <TableHead className="text-white/55">NVL chuẩn</TableHead>
-                      <TableHead className="text-white/55">Nguồn định lượng</TableHead>
-                      <TableHead className="text-right text-white/55">Cần dùng</TableHead>
-                      <TableHead className="text-right text-white/55">Tồn kiểm tay</TableHead>
-                      <TableHead className="text-right text-white/55">Mua vào</TableHead>
-                      <TableHead className="text-white/55">Chênh lệch</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {materialRows.map((row) => (
-                      <TableRow key={row.item} className="border-white/10 hover:bg-white/[0.04]">
-                        <TableCell className="font-medium text-amber-100">{row.item}</TableCell>
-                        <TableCell className="text-sm text-white/60">{row.source}</TableCell>
-                        <TableCell className="text-right">{row.standard}</TableCell>
-                        <TableCell className="text-right">{row.count}</TableCell>
-                        <TableCell className="text-right">{row.purchased}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={row.status === "good" ? "border-emerald-300/30 bg-emerald-500/10 text-emerald-100" : "border-amber-300/30 bg-amber-500/10 text-amber-100"}>{row.variance}</Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                  <div className="flex flex-wrap gap-3">
+                    <Button
+                      onClick={() => selectedMaterialOrder && createMaterialIssueMutation.mutate(selectedMaterialOrder.id)}
+                      disabled={createMaterialIssueMutation.isPending || !selectedMaterialOrder || Boolean(selectedMaterialIssue)}
+                      className="rounded-xl bg-amber-500 font-bold text-stone-950 hover:bg-amber-400"
+                    >
+                      {createMaterialIssueMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FilePlus2 className="mr-2 h-4 w-4" />}
+                      {selectedMaterialIssue ? "Đã tạo PXK NVL" : "Tạo PXK NVL từ lệnh mới nhất"}
+                    </Button>
+                    <Button variant="outline" className="rounded-xl border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white">
+                      <FileSpreadsheet className="mr-2 h-4 w-4" /> Xuất Excel mapping
+                    </Button>
+                    <Button variant="outline" className="rounded-xl border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white">
+                      <Camera className="mr-2 h-4 w-4" /> Nhập tồn kiểm tay
+                    </Button>
+                  </div>
 
-              <div className="grid gap-3 md:grid-cols-3">
-                <Button variant="outline" className="rounded-xl border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white">
-                  <Camera className="mr-2 h-4 w-4" /> Nhập tồn + ảnh
-                </Button>
-                <Button variant="outline" className="rounded-xl border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white">
-                  <FileSpreadsheet className="mr-2 h-4 w-4" /> Xuất Excel mapping
-                </Button>
-                <Button disabled className="rounded-xl bg-amber-500 font-bold text-stone-950 opacity-70">
-                  Tạo báo cáo NVL tuần
-                </Button>
-              </div>
-              <div className="rounded-2xl border border-amber-300/20 bg-amber-500/10 p-4 text-sm text-amber-50">
-                Bản này trình bày logic đúng trước: AI chỉ đề xuất mapping hóa đơn. Khi anh xác nhận Excel, hệ thống mới dùng mapping đó cho báo cáo mua hàng và tiêu hao NVL.
-              </div>
+                  <div className="overflow-hidden rounded-2xl border border-white/10">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-white/10 bg-white/[0.04] hover:bg-white/[0.04]">
+                          <TableHead className="text-white/55">NVL/BOM</TableHead>
+                          <TableHead className="text-white/55">SKU thành phẩm</TableHead>
+                          <TableHead className="text-right text-white/55">Sản lượng</TableHead>
+                          <TableHead className="text-right text-white/55">Cần dùng</TableHead>
+                          <TableHead className="text-right text-white/55">Đơn giá</TableHead>
+                          <TableHead className="text-right text-white/55">Thành tiền</TableHead>
+                          <TableHead className="text-white/55">Trạng thái</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(selectedMaterialIssue ? selectedMaterialIssueItems : materialPreviewRows).slice(0, 120).map((row: any) => {
+                          const status = row.status || "ready";
+                          return (
+                            <TableRow key={row.id || row.key} className="border-white/10 hover:bg-white/[0.04]">
+                              <TableCell className="font-medium text-amber-100">{row.ingredient_name}</TableCell>
+                              <TableCell className="max-w-[240px] text-sm text-white/60">{row.production_item_name || "Đã post vào PXK"}</TableCell>
+                              <TableCell className="text-right">{Number(row.planned_finished_qty || row.finished_qty || 0).toLocaleString("vi-VN", { maximumFractionDigits: 2 })}</TableCell>
+                              <TableCell className="text-right">{Number(row.required_qty || 0).toLocaleString("vi-VN", { maximumFractionDigits: 3 })} {row.unit}</TableCell>
+                              <TableCell className="text-right">{Number(row.unit_cost || 0).toLocaleString("vi-VN")}</TableCell>
+                              <TableCell className="text-right">{Math.round(Number(row.amount || 0)).toLocaleString("vi-VN")}</TableCell>
+                              <TableCell>
+                                {status === "ready" ? (
+                                  <Badge variant="outline" className="border-emerald-300/30 bg-emerald-500/10 text-emerald-100"><CheckCircle2 className="mr-1 h-3 w-3" />Sẵn sàng</Badge>
+                                ) : (
+                                  <Badge variant="outline" className="border-amber-300/30 bg-amber-500/10 text-amber-100">
+                                    {status === "missing_finished_sku" ? "Thiếu SKU TP" : status === "missing_formula" ? "Thiếu BOM" : "Thiếu map kho bếp"}
+                                  </Badge>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {materialMissingRows.length > 0 && !selectedMaterialIssue && (
+                    <div className="rounded-2xl border border-amber-300/20 bg-amber-500/10 p-4 text-sm text-amber-50">
+                      Đã tính preview từ data thật nhưng chưa post/trừ kho vì còn {materialMissingRows.length} dòng thiếu mapping SKU/BOM/kho bếp. Cần hoàn tất mapping trước khi hệ thống ghi ledger NVL để tránh trừ kho sai.
+                    </div>
+                  )}
+                </>
+              )}
             </CardContent>
           </Card>
 
           <div className="space-y-5">
+            <Card className="border-white/10 bg-[#1b120e]/90 text-white shadow-xl shadow-black/20">
+              <CardHeader>
+                <CardTitle className="text-xl">Lệnh SX gần nhất</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {materialOrders.slice(0, 5).map((order) => {
+                  const linkedIssue = materialIssues.find((issue) => issue.production_order_id === order.id);
+                  return (
+                    <div key={order.id} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-mono font-bold text-amber-100">{order.production_number}</p>
+                          <p className="text-xs text-white/55">{order.planned_start_date ? format(new Date(order.planned_start_date), "dd/MM/yyyy") : "Chưa có ngày SX"}</p>
+                        </div>
+                        <Badge variant="outline" className={linkedIssue ? "border-emerald-300/30 bg-emerald-500/10 text-emerald-100" : "border-white/15 bg-white/[0.04] text-white/65"}>
+                          {linkedIssue ? linkedIssue.issue_number : "Chưa có PXK"}
+                        </Badge>
+                      </div>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+
             <Card className="border-sky-300/20 bg-[#111827]/90 text-white shadow-xl shadow-black/20">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-xl"><Brain className="h-5 w-5 text-sky-200" /> AI mapping hóa đơn</CardTitle>
@@ -871,18 +1229,6 @@ export default function WarehouseDispatch() {
                     </div>
                   </div>
                 ))}
-              </CardContent>
-            </Card>
-
-            <Card className="border-white/10 bg-[#1b120e]/90 text-white shadow-xl shadow-black/20">
-              <CardHeader>
-                <CardTitle className="text-xl">Báo cáo sau 1 tuần</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.04] p-4"><span className="text-white/60">Định lượng cần dùng</span><b>184.2 kg</b></div>
-                <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.04] p-4"><span className="text-white/60">Mua hàng đã map</span><b>191.0 kg</b></div>
-                <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.04] p-4"><span className="text-white/60">Tồn cuối kỳ kiểm tay</span><b>8.9 kg</b></div>
-                <div className="flex items-center justify-between rounded-2xl border border-amber-300/20 bg-amber-500/10 p-4 text-amber-50"><span>Chênh lệch cần xem</span><b>-2.3 kg</b></div>
               </CardContent>
             </Card>
           </div>
