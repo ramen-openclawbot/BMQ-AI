@@ -39,15 +39,15 @@ serve(async (req) => {
 
   // Parse state to get redirect URL + oauth mode
   let redirectBase = 'https://bmqvn.lovable.app';
-  let oauthMode: 'drive' | 'gmail' = 'drive';
+  let oauthMode: 'drive' | 'gmail' | 'debt_gmail' = 'drive';
   if (state) {
     try {
       const stateData = JSON.parse(atob(state));
       if (stateData.redirect && isAllowedRedirect(stateData.redirect)) {
         redirectBase = stateData.redirect;
       }
-      if (stateData.mode === 'gmail') {
-        oauthMode = 'gmail';
+      if (stateData.mode === 'gmail' || stateData.mode === 'debt_gmail') {
+        oauthMode = stateData.mode;
       }
     } catch (e) {
       console.log('Could not parse state:', e);
@@ -55,9 +55,9 @@ serve(async (req) => {
   }
 
   const settingsUrl = `${redirectBase}/settings`;
-  const errorKey = oauthMode === 'gmail' ? 'gmail_error' : 'drive_error';
-  const successKey = oauthMode === 'gmail' ? 'gmail_success' : 'drive_success';
-  const emailKey = oauthMode === 'gmail' ? 'gmail_email' : 'drive_email';
+  const errorKey = oauthMode === 'drive' ? 'drive_error' : oauthMode === 'gmail' ? 'gmail_error' : 'debt_gmail_error';
+  const successKey = oauthMode === 'drive' ? 'drive_success' : oauthMode === 'gmail' ? 'gmail_success' : 'debt_gmail_success';
+  const emailKey = oauthMode === 'drive' ? 'drive_email' : oauthMode === 'gmail' ? 'gmail_email' : 'debt_gmail_email';
 
   // Handle errors from Google
   if (error) {
@@ -76,15 +76,15 @@ serve(async (req) => {
 
     // Get redirect URL and oauth mode from request body
     let appRedirect = redirectBase;
-    let requestMode: 'drive' | 'gmail' = oauthMode;
+    let requestMode: 'drive' | 'gmail' | 'debt_gmail' = oauthMode;
     if (req.method === 'POST') {
       try {
         const body = await req.json();
         if (body.redirect && isAllowedRedirect(body.redirect)) {
           appRedirect = body.redirect;
         }
-        if (body.mode === 'gmail') {
-          requestMode = 'gmail';
+        if (body.mode === 'gmail' || body.mode === 'debt_gmail') {
+          requestMode = body.mode;
         }
       } catch (e) {
         // Ignore parse errors
@@ -95,6 +95,8 @@ serve(async (req) => {
     const stateParam = btoa(JSON.stringify({ redirect: appRedirect, mode: requestMode }));
     const scope = requestMode === 'gmail'
       ? 'https://www.googleapis.com/auth/gmail.readonly email profile'
+      : requestMode === 'debt_gmail'
+      ? 'https://www.googleapis.com/auth/gmail.send email profile'
       : 'https://www.googleapis.com/auth/drive email profile';
 
     const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
@@ -167,8 +169,8 @@ serve(async (req) => {
     // Save tokens to database using service role key
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    const refreshTokenKey = oauthMode === 'gmail' ? 'google_gmail_refresh_token' : 'google_drive_refresh_token';
-    const connectedEmailKey = oauthMode === 'gmail' ? 'google_gmail_connected_email' : 'google_drive_connected_email';
+    const refreshTokenKey = oauthMode === 'drive' ? 'google_drive_refresh_token' : oauthMode === 'gmail' ? 'google_gmail_refresh_token' : 'debt_gmail_refresh_token';
+    const connectedEmailKey = oauthMode === 'drive' ? 'google_drive_connected_email' : oauthMode === 'gmail' ? 'google_gmail_connected_email' : 'debt_gmail_connected_email';
 
     // Save refresh token
     const { error: tokenError } = await supabaseAdmin

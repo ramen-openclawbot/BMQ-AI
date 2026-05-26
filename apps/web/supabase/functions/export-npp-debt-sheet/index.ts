@@ -1,11 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import * as XLSX from "npm:xlsx@0.18.5";
-import SparkMD5 from "npm:spark-md5@3.0.2";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 
 const DEFAULT_PARENT_FOLDER_ID = "1Add8Lj3NiOUel-7h-0wpWUU1-qXzgwdi";
-const DEFAULT_COMPOSIO_BASE_URL = "https://backend.composio.dev";
 const CUSTOMER_DEBT_GMAIL_SENDER = "no-reply@bmq.vn";
 const CUSTOMER_DEBT_DEFAULT_CC = "ketoantruong@bmq.vn";
 const COMPANY_HEADER_LINES = [
@@ -53,7 +51,7 @@ type DebtGroup = {
 };
 type SheetData = { range: string; values: unknown[][] };
 type DriveFile = { id: string; name?: string; webViewLink?: string | null; modifiedTime?: string | null };
-type DebtEmailConfig = { connectedAccountId: string; senderEmail: string; cc: string[] };
+type DebtEmailConfig = { senderEmail: string; cc: string[]; connectedEmail: string | null };
 
 const jsonResponse = (body: unknown, status = 200, corsHeaders?: Record<string, string>) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -135,14 +133,28 @@ function parseEmailList(value: string | null | undefined): string[] {
     .filter((email) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email));
 }
 
-async function getDebtEmailConfig(supabaseAdmin: DbClient): Promise<DebtEmailConfig> {
-  const connectedAccountId =
-    await getAppSetting(supabaseAdmin, "composio_customer_debt_gmail_connected_account_id")
-    || Deno.env.get("COMPOSIO_CUSTOMER_DEBT_GMAIL_CONNECTED_ACCOUNT_ID")
-    || Deno.env.get("COMPOSIO_GMAIL_CONNECTED_ACCOUNT_ID")
-    || "";
-  if (!connectedAccountId) throw new Error("COMPOSIO_CUSTOMER_DEBT_GMAIL_CONNECTED_ACCOUNT_ID missing");
+async function getGmailAccessToken(supabaseAdmin: DbClient): Promise<string> {
+  const refreshToken =
+    await getAppSetting(supabaseAdmin, "debt_gmail_refresh_token")
+    || await getAppSetting(supabaseAdmin, "google_gmail_refresh_token");
+  if (!refreshToken) throw new Error("missing_debt_gmail_refresh_token");
 
+  const clientId = Deno.env.get("GOOGLE_CLIENT_ID");
+  const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET");
+  if (!clientId || !clientSecret) throw new Error("missing_google_oauth_env");
+
+  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ refresh_token: refreshToken, client_id: clientId, client_secret: clientSecret, grant_type: "refresh_token" }),
+  });
+  if (!tokenResponse.ok) throw new Error(`gmail_token_refresh_failed:${await tokenResponse.text()}`);
+  const tokens = await tokenResponse.json();
+  if (!tokens.access_token) throw new Error("gmail_access_token_missing");
+  return tokens.access_token;
+}
+
+async function getDebtEmailConfig(supabaseAdmin: DbClient): Promise<DebtEmailConfig> {
   const senderEmail =
     await getAppSetting(supabaseAdmin, "customer_debt_gmail_sender")
     || Deno.env.get("CUSTOMER_DEBT_GMAIL_SENDER")
@@ -152,7 +164,10 @@ async function getDebtEmailConfig(supabaseAdmin: DbClient): Promise<DebtEmailCon
     || Deno.env.get("CUSTOMER_DEBT_DEFAULT_CC")
     || CUSTOMER_DEBT_DEFAULT_CC,
   );
-  return { connectedAccountId, senderEmail, cc };
+  const connectedEmail =
+    await getAppSetting(supabaseAdmin, "debt_gmail_connected_email")
+    || await getAppSetting(supabaseAdmin, "google_gmail_connected_email");
+  return { senderEmail, cc, connectedEmail };
 }
 
 const parseGoogleJson = (text: string) => {
@@ -285,30 +300,6 @@ const escapeHtml = (value: unknown) =>
 const formatVnd = (value: number) =>
   new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(Number(value || 0));
 
-async function composioJson(path: string, init: RequestInit = {}) {
-  const apiKey = Deno.env.get("COMPOSIO_API_KEY");
-  const orgId = Deno.env.get("COMPOSIO_ORG_ID");
-  const projectId = Deno.env.get("COMPOSIO_PROJECT_ID");
-  if (!apiKey) throw new Error("COMPOSIO_API_KEY missing");
-  if (!orgId || !projectId) throw new Error("COMPOSIO_ORG_ID_OR_PROJECT_ID missing");
-  const baseUrl = (Deno.env.get("COMPOSIO_BASE_URL") || DEFAULT_COMPOSIO_BASE_URL).replace(/\/$/, "");
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...init,
-    headers: {
-      "x-user-api-key": apiKey,
-      "x-org-id": orgId,
-      "x-project-id": projectId,
-      "Content-Type": "application/json",
-      "User-Agent": "Mozilla/5.0",
-      ...(init.headers || {}),
-    },
-  });
-  const text = await response.text();
-  const data = parseGoogleJson(text);
-  if (!response.ok) throw new Error(`composio_api_error:${response.status}:${text}`);
-  return data as Record<string, unknown>;
-}
-
 function bytesToBinaryString(bytes: Uint8Array) {
   let output = "";
   const chunkSize = 0x8000;
@@ -316,6 +307,22 @@ function bytesToBinaryString(bytes: Uint8Array) {
     output += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
   }
   return output;
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  return btoa(bytesToBinaryString(bytes));
+}
+
+function utf8ToBase64(value: string) {
+  return bytesToBase64(new TextEncoder().encode(value));
+}
+
+function toBase64Url(value: string) {
+  return utf8ToBase64(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function wrapBase64(value: string) {
+  return value.replace(/.{1,76}/g, "$&\r\n").trim();
 }
 
 function parseRangeTitle(range: string) {
@@ -371,71 +378,57 @@ function buildDebtEmailHtml(input: { customerName: string; fromDate: string; toD
     </div>`;
 }
 
-async function uploadComposioAttachment(bytes: Uint8Array, filename: string) {
-  const md5 = SparkMD5.hashBinary(bytesToBinaryString(bytes));
-  const uploadRequest = await composioJson("/api/v3/files/upload/request", {
-    method: "POST",
-    body: JSON.stringify({ toolkit_slug: "gmail", tool_slug: "GMAIL_SEND_EMAIL", filename, mimetype: XLSX_MIME, md5 }),
-  });
-  const uploadUrl = String(uploadRequest.new_presigned_url || uploadRequest.newPresignedUrl || "");
-  const s3key = String(uploadRequest.key || "");
-  if (!uploadUrl || !s3key) throw new Error("composio_upload_url_missing");
-  const uploadHeaders: Record<string, string> = { "Content-Type": XLSX_MIME };
-  const metadata = asRecord(uploadRequest.metadata);
-  if (metadata.storage_backend === "azure_blob_storage") uploadHeaders["x-ms-blob-type"] = "BlockBlob";
-  const uploadResponse = await fetch(uploadUrl, { method: "PUT", headers: uploadHeaders, body: bytes });
-  if (!uploadResponse.ok) throw new Error(`composio_upload_failed:${uploadResponse.status}:${await uploadResponse.text()}`);
-  return { name: filename, mimetype: XLSX_MIME, s3key };
+function buildMimeEmail(input: { from: string; to: string[]; cc: string[]; subject: string; html: string; attachmentName: string; attachmentBytes: Uint8Array }) {
+  const boundary = `bmq_debt_${crypto.randomUUID()}`;
+  const encodedSubject = `=?UTF-8?B?${utf8ToBase64(input.subject)}?=`;
+  const encodedAttachmentName = encodeURIComponent(input.attachmentName);
+  const headers = [
+    `From: BMQ Finance <${input.from}>`,
+    `To: ${input.to.join(", ")}`,
+    ...(input.cc.length ? [`Cc: ${input.cc.join(", ")}`] : []),
+    `Subject: ${encodedSubject}`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+  ];
+
+  const parts = [
+    headers.join("\r\n"),
+    "",
+    `--${boundary}`,
+    "Content-Type: text/html; charset=UTF-8",
+    "Content-Transfer-Encoding: base64",
+    "",
+    wrapBase64(utf8ToBase64(input.html)),
+    `--${boundary}`,
+    `Content-Type: ${XLSX_MIME}; name*=UTF-8''${encodedAttachmentName}`,
+    "Content-Transfer-Encoding: base64",
+    `Content-Disposition: attachment; filename*=UTF-8''${encodedAttachmentName}`,
+    "",
+    wrapBase64(bytesToBase64(input.attachmentBytes)),
+    `--${boundary}--`,
+    "",
+  ];
+  return parts.join("\r\n");
 }
 
-async function verifyComposioGmailSender(connectedAccountId: string, composioUserId: string, expectedEmail: string) {
-  const result = await composioJson("/api/v3/tools/execute/GMAIL_GET_PROFILE", {
-    method: "POST",
-    body: JSON.stringify({
-      connected_account_id: connectedAccountId,
-      user_id: composioUserId,
-      version: "latest",
-      arguments: { user_id: "me" },
-    }),
-  });
-  const data = asRecord(result.data);
-  const emailAddress = String(data.emailAddress || data.email || "").toLowerCase();
-  if (emailAddress !== expectedEmail.toLowerCase()) throw new Error(`composio_sender_mismatch:${emailAddress || "unknown"}`);
-}
-
-async function sendDebtEmail(input: { to: string[]; customerName: string; fromDate: string; toDate: string; spreadsheetName: string; payable: number; lineCount: number; isNpp: boolean; workbookBytes: Uint8Array; config: DebtEmailConfig }) {
+async function sendDebtEmail(input: { to: string[]; customerName: string; fromDate: string; toDate: string; spreadsheetName: string; payable: number; lineCount: number; isNpp: boolean; workbookBytes: Uint8Array; config: DebtEmailConfig; supabaseAdmin: DbClient }) {
   const emailEnabled = (Deno.env.get("CUSTOMER_DEBT_EMAIL_ENABLED") || "true").toLowerCase() !== "false";
   if (!emailEnabled) return { skipped: true, reason: "CUSTOMER_DEBT_EMAIL_ENABLED=false" };
-  const composioUserId = Deno.env.get("COMPOSIO_USER_ID");
-  if (!composioUserId) throw new Error("COMPOSIO_USER_ID missing");
-  const { connectedAccountId, senderEmail, cc } = input.config;
-  await verifyComposioGmailSender(connectedAccountId, composioUserId, senderEmail);
+  const { senderEmail, cc, connectedEmail } = input.config;
   const attachmentName = `${input.spreadsheetName}.xlsx`;
-  const attachment = await uploadComposioAttachment(input.workbookBytes, attachmentName);
   const subject = `BMQ - Công nợ ${input.customerName} ${vnDate(input.fromDate)}-${vnDate(input.toDate)}`;
   const html = buildDebtEmailHtml({ ...input, attachmentName });
-  const result = await composioJson("/api/v3/tools/execute/GMAIL_SEND_EMAIL", {
+  const accessToken = await getGmailAccessToken(input.supabaseAdmin);
+  const raw = toBase64Url(buildMimeEmail({ from: senderEmail, to: input.to, cc, subject, html, attachmentName, attachmentBytes: input.workbookBytes }));
+  const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
     method: "POST",
-    body: JSON.stringify({
-      connected_account_id: connectedAccountId,
-      user_id: composioUserId,
-      version: "latest",
-      arguments: {
-        user_id: "me",
-        from_email: senderEmail,
-        recipient_email: input.to[0],
-        extra_recipients: input.to.slice(1),
-        cc,
-        bcc: [],
-        subject,
-        body: html,
-        is_html: true,
-        attachment,
-      },
-    }),
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ raw }),
   });
-  if (result.successful === false) throw new Error(`composio_gmail_send_failed:${JSON.stringify(result.error || result)}`);
-  return { sent: true, provider: "composio_gmail", from: senderEmail, cc, subject, attachmentName, response: result.data || result };
+  const text = await response.text();
+  const data = parseGoogleJson(text);
+  if (!response.ok) throw new Error(`gmail_send_failed:${response.status}:${text}`);
+  return { sent: true, provider: "google_gmail_oauth", from: senderEmail, connectedEmail, cc, subject, attachmentName, response: data };
 }
 
 
@@ -614,6 +607,7 @@ serve(async (req) => {
         isNpp,
         workbookBytes,
         config: debtEmailConfig,
+        supabaseAdmin,
       });
       attachmentName = String(asRecord(emailResult).attachmentName || `${spreadsheetName}.xlsx`);
     } else {

@@ -12,13 +12,15 @@ def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def test_edge_function_uses_xlsx_attachment_and_composio_gmail():
+def test_edge_function_uses_xlsx_attachment_and_google_gmail_oauth():
     source = read(EDGE)
     assert 'npm:xlsx@0.18.5' in source
-    assert 'GMAIL_SEND_EMAIL' in source
-    assert 'COMPOSIO_GMAIL_CONNECTED_ACCOUNT_ID' in source
-    assert 'COMPOSIO_PROJECT_ID' in source
-    assert 'COMPOSIO_USER_ID' in source
+    assert 'gmail/v1/users/me/messages/send' in source
+    assert 'debt_gmail_refresh_token' in source
+    assert 'debt_gmail_connected_email' in source
+    assert 'google_gmail_oauth' in source
+    assert 'COMPOSIO_' not in source
+    assert 'GMAIL_SEND_EMAIL' not in source
     assert 'no-reply@bmq.vn' in source
     assert 'ketoantruong@bmq.vn' in source
     assert 'CÔNG TY CỔ PHẦN THỰC PHẨM BMQ MST: 0311840107' in source

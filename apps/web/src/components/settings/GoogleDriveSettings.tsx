@@ -19,15 +19,17 @@ export function GoogleDriveSettings() {
   const [receiptsUncPattern, setReceiptsUncPattern] = useState("yyyy/MM/dd/UNC");
   const [receiptsQtmPattern, setReceiptsQtmPattern] = useState("yyyy/MM/dd/QTM");
   const [gmailConnectedEmail, setGmailConnectedEmail] = useState<string | null>(null);
+  const [debtGmailConnectedEmail, setDebtGmailConnectedEmail] = useState<string | null>(null);
   const [debtEmailSender, setDebtEmailSender] = useState("no-reply@bmq.vn");
   const [debtEmailCc, setDebtEmailCc] = useState("ketoantruong@bmq.vn");
-  const [debtEmailComposioAccountId, setDebtEmailComposioAccountId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [gmailConnecting, setGmailConnecting] = useState(false);
   const [gmailDisconnecting, setGmailDisconnecting] = useState(false);
+  const [debtGmailConnecting, setDebtGmailConnecting] = useState(false);
+  const [debtGmailDisconnecting, setDebtGmailDisconnecting] = useState(false);
   const [testingPo, setTestingPo] = useState(false);
   const [testingReceipts, setTestingReceipts] = useState(false);
   const [poFolderSaved, setPoFolderSaved] = useState(false);
@@ -39,7 +41,7 @@ export function GoogleDriveSettings() {
         const { data } = await supabase
           .from("app_settings")
           .select("key, value")
-          .in("key", ["google_drive_po_folder", "google_drive_receipts_folder", "google_drive_receipts_unc_pattern", "google_drive_receipts_qtm_pattern", "google_drive_connected_email", "google_gmail_connected_email", "customer_debt_gmail_sender", "customer_debt_default_cc", "composio_customer_debt_gmail_connected_account_id"]);
+          .in("key", ["google_drive_po_folder", "google_drive_receipts_folder", "google_drive_receipts_unc_pattern", "google_drive_receipts_qtm_pattern", "google_drive_connected_email", "google_gmail_connected_email", "debt_gmail_connected_email", "customer_debt_gmail_sender", "customer_debt_default_cc"]);
 
         if (data) {
           const poFolder = data.find(d => d.key === "google_drive_po_folder");
@@ -48,9 +50,9 @@ export function GoogleDriveSettings() {
           const qtmPatternSetting = data.find(d => d.key === "google_drive_receipts_qtm_pattern");
           const emailSetting = data.find(d => d.key === "google_drive_connected_email");
           const gmailEmailSetting = data.find(d => d.key === "google_gmail_connected_email");
+          const debtGmailEmailSetting = data.find(d => d.key === "debt_gmail_connected_email");
           const debtSenderSetting = data.find(d => d.key === "customer_debt_gmail_sender");
           const debtCcSetting = data.find(d => d.key === "customer_debt_default_cc");
-          const debtComposioAccountSetting = data.find(d => d.key === "composio_customer_debt_gmail_connected_account_id");
           
           if (poFolder?.value) {
             setPoFolderUrl(poFolder.value);
@@ -68,9 +70,11 @@ export function GoogleDriveSettings() {
           if (gmailEmailSetting?.value) {
             setGmailConnectedEmail(gmailEmailSetting.value);
           }
+          if (debtGmailEmailSetting?.value) {
+            setDebtGmailConnectedEmail(debtGmailEmailSetting.value);
+          }
           if (debtSenderSetting?.value) setDebtEmailSender(String(debtSenderSetting.value));
           if (debtCcSetting?.value) setDebtEmailCc(String(debtCcSetting.value));
-          if (debtComposioAccountSetting?.value) setDebtEmailComposioAccountId(String(debtComposioAccountSetting.value));
         }
       } catch (error) {
         console.error("Failed to fetch Google Drive settings:", error);
@@ -89,6 +93,9 @@ export function GoogleDriveSettings() {
     const gmailSuccess = urlParams.get('gmail_success');
     const gmailError = urlParams.get('gmail_error');
     const gmailEmail = urlParams.get('gmail_email');
+    const debtGmailSuccess = urlParams.get('debt_gmail_success');
+    const debtGmailError = urlParams.get('debt_gmail_error');
+    const debtGmailEmail = urlParams.get('debt_gmail_email');
 
     if (driveSuccess === 'true') {
       toast.success("Kết nối Google Drive thành công!", {
@@ -114,6 +121,17 @@ export function GoogleDriveSettings() {
     } else if (gmailError) {
       toast.error("Kết nối Gmail PO thất bại", {
         description: gmailError
+      });
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (debtGmailSuccess === 'true') {
+      toast.success("Kết nối Gmail gửi công nợ thành công!", {
+        description: debtGmailEmail ? `Đã kết nối với ${debtGmailEmail}` : undefined
+      });
+      if (debtGmailEmail) setDebtGmailConnectedEmail(debtGmailEmail);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (debtGmailError) {
+      toast.error("Kết nối Gmail gửi công nợ thất bại", {
+        description: debtGmailError
       });
       window.history.replaceState({}, document.title, window.location.pathname);
     }
@@ -237,6 +255,44 @@ export function GoogleDriveSettings() {
       toast.error("Không thể ngắt Gmail", { description: getErrorMessage(error) });
     } finally {
       setGmailDisconnecting(false);
+    }
+  };
+
+  const handleConnectDebtGmail = async () => {
+    setDebtGmailConnecting(true);
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/google-drive-auth`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ redirect: window.location.origin, mode: 'debt_gmail' }),
+        }
+      );
+      const result = await response.json();
+      if (result.authUrl) {
+        window.location.href = result.authUrl;
+      } else if (result.error) {
+        toast.error("Không thể kết nối Gmail gửi công nợ", { description: result.error });
+      }
+    } catch (error) {
+      toast.error("Lỗi kết nối Gmail gửi công nợ", { description: getErrorMessage(error, "Không thể bắt đầu quá trình kết nối") });
+    } finally {
+      setDebtGmailConnecting(false);
+    }
+  };
+
+  const handleDisconnectDebtGmail = async () => {
+    setDebtGmailDisconnecting(true);
+    try {
+      await supabase.from("app_settings").delete().eq("key", "debt_gmail_refresh_token");
+      await supabase.from("app_settings").delete().eq("key", "debt_gmail_connected_email");
+      setDebtGmailConnectedEmail(null);
+      toast.success("Đã ngắt Gmail gửi công nợ");
+    } catch (error) {
+      toast.error("Không thể ngắt Gmail gửi công nợ", { description: getErrorMessage(error) });
+    } finally {
+      setDebtGmailDisconnecting(false);
     }
   };
 
@@ -395,19 +451,6 @@ export function GoogleDriveSettings() {
         .upsert({ key: "customer_debt_default_cc", value: debtEmailCc.trim() || "ketoantruong@bmq.vn", updated_at: new Date().toISOString() }, { onConflict: 'key' });
       if (debtCcError) throw debtCcError;
 
-      const debtComposioValue = debtEmailComposioAccountId.trim();
-      if (debtComposioValue) {
-        const { error: debtComposioError } = await supabase
-          .from("app_settings")
-          .upsert({ key: "composio_customer_debt_gmail_connected_account_id", value: debtComposioValue, updated_at: new Date().toISOString() }, { onConflict: 'key' });
-        if (debtComposioError) throw debtComposioError;
-      } else {
-        const { error: debtComposioClearError } = await supabase
-          .from("app_settings")
-          .upsert({ key: "composio_customer_debt_gmail_connected_account_id", value: "", updated_at: new Date().toISOString() }, { onConflict: 'key' });
-        if (debtComposioClearError) throw debtComposioClearError;
-      }
-
       setPoFolderSaved(true);
       setReceiptsFolderSaved(true);
       
@@ -476,6 +519,7 @@ export function GoogleDriveSettings() {
         <ol className="list-decimal ml-4 space-y-1">
           <li>Kết nối Google account cho Drive (bấm nút bên dưới)</li>
           <li>Kết nối Gmail PO account riêng (nếu mailbox PO dùng tài khoản khác)</li>
+          <li>Kết nối Gmail gửi công nợ bằng no-reply@bmq.vn trong block Email gửi công nợ</li>
           <li>Tạo 2 folder trên Google Drive: 1 cho PO, 1 cho Bank Receipts</li>
           <li>Copy link folder và dán vào ô bên dưới</li>
           <li>Trong mỗi folder, tạo subfolder theo ngày (YYMMDD, VD: 260124)</li>
@@ -554,10 +598,10 @@ export function GoogleDriveSettings() {
                 <div className="flex items-center gap-2">
                   <Check className="h-5 w-5 text-primary" />
                   <span className="text-sm">
-                    Đã kết nối Gmail PO: <strong>{gmailConnectedEmail}</strong>
+                    Đã kết nối Gmail: <strong>{gmailConnectedEmail}</strong>
                   </span>
                 </div>
-                <span className="text-xs text-muted-foreground">Tài khoản này dùng để đọc mailbox PO (có thể khác tài khoản Drive).</span>
+                <span className="text-xs text-muted-foreground">Tài khoản này dùng để đọc mailbox PO (có thể khác tài khoản Drive và email gửi công nợ).</span>
               </div>
               <Button
                 variant="outline"
@@ -571,14 +615,14 @@ export function GoogleDriveSettings() {
                 ) : (
                   <Unlink className="h-4 w-4 mr-1" />
                 )}
-                Ngắt Gmail PO
+                Ngắt Gmail
               </Button>
             </div>
           ) : (
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground flex items-center gap-2">
                 <X className="h-4 w-4 text-destructive" />
-                Chưa kết nối Gmail PO
+                Chưa kết nối Gmail
               </span>
               <Button
                 onClick={handleConnectGmail}
@@ -590,7 +634,7 @@ export function GoogleDriveSettings() {
                 ) : (
                   <Link2 className="h-4 w-4 mr-1" />
                 )}
-                Kết nối Gmail PO
+                Kết nối Gmail
               </Button>
             </div>
           )}
@@ -603,8 +647,50 @@ export function GoogleDriveSettings() {
             Email gửi công nợ
           </Label>
           <p className="text-xs text-muted-foreground">
-            Cấu hình này chỉ dùng khi gửi file Excel công nợ cho NPP/khách hàng. Không dùng tài khoản này để quét Drive UNC/QTM.
+            Cấu hình này chỉ dùng khi gửi file Excel công nợ. Không dùng tài khoản này để quét Drive UNC/QTM hoặc đọc PO.
           </p>
+          {debtGmailConnectedEmail ? (
+            <div className="flex items-center justify-between rounded-md border border-primary/20 bg-primary/5 p-3">
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <Check className="h-5 w-5 text-primary" />
+                  <span className="text-sm">
+                    Đã kết nối Gmail gửi công nợ: <strong>{debtGmailConnectedEmail}</strong>
+                  </span>
+                </div>
+                <span className="text-xs text-muted-foreground">Email gửi nên trùng với tài khoản OAuth này hoặc là alias được Gmail cho phép gửi.</span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDisconnectDebtGmail}
+                disabled={debtGmailDisconnecting}
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+              >
+                {debtGmailDisconnecting ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                ) : (
+                  <Unlink className="h-4 w-4 mr-1" />
+                )}
+                Ngắt Gmail công nợ
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between rounded-md border border-destructive/20 bg-destructive/5 p-3">
+              <span className="text-sm text-muted-foreground flex items-center gap-2">
+                <X className="h-4 w-4 text-destructive" />
+                Chưa kết nối Gmail gửi công nợ
+              </span>
+              <Button onClick={handleConnectDebtGmail} disabled={debtGmailConnecting} size="sm">
+                {debtGmailConnecting ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                ) : (
+                  <Link2 className="h-4 w-4 mr-1" />
+                )}
+                Kết nối Gmail công nợ
+              </Button>
+            </div>
+          )}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="debt-email-sender">Email gửi</Label>
@@ -629,19 +715,9 @@ export function GoogleDriveSettings() {
               <p className="text-xs text-muted-foreground">Có thể nhập nhiều email, phân tách bằng dấu phẩy.</p>
             </div>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="debt-email-composio-account">Composio Gmail connected account ID</Label>
-            <Input
-              id="debt-email-composio-account"
-              type="text"
-              value={debtEmailComposioAccountId}
-              onChange={(e) => setDebtEmailComposioAccountId(e.target.value)}
-              placeholder="Để trống để dùng Supabase secret hiện tại"
-            />
-            <p className="text-xs text-muted-foreground">
-              Dùng khi muốn pin riêng tài khoản Gmail gửi công nợ. Nếu để trống, hệ thống dùng <code>COMPOSIO_GMAIL_CONNECTED_ACCOUNT_ID</code> trong Supabase secrets.
-            </p>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            Nếu gửi bằng <code>no-reply@bmq.vn</code>, hãy kết nối OAuth bằng chính <code>no-reply@bmq.vn</code> ở block này.
+          </p>
         </div>
 
         {/* PO Folder */}
