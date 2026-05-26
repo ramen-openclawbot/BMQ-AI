@@ -88,6 +88,15 @@ type DailyCancellationResolution = {
   message?: string;
 };
 
+type DailyLatestBakeryResolution = {
+  enabled: boolean;
+  excludedRows: JsonRecord[];
+  keptRows: JsonRecord[];
+  originalRowCount: number;
+  filteredRowCount: number;
+  message?: string;
+};
+
 type DispatchRevenueConfirmationLine = {
   id: string;
   confirmation_id: string;
@@ -830,6 +839,77 @@ function resolveDailyCancellationReplacements(rows: InboxRow[], window: ParseWin
   };
 }
 
+const isKingfoodBakeryInboxRow = (row: InboxRow) => {
+  const raw = asRecord(row.raw_payload);
+  const poAutomation = asRecord(raw.po_automation);
+  const combined = normalizeText(row.from_email, row.email_subject, row.revenue_channel, raw.revenue_channel, poAutomation.rule, poAutomation.channel_scope);
+  return combined.includes("kingfood") || combined.includes("kfm") || combined.includes("banhngot") || combined.includes("kho banh");
+};
+
+const isAdditiveKingfoodBakeryOrder = (row: InboxRow) => {
+  const subject = normalizeText(row.email_subject);
+  const raw = asRecord(row.raw_payload);
+  const poAutomation = asRecord(raw.po_automation);
+  const reason = normalizeText(poAutomation.reason, poAutomation.order_type, raw.order_type);
+  return subject.includes("khai truong") || reason.includes("khai truong") || subject.includes("bo sung") || reason.includes("bo sung");
+};
+
+const bakeryReplacementGroupKey = (row: InboxRow, window: ParseWindow) => {
+  if (isCancellationInboxRow(row)) return null;
+  if (!isKingfoodBakeryInboxRow(row)) return null;
+  if (isAdditiveKingfoodBakeryOrder(row)) return null;
+  if (asArray(row.production_items).length === 0) return null;
+  const serviceDate = inboxRowServiceDate(row);
+  if (!serviceDate || serviceDate < window.revenueDateFrom || serviceDate > window.revenueDateTo) return null;
+  return ["kingfood_bakery_latest", row.from_email || "unknown_sender", row.matched_customer_id || row.mini_crm_customers?.customer_name || "unknown_customer", serviceDate].join("|");
+};
+
+function resolveDailyLatestBakeryRows(rows: InboxRow[], window: ParseWindow): { rows: InboxRow[]; resolution: DailyLatestBakeryResolution } {
+  const latestByGroup = new Map<string, InboxRow>();
+  const groupByRowId = new Map<string, string>();
+
+  for (const row of rows) {
+    const key = bakeryReplacementGroupKey(row, window);
+    if (!key) continue;
+    groupByRowId.set(row.id, key);
+    const existing = latestByGroup.get(key);
+    const currentReceived = String(row.received_at || "");
+    const existingReceived = String(existing?.received_at || "");
+    if (!existing || currentReceived >= existingReceived) latestByGroup.set(key, row);
+  }
+
+  const excludedRows: JsonRecord[] = [];
+  const keptRows = Array.from(latestByGroup.values()).map(summarizeInboxRowForCancellation);
+  const filteredRows = rows.filter((row) => {
+    const key = groupByRowId.get(row.id);
+    if (!key) return true;
+    const latest = latestByGroup.get(key);
+    if (!latest || latest.id === row.id) return true;
+    excludedRows.push({
+      ...summarizeInboxRowForCancellation(row),
+      supersededByInboxRowId: latest.id,
+      supersededByPoNumber: inboxRowPoNumber(latest),
+      supersededByReceivedAt: latest.received_at || null,
+      dedupeRule: "kingfood_bakery_latest_per_delivery_date",
+    });
+    return false;
+  });
+
+  return {
+    rows: filteredRows,
+    resolution: {
+      enabled: true,
+      excludedRows,
+      keptRows,
+      originalRowCount: rows.length,
+      filteredRowCount: filteredRows.length,
+      message: excludedRows.length > 0
+        ? "BÁNH NGỌT/Kingfood có nhiều PO thường cho cùng ngày giao; preview chỉ giữ email mới nhất để tránh cộng dồn PO cũ + PO mới."
+        : undefined,
+    },
+  };
+}
+
 async function fetchDispatchRevenueConfirmations(
   supabaseAdmin: ReturnType<typeof createClient>,
   inboxIds: string[],
@@ -1219,9 +1299,20 @@ async function runCurrentMonthPreview(
         message: dailyCancellationResolution.message || "Đã kiểm tra email huỷ trong window daily",
       });
     }
-    const dispatchConfirmations = await fetchDispatchRevenueConfirmations(supabaseAdmin, rowsAfterCancellationResolution.map((row) => row.id));
+    const { rows: rowsAfterDailyLatestBakery, resolution: dailyLatestBakeryResolution } = resolveDailyLatestBakeryRows(rowsAfterCancellationResolution, window);
+    if (dailyLatestBakeryResolution.excludedRows.length > 0) {
+      emit?.({
+        type: "progress",
+        stage: "daily_latest_bakery_resolution",
+        channel: "BÁNH NGỌT",
+        excludedRows: dailyLatestBakeryResolution.excludedRows.length,
+        keptRows: dailyLatestBakeryResolution.keptRows.length,
+        message: dailyLatestBakeryResolution.message || "Đã giữ PO BÁNH NGỌT mới nhất theo ngày giao",
+      });
+    }
+    const dispatchConfirmations = await fetchDispatchRevenueConfirmations(supabaseAdmin, rowsAfterDailyLatestBakery.map((row) => row.id));
     emit?.({ type: "progress", stage: "dispatch_confirmation_fetch_done", rows: dispatchConfirmations.size, message: `Đã lấy ${dispatchConfirmations.size} xác nhận xuất kho/doanh thu` });
-    const lines = buildPreviewLines(String(run.id), window.period, window.revenueDateFrom, window.revenueDateTo, rowsAfterCancellationResolution, dispatchConfirmations, emit, {
+    const lines = buildPreviewLines(String(run.id), window.period, window.revenueDateFrom, window.revenueDateTo, rowsAfterDailyLatestBakery, dispatchConfirmations, emit, {
       monthlyParseKind: options.monthlyParseKind,
       sourceTab: options.sourceTab,
       linePayloadMetadata: options.linePayloadMetadata,
@@ -1230,6 +1321,8 @@ async function runCurrentMonthPreview(
       ...summarizeLines(lines, window),
       monthly_parse_kind: options.monthlyParseKind || "manual_current_month_to_yesterday",
       dailyCancellationResolution,
+      dailyLatestBakeryResolution,
+      daily_latest_bakery_excluded_row_count: dailyLatestBakeryResolution.excludedRows.length,
       daily_cancellation_replacement_confirmation_required: dailyCancellationResolution.requiresConfirmation,
       ...(options.runSummary || {}),
       gmailSync: syncResults,
