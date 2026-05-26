@@ -1044,7 +1044,7 @@ export default function RevenueSourceDetail() {
       </Dialog>
 
       <Dialog open={!!editingLine} onOpenChange={(open) => { if (!open) closeEdit(); }}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-3xl overflow-y-auto overscroll-contain pb-[calc(1.5rem+env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch] sm:max-h-[92vh] sm:w-full">
           <DialogHeader>
             <DialogTitle>Chỉnh dòng doanh thu</DialogTitle>
             <DialogDescription>
