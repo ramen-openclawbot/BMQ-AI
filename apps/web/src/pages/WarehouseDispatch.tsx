@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Truck, Plus, Loader2, PackageCheck, AlertTriangle, RefreshCw, Brain, Camera, FileSpreadsheet, PackageSearch, FilePlus2, CheckCircle2 } from "lucide-react";
+import { Truck, Plus, Loader2, PackageCheck, AlertTriangle, RefreshCw, Camera, PackageSearch, FilePlus2, CheckCircle2 } from "lucide-react";
 import { format, subDays } from "date-fns";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -858,16 +858,11 @@ export default function WarehouseDispatch() {
 
   const materialReadyRows = selectedMaterialIssue ? selectedMaterialIssueItems : materialPreviewRows.filter((row) => row.status === "ready");
   const materialMissingRows = materialPreviewRows.filter((row) => row.status !== "ready");
-  const materialStandardQty = (selectedMaterialIssue ? selectedMaterialIssueItems : materialPreviewRows)
+  const materialStandardRows = selectedMaterialIssue ? selectedMaterialIssueItems : materialReadyRows;
+  const materialStandardQty = materialStandardRows
     .reduce((sum, row: any) => sum + Number(row.required_qty || 0), 0);
-  const materialStandardAmount = (selectedMaterialIssue ? selectedMaterialIssueItems : materialPreviewRows)
+  const materialStandardAmount = materialStandardRows
     .reduce((sum, row: any) => sum + Number(row.amount || 0), 0);
-
-  const mappingRows = [
-    { raw: "Chà bông cay loại 1", mapped: "Chà bông gà cay", confidence: 92, status: "Tin cậy" },
-    { raw: "Rau leo Đà Lạt", mapped: "Dưa leo", confidence: 86, status: "Tin cậy" },
-    { raw: "Sốt đặc biệt BMQ", mapped: "Cần anh xác nhận", confidence: 58, status: "Cần duyệt" },
-  ];
 
   const openDetail = (d: any) => {
     setSelected({ ...d, items: allDispatchItems.filter((i: any) => i.dispatch_id === d.id) });
@@ -1073,16 +1068,16 @@ export default function WarehouseDispatch() {
       ) : (
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
           <Card className="border-white/10 bg-[#1b120e]/90 text-white shadow-xl shadow-black/20">
-            <CardHeader className="gap-4 md:flex-row md:items-center md:justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2 text-2xl">
+            <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
+              <div className="min-w-0">
+                <CardTitle className="flex items-center gap-2 text-xl leading-tight md:text-2xl">
                   <PackageSearch className="h-6 w-6 text-amber-300" /> Phiếu xuất nguyên vật liệu
                 </CardTitle>
                 <p className="mt-1 text-sm text-white/55">
                   Tự lấy lệnh sản xuất mới nhất đã xác nhận, nhân BOM/định lượng thật để tạo PXK NVL.
                 </p>
               </div>
-              <Badge variant="outline" className={selectedMaterialIssue ? "border-emerald-300/35 bg-emerald-500/10 text-emerald-100" : "border-amber-300/35 bg-amber-500/10 text-amber-100"}>
+              <Badge variant="outline" className={selectedMaterialIssue ? "shrink-0 whitespace-nowrap border-emerald-300/35 bg-emerald-500/10 text-emerald-100" : "shrink-0 whitespace-nowrap border-amber-300/35 bg-amber-500/10 text-amber-100"}>
                 {selectedMaterialIssue ? `Đã có ${selectedMaterialIssue.issue_number}` : "Preview data thật"}
               </Badge>
             </CardHeader>
@@ -1098,10 +1093,10 @@ export default function WarehouseDispatch() {
                 </div>
               ) : (
                 <>
-                  <div className="grid gap-3 md:grid-cols-4">
+                  <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
                     <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:col-span-2">
                       <p className="text-xs text-white/55">Lệnh SX mới nhất</p>
-                      <p className="mt-2 font-mono text-xl font-bold text-amber-100">{selectedMaterialOrder.production_number}</p>
+                      <p className="mt-2 break-words font-mono text-xl font-bold text-amber-100">{selectedMaterialOrder.production_number}</p>
                       <p className="mt-1 text-sm text-white/55">
                         Ngày SX: {selectedMaterialOrder.planned_start_date ? format(new Date(selectedMaterialOrder.planned_start_date), "dd/MM/yyyy") : "—"}
                       </p>
@@ -1112,9 +1107,9 @@ export default function WarehouseDispatch() {
                       <p className="text-xs text-white/45">{materialMissingRows.length} dòng cần mapping</p>
                     </div>
                     <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                      <p className="text-xs text-white/55">Giá trị chuẩn</p>
-                      <p className="mt-2 text-2xl font-bold text-sky-200">{Math.round(materialStandardAmount).toLocaleString("vi-VN")}đ</p>
-                      <p className="text-xs text-white/45">{materialStandardQty.toLocaleString("vi-VN", { maximumFractionDigits: 2 })} đơn vị NVL</p>
+                      <p className="text-xs text-white/55">Giá trị đã map</p>
+                      <p className="mt-2 break-words text-xl font-bold leading-tight text-sky-200 md:text-2xl">{Math.round(materialStandardAmount).toLocaleString("vi-VN")}đ</p>
+                      <p className="text-xs text-white/45">{materialStandardQty.toLocaleString("vi-VN", { maximumFractionDigits: 2 })} đơn vị đủ mapping</p>
                     </div>
                   </div>
 
@@ -1128,24 +1123,21 @@ export default function WarehouseDispatch() {
                       {selectedMaterialIssue ? "Đã tạo PXK NVL" : "Tạo PXK NVL từ lệnh mới nhất"}
                     </Button>
                     <Button variant="outline" className="rounded-xl border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white">
-                      <FileSpreadsheet className="mr-2 h-4 w-4" /> Xuất Excel mapping
-                    </Button>
-                    <Button variant="outline" className="rounded-xl border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white">
                       <Camera className="mr-2 h-4 w-4" /> Nhập tồn kiểm tay
                     </Button>
                   </div>
 
-                  <div className="overflow-hidden rounded-2xl border border-white/10">
-                    <Table>
+                  <div className="overflow-x-auto rounded-2xl border border-white/10">
+                    <Table className="min-w-[980px] table-fixed">
                       <TableHeader>
                         <TableRow className="border-white/10 bg-white/[0.04] hover:bg-white/[0.04]">
-                          <TableHead className="text-white/55">NVL/BOM</TableHead>
-                          <TableHead className="text-white/55">SKU thành phẩm</TableHead>
-                          <TableHead className="text-right text-white/55">Sản lượng</TableHead>
-                          <TableHead className="text-right text-white/55">Cần dùng</TableHead>
-                          <TableHead className="text-right text-white/55">Đơn giá</TableHead>
-                          <TableHead className="text-right text-white/55">Thành tiền</TableHead>
-                          <TableHead className="text-white/55">Trạng thái</TableHead>
+                          <TableHead className="w-[220px] text-white/55">NVL/BOM</TableHead>
+                          <TableHead className="w-[180px] text-white/55">SKU thành phẩm</TableHead>
+                          <TableHead className="w-[110px] text-right text-white/55">Sản lượng</TableHead>
+                          <TableHead className="w-[150px] text-right text-white/55">Cần dùng</TableHead>
+                          <TableHead className="w-[110px] text-right text-white/55">Đơn giá</TableHead>
+                          <TableHead className="w-[130px] text-right text-white/55">Thành tiền</TableHead>
+                          <TableHead className="w-[140px] text-white/55">Trạng thái</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1153,17 +1145,17 @@ export default function WarehouseDispatch() {
                           const status = row.status || "ready";
                           return (
                             <TableRow key={row.id || row.key} className="border-white/10 hover:bg-white/[0.04]">
-                              <TableCell className="font-medium text-amber-100">{row.ingredient_name}</TableCell>
-                              <TableCell className="max-w-[240px] text-sm text-white/60">{row.production_item_name || "Đã post vào PXK"}</TableCell>
+                              <TableCell className="whitespace-normal break-words font-medium text-amber-100">{row.ingredient_name}</TableCell>
+                              <TableCell className="whitespace-normal break-words text-sm text-white/60">{row.production_item_name || "Đã post vào PXK"}</TableCell>
                               <TableCell className="text-right">{Number(row.planned_finished_qty || row.finished_qty || 0).toLocaleString("vi-VN", { maximumFractionDigits: 2 })}</TableCell>
                               <TableCell className="text-right">{Number(row.required_qty || 0).toLocaleString("vi-VN", { maximumFractionDigits: 3 })} {row.unit}</TableCell>
                               <TableCell className="text-right">{Number(row.unit_cost || 0).toLocaleString("vi-VN")}</TableCell>
                               <TableCell className="text-right">{Math.round(Number(row.amount || 0)).toLocaleString("vi-VN")}</TableCell>
                               <TableCell>
                                 {status === "ready" ? (
-                                  <Badge variant="outline" className="border-emerald-300/30 bg-emerald-500/10 text-emerald-100"><CheckCircle2 className="mr-1 h-3 w-3" />Sẵn sàng</Badge>
+                                  <Badge variant="outline" className="whitespace-nowrap border-emerald-300/30 bg-emerald-500/10 text-xs text-emerald-100"><CheckCircle2 className="mr-1 h-3 w-3" />Sẵn sàng</Badge>
                                 ) : (
-                                  <Badge variant="outline" className="border-amber-300/30 bg-amber-500/10 text-amber-100">
+                                  <Badge variant="outline" className="whitespace-nowrap border-amber-300/30 bg-amber-500/10 text-xs text-amber-100">
                                     {status === "missing_finished_sku" ? "Thiếu SKU TP" : status === "missing_formula" ? "Thiếu BOM" : "Thiếu map kho bếp"}
                                   </Badge>
                                 )}
@@ -1207,28 +1199,6 @@ export default function WarehouseDispatch() {
                     </div>
                   );
                 })}
-              </CardContent>
-            </Card>
-
-            <Card className="border-sky-300/20 bg-[#111827]/90 text-white shadow-xl shadow-black/20">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-xl"><Brain className="h-5 w-5 text-sky-200" /> AI mapping hóa đơn</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {mappingRows.map((row) => (
-                  <div key={row.raw} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold">“{row.raw}”</p>
-                        <p className="text-sm text-white/55">→ {row.mapped}</p>
-                      </div>
-                      <Badge variant="outline" className={row.confidence >= 80 ? "border-emerald-300/30 bg-emerald-500/10 text-emerald-100" : "border-amber-300/30 bg-amber-500/10 text-amber-100"}>{row.confidence}%</Badge>
-                    </div>
-                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
-                      <div className={row.confidence >= 80 ? "h-full rounded-full bg-emerald-400" : "h-full rounded-full bg-amber-400"} style={{ width: `${row.confidence}%` }} />
-                    </div>
-                  </div>
-                ))}
               </CardContent>
             </Card>
           </div>
