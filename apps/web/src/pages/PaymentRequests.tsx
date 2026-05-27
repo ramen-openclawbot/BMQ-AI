@@ -1,14 +1,32 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
-import { Eye, Trash2, Filter, FileCheck, AlertTriangle, Banknote, CreditCard, X, CheckCircle, Wallet, FolderSearch, Loader2, Search } from "lucide-react";
+import {
+  ArrowDown,
+  CalendarDays,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  Eye,
+  FileText,
+  Loader2,
+  MoreVertical,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  Upload,
+  Wallet,
+  X,
+  XCircle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
@@ -50,13 +68,12 @@ import {
   useBulkApprovePaymentRequest,
   type PaymentRequestWithSupplier,
 } from "@/hooks/usePaymentRequests";
-import { usePaymentStats } from "@/hooks/usePaymentStats";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
-type CardFilterType = "pending" | "approved" | "unc" | "cash" | "delivered" | "needs_invoice" | null;
+type CardFilterType = "pending" | "approved" | "rejected" | null;
 
 const normalizeSearch = (value: string | null | undefined) =>
   String(value || "")
@@ -82,12 +99,13 @@ const PaymentRequests = () => {
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [deliveryFilter, setDeliveryFilter] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [activeCardFilter, setActiveCardFilter] = useState<CardFilterType>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showBulkApproveConfirm, setShowBulkApproveConfirm] = useState(false);
   const [showDriveInvoiceDialog, setShowDriveInvoiceDialog] = useState(false);
+  const [pageSize, setPageSize] = useState("10");
+  const [currentPage, setCurrentPage] = useState(1);
   
   const { canEditModule } = useAuth();
   const { language, t } = useLanguage();
@@ -100,7 +118,6 @@ const PaymentRequests = () => {
     error,
     refetch,
   } = usePaymentRequests();
-  const { data: paymentStats } = usePaymentStats();
   const deleteRequest = useDeletePaymentRequest();
   const bulkMarkPaid = useBulkMarkPaid();
   const bulkApprove = useBulkApprovePaymentRequest();
@@ -111,9 +128,112 @@ const PaymentRequests = () => {
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("vi-VN", {
-      style: "currency",
-      currency: "VND",
-    }).format(amount);
+      maximumFractionDigits: 0,
+    }).format(amount) + " đ";
+  };
+
+  const compactCurrency = (amount: number) => formatCurrency(amount);
+
+  const getRequestCode = (request: PaymentRequestWithSupplier) =>
+    request.request_number || request.title || `DC-${request.id.slice(0, 8).toUpperCase()}`;
+
+  const getCreatorName = (request: PaymentRequestWithSupplier) =>
+    request.created_by ? `User ${request.created_by.slice(0, 8)}` : "-";
+
+  const dateRangeLabel = useMemo(() => {
+    const currentMonth = new Date();
+    const currentMonthLabel = `${format(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1), "dd/MM/yyyy")} - ${format(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0), "dd/MM/yyyy")}`;
+    const source = requests || [];
+    if (source.length === 0) return currentMonthLabel;
+
+    const dates = source
+      .map((request) => new Date(request.created_at))
+      .filter((date) => !Number.isNaN(date.getTime()))
+      .sort((a, b) => a.getTime() - b.getTime());
+
+    if (dates.length === 0) return currentMonthLabel;
+
+    const first = dates[0];
+    const last = dates[dates.length - 1];
+    const firstDay = new Date(last.getFullYear(), last.getMonth(), 1);
+    const lastDay = new Date(last.getFullYear(), last.getMonth() + 1, 0);
+
+    return `${format(firstDay, "dd/MM/yyyy")} - ${format(lastDay, "dd/MM/yyyy")}`;
+  }, [requests]);
+
+  const stats = useMemo(() => {
+    const source = requests || [];
+    const totalAmount = source.reduce((sum, request) => sum + (Number(request.total_amount) || 0), 0);
+    const approved = source.filter((request) => request.status === "approved");
+    const pending = source.filter((request) => request.status === "pending");
+    const rejected = source.filter((request) => request.status === "rejected");
+
+    return {
+      total: {
+        amount: totalAmount,
+        count: source.length,
+      },
+      approved: {
+        amount: approved.reduce((sum, request) => sum + (Number(request.total_amount) || 0), 0),
+        count: approved.length,
+      },
+      pending: {
+        amount: pending.reduce((sum, request) => sum + (Number(request.total_amount) || 0), 0),
+        count: pending.length,
+      },
+      rejected: {
+        amount: rejected.reduce((sum, request) => sum + (Number(request.total_amount) || 0), 0),
+        count: rejected.length,
+      },
+    };
+  }, [requests]);
+
+  const statCards = [
+    {
+      key: null,
+      label: language === "vi" ? "Tổng đề nghị" : "Total requests",
+      amount: stats.total.amount,
+      count: stats.total.count,
+      icon: FileText,
+      tone: "blue",
+    },
+    {
+      key: "approved" as const,
+      label: language === "vi" ? "Đã duyệt" : "Approved",
+      amount: stats.approved.amount,
+      count: stats.approved.count,
+      icon: CheckCircle2,
+      tone: "green",
+    },
+    {
+      key: "pending" as const,
+      label: language === "vi" ? "Chờ duyệt" : "Pending",
+      amount: stats.pending.amount,
+      count: stats.pending.count,
+      icon: Clock3,
+      tone: "amber",
+    },
+    {
+      key: "rejected" as const,
+      label: language === "vi" ? "Từ chối" : "Rejected",
+      amount: stats.rejected.amount,
+      count: stats.rejected.count,
+      icon: XCircle,
+      tone: "red",
+    },
+  ];
+
+  const getStatToneClass = (tone: string) => {
+    switch (tone) {
+      case "green":
+        return "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400";
+      case "amber":
+        return "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400";
+      case "red":
+        return "bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400";
+      default:
+        return "bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400";
+    }
   };
 
   const renderProductNames = (request: PaymentRequestWithSupplier) => {
@@ -127,16 +247,16 @@ const PaymentRequests = () => {
     const remainingCount = productNames.length - visibleNames.length;
 
     return (
-      <div className="flex max-w-[260px] flex-wrap items-center gap-1.5">
-        {visibleNames.map((name) => (
-          <Badge key={name} variant="outline" className="max-w-[220px] justify-start truncate font-normal">
-            <span className="truncate">{name}</span>
-          </Badge>
-        ))}
+      <div className="flex max-w-[300px] flex-col gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {visibleNames.map((name) => (
+            <Badge key={name} variant="outline" className="max-w-[170px] justify-start truncate rounded px-2 py-0.5 text-xs font-normal text-slate-700 dark:text-slate-200">
+              <span className="truncate">{name}</span>
+            </Badge>
+          ))}
+        </div>
         {remainingCount > 0 && (
-          <Badge variant="secondary" className="font-normal">
-            +{remainingCount}
-          </Badge>
+          <span className="text-xs text-slate-600 dark:text-slate-400">+{remainingCount} sản phẩm khác</span>
         )}
       </div>
     );
@@ -172,60 +292,28 @@ const PaymentRequests = () => {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "pending":
-        return <Badge variant="secondary">{t.pending}</Badge>;
+        return (
+          <Badge className="gap-1 rounded-md border border-amber-100 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+            {t.pending}
+          </Badge>
+        );
       case "approved":
-        return <Badge className="bg-green-500">{t.approved}</Badge>;
+        return (
+          <Badge className="gap-1 rounded-md border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            {t.approved}
+          </Badge>
+        );
       case "rejected":
-        return <Badge variant="destructive">{t.rejected}</Badge>;
-      default:
-        return <Badge variant="outline">{status}</Badge>;
-    }
-  };
-
-  const getDeliveryStatusBadge = (status: string) => {
-    switch (status) {
-      case "pending":
-        return <Badge variant="outline">{t.notDelivered}</Badge>;
-      case "delivered":
-        return <Badge className="bg-blue-500">{t.delivered}</Badge>;
-      default:
-        return <Badge variant="outline">{status}</Badge>;
-    }
-  };
-
-  const getPaymentStatusBadge = (status: string) => {
-    switch (status) {
-      case "unpaid":
-        return <Badge variant="destructive">{t.unpaid}</Badge>;
-      case "partial":
-        return <Badge className="bg-amber-500">{language === "vi" ? "Thanh toán một phần" : "Partially paid"}</Badge>;
-      case "paid":
-        return <Badge className="bg-green-500">{t.paid}</Badge>;
-      case "overpaid":
-        return <Badge className="bg-purple-500">{language === "vi" ? "Thanh toán dư" : "Overpaid"}</Badge>;
-      default:
-        return <Badge variant="outline">{status}</Badge>;
-    }
-  };
-
-  const getPaymentMethodBadge = (method: string | null) => {
-    switch (method) {
-      case "bank_transfer":
         return (
-          <Badge variant="outline" className="gap-1">
-            <CreditCard className="h-3 w-3" />
-            {t.bankTransfer}
-          </Badge>
-        );
-      case "cash":
-        return (
-          <Badge variant="secondary" className="gap-1">
-            <Banknote className="h-3 w-3" />
-            {t.cash}
+          <Badge className="gap-1 rounded-md border border-rose-100 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300">
+            <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+            {t.rejected}
           </Badge>
         );
       default:
-        return <Badge variant="outline">-</Badge>;
+        return <Badge variant="outline">{status}</Badge>;
     }
   };
 
@@ -236,13 +324,17 @@ const PaymentRequests = () => {
     return requests?.filter((r) => {
       // Dropdown filters
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
-      if (deliveryFilter !== "all" && r.delivery_status !== deliveryFilter) return false;
 
       if (normalizedSearchTerm) {
         const supplierName = normalizeSearch(r.suppliers?.name);
+        const requestCode = normalizeSearch(getRequestCode(r));
         const productNames = normalizeSearch(getProductNames(r).join(" "));
 
-        if (!supplierName.includes(normalizedSearchTerm) && !productNames.includes(normalizedSearchTerm)) {
+        if (
+          !supplierName.includes(normalizedSearchTerm) &&
+          !productNames.includes(normalizedSearchTerm) &&
+          !requestCode.includes(normalizedSearchTerm)
+        ) {
           return false;
         }
       }
@@ -253,21 +345,19 @@ const PaymentRequests = () => {
           case "pending":
             return r.status === "pending";
           case "approved":
-            return r.status === "approved" && hasOutstandingPayment(r);
-          case "unc":
-            return hasOutstandingPayment(r) && r.payment_method === "bank_transfer";
-          case "cash":
-            return hasOutstandingPayment(r) && r.payment_method === "cash";
-          case "delivered":
-            return r.delivery_status === "delivered";
-          case "needs_invoice":
-            return r.status === "approved" && !r.invoice_created;
+            return r.status === "approved";
+          case "rejected":
+            return r.status === "rejected";
         }
       }
       
       return true;
     });
-  }, [requests, statusFilter, deliveryFilter, searchTerm, activeCardFilter]);
+  }, [requests, statusFilter, searchTerm, activeCardFilter]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, searchTerm, activeCardFilter, pageSize]);
 
   // Get selectable requests (pending OR approved with remaining amount)
   const selectableRequests = useMemo(() => {
@@ -299,6 +389,18 @@ const PaymentRequests = () => {
     });
   }, [selectedIds, requests]);
 
+  const totalResults = filteredRequests?.length || 0;
+  const numericPageSize = Number(pageSize);
+  const totalPages = Math.max(1, Math.ceil(totalResults / numericPageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedRequests = useMemo(() => {
+    const start = (safeCurrentPage - 1) * numericPageSize;
+    return filteredRequests?.slice(start, start + numericPageSize) || [];
+  }, [filteredRequests, numericPageSize, safeCurrentPage]);
+
+  const firstResult = totalResults === 0 ? 0 : (safeCurrentPage - 1) * numericPageSize + 1;
+  const lastResult = Math.min(safeCurrentPage * numericPageSize, totalResults);
+
   const handleBulkApprove = () => {
     bulkApprove.mutate(selectedPendingIds, {
       onSuccess: () => {
@@ -308,174 +410,114 @@ const PaymentRequests = () => {
     });
   };
 
-  // Use centralized stats from usePaymentStats for real-time sync
-  const pendingCount = paymentStats?.pendingCount || 0;
-  const approvedCount = paymentStats?.approvedCount || 0;
-  const deliveredCount = paymentStats?.deliveredCount || 0;
-  const uncTotal = paymentStats?.uncTotal || 0;
-  const cashTotal = paymentStats?.cashTotal || 0;
-  const totalUnpaid = paymentStats?.totalUnpaid || 0;
-  const needsInvoiceCount = paymentStats?.pendingInvoiceCount || 0;
-
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-display font-bold text-foreground">{t.paymentRequestsTitle}</h1>
-          <p className="text-muted-foreground">{t.paymentRequestsDesc}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <AddPaymentRequestDialog />
-        </div>
-      </div>
+    <div className="space-y-5 bg-slate-50/40 pb-2 dark:bg-background">
+      <div className="space-y-5">
+        <h1 className="text-[28px] font-semibold leading-tight tracking-normal text-slate-950 dark:text-slate-50">
+          {t.paymentRequestsTitle}
+        </h1>
 
-      {/* Warning Banner for pending invoices */}
-      {needsInvoiceCount > 0 && (
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>{t.needsInvoiceWarning}: {needsInvoiceCount}</AlertTitle>
-          <AlertDescription>
-            {t.needsInvoiceWarningDesc}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* Stats Cards - Redesigned for cleaner UI */}
-      <div className="space-y-4">
-        {/* Row 1: Status cards */}
-        <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
-          <Card 
-            className={cn(
-              "cursor-pointer transition-all hover:shadow-md",
-              activeCardFilter === "pending" && "ring-2 ring-primary"
-            )}
-            onClick={() => setActiveCardFilter(activeCardFilter === "pending" ? null : "pending")}
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+          <Button
+            variant="outline"
+            className="h-12 justify-between gap-3 rounded-md border-slate-200 bg-white px-4 text-sm font-normal text-slate-800 shadow-none hover:bg-white dark:border-slate-800 dark:bg-card dark:text-slate-100 xl:w-[290px]"
           >
-            <CardContent className="p-4">
-              <div className="text-xs font-medium text-muted-foreground mb-1">{t.pendingApproval}</div>
-              <div className="text-2xl font-bold text-yellow-600">{pendingCount}</div>
-            </CardContent>
-          </Card>
-          <Card 
-            className={cn(
-              "cursor-pointer transition-all hover:shadow-md",
-              activeCardFilter === "approved" && "ring-2 ring-primary"
-            )}
-            onClick={() => setActiveCardFilter(activeCardFilter === "approved" ? null : "approved")}
-          >
-            <CardContent className="p-4">
-              <div className="text-xs font-medium text-muted-foreground mb-1">{t.approved}</div>
-              <div className="text-2xl font-bold text-green-600">{approvedCount}</div>
-            </CardContent>
-          </Card>
-          <Card 
-            className={cn(
-              "cursor-pointer transition-all hover:shadow-md",
-              activeCardFilter === "delivered" && "ring-2 ring-primary"
-            )}
-            onClick={() => setActiveCardFilter(activeCardFilter === "delivered" ? null : "delivered")}
-          >
-            <CardContent className="p-4">
-              <div className="text-xs font-medium text-muted-foreground mb-1">{t.delivered}</div>
-              <div className="text-2xl font-bold text-blue-600">{deliveredCount}</div>
-            </CardContent>
-          </Card>
-          <Card 
-            className={cn(
-              "cursor-pointer transition-all hover:shadow-md",
-              needsInvoiceCount > 0 && "border-destructive",
-              activeCardFilter === "needs_invoice" && "ring-2 ring-primary"
-            )}
-            onClick={() => setActiveCardFilter(activeCardFilter === "needs_invoice" ? null : "needs_invoice")}
-          >
-            <CardContent className="p-4">
-              <div className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1">
-                <FileCheck className="h-3 w-3" />
-                {t.needsInvoice}
-              </div>
-              <div className={cn("text-2xl font-bold", needsInvoiceCount > 0 ? "text-destructive" : "text-muted-foreground")}>
-                {needsInvoiceCount}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Row 2: Payment summary card */}
-        <Card className="bg-gradient-to-r from-primary/5 to-primary/10 border-primary/20">
-          <CardContent className="p-4">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-              {/* Total */}
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <Wallet className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <div className="text-xs font-medium text-muted-foreground">{t.totalNeedToPay}</div>
-                  <div className="text-2xl font-bold text-primary">{formatCurrency(totalUnpaid)}</div>
-                </div>
-              </div>
-              
-              {/* UNC and Cash breakdown */}
-              <div className="flex gap-3">
-                <div 
-                  className={cn(
-                    "flex-1 p-3 rounded-lg bg-background/80 cursor-pointer transition-all hover:bg-background",
-                    activeCardFilter === "unc" && "ring-2 ring-primary"
-                  )}
-                  onClick={() => setActiveCardFilter(activeCardFilter === "unc" ? null : "unc")}
-                >
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                    <CreditCard className="h-3 w-3" />
-                    {t.totalUNC}
-                  </div>
-                  <div className="text-lg font-semibold text-blue-600">{formatCurrency(uncTotal)}</div>
-                </div>
-                <div 
-                  className={cn(
-                    "flex-1 p-3 rounded-lg bg-background/80 cursor-pointer transition-all hover:bg-background",
-                    activeCardFilter === "cash" && "ring-2 ring-primary"
-                  )}
-                  onClick={() => setActiveCardFilter(activeCardFilter === "cash" ? null : "cash")}
-                >
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                    <Banknote className="h-3 w-3" />
-                    {t.totalCash}
-                  </div>
-                  <div className="text-lg font-semibold text-orange-600">{formatCurrency(cashTotal)}</div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Action bar when filter needs_invoice */}
-      {activeCardFilter === "needs_invoice" && needsInvoiceCount > 0 && (
-        <div className="flex items-center justify-between p-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
-          <div className="flex items-center gap-2">
-            <FileCheck className="h-5 w-5 text-amber-600" />
-            <span className="text-sm font-medium">
-              {language === "vi" 
-                ? `Có ${needsInvoiceCount} đề nghị thanh toán cần tạo hoá đơn`
-                : `${needsInvoiceCount} payment requests need invoice`
-              }
+            <span className="flex min-w-0 items-center gap-3">
+              <CalendarDays className="h-4 w-4 text-slate-500" />
+              <span className="truncate">{dateRangeLabel}</span>
             </span>
+            <ChevronRight className="h-4 w-4 rotate-90 text-slate-500" />
+          </Button>
+
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="h-12 rounded-md border-slate-200 bg-white px-4 text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100 xl:w-[260px]">
+              <SelectValue placeholder={t.status} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{language === "vi" ? "Tất cả trạng thái" : "All statuses"}</SelectItem>
+              <SelectItem value="pending">{t.pending}</SelectItem>
+              <SelectItem value="approved">{t.approved}</SelectItem>
+              <SelectItem value="rejected">{t.rejected}</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+            <Input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder={language === "vi" ? "Tìm theo mã phiếu, tên sản phẩm hoặc nhà cung cấp" : "Search by code, product, or supplier"}
+              className="h-12 rounded-md border-slate-200 bg-white pl-12 text-sm shadow-none placeholder:text-slate-400 dark:border-slate-800 dark:bg-card"
+            />
           </div>
-          <Button 
+
+          <AddPaymentRequestDialog
+            trigger={
+              <Button className="h-12 rounded-md bg-blue-600 px-6 text-sm font-medium shadow-sm hover:bg-blue-700">
+                <Plus className="h-5 w-5" />
+                {language === "vi" ? "Tạo duyệt chi" : "Create request"}
+              </Button>
+            }
+          />
+
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-12 w-12 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
             onClick={() => setShowDriveInvoiceDialog(true)}
-            className="gap-2"
+            title={language === "vi" ? "Nhập từ Google Drive" : "Import from Google Drive"}
           >
-            <FolderSearch className="h-4 w-4" />
-            {language === "vi" ? "Tạo hoá đơn từ Google Drive" : "Create Invoice from Google Drive"}
+            <Upload className="h-5 w-5" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-12 w-12 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
+            onClick={() => refetch()}
+            title={language === "vi" ? "Làm mới" : "Refresh"}
+          >
+            <RefreshCw className={cn("h-5 w-5", isLoading && "animate-spin")} />
           </Button>
         </div>
-      )}
+
+        <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-4">
+          {statCards.map((card) => {
+            const Icon = card.icon;
+            const isActive = card.key === null ? activeCardFilter === null : activeCardFilter === card.key;
+
+            return (
+              <Card
+                key={card.label}
+                className={cn(
+                  "cursor-pointer rounded-md border-slate-200 bg-white shadow-none transition-colors hover:border-blue-200 dark:border-slate-800 dark:bg-card",
+                  isActive && "border-blue-300 ring-1 ring-blue-100 dark:border-blue-800 dark:ring-blue-950"
+                )}
+                onClick={() => setActiveCardFilter(card.key === activeCardFilter ? null : card.key)}
+              >
+                <CardContent className="flex items-center gap-5 p-6">
+                  <div className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-md", getStatToneClass(card.tone))}>
+                    <Icon className="h-7 w-7" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">{card.label}</div>
+                    <div className="mt-1 text-xl font-semibold leading-tight text-slate-950 dark:text-slate-50">
+                      {compactCurrency(card.amount)}
+                    </div>
+                    <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                      {card.count} {language === "vi" ? "phiếu" : "requests"}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
 
       {/* Bulk Action Bar */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center justify-between p-4 bg-primary/10 rounded-lg border border-primary/20">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-col gap-3 rounded-md border border-blue-100 bg-blue-50 p-4 dark:border-blue-900/50 dark:bg-blue-950/20 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-4">
             <span className="font-medium">
               {t.selected}: {selectedIds.size}
             </span>
@@ -489,7 +531,7 @@ const PaymentRequests = () => {
               )}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {/* Quick Approve button - only show when pending requests are selected */}
             {selectedPendingIds.length > 0 && (
               <Button 
@@ -497,7 +539,7 @@ const PaymentRequests = () => {
                 disabled={bulkApprove.isPending}
                 className="gap-2 bg-green-600 hover:bg-green-700"
               >
-                <CheckCircle className="h-4 w-4" />
+                <CheckCircle2 className="h-4 w-4" />
                 {t.quickApprove} ({selectedPendingIds.length})
               </Button>
             )}
@@ -533,43 +575,8 @@ const PaymentRequests = () => {
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex flex-col gap-3 rounded-lg border bg-card p-3 sm:flex-row sm:items-center">
-        <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder={language === "vi" ? "Tìm theo tên sản phẩm hoặc nhà cung cấp" : "Search by product or supplier"}
-            className="h-10 pl-9"
-          />
-        </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="h-10 w-full sm:w-40">
-            <Filter className="h-4 w-4 mr-2" />
-            <SelectValue placeholder={t.status} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t.all}</SelectItem>
-            <SelectItem value="pending">{t.pending}</SelectItem>
-            <SelectItem value="approved">{t.approved}</SelectItem>
-            <SelectItem value="rejected">{t.rejected}</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={deliveryFilter} onValueChange={setDeliveryFilter}>
-          <SelectTrigger className="h-10 w-full sm:w-40">
-            <SelectValue placeholder={t.delivery} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t.all}</SelectItem>
-            <SelectItem value="pending">{t.notDelivered}</SelectItem>
-            <SelectItem value="delivered">{t.delivered}</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
       {/* Requests Table */}
-      <Card>
+      <Card className="overflow-hidden rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card">
         <CardContent className="p-0">
           {isLoading ? (
             <div className="p-6 space-y-4">
@@ -596,14 +603,15 @@ const PaymentRequests = () => {
             </div>
           ) : filteredRequests?.length === 0 ? (
             <div className="p-12 text-center">
-              <FileCheck className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+              <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
               <p className="text-muted-foreground">{t.noPaymentRequests}</p>
             </div>
           ) : (
+            <>
             <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-12">
+              <TableHeader className="bg-slate-50 dark:bg-slate-900/50">
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="w-12 px-4">
                     <Checkbox
                       checked={selectableRequests.length > 0 && selectableRequests.every(r => selectedIds.has(r.id))}
                       onCheckedChange={(checked) => {
@@ -615,20 +623,24 @@ const PaymentRequests = () => {
                       }}
                     />
                   </TableHead>
-                  <TableHead>{t.createdDate}</TableHead>
-                  <TableHead>{t.supplier}</TableHead>
-                  <TableHead>{language === "vi" ? "Tên sản phẩm duyệt chi" : "Payment request products"}</TableHead>
-                  <TableHead className="text-right">{t.totalAmount}</TableHead>
-                  <TableHead>{t.status}</TableHead>
-                  <TableHead>{t.paymentMethod}</TableHead>
-                  <TableHead>{t.delivery}</TableHead>
-                  <TableHead>{t.payment}</TableHead>
-                  <TableHead>{t.invoiceStatus}</TableHead>
-                  <TableHead className="text-right">{t.actions}</TableHead>
+                  <TableHead className="min-w-[130px] text-slate-700 dark:text-slate-300">Mã phiếu</TableHead>
+                  <TableHead className="min-w-[130px] text-slate-700 dark:text-slate-300">
+                    <span className="inline-flex items-center gap-1">
+                      Ngày <ArrowDown className="h-3.5 w-3.5" />
+                    </span>
+                  </TableHead>
+                  <TableHead className="min-w-[220px] text-slate-700 dark:text-slate-300">{t.supplier}</TableHead>
+                  <TableHead className="min-w-[300px] text-slate-700 dark:text-slate-300">
+                    {language === "vi" ? "Tên sản phẩm duyệt chi" : "Payment request products"}
+                  </TableHead>
+                  <TableHead className="min-w-[150px] text-right text-slate-700 dark:text-slate-300">Số tiền</TableHead>
+                  <TableHead className="min-w-[140px] text-center text-slate-700 dark:text-slate-300">{t.status}</TableHead>
+                  <TableHead className="min-w-[160px] text-slate-700 dark:text-slate-300">Người tạo</TableHead>
+                  <TableHead className="min-w-[140px] text-center text-slate-700 dark:text-slate-300">{t.actions}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredRequests?.map((request) => {
+                {paginatedRequests.map((request) => {
                   const allocatedAmount = getAllocatedAmount(request);
                   const remainingAmount = getRemainingPaymentAmount(request);
                   const isSelectable = request.status === "pending" || (request.status === "approved" && hasOutstandingPayment(request));
@@ -636,10 +648,10 @@ const PaymentRequests = () => {
                   
                   return (
                     <TableRow key={request.id} className={cn(
-                      request.payment_status === "paid" && !request.invoice_created && "bg-destructive/5",
-                      isSelected && "bg-primary/5"
+                      "h-[72px] hover:bg-slate-50 dark:hover:bg-slate-900/40",
+                      isSelected && "bg-blue-50 dark:bg-blue-950/20"
                     )}>
-                      <TableCell>
+                      <TableCell className="px-4">
                         {isSelectable ? (
                           <Checkbox
                             checked={isSelected}
@@ -657,12 +669,15 @@ const PaymentRequests = () => {
                           <div className="w-4" />
                         )}
                       </TableCell>
-                    <TableCell className="whitespace-nowrap text-muted-foreground">
+                    <TableCell className="whitespace-nowrap font-medium text-slate-800 dark:text-slate-100">
+                      {getRequestCode(request)}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-slate-700 dark:text-slate-300">
                       {format(new Date(request.created_at), "dd/MM/yyyy", { locale: dateLocale })}
                     </TableCell>
-                    <TableCell className="min-w-[180px] font-medium">{request.suppliers?.name || "-"}</TableCell>
-                    <TableCell className="min-w-[240px]">{renderProductNames(request)}</TableCell>
-                    <TableCell className="text-right font-medium">
+                    <TableCell className="font-medium text-slate-800 dark:text-slate-100">{request.suppliers?.name || "-"}</TableCell>
+                    <TableCell>{renderProductNames(request)}</TableCell>
+                    <TableCell className="text-right font-semibold text-slate-900 dark:text-slate-50">
                       {formatCurrency(request.total_amount || 0)}
                       {allocatedAmount > 0 && (
                         <div className="text-xs font-normal text-muted-foreground">
@@ -671,36 +686,31 @@ const PaymentRequests = () => {
                         </div>
                       )}
                     </TableCell>
-                    <TableCell>{getStatusBadge(request.status)}</TableCell>
-                    <TableCell>{getPaymentMethodBadge(request.payment_method)}</TableCell>
-                    <TableCell>{getDeliveryStatusBadge(request.delivery_status)}</TableCell>
-                    <TableCell>{getPaymentStatusBadge(request.payment_status)}</TableCell>
-                    <TableCell>
-                      {request.invoice_created ? (
-                        <Badge className="bg-green-500 gap-1">
-                          <FileCheck className="h-3 w-3" />
-                          {t.invoiceCreated}
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="gap-1">
-                          <AlertTriangle className="h-3 w-3" />
-                          {t.invoiceNotCreated}
-                        </Badge>
-                      )}
-                    </TableCell>
+                    <TableCell className="text-center">{getStatusBadge(request.status)}</TableCell>
+                    <TableCell className="whitespace-nowrap text-slate-700 dark:text-slate-300">{getCreatorName(request)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
                         <Button
-                          variant="ghost"
+                          variant="outline"
                           size="icon"
+                          className="h-8 w-8 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
                           onClick={() => setSelectedRequestId(request.id)}
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
+                          onClick={() => setSelectedRequestId(request.id)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
                         {canEditPaymentRequests && (
                           <Button
-                            variant="ghost"
+                            variant="outline"
                             size="icon"
+                            className="h-8 w-8 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
                             disabled={deleteRequest.isPending}
                             onClick={(e) => {
                               e.stopPropagation();
@@ -708,7 +718,7 @@ const PaymentRequests = () => {
                             }}
                             title={language === "vi" ? "Xoá duyệt chi" : "Delete payment request"}
                           >
-                            <Trash2 className="h-4 w-4 text-destructive" />
+                            <MoreVertical className="h-4 w-4" />
                           </Button>
                         )}
                       </div>
@@ -718,6 +728,62 @@ const PaymentRequests = () => {
                 })}
               </TableBody>
             </Table>
+            <div className="flex flex-col gap-4 border-t border-slate-200 px-4 py-4 text-sm text-slate-700 dark:border-slate-800 dark:text-slate-300 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                {language === "vi"
+                  ? `Hiển thị ${firstResult} - ${lastResult} trong ${totalResults} kết quả`
+                  : `Showing ${firstResult} - ${lastResult} of ${totalResults} results`}
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <span>{language === "vi" ? "Số dòng mỗi trang" : "Rows per page"}</span>
+                <Select value={pageSize} onValueChange={setPageSize}>
+                  <SelectTrigger className="h-10 w-[104px] rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10">10</SelectItem>
+                    <SelectItem value="20">20</SelectItem>
+                    <SelectItem value="50">50</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="ml-0 flex items-center gap-2 lg:ml-8">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
+                    disabled={safeCurrentPage <= 1}
+                    onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  {Array.from({ length: Math.min(4, totalPages) }, (_, index) => index + 1).map((page) => (
+                    <Button
+                      key={page}
+                      variant={safeCurrentPage === page ? "default" : "outline"}
+                      className={cn(
+                        "h-10 w-10 rounded-md p-0 shadow-none",
+                        safeCurrentPage === page
+                          ? "bg-blue-600 hover:bg-blue-700"
+                          : "border-slate-200 bg-white dark:border-slate-800 dark:bg-card"
+                      )}
+                      onClick={() => setCurrentPage(page)}
+                    >
+                      {page}
+                    </Button>
+                  ))}
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
+                    disabled={safeCurrentPage >= totalPages}
+                    onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+            </>
           )}
         </CardContent>
       </Card>
