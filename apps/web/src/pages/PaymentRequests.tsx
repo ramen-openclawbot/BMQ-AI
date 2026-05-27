@@ -727,7 +727,7 @@ const PaymentRequests = () => {
                           <Button
                             variant="outline"
                             size="icon"
-                            className="h-8 w-8 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
+                            className="group h-8 w-8 rounded-md border-destructive/25 bg-destructive/5 text-destructive shadow-none hover:border-destructive/45 hover:bg-destructive/10 hover:text-destructive dark:border-destructive/35 dark:bg-destructive/10 dark:text-destructive dark:hover:bg-destructive/20 dark:hover:text-destructive"
                             disabled={deleteRequest.isPending}
                             onClick={(e) => {
                               e.stopPropagation();
@@ -736,7 +736,7 @@ const PaymentRequests = () => {
                             onKeyDown={(event) => event.stopPropagation()}
                             title={language === "vi" ? "Xoá duyệt chi" : "Delete payment request"}
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Trash2 className="h-4 w-4 transition-[stroke-width] group-hover:stroke-[2.75]" />
                           </Button>
                         )}
                       </div>
