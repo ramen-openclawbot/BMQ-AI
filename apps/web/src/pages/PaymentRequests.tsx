@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
-import { Eye, Trash2, Filter, FileCheck, AlertTriangle, Banknote, CreditCard, X, CheckCircle, Wallet, FolderSearch } from "lucide-react";
+import { Eye, Trash2, Filter, FileCheck, AlertTriangle, Banknote, CreditCard, X, CheckCircle, Wallet, FolderSearch, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -44,6 +44,7 @@ import { usePaymentStats } from "@/hooks/usePaymentStats";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 type CardFilterType = "pending" | "approved" | "unc" | "cash" | "delivered" | "needs_invoice" | null;
 
@@ -58,8 +59,9 @@ const PaymentRequests = () => {
   const [showBulkApproveConfirm, setShowBulkApproveConfirm] = useState(false);
   const [showDriveInvoiceDialog, setShowDriveInvoiceDialog] = useState(false);
   
-  useAuth();
+  const { canEditModule } = useAuth();
   const { language, t } = useLanguage();
+  const canEditPaymentRequests = canEditModule("payment_requests");
 
   const {
     data: requests,
@@ -86,8 +88,29 @@ const PaymentRequests = () => {
 
   const handleDelete = async () => {
     if (!deletingRequestId) return;
-    await deleteRequest.mutateAsync(deletingRequestId);
-    setDeletingRequestId(null);
+    if (!canEditPaymentRequests) {
+      toast.error(language === "vi" ? "Anh không có quyền xoá duyệt chi" : "No permission to delete payment requests");
+      return;
+    }
+
+    try {
+      const result = await deleteRequest.mutateAsync(deletingRequestId);
+      setDeletingRequestId(null);
+      toast.success(
+        result.unlinked_invoice_count > 0
+          ? language === "vi"
+            ? "Đã xoá duyệt chi và giữ lại hóa đơn đã tạo"
+            : "Payment request deleted; linked invoice was kept"
+          : language === "vi"
+            ? "Đã xoá duyệt chi"
+            : "Payment request deleted"
+      );
+    } catch (deleteError) {
+      const message = deleteError instanceof Error ? deleteError.message : String(deleteError || "");
+      toast.error(language === "vi" ? "Không xoá được duyệt chi" : "Failed to delete payment request", {
+        description: message || (language === "vi" ? "Vui lòng thử lại." : "Please try again."),
+      });
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -584,14 +607,16 @@ const PaymentRequests = () => {
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
-                        {(
+                        {canEditPaymentRequests && (
                           <Button
                             variant="ghost"
                             size="icon"
+                            disabled={deleteRequest.isPending}
                             onClick={(e) => {
                               e.stopPropagation();
                               setDeletingRequestId(request.id);
                             }}
+                            title={language === "vi" ? "Xoá duyệt chi" : "Delete payment request"}
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
@@ -628,8 +653,9 @@ const PaymentRequests = () => {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t.cancel}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">
-              {t.delete}
+            <AlertDialogAction onClick={handleDelete} disabled={deleteRequest.isPending} className="bg-destructive hover:bg-destructive/90">
+              {deleteRequest.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {deleteRequest.isPending ? (language === "vi" ? "Đang xoá..." : "Deleting...") : t.delete}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

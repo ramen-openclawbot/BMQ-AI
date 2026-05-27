@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { resolveImageUrl } from "@/lib/storage-url";
 import type { Database } from "@/integrations/supabase/types";
 import { processPaymentRequestSKUs } from "@/lib/sku-generator";
+import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 
 type PaymentRequest = Database["public"]["Tables"]["payment_requests"]["Row"];
 type PaymentRequestItem = Database["public"]["Tables"]["payment_request_items"]["Row"];
@@ -124,16 +125,33 @@ export function useDeletePaymentRequest() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("payment_requests")
-        .delete()
-        .eq("id", id);
-      if (error) throw error;
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+      }
+
+      const result = await callEdgeFunction<{ success: boolean; id: string; unlinked_invoice_count: number }>(
+        "delete-payment-request",
+        { id },
+        session.access_token,
+        30000
+      );
+
+      if (result.error || !result.data?.success) {
+        throw new Error(result.error || "Không xoá được duyệt chi");
+      }
+
+      return result.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payment-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["payment-request"] });
       queryClient.invalidateQueries({ queryKey: ["payment-stats"] });
       queryClient.invalidateQueries({ queryKey: ["pending-invoice-count"] });
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
     },
     onError: (error) => {
       console.error("Error deleting payment request:", error);
