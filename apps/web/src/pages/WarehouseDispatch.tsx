@@ -128,6 +128,7 @@ type SkuFormulaRow = {
   sku_id: string;
   ingredient_sku_id: string | null;
   ingredient_name: string;
+  material_code: string | null;
   unit: string | null;
   unit_price: number | null;
   dosage_qty: number | null;
@@ -158,6 +159,7 @@ type ProductionMaterialIssueItem = {
   id: string;
   material_issue_id: string;
   ingredient_name: string;
+  material_code: string | null;
   planned_finished_qty: number;
   dosage_qty: number;
   wastage_percent: number;
@@ -172,6 +174,7 @@ type MaterialPreviewRow = {
   production_item_name: string;
   finished_qty: number;
   ingredient_name: string;
+  material_code: string | null;
   required_qty: number;
   unit: string;
   unit_cost: number;
@@ -204,6 +207,19 @@ const shortageReasons = [
 const moneyNumber = (value: string) => {
   const numeric = Number(String(value || "").replace(/,/g, ""));
   return Number.isFinite(numeric) ? numeric : 0;
+};
+
+const buildMaterialCode = (name: unknown) => {
+  const normalized = String(name || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+  return `NVL-${normalized || "CHUA-DAT-TEN"}`;
 };
 
 const amountStatusLabel: Record<string, string> = {
@@ -376,7 +392,7 @@ export default function WarehouseDispatch() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("sku_formulations")
-        .select("id,sku_id,ingredient_sku_id,ingredient_name,unit,unit_price,dosage_qty,wastage_percent,sort_order")
+        .select("id,sku_id,ingredient_sku_id,ingredient_name,material_code,unit,unit_price,dosage_qty,wastage_percent,sort_order")
         .order("sort_order", { ascending: true });
       if (error) throw error;
       return data || [];
@@ -419,7 +435,7 @@ export default function WarehouseDispatch() {
       if (!issueIds.length) return [];
       const { data, error } = await (supabase as any)
         .from("production_material_issue_items")
-        .select("id,material_issue_id,ingredient_name,planned_finished_qty,dosage_qty,wastage_percent,required_qty,unit,unit_cost,amount")
+        .select("id,material_issue_id,ingredient_name,material_code,planned_finished_qty,dosage_qty,wastage_percent,required_qty,unit,unit_cost,amount")
         .in("material_issue_id", issueIds)
         .order("ingredient_name", { ascending: true });
       if (error) throw error;
@@ -793,7 +809,7 @@ export default function WarehouseDispatch() {
     const grouped = new Map<string, MaterialPreviewRow & { productNames: Set<string> }>();
     rows.forEach((row) => {
       const unitCost = Number(row.unit_cost || 0);
-      const key = [normalizeMaterialName(row.ingredient_name), normalizeMaterialName(row.unit), unitCost.toFixed(4), row.status].join("|");
+      const key = [normalizeMaterialName(row.material_code || row.ingredient_name), normalizeMaterialName(row.unit), unitCost.toFixed(4), row.status].join("|");
       const existing = grouped.get(key);
       if (!existing) {
         grouped.set(key, {
@@ -838,6 +854,7 @@ export default function WarehouseDispatch() {
               production_item_name: orderItem.product_name,
               finished_qty: finishedQty,
               ingredient_name: `Chưa match SKU thành phẩm: ${orderItem.product_name}`,
+              material_code: null,
               required_qty: 0,
               unit: orderItem.unit || "",
               unit_cost: 0,
@@ -854,6 +871,7 @@ export default function WarehouseDispatch() {
               production_item_name: orderItem.product_name,
               finished_qty: finishedQty,
               ingredient_name: `Chưa có định lượng/BOM: ${resolvedFinishedSku.product_name}`,
+              material_code: null,
               required_qty: 0,
               unit: resolvedFinishedSku.unit || orderItem.unit || "",
               unit_cost: 0,
@@ -876,6 +894,7 @@ export default function WarehouseDispatch() {
             .map((formula) => {
               const approved = approvedDirectMaterialMap(formula.ingredient_name);
               const displayIngredientName = approved?.ingredient_name || stripLevel2Prefix(formula.ingredient_name);
+              const materialCode = formula.material_code || buildMaterialCode(displayIngredientName);
               const kitchenMatch = formula.ingredient_sku_id
                 ? kitchenItems.find((item) => item.product_sku_id === formula.ingredient_sku_id)
                 : kitchenItems.find((item) => normalizeMaterialName(item.name) === normalizeMaterialName(displayIngredientName));
@@ -887,6 +906,7 @@ export default function WarehouseDispatch() {
                 production_item_name: orderItem.product_name,
                 finished_qty: finishedQty,
                 ingredient_name: displayIngredientName,
+                material_code: materialCode,
                 required_qty: requiredQty,
                 unit: approved?.unit || formula.unit || kitchenMatch?.unit || "",
                 unit_cost: unitCost,
@@ -904,6 +924,7 @@ export default function WarehouseDispatch() {
     production_item_name: "Đã post vào PXK",
     finished_qty: Number(item.planned_finished_qty || 0),
     ingredient_name: stripLevel2Prefix(item.ingredient_name),
+    material_code: item.material_code || buildMaterialCode(item.ingredient_name),
     required_qty: Number(item.required_qty || 0),
     unit: item.unit,
     unit_cost: Number(item.unit_cost || 0),
@@ -1182,10 +1203,11 @@ export default function WarehouseDispatch() {
                   </div>
 
                   <div className="overflow-x-auto rounded-2xl border border-white/10">
-                    <Table className="min-w-[980px] table-fixed">
+                    <Table className="min-w-[1120px] table-fixed">
                       <TableHeader>
                         <TableRow className="border-white/10 bg-white/[0.04] hover:bg-white/[0.04]">
                           <TableHead className="w-[260px] text-white/55">Nguyên vật liệu</TableHead>
+                          <TableHead className="w-[170px] text-white/55">Mã NVL</TableHead>
                           <TableHead className="w-[260px] text-white/55">Nguồn tổng hợp</TableHead>
                           <TableHead className="w-[150px] text-right text-white/55">Cần dùng</TableHead>
                           <TableHead className="w-[120px] text-right text-white/55">Đơn giá</TableHead>
@@ -1200,6 +1222,7 @@ export default function WarehouseDispatch() {
                           return (
                             <TableRow key={row.id || row.key} className="border-white/10 hover:bg-white/[0.04]">
                               <TableCell className="whitespace-normal break-words font-medium text-amber-100">{row.ingredient_name}</TableCell>
+                              <TableCell className="break-words font-mono text-xs text-white/70">{row.material_code || "—"}</TableCell>
                               <TableCell className="whitespace-normal break-words text-sm text-white/60">{row.production_item_name || "Đã post vào PXK"}</TableCell>
                               <TableCell className="text-right">{Number(row.required_qty || 0).toLocaleString("vi-VN", { maximumFractionDigits: 3 })} {row.unit}</TableCell>
                               <TableCell className="text-right">{Number(row.unit_cost || 0).toLocaleString("vi-VN")}</TableCell>

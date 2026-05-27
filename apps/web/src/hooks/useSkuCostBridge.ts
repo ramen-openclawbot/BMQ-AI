@@ -7,6 +7,7 @@ export type FormulaRow = {
   sku_id: string;
   ingredient_sku_id: string | null;
   ingredient_name: string;
+  material_code?: string | null;
   unit_price: number | null;
   dosage_qty: number | null;
   wastage_percent: number | null;
@@ -59,7 +60,7 @@ export function useSkuCostBridge() {
         skuIds.length
           ? sb
               .from("sku_formulations")
-              .select("sku_id, ingredient_sku_id, ingredient_name, unit_price, dosage_qty, wastage_percent, unit")
+              .select("sku_id, ingredient_sku_id, ingredient_name, material_code, unit_price, dosage_qty, wastage_percent, unit")
               .in("sku_id", skuIds)
           : Promise.resolve({ data: [] }),
         sb
