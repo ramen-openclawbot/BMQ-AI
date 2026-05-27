@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { getRemainingPaymentAmount, type PaymentRequestWithSupplier } from "@/hooks/usePaymentRequests";
 
 export interface PaymentStats {
   pendingCount: number;
@@ -35,7 +36,7 @@ export function usePaymentStats() {
           .from("payment_requests")
           .select("*", { count: "exact", head: true })
           .eq("status", "approved")
-          .eq("payment_status", "unpaid"),
+          .in("payment_status", ["unpaid", "partial"]),
 
         // Count delivered
         supabase
@@ -43,18 +44,18 @@ export function usePaymentStats() {
           .select("*", { count: "exact", head: true })
           .eq("delivery_status", "delivered"),
 
-        // Sum UNC unpaid (bank_transfer) — chỉ lấy total_amount
+        // Sum UNC outstanding (bank_transfer)
         supabase
           .from("payment_requests")
-          .select("total_amount")
-          .eq("payment_status", "unpaid")
+          .select("total_amount, payment_allocations(amount)")
+          .in("payment_status", ["unpaid", "partial"])
           .eq("payment_method", "bank_transfer"),
 
-        // Sum cash unpaid — chỉ lấy total_amount
+        // Sum cash outstanding
         supabase
           .from("payment_requests")
-          .select("total_amount")
-          .eq("payment_status", "unpaid")
+          .select("total_amount, payment_allocations(amount)")
+          .in("payment_status", ["unpaid", "partial"])
           .eq("payment_method", "cash"),
 
         // Count approved but no invoice
@@ -71,11 +72,11 @@ export function usePaymentStats() {
       const pendingInvoiceCount = pendingInvoiceRes.count || 0;
 
       const uncTotal = (uncRes.data || []).reduce(
-        (sum, r) => sum + (r.total_amount || 0),
+        (sum, r) => sum + getRemainingPaymentAmount(r as PaymentRequestWithSupplier),
         0,
       );
       const cashTotal = (cashRes.data || []).reduce(
-        (sum, r) => sum + (r.total_amount || 0),
+        (sum, r) => sum + getRemainingPaymentAmount(r as PaymentRequestWithSupplier),
         0,
       );
 

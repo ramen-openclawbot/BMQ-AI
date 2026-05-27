@@ -1055,6 +1055,54 @@ export type Database = {
           },
         ]
       }
+      payment_allocations: {
+        Row: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          id: string
+          notes: string | null
+          payment_id: string
+          payment_request_id: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          notes?: string | null
+          payment_id: string
+          payment_request_id: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          notes?: string | null
+          payment_id?: string
+          payment_request_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_allocations_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_allocations_payment_request_id_fkey"
+            columns: ["payment_request_id"]
+            isOneToOne: false
+            referencedRelation: "payment_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payment_request_items: {
         Row: {
           canonical_cost_item_name: string | null
@@ -1286,6 +1334,62 @@ export type Database = {
           },
           {
             foreignKeyName: "payment_requests_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payments: {
+        Row: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          id: string
+          notes: string | null
+          payment_date: string
+          payment_method:
+            | Database["public"]["Enums"]["payment_method_type"]
+            | null
+          payment_number: string
+          reference_number: string | null
+          supplier_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          notes?: string | null
+          payment_date?: string
+          payment_method?:
+            | Database["public"]["Enums"]["payment_method_type"]
+            | null
+          payment_number: string
+          reference_number?: string | null
+          supplier_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          notes?: string | null
+          payment_date?: string
+          payment_method?:
+            | Database["public"]["Enums"]["payment_method_type"]
+            | null
+          payment_number?: string
+          reference_number?: string | null
+          supplier_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_supplier_id_fkey"
             columns: ["supplier_id"]
             isOneToOne: false
             referencedRelation: "suppliers"
@@ -1659,6 +1763,18 @@ export type Database = {
         }
         Returns: string
       }
+      record_payment_allocations: {
+        Args: {
+          p_allocations: Json
+          p_payment_method?:
+            | Database["public"]["Enums"]["payment_method_type"]
+            | null
+          p_payment_date?: string | null
+          p_reference_number?: string | null
+          p_notes?: string | null
+        }
+        Returns: string
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1674,7 +1790,7 @@ export type Database = {
       sku_type: "raw_material" | "finished_good"
       payment_method_type: "bank_transfer" | "cash"
       payment_request_status: "pending" | "approved" | "rejected"
-      payment_status: "unpaid" | "paid"
+      payment_status: "unpaid" | "partial" | "paid" | "overpaid"
       payment_type: "old_order" | "new_order"
       purchase_order_status:
         | "draft"
@@ -1815,7 +1931,7 @@ export const Constants = {
       sku_type: ["raw_material", "finished_good"],
       payment_method_type: ["bank_transfer", "cash"],
       payment_request_status: ["pending", "approved", "rejected"],
-      payment_status: ["unpaid", "paid"],
+      payment_status: ["unpaid", "partial", "paid", "overpaid"],
       payment_type: ["old_order", "new_order"],
       purchase_order_status: [
         "draft",

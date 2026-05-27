@@ -8,7 +8,7 @@ export function usePendingInvoiceCount() {
       const { count, error } = await supabase
         .from("payment_requests")
         .select("*", { count: "exact", head: true })
-        .eq("payment_status", "paid")
+        .in("payment_status", ["paid", "overpaid"])
         .eq("invoice_created", false);
 
       if (error) throw error;

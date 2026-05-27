@@ -7,17 +7,28 @@ import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 
 type PaymentRequest = Database["public"]["Tables"]["payment_requests"]["Row"];
 type PaymentRequestItem = Database["public"]["Tables"]["payment_request_items"]["Row"];
+type PaymentAllocation = Database["public"]["Tables"]["payment_allocations"]["Row"];
 type PaymentRequestInsert = Database["public"]["Tables"]["payment_requests"]["Insert"];
 type PaymentRequestItemInsert = Database["public"]["Tables"]["payment_request_items"]["Insert"];
 
 export interface PaymentRequestWithSupplier extends PaymentRequest {
   suppliers?: { id: string; name: string } | null;
   payment_request_items?: Array<Pick<PaymentRequestItem, "id" | "product_name" | "raw_product_name">> | null;
+  payment_allocations?: Array<Pick<PaymentAllocation, "id" | "amount" | "payment_id" | "created_at">> | null;
 }
 
 export interface PaymentRequestItemWithInventory extends PaymentRequestItem {
   inventory_items?: { id: string; name: string; quantity: number } | null;
 }
+
+export const getAllocatedAmount = (request: Pick<PaymentRequestWithSupplier, "payment_allocations">) =>
+  (request.payment_allocations || []).reduce((sum, allocation) => sum + (Number(allocation.amount) || 0), 0);
+
+export const getRemainingPaymentAmount = (request: Pick<PaymentRequestWithSupplier, "total_amount" | "payment_allocations">) =>
+  Math.max((Number(request.total_amount) || 0) - getAllocatedAmount(request), 0);
+
+export const hasOutstandingPayment = (request: Pick<PaymentRequestWithSupplier, "payment_status" | "total_amount" | "payment_allocations">) =>
+  request.payment_status === "unpaid" || request.payment_status === "partial" || getRemainingPaymentAmount(request) > 0;
 
 export function usePaymentRequests() {
   return useQuery({
@@ -25,7 +36,7 @@ export function usePaymentRequests() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("payment_requests")
-        .select("*, suppliers(id, name), payment_request_items(id, product_name, raw_product_name)")
+        .select("*, suppliers(id, name), payment_request_items(id, product_name, raw_product_name), payment_allocations(id, amount, payment_id, created_at)")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data as PaymentRequestWithSupplier[];
@@ -42,7 +53,7 @@ export function usePaymentRequest(id: string | null) {
       if (!id) return null;
       const { data, error } = await supabase
         .from("payment_requests")
-        .select("*, suppliers(id, name)")
+        .select("*, suppliers(id, name), payment_allocations(id, amount, payment_id, created_at)")
         .eq("id", id)
         .single();
       if (error) throw error;
@@ -282,12 +293,32 @@ export function useMarkPaid() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("payment_requests")
-        .update({ payment_status: "paid", paid_at: new Date().toISOString() })
-        .eq("id", id);
+    mutationFn: async (input: string | { id: string; amount?: number }) => {
+      const id = typeof input === "string" ? input : input.id;
+      let amount = typeof input === "string" ? undefined : input.amount;
 
+      if (amount === undefined) {
+        const { data: request, error: requestError } = await supabase
+          .from("payment_requests")
+          .select("id, total_amount, payment_allocations(amount)")
+          .eq("id", id)
+          .single();
+
+        if (requestError) throw requestError;
+        amount = getRemainingPaymentAmount(request as PaymentRequestWithSupplier);
+      }
+
+      if (!amount || amount <= 0) {
+        throw new Error("Số tiền thanh toán phải lớn hơn 0.");
+      }
+
+      const { error } = await supabase.rpc("record_payment_allocations", {
+        p_allocations: [{ payment_request_id: id, amount }],
+        p_payment_method: null,
+        p_payment_date: new Date().toISOString().slice(0, 10),
+        p_reference_number: null,
+        p_notes: null,
+      });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -312,11 +343,34 @@ export function useBulkMarkPaid() {
 
   return useMutation({
     mutationFn: async (ids: string[]) => {
-      const { error } = await supabase
+      const { data: requests, error: requestError } = await supabase
         .from("payment_requests")
-        .update({ payment_status: "paid", paid_at: new Date().toISOString() })
+        .select("id, total_amount, payment_method, payment_allocations(amount)")
         .in("id", ids);
 
+      if (requestError) throw requestError;
+
+      const allocations = (requests || [])
+        .map((request) => ({
+          payment_request_id: request.id,
+          amount: getRemainingPaymentAmount(request as PaymentRequestWithSupplier),
+        }))
+        .filter((allocation) => allocation.amount > 0);
+
+      if (allocations.length === 0) {
+        throw new Error("Không còn số tiền cần thanh toán.");
+      }
+
+      const paymentMethods = new Set((requests || []).map((request) => request.payment_method).filter(Boolean));
+      const paymentMethod = paymentMethods.size === 1 ? Array.from(paymentMethods)[0] : null;
+
+      const { error } = await supabase.rpc("record_payment_allocations", {
+        p_allocations: allocations,
+        p_payment_method: paymentMethod,
+        p_payment_date: new Date().toISOString().slice(0, 10),
+        p_reference_number: null,
+        p_notes: allocations.length > 1 ? "Thanh toán gộp nhiều đề nghị chi" : null,
+      });
       if (error) throw error;
     },
     onSuccess: () => {

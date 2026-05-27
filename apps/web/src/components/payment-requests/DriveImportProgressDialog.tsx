@@ -2469,6 +2469,16 @@ export function DriveImportProgressDialog({
 
       if (prError) throw prError;
 
+      const { error: paymentError } = await supabase.rpc('record_payment_allocations', {
+        p_allocations: [{ payment_request_id: prData.id, amount: current.slipData.amount }],
+        p_payment_method: 'bank_transfer',
+        p_payment_date: current.slipData.transaction_date || new Date().toISOString().split('T')[0],
+        p_reference_number: current.slipData.transaction_id || null,
+        p_notes: 'Thanh toán tạo từ UNC import',
+      });
+
+      if (paymentError) throw paymentError;
+
       // 5. Create invoice with payment_slip_url
       const invoiceNumber = `INV-${format(new Date(), 'yyMMdd')}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
       const { data: invoiceData, error: invoiceError } = await supabase
@@ -2637,14 +2647,35 @@ export function DriveImportProgressDialog({
       }
     }
 
-    // Mark as paid
-    await supabase
+    const { data: currentPaymentState, error: paymentStateError } = await supabase
       .from('payment_requests')
-      .update({ 
-        payment_status: 'paid',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', matchedPR.id);
+      .select('id, total_amount, payment_allocations(amount)')
+      .eq('id', matchedPR.id)
+      .single();
+
+    if (paymentStateError) throw paymentStateError;
+
+    const paymentState = currentPaymentState as {
+      total_amount: number | null;
+      payment_allocations?: Array<{ amount: number | null }>;
+    };
+    const allocatedAmount = (paymentState.payment_allocations || []).reduce(
+      (sum, allocation) => sum + (Number(allocation.amount) || 0),
+      0
+    );
+    const remainingAmount = Math.max((Number(paymentState.total_amount) || 0) - allocatedAmount, 0);
+
+    if (remainingAmount > 0) {
+      const { error: paymentError } = await supabase.rpc('record_payment_allocations', {
+        p_allocations: [{ payment_request_id: matchedPR.id, amount: remainingAmount }],
+        p_payment_method: 'bank_transfer',
+        p_payment_date: slipData.transaction_date || new Date().toISOString().split('T')[0],
+        p_reference_number: slipData.transaction_id || null,
+        p_notes: 'Thanh toán khớp từ UNC import',
+      });
+
+      if (paymentError) throw paymentError;
+    }
 
     // Create invoice if not exists
     let invoiceId: string | null = null;

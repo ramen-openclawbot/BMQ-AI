@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { startOfMonth, endOfMonth, format } from "date-fns";
+import { getRemainingPaymentAmount, type PaymentRequestWithSupplier } from "@/hooks/usePaymentRequests";
 
 export interface MonthlyReceiptStats {
   totalQuantity: number;
@@ -26,6 +27,20 @@ export interface SupplierStats {
   totalQuantity: number;
   unpaidAmount: number;
 }
+
+type JoinedSupplier = { name?: string | null } | Array<{ name?: string | null }> | null;
+type SupplierStatsRow = {
+  id: string;
+  name: string;
+  purchase_orders?: Array<{ total_amount: number | null; status: string | null }> | null;
+  goods_receipts?: Array<{ total_quantity: number | null; status: string | null }> | null;
+  payment_requests?: Array<PaymentRequestWithSupplier> | null;
+};
+
+const getJoinedSupplierName = (supplier: JoinedSupplier) => {
+  const row = Array.isArray(supplier) ? supplier[0] : supplier;
+  return row?.name || "Không xác định";
+};
 
 export function useMonthlyReceiptStats(month: Date = new Date()) {
   const start = startOfMonth(month);
@@ -62,7 +77,7 @@ export function useMonthlyReceiptStats(month: Date = new Date()) {
         const value = po.total_amount || 0;
         totalValue += value;
 
-        const supplierName = (po.suppliers as any)?.name || "Không xác định";
+        const supplierName = getJoinedSupplierName(po.suppliers as JoinedSupplier);
         const supplierId = po.supplier_id || "unknown";
 
         if (supplierMap.has(supplierId)) {
@@ -92,11 +107,10 @@ export function useDebtStats() {
   return useQuery({
     queryKey: ["debt-stats"],
     queryFn: async () => {
-      // Đã filter server-side (.eq("payment_status", "unpaid")) — OK pattern
       const { data, error } = await supabase
         .from("payment_requests")
-        .select("id, total_amount, payment_method, supplier_id, suppliers(id, name)")
-        .eq("payment_status", "unpaid");
+        .select("id, total_amount, payment_method, supplier_id, suppliers(id, name), payment_allocations(amount)")
+        .in("payment_status", ["unpaid", "partial"]);
 
       if (error) throw error;
 
@@ -106,7 +120,7 @@ export function useDebtStats() {
       let cashDebt = 0;
 
       data?.forEach((r) => {
-        const amount = r.total_amount || 0;
+        const amount = getRemainingPaymentAmount(r as PaymentRequestWithSupplier);
         totalDebt += amount;
 
         if (r.payment_method === "bank_transfer") {
@@ -115,7 +129,7 @@ export function useDebtStats() {
           cashDebt += amount;
         }
 
-        const supplierName = (r.suppliers as any)?.name || "Không xác định";
+        const supplierName = getJoinedSupplierName(r.suppliers as JoinedSupplier);
         const supplierId = r.supplier_id || "unknown";
 
         if (supplierDebtMap.has(supplierId)) {
@@ -149,29 +163,30 @@ export function useSupplierStats() {
           id, name,
           purchase_orders(total_amount, status),
           goods_receipts(total_quantity, status),
-          payment_requests(total_amount, payment_status)
+          payment_requests(total_amount, payment_status, payment_allocations(amount))
         `);
 
       if (error) throw error;
 
       const stats: SupplierStats[] = (suppliers || [])
-        .map((s: any) => {
-          const orders = Array.isArray(s.purchase_orders) ? s.purchase_orders : [];
-          const receipts = Array.isArray(s.goods_receipts)
-            ? s.goods_receipts.filter((r: any) => r.status === "received")
+        .map((s) => {
+          const supplier = s as SupplierStatsRow;
+          const orders = Array.isArray(supplier.purchase_orders) ? supplier.purchase_orders : [];
+          const receipts = Array.isArray(supplier.goods_receipts)
+            ? supplier.goods_receipts.filter((r) => r.status === "received")
             : [];
-          const unpaid = Array.isArray(s.payment_requests)
-            ? s.payment_requests.filter((r: any) => r.payment_status === "unpaid")
+          const unpaid = Array.isArray(supplier.payment_requests)
+            ? supplier.payment_requests.filter((r) => r.payment_status === "unpaid" || r.payment_status === "partial")
             : [];
 
           return {
-            id: s.id,
-            name: s.name,
+            id: supplier.id,
+            name: supplier.name,
             totalOrders: orders.length,
-            totalValue: orders.reduce((sum: number, o: any) => sum + (o.total_amount || 0), 0),
+            totalValue: orders.reduce((sum, o) => sum + (o.total_amount || 0), 0),
             totalReceipts: receipts.length,
-            totalQuantity: receipts.reduce((sum: number, r: any) => sum + (r.total_quantity || 0), 0),
-            unpaidAmount: unpaid.reduce((sum: number, u: any) => sum + (u.total_amount || 0), 0),
+            totalQuantity: receipts.reduce((sum, r) => sum + (r.total_quantity || 0), 0),
+            unpaidAmount: unpaid.reduce((sum, u) => sum + getRemainingPaymentAmount(u), 0),
           };
         })
         .filter((s) => s.totalOrders > 0 || s.totalReceipts > 0 || s.unpaidAmount > 0)

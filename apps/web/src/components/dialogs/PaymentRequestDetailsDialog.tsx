@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -60,6 +61,9 @@ import {
   useMarkPaid,
   useUpdatePaymentRequest,
   getPaymentRequestImageUrl,
+  getAllocatedAmount,
+  getRemainingPaymentAmount,
+  hasOutstandingPayment,
 } from "@/hooks/usePaymentRequests";
 import { CreateInvoiceFromRequestDialog } from "./CreateInvoiceFromRequestDialog";
 import { EditPaymentRequestDialog } from "./EditPaymentRequestDialog";
@@ -94,6 +98,7 @@ export function PaymentRequestDetailsDialog({
   const [showChangePaymentMethodDialog, setShowChangePaymentMethodDialog] = useState(false);
   const [newPaymentMethod, setNewPaymentMethod] = useState<"bank_transfer" | "cash">("bank_transfer");
   const [showDriveImportDialog, setShowDriveImportDialog] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState("");
   
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -126,6 +131,8 @@ export function PaymentRequestDetailsDialog({
   });
 
   const isLoading = requestLoading || itemsLoading;
+  const allocatedAmount = request ? getAllocatedAmount(request) : 0;
+  const remainingAmount = request ? getRemainingPaymentAmount(request) : 0;
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("vi-VN", {
@@ -162,8 +169,12 @@ export function PaymentRequestDetailsDialog({
     switch (status) {
       case "unpaid":
         return <Badge variant="destructive">Chưa thanh toán</Badge>;
+      case "partial":
+        return <Badge className="bg-amber-500">Thanh toán một phần</Badge>;
       case "paid":
         return <Badge className="bg-green-500">Đã thanh toán</Badge>;
+      case "overpaid":
+        return <Badge className="bg-purple-500">Thanh toán dư</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -215,17 +226,24 @@ export function PaymentRequestDetailsDialog({
   };
 
   const handleMarkPaidClick = () => {
-    if (!request?.invoice_created) {
-      setShowPaidWarningDialog(true);
-    } else {
-      handleMarkPaid();
-    }
+    setPaymentAmount(String(remainingAmount || request?.total_amount || 0));
+    setShowPaidWarningDialog(true);
   };
 
   const handleMarkPaid = async () => {
     if (!requestId) return;
-    await markPaid.mutateAsync(requestId);
+    const amount = Number(paymentAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error("Số tiền thanh toán không hợp lệ");
+      return;
+    }
+    if (amount > remainingAmount) {
+      toast.error("Số tiền thanh toán lớn hơn số còn lại");
+      return;
+    }
+    await markPaid.mutateAsync({ id: requestId, amount });
     setShowPaidWarningDialog(false);
+    setPaymentAmount("");
   };
 
   const handleOpenChangePaymentMethod = () => {
@@ -306,6 +324,16 @@ export function PaymentRequestDetailsDialog({
                       </>
                     )}
                     <p className="font-medium text-lg">{formatCurrency(request.total_amount || 0)}</p>
+                    {allocatedAmount > 0 && (
+                      <>
+                        <p className="text-sm text-muted-foreground">
+                          Đã thanh toán: {formatCurrency(allocatedAmount)}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          Còn lại: {formatCurrency(remainingAmount)}
+                        </p>
+                      </>
+                    )}
                   </div>
                 </div>
                 {request.description && (
@@ -564,7 +592,7 @@ export function PaymentRequestDetailsDialog({
                 )}
 
                 {/* Mark as paid (only for approved requests) */}
-                {request.status === "approved" && request.payment_status === "unpaid" && (
+                {request.status === "approved" && hasOutstandingPayment(request) && (
                   <Button
                     onClick={handleMarkPaidClick}
                     disabled={markPaid.isPending}
@@ -576,7 +604,7 @@ export function PaymentRequestDetailsDialog({
                     ) : (
                       <CreditCard className="h-4 w-4" />
                     )}
-                    Đánh dấu đã thanh toán
+                    Ghi nhận thanh toán
                   </Button>
                 )}
 
@@ -691,16 +719,32 @@ export function PaymentRequestDetailsDialog({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Warning: Mark as Paid without Invoice */}
+      {/* Record payment allocation */}
       <AlertDialog open={showPaidWarningDialog} onOpenChange={setShowPaidWarningDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
-              <AlertTriangle className="h-5 w-5" />
-              {t.invoiceWarning}
+            <AlertDialogTitle className={cn("flex items-center gap-2", !request?.invoice_created && "text-destructive")}>
+              {!request?.invoice_created ? <AlertTriangle className="h-5 w-5" /> : <CreditCard className="h-5 w-5" />}
+              {!request?.invoice_created ? t.invoiceWarning : "Ghi nhận thanh toán"}
             </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t.invoiceWarningDesc}
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                {!request?.invoice_created && <p>{t.invoiceWarningDesc}</p>}
+                <div className="grid gap-2">
+                  <Label htmlFor="payment-amount">Số tiền thanh toán lần này</Label>
+                  <Input
+                    id="payment-amount"
+                    type="number"
+                    min="0"
+                    max={remainingAmount}
+                    value={paymentAmount}
+                    onChange={(event) => setPaymentAmount(event.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Còn lại: {formatCurrency(remainingAmount)}
+                  </p>
+                </div>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -719,9 +763,10 @@ export function PaymentRequestDetailsDialog({
             </Button>
             <AlertDialogAction
               onClick={handleMarkPaid}
-              className="bg-destructive hover:bg-destructive/90"
+              disabled={markPaid.isPending}
+              className={cn(!request?.invoice_created && "bg-destructive hover:bg-destructive/90")}
             >
-              {t.stillMarkPaid}
+              {markPaid.isPending ? "Đang lưu..." : t.stillMarkPaid}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

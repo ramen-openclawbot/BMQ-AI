@@ -40,7 +40,16 @@ import { PaymentRequestDetailsDialog } from "@/components/dialogs/PaymentRequest
 import { ExportApprovedPDF } from "@/components/payment-requests/ExportApprovedPDF";
 
 import { DriveImportProgressDialog } from "@/components/payment-requests/DriveImportProgressDialog";
-import { usePaymentRequests, useDeletePaymentRequest, useBulkMarkPaid, useBulkApprovePaymentRequest, type PaymentRequestWithSupplier } from "@/hooks/usePaymentRequests";
+import {
+  getAllocatedAmount,
+  getRemainingPaymentAmount,
+  hasOutstandingPayment,
+  usePaymentRequests,
+  useDeletePaymentRequest,
+  useBulkMarkPaid,
+  useBulkApprovePaymentRequest,
+  type PaymentRequestWithSupplier,
+} from "@/hooks/usePaymentRequests";
 import { usePaymentStats } from "@/hooks/usePaymentStats";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -188,8 +197,12 @@ const PaymentRequests = () => {
     switch (status) {
       case "unpaid":
         return <Badge variant="destructive">{t.unpaid}</Badge>;
+      case "partial":
+        return <Badge className="bg-amber-500">{language === "vi" ? "Thanh toán một phần" : "Partially paid"}</Badge>;
       case "paid":
         return <Badge className="bg-green-500">{t.paid}</Badge>;
+      case "overpaid":
+        return <Badge className="bg-purple-500">{language === "vi" ? "Thanh toán dư" : "Overpaid"}</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -240,11 +253,11 @@ const PaymentRequests = () => {
           case "pending":
             return r.status === "pending";
           case "approved":
-            return r.status === "approved" && r.payment_status === "unpaid";
+            return r.status === "approved" && hasOutstandingPayment(r);
           case "unc":
-            return r.payment_status === "unpaid" && r.payment_method === "bank_transfer";
+            return hasOutstandingPayment(r) && r.payment_method === "bank_transfer";
           case "cash":
-            return r.payment_status === "unpaid" && r.payment_method === "cash";
+            return hasOutstandingPayment(r) && r.payment_method === "cash";
           case "delivered":
             return r.delivery_status === "delivered";
           case "needs_invoice":
@@ -256,10 +269,10 @@ const PaymentRequests = () => {
     });
   }, [requests, statusFilter, deliveryFilter, searchTerm, activeCardFilter]);
 
-  // Get selectable requests (pending OR approved + unpaid)
+  // Get selectable requests (pending OR approved with remaining amount)
   const selectableRequests = useMemo(() => {
     return filteredRequests?.filter(r => 
-      r.status === "pending" || (r.status === "approved" && r.payment_status === "unpaid")
+      r.status === "pending" || (r.status === "approved" && hasOutstandingPayment(r))
     ) || [];
   }, [filteredRequests]);
 
@@ -278,11 +291,11 @@ const PaymentRequests = () => {
     }, 0);
   }, [selectedPendingIds, requests]);
 
-  // Calculate selected approved+unpaid requests for bulk mark paid
+  // Calculate selected approved requests with remaining amount for bulk mark paid
   const selectedApprovedUnpaidIds = useMemo(() => {
     return Array.from(selectedIds).filter(id => {
       const request = requests?.find(r => r.id === id);
-      return request?.status === "approved" && request?.payment_status === "unpaid";
+      return !!request && request.status === "approved" && hasOutstandingPayment(request);
     });
   }, [selectedIds, requests]);
 
@@ -616,7 +629,9 @@ const PaymentRequests = () => {
               </TableHeader>
               <TableBody>
                 {filteredRequests?.map((request) => {
-                  const isSelectable = request.status === "pending" || (request.status === "approved" && request.payment_status === "unpaid");
+                  const allocatedAmount = getAllocatedAmount(request);
+                  const remainingAmount = getRemainingPaymentAmount(request);
+                  const isSelectable = request.status === "pending" || (request.status === "approved" && hasOutstandingPayment(request));
                   const isSelected = selectedIds.has(request.id);
                   
                   return (
@@ -649,6 +664,12 @@ const PaymentRequests = () => {
                     <TableCell className="min-w-[240px]">{renderProductNames(request)}</TableCell>
                     <TableCell className="text-right font-medium">
                       {formatCurrency(request.total_amount || 0)}
+                      {allocatedAmount > 0 && (
+                        <div className="text-xs font-normal text-muted-foreground">
+                          {language === "vi" ? "Đã TT" : "Paid"} {formatCurrency(allocatedAmount)}
+                          {remainingAmount > 0 ? ` · ${language === "vi" ? "Còn" : "Left"} ${formatCurrency(remainingAmount)}` : ""}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>{getStatusBadge(request.status)}</TableCell>
                     <TableCell>{getPaymentMethodBadge(request.payment_method)}</TableCell>
