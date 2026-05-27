@@ -12,6 +12,7 @@ type PaymentRequestItemInsert = Database["public"]["Tables"]["payment_request_it
 
 export interface PaymentRequestWithSupplier extends PaymentRequest {
   suppliers?: { id: string; name: string } | null;
+  payment_request_items?: Array<Pick<PaymentRequestItem, "id" | "product_name" | "raw_product_name">> | null;
 }
 
 export interface PaymentRequestItemWithInventory extends PaymentRequestItem {
@@ -24,7 +25,7 @@ export function usePaymentRequests() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("payment_requests")
-        .select("*, suppliers(id, name)")
+        .select("*, suppliers(id, name), payment_request_items(id, product_name, raw_product_name)")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data as PaymentRequestWithSupplier[];

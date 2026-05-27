@@ -2,10 +2,11 @@ import { useState, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
-import { Eye, Trash2, Filter, FileCheck, AlertTriangle, Banknote, CreditCard, X, CheckCircle, Wallet, FolderSearch, Loader2 } from "lucide-react";
+import { Eye, Trash2, Filter, FileCheck, AlertTriangle, Banknote, CreditCard, X, CheckCircle, Wallet, FolderSearch, Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -39,7 +40,7 @@ import { PaymentRequestDetailsDialog } from "@/components/dialogs/PaymentRequest
 import { ExportApprovedPDF } from "@/components/payment-requests/ExportApprovedPDF";
 
 import { DriveImportProgressDialog } from "@/components/payment-requests/DriveImportProgressDialog";
-import { usePaymentRequests, useDeletePaymentRequest, useBulkMarkPaid, useBulkApprovePaymentRequest } from "@/hooks/usePaymentRequests";
+import { usePaymentRequests, useDeletePaymentRequest, useBulkMarkPaid, useBulkApprovePaymentRequest, type PaymentRequestWithSupplier } from "@/hooks/usePaymentRequests";
 import { usePaymentStats } from "@/hooks/usePaymentStats";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -48,12 +49,32 @@ import { toast } from "sonner";
 
 type CardFilterType = "pending" | "approved" | "unc" | "cash" | "delivered" | "needs_invoice" | null;
 
+const normalizeSearch = (value: string | null | undefined) =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .trim();
+
+const getProductNames = (request: PaymentRequestWithSupplier) => {
+  const uniqueNames = new Set<string>();
+
+  request.payment_request_items?.forEach((item) => {
+    const productName = item.product_name?.trim() || item.raw_product_name?.trim();
+    if (productName) uniqueNames.add(productName);
+  });
+
+  return Array.from(uniqueNames);
+};
+
 const PaymentRequests = () => {
   const queryClient = useQueryClient();
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [deliveryFilter, setDeliveryFilter] = useState<string>("all");
+  const [searchTerm, setSearchTerm] = useState("");
   const [activeCardFilter, setActiveCardFilter] = useState<CardFilterType>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showBulkApproveConfirm, setShowBulkApproveConfirm] = useState(false);
@@ -84,6 +105,32 @@ const PaymentRequests = () => {
       style: "currency",
       currency: "VND",
     }).format(amount);
+  };
+
+  const renderProductNames = (request: PaymentRequestWithSupplier) => {
+    const productNames = getProductNames(request);
+
+    if (productNames.length === 0) {
+      return <span className="text-muted-foreground">-</span>;
+    }
+
+    const visibleNames = productNames.slice(0, 2);
+    const remainingCount = productNames.length - visibleNames.length;
+
+    return (
+      <div className="flex max-w-[260px] flex-wrap items-center gap-1.5">
+        {visibleNames.map((name) => (
+          <Badge key={name} variant="outline" className="max-w-[220px] justify-start truncate font-normal">
+            <span className="truncate">{name}</span>
+          </Badge>
+        ))}
+        {remainingCount > 0 && (
+          <Badge variant="secondary" className="font-normal">
+            +{remainingCount}
+          </Badge>
+        )}
+      </div>
+    );
   };
 
   const handleDelete = async () => {
@@ -171,10 +218,21 @@ const PaymentRequests = () => {
 
   // Filter requests based on dropdown and card filters
   const filteredRequests = useMemo(() => {
+    const normalizedSearchTerm = normalizeSearch(searchTerm);
+
     return requests?.filter((r) => {
       // Dropdown filters
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
       if (deliveryFilter !== "all" && r.delivery_status !== deliveryFilter) return false;
+
+      if (normalizedSearchTerm) {
+        const supplierName = normalizeSearch(r.suppliers?.name);
+        const productNames = normalizeSearch(getProductNames(r).join(" "));
+
+        if (!supplierName.includes(normalizedSearchTerm) && !productNames.includes(normalizedSearchTerm)) {
+          return false;
+        }
+      }
       
       // Card filter
       if (activeCardFilter) {
@@ -196,7 +254,7 @@ const PaymentRequests = () => {
       
       return true;
     });
-  }, [requests, statusFilter, deliveryFilter, activeCardFilter]);
+  }, [requests, statusFilter, deliveryFilter, searchTerm, activeCardFilter]);
 
   // Get selectable requests (pending OR approved + unpaid)
   const selectableRequests = useMemo(() => {
@@ -463,9 +521,18 @@ const PaymentRequests = () => {
       )}
 
       {/* Filters */}
-      <div className="flex gap-4">
+      <div className="flex flex-col gap-3 rounded-lg border bg-card p-3 sm:flex-row sm:items-center">
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder={language === "vi" ? "Tìm theo tên sản phẩm hoặc nhà cung cấp" : "Search by product or supplier"}
+            className="h-10 pl-9"
+          />
+        </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="h-10 w-full sm:w-40">
             <Filter className="h-4 w-4 mr-2" />
             <SelectValue placeholder={t.status} />
           </SelectTrigger>
@@ -477,7 +544,7 @@ const PaymentRequests = () => {
           </SelectContent>
         </Select>
         <Select value={deliveryFilter} onValueChange={setDeliveryFilter}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="h-10 w-full sm:w-40">
             <SelectValue placeholder={t.delivery} />
           </SelectTrigger>
           <SelectContent>
@@ -535,8 +602,9 @@ const PaymentRequests = () => {
                       }}
                     />
                   </TableHead>
-                  <TableHead>{t.supplier}</TableHead>
                   <TableHead>{t.createdDate}</TableHead>
+                  <TableHead>{t.supplier}</TableHead>
+                  <TableHead>{language === "vi" ? "Tên sản phẩm duyệt chi" : "Payment request products"}</TableHead>
                   <TableHead className="text-right">{t.totalAmount}</TableHead>
                   <TableHead>{t.status}</TableHead>
                   <TableHead>{t.paymentMethod}</TableHead>
@@ -574,10 +642,11 @@ const PaymentRequests = () => {
                           <div className="w-4" />
                         )}
                       </TableCell>
-                      <TableCell>{request.suppliers?.name || "-"}</TableCell>
-                    <TableCell>
+                    <TableCell className="whitespace-nowrap text-muted-foreground">
                       {format(new Date(request.created_at), "dd/MM/yyyy", { locale: dateLocale })}
                     </TableCell>
+                    <TableCell className="min-w-[180px] font-medium">{request.suppliers?.name || "-"}</TableCell>
+                    <TableCell className="min-w-[240px]">{renderProductNames(request)}</TableCell>
                     <TableCell className="text-right font-medium">
                       {formatCurrency(request.total_amount || 0)}
                     </TableCell>
