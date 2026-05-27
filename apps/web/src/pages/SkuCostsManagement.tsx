@@ -95,6 +95,19 @@ const parseLocaleNumber = (value: unknown, fallback = 0) => {
 
 const normalizeUnitName = (u: unknown) => String(u || "").trim().toLowerCase();
 
+const buildMaterialCode = (name: unknown) => {
+  const normalized = String(name || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+  return `NVL-${normalized || "CHUA-DAT-TEN"}`;
+};
+
 const convertAmountByUnit = (amount: number, fromUnit: unknown, toUnit: unknown) => {
   const from = normalizeUnitName(fromUnit);
   const to = normalizeUnitName(toUnit);
@@ -202,6 +215,7 @@ const toDraftRow = (row: any, overrides: Record<string, any> = {}) => {
     level1_name: overrides.level1_name ?? row?.ingredient_name ?? "",
     level2_name: overrides.level2_name ?? "",
     ingredient_name: overrides.ingredient_name ?? row?.ingredient_name ?? "",
+    material_code: overrides.material_code ?? row?.material_code ?? buildMaterialCode(overrides.ingredient_name ?? row?.ingredient_name),
     unit: overrides.unit ?? row?.unit ?? "g",
     unit_price: unitPrice,
     unit_price_input: overrides.unit_price_input ?? (unitPrice === 0 ? "" : String(unitPrice)),
@@ -535,10 +549,12 @@ export default function SkuCostsManagement() {
         const parentUnitPrice = childBatchQty > 0 ? childBatchCost / childBatchQty : toNumber(r.unit_price, 0);
         const parentDosageQty = parseDosageGramInput(r.dosage_input ?? r.dosage_qty, 0);
 
+        const parentIngredientName = matchLevel1?.product_name || level1;
         rows.push({
           sku_id: skuId,
           ingredient_sku_id: matchLevel1?.id || null,
-          ingredient_name: matchLevel1?.product_name || level1,
+          ingredient_name: parentIngredientName,
+          material_code: buildMaterialCode(parentIngredientName),
           unit: "g",
           unit_price: parentUnitPrice,
           dosage_qty: parentDosageQty,
@@ -559,6 +575,7 @@ export default function SkuCostsManagement() {
             sku_id: skuId,
             ingredient_sku_id: matchedChild?.id || null,
             ingredient_name: ingredientLabel,
+            material_code: buildMaterialCode(ingredientLabel),
             unit: "g",
             unit_price: toNumber(child.unit_price, 0),
             dosage_qty: parseDosageGramInput(child.dosage_input ?? child.dosage_qty, 0),
@@ -569,10 +586,12 @@ export default function SkuCostsManagement() {
         return;
       }
 
+      const ingredientName = matchLevel1?.product_name || level1;
       rows.push({
         sku_id: skuId,
         ingredient_sku_id: matchLevel1?.id || null,
-        ingredient_name: matchLevel1?.product_name || level1,
+        ingredient_name: ingredientName,
+        material_code: buildMaterialCode(ingredientName),
         unit: "g",
         unit_price: toNumber(r.unit_price, 0),
         dosage_qty: parseDosageGramInput(r.dosage_input ?? r.dosage_qty, 0),
@@ -675,7 +694,7 @@ export default function SkuCostsManagement() {
   const addDraftMaterialRow = () => {
     setImportedFormulaDraft((prev) => [
       ...prev,
-      { is_level2: false, level1_sku_id: "", ingredient_sku_id: "", level1_name: "", level2_name: "", ingredient_name: "", unit: "g", unit_price: 0, dosage_qty: 0, dosage_input: "", line_cost: 0 },
+      { is_level2: false, level1_sku_id: "", ingredient_sku_id: "", level1_name: "", level2_name: "", ingredient_name: "", material_code: buildMaterialCode(""), unit: "g", unit_price: 0, dosage_qty: 0, dosage_input: "", line_cost: 0 },
     ]);
   };
 
@@ -689,7 +708,7 @@ export default function SkuCostsManagement() {
         ? next.reduce((last, row, i) => (String(row.level1_name || "").trim() === parentLevel1 ? i : last), parentIdx) + 1
         : next.length;
 
-      next.splice(insertIdx, 0, { is_level2: true, level1_sku_id: "", ingredient_sku_id: "", level1_name: parentLevel1, level2_name: "", ingredient_name: `${parentLevel1} > `, unit: "g", unit_price: 0, dosage_qty: 0, dosage_input: "", line_cost: 0 });
+      next.splice(insertIdx, 0, { is_level2: true, level1_sku_id: "", ingredient_sku_id: "", level1_name: parentLevel1, level2_name: "", ingredient_name: `${parentLevel1} > `, material_code: buildMaterialCode(`${parentLevel1} > `), unit: "g", unit_price: 0, dosage_qty: 0, dosage_input: "", line_cost: 0 });
       return next;
     });
   };
@@ -699,7 +718,7 @@ export default function SkuCostsManagement() {
     const draftRows = ingredients
       .map((r: any) => normalizeScannedIngredient(r))
       .filter((x: any) => x.ingredient_name)
-      .map((x: any) => ({ ...x, is_level2: false, level1_name: x.ingredient_name, level2_name: "", dosage_input: String(x.dosage_qty).replace(".", ",") }));
+      .map((x: any) => ({ ...x, is_level2: false, level1_name: x.ingredient_name, level2_name: "", material_code: buildMaterialCode(x.ingredient_name), dosage_input: String(x.dosage_qty).replace(".", ",") }));
     setImportedFormulaDraft(draftRows);
 
     const productName = d.product_name || d.ten_mon || "SKU từ ảnh";
@@ -809,7 +828,7 @@ export default function SkuCostsManagement() {
     }
   };
 
-  const addFormula = async () => { if (!activeSkuId) return; await sb.from("sku_formulations").insert({ sku_id: activeSkuId, ingredient_name: "NVL mới", unit: "kg", unit_price: 0, dosage_qty: 0, wastage_percent: 0, sort_order: formula.length + 1 }); loadAll(); };
+  const addFormula = async () => { if (!activeSkuId) return; await sb.from("sku_formulations").insert({ sku_id: activeSkuId, ingredient_name: "NVL mới", material_code: buildMaterialCode("NVL mới"), unit: "kg", unit_price: 0, dosage_qty: 0, wastage_percent: 0, sort_order: formula.length + 1 }); loadAll(); };
   const updateFormulaRow = async (r: any, patch: any) => { await sb.from("sku_formulations").update(patch).eq("id", r.id); loadAll(); };
   const removeFormulaRow = async (id: string) => { await sb.from("sku_formulations").delete().eq("id", id); loadAll(); };
   const removeSku = async (sku: any) => {
@@ -876,6 +895,7 @@ export default function SkuCostsManagement() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>Mã NVL</TableHead>
                   <TableHead>NVL</TableHead>
                   <TableHead>ĐVT</TableHead>
                   <TableHead>Đơn giá</TableHead>
@@ -885,9 +905,10 @@ export default function SkuCostsManagement() {
               </TableHeader>
               <TableBody>
                 {formulaComputed.length === 0 ? (
-                  <TableRow><TableCell colSpan={5} className="text-muted-foreground">Chưa có dữ liệu NVL</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={6} className="text-muted-foreground">Chưa có dữ liệu NVL</TableCell></TableRow>
                 ) : formulaComputed.map((r: any) => (
                   <TableRow key={r.id || `${r.ingredient_name}-${r.sort_order}`}>
+                    <TableCell className="font-mono text-xs">{r.material_code || buildMaterialCode(r.displayName || r.ingredient_name)}</TableCell>
                     <TableCell>{r.displayName || r.ingredient_name || "-"}</TableCell>
                     <TableCell>{r.unit || "g"}</TableCell>
                     <TableCell>{vnd(toNumber(r.unit_price, 0))}</TableCell>
@@ -957,12 +978,12 @@ export default function SkuCostsManagement() {
               <Table className="hidden md:table">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Loại</TableHead><TableHead>Tên NVL</TableHead><TableHead>Đơn giá (VNĐ)</TableHead><TableHead>Định lượng</TableHead><TableHead>Giá vốn (VNĐ)</TableHead><TableHead>Đơn giá vốn/cái (VNĐ)</TableHead><TableHead></TableHead>
+                    <TableHead>Loại</TableHead><TableHead>Mã NVL</TableHead><TableHead>Tên NVL</TableHead><TableHead>Đơn giá (VNĐ)</TableHead><TableHead>Định lượng</TableHead><TableHead>Giá vốn (VNĐ)</TableHead><TableHead>Đơn giá vốn/cái (VNĐ)</TableHead><TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {importedFormulaDraft.length === 0 && (
-                    <TableRow><TableCell colSpan={7} className="text-muted-foreground">Chưa có dòng NVL. Anh bấm “+ Thêm NVL cấp 1” để nhập thủ công.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={8} className="text-muted-foreground">Chưa có dòng NVL. Anh bấm “+ Thêm NVL cấp 1” để nhập thủ công.</TableCell></TableRow>
                   )}
                   {importedDraftComputed.map((row, idx) => {
                     const r = row;
@@ -976,6 +997,7 @@ export default function SkuCostsManagement() {
                     return (
                       <TableRow key={`draft-table-${idx}`} className={isLevel1Row ? "" : "bg-muted/30"}>
                         <TableCell>{isLevel1Row ? "NVL cấp 1" : <span className="pl-5">↳ NVL cấp 2 ({r.level1_name || "-"})</span>}</TableCell>
+                        <TableCell className="font-mono text-xs">{buildMaterialCode(isLevel1Row ? (r.level1_name || r.ingredient_name) : `${r.level1_name || ""}${r.level2_name ? `${LEVEL2_SEPARATOR}${r.level2_name}` : ""}`)}</TableCell>
                         <TableCell>
                           <Input
                             list={isLevel1Row ? `level1-sku-options-table-${idx}` : `level2-sku-options-table-${idx}`}
@@ -1046,6 +1068,9 @@ export default function SkuCostsManagement() {
                       <div className="mb-3 flex items-center justify-between gap-2">
                         <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
                           {isLevel1Row ? "NVL cấp 1" : `NVL cấp 2 · ${r.level1_name || "-"}`}
+                        </span>
+                        <span className="rounded-full bg-muted px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
+                          {buildMaterialCode(isLevel1Row ? (r.level1_name || r.ingredient_name) : `${r.level1_name || ""}${r.level2_name ? `${LEVEL2_SEPARATOR}${r.level2_name}` : ""}`)}
                         </span>
                         <Button type="button" size="sm" variant="destructive" onClick={() => setImportedFormulaDraft((prev) => prev.filter((_, i) => i !== idx))}>Xóa</Button>
                       </div>
