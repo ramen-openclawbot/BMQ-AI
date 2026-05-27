@@ -9,14 +9,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
-  Eye,
   FileText,
   Loader2,
-  MoreVertical,
-  Pencil,
   Plus,
   RefreshCw,
   Search,
+  Trash2,
   Upload,
   Wallet,
   X,
@@ -232,13 +230,13 @@ const PaymentRequests = () => {
   const getStatToneClass = (tone: string) => {
     switch (tone) {
       case "green":
-        return "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400";
+        return "bg-muted text-foreground";
       case "amber":
-        return "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400";
+        return "bg-muted text-muted-foreground";
       case "red":
-        return "bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400";
+        return "bg-destructive/10 text-destructive dark:bg-destructive/15";
       default:
-        return "bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400";
+        return "bg-primary/10 text-primary dark:bg-primary/15";
     }
   };
 
@@ -256,7 +254,7 @@ const PaymentRequests = () => {
       <div className="flex max-w-[300px] flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-1.5">
           {visibleNames.map((name) => (
-            <Badge key={name} variant="outline" className="max-w-[170px] justify-start truncate rounded px-2 py-0.5 text-xs font-normal text-slate-700 dark:text-slate-200">
+            <Badge key={name} variant="outline" className="max-w-[170px] justify-start truncate rounded px-2 py-0.5 text-xs font-normal text-foreground">
               <span className="truncate">{name}</span>
             </Badge>
           ))}
@@ -299,22 +297,22 @@ const PaymentRequests = () => {
     switch (status) {
       case "pending":
         return (
-          <Badge className="gap-1 rounded-md border border-amber-100 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+          <Badge variant="secondary" className="gap-1 rounded-md px-2.5 py-1 text-xs font-medium">
+            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
             {t.pending}
           </Badge>
         );
       case "approved":
         return (
-          <Badge className="gap-1 rounded-md border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          <Badge variant="outline" className="gap-1 rounded-md bg-card px-2.5 py-1 text-xs font-medium text-foreground">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary" />
             {t.approved}
           </Badge>
         );
       case "rejected":
         return (
-          <Badge className="gap-1 rounded-md border border-rose-100 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+          <Badge variant="outline" className="gap-1 rounded-md bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive">
+            <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
             {t.rejected}
           </Badge>
         );
@@ -472,7 +470,7 @@ const PaymentRequests = () => {
 
           <AddPaymentRequestDialog
             trigger={
-              <Button className="h-12 rounded-md bg-blue-600 px-6 text-sm font-medium shadow-sm hover:bg-blue-700">
+              <Button className="h-12 rounded-md px-6 text-sm font-medium shadow-sm">
                 <Plus className="h-5 w-5" />
                 {language === "vi" ? "Tạo duyệt chi" : "Create request"}
               </Button>
@@ -508,8 +506,8 @@ const PaymentRequests = () => {
               <Card
                 key={card.label}
                 className={cn(
-                  "cursor-pointer rounded-md border-slate-200 bg-white shadow-none transition-colors hover:border-blue-200 dark:border-slate-800 dark:bg-card",
-                  isActive && "border-blue-300 ring-1 ring-blue-100 dark:border-blue-800 dark:ring-blue-950"
+                  "cursor-pointer rounded-md border-slate-200 bg-white shadow-none transition-colors hover:border-primary/40 dark:border-slate-800 dark:bg-card dark:hover:border-primary/40",
+                  isActive && "border-primary/60 ring-1 ring-primary/15"
                 )}
                 onClick={() => setActiveCardFilter(card.key === activeCardFilter ? null : card.key)}
               >
@@ -535,7 +533,7 @@ const PaymentRequests = () => {
 
       {/* Bulk Action Bar */}
       {selectedIds.size > 0 && (
-        <div className="flex flex-col gap-3 rounded-md border border-blue-100 bg-blue-50 p-4 dark:border-blue-900/50 dark:bg-blue-950/20 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-3 rounded-md border bg-muted/40 p-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-4">
             <span className="font-medium">
               {t.selected}: {selectedIds.size}
@@ -556,7 +554,7 @@ const PaymentRequests = () => {
               <Button 
                 onClick={() => setShowBulkApproveConfirm(true)}
                 disabled={bulkApprove.isPending}
-                className="gap-2 bg-green-600 hover:bg-green-700"
+                className="gap-2"
               >
                 <CheckCircle2 className="h-4 w-4" />
                 {t.quickApprove} ({selectedPendingIds.length})
@@ -655,7 +653,7 @@ const PaymentRequests = () => {
                   <TableHead className="min-w-[150px] text-right text-slate-700 dark:text-slate-300">Số tiền</TableHead>
                   <TableHead className="min-w-[140px] text-center text-slate-700 dark:text-slate-300">{t.status}</TableHead>
                   <TableHead className="min-w-[160px] text-slate-700 dark:text-slate-300">Người tạo</TableHead>
-                  <TableHead className="min-w-[140px] text-center text-slate-700 dark:text-slate-300">{t.actions}</TableHead>
+                  <TableHead className="w-16 text-center text-slate-700 dark:text-slate-300">{t.actions}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -666,11 +664,27 @@ const PaymentRequests = () => {
                   const isSelected = selectedIds.has(request.id);
                   
                   return (
-                    <TableRow key={request.id} className={cn(
-                      "h-[72px] hover:bg-slate-50 dark:hover:bg-slate-900/40",
-                      isSelected && "bg-blue-50 dark:bg-blue-950/20"
-                    )}>
-                      <TableCell className="px-4">
+                    <TableRow
+                      key={request.id}
+                      className={cn(
+                        "h-[72px] cursor-pointer transition-colors hover:bg-muted/40",
+                        isSelected && "bg-muted/60"
+                      )}
+                      tabIndex={0}
+                      role="button"
+                      onClick={() => setSelectedRequestId(request.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedRequestId(request.id);
+                        }
+                      }}
+                    >
+                      <TableCell
+                        className="px-4"
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => event.stopPropagation()}
+                      >
                         {isSelectable ? (
                           <Checkbox
                             checked={isSelected}
@@ -709,22 +723,6 @@ const PaymentRequests = () => {
                     <TableCell className="whitespace-nowrap text-slate-700 dark:text-slate-300">{getCreatorName(request)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-8 w-8 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
-                          onClick={() => setSelectedRequestId(request.id)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-8 w-8 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
-                          onClick={() => setSelectedRequestId(request.id)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
                         {canEditPaymentRequests && (
                           <Button
                             variant="outline"
@@ -735,9 +733,10 @@ const PaymentRequests = () => {
                               e.stopPropagation();
                               setDeletingRequestId(request.id);
                             }}
+                            onKeyDown={(event) => event.stopPropagation()}
                             title={language === "vi" ? "Xoá duyệt chi" : "Delete payment request"}
                           >
-                            <MoreVertical className="h-4 w-4" />
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         )}
                       </div>
@@ -782,7 +781,7 @@ const PaymentRequests = () => {
                       className={cn(
                         "h-10 w-10 rounded-md p-0 shadow-none",
                         safeCurrentPage === page
-                          ? "bg-blue-600 hover:bg-blue-700"
+                          ? ""
                           : "border-slate-200 bg-white dark:border-slate-800 dark:bg-card"
                       )}
                       onClick={() => setCurrentPage(page)}
@@ -852,7 +851,6 @@ const PaymentRequests = () => {
             <AlertDialogAction 
               onClick={handleBulkApprove}
               disabled={bulkApprove.isPending}
-              className="bg-green-600 hover:bg-green-700"
             >
               {bulkApprove.isPending ? t.approving : t.confirmApproveAction}
             </AlertDialogAction>
