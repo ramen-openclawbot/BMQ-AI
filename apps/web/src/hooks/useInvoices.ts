@@ -36,6 +36,19 @@ export interface InvoiceItem {
   inventory_item_id: string | null;
   notes: string | null;
   created_at: string;
+  raw_product_name?: string | null;
+  suggested_standard_cost_code?: string | null;
+  confirmed_standard_cost_code?: string | null;
+  standard_cost_code_type?: string | null;
+  canonical_cost_item_name?: string | null;
+  canonical_cost_item_source?: string | null;
+  cost_category_code?: string | null;
+  cost_product_line?: string | null;
+  cost_allocation_rule?: string | null;
+  cost_review_routing?: string | null;
+  unit_conversion_note?: string | null;
+  matched_finished_skus?: string[] | null;
+  ocr_classification_json?: Record<string, unknown> | null;
 }
 
 export interface CreateInvoiceData {
@@ -61,6 +74,19 @@ export interface CreateInvoiceItemData {
   unit_price: number;
   inventory_item_id?: string | null;
   notes?: string | null;
+  raw_product_name?: string | null;
+  suggested_standard_cost_code?: string | null;
+  confirmed_standard_cost_code?: string | null;
+  standard_cost_code_type?: string | null;
+  canonical_cost_item_name?: string | null;
+  canonical_cost_item_source?: string | null;
+  cost_category_code?: string | null;
+  cost_product_line?: string | null;
+  cost_allocation_rule?: string | null;
+  cost_review_routing?: string | null;
+  unit_conversion_note?: string | null;
+  matched_finished_skus?: string[] | null;
+  ocr_classification_json?: Record<string, unknown> | null;
 }
 
 export function useInvoices() {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -47,8 +47,26 @@ interface ExtractedInvoiceData {
     unit?: string;
     quantity: number;
     unit_price: number;
+    standard_cost_label?: string | null;
+    ocr_cost_classification?: InvoiceItemCostClassification | null;
   }>;
 }
+
+type InvoiceItemCostClassification = {
+  raw_product_name?: string | null;
+  suggested_standard_cost_code?: string | null;
+  confirmed_standard_cost_code?: string | null;
+  standard_cost_code_type?: "NVL" | "OPEX" | "OTHER" | null;
+  canonical_cost_item_name?: string | null;
+  canonical_cost_item_source?: string | null;
+  cost_category_code?: string | null;
+  cost_product_line?: string | null;
+  cost_allocation_rule?: string | null;
+  cost_review_routing?: "none" | "needs_review" | string | null;
+  unit_conversion_note?: string | null;
+  matched_finished_skus?: string[] | null;
+  ocr_classification_json?: Record<string, unknown> | null;
+};
 
 const invoiceItemSchema = z.object({
   product_code: z.string().optional(),
@@ -56,6 +74,19 @@ const invoiceItemSchema = z.object({
   unit: z.string().default("kg"),
   quantity: z.coerce.number().min(0, "Quantity must be positive"),
   unit_price: z.coerce.number().min(0, "Price must be positive"),
+  raw_product_name: z.string().nullable().optional(),
+  suggested_standard_cost_code: z.string().nullable().optional(),
+  confirmed_standard_cost_code: z.string().nullable().optional(),
+  standard_cost_code_type: z.enum(["NVL", "OPEX", "OTHER"]).nullable().optional(),
+  canonical_cost_item_name: z.string().nullable().optional(),
+  canonical_cost_item_source: z.string().nullable().optional(),
+  cost_category_code: z.string().nullable().optional(),
+  cost_product_line: z.string().nullable().optional(),
+  cost_allocation_rule: z.string().nullable().optional(),
+  cost_review_routing: z.string().nullable().optional(),
+  unit_conversion_note: z.string().nullable().optional(),
+  matched_finished_skus: z.array(z.string()).nullable().optional(),
+  ocr_classification_json: z.record(z.unknown()).nullable().optional(),
 });
 
 const invoiceSchema = z.object({
@@ -88,9 +119,9 @@ export function AddInvoiceDialog() {
   const queryClient = useQueryClient();
 
   // Filter to only show approved requests without invoices
-  const availableRequests = paymentRequests?.filter(
+  const availableRequests = useMemo(() => paymentRequests?.filter(
     (pr) => pr.status === "approved" && !pr.invoice_created
-  ) || [];
+  ) || [], [paymentRequests]);
 
   const form = useForm<InvoiceFormData>({
     resolver: zodResolver(invoiceSchema),
@@ -134,12 +165,12 @@ export function AddInvoiceDialog() {
         
         // Set VAT from payment request.
         // Fallback: older requests may have vat_amount=0; infer VAT from total_amount - subtotal(items)
-        const requestVatRaw = Number((selectedRequest as any).vat_amount ?? 0) || 0;
+        const requestVatRaw = Number(selectedRequest.vat_amount ?? 0) || 0;
         const subtotalFromItems = requestItems.reduce(
           (sum, item) => sum + (Number(item.line_total) || (Number(item.quantity) || 0) * (Number(item.unit_price) || 0)),
           0,
         );
-        const totalFromRequest = Number((selectedRequest as any).total_amount ?? 0) || 0;
+        const totalFromRequest = Number(selectedRequest.total_amount ?? 0) || 0;
         const inferredVat = Math.max(0, totalFromRequest - subtotalFromItems);
         const finalVat = requestVatRaw > 0 ? requestVatRaw : inferredVat;
         form.setValue("vat_amount", finalVat);
@@ -151,6 +182,19 @@ export function AddInvoiceDialog() {
           unit: item.unit || "kg",
           quantity: Number(item.quantity) || 0,
           unit_price: Number(item.unit_price) || 0,
+          raw_product_name: item.raw_product_name || item.product_name,
+          suggested_standard_cost_code: item.suggested_standard_cost_code || null,
+          confirmed_standard_cost_code: item.confirmed_standard_cost_code || item.suggested_standard_cost_code || null,
+          standard_cost_code_type: item.standard_cost_code_type || null,
+          canonical_cost_item_name: item.canonical_cost_item_name || null,
+          canonical_cost_item_source: item.canonical_cost_item_source || null,
+          cost_category_code: item.cost_category_code || null,
+          cost_product_line: item.cost_product_line || null,
+          cost_allocation_rule: item.cost_allocation_rule || null,
+          cost_review_routing: item.cost_review_routing || "none",
+          unit_conversion_note: item.unit_conversion_note || null,
+          matched_finished_skus: item.matched_finished_skus || null,
+          ocr_classification_json: item.ocr_classification_json || null,
         }));
         
         replace(newItems);
@@ -228,6 +272,7 @@ export function AddInvoiceDialog() {
           body: JSON.stringify({
             imageBase64,
             mimeType: imageFile.type,
+            documentType: "invoice",
           }),
         }
       );
@@ -286,6 +331,7 @@ export function AddInvoiceDialog() {
           unit: item.unit || "kg",
           quantity: item.quantity || 0,
           unit_price: item.unit_price || 0,
+          ...(item.ocr_cost_classification || {}),
         }));
         form.setValue("items", newItems);
       }
@@ -421,6 +467,19 @@ export function AddInvoiceDialog() {
           quantity: item.quantity,
           unit_price: item.unit_price,
           inventory_item_id: inventoryItemId,
+          raw_product_name: item.raw_product_name || item.product_name,
+          suggested_standard_cost_code: item.suggested_standard_cost_code || null,
+          confirmed_standard_cost_code: item.confirmed_standard_cost_code || null,
+          standard_cost_code_type: item.standard_cost_code_type || null,
+          canonical_cost_item_name: item.canonical_cost_item_name || null,
+          canonical_cost_item_source: item.canonical_cost_item_source || null,
+          cost_category_code: item.cost_category_code || null,
+          cost_product_line: item.cost_product_line || null,
+          cost_allocation_rule: item.cost_allocation_rule || null,
+          cost_review_routing: item.cost_review_routing || "none",
+          unit_conversion_note: item.unit_conversion_note || null,
+          matched_finished_skus: item.matched_finished_skus || null,
+          ocr_classification_json: item.ocr_classification_json || null,
         });
       }
 
@@ -702,7 +761,9 @@ export function AddInvoiceDialog() {
               </div>
 
               <div className="space-y-3">
-                {fields.map((field, index) => (
+                {fields.map((field, index) => {
+                  const item = watchItems[index];
+                  return (
                   <div
                     key={field.id}
                     className="grid grid-cols-12 gap-2 items-end p-3 bg-muted/50 rounded-lg"
@@ -729,6 +790,14 @@ export function AddInvoiceDialog() {
                           <FormControl>
                             <Input placeholder="Product name" {...field} />
                           </FormControl>
+                          {item?.suggested_standard_cost_code && item?.canonical_cost_item_name && (
+                            <div className="text-xs text-muted-foreground">
+                              <span className="font-medium text-foreground">Mã chuẩn</span>{" "}
+                              {item.standard_cost_code_type ? `${item.standard_cost_code_type} · ` : ""}
+                              {item.suggested_standard_cost_code} — {item.canonical_cost_item_name}
+                              {item.cost_category_code ? ` · ${item.cost_category_code}` : ""}
+                            </div>
+                          )}
                         </FormItem>
                       )}
                     />
@@ -793,7 +862,8 @@ export function AddInvoiceDialog() {
                       )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 

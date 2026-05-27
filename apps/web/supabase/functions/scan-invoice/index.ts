@@ -3,6 +3,11 @@ import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/auth.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
+import {
+  classifyOcrCostLineFromMappings,
+  fetchApprovedCostItemAliasMappings,
+  type CostItemAliasMapping,
+} from "../_shared/ocr-cost-classifier.ts";
 
 type SupplierLite = { id: string; name: string };
 
@@ -111,7 +116,7 @@ serve(async (req) => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const { imageBase64, mimeType, suppliers } = await req.json();
+    const { imageBase64, mimeType, suppliers, documentType } = await req.json();
 
     if (!imageBase64) {
       return new Response(
@@ -166,6 +171,13 @@ serve(async (req) => {
       .eq("active", true)
       .limit(500);
     const aliases = (aliasesData || []) as SupplierAliasRow[];
+
+    let costAliasMappings: CostItemAliasMapping[] = [];
+    try {
+      costAliasMappings = await fetchApprovedCostItemAliasMappings(supabaseAdmin);
+    } catch (e) {
+      console.warn("[scan-invoice] cost alias mappings unavailable:", e instanceof Error ? e.message : e);
+    }
 
     const knownSuppliersPrompt = supplierList.length
       ? `Known supplier master data (choose from this list when possible):\n${supplierList
@@ -370,6 +382,29 @@ ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slic
         supplierMatch = { id: best.id, name: best.name, score: best.score, source: "scoring" };
         extractedData.supplier_name = best.name;
       }
+    }
+
+    if (Array.isArray(extractedData?.items)) {
+      extractedData.items = extractedData.items.map((item: any) => {
+        const result = classifyOcrCostLineFromMappings(
+          {
+            rawProductName: String(item?.product_name || ""),
+            productCode: item?.product_code || null,
+            unit: item?.unit || null,
+            quantity: item?.quantity ?? null,
+            unitPrice: item?.unit_price ?? null,
+            supplierId: supplierMatch?.id || null,
+            documentType: documentType || "payment_request",
+          },
+          costAliasMappings,
+        );
+
+        return {
+          ...item,
+          ocr_cost_classification: result.classification,
+          standard_cost_label: result.display_standard_cost_label,
+        };
+      });
     }
 
     // Learn/update template for future scans

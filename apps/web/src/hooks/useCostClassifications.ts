@@ -65,6 +65,16 @@ export interface CostClassificationReviewRow {
   confidence: number;
   classification_source: string;
   review_status: string;
+  raw_product_name?: string | null;
+  suggested_standard_cost_code?: string | null;
+  confirmed_standard_cost_code?: string | null;
+  standard_cost_code_type?: string | null;
+  canonical_cost_item_name?: string | null;
+  canonical_cost_item_source?: string | null;
+  cost_review_routing?: string | null;
+  unit_conversion_note?: string | null;
+  matched_finished_skus?: string[] | null;
+  ocr_classification_json?: unknown;
 }
 
 export interface CostClassificationDetailFilter {
@@ -136,10 +146,132 @@ function normalizeReviewRow(row: CostClassificationReviewDetailRow): CostClassif
     confidence: Number(row.confidence || 0),
     classification_source: row.classification_source || "fallback",
     review_status: row.review_status || "needs_review",
+    raw_product_name: null,
+    suggested_standard_cost_code: null,
+    confirmed_standard_cost_code: null,
+    standard_cost_code_type: null,
+    canonical_cost_item_name: null,
+    canonical_cost_item_source: null,
+    cost_review_routing: row.review_status || "needs_review",
+    unit_conversion_note: null,
+    matched_finished_skus: null,
+    ocr_classification_json: null,
   };
 }
 
 const COST_CLASSIFICATION_STALE_MS = 5 * 60_000;
+type ReviewSourceType = "payment_request_item" | "invoice_item";
+type JsonRecord = Record<string, unknown>;
+
+const asRecord = (value: unknown): JsonRecord => (
+  value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {}
+);
+
+const asNullableString = (value: unknown): string | null => {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text ? text : null;
+};
+
+const asNumber = (value: unknown): number => {
+  const numberValue = Number(value || 0);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+};
+
+const asStringArray = (value: unknown): string[] | null => (
+  Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : null
+);
+
+const reviewRowKey = (row: CostClassificationReviewRow) => `${row.source_type}:${row.source_line_id || row.classification_id}`;
+
+function normalizeOcrReviewRow(row: JsonRecord, sourceType: ReviewSourceType): CostClassificationReviewRow {
+  const parentKey = sourceType === "payment_request_item" ? "payment_requests" : "invoices";
+  const parent = asRecord(row[parentKey]);
+  const supplier = asRecord(parent.suppliers);
+  const categoryCode = asNullableString(row.cost_category_code) || "UNMAPPED_REVIEW";
+  const sourceDate = asNullableString(parent.invoice_date) || asNullableString(parent.created_at) || asNullableString(row.created_at);
+  const sourceNumber = asNullableString(parent.invoice_number) || asNullableString(parent.request_number);
+  const sourceId = asNullableString(row.id) || "";
+
+  return {
+    classification_id: `ocr-${sourceType}-${sourceId}`,
+    source_type: sourceType,
+    source_line_id: sourceId,
+    payment_request_id: sourceType === "payment_request_item" ? asNullableString(row.payment_request_id) : null,
+    invoice_id: sourceType === "invoice_item" ? asNullableString(row.invoice_id) : null,
+    source_number: sourceNumber,
+    source_date: sourceDate,
+    supplier_id: asNullableString(parent.supplier_id),
+    supplier_name: asNullableString(supplier.name),
+    product_name: asNullableString(row.product_name) || asNullableString(row.raw_product_name) || "-",
+    product_code: asNullableString(row.product_code),
+    unit: asNullableString(row.unit),
+    quantity: asNumber(row.quantity),
+    unit_price: asNumber(row.unit_price),
+    line_amount: asNumber(row.line_total) || asNumber(row.quantity) * asNumber(row.unit_price),
+    category_code: categoryCode,
+    category_label: categoryCode === "UNMAPPED_REVIEW" ? "Chưa phân loại / cần review" : categoryCode,
+    cost_group: categoryCode === "UNMAPPED_REVIEW" ? "unmapped" : "classified",
+    product_line: asNullableString(row.cost_product_line) || "general",
+    allocation_rule: asNullableString(row.cost_allocation_rule) || "none",
+    confidence: row.cost_review_routing === "needs_review" ? 0 : 1,
+    classification_source: asNullableString(row.canonical_cost_item_source) || "ocr_standard_cost",
+    review_status: row.cost_review_routing === "needs_review" || categoryCode === "UNMAPPED_REVIEW" ? "needs_review" : "approved",
+    raw_product_name: asNullableString(row.raw_product_name),
+    suggested_standard_cost_code: asNullableString(row.suggested_standard_cost_code),
+    confirmed_standard_cost_code: asNullableString(row.confirmed_standard_cost_code),
+    standard_cost_code_type: asNullableString(row.standard_cost_code_type),
+    canonical_cost_item_name: asNullableString(row.canonical_cost_item_name),
+    canonical_cost_item_source: asNullableString(row.canonical_cost_item_source),
+    cost_review_routing: asNullableString(row.cost_review_routing),
+    unit_conversion_note: asNullableString(row.unit_conversion_note),
+    matched_finished_skus: asStringArray(row.matched_finished_skus),
+    ocr_classification_json: row.ocr_classification_json || null,
+  };
+}
+
+async function fetchOcrReviewRows(monthStart: string, monthEnd: string, categoryCode?: string): Promise<CostClassificationReviewRow[]> {
+  const shouldReadReviewQueue = !categoryCode || categoryCode === "UNMAPPED_REVIEW";
+  const paymentQuery = supabase
+    .from("payment_request_items")
+    .select(`
+      id,payment_request_id,product_code,product_name,unit,quantity,unit_price,line_total,created_at,
+      raw_product_name,suggested_standard_cost_code,confirmed_standard_cost_code,standard_cost_code_type,
+      canonical_cost_item_name,canonical_cost_item_source,cost_category_code,cost_product_line,cost_allocation_rule,
+      cost_review_routing,unit_conversion_note,matched_finished_skus,ocr_classification_json,
+      payment_requests(id,request_number,created_at,supplier_id,suppliers(id,name))
+    `)
+    .gte("created_at", monthStart)
+    .lte("created_at", monthEnd);
+
+  const invoiceQuery = supabase
+    .from("invoice_items")
+    .select(`
+      id,invoice_id,product_code,product_name,unit,quantity,unit_price,line_total,created_at,
+      raw_product_name,suggested_standard_cost_code,confirmed_standard_cost_code,standard_cost_code_type,
+      canonical_cost_item_name,canonical_cost_item_source,cost_category_code,cost_product_line,cost_allocation_rule,
+      cost_review_routing,unit_conversion_note,matched_finished_skus,ocr_classification_json,
+      invoices(id,invoice_number,invoice_date,created_at,supplier_id,suppliers(id,name))
+    `)
+    .gte("created_at", monthStart)
+    .lte("created_at", monthEnd);
+
+  const paymentFiltered = shouldReadReviewQueue
+    ? paymentQuery.or("cost_review_routing.eq.needs_review,cost_category_code.eq.UNMAPPED_REVIEW")
+    : paymentQuery.eq("cost_category_code", categoryCode);
+  const invoiceFiltered = shouldReadReviewQueue
+    ? invoiceQuery.or("cost_review_routing.eq.needs_review,cost_category_code.eq.UNMAPPED_REVIEW")
+    : invoiceQuery.eq("cost_category_code", categoryCode);
+
+  const [paymentResult, invoiceResult] = await Promise.all([paymentFiltered.limit(250), invoiceFiltered.limit(250)]);
+  if (paymentResult.error) throw paymentResult.error;
+  if (invoiceResult.error) throw invoiceResult.error;
+
+  return [
+    ...(paymentResult.data || []).map((row) => normalizeOcrReviewRow(row as JsonRecord, "payment_request_item")),
+    ...(invoiceResult.data || []).map((row) => normalizeOcrReviewRow(row as JsonRecord, "invoice_item")),
+  ];
+}
 
 export function useCostClassificationCategorySummary(enabled = true) {
   return useQuery({
@@ -201,7 +333,13 @@ export function useCostClassificationReviewQueue(month: Date, enabled = true) {
         .limit(50);
 
       if (error) throw error;
-      return (data || []).map(normalizeReviewRow);
+      const rows = [
+        ...(data || []).map(normalizeReviewRow),
+        ...await fetchOcrReviewRows(monthStart, monthEnd),
+      ];
+      return Array.from(new Map(rows.map((row) => [reviewRowKey(row), row])).values())
+        .sort((a, b) => Number(b.line_amount || 0) - Number(a.line_amount || 0))
+        .slice(0, 50);
     },
     staleTime: COST_CLASSIFICATION_STALE_MS,
   });
@@ -247,7 +385,16 @@ export function useCostClassificationLineDetails(filter: CostClassificationDetai
         .limit(500);
 
       if (error) throw error;
-      return (data || []).map(normalizeReviewRow);
+      const rows = [
+        ...(data || []).map(normalizeReviewRow),
+        ...await fetchOcrReviewRows(monthStart, monthEnd, filter.category_code),
+      ];
+      return Array.from(new Map(rows.map((row) => [reviewRowKey(row), row])).values())
+        .sort((a, b) => {
+          const dateCompare = String(b.source_date || "").localeCompare(String(a.source_date || ""));
+          return dateCompare || Number(b.line_amount || 0) - Number(a.line_amount || 0);
+        })
+        .slice(0, 500);
     },
     staleTime: COST_CLASSIFICATION_STALE_MS,
   });

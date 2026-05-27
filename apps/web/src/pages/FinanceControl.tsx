@@ -114,6 +114,13 @@ const getErrorMessage = (error: unknown, fallback: string) => {
 };
 
 type ClassificationEdits = Record<string, string>;
+type StandardCostEdit = {
+  standard_cost_code_type: string;
+  standard_cost_code: string;
+  canonical_cost_item_name: string;
+  unit_conversion_note: string;
+};
+type StandardCostEdits = Record<string, Partial<StandardCostEdit>>;
 type ClassificationMonthlyDisplayRow = CostClassificationMonthlySummary & {
   review_status_counts: Record<string, number>;
 };
@@ -210,6 +217,33 @@ const getLineDateLabel = (value: string | null | undefined) => {
 };
 
 const getCostCategorySelectLabel = (code: string, label?: string) => label ? `${code} — ${label}` : code;
+const normalizeCostAliasKey = (value: string) => value
+  .trim()
+  .toLowerCase()
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .replace(/đ/g, "d")
+  .replace(/[^a-z0-9]+/g, " ")
+  .replace(/\s+/g, " ")
+  .trim();
+
+const getStandardCostDraft = (row: CostClassificationReviewRow, edits: StandardCostEdits): StandardCostEdit => {
+  const edit = edits[row.classification_id] || {};
+  const existingCode = row.confirmed_standard_cost_code || row.suggested_standard_cost_code || row.product_code || "";
+  return {
+    standard_cost_code_type: edit.standard_cost_code_type ?? row.standard_cost_code_type ?? "",
+    standard_cost_code: edit.standard_cost_code ?? existingCode,
+    canonical_cost_item_name: edit.canonical_cost_item_name ?? row.canonical_cost_item_name ?? row.product_name ?? "",
+    unit_conversion_note: edit.unit_conversion_note ?? row.unit_conversion_note ?? "",
+  };
+};
+
+const hasStandardCostDraftChanged = (row: CostClassificationReviewRow, draft: StandardCostEdit) => (
+  draft.standard_cost_code_type !== (row.standard_cost_code_type || "")
+  || draft.standard_cost_code !== (row.confirmed_standard_cost_code || row.suggested_standard_cost_code || row.product_code || "")
+  || draft.canonical_cost_item_name !== (row.canonical_cost_item_name || row.product_name || "")
+  || draft.unit_conversion_note !== (row.unit_conversion_note || "")
+);
 
 const getOcrErrorMessage = (errorLike: unknown, fallbackMessage: string) => {
   if (typeof errorLike?.error === "string" && errorLike.error.trim()) return errorLike.error.trim();
@@ -291,6 +325,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
   const [slipPreviewTitle, setSlipPreviewTitle] = useState<string>("");
   const [selectedCostSummaryRow, setSelectedCostSummaryRow] = useState<CostClassificationMonthlySummary | null>(null);
   const [classificationEdits, setClassificationEdits] = useState<ClassificationEdits>({});
+  const [standardCostEdits, setStandardCostEdits] = useState<StandardCostEdits>({});
   const [editingClassificationLineId, setEditingClassificationLineId] = useState<string | null>(null);
   const [savingClassificationEdits, setSavingClassificationEdits] = useState(false);
 
@@ -435,8 +470,10 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
   const costCategoryByCode = useMemo(() => new Map(costCategoryOptions.map((row) => [row.code, row])), [costCategoryOptions]);
   const changedClassificationRows = useMemo(() => selectedCostDetailRows.filter((row) => {
     const nextCode = classificationEdits[row.classification_id];
-    return Boolean(nextCode && nextCode !== row.category_code);
-  }), [selectedCostDetailRows, classificationEdits]);
+    const draft = getStandardCostDraft(row, standardCostEdits);
+    const standardChanged = Boolean(standardCostEdits[row.classification_id]) && hasStandardCostDraftChanged(row, draft);
+    return Boolean((nextCode && nextCode !== row.category_code) || standardChanged);
+  }), [selectedCostDetailRows, classificationEdits, standardCostEdits]);
   const hasClassificationEdits = changedClassificationRows.length > 0;
   const selectedCostSummaryKey = costDetailSelectionKey(selectedCostSummaryRow);
   const classificationCategoryByCode = useMemo(() => {
@@ -500,6 +537,20 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     () => classificationMonthlyDisplayRows.reduce((sum, row) => sum + Number(row.total_amount || 0), 0),
     [classificationMonthlyDisplayRows],
   );
+  const classificationPendingReviewStats = useMemo(() => (
+    classificationMonthlyDisplayRows.reduce((totals, row) => {
+      const pendingCount = Number(row.review_status_counts?.needs_review || 0);
+      if (pendingCount <= 0) return totals;
+      const lineCount = Math.max(1, Number(row.line_count || 0));
+      const pendingAmount = row.review_status === "needs_review" || row.category_code === "UNMAPPED_REVIEW"
+        ? Number(row.total_amount || 0)
+        : Number(row.total_amount || 0) * (pendingCount / lineCount);
+      return {
+        count: totals.count + pendingCount,
+        amount: totals.amount + pendingAmount,
+      };
+    }, { count: 0, amount: 0 })
+  ), [classificationMonthlyDisplayRows]);
 
   const classificationChartRows = useMemo<ClassificationChartRow[]>(() => {
     const sorted = [...classificationMonthlyDisplayRows].sort((a, b) => Number(b.total_amount || 0) - Number(a.total_amount || 0));
@@ -523,12 +574,14 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
 
   useEffect(() => {
     setClassificationEdits({});
+    setStandardCostEdits({});
     setEditingClassificationLineId(null);
   }, [selectedCostSummaryKey]);
 
   useEffect(() => {
     setSelectedCostSummaryRow(null);
     setClassificationEdits({});
+    setStandardCostEdits({});
     setEditingClassificationLineId(null);
   }, [selectedMonth]);
 
@@ -541,8 +594,23 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     });
   };
 
+  const updateStandardCostEdit = (
+    row: CostClassificationReviewRow,
+    field: keyof StandardCostEdit,
+    value: string,
+  ) => {
+    setStandardCostEdits((prev) => {
+      const draft = { ...getStandardCostDraft(row, prev), [field]: value };
+      const next = { ...prev };
+      if (hasStandardCostDraftChanged(row, draft)) next[row.classification_id] = draft;
+      else delete next[row.classification_id];
+      return next;
+    });
+  };
+
   const cancelClassificationEdits = () => {
     setClassificationEdits({});
+    setStandardCostEdits({});
     setEditingClassificationLineId(null);
   };
 
@@ -551,10 +619,15 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     setSavingClassificationEdits(true);
     try {
       for (const row of changedClassificationRows) {
-        const nextCode = classificationEdits[row.classification_id];
+        const nextCode = classificationEdits[row.classification_id] || row.category_code;
         const nextCategory = costCategoryByCode.get(nextCode);
         if (!nextCode || !nextCategory) continue;
         const nextAllocationRule = getCostGroupAllocationRule(nextCategory.cost_group);
+        const standardDraft = getStandardCostDraft(row, standardCostEdits);
+        const standardCostCode = standardDraft.standard_cost_code.trim();
+        const standardCostType = standardDraft.standard_cost_code_type.trim();
+        const canonicalCostName = standardDraft.canonical_cost_item_name.trim();
+        const unitConversionNote = standardDraft.unit_conversion_note.trim();
         const before = {
           category_code: row.category_code,
           category_label: row.category_label,
@@ -563,6 +636,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
           review_status: row.review_status,
           confidence: row.confidence,
           classification_source: row.classification_source,
+          standard_cost_code_type: row.standard_cost_code_type || null,
+          confirmed_standard_cost_code: row.confirmed_standard_cost_code || null,
+          canonical_cost_item_name: row.canonical_cost_item_name || null,
         };
         const after = {
           category_code: nextCode,
@@ -572,11 +648,71 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
           review_status: "approved",
           confidence: 1,
           classification_source: "manual_override",
+          standard_cost_code_type: standardCostType || null,
+          confirmed_standard_cost_code: standardCostCode || null,
+          canonical_cost_item_name: canonicalCostName || null,
         };
 
-        const { error: updateError } = await looseSupabase
-          .from("cost_line_classifications")
-          .update({
+        if (row.source_type === "payment_request_item" || row.source_type === "invoice_item") {
+          const tableName = row.source_type === "payment_request_item" ? "payment_request_items" : "invoice_items";
+          const { error: lineUpdateError } = await looseSupabase
+            .from(tableName)
+            .update({
+              cost_category_code: nextCode,
+              cost_product_line: nextCategory.product_line,
+              cost_allocation_rule: nextAllocationRule,
+              cost_review_routing: "none",
+              standard_cost_code_type: standardCostType || null,
+              suggested_standard_cost_code: standardCostCode || row.suggested_standard_cost_code || null,
+              confirmed_standard_cost_code: standardCostCode || null,
+              canonical_cost_item_name: canonicalCostName || row.product_name || null,
+              canonical_cost_item_source: "manual_override",
+              unit_conversion_note: unitConversionNote || null,
+            })
+            .eq("id", row.source_line_id);
+          if (lineUpdateError) throw lineUpdateError;
+
+          const sourceName = row.raw_product_name || row.product_name || "";
+          const sourceNameKey = normalizeCostAliasKey(sourceName);
+          if (sourceNameKey && standardCostType && standardCostCode && canonicalCostName) {
+            const { data: existingAlias, error: aliasLookupError } = await looseSupabase
+              .from("cost_item_alias_mappings")
+              .select("id")
+              .eq("source_name_key", sourceNameKey)
+              .eq("standard_cost_code_type", standardCostType)
+              .eq("standard_cost_code", standardCostCode)
+              .eq("active", true)
+              .limit(1);
+            if (aliasLookupError) throw aliasLookupError;
+
+            const aliasPayload = {
+              source_name: sourceName,
+              source_name_key: sourceNameKey,
+              supplier_id: row.supplier_id || null,
+              standard_cost_code_type: standardCostType,
+              standard_cost_code: standardCostCode,
+              canonical_cost_item_name: canonicalCostName,
+              category_code: nextCode,
+              product_line: nextCategory.product_line,
+              allocation_rule: nextAllocationRule,
+              unit_conversion_note: unitConversionNote || null,
+              mapping_status: "approved",
+              active: true,
+              review_note: "Approved from Chi phí Cần Review",
+              reviewed_by: user?.id || null,
+              reviewed_at: new Date().toISOString(),
+              created_by: user?.id || null,
+            };
+            const existingAliasId = Array.isArray(existingAlias) ? existingAlias[0]?.id : null;
+            const aliasResult = existingAliasId
+              ? await looseSupabase.from("cost_item_alias_mappings").update(aliasPayload).eq("id", existingAliasId)
+              : await looseSupabase.from("cost_item_alias_mappings").insert(aliasPayload);
+            if (aliasResult.error) throw aliasResult.error;
+          }
+        } else {
+          const { error: updateError } = await looseSupabase
+            .from("cost_line_classifications")
+            .update({
             category_code: nextCode,
             product_line: nextCategory.product_line,
             allocation_rule: nextAllocationRule,
@@ -588,12 +724,13 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
             note: `Manual category override from ${row.category_code} to ${nextCode}`,
           })
           .eq("id", row.classification_id);
-        if (updateError) throw updateError;
+          if (updateError) throw updateError;
+        }
 
         const { error: auditError } = await looseSupabase
           .from("cost_classification_audit_logs")
           .insert({
-            classification_id: row.classification_id,
+            classification_id: row.classification_id.startsWith("ocr-") ? null : row.classification_id,
             source_type: row.source_type,
             source_line_id: row.source_line_id,
             action: "manual_override",
@@ -626,6 +763,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       }
 
       setClassificationEdits({});
+      setStandardCostEdits({});
       setEditingClassificationLineId(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["cost-classification-monthly-summary"] }),
@@ -636,7 +774,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       ]);
       toast({
         title: isVi ? "Đã lưu phân loại" : "Classification saved",
-        description: isVi ? "Hệ thống đã ghi nhớ nhóm để áp dụng cho PR/invoice sau." : "The category memory rule was saved for future PRs/invoices.",
+        description: isVi ? "Hệ thống đã lưu mã chuẩn và ghi nhớ alias cho PR/invoice sau." : "The standard code and alias were saved for future PRs/invoices.",
       });
     } catch (error: unknown) {
       toast({
@@ -2555,6 +2693,15 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
               )}
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <Card className={classificationPendingReviewStats.count > 0 ? "border-amber-300 bg-amber-500/5" : ""}>
+                  <CardContent className="p-4">
+                    <div className="text-xs text-muted-foreground">{isVi ? "Đang chờ review" : "Pending review"}</div>
+                    <div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(classificationPendingReviewStats.amount || 0))}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {classificationPendingReviewStats.count} {isVi ? "dòng cần kiểm tra, vẫn tách riêng khỏi phần đã duyệt" : "lines kept separate from approved cost"}
+                    </div>
+                  </CardContent>
+                </Card>
                 {COST_CLASSIFICATION_CARD_CODES.map((code) => {
                   const row = classificationCategoryByCode.get(code);
                   return (
@@ -2576,6 +2723,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                       <CardTitle className="text-lg">{isVi ? "Tổng theo nhóm" : "Totals by Category"}</CardTitle>
                       <CardDescription>
                         {format(selectedMonth, "MM/yyyy")} · {classificationMonthlyDisplayRows.length} {isVi ? "nhóm" : "categories"} · {vnd(classificationTotalAmount)}
+                        {classificationPendingReviewStats.count > 0
+                          ? ` · ${isVi ? "Cần review" : "Pending review"} ${vnd(classificationPendingReviewStats.amount)}`
+                          : ""}
                       </CardDescription>
                     </div>
                     <div className="text-xs text-muted-foreground">
@@ -2755,15 +2905,22 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                       {selectedCostDetailRows.map((row) => {
                         const selectedCode = classificationEdits[row.classification_id] || row.category_code;
                         const selectedCategory = costCategoryByCode.get(selectedCode);
+                        const standardDraft = getStandardCostDraft(row, standardCostEdits);
                         const isChanged = selectedCode !== row.category_code;
+                        const standardChanged = Boolean(standardCostEdits[row.classification_id]) && hasStandardCostDraftChanged(row, standardDraft);
                         const isEditingClassificationLine = editingClassificationLineId === row.classification_id;
                         return (
-                          <div key={`mobile-detail-${row.classification_id}`} className={`rounded-2xl border p-3 ${isChanged ? "border-amber-400 bg-amber-500/5" : "bg-card"}`}>
+                          <div key={`mobile-detail-${row.classification_id}`} className={`rounded-2xl border p-3 ${isChanged || standardChanged ? "border-amber-400 bg-amber-500/5" : "bg-card"}`}>
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <div className="text-xs text-muted-foreground">{getLineDateLabel(row.source_date)} · {row.source_type}</div>
                                 <div className="mt-1 line-clamp-2 text-sm font-semibold leading-snug">{row.product_name}</div>
                                 <div className="mt-1 truncate text-xs text-muted-foreground">{row.supplier_name || "-"}</div>
+                                {(row.confirmed_standard_cost_code || row.suggested_standard_cost_code || row.standard_cost_code_type) && (
+                                  <div className="mt-1 text-xs text-emerald-700">
+                                    Mã chuẩn: {row.confirmed_standard_cost_code || row.suggested_standard_cost_code || "-"}{row.standard_cost_code_type ? ` · ${row.standard_cost_code_type}` : ""}
+                                  </div>
+                                )}
                               </div>
                               <div className="shrink-0 text-right">
                                 <div className="text-sm font-bold">{vnd(Number(row.line_amount || 0))}</div>
@@ -2811,6 +2968,46 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                                 <div className="text-xs text-muted-foreground">
                                   {selectedCategory?.cost_group || row.cost_group} • {selectedCategory?.product_line || row.product_line}
                                 </div>
+                                <div className="grid gap-2">
+                                  <Label className="text-xs">{isVi ? "Loại mã chuẩn" : "Standard code type"}</Label>
+                                  <Select
+                                    value={standardDraft.standard_cost_code_type || "NVL"}
+                                    onValueChange={(value) => updateStandardCostEdit(row, "standard_cost_code_type", value)}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="NVL / OPEX / OTHER" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="NVL">NVL</SelectItem>
+                                      <SelectItem value="OPEX">OPEX</SelectItem>
+                                      <SelectItem value="OTHER">OTHER</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="grid gap-2">
+                                  <Label className="text-xs">{isVi ? "Mã chuẩn" : "Standard code"}</Label>
+                                  <Input
+                                    value={standardDraft.standard_cost_code}
+                                    onChange={(event) => updateStandardCostEdit(row, "standard_cost_code", event.target.value)}
+                                    placeholder={isVi ? "VD: BOT_MI_13" : "Example: BOT_MI_13"}
+                                  />
+                                </div>
+                                <div className="grid gap-2">
+                                  <Label className="text-xs">{isVi ? "Tên chuẩn" : "Canonical name"}</Label>
+                                  <Input
+                                    value={standardDraft.canonical_cost_item_name}
+                                    onChange={(event) => updateStandardCostEdit(row, "canonical_cost_item_name", event.target.value)}
+                                    placeholder={row.product_name}
+                                  />
+                                </div>
+                                <div className="grid gap-2">
+                                  <Label className="text-xs">{isVi ? "Ghi chú quy đổi" : "Conversion note"}</Label>
+                                  <Input
+                                    value={standardDraft.unit_conversion_note}
+                                    onChange={(event) => updateStandardCostEdit(row, "unit_conversion_note", event.target.value)}
+                                    placeholder={isVi ? "Tuỳ chọn" : "Optional"}
+                                  />
+                                </div>
                               </div>
                             )}
                           </div>
@@ -2835,16 +3032,23 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                           {selectedCostDetailRows.map((row) => {
                             const selectedCode = classificationEdits[row.classification_id] || row.category_code;
                             const selectedCategory = costCategoryByCode.get(selectedCode);
+                            const standardDraft = getStandardCostDraft(row, standardCostEdits);
                             const isChanged = selectedCode !== row.category_code;
+                            const standardChanged = Boolean(standardCostEdits[row.classification_id]) && hasStandardCostDraftChanged(row, standardDraft);
                             const isEditingClassificationLine = editingClassificationLineId === row.classification_id;
                             return (
                               <Fragment key={row.classification_id}>
-                                <TableRow key={row.classification_id} className={isChanged ? "bg-amber-500/5" : ""}>
+                                <TableRow key={row.classification_id} className={isChanged || standardChanged ? "bg-amber-500/5" : ""}>
                                   <TableCell className="whitespace-nowrap">{getLineDateLabel(row.source_date)}</TableCell>
                                   <TableCell>{row.supplier_name || "-"}</TableCell>
                                   <TableCell>
                                     <div className="font-medium">{row.product_name}</div>
                                     <div className="text-xs text-muted-foreground">{row.product_code || row.unit || ""}</div>
+                                    {(row.confirmed_standard_cost_code || row.suggested_standard_cost_code || row.standard_cost_code_type) && (
+                                      <div className="text-xs text-emerald-700">
+                                        Mã chuẩn: {row.confirmed_standard_cost_code || row.suggested_standard_cost_code || "-"}{row.standard_cost_code_type ? ` · ${row.standard_cost_code_type}` : ""}
+                                      </div>
+                                    )}
                                   </TableCell>
                                   <TableCell>
                                     <div>{row.source_number || "-"}</div>
@@ -2869,27 +3073,72 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                                   </TableCell>
                                 </TableRow>
                                 {isEditingClassificationLine && (
-                                  <TableRow key={`${row.classification_id}-category-editor`} className={isChanged ? "bg-amber-500/5" : "bg-muted/30"}>
+                                  <TableRow key={`${row.classification_id}-category-editor`} className={isChanged || standardChanged ? "bg-amber-500/5" : "bg-muted/30"}>
                                     <TableCell colSpan={7}>
                                       <div className="space-y-2 py-2">
                                         <div className="text-xs font-medium text-muted-foreground">
-                                          {isVi ? "Chọn nhóm mới cho dòng này" : "Select a new category for this line"}
+                                          {isVi ? "Chọn nhóm và mã chuẩn cho dòng này" : "Select a category and standard code for this line"}
                                         </div>
-                                        <Select
-                                          value={selectedCode}
-                                          onValueChange={(value) => updateClassificationEdit(row.classification_id, row.category_code, value)}
-                                        >
-                                          <SelectTrigger className={`max-w-xl ${isChanged ? "border-amber-500" : ""}`}>
-                                            <SelectValue placeholder={isVi ? "Chọn nhóm" : "Select category"} />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            {costCategoryOptions.map((category) => (
-                                              <SelectItem key={category.code} value={category.code}>
-                                                {getCostCategorySelectLabel(category.code, category.label)}
-                                              </SelectItem>
-                                            ))}
-                                          </SelectContent>
-                                        </Select>
+                                        <div className="grid gap-3 lg:grid-cols-[minmax(220px,1.2fr)_140px_minmax(160px,0.8fr)_minmax(200px,1fr)]">
+                                          <div className="space-y-1">
+                                            <Label className="text-xs">{isVi ? "Nhóm chi phí" : "Cost category"}</Label>
+                                            <Select
+                                              value={selectedCode}
+                                              onValueChange={(value) => updateClassificationEdit(row.classification_id, row.category_code, value)}
+                                            >
+                                              <SelectTrigger className={isChanged ? "border-amber-500" : ""}>
+                                                <SelectValue placeholder={isVi ? "Chọn nhóm" : "Select category"} />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                {costCategoryOptions.map((category) => (
+                                                  <SelectItem key={category.code} value={category.code}>
+                                                    {getCostCategorySelectLabel(category.code, category.label)}
+                                                  </SelectItem>
+                                                ))}
+                                              </SelectContent>
+                                            </Select>
+                                          </div>
+                                          <div className="space-y-1">
+                                            <Label className="text-xs">{isVi ? "Loại mã" : "Code type"}</Label>
+                                            <Select
+                                              value={standardDraft.standard_cost_code_type || "NVL"}
+                                              onValueChange={(value) => updateStandardCostEdit(row, "standard_cost_code_type", value)}
+                                            >
+                                              <SelectTrigger>
+                                                <SelectValue placeholder="NVL" />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                <SelectItem value="NVL">NVL</SelectItem>
+                                                <SelectItem value="OPEX">OPEX</SelectItem>
+                                                <SelectItem value="OTHER">OTHER</SelectItem>
+                                              </SelectContent>
+                                            </Select>
+                                          </div>
+                                          <div className="space-y-1">
+                                            <Label className="text-xs">{isVi ? "Mã chuẩn" : "Standard code"}</Label>
+                                            <Input
+                                              value={standardDraft.standard_cost_code}
+                                              onChange={(event) => updateStandardCostEdit(row, "standard_cost_code", event.target.value)}
+                                              placeholder={isVi ? "VD: BOT_MI_13" : "Example: BOT_MI_13"}
+                                            />
+                                          </div>
+                                          <div className="space-y-1">
+                                            <Label className="text-xs">{isVi ? "Tên chuẩn" : "Canonical name"}</Label>
+                                            <Input
+                                              value={standardDraft.canonical_cost_item_name}
+                                              onChange={(event) => updateStandardCostEdit(row, "canonical_cost_item_name", event.target.value)}
+                                              placeholder={row.product_name}
+                                            />
+                                          </div>
+                                        </div>
+                                        <div className="max-w-xl space-y-1">
+                                          <Label className="text-xs">{isVi ? "Ghi chú quy đổi" : "Conversion note"}</Label>
+                                          <Input
+                                            value={standardDraft.unit_conversion_note}
+                                            onChange={(event) => updateStandardCostEdit(row, "unit_conversion_note", event.target.value)}
+                                            placeholder={isVi ? "Tuỳ chọn" : "Optional"}
+                                          />
+                                        </div>
                                         <div className="text-xs text-muted-foreground">
                                           {selectedCategory?.cost_group || row.cost_group} • {selectedCategory?.product_line || row.product_line}
                                         </div>
@@ -2924,7 +3173,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                 {isVi ? `Đã thay đổi ${changedClassificationRows.length} dòng phân loại` : `${changedClassificationRows.length} classification changes`}
               </div>
               <div className="text-xs text-muted-foreground">
-                {isVi ? "Save để lưu và tự ghi nhớ nhóm cho PR/invoice sau này." : "Save to persist and remember the category for future PRs/invoices."}
+                {isVi ? "Save để lưu nhóm, mã chuẩn và alias tự áp dụng cho PR/invoice sau này." : "Save to persist the category, standard code, and alias for future PRs/invoices."}
               </div>
             </div>
             <div className="flex gap-2 sm:justify-end">

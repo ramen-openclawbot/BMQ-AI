@@ -129,6 +129,93 @@ export type Database = {
           },
         ]
       }
+      cost_item_alias_mappings: {
+        Row: {
+          active: boolean
+          allocation_rule: string
+          canonical_cost_item_name: string
+          category_code: string
+          created_at: string
+          created_by: string | null
+          effective_from: string | null
+          effective_to: string | null
+          id: string
+          mapping_status: string
+          matched_finished_skus: string[] | null
+          product_line: string
+          source_name: string
+          source_name_key: string
+          source_review_note: string | null
+          source_sheet_url: string | null
+          standard_cost_code: string
+          standard_cost_code_type: string
+          supplier_id: string | null
+          unit_conversion_note: string | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          allocation_rule?: string
+          canonical_cost_item_name: string
+          category_code: string
+          created_at?: string
+          created_by?: string | null
+          effective_from?: string | null
+          effective_to?: string | null
+          id?: string
+          mapping_status?: string
+          matched_finished_skus?: string[] | null
+          product_line?: string
+          source_name: string
+          source_name_key: string
+          source_review_note?: string | null
+          source_sheet_url?: string | null
+          standard_cost_code: string
+          standard_cost_code_type: string
+          supplier_id?: string | null
+          unit_conversion_note?: string | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          allocation_rule?: string
+          canonical_cost_item_name?: string
+          category_code?: string
+          created_at?: string
+          created_by?: string | null
+          effective_from?: string | null
+          effective_to?: string | null
+          id?: string
+          mapping_status?: string
+          matched_finished_skus?: string[] | null
+          product_line?: string
+          source_name?: string
+          source_name_key?: string
+          source_review_note?: string | null
+          source_sheet_url?: string | null
+          standard_cost_code?: string
+          standard_cost_code_type?: string
+          supplier_id?: string | null
+          unit_conversion_note?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cost_item_alias_mappings_category_code_fkey"
+            columns: ["category_code"]
+            isOneToOne: false
+            referencedRelation: "cost_categories"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "cost_item_alias_mappings_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cost_classification_rules: {
         Row: {
           active: boolean
@@ -715,45 +802,91 @@ export type Database = {
       }
       invoice_items: {
         Row: {
+          canonical_cost_item_name: string | null
+          canonical_cost_item_source: string | null
+          confirmed_standard_cost_code: string | null
+          cost_allocation_rule: string | null
+          cost_category_code: string | null
+          cost_product_line: string | null
+          cost_review_routing: string
           created_at: string
           id: string
           inventory_item_id: string | null
           invoice_id: string
           line_total: number | null
+          matched_finished_skus: string[] | null
           notes: string | null
+          ocr_classification_json: Json | null
           product_code: string | null
           product_name: string
           quantity: number
+          raw_product_name: string | null
+          standard_cost_code_type: string | null
+          suggested_standard_cost_code: string | null
           unit: string | null
+          unit_conversion_note: string | null
           unit_price: number
         }
         Insert: {
+          canonical_cost_item_name?: string | null
+          canonical_cost_item_source?: string | null
+          confirmed_standard_cost_code?: string | null
+          cost_allocation_rule?: string | null
+          cost_category_code?: string | null
+          cost_product_line?: string | null
+          cost_review_routing?: string
           created_at?: string
           id?: string
           inventory_item_id?: string | null
           invoice_id: string
           line_total?: number | null
+          matched_finished_skus?: string[] | null
           notes?: string | null
+          ocr_classification_json?: Json | null
           product_code?: string | null
           product_name: string
           quantity?: number
+          raw_product_name?: string | null
+          standard_cost_code_type?: string | null
+          suggested_standard_cost_code?: string | null
           unit?: string | null
+          unit_conversion_note?: string | null
           unit_price?: number
         }
         Update: {
+          canonical_cost_item_name?: string | null
+          canonical_cost_item_source?: string | null
+          confirmed_standard_cost_code?: string | null
+          cost_allocation_rule?: string | null
+          cost_category_code?: string | null
+          cost_product_line?: string | null
+          cost_review_routing?: string
           created_at?: string
           id?: string
           inventory_item_id?: string | null
           invoice_id?: string
           line_total?: number | null
+          matched_finished_skus?: string[] | null
           notes?: string | null
+          ocr_classification_json?: Json | null
           product_code?: string | null
           product_name?: string
           quantity?: number
+          raw_product_name?: string | null
+          standard_cost_code_type?: string | null
+          suggested_standard_cost_code?: string | null
           unit?: string | null
+          unit_conversion_note?: string | null
           unit_price?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "invoice_items_cost_category_code_fkey"
+            columns: ["cost_category_code"]
+            isOneToOne: false
+            referencedRelation: "cost_categories"
+            referencedColumns: ["code"]
+          },
           {
             foreignKeyName: "invoice_items_inventory_item_id_fkey"
             columns: ["inventory_item_id"]
@@ -924,54 +1057,100 @@ export type Database = {
       }
       payment_request_items: {
         Row: {
+          canonical_cost_item_name: string | null
+          canonical_cost_item_source: string | null
+          confirmed_standard_cost_code: string | null
+          cost_allocation_rule: string | null
+          cost_category_code: string | null
+          cost_product_line: string | null
+          cost_review_routing: string
           created_at: string
           id: string
           inventory_item_id: string | null
           last_price: number | null
           line_total: number | null
+          matched_finished_skus: string[] | null
           notes: string | null
+          ocr_classification_json: Json | null
           payment_request_id: string
           price_change_percent: number | null
           product_code: string | null
           product_name: string
           quantity: number
+          raw_product_name: string | null
           sku_id: string | null
+          standard_cost_code_type: string | null
+          suggested_standard_cost_code: string | null
           unit: string | null
+          unit_conversion_note: string | null
           unit_price: number
         }
         Insert: {
+          canonical_cost_item_name?: string | null
+          canonical_cost_item_source?: string | null
+          confirmed_standard_cost_code?: string | null
+          cost_allocation_rule?: string | null
+          cost_category_code?: string | null
+          cost_product_line?: string | null
+          cost_review_routing?: string
           created_at?: string
           id?: string
           inventory_item_id?: string | null
           last_price?: number | null
           line_total?: number | null
+          matched_finished_skus?: string[] | null
           notes?: string | null
+          ocr_classification_json?: Json | null
           payment_request_id: string
           price_change_percent?: number | null
           product_code?: string | null
           product_name: string
           quantity?: number
+          raw_product_name?: string | null
           sku_id?: string | null
+          standard_cost_code_type?: string | null
+          suggested_standard_cost_code?: string | null
           unit?: string | null
+          unit_conversion_note?: string | null
           unit_price?: number
         }
         Update: {
+          canonical_cost_item_name?: string | null
+          canonical_cost_item_source?: string | null
+          confirmed_standard_cost_code?: string | null
+          cost_allocation_rule?: string | null
+          cost_category_code?: string | null
+          cost_product_line?: string | null
+          cost_review_routing?: string
           created_at?: string
           id?: string
           inventory_item_id?: string | null
           last_price?: number | null
           line_total?: number | null
+          matched_finished_skus?: string[] | null
           notes?: string | null
+          ocr_classification_json?: Json | null
           payment_request_id?: string
           price_change_percent?: number | null
           product_code?: string | null
           product_name?: string
           quantity?: number
+          raw_product_name?: string | null
           sku_id?: string | null
+          standard_cost_code_type?: string | null
+          suggested_standard_cost_code?: string | null
           unit?: string | null
+          unit_conversion_note?: string | null
           unit_price?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "payment_request_items_cost_category_code_fkey"
+            columns: ["cost_category_code"]
+            isOneToOne: false
+            referencedRelation: "cost_categories"
+            referencedColumns: ["code"]
+          },
           {
             foreignKeyName: "payment_request_items_inventory_item_id_fkey"
             columns: ["inventory_item_id"]

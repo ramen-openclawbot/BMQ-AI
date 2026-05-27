@@ -78,7 +78,7 @@ Deno.serve(async (req) => {
     // 2. Fetch payment request items
     const { data: prItems, error: itemsError } = await supabase
       .from("payment_request_items")
-      .select("product_code, product_name, unit, quantity, unit_price, inventory_item_id, notes")
+      .select("product_code, product_name, unit, quantity, unit_price, inventory_item_id, notes, raw_product_name, suggested_standard_cost_code, confirmed_standard_cost_code, standard_cost_code_type, canonical_cost_item_name, canonical_cost_item_source, cost_category_code, cost_product_line, cost_allocation_rule, cost_review_routing, unit_conversion_note, matched_finished_skus, ocr_classification_json")
       .eq("payment_request_id", payment_request_id);
 
     if (itemsError) {
@@ -138,6 +138,19 @@ Deno.serve(async (req) => {
       unit_price: item.unit_price,
       inventory_item_id: item.inventory_item_id,
       notes: item.notes,
+      raw_product_name: item.raw_product_name || item.product_name,
+      suggested_standard_cost_code: item.suggested_standard_cost_code || null,
+      confirmed_standard_cost_code: item.confirmed_standard_cost_code || item.suggested_standard_cost_code || null,
+      standard_cost_code_type: item.standard_cost_code_type || null,
+      canonical_cost_item_name: item.canonical_cost_item_name || null,
+      canonical_cost_item_source: item.canonical_cost_item_source || null,
+      cost_category_code: item.cost_category_code || null,
+      cost_product_line: item.cost_product_line || null,
+      cost_allocation_rule: item.cost_allocation_rule || null,
+      cost_review_routing: item.cost_review_routing || "none",
+      unit_conversion_note: item.unit_conversion_note || null,
+      matched_finished_skus: item.matched_finished_skus || null,
+      ocr_classification_json: item.ocr_classification_json || null,
     }));
 
     const { error: itemsInsertError } = await supabase

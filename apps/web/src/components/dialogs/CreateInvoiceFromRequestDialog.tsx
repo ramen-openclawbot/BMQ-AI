@@ -83,12 +83,12 @@ export function CreateInvoiceFromRequestDialog({
     setInvoiceDate(format(new Date(), "yyyy-MM-dd"));
     setNotes(`Tạo từ đề nghị chi ${request.request_number}`);
 
-    const requestVatRaw = Number((request as any).vat_amount ?? 0) || 0;
+    const requestVatRaw = Number(request.vat_amount ?? 0) || 0;
     const subtotalFromItems = (items || []).reduce(
       (sum, item) => sum + (Number(item.line_total) || (Number(item.quantity) || 0) * (Number(item.unit_price) || 0)),
       0,
     );
-    const totalFromRequest = Number((request as any).total_amount ?? 0) || 0;
+    const totalFromRequest = Number(request.total_amount ?? 0) || 0;
     const inferredVat = Math.max(0, totalFromRequest - subtotalFromItems);
     setVatAmount(requestVatRaw > 0 ? requestVatRaw : inferredVat);
   }, [open, request, items]);
@@ -181,7 +181,7 @@ export function CreateInvoiceFromRequestDialog({
           });
 
           if (fallbackError) {
-            const msg = String((fallbackError as any)?.message || fallbackError || "");
+            const msg = String(fallbackError?.message || fallbackError || "");
             result = { error: msg };
           } else {
             result = { data: fallbackData as { success: boolean; invoice_id: string; items_count: number } };
@@ -214,7 +214,7 @@ export function CreateInvoiceFromRequestDialog({
 
         if (createInvoiceError || !createdInvoice?.id) {
           const edgeErr = String(result.error || "").trim();
-          const directErr = String((createInvoiceError as any)?.message || "").trim();
+          const directErr = String(createInvoiceError?.message || "").trim();
           toast.error(
             `Không thể tạo hóa đơn. ${directErr || edgeErr || "Vui lòng thử lại."}`
           );
@@ -230,11 +230,24 @@ export function CreateInvoiceFromRequestDialog({
           unit_price: item.unit_price,
           inventory_item_id: item.inventory_item_id,
           notes: item.notes,
+          raw_product_name: item.raw_product_name || item.product_name,
+          suggested_standard_cost_code: item.suggested_standard_cost_code || null,
+          confirmed_standard_cost_code: item.confirmed_standard_cost_code || item.suggested_standard_cost_code || null,
+          standard_cost_code_type: item.standard_cost_code_type || null,
+          canonical_cost_item_name: item.canonical_cost_item_name || null,
+          canonical_cost_item_source: item.canonical_cost_item_source || null,
+          cost_category_code: item.cost_category_code || null,
+          cost_product_line: item.cost_product_line || null,
+          cost_allocation_rule: item.cost_allocation_rule || null,
+          cost_review_routing: item.cost_review_routing || "none",
+          unit_conversion_note: item.unit_conversion_note || null,
+          matched_finished_skus: item.matched_finished_skus || null,
+          ocr_classification_json: item.ocr_classification_json || null,
         }));
 
         const { error: createItemsError } = await supabase
           .from("invoice_items")
-          .insert(directInvoiceItems as any);
+          .insert(directInvoiceItems);
 
         if (createItemsError) {
           await supabase.from("invoices").delete().eq("id", createdInvoice.id);
