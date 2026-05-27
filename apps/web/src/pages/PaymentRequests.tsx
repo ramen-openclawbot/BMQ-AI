@@ -75,6 +75,16 @@ import { toast } from "sonner";
 
 type CardFilterType = "pending" | "approved" | "rejected" | null;
 
+const getMonthStartInputValue = () => {
+  const today = new Date();
+  return format(new Date(today.getFullYear(), today.getMonth(), 1), "yyyy-MM-dd");
+};
+
+const getMonthEndInputValue = () => {
+  const today = new Date();
+  return format(new Date(today.getFullYear(), today.getMonth() + 1, 0), "yyyy-MM-dd");
+};
+
 const normalizeSearch = (value: string | null | undefined) =>
   String(value || "")
     .toLowerCase()
@@ -106,6 +116,8 @@ const PaymentRequests = () => {
   const [showDriveInvoiceDialog, setShowDriveInvoiceDialog] = useState(false);
   const [pageSize, setPageSize] = useState("10");
   const [currentPage, setCurrentPage] = useState(1);
+  const [dateFrom, setDateFrom] = useState(getMonthStartInputValue);
+  const [dateTo, setDateTo] = useState(getMonthEndInputValue);
   
   const { canEditModule } = useAuth();
   const { language, t } = useLanguage();
@@ -141,28 +153,22 @@ const PaymentRequests = () => {
     request.created_by ? `User ${request.created_by.slice(0, 8)}` : "-";
 
   const dateRangeLabel = useMemo(() => {
-    const currentMonth = new Date();
-    const currentMonthLabel = `${format(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1), "dd/MM/yyyy")} - ${format(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0), "dd/MM/yyyy")}`;
-    const source = requests || [];
-    if (source.length === 0) return currentMonthLabel;
+    const fromLabel = dateFrom ? format(new Date(`${dateFrom}T00:00:00`), "dd/MM/yyyy") : "--/--/----";
+    const toLabel = dateTo ? format(new Date(`${dateTo}T00:00:00`), "dd/MM/yyyy") : "--/--/----";
+    return `${fromLabel} - ${toLabel}`;
+  }, [dateFrom, dateTo]);
 
-    const dates = source
-      .map((request) => new Date(request.created_at))
-      .filter((date) => !Number.isNaN(date.getTime()))
-      .sort((a, b) => a.getTime() - b.getTime());
-
-    if (dates.length === 0) return currentMonthLabel;
-
-    const first = dates[0];
-    const last = dates[dates.length - 1];
-    const firstDay = new Date(last.getFullYear(), last.getMonth(), 1);
-    const lastDay = new Date(last.getFullYear(), last.getMonth() + 1, 0);
-
-    return `${format(firstDay, "dd/MM/yyyy")} - ${format(lastDay, "dd/MM/yyyy")}`;
-  }, [requests]);
+  const dateFilteredRequests = useMemo(() => {
+    return (requests || []).filter((request) => {
+      const requestDate = format(new Date(request.created_at), "yyyy-MM-dd");
+      if (dateFrom && requestDate < dateFrom) return false;
+      if (dateTo && requestDate > dateTo) return false;
+      return true;
+    });
+  }, [requests, dateFrom, dateTo]);
 
   const stats = useMemo(() => {
-    const source = requests || [];
+    const source = dateFilteredRequests;
     const totalAmount = source.reduce((sum, request) => sum + (Number(request.total_amount) || 0), 0);
     const approved = source.filter((request) => request.status === "approved");
     const pending = source.filter((request) => request.status === "pending");
@@ -186,7 +192,7 @@ const PaymentRequests = () => {
         count: rejected.length,
       },
     };
-  }, [requests]);
+  }, [dateFilteredRequests]);
 
   const statCards = [
     {
@@ -321,7 +327,7 @@ const PaymentRequests = () => {
   const filteredRequests = useMemo(() => {
     const normalizedSearchTerm = normalizeSearch(searchTerm);
 
-    return requests?.filter((r) => {
+    return dateFilteredRequests.filter((r) => {
       // Dropdown filters
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
 
@@ -353,11 +359,11 @@ const PaymentRequests = () => {
       
       return true;
     });
-  }, [requests, statusFilter, searchTerm, activeCardFilter]);
+  }, [dateFilteredRequests, statusFilter, searchTerm, activeCardFilter]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, searchTerm, activeCardFilter, pageSize]);
+  }, [statusFilter, searchTerm, activeCardFilter, pageSize, dateFrom, dateTo]);
 
   // Get selectable requests (pending OR approved with remaining amount)
   const selectableRequests = useMemo(() => {
@@ -411,23 +417,36 @@ const PaymentRequests = () => {
   };
 
   return (
-    <div className="space-y-5 bg-slate-50/40 pb-2 dark:bg-background">
+    <div className="space-y-5 bg-slate-50/40 pb-28 dark:bg-background lg:pb-20">
       <div className="space-y-5">
         <h1 className="text-[28px] font-semibold leading-tight tracking-normal text-slate-950 dark:text-slate-50">
           {t.paymentRequestsTitle}
         </h1>
 
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-          <Button
-            variant="outline"
-            className="h-12 justify-between gap-3 rounded-md border-slate-200 bg-white px-4 text-sm font-normal text-slate-800 shadow-none hover:bg-white dark:border-slate-800 dark:bg-card dark:text-slate-100 xl:w-[290px]"
-          >
-            <span className="flex min-w-0 items-center gap-3">
+          <div className="flex min-h-12 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100 xl:w-[340px]">
+            <span className="flex min-w-0 flex-1 items-center gap-3">
               <CalendarDays className="h-4 w-4 text-slate-500" />
-              <span className="truncate">{dateRangeLabel}</span>
+              <span className="sr-only">{dateRangeLabel}</span>
+              <Input
+                type="date"
+                value={dateFrom}
+                max={dateTo || undefined}
+                onChange={(event) => setDateFrom(event.target.value)}
+                aria-label={language === "vi" ? "Từ ngày" : "From date"}
+                className="h-10 min-w-0 border-0 bg-transparent p-0 text-sm font-medium shadow-none focus-visible:ring-0 dark:bg-transparent"
+              />
+              <span className="text-slate-400">-</span>
+              <Input
+                type="date"
+                value={dateTo}
+                min={dateFrom || undefined}
+                onChange={(event) => setDateTo(event.target.value)}
+                aria-label={language === "vi" ? "Đến ngày" : "To date"}
+                className="h-10 min-w-0 border-0 bg-transparent p-0 text-sm font-medium shadow-none focus-visible:ring-0 dark:bg-transparent"
+              />
             </span>
-            <ChevronRight className="h-4 w-4 rotate-90 text-slate-500" />
-          </Button>
+          </div>
 
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="h-12 rounded-md border-slate-200 bg-white px-4 text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100 xl:w-[260px]">
@@ -728,7 +747,7 @@ const PaymentRequests = () => {
                 })}
               </TableBody>
             </Table>
-            <div className="flex flex-col gap-4 border-t border-slate-200 px-4 py-4 text-sm text-slate-700 dark:border-slate-800 dark:text-slate-300 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-col gap-4 border-t border-slate-200 px-4 py-4 text-sm text-slate-700 dark:border-slate-800 dark:text-slate-300 lg:flex-row lg:items-center lg:justify-between lg:pr-28 xl:pr-32">
               <div>
                 {language === "vi"
                   ? `Hiển thị ${firstResult} - ${lastResult} trong ${totalResults} kết quả`
