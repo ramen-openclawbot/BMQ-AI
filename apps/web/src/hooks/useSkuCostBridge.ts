@@ -20,6 +20,8 @@ export type ActualCostPurchase = {
   product_code?: string | null;
   unit?: string | null;
   unit_price: number | null;
+  quantity?: number | null;
+  line_total?: number | null;
   created_at: string;
   source: "payment_request" | "purchase_order";
   payment_status?: string | null;
@@ -76,13 +78,13 @@ export function useSkuCostBridge() {
         fetchAllRows(() =>
           sb
             .from("payment_request_items")
-            .select("sku_id, product_name, product_code, unit, unit_price, created_at, confirmed_standard_cost_code, suggested_standard_cost_code, standard_cost_code_type, canonical_cost_item_name, payment_requests(payment_status,status,approved_at,updated_at)")
+            .select("sku_id, product_name, product_code, unit, quantity, unit_price, line_total, created_at, confirmed_standard_cost_code, suggested_standard_cost_code, standard_cost_code_type, canonical_cost_item_name, payment_requests(payment_status,status,approved_at,updated_at)")
             .order("created_at", { ascending: true })
         ),
         fetchAllRows(() =>
           sb
             .from("purchase_order_items")
-            .select("sku_id, product_name, unit, unit_price, created_at, purchase_orders(order_date)")
+            .select("sku_id, product_name, quantity, unit, unit_price, line_total, created_at, purchase_orders(order_date)")
             .order("created_at", { ascending: true })
         ),
         sb
@@ -101,6 +103,8 @@ export function useSkuCostBridge() {
           product_code: x.product_code || null,
           unit: x.unit || null,
           unit_price: x.unit_price,
+          quantity: x.quantity,
+          line_total: x.line_total,
           created_at: x.payment_requests?.approved_at || x.payment_requests?.updated_at || x.created_at,
           source: "payment_request" as const,
           payment_status: x.payment_requests?.payment_status || null,
@@ -116,6 +120,8 @@ export function useSkuCostBridge() {
           product_code: null,
           unit: x.unit || null,
           unit_price: x.unit_price,
+          quantity: x.quantity,
+          line_total: x.line_total,
           created_at: x.purchase_orders?.order_date || x.created_at,
           source: "purchase_order" as const,
           payment_status: null,

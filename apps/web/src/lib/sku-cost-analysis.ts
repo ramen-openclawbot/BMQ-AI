@@ -101,34 +101,69 @@ const purchaseMatchesFormulaRow = (purchase: ActualCostPurchase, row: FormulaRow
   return fallbackAlias.length >= 4 && purchaseName.includes(fallbackAlias);
 };
 
-const inferPurchaseUnitDivisor = (ingredientName: string) => {
-  const n = normalizeIngredientName(ingredientName);
-  if (n.includes("2l x 6") || n.includes("thung dau huong duong")) return 12000;
-  if (n.includes("0 5x10kg") || n.includes("men kho ngot mauripan") || n.includes("men kho")) return 10000;
-  if (n.includes("muoi say kho")) return 1000;
-  if (n.includes("whipping cream") || n.includes("whiping cream") || n.includes("kem sua whipping")) return 1000;
-  if (n.includes("25kg") || n.includes("bot mi 888") || n.includes("sua bot beo") || n.includes("bot ngot veyu")) return 25000;
-  if (n.includes("20l") || n.includes("nuoc vihawa") || n.includes("nuoc uong vinh hao")) return 20000;
-  if (n.includes("400ml") || n.includes("giam gao")) return 400;
-  if (n.includes("500g") || n.includes("bico gold")) return 500;
-  if (n.includes("1kg") || n.includes("mauri") || n.includes("bico soft") || n.includes("lam mem banh bico")) return 1000;
-  if (n.includes("trung") || n.includes("egg")) return 60;
-  if (n.includes("bo buttery") || n.includes("bo imperial")) return 970;
-  if (n.includes("kg") || n.includes("cha bong") || n.includes("duong")) return 1000;
+const numberValue = (value: unknown) => Number(value || 0);
+
+const parsePackSizeInFormulaUnits = (value: string) => {
+  const normalized = normalizeIngredientName(value);
+  const multiPackKg = normalized.match(/(\d+(?:[.,]\d+)?)\s*x\s*(\d+(?:[.,]\d+)?)\s*kg/);
+  if (multiPackKg) return Number(multiPackKg[1].replace(",", ".")) * Number(multiPackKg[2].replace(",", ".")) * 1000;
+
+  const matches = Array.from(String(value || "").toLowerCase().matchAll(/(\d+(?:[.,]\d+)?)\s*(kg|g|l|ml)\b/g));
+  if (!matches.length) return null;
+  const match = matches[matches.length - 1];
+  const amount = Number(match[1].replace(",", "."));
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const unit = match[2];
+  if (unit === "kg" || unit === "l") return amount * 1000;
+  return amount;
+};
+
+const inferPurchaseUnitDivisor = (purchase: ActualCostPurchase, ingredientName: string) => {
+  const unit = normalizeIngredientName(purchase.unit || "");
+  const purchaseText = `${purchase.product_name || ""} ${purchase.product_code || ""}`;
+  const combined = normalizeIngredientName(`${purchaseText} ${purchase.unit || ""} ${ingredientName}`);
+  const packSize = parsePackSizeInFormulaUnits(purchaseText);
+
+  if (unit === "kg" || unit === "kilogram") return 1000;
+  if (unit === "g" || unit === "gram") return packSize || 1;
+  if (unit === "l" || unit === "lit" || unit === "liter" || unit === "litre") return 1000;
+  if (unit === "ml") return 1;
+  if (unit.includes("trung") || unit.includes("qua") || unit.includes("cai") || combined.includes("trung") || combined.includes("egg")) return packSize || 60;
+
+  if (packSize) return packSize;
+  if (combined.includes("2l x 6") || combined.includes("thung dau huong duong")) return 12000;
+  if (combined.includes("0 5x10kg") || combined.includes("men kho ngot mauripan") || combined.includes("men kho")) return 10000;
+  if (combined.includes("whipping cream") || combined.includes("whiping cream") || combined.includes("kem sua whipping")) return 1000;
+  if (combined.includes("bo buttery") || combined.includes("bo imperial")) return 970;
+  if (combined.includes("kg") || combined.includes("cha bong") || combined.includes("duong") || combined.includes("muoi")) return 1000;
   return 1;
 };
 
-const toFormulaUnitPurchasePrice = (purchasePrice: number, ingredientName: string) => {
-  const divisor = inferPurchaseUnitDivisor(ingredientName);
-  const converted = Number(purchasePrice || 0) / divisor;
+const convertedPurchasePrice = (purchase: ActualCostPurchase, ingredientName: string) => {
+  const divisor = inferPurchaseUnitDivisor(purchase, ingredientName);
+  const unitPrice = numberValue(purchase.unit_price);
+  const converted = unitPrice / divisor;
   return Number.isFinite(converted) && converted > 0 ? converted : null;
 };
 
+const purchaseWeightInFormulaUnits = (purchase: ActualCostPurchase, ingredientName: string) => {
+  const quantity = numberValue(purchase.quantity) || 1;
+  const divisor = inferPurchaseUnitDivisor(purchase, ingredientName);
+  const weight = quantity * divisor;
+  return Number.isFinite(weight) && weight > 0 ? weight : 1;
+};
+
 const averageConvertedPurchasePrice = (actualRows: ActualCostPurchase[], ingredientName: string) => {
-  const prices = actualRows
-    .map((purchase) => toFormulaUnitPurchasePrice(Number(purchase.unit_price || 0), `${purchase.product_name || ""} ${purchase.product_code || ""} ${purchase.unit || ""} ${ingredientName}`))
-    .filter((value): value is number => value !== null);
-  return prices.length ? prices.reduce((sum, value) => sum + value, 0) / prices.length : null;
+  let totalAmount = 0;
+  let totalWeight = 0;
+  actualRows.forEach((purchase) => {
+    const converted = convertedPurchasePrice(purchase, ingredientName);
+    if (converted === null) return;
+    const weight = purchaseWeightInFormulaUnits(purchase, ingredientName);
+    totalAmount += converted * weight;
+    totalWeight += weight;
+  });
+  return totalWeight > 0 ? totalAmount / totalWeight : null;
 };
 
 const latestConvertedPurchasePrice = (actualRows: ActualCostPurchase[], ingredientName: string, maxDate?: string) => {
@@ -136,10 +171,36 @@ const latestConvertedPurchasePrice = (actualRows: ActualCostPurchase[], ingredie
     .filter((purchase) => !maxDate || String(purchase.created_at || "").slice(0, 10) <= maxDate)
     .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
   for (const purchase of eligibleRows) {
-    const converted = toFormulaUnitPurchasePrice(Number(purchase.unit_price || 0), `${purchase.product_name || ""} ${purchase.product_code || ""} ${purchase.unit || ""} ${ingredientName}`);
+    const converted = convertedPurchasePrice(purchase, ingredientName);
     if (converted !== null) return converted;
   }
   return null;
+};
+
+const groupFormulaRowsByMaterial = (rows: FormulaRow[], materialContexts: Map<string, MaterialContext>) => {
+  const grouped = new Map<string, { rows: FormulaRow[]; totalDosage: number; totalCost: number }>();
+  rows.forEach((row) => {
+    const materialCode = normalizeMaterialCode(row.material_code);
+    const key = materialCode || `name:${normalizeIngredientName(row.ingredient_name)}`;
+    const dosage = numberValue(row.dosage_qty) * (1 + numberValue(row.wastage_percent) / 100);
+    const current = grouped.get(key) || { rows: [], totalDosage: 0, totalCost: 0 };
+    current.rows.push(row);
+    current.totalDosage += dosage;
+    current.totalCost += numberValue(row.unit_price) * dosage;
+    grouped.set(key, current);
+  });
+
+  return Array.from(grouped.values()).map(({ rows: groupedRows, totalDosage, totalCost }) => {
+    const first = groupedRows[0];
+    const materialContext = materialContextForRow(first, materialContexts);
+    return {
+      ...first,
+      ingredient_name: materialContext?.canonicalName || chooseCanonicalFormulaName(groupedRows),
+      dosage_qty: totalDosage,
+      wastage_percent: 0,
+      unit_price: totalDosage > 0 ? totalCost / totalDosage : first.unit_price,
+    } satisfies FormulaRow;
+  });
 };
 
 const isPaidOrControlledCost = (purchase: ActualCostPurchase) => {
@@ -185,8 +246,9 @@ type SkuAnalysisInput = {
 
 export const buildSkuAnalysis = ({ sku, formulas, purchases, period }: { sku: SkuAnalysisInput; formulas: FormulaRow[]; purchases: ActualCostPurchase[]; period: string }): SkuAnalysis => {
   const outputQty = Math.max(1, Number(sku?.finished_output_qty || 100));
-  const skuFormulas = formulas.filter((row) => row.sku_id === sku.id && !String(row.ingredient_name || "").includes(" > "));
+  const rawSkuFormulas = formulas.filter((row) => row.sku_id === sku.id && !String(row.ingredient_name || "").includes(" > "));
   const materialContexts = buildMaterialContexts(formulas.filter((row) => !String(row.ingredient_name || "").includes(" > ")));
+  const skuFormulas = groupFormulaRowsByMaterial(rawSkuFormulas, materialContexts);
   const controlledPurchases = purchases.filter(isPaidOrControlledCost);
   const monthPurchases = controlledPurchases.filter((purchase) => toMonth(purchase.created_at) === period);
   const purchasesForRow = (row: FormulaRow, scope: "month" | "all", maxDate?: string) =>
