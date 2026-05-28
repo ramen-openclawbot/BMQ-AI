@@ -79,6 +79,16 @@ def test_customer_debt_email_recipients_are_separate_from_recognition_emails():
     assert 'debt_emails: normalizeEmailList(editDebtEmailsInput || editEmailsInput)' in crm
 
 
+def test_debt_product_column_prefers_crm_customer_price_list_label():
+    edge = read(EDGE)
+    assert '.from("mini_crm_customer_price_list")' in edge
+    assert '.select("customer_id,price_vnd_per_unit,is_active,product_skus(sku_code,product_name)")' in edge
+    assert 'pickCustomerProductLabel' in edge
+    assert 'crmProductNameForLine(line, [group.id, line.customer_id, line.parent_customer_id, customerId], productLabelsByCustomerId)' in edge
+    assert 'crmProductNameForLine(line, [line.customer_id, line.parent_customer_id, customerId], productLabelsByCustomerId)' in edge
+    assert 'line.product_name || line.item_note || line.customer_name || "Doanh thu"' in edge
+
+
 if __name__ == "__main__":
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     for test in tests:

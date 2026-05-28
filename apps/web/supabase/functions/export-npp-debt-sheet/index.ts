@@ -39,6 +39,13 @@ type LedgerLine = {
   approval_status?: string | null;
   revenue_source_documents?: { source_name?: string | null } | null;
 };
+
+type CustomerProductLabel = {
+  productName: string;
+  skuCode: string | null;
+  unitPrice: number | null;
+  isActive: boolean;
+};
 type DebtGroup = {
   id: string;
   name: string;
@@ -287,6 +294,59 @@ const lineBelongsToCustomer = (line: LedgerLine, customer: Customer) => {
 
 const sum = (lines: LedgerLine[], key: "quantity" | "gross_revenue") => lines.reduce((total, line) => total + Number(line[key] || 0), 0);
 
+const buildCustomerProductLabelMap = async (supabaseAdmin: DbClient, customerIds: string[]) => {
+  const ids = Array.from(new Set(customerIds.filter(Boolean)));
+  const map = new Map<string, CustomerProductLabel[]>();
+  if (!ids.length) return map;
+
+  const { data, error } = await supabaseAdmin
+    .from("mini_crm_customer_price_list")
+    .select("customer_id,price_vnd_per_unit,is_active,product_skus(sku_code,product_name)")
+    .in("customer_id", ids)
+    .order("is_active", { ascending: false })
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+
+  for (const row of (data || []) as Array<{ customer_id?: string | null; price_vnd_per_unit?: number | string | null; is_active?: boolean | null; product_skus?: { sku_code?: string | null; product_name?: string | null } | null }>) {
+    const customerId = String(row.customer_id || "").trim();
+    const productName = String(row.product_skus?.product_name || "").trim();
+    if (!customerId || !productName) continue;
+    const labels = map.get(customerId) || [];
+    labels.push({
+      productName,
+      skuCode: row.product_skus?.sku_code ? String(row.product_skus.sku_code) : null,
+      unitPrice: row.price_vnd_per_unit == null ? null : Number(row.price_vnd_per_unit),
+      isActive: row.is_active !== false,
+    });
+    map.set(customerId, labels);
+  }
+  return map;
+};
+
+const pickCustomerProductLabel = (labels: CustomerProductLabel[] | undefined, unitPrice: unknown) => {
+  if (!labels?.length) return null;
+  const price = Number(unitPrice || 0);
+  if (price > 0) {
+    const samePriceActive = labels.find((label) => label.isActive && label.unitPrice != null && Math.abs(label.unitPrice - price) < 0.5);
+    if (samePriceActive) return samePriceActive.productName;
+    const samePrice = labels.find((label) => label.unitPrice != null && Math.abs(label.unitPrice - price) < 0.5);
+    if (samePrice) return samePrice.productName;
+  }
+  return labels.find((label) => label.isActive)?.productName || labels[0].productName;
+};
+
+const crmProductNameForLine = (
+  line: LedgerLine,
+  customerIdCandidates: Array<string | null | undefined>,
+  productLabelsByCustomerId: Map<string, CustomerProductLabel[]>
+) => {
+  for (const id of customerIdCandidates) {
+    const productName = pickCustomerProductLabel(productLabelsByCustomerId.get(String(id || "").trim()), line.unit_price);
+    if (productName) return productName;
+  }
+  return line.product_name || line.item_note || line.customer_name || "Doanh thu";
+};
+
 const sheetRange = (title: string, columns: string, rows: number) => `'${title.replace(/'/g, "''")}'!A1:${columns}${rows}`;
 
 const escapeHtml = (value: unknown) =>
@@ -490,6 +550,10 @@ serve(async (req) => {
     const isNpp = Boolean(customer.is_npp);
     const allLines = (lines || []) as LedgerLine[];
     const childRows = (children || []) as Customer[];
+    const productLabelsByCustomerId = await buildCustomerProductLabelMap(supabaseAdmin, [
+      customerId,
+      ...childRows.map((child) => child.id),
+    ]);
     const data: SheetData[] = [];
     const customerName = String(customer.customer_name || "Khách hàng");
     const spreadsheetName = `${customerName.replace(/^Đại lý cấp 1\s*-\s*/i, "").trim()} ${formatRangeName(fromDate, toDate)} Công nợ`;
@@ -545,7 +609,7 @@ serve(async (req) => {
           ["Ngày", "Sản phẩm", "Số lượng", "Đơn giá", "Thành tiền"],
           ...group.lines.map((line) => [
             line.revenue_date,
-            line.product_name || line.item_note || line.customer_name || "Doanh thu",
+            crmProductNameForLine(line, [group.id, line.customer_id, line.parent_customer_id, customerId], productLabelsByCustomerId),
             Number(line.quantity || 0),
             Number(line.unit_price || 0),
             Number(line.gross_revenue || 0),
@@ -574,7 +638,7 @@ serve(async (req) => {
         ...directLines.map((line) => [
           line.revenue_date,
           line.channel || "",
-          line.product_name || line.customer_name || "Doanh thu",
+          crmProductNameForLine(line, [line.customer_id, line.parent_customer_id, customerId], productLabelsByCustomerId),
           Number(line.quantity || 0),
           Number(line.unit_price || 0),
           Number(line.gross_revenue || 0),
