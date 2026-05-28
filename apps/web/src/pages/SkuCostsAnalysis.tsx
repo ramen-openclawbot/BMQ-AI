@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useMemo, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, Info } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, ChevronDown, Info } from "lucide-react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,8 +51,8 @@ export default function SkuCostsAnalysis() {
 
   const exportCurrentAnalysis = () => {
     if (!analysis) return;
-    const header = ["SKU", "Tháng", "Mã NVL", "Tên NVL chuẩn", "Tên NVL công thức", "Giá CT", "Giá TT TB", "Định lượng", "Đơn vị", "Δ cost", "Δ %", "Nguồn", "Số dòng PR/PO"];
-    const rows = analysis.rows.map((row) => [analysis.skuLabel, analysis.period, row.materialCode || "", row.name, row.rawName, row.formulaPrice, row.actualPrice ?? "", row.dosage, row.unit, row.diffCost ?? "", row.diffPct ?? "", row.source, row.sampleCount]);
+    const header = ["SKU", "Tháng", "Mã NVL", "Tên NVL chuẩn", "Tên NVL công thức", "Giá CT", "Giá TT TB dùng tính", "Giá mua raw", "Định lượng", "Đơn vị", "Δ cost", "Δ %", "Nguồn", "Số dòng PR/PO", "Cảnh báo"];
+    const rows = analysis.rows.map((row) => [analysis.skuLabel, analysis.period, row.materialCode || "", row.name, row.rawName, row.formulaPrice, row.actualPrice ?? "", row.rawActualPrice ?? "", row.dosage, row.unit, row.diffCost ?? "", row.diffPct ?? "", row.source, row.sampleCount, row.warning || ""]);
     const chart = [[""], ["Chart"], ["Ngày", "Giá mua thật", "Formula baseline", "% NVL có giá thật", "NVL match", "Tổng NVL"], ...analysis.chartRows.map((row) => [row.label, row.actual ?? "", row.baseline, row.coveragePct, row.matchedMaterials, row.totalMaterials])];
     const csv = [header, ...rows, ...chart].map((line) => line.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
@@ -67,6 +67,7 @@ export default function SkuCostsAnalysis() {
   const staleAnalysis = !!analysis && (analysis.skuId !== selectedSku?.id || analysis.period !== period);
   const displayRows = analysis ? (showAllRows ? analysis.rows : analysis.rows.slice(0, 3)) : [];
   const hiddenRows = analysis ? Math.max(0, analysis.rows.length - displayRows.length) : 0;
+  const warningRows = analysis ? analysis.rows.filter((row) => row.warning) : [];
 
   return (
     <div className="-m-4 min-h-screen bg-[#0b0908] text-white md:-m-6">
@@ -154,6 +155,18 @@ export default function SkuCostsAnalysis() {
                 ))}
               </section>
 
+              {warningRows.length > 0 ? (
+                <section className="rounded-[22px] border border-amber-300/25 bg-amber-400/[0.08] p-3.5 text-amber-100 shadow-[0_14px_42px_rgba(0,0,0,0.24)]">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                    <div>
+                      <p className="text-[13px] font-black">Có {warningRows.length} NVL cần kiểm tra mapping/quy đổi</p>
+                      <p className="mt-1 text-[11px] font-semibold leading-snug text-amber-100/75">Giá mua lệch ≥100% so với giá công thức nên app đã giữ giá công thức cho trend, không dùng số bất thường.</p>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+
               <section className="overflow-hidden rounded-[24px] border border-white/10 bg-[#14100d]/95 shadow-[0_18px_60px_rgba(0,0,0,0.34)]">
                 <div className="border-b border-white/10 px-4 py-4">
                   <h2 className="text-[17px] font-black tracking-[-0.02em] text-white">Mapping công thức ↔ chi phí thực tế</h2>
@@ -167,7 +180,8 @@ export default function SkuCostsAnalysis() {
                       <div key={`${row.rawName}-${row.dosage}`} className="grid grid-cols-[minmax(0,1.2fr)_68px_78px_66px] items-center gap-2 py-3">
                         <div className="min-w-0">
                           <div className="truncate text-[13px] font-extrabold leading-tight text-white">{row.name}</div>
-                          <div className="mt-0.5 truncate text-[10px] font-semibold text-white/35">{row.materialCode ? `${row.materialCode} · ` : ""}{decimalMoney(row.dosage, 2)} {row.unit} · {row.source}</div>
+                      <div className="mt-0.5 truncate text-[10px] font-semibold text-white/35">{row.materialCode ? `${row.materialCode} · ` : ""}{decimalMoney(row.dosage, 2)} {row.unit} · {row.source}</div>
+                          {row.warning ? <div className="mt-1 flex items-start gap-1 rounded-lg bg-amber-400/[0.08] px-2 py-1 text-[10px] font-bold leading-snug text-amber-200"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />{row.warning}</div> : null}
                         </div>
                         <div className="text-right text-[13px] font-bold tabular-nums text-white/70">{decimalMoney(row.formulaPrice)}</div>
                         <div className="text-right text-[13px] font-bold tabular-nums text-white">{decimalMoney(row.actualPrice)}</div>
@@ -210,7 +224,7 @@ export default function SkuCostsAnalysis() {
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
-                <p className="mt-3 text-[11px] font-medium leading-snug text-white/38">Chart chỉ vẽ các ngày có PR/PO đã duyệt khớp mã NVL của SKU; điểm vàng là phần cost tính từ giá mua thật đã quy đổi, tooltip hiển thị tỷ lệ NVL có dữ liệu thật. Không tự sinh điểm fallback khi thiếu dữ liệu.</p>
+                <p className="mt-3 text-[11px] font-medium leading-snug text-white/38">Chart dùng PR đã thanh toán trong tháng theo paid_at; NVL không mua trong tháng sẽ giữ giá công thức. Nếu giá mua lệch ≥100%, app cảnh báo và không dùng số bất thường để tính trend.</p>
               </section>
             </>
           )}
@@ -312,6 +326,18 @@ export default function SkuCostsAnalysis() {
                 ))}
               </section>
 
+              {warningRows.length > 0 ? (
+                <section className="rounded-[28px] border border-amber-300/25 bg-amber-400/[0.08] p-4 text-amber-100 shadow-[0_18px_60px_rgba(0,0,0,0.22)]">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
+                    <div>
+                      <p className="text-sm font-black">Có {warningRows.length} NVL cần kiểm tra mapping/quy đổi</p>
+                      <p className="mt-1 text-xs font-semibold leading-relaxed text-amber-100/75">Giá mua TB lệch ≥100% so với giá công thức. App đã tự động giữ giá công thức cho các dòng này để trend không bị méo, đồng thời hiển thị cảnh báo ở bảng chi tiết.</p>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+
               <section className="grid grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] gap-5">
                 <article className="overflow-hidden rounded-[32px] border border-white/10 bg-[#14100d]/94 shadow-[0_24px_80px_rgba(0,0,0,0.34)]">
                   <div className="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-5">
@@ -347,7 +373,10 @@ export default function SkuCostsAnalysis() {
                             <td className="px-4 py-3 text-right text-sm font-bold tabular-nums text-white/60">{decimalMoney(row.dosage, 2)} {row.unit}</td>
                             <td className={row.diffCost !== null && row.diffCost > 0 ? "px-4 py-3 text-right text-sm font-black tabular-nums text-rose-300" : "px-4 py-3 text-right text-sm font-black tabular-nums text-emerald-300"}>{row.diffCost === null ? "—" : compactMoney(row.diffCost)}</td>
                             <td className="px-4 py-3"><div className="flex justify-end"><DeltaBadge value={row.diffPct} /></div></td>
-                            <td className="px-4 py-3 text-xs font-bold text-white/45">{row.source} · {row.sampleCount}</td>
+                            <td className="px-4 py-3 text-xs font-bold text-white/45">
+                              <div>{row.source} · {row.sampleCount}</div>
+                              {row.warning ? <div className="mt-1 flex max-w-[280px] items-start gap-1 rounded-lg bg-amber-400/[0.08] px-2 py-1 text-[11px] leading-snug text-amber-200"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{row.warning}</div> : null}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -380,7 +409,7 @@ export default function SkuCostsAnalysis() {
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
-                  <p className="mt-4 text-xs font-semibold leading-relaxed text-white/38">Chart chỉ vẽ các ngày có PR/PO đã duyệt khớp mã NVL của SKU; điểm vàng là phần cost tính từ giá mua thật đã quy đổi, tooltip hiển thị tỷ lệ NVL có dữ liệu thật. Không tự sinh điểm fallback khi thiếu dữ liệu.</p>
+                  <p className="mt-4 text-xs font-semibold leading-relaxed text-white/38">Chart dùng PR đã thanh toán trong tháng theo paid_at; NVL không mua trong tháng sẽ giữ giá công thức. Nếu giá mua lệch ≥100%, app cảnh báo và không dùng số bất thường để tính trend.</p>
                 </article>
               </section>
             </>

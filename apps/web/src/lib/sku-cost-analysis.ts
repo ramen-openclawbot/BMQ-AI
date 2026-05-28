@@ -118,49 +118,69 @@ const parsePackSizeInFormulaUnits = (value: string) => {
   return amount;
 };
 
+const parseExplicitDivisorFromNote = (note?: string | null) => {
+  const normalizedNote = String(note || "").replace(/,/g, ".");
+  const matches = Array.from(normalizedNote.matchAll(/\/\s*(\d+(?:\.\d+)?)/g));
+  if (!matches.length) return null;
+  const value = Number(matches[matches.length - 1][1]);
+  return Number.isFinite(value) && value > 0 ? value : null;
+};
+
 const inferPurchaseUnitDivisor = (purchase: ActualCostPurchase, ingredientName: string) => {
   const unit = normalizeIngredientName(purchase.unit || "");
-  const purchaseText = `${purchase.product_name || ""} ${purchase.product_code || ""}`;
-  const combined = normalizeIngredientName(`${purchaseText} ${purchase.unit || ""} ${ingredientName}`);
-  const packSize = parsePackSizeInFormulaUnits(purchaseText);
+  const productText = `${purchase.product_name || ""} ${purchase.product_code || ""}`;
+  const combined = normalizeIngredientName(`${productText} ${purchase.unit || ""} ${ingredientName}`);
 
+  // The source unit is the strongest signal: if the PR says kg/l/g/ml, convert that unit directly.
+  // Only use mapping notes such as /25000 or /400 for package units (bao/thùng/chai/gói/trứng...).
   if (unit === "kg" || unit === "kilogram") return 1000;
-  if (unit === "g" || unit === "gram") return packSize || 1;
+  if (unit === "g" || unit === "gram") return 1;
   if (unit === "l" || unit === "lit" || unit === "liter" || unit === "litre") return 1000;
   if (unit === "ml") return 1;
-  if (unit.includes("trung") || unit.includes("qua") || unit.includes("cai") || combined.includes("trung") || combined.includes("egg")) return packSize || 60;
 
+  const noteDivisor = parseExplicitDivisorFromNote(purchase.unit_conversion_note);
+  if (noteDivisor) return noteDivisor;
+
+  const packSize = parsePackSizeInFormulaUnits(productText);
+  if (unit.includes("trung") || unit.includes("qua") || unit.includes("cai") || combined.includes("trung") || combined.includes("egg")) return packSize || 60;
   if (packSize) return packSize;
   if (combined.includes("2l x 6") || combined.includes("thung dau huong duong")) return 12000;
   if (combined.includes("0 5x10kg") || combined.includes("men kho ngot mauripan") || combined.includes("men kho")) return 10000;
   if (combined.includes("whipping cream") || combined.includes("whiping cream") || combined.includes("kem sua whipping")) return 1000;
   if (combined.includes("bo buttery") || combined.includes("bo imperial")) return 970;
+  if (combined.includes("giam") && combined.includes("chai")) return 400;
   if (combined.includes("kg") || combined.includes("cha bong") || combined.includes("duong") || combined.includes("muoi")) return 1000;
   return 1;
 };
 
-const convertedPurchasePrice = (purchase: ActualCostPurchase, ingredientName: string) => {
-  const divisor = inferPurchaseUnitDivisor(purchase, ingredientName);
-  const unitPrice = numberValue(purchase.unit_price);
-  const converted = unitPrice / divisor;
-  return Number.isFinite(converted) && converted > 0 ? converted : null;
+const purchaseAmount = (purchase: ActualCostPurchase) => {
+  const quantity = numberValue(purchase.quantity) || 1;
+  const lineTotal = numberValue(purchase.line_total);
+  if (lineTotal > 0) return lineTotal;
+  return quantity * numberValue(purchase.unit_price);
 };
 
 const purchaseWeightInFormulaUnits = (purchase: ActualCostPurchase, ingredientName: string) => {
   const quantity = numberValue(purchase.quantity) || 1;
   const divisor = inferPurchaseUnitDivisor(purchase, ingredientName);
   const weight = quantity * divisor;
-  return Number.isFinite(weight) && weight > 0 ? weight : 1;
+  return Number.isFinite(weight) && weight > 0 ? weight : 0;
+};
+
+const convertedPurchasePrice = (purchase: ActualCostPurchase, ingredientName: string) => {
+  const weight = purchaseWeightInFormulaUnits(purchase, ingredientName);
+  if (!weight) return null;
+  const converted = purchaseAmount(purchase) / weight;
+  return Number.isFinite(converted) && converted > 0 ? converted : null;
 };
 
 const averageConvertedPurchasePrice = (actualRows: ActualCostPurchase[], ingredientName: string) => {
   let totalAmount = 0;
   let totalWeight = 0;
   actualRows.forEach((purchase) => {
-    const converted = convertedPurchasePrice(purchase, ingredientName);
-    if (converted === null) return;
     const weight = purchaseWeightInFormulaUnits(purchase, ingredientName);
-    totalAmount += converted * weight;
+    if (!weight) return;
+    totalAmount += purchaseAmount(purchase);
     totalWeight += weight;
   });
   return totalWeight > 0 ? totalAmount / totalWeight : null;
@@ -168,13 +188,18 @@ const averageConvertedPurchasePrice = (actualRows: ActualCostPurchase[], ingredi
 
 const latestConvertedPurchasePrice = (actualRows: ActualCostPurchase[], ingredientName: string, maxDate?: string) => {
   const eligibleRows = actualRows
-    .filter((purchase) => !maxDate || String(purchase.created_at || "").slice(0, 10) <= maxDate)
-    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+    .filter((purchase) => !maxDate || String(purchase.paid_at || purchase.created_at || "").slice(0, 10) <= maxDate)
+    .sort((a, b) => String(b.paid_at || b.created_at || "").localeCompare(String(a.paid_at || a.created_at || "")));
   for (const purchase of eligibleRows) {
     const converted = convertedPurchasePrice(purchase, ingredientName);
     if (converted !== null) return converted;
   }
   return null;
+};
+
+const isSuspiciousPrice = (actualPrice: number | null, formulaPrice: number) => {
+  if (actualPrice === null || !Number.isFinite(actualPrice) || formulaPrice <= 0) return false;
+  return Math.abs(actualPrice - formulaPrice) / formulaPrice >= 1;
 };
 
 const groupFormulaRowsByMaterial = (rows: FormulaRow[], materialContexts: Map<string, MaterialContext>) => {
@@ -204,7 +229,7 @@ const groupFormulaRowsByMaterial = (rows: FormulaRow[], materialContexts: Map<st
 };
 
 const isPaidOrControlledCost = (purchase: ActualCostPurchase) => {
-  if (purchase.source === "payment_request") return purchase.payment_status === "paid" || purchase.status === "approved";
+  if (purchase.source === "payment_request") return purchase.payment_status === "paid" && Boolean(purchase.paid_at);
   return true;
 };
 
@@ -219,7 +244,9 @@ export type AnalysisRow = {
   diffPct: number | null;
   diffCost: number | null;
   sampleCount: number;
-  source: "Mã NVL/PR" | "Giá CT fallback";
+  source: "Mã NVL/PR" | "Giá CT fallback" | "Cảnh báo mapping/quy đổi";
+  warning?: string | null;
+  rawActualPrice?: number | null;
 };
 
 export type SkuAnalysis = {
@@ -250,13 +277,13 @@ export const buildSkuAnalysis = ({ sku, formulas, purchases, period }: { sku: Sk
   const materialContexts = buildMaterialContexts(formulas.filter((row) => !String(row.ingredient_name || "").includes(" > ")));
   const skuFormulas = groupFormulaRowsByMaterial(rawSkuFormulas, materialContexts);
   const controlledPurchases = purchases.filter(isPaidOrControlledCost);
-  const monthPurchases = controlledPurchases.filter((purchase) => toMonth(purchase.created_at) === period);
+  const monthPurchases = controlledPurchases.filter((purchase) => toMonth(purchase.paid_at || purchase.created_at) === period);
   const purchasesForRow = (row: FormulaRow, scope: "month" | "all", maxDate?: string) =>
     (scope === "month" ? monthPurchases : controlledPurchases).filter((purchase) => {
-      if (maxDate && String(purchase.created_at || "").slice(0, 10) > maxDate) return false;
+      const purchaseDate = String(purchase.paid_at || purchase.created_at || "").slice(0, 10);
+      if (maxDate && purchaseDate > maxDate) return false;
       return purchaseMatchesFormulaRow(purchase, row, materialContexts);
     });
-  const periodEndDate = `${period}-31`;
 
   const formulaBatchCost = skuFormulas.reduce((sum, row) => {
     const wastage = Number(row.wastage_percent || 0) / 100;
@@ -266,14 +293,17 @@ export const buildSkuAnalysis = ({ sku, formulas, purchases, period }: { sku: Sk
   const rows = skuFormulas.map((row) => {
     const materialContext = materialContextForRow(row, materialContexts);
     const actualRows = purchasesForRow(row, "month");
-    const allActualRows = purchasesForRow(row, "all", periodEndDate);
     const purchasePrice = averageConvertedPurchasePrice(actualRows, row.ingredient_name);
-    const latestPurchasePrice = latestConvertedPurchasePrice(allActualRows, row.ingredient_name, periodEndDate);
-    const actualPrice = purchasePrice ?? latestPurchasePrice ?? null;
     const formulaPrice = Number(row.unit_price || 0);
+    const suspicious = isSuspiciousPrice(purchasePrice, formulaPrice);
+    const actualPrice = purchasePrice === null || suspicious ? formulaPrice : purchasePrice;
     const dosage = Number(row.dosage_qty || 0) * (1 + Number(row.wastage_percent || 0) / 100);
-    const diffCost = actualPrice === null ? null : (actualPrice - formulaPrice) * dosage;
-    const diffPct = actualPrice === null || formulaPrice === 0 ? null : ((actualPrice - formulaPrice) / formulaPrice) * 100;
+    const diffCost = (actualPrice - formulaPrice) * dosage;
+    const diffPct = formulaPrice === 0 ? null : ((actualPrice - formulaPrice) / formulaPrice) * 100;
+    const rawDiffPct = purchasePrice === null || formulaPrice === 0 ? null : ((purchasePrice - formulaPrice) / formulaPrice) * 100;
+    const warning = suspicious
+      ? `Giá TB mua ${decimalMoney(purchasePrice)} lệch ${pct(rawDiffPct || 0)} so với giá công thức; app đã dùng giá công thức để tránh sai trend. Cần kiểm tra mapping/quy đổi.`
+      : null;
     return {
       name: materialContext?.canonicalName || row.ingredient_name,
       rawName: row.ingredient_name,
@@ -284,27 +314,33 @@ export const buildSkuAnalysis = ({ sku, formulas, purchases, period }: { sku: Sk
       unit: row.unit || "",
       diffPct,
       diffCost,
-      sampleCount: purchasePrice !== null ? actualRows.length : latestPurchasePrice !== null ? allActualRows.length : 0,
-      source: purchasePrice !== null || latestPurchasePrice !== null ? "Mã NVL/PR" : "Giá CT fallback",
+      sampleCount: purchasePrice !== null ? actualRows.length : 0,
+      source: suspicious ? "Cảnh báo mapping/quy đổi" : purchasePrice !== null ? "Mã NVL/PR" : "Giá CT fallback",
+      warning,
+      rawActualPrice: purchasePrice,
     } satisfies AnalysisRow;
   });
 
-  const actualBatchCost = rows.reduce((sum, row) => sum + (row.actualPrice ?? row.formulaPrice) * row.dosage, 0);
-  const dateKeys = Array.from(new Set(monthPurchases.filter((purchase) => skuFormulas.some((row) => purchaseMatchesFormulaRow(purchase, row, materialContexts))).map((purchase) => String(purchase.created_at || "").slice(0, 10)))).sort();
+  const actualBatchCost = rows.reduce((sum, row) => sum + row.actualPrice * row.dosage, 0);
+  const dateKeys = Array.from(new Set(monthPurchases.filter((purchase) => skuFormulas.some((row) => purchaseMatchesFormulaRow(purchase, row, materialContexts))).map((purchase) => String(purchase.paid_at || purchase.created_at || "").slice(0, 10)))).sort();
   const chartRows = dateKeys.map((dateKey) => {
     let matchedMaterials = 0;
+    let usableMaterials = 0;
     const actualAtDate = skuFormulas.reduce((sum, row) => {
-      const actualRows = purchasesForRow(row, "all", dateKey);
-      const latestPrice = latestConvertedPurchasePrice(actualRows, row.ingredient_name, dateKey);
-      if (latestPrice === null) return sum;
-      matchedMaterials += 1;
+      const formulaPrice = Number(row.unit_price || 0);
       const dosage = Number(row.dosage_qty || 0) * (1 + Number(row.wastage_percent || 0) / 100);
+      const actualRows = purchasesForRow(row, "all", dateKey).filter((purchase) => toMonth(purchase.paid_at || purchase.created_at) === period);
+      const latestPrice = latestConvertedPurchasePrice(actualRows, row.ingredient_name, dateKey);
+      if (latestPrice === null) return sum + formulaPrice * dosage;
+      matchedMaterials += 1;
+      if (isSuspiciousPrice(latestPrice, formulaPrice)) return sum + formulaPrice * dosage;
+      usableMaterials += 1;
       return sum + latestPrice * dosage;
     }, 0);
-    const coveragePct = skuFormulas.length ? (matchedMaterials / skuFormulas.length) * 100 : 0;
+    const coveragePct = skuFormulas.length ? (usableMaterials / skuFormulas.length) * 100 : 0;
     return {
       label: toDayLabel(dateKey),
-      actual: matchedMaterials > 0 ? actualAtDate / outputQty : null,
+      actual: actualAtDate / outputQty,
       baseline: formulaBatchCost / outputQty,
       coveragePct,
       matchedMaterials,
@@ -324,7 +360,7 @@ export const buildSkuAnalysis = ({ sku, formulas, purchases, period }: { sku: Sk
     actualCost,
     diff,
     diffPct: formulaCost > 0 ? (diff / formulaCost) * 100 : 0,
-    matchedRows: rows.filter((row) => row.actualPrice !== null).length,
+    matchedRows: rows.filter((row) => row.source === "Mã NVL/PR").length,
     totalRows: rows.length,
     rows,
     chartRows,

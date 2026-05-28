@@ -26,10 +26,13 @@ export type ActualCostPurchase = {
   source: "payment_request" | "purchase_order";
   payment_status?: string | null;
   status?: string | null;
+  paid_at?: string | null;
+  request_number?: string | null;
   confirmed_standard_cost_code?: string | null;
   suggested_standard_cost_code?: string | null;
   standard_cost_code?: string | null;
   canonical_cost_item_name?: string | null;
+  unit_conversion_note?: string | null;
 };
 
 const sb = supabase as any;
@@ -78,7 +81,7 @@ export function useSkuCostBridge() {
         fetchAllRows(() =>
           sb
             .from("payment_request_items")
-            .select("sku_id, product_name, product_code, unit, quantity, unit_price, line_total, created_at, confirmed_standard_cost_code, suggested_standard_cost_code, standard_cost_code_type, canonical_cost_item_name, payment_requests(payment_status,status,approved_at,updated_at)")
+            .select("sku_id, product_name, product_code, unit, quantity, unit_price, line_total, created_at, unit_conversion_note, confirmed_standard_cost_code, suggested_standard_cost_code, standard_cost_code_type, canonical_cost_item_name, payment_requests(request_number,payment_status,status,paid_at,approved_at,updated_at)")
             .order("created_at", { ascending: true })
         ),
         fetchAllRows(() =>
@@ -105,14 +108,17 @@ export function useSkuCostBridge() {
           unit_price: x.unit_price,
           quantity: x.quantity,
           line_total: x.line_total,
-          created_at: x.payment_requests?.approved_at || x.payment_requests?.updated_at || x.created_at,
+          created_at: x.payment_requests?.paid_at || x.payment_requests?.approved_at || x.payment_requests?.updated_at || x.created_at,
           source: "payment_request" as const,
           payment_status: x.payment_requests?.payment_status || null,
           status: x.payment_requests?.status || null,
+          paid_at: x.payment_requests?.paid_at || null,
+          request_number: x.payment_requests?.request_number || null,
           confirmed_standard_cost_code: x.confirmed_standard_cost_code || null,
           suggested_standard_cost_code: x.suggested_standard_cost_code || null,
           standard_cost_code: x.confirmed_standard_cost_code || x.suggested_standard_cost_code || null,
           canonical_cost_item_name: x.canonical_cost_item_name || null,
+          unit_conversion_note: x.unit_conversion_note || null,
         })),
         ...(poRows as Array<any>).map((x) => ({
           sku_id: x.sku_id,
