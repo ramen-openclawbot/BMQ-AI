@@ -173,7 +173,7 @@ export type SkuAnalysis = {
   matchedRows: number;
   totalRows: number;
   rows: AnalysisRow[];
-  chartRows: Array<{ label: string; actual: number; baseline: number }>;
+  chartRows: Array<{ label: string; actual: number | null; baseline: number; coveragePct: number; matchedMaterials: number; totalMaterials: number }>;
 };
 
 type SkuAnalysisInput = {
@@ -229,16 +229,25 @@ export const buildSkuAnalysis = ({ sku, formulas, purchases, period }: { sku: Sk
 
   const actualBatchCost = rows.reduce((sum, row) => sum + (row.actualPrice ?? row.formulaPrice) * row.dosage, 0);
   const dateKeys = Array.from(new Set(monthPurchases.filter((purchase) => skuFormulas.some((row) => purchaseMatchesFormulaRow(purchase, row, materialContexts))).map((purchase) => String(purchase.created_at || "").slice(0, 10)))).sort();
-  const chartDateKeys = dateKeys.length ? dateKeys : [`${period}-01`];
-  const chartRows = chartDateKeys.map((dateKey) => {
+  const chartRows = dateKeys.map((dateKey) => {
+    let matchedMaterials = 0;
     const actualAtDate = skuFormulas.reduce((sum, row) => {
       const actualRows = purchasesForRow(row, "all", dateKey);
       const latestPrice = latestConvertedPurchasePrice(actualRows, row.ingredient_name, dateKey);
-      const price = latestPrice ?? Number(row.unit_price || 0);
+      if (latestPrice === null) return sum;
+      matchedMaterials += 1;
       const dosage = Number(row.dosage_qty || 0) * (1 + Number(row.wastage_percent || 0) / 100);
-      return sum + price * dosage;
+      return sum + latestPrice * dosage;
     }, 0);
-    return { label: toDayLabel(dateKey), actual: actualAtDate / outputQty, baseline: formulaBatchCost / outputQty };
+    const coveragePct = skuFormulas.length ? (matchedMaterials / skuFormulas.length) * 100 : 0;
+    return {
+      label: toDayLabel(dateKey),
+      actual: matchedMaterials > 0 ? actualAtDate / outputQty : null,
+      baseline: formulaBatchCost / outputQty,
+      coveragePct,
+      matchedMaterials,
+      totalMaterials: skuFormulas.length,
+    };
   });
 
   const formulaCost = formulaBatchCost / outputQty;

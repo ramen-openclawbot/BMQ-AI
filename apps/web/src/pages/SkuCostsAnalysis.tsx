@@ -53,7 +53,7 @@ export default function SkuCostsAnalysis() {
     if (!analysis) return;
     const header = ["SKU", "Tháng", "Mã NVL", "Tên NVL chuẩn", "Tên NVL công thức", "Giá CT", "Giá TT TB", "Định lượng", "Đơn vị", "Δ cost", "Δ %", "Nguồn", "Số dòng PR/PO"];
     const rows = analysis.rows.map((row) => [analysis.skuLabel, analysis.period, row.materialCode || "", row.name, row.rawName, row.formulaPrice, row.actualPrice ?? "", row.dosage, row.unit, row.diffCost ?? "", row.diffPct ?? "", row.source, row.sampleCount]);
-    const chart = [[""], ["Chart"], ["Ngày", "Actual paid avg", "Formula baseline"], ...analysis.chartRows.map((row) => [row.label, row.actual, row.baseline])];
+    const chart = [[""], ["Chart"], ["Ngày", "Giá mua thật", "Formula baseline", "% NVL có giá thật", "NVL match", "Tổng NVL"], ...analysis.chartRows.map((row) => [row.label, row.actual ?? "", row.baseline, row.coveragePct, row.matchedMaterials, row.totalMaterials])];
     const csv = [header, ...rows, ...chart].map((line) => line.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -189,23 +189,28 @@ export default function SkuCostsAnalysis() {
                 <div className="mb-3">
                   <h2 className="text-[17px] font-black tracking-[-0.02em] text-white">Biến động theo đợt thanh toán trong tháng</h2>
                   <div className="mt-3 flex flex-wrap gap-3 text-[11px] font-bold text-white/50">
-                    <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-400" />Actual paid avg</span>
+                    <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-400" />Giá mua thật</span>
                     <span className="inline-flex items-center gap-1.5"><span className="h-px w-5 border-t border-dashed border-slate-400" />Formula baseline</span>
                   </div>
                 </div>
-                <div className="h-[238px] rounded-[18px] border border-white/[0.06] bg-[#0e0b09] px-1 py-3">
+                <div className="relative h-[238px] rounded-[18px] border border-white/[0.06] bg-[#0e0b09] px-1 py-3">
+                  {analysis.chartRows.length === 0 ? (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center px-5 text-center text-[12px] font-semibold leading-relaxed text-white/45">
+                      Chưa có PR/PO đã duyệt trong tháng khớp mã NVL của SKU này, nên không vẽ điểm giá mua thật.
+                    </div>
+                  ) : null}
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={analysis.chartRows} margin={{ top: 8, right: 8, left: -22, bottom: 0 }}>
                       <CartesianGrid stroke="rgba(255,255,255,0.07)" vertical={false} />
                       <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "rgba(255,255,255,0.42)", fontSize: 11, fontWeight: 700 }} dy={8} />
                       <YAxis axisLine={false} tickLine={false} tick={{ fill: "rgba(255,255,255,0.32)", fontSize: 10 }} tickFormatter={(value) => money(Number(value))} width={54} />
-                      <Tooltip cursor={{ stroke: "rgba(245,158,11,0.28)", strokeWidth: 1 }} contentStyle={{ background: "#1b1410", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, color: "#fff" }} formatter={(value: number, name: string) => [`${money(Math.round(Number(value)))} đ/ổ`, name === "actual" ? "Actual paid avg" : "Formula baseline"]} labelFormatter={(label) => `Đợt ${label}`} />
+                      <Tooltip cursor={{ stroke: "rgba(245,158,11,0.28)", strokeWidth: 1 }} contentStyle={{ background: "#1b1410", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, color: "#fff" }} formatter={(value: number | null, name: string, item: any) => [value === null ? "Chưa có giá mua thật" : `${money(Math.round(Number(value)))} đ/ổ`, name === "actual" ? `Giá mua thật (${Math.round(item?.payload?.coveragePct || 0)}% NVL)` : "Formula baseline"]} labelFormatter={(label) => `Đợt ${label}`} />
                       <Line type="monotone" dataKey="baseline" stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 6" dot={false} />
-                      <Line type="monotone" dataKey="actual" stroke="#f59e0b" strokeWidth={4} dot={{ r: 4, fill: "#f59e0b", stroke: "#1b1004", strokeWidth: 2 }} activeDot={{ r: 6, fill: "#fbbf24", stroke: "#1b1004", strokeWidth: 2 }} />
+                      <Line type="monotone" dataKey="actual" stroke="#f59e0b" strokeWidth={4} connectNulls={false} dot={{ r: 4, fill: "#f59e0b", stroke: "#1b1004", strokeWidth: 2 }} activeDot={{ r: 6, fill: "#fbbf24", stroke: "#1b1004", strokeWidth: 2 }} />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
-                <p className="mt-3 text-[11px] font-medium leading-snug text-white/38">Chart tính tổng cost NVL theo giá PR/duyệt chi đã quy đổi tại từng ngày phát sinh mua hàng trong tháng; baseline là cost công thức ban đầu.</p>
+                <p className="mt-3 text-[11px] font-medium leading-snug text-white/38">Chart chỉ vẽ các ngày có PR/PO đã duyệt khớp mã NVL của SKU; điểm vàng là phần cost tính từ giá mua thật đã quy đổi, tooltip hiển thị tỷ lệ NVL có dữ liệu thật. Không tự sinh điểm fallback khi thiếu dữ liệu.</p>
               </section>
             </>
           )}
@@ -354,23 +359,28 @@ export default function SkuCostsAnalysis() {
                   <div className="mb-4">
                     <h2 className="text-xl font-black tracking-[-0.03em] text-white">Biến động trong tháng</h2>
                     <div className="mt-3 flex flex-wrap gap-4 text-xs font-bold text-white/50">
-                      <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-amber-400" />Actual paid avg</span>
+                      <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-amber-400" />Giá mua thật</span>
                       <span className="inline-flex items-center gap-1.5"><span className="h-px w-6 border-t border-dashed border-slate-400" />Formula baseline</span>
                     </div>
                   </div>
-                  <div className="h-[390px] rounded-[24px] border border-white/[0.06] bg-[#0e0b09] px-3 py-4">
+                  <div className="relative h-[390px] rounded-[24px] border border-white/[0.06] bg-[#0e0b09] px-3 py-4">
+                    {analysis.chartRows.length === 0 ? (
+                      <div className="absolute inset-0 z-10 flex items-center justify-center px-8 text-center text-sm font-semibold leading-relaxed text-white/45">
+                        Chưa có PR/PO đã duyệt trong tháng khớp mã NVL của SKU này, nên không vẽ điểm giá mua thật.
+                      </div>
+                    ) : null}
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={analysis.chartRows} margin={{ top: 12, right: 18, left: -8, bottom: 8 }}>
                         <CartesianGrid stroke="rgba(255,255,255,0.07)" vertical={false} />
                         <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "rgba(255,255,255,0.42)", fontSize: 12, fontWeight: 700 }} dy={10} />
                         <YAxis axisLine={false} tickLine={false} tick={{ fill: "rgba(255,255,255,0.32)", fontSize: 11 }} tickFormatter={(value) => money(Number(value))} width={64} />
-                        <Tooltip cursor={{ stroke: "rgba(245,158,11,0.28)", strokeWidth: 1 }} contentStyle={{ background: "#1b1410", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, color: "#fff" }} formatter={(value: number, name: string) => [`${money(Math.round(Number(value)))} đ/ổ`, name === "actual" ? "Actual paid avg" : "Formula baseline"]} labelFormatter={(label) => `Đợt ${label}`} />
+                        <Tooltip cursor={{ stroke: "rgba(245,158,11,0.28)", strokeWidth: 1 }} contentStyle={{ background: "#1b1410", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, color: "#fff" }} formatter={(value: number | null, name: string, item: any) => [value === null ? "Chưa có giá mua thật" : `${money(Math.round(Number(value)))} đ/ổ`, name === "actual" ? `Giá mua thật (${Math.round(item?.payload?.coveragePct || 0)}% NVL)` : "Formula baseline"]} labelFormatter={(label) => `Đợt ${label}`} />
                         <Line type="monotone" dataKey="baseline" stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 6" dot={false} />
-                        <Line type="monotone" dataKey="actual" stroke="#f59e0b" strokeWidth={4} dot={{ r: 4, fill: "#f59e0b", stroke: "#1b1004", strokeWidth: 2 }} activeDot={{ r: 6, fill: "#fbbf24", stroke: "#1b1004", strokeWidth: 2 }} />
+                        <Line type="monotone" dataKey="actual" stroke="#f59e0b" strokeWidth={4} connectNulls={false} dot={{ r: 4, fill: "#f59e0b", stroke: "#1b1004", strokeWidth: 2 }} activeDot={{ r: 6, fill: "#fbbf24", stroke: "#1b1004", strokeWidth: 2 }} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
-                  <p className="mt-4 text-xs font-semibold leading-relaxed text-white/38">Chart tính tổng cost NVL theo giá PR/duyệt chi đã quy đổi tại từng ngày phát sinh mua hàng trong tháng; baseline là cost công thức ban đầu.</p>
+                  <p className="mt-4 text-xs font-semibold leading-relaxed text-white/38">Chart chỉ vẽ các ngày có PR/PO đã duyệt khớp mã NVL của SKU; điểm vàng là phần cost tính từ giá mua thật đã quy đổi, tooltip hiển thị tỷ lệ NVL có dữ liệu thật. Không tự sinh điểm fallback khi thiếu dữ liệu.</p>
                 </article>
               </section>
             </>

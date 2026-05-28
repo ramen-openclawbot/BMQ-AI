@@ -43,12 +43,6 @@ const isFinishedSku = (category: string) => {
   return c.includes("thanh pham") || c.includes("finished");
 };
 
-const ym = (d: string) => {
-  const dt = new Date(d);
-  if (Number.isNaN(dt.getTime())) return "N/A";
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
-};
-
 const isLevel2FormulaRow = (name: string) => String(name || "").includes(" > ");
 
 export function useSkuCostBridge() {
@@ -60,7 +54,7 @@ export function useSkuCostBridge() {
       const skuRows = (skus || []).filter((s: any) => isFinishedSku(String(s.category || "")));
       const skuIds = skuRows.map((s: any) => s.id);
 
-      const [formulaRes, prRes, poRes, invRes, snapRes] = await Promise.all([
+      const [formulaRes, prRes, poRes, invRes] = await Promise.all([
         skuIds.length
           ? sb
               .from("sku_formulations")
@@ -83,11 +77,6 @@ export function useSkuCostBridge() {
           .not("sku_id", "is", null)
           .order("received_date", { ascending: true })
           .limit(500),
-        sb
-          .from("sku_cost_snapshots")
-          .select("snapshot_date, ingredient_cost, packaging_cost, labor_cost, delivery_cost, other_production_cost, sga_cost, total_cost_per_unit")
-          .order("snapshot_date", { ascending: true })
-          .limit(200),
       ]);
 
       const formulas = (formulaRes.data || []) as FormulaRow[];
@@ -184,55 +173,7 @@ export function useSkuCostBridge() {
         };
       });
 
-      const snapshots = (snapRes.data || []) as Array<any>;
-      let trendRows: Array<{ label: string; ingredient: number; labor: number; overhead: number; total: number }> = [];
-
-      if (snapshots.length) {
-        const dayMap = new Map<string, { ingredient: number; labor: number; overhead: number; total: number; count: number }>();
-        snapshots.forEach((s) => {
-          const key = String(s.snapshot_date || "");
-          const row = dayMap.get(key) || { ingredient: 0, labor: 0, overhead: 0, total: 0, count: 0 };
-          row.ingredient += toNumber(s.ingredient_cost, 0);
-          row.labor += toNumber(s.labor_cost, 0);
-          row.overhead += toNumber(s.packaging_cost, 0) + toNumber(s.delivery_cost, 0) + toNumber(s.other_production_cost, 0) + toNumber(s.sga_cost, 0);
-          row.total += toNumber(s.total_cost_per_unit, 0);
-          row.count += 1;
-          dayMap.set(key, row);
-        });
-
-        trendRows = Array.from(dayMap.entries())
-          .sort((a, b) => +new Date(a[0]) - +new Date(b[0]))
-          .map(([k, v]) => ({
-            label: k,
-            ingredient: v.count ? v.ingredient / v.count : 0,
-            labor: v.count ? v.labor / v.count : 0,
-            overhead: v.count ? v.overhead / v.count : 0,
-            total: v.count ? v.total / v.count : 0,
-          }));
-      } else {
-        const monthMap = new Map<string, { ingredient: number; sample: number }>();
-        purchases.forEach((p) => {
-          const k = ym(p.created_at);
-          const m = monthMap.get(k) || { ingredient: 0, sample: 0 };
-          m.ingredient += toNumber(p.unit_price, 0);
-          m.sample += 1;
-          monthMap.set(k, m);
-        });
-
-        const sortedMonths = Array.from(monthMap.keys()).sort();
-        const avgFixed = items.length
-          ? items.reduce((s, i) => s + i.packaging_cost + i.labor_cost + i.delivery_cost + i.other_production_cost + i.sga_cost + i.extra_cost, 0) / items.length
-          : 0;
-
-        trendRows = sortedMonths.map((k) => {
-          const m = monthMap.get(k)!;
-          const ingredient = m.sample ? m.ingredient / m.sample : 0;
-          const total = ingredient + avgFixed;
-          return { label: k, ingredient, labor: 0, overhead: avgFixed, total };
-        });
-      }
-
-      return { items, trendRows, formulas, purchases };
+      return { items, formulas, purchases };
     },
   });
 }
