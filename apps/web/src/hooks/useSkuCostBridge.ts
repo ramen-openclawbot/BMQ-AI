@@ -31,6 +31,18 @@ export type ActualCostPurchase = {
 };
 
 const sb = supabase as any;
+const PAGE_SIZE = 1000;
+
+async function fetchAllRows(baseQueryFactory: () => any) {
+  const rows: any[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await baseQueryFactory().range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    rows.push(...(data || []));
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return rows;
+}
 
 const normalize = (v: string) =>
   String(v || "")
@@ -54,23 +66,25 @@ export function useSkuCostBridge() {
       const skuRows = (skus || []).filter((s: any) => isFinishedSku(String(s.category || "")));
       const skuIds = skuRows.map((s: any) => s.id);
 
-      const [formulaRes, prRes, poRes, invRes] = await Promise.all([
+      const [formulaRes, prRows, poRows, invRes] = await Promise.all([
         skuIds.length
           ? sb
               .from("sku_formulations")
               .select("sku_id, ingredient_sku_id, ingredient_name, material_code, unit_price, dosage_qty, wastage_percent, unit")
               .in("sku_id", skuIds)
           : Promise.resolve({ data: [] }),
-        sb
-          .from("payment_request_items")
-          .select("sku_id, product_name, product_code, unit, unit_price, created_at, confirmed_standard_cost_code, suggested_standard_cost_code, standard_cost_code_type, canonical_cost_item_name, payment_requests(payment_status,status,approved_at,updated_at)")
-          .order("created_at", { ascending: true })
-          .limit(1000),
-        sb
-          .from("purchase_order_items")
-          .select("sku_id, product_name, unit, unit_price, created_at, purchase_orders(order_date)")
-          .order("created_at", { ascending: true })
-          .limit(1000),
+        fetchAllRows(() =>
+          sb
+            .from("payment_request_items")
+            .select("sku_id, product_name, product_code, unit, unit_price, created_at, confirmed_standard_cost_code, suggested_standard_cost_code, standard_cost_code_type, canonical_cost_item_name, payment_requests(payment_status,status,approved_at,updated_at)")
+            .order("created_at", { ascending: true })
+        ),
+        fetchAllRows(() =>
+          sb
+            .from("purchase_order_items")
+            .select("sku_id, product_name, unit, unit_price, created_at, purchase_orders(order_date)")
+            .order("created_at", { ascending: true })
+        ),
         sb
           .from("inventory_batches")
           .select("sku_id, quantity, received_date")
@@ -81,7 +95,7 @@ export function useSkuCostBridge() {
 
       const formulas = (formulaRes.data || []) as FormulaRow[];
       const purchases: ActualCostPurchase[] = [
-        ...((prRes.data || []) as Array<any>).map((x) => ({
+        ...(prRows as Array<any>).map((x) => ({
           sku_id: x.sku_id,
           product_name: x.product_name || null,
           product_code: x.product_code || null,
@@ -96,7 +110,7 @@ export function useSkuCostBridge() {
           standard_cost_code: x.confirmed_standard_cost_code || x.suggested_standard_cost_code || null,
           canonical_cost_item_name: x.canonical_cost_item_name || null,
         })),
-        ...((poRes.data || []) as Array<any>).map((x) => ({
+        ...(poRows as Array<any>).map((x) => ({
           sku_id: x.sku_id,
           product_name: x.product_name || null,
           product_code: null,
