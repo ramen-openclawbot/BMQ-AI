@@ -24,6 +24,10 @@ export type ActualCostPurchase = {
   source: "payment_request" | "purchase_order";
   payment_status?: string | null;
   status?: string | null;
+  confirmed_standard_cost_code?: string | null;
+  suggested_standard_cost_code?: string | null;
+  standard_cost_code?: string | null;
+  canonical_cost_item_name?: string | null;
 };
 
 const sb = supabase as any;
@@ -65,16 +69,14 @@ export function useSkuCostBridge() {
           : Promise.resolve({ data: [] }),
         sb
           .from("payment_request_items")
-          .select("sku_id, product_name, product_code, unit, unit_price, created_at, payment_requests(payment_status,status,approved_at,updated_at)")
-          .not("sku_id", "is", null)
+          .select("sku_id, product_name, product_code, unit, unit_price, created_at, confirmed_standard_cost_code, suggested_standard_cost_code, standard_cost_code_type, canonical_cost_item_name, payment_requests(payment_status,status,approved_at,updated_at)")
           .order("created_at", { ascending: true })
-          .limit(500),
+          .limit(1000),
         sb
           .from("purchase_order_items")
           .select("sku_id, product_name, unit, unit_price, created_at, purchase_orders(order_date)")
-          .not("sku_id", "is", null)
           .order("created_at", { ascending: true })
-          .limit(500),
+          .limit(1000),
         sb
           .from("inventory_batches")
           .select("sku_id, quantity, received_date")
@@ -100,6 +102,10 @@ export function useSkuCostBridge() {
           source: "payment_request" as const,
           payment_status: x.payment_requests?.payment_status || null,
           status: x.payment_requests?.status || null,
+          confirmed_standard_cost_code: x.confirmed_standard_cost_code || null,
+          suggested_standard_cost_code: x.suggested_standard_cost_code || null,
+          standard_cost_code: x.confirmed_standard_cost_code || x.suggested_standard_cost_code || null,
+          canonical_cost_item_name: x.canonical_cost_item_name || null,
         })),
         ...((poRes.data || []) as Array<any>).map((x) => ({
           sku_id: x.sku_id,
