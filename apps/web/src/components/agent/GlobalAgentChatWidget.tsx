@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, MessageCircle, Sparkles, X } from "lucide-react";
@@ -309,6 +309,26 @@ function formatVnd(amount: number | null | undefined): string {
   return `${Number(amount || 0).toLocaleString("vi-VN")}đ`;
 }
 
+function getVietnamDateParts(offsetDays = 0): { iso: string; period: string; label: string } {
+  const currentParts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const currentPart = (type: string) => currentParts.find((item) => item.type === type)?.value || "";
+  const vnNoonUtc = new Date(Date.UTC(Number(currentPart("year")), Number(currentPart("month")) - 1, Number(currentPart("day")) + offsetDays, 12, 0, 0));
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(vnNoonUtc);
+  const part = (type: string) => parts.find((item) => item.type === type)?.value || "";
+  const iso = `${part("year")}-${part("month")}-${part("day")}`;
+  return { iso, period: iso.slice(0, 7), label: `${part("day")}/${part("month")}/${part("year")}` };
+}
+
 function formatDateVi(value: string | null | undefined): string {
   if (!value) return "-";
   const date = new Date(value);
@@ -514,6 +534,16 @@ type RevenueDailyActionResponse = {
   report?: RevenueDailyReport | null;
 } & Partial<RevenueDailyCompare>;
 
+type DashboardQuickReport = {
+  todayIso: string;
+  yesterdayIso: string;
+  monthLabel: string;
+  todayRevenue: number;
+  monthRevenueToDate: number;
+  yesterdayProductionQty: number;
+  todayProductionQty: number;
+};
+
 class PaymentAgentAccessError extends Error {
   constructor() {
     super("ACCESS_DENIED");
@@ -541,6 +571,75 @@ async function invokeRevenueDailyAction(body: Record<string, unknown>): Promise<
   const { data, error } = await supabase.functions.invoke("revenue-monthly-parse-preview", { body });
   if (error) throw new Error((error as any)?.message || "Không tải được báo cáo doanh thu daily.");
   return (data || {}) as RevenueDailyActionResponse;
+}
+
+async function fetchDashboardQuickReport(): Promise<DashboardQuickReport> {
+  const today = getVietnamDateParts(0);
+  const yesterday = getVietnamDateParts(-1);
+  const monthLabel = `T${Number(today.period.slice(5, 7))}/${today.period.slice(0, 4)}`;
+
+  let monthRevenueToDate = 0;
+  let todayRevenue = 0;
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await (supabase as any)
+      .from("revenue_ledger_lines")
+      .select("revenue_date,gross_revenue,source_document:revenue_source_documents!inner(status)")
+      .eq("period", today.period)
+      .eq("approval_status", "approved")
+      .in("source_document.status", ["controlled", "trusted"])
+      .lte("revenue_date", today.iso)
+      .order("revenue_date", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    const rows = data || [];
+    rows.forEach((row: { revenue_date?: string | null; gross_revenue?: number | null }) => {
+      const gross = Number(row.gross_revenue || 0);
+      monthRevenueToDate += gross;
+      if (row.revenue_date === today.iso) todayRevenue += gross;
+    });
+    if (rows.length < pageSize) break;
+  }
+
+  let yesterdayProductionQty = 0;
+  let todayProductionQty = 0;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await (supabase as any)
+      .from("production_order_items")
+      .select("delivery_date,actual_qty,planned_qty,ordered_qty")
+      .in("delivery_date", [yesterday.iso, today.iso])
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    const rows = data || [];
+    rows.forEach((row: { delivery_date?: string | null; actual_qty?: number | null; planned_qty?: number | null; ordered_qty?: number | null }) => {
+      const qty = Number(row.actual_qty ?? row.planned_qty ?? row.ordered_qty ?? 0);
+      if (row.delivery_date === yesterday.iso) yesterdayProductionQty += qty;
+      if (row.delivery_date === today.iso) todayProductionQty += qty;
+    });
+    if (rows.length < pageSize) break;
+  }
+
+  return {
+    todayIso: today.label,
+    yesterdayIso: yesterday.label,
+    monthLabel,
+    todayRevenue,
+    monthRevenueToDate,
+    yesterdayProductionQty,
+    todayProductionQty,
+  };
+}
+
+function formatDashboardQuickReport(report: DashboardQuickReport): string {
+  return [
+    "Báo cáo nhanh hôm nay",
+    "",
+    `Doanh thu hôm nay (${report.todayIso}): ${formatVnd(report.todayRevenue)}`,
+    `Doanh thu tháng ${report.monthLabel} tới hôm nay: ${formatVnd(report.monthRevenueToDate)}`,
+    "",
+    `Sản xuất hôm qua (${report.yesterdayIso}): ${report.yesterdayProductionQty.toLocaleString("vi-VN")} bánh`,
+    `Sản xuất hôm nay (${report.todayIso}): ${report.todayProductionQty.toLocaleString("vi-VN")} bánh`,
+  ].join("\n");
 }
 
 const revenueSummaryNumber = (summary: RevenueDailyReport["summary"] | undefined, ...keys: Array<keyof RevenueDailyReport["summary"]>) => {
@@ -644,12 +743,39 @@ export function GlobalAgentChatWidget() {
   const [dailyCompare, setDailyCompare] = useState<RevenueDailyCompare | null>(null);
   const [isRunningDailyCompare, setIsRunningDailyCompare] = useState(false);
   const [isPostingDailyCompare, setIsPostingDailyCompare] = useState(false);
+  const [dashboardQuickReportLoadedKey, setDashboardQuickReportLoadedKey] = useState<string | null>(null);
+  const [isLoadingDashboardQuickReport, setIsLoadingDashboardQuickReport] = useState(false);
+  const dashboardQuickReportInFlightRef = useRef<string | null>(null);
 
   const routeContext = useMemo(() => getRouteContext(location.pathname), [location.pathname]);
   const isRevenueMobileContext = location.pathname.startsWith("/finance-control/revenue");
   const isSkuCostsMobileContext = location.pathname.startsWith("/sku-costs");
 
   const pushAgent = (text: string) => setMessages((prev) => [...prev, { role: "agent", text }]);
+
+  const loadDashboardQuickReport = useCallback(async () => {
+    const reportKey = getVietnamDateParts(0).iso;
+    if (dashboardQuickReportLoadedKey === reportKey || dashboardQuickReportInFlightRef.current === reportKey) return;
+    dashboardQuickReportInFlightRef.current = reportKey;
+    setIsLoadingDashboardQuickReport(true);
+    try {
+      const report = await fetchDashboardQuickReport();
+      setMessages((prev) => [...prev, { role: "agent", text: formatDashboardQuickReport(report) }]);
+      setDashboardQuickReportLoadedKey(reportKey);
+    } catch {
+      setMessages((prev) => [...prev, { role: "agent", text: "Em chưa tải được báo cáo nhanh Dashboard lúc này. Anh thử mở lại sau giúp em." }]);
+      setDashboardQuickReportLoadedKey(reportKey);
+    } finally {
+      dashboardQuickReportInFlightRef.current = null;
+      setIsLoadingDashboardQuickReport(false);
+    }
+  }, [dashboardQuickReportLoadedKey]);
+
+  useEffect(() => {
+    if (open && routeContext.key === "home") {
+      loadDashboardQuickReport();
+    }
+  }, [open, routeContext.key, loadDashboardQuickReport]);
 
   const loadDailyReport = useCallback(async () => {
     if (!isRevenueMobileContext) return;
@@ -1112,6 +1238,12 @@ export function GlobalAgentChatWidget() {
 
           <div className="flex-1 overflow-auto p-4 space-y-3 text-sm">
             {messages.length === 0 && <div className="rounded-lg border bg-muted/30 p-3">Kính chào Quý khách. Hệ thống đã nhận diện ngữ cảnh hiện tại là <b>{routeContext.label}</b>. Vui lòng nhập yêu cầu để AI Agent hỗ trợ.</div>}
+            {routeContext.key === "home" && isLoadingDashboardQuickReport ? (
+              <div className="flex items-center gap-2 rounded-lg border bg-muted/20 p-3 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Đang tải báo cáo nhanh Dashboard...
+              </div>
+            ) : null}
 
             {isRevenueMobileContext && (
               <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
