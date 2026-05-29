@@ -31,6 +31,19 @@ const purchaseStandardCostCodes = (purchase: ActualCostPurchase) =>
     .map(normalizeMaterialCode)
     .filter(Boolean);
 
+const hasPurchaseStandardCostCode = (purchase: ActualCostPurchase) => purchaseStandardCostCodes(purchase).length > 0;
+
+const tokenCount = (value: string) => value.split(/\s+/).filter(Boolean).length;
+
+const isSafeMaterialAlias = (alias: string) => {
+  // Formula names such as "Nước" are too broad: they can catch utilities/cleaning items
+  // ("Tiền nước", "Nước rửa chén", "Vòi nước") and poison the average purchase cost.
+  // For material-code rows, allow name fallback only for specific multi-token aliases like
+  // "nuoc vihawa" / "nuoc vihawa 20l"; exact PR mappings should come through standard codes.
+  if (tokenCount(alias) < 2) return false;
+  return alias.length >= 6;
+};
+
 type MaterialContext = {
   materialCode: string;
   canonicalName: string;
@@ -87,6 +100,7 @@ const purchaseMatchesFormulaRow = (purchase: ActualCostPurchase, row: FormulaRow
   const rowMaterialCode = normalizeMaterialCode(row.material_code);
   const purchaseCodes = purchaseStandardCostCodes(purchase);
   if (rowMaterialCode && purchaseCodes.includes(rowMaterialCode)) return true;
+  if (rowMaterialCode && hasPurchaseStandardCostCode(purchase)) return false;
   if (row.ingredient_sku_id && purchase.sku_id === row.ingredient_sku_id) return true;
   if (materialContext && purchase.sku_id && materialContext.skuIds.has(purchase.sku_id)) return true;
 
@@ -94,7 +108,7 @@ const purchaseMatchesFormulaRow = (purchase: ActualCostPurchase, row: FormulaRow
   if (!purchaseName) return false;
 
   if (materialContext) {
-    return Array.from(materialContext.aliases).some((alias) => alias.length >= 4 && purchaseName.includes(alias));
+    return Array.from(materialContext.aliases).some((alias) => isSafeMaterialAlias(alias) && purchaseName.includes(alias));
   }
 
   const fallbackAlias = normalizeIngredientName(row.ingredient_name);
@@ -142,7 +156,7 @@ const inferPurchaseUnitDivisor = (purchase: ActualCostPurchase, ingredientName: 
   if (noteDivisor) return noteDivisor;
 
   const packSize = parsePackSizeInFormulaUnits(productText);
-  if (unit.includes("trung") || unit.includes("qua") || unit.includes("cai") || combined.includes("trung") || combined.includes("egg")) return packSize || 60;
+  if (unit.includes("trung") || unit.includes("qua") || combined.includes("trung") || combined.includes("egg")) return packSize || 60;
   if (packSize) return packSize;
   if (combined.includes("2l x 6") || combined.includes("thung dau huong duong")) return 12000;
   if (combined.includes("0 5x10kg") || combined.includes("men kho ngot mauripan") || combined.includes("men kho")) return 10000;

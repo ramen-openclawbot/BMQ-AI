@@ -36,12 +36,24 @@ def test_bridge_loads_unlinked_purchase_lines_and_classification_fields_for_mapp
     assert "confirmed_standard_cost_code" in bridge
     assert "suggested_standard_cost_code" in bridge
     assert "canonical_cost_item_name" in bridge
-    pr_po_section = bridge.split('sb\n          .from("payment_request_items")', 1)[1].split('sb\n          .from("inventory_batches")', 1)[0]
+    pr_po_section = bridge.split('fetchAllRows(() =>', 1)[1].split('sb\n          .from("inventory_batches")', 1)[0]
     assert 'not("sku_id", "is", null)' not in pr_po_section
+
+
+def test_material_code_name_fallback_ignores_generic_single_token_aliases():
+    lib = read(LIB)
+    assert "isSafeMaterialAlias" in lib
+    assert "tokenCount(alias) < 2" in lib
+    assert "hasPurchaseStandardCostCode(purchase)" in lib
+    assert "isSafeMaterialAlias(alias) && purchaseName.includes(alias)" in lib
+    # Unit "cái" is generic and must not imply egg-style 60g conversion for unrelated items
+    # such as "Vòi nước" or "Nước thủy cục".
+    assert 'unit.includes("cai")' not in lib
 
 
 if __name__ == "__main__":
     test_analysis_logic_is_extracted_from_page_and_not_hard_coded_alias_tables()
     test_material_code_is_primary_match_key_for_formula_to_purchase_mapping()
     test_bridge_loads_unlinked_purchase_lines_and_classification_fields_for_mapping()
-    print("ok - 3 tests passed")
+    test_material_code_name_fallback_ignores_generic_single_token_aliases()
+    print("ok - 4 tests passed")
