@@ -1,7 +1,5 @@
 import { useMemo, useState } from "react";
-import { format } from "date-fns";
 import {
-  CalendarDays,
   CheckCircle2,
   Clock3,
   Eye,
@@ -40,16 +38,6 @@ import { toast } from "sonner";
 type PayableStatusFilter = "all" | "unpaid" | "partial" | "paid" | "overpaid";
 type ApprovalStatusFilter = "all" | "pending" | "approved" | "rejected";
 type SourceFilter = "warehouse_receipt" | "all" | "manual";
-
-const getMonthStartInputValue = () => {
-  const today = new Date();
-  return format(new Date(today.getFullYear(), today.getMonth(), 1), "yyyy-MM-dd");
-};
-
-const getMonthEndInputValue = () => {
-  const today = new Date();
-  return format(new Date(today.getFullYear(), today.getMonth() + 1, 0), "yyyy-MM-dd");
-};
 
 const normalizeSearch = (value: string | null | undefined) =>
   String(value || "")
@@ -104,8 +92,6 @@ const PayablesManagement = () => {
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<PayableStatusFilter>("all");
   const [approvalStatusFilter, setApprovalStatusFilter] = useState<ApprovalStatusFilter>("all");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
-  const [dateFrom, setDateFrom] = useState(getMonthStartInputValue);
-  const [dateTo, setDateTo] = useState(getMonthEndInputValue);
 
   const { data: paymentRequests, isLoading, isError, error, refetch } = usePaymentRequests();
   const bulkMarkPaid = useBulkMarkPaid();
@@ -114,9 +100,6 @@ const PayablesManagement = () => {
     const normalizedSearchTerm = normalizeSearch(searchTerm);
 
     return (paymentRequests || []).filter((paymentRequest) => {
-      const requestDate = format(new Date(paymentRequest.created_at), "yyyy-MM-dd");
-      if (dateFrom && requestDate < dateFrom) return false;
-      if (dateTo && requestDate > dateTo) return false;
       if (sourceFilter === "warehouse_receipt" && !isWarehouseReceiptPayable(paymentRequest)) return false;
       if (sourceFilter === "manual" && isWarehouseReceiptPayable(paymentRequest)) return false;
       if (paymentStatusFilter !== "all" && paymentRequest.payment_status !== paymentStatusFilter) return false;
@@ -137,7 +120,7 @@ const PayablesManagement = () => {
 
       return haystack.includes(normalizedSearchTerm);
     });
-  }, [paymentRequests, searchTerm, dateFrom, dateTo, sourceFilter, paymentStatusFilter, approvalStatusFilter]);
+  }, [paymentRequests, searchTerm, sourceFilter, paymentStatusFilter, approvalStatusFilter]);
 
   const stats = useMemo(() => {
     return filteredPayables.reduce(
@@ -312,7 +295,7 @@ const PayablesManagement = () => {
 
       <Card className="rounded-xl border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card">
         <CardContent className="space-y-4 p-4">
-          <div className="grid gap-3 lg:grid-cols-[minmax(250px,1fr)_180px_180px_220px_140px]">
+          <div className="grid gap-3 lg:grid-cols-[minmax(250px,1fr)_180px_180px_220px]">
             <div className="relative min-w-0">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input
@@ -359,29 +342,6 @@ const PayablesManagement = () => {
               </SelectContent>
             </Select>
 
-            <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-background">
-              <CalendarDays className="h-4 w-4 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">Ngày tạo</span>
-            </div>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2">
-            <Input
-              type="date"
-              value={dateFrom}
-              max={dateTo || undefined}
-              onChange={(event) => setDateFrom(event.target.value)}
-              aria-label="Từ ngày"
-              className="h-11 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-background"
-            />
-            <Input
-              type="date"
-              value={dateTo}
-              min={dateFrom || undefined}
-              onChange={(event) => setDateTo(event.target.value)}
-              aria-label="Đến ngày"
-              className="h-11 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-background"
-            />
           </div>
         </CardContent>
       </Card>

@@ -270,6 +270,10 @@ def test_payables_management_is_accessible_from_cost_sidebar_with_filtered_route
     assert 'Quản lý công nợ phải trả' in payables_page
     assert 'Công nợ từ phiếu nhập kho' in payables_page
     assert 'useState<SourceFilter>("all")' in payables_page
+    assert 'type="date"' not in payables_page
+    assert 'dateFrom' not in payables_page
+    assert 'dateTo' not in payables_page
+    assert 'Ngày tạo' not in payables_page
     assert 'paymentRequest.goods_receipts?.receipt_number' in payables_page
     assert 'paymentRequest.purchase_orders?.po_number' in payables_page
     assert 'getRemainingPaymentAmount(paymentRequest)' in payables_page
