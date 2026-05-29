@@ -7,6 +7,9 @@ PO_HOOK = ROOT / "src/hooks/usePurchaseOrders.ts"
 WAREHOUSE_HOME = ROOT / "src/warehouse/pages/WarehouseHome.tsx"
 SCAN_RESULT_EDITOR = ROOT / "src/warehouse/components/ScanResultEditor.tsx"
 MATCH_DELIVERY_FUNCTION = ROOT / "supabase/functions/match-delivery-note/index.ts"
+FINALIZE_RECEIPT_FUNCTION = ROOT / "supabase/functions/finalize-goods-receipt/index.ts"
+GOODS_RECEIPTS_HOOK = ROOT / "src/hooks/useGoodsReceipts.ts"
+SUPABASE_CONFIG = ROOT / "supabase/config.toml"
 MIGRATIONS = ROOT / "supabase/migrations"
 TYPES = ROOT / "src/integrations/supabase/types.ts"
 
@@ -126,6 +129,46 @@ def test_warehouse_ui_exposes_po_receipt_match_metadata():
     assert "poNumber" in editor
 
 
+def test_finalization_function_posts_inventory_and_generates_pending_payable_from_actual_quantities():
+    edge = read(FINALIZE_RECEIPT_FUNCTION)
+    assert "finalize-goods-receipt" in edge
+    assert ".from(\"goods_receipts\")" in edge
+    assert "payable_status" in edge
+    assert "not_generated" in edge
+    assert "already finalized" in edge or "already received" in edge
+    assert "actual_quantity ?? item.quantity" in edge
+    assert "actualQuantity > 0" in edge
+    assert ".from(\"inventory_items\")" in edge
+    assert ".from(\"inventory_batches\")" in edge
+    assert "createPayableRequestNumber" in edge
+    assert ".from(\"payment_requests\")" in edge
+    assert "status: \"pending\"" in edge
+    assert "delivery_status: \"delivered\"" in edge
+    assert "payment_status: \"unpaid\"" in edge
+    assert "purchase_order_id" in edge
+    assert "goods_receipt_id" in edge
+    assert ".from(\"payment_request_items\")" in edge
+    assert "line_total: payableLineTotal" in edge
+    assert "payable_status: \"generated\"" in edge
+    assert "finalized_at" in edge
+    assert "finalized_by" in edge
+
+
+def test_goods_receipt_confirm_uses_finalization_edge_function_not_client_side_inventory_mutations():
+    hook = read(GOODS_RECEIPTS_HOOK)
+    confirm_section = hook.split("export function useConfirmGoodsReceipt", 1)[1]
+    assert "callEdgeFunction" in hook
+    assert "finalize-goods-receipt" in confirm_section
+    assert "receiptId" in confirm_section
+    assert ".from(\"inventory_items\")" not in confirm_section
+    assert ".from(\"inventory_batches\")" not in confirm_section
+    assert "payment_requests" not in confirm_section
+
+    config = read(SUPABASE_CONFIG)
+    assert "[functions.finalize-goods-receipt]" in config
+    assert "verify_jwt = false" in config.split("[functions.finalize-goods-receipt]", 1)[1].split("[functions.", 1)[0]
+
+
 if __name__ == "__main__":
     test_payables_receiving_helpers_are_present_and_use_actual_quantity()
     test_migration_adds_receipt_variance_and_payable_state_without_breaking_existing_columns()
@@ -133,4 +176,6 @@ if __name__ == "__main__":
     test_purchase_order_send_ensures_single_pending_receipt_queue()
     test_warehouse_scan_matches_pending_po_receipt_queue_before_legacy_payment_requests()
     test_warehouse_ui_exposes_po_receipt_match_metadata()
-    print("ok - 6 tests passed")
+    test_finalization_function_posts_inventory_and_generates_pending_payable_from_actual_quantities()
+    test_goods_receipt_confirm_uses_finalization_edge_function_not_client_side_inventory_mutations()
+    print("ok - 8 tests passed")

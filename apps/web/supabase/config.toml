@@ -44,6 +44,11 @@ verify_jwt = false
 # verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
 verify_jwt = false
 
+[functions.finalize-goods-receipt]
+# verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
+# Auth handled inside function via getUser(token).
+verify_jwt = false
+
 [functions.scan-bank-slip]
 # verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
 # Auth handled inside function via getUser(token).
