@@ -297,6 +297,41 @@ def test_invoice_accounting_links_po_receipt_context_without_enterprise_ledger_r
     assert "Tạo từ đề nghị chi" in create_from_pr_dialog
 
 
+def test_invoices_page_matches_approved_stitch_dashboard_handoff():
+    page = read(ROOT / "src/pages/Invoices.tsx")
+
+    assert "data-stitch-invoice-dashboard" in page
+    assert "data-stitch-invoice-filters" in page
+    assert "data-stitch-invoice-table" in page
+    assert "data-stitch-invoice-insights" in page
+    assert "Kế toán phải trả" in page
+    assert "Theo dõi hóa đơn, công nợ và liên kết PO/phiếu nhập" in page
+    assert "Tổng hóa đơn" in page
+    assert "Chờ thanh toán" in page
+    assert "Quá hạn" in page
+    assert "Chưa liên kết chứng từ" in page
+    assert "Tìm số hóa đơn, nhà cung cấp, PO..." in page
+    assert "Từ phiếu nhập kho" in page
+    assert "Từ PO" in page
+    assert "OCR/scan" in page
+    assert "Thủ công" in page
+    assert "Số hóa đơn" in page
+    assert "Nguồn/PO/PNK" in page
+    assert "Đã trả/Còn lại" in page
+    assert "Top NCC theo công nợ" in page
+    assert "Thiếu PO/PNK" in page
+    assert "const PAGE_SIZE = 20;" in page
+    assert "paginatedInvoices.map" in page
+    assert "20} {isVi ? \"dòng/trang\"" in page or "PAGE_SIZE} {isVi ? \"dòng/trang\"" in page
+    assert "getInvoiceSource" in page
+    assert "getInvoiceStatus" in page
+    assert "payment_slip_url" in page
+    assert "purchase_orders?.po_number" in page
+    assert "goods_receipts?.receipt_number" in page
+    assert "setViewingInvoiceId(invoice.id)" in page
+    assert "onKeyDown={(event) => handleRowKeyDown(event, invoice.id)}" in page
+
+
 def test_payables_management_is_accessible_from_cost_sidebar_with_filtered_route():
     sidebar = read(SIDEBAR)
     routes = read(APP_ROUTES)
@@ -456,6 +491,7 @@ if __name__ == "__main__":
     test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finalization()
     test_finance_payables_ui_filters_and_labels_warehouse_generated_requests()
     test_invoice_accounting_links_po_receipt_context_without_enterprise_ledger_rewrite()
+    test_invoices_page_matches_approved_stitch_dashboard_handoff()
     test_payables_management_is_accessible_from_cost_sidebar_with_filtered_route()
     test_purchase_orders_list_row_opens_details_and_shows_product_names_without_eye_icon()
-    print("ok - 13 tests passed")
+    print("ok - 14 tests passed")
