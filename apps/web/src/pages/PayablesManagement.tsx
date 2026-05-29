@@ -38,7 +38,11 @@ import { toast } from "sonner";
 
 type PayableStatusFilter = "all" | "unpaid" | "partial" | "paid" | "overpaid";
 type ApprovalStatusFilter = "all" | "pending" | "approved" | "rejected";
-type SourceFilter = "warehouse_receipt" | "all" | "manual";
+type SourceFilter = "warehouse_receipt" | "invoice" | "purchase_order" | "ocr_scan" | "manual" | "all";
+
+type PayableSource = Exclude<SourceFilter, "all">;
+
+const PAGE_SIZE = 20;
 
 const normalizeSearch = (value: string | null | undefined) =>
   String(value || "")
@@ -56,6 +60,14 @@ const getRequestCode = (paymentRequest: PaymentRequestWithSupplier) =>
 
 const isWarehouseReceiptPayable = (paymentRequest: PaymentRequestWithSupplier) =>
   Boolean(paymentRequest.goods_receipt_id);
+
+const getPayableSource = (paymentRequest: PaymentRequestWithSupplier): PayableSource => {
+  if (paymentRequest.goods_receipt_id) return "warehouse_receipt";
+  if (paymentRequest.invoice_id) return "invoice";
+  if (paymentRequest.purchase_order_id) return "purchase_order";
+  if (paymentRequest.image_url) return "ocr_scan";
+  return "manual";
+};
 
 const getPaymentStatusLabel = (paymentRequest: PaymentRequestWithSupplier) => {
   if (paymentRequest.payment_status === "paid") return "Đã thanh toán";
@@ -93,6 +105,7 @@ const PayablesManagement = () => {
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<PayableStatusFilter>("all");
   const [approvalStatusFilter, setApprovalStatusFilter] = useState<ApprovalStatusFilter>("all");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [currentPage, setCurrentPage] = useState(1);
 
   const { data: paymentRequests, isLoading, isError, error, refetch } = usePaymentRequests();
   const bulkMarkPaid = useBulkMarkPaid();
@@ -101,8 +114,7 @@ const PayablesManagement = () => {
     const normalizedSearchTerm = normalizeSearch(searchTerm);
 
     return (paymentRequests || []).filter((paymentRequest) => {
-      if (sourceFilter === "warehouse_receipt" && !isWarehouseReceiptPayable(paymentRequest)) return false;
-      if (sourceFilter === "manual" && isWarehouseReceiptPayable(paymentRequest)) return false;
+      if (sourceFilter !== "all" && getPayableSource(paymentRequest) !== sourceFilter) return false;
       if (paymentStatusFilter !== "all" && paymentRequest.payment_status !== paymentStatusFilter) return false;
       if (approvalStatusFilter !== "all" && paymentRequest.status !== approvalStatusFilter) return false;
 
@@ -160,6 +172,32 @@ const PayablesManagement = () => {
     );
   }, [filteredPayables]);
 
+  const totalPages = Math.max(1, Math.ceil(filteredPayables.length / PAGE_SIZE));
+  const currentPageSafe = Math.min(currentPage, totalPages);
+  const pageStartIndex = (currentPageSafe - 1) * PAGE_SIZE;
+  const paginatedPayables = filteredPayables.slice(pageStartIndex, pageStartIndex + PAGE_SIZE);
+  const pageEndIndex = Math.min(pageStartIndex + paginatedPayables.length, filteredPayables.length);
+
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value);
+    setCurrentPage(1);
+  };
+
+  const handlePaymentStatusFilterChange = (value: PayableStatusFilter) => {
+    setPaymentStatusFilter(value);
+    setCurrentPage(1);
+  };
+
+  const handleApprovalStatusFilterChange = (value: ApprovalStatusFilter) => {
+    setApprovalStatusFilter(value);
+    setCurrentPage(1);
+  };
+
+  const handleSourceFilterChange = (value: SourceFilter) => {
+    setSourceFilter(value);
+    setCurrentPage(1);
+  };
+
   const statCards = [
     {
       label: "Tổng công nợ phải trả",
@@ -214,8 +252,39 @@ const PayablesManagement = () => {
   };
 
   const renderSourceBadge = (paymentRequest: PaymentRequestWithSupplier) => {
-    if (!isWarehouseReceiptPayable(paymentRequest)) {
-      return <Badge variant="outline">Nguồn khác</Badge>;
+    const source = getPayableSource(paymentRequest);
+
+    if (source === "invoice") {
+      return (
+        <div className="space-y-1 text-xs">
+          <Badge className="bg-blue-600 text-white">Từ hóa đơn</Badge>
+          <div className="font-mono text-muted-foreground">
+            {paymentRequest.invoices?.invoice_number || paymentRequest.invoice_id}
+          </div>
+          {paymentRequest.purchase_orders?.po_number && (
+            <div className="font-mono text-muted-foreground">PO: {paymentRequest.purchase_orders.po_number}</div>
+          )}
+        </div>
+      );
+    }
+
+    if (source === "purchase_order") {
+      return (
+        <div className="space-y-1 text-xs">
+          <Badge className="bg-amber-600 text-white">Từ PO</Badge>
+          <div className="font-mono text-muted-foreground">
+            {paymentRequest.purchase_orders?.po_number || paymentRequest.purchase_order_id}
+          </div>
+        </div>
+      );
+    }
+
+    if (source === "ocr_scan") {
+      return <Badge className="bg-violet-600 text-white">OCR/scan</Badge>;
+    }
+
+    if (source === "manual") {
+      return <Badge variant="outline">Thủ công</Badge>;
     }
 
     return (
@@ -301,13 +370,13 @@ const PayablesManagement = () => {
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input
                 value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
+                onChange={(event) => handleSearchChange(event.target.value)}
                 placeholder="Tìm nhà cung cấp, mã công nợ, phiếu nhập kho, PO"
                 className="h-11 rounded-md border-slate-200 bg-white pl-10 text-sm shadow-none dark:border-slate-800 dark:bg-background"
               />
             </div>
 
-            <Select value={paymentStatusFilter} onValueChange={(value) => setPaymentStatusFilter(value as PayableStatusFilter)}>
+            <Select value={paymentStatusFilter} onValueChange={(value) => handlePaymentStatusFilterChange(value as PayableStatusFilter)}>
               <SelectTrigger className="h-11 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-background">
                 <SelectValue placeholder="Thanh toán" />
               </SelectTrigger>
@@ -320,7 +389,7 @@ const PayablesManagement = () => {
               </SelectContent>
             </Select>
 
-            <Select value={approvalStatusFilter} onValueChange={(value) => setApprovalStatusFilter(value as ApprovalStatusFilter)}>
+            <Select value={approvalStatusFilter} onValueChange={(value) => handleApprovalStatusFilterChange(value as ApprovalStatusFilter)}>
               <SelectTrigger className="h-11 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-background">
                 <SelectValue placeholder="Duyệt chi" />
               </SelectTrigger>
@@ -332,14 +401,17 @@ const PayablesManagement = () => {
               </SelectContent>
             </Select>
 
-            <Select value={sourceFilter} onValueChange={(value) => setSourceFilter(value as SourceFilter)}>
+            <Select value={sourceFilter} onValueChange={(value) => handleSourceFilterChange(value as SourceFilter)}>
               <SelectTrigger className="h-11 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-background">
                 <SelectValue placeholder="Nguồn công nợ" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="warehouse_receipt">Công nợ từ phiếu nhập kho</SelectItem>
-                <SelectItem value="manual">Nguồn khác / thủ công</SelectItem>
                 <SelectItem value="all">Tất cả nguồn</SelectItem>
+                <SelectItem value="warehouse_receipt">Từ phiếu nhập kho</SelectItem>
+                <SelectItem value="invoice">Từ hóa đơn</SelectItem>
+                <SelectItem value="purchase_order">Từ PO</SelectItem>
+                <SelectItem value="ocr_scan">OCR/scan</SelectItem>
+                <SelectItem value="manual">Thủ công</SelectItem>
               </SelectContent>
             </Select>
 
@@ -377,7 +449,7 @@ const PayablesManagement = () => {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredPayables.map((paymentRequest) => {
+                  paginatedPayables.map((paymentRequest) => {
                     const remainingAmount = getRemainingPaymentAmount(paymentRequest);
                     const allocatedAmount = getAllocatedAmount(paymentRequest);
                     const productNames = getProductNames(paymentRequest);
@@ -452,6 +524,36 @@ const PayablesManagement = () => {
               </TableBody>
             </Table>
           </div>
+          {!isLoading && filteredPayables.length > 0 && (
+            <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 text-sm text-muted-foreground dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                Hiển thị {pageStartIndex + 1}-{pageEndIndex} / {filteredPayables.length} phiếu · 20 dòng/trang
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  disabled={currentPageSafe <= 1}
+                >
+                  Trang trước
+                </Button>
+                <span className="min-w-[92px] text-center text-xs font-medium text-foreground">
+                  Trang {currentPageSafe}/{totalPages}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                  disabled={currentPageSafe >= totalPages}
+                >
+                  Trang sau
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

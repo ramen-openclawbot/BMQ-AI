@@ -228,6 +228,7 @@ def test_finance_payables_ui_filters_and_labels_warehouse_generated_requests():
 
     assert "goods_receipts(id, receipt_number, receipt_date, payable_status)" in hook
     assert "purchase_orders(id, po_number, status)" in hook
+    assert "invoices:invoices!payment_requests_invoice_id_fkey(id, invoice_number)" in hook
     assert "fallbackSelect" in hook
     assert "Falling back without receipt/PO relations" in hook
     assert 'select(fallbackSelect)' in hook
@@ -280,6 +281,16 @@ def test_payables_management_is_accessible_from_cost_sidebar_with_filtered_route
     assert 'type PaymentRequestsProps' in page
     assert 'Quản lý công nợ phải trả' in payables_page
     assert 'Công nợ từ phiếu nhập kho' in payables_page
+    assert 'Từ hóa đơn' in payables_page
+    assert 'Từ PO' in payables_page
+    assert 'OCR/scan' in payables_page
+    assert 'Thủ công' in payables_page
+    assert 'getPayableSource(paymentRequest)' in payables_page
+    assert 'paymentRequest.invoice_id' in payables_page
+    assert 'paymentRequest.invoices?.invoice_number || paymentRequest.invoice_id' in payables_page
+    assert 'paymentRequest.purchase_order_id' in payables_page
+    assert 'paymentRequest.image_url' in payables_page
+    assert 'type SourceFilter = "warehouse_receipt" | "invoice" | "purchase_order" | "ocr_scan" | "manual" | "all";' in payables_page
     assert 'useState<SourceFilter>("all")' in payables_page
     assert 'type="date"' not in payables_page
     assert 'dateFrom' not in payables_page
@@ -288,6 +299,14 @@ def test_payables_management_is_accessible_from_cost_sidebar_with_filtered_route
     assert 'paymentRequest.goods_receipts?.receipt_number' in payables_page
     assert 'paymentRequest.purchase_orders?.po_number' in payables_page
     assert 'getRemainingPaymentAmount(paymentRequest)' in payables_page
+    assert 'const PAGE_SIZE = 20;' in payables_page
+    assert 'const [currentPage, setCurrentPage] = useState(1);' in payables_page
+    assert 'const paginatedPayables = filteredPayables.slice(pageStartIndex, pageStartIndex + PAGE_SIZE);' in payables_page
+    assert 'paginatedPayables.map((paymentRequest) => {' in payables_page
+    assert '20 dòng/trang' in payables_page
+    assert 'Trang trước' in payables_page
+    assert 'Trang sau' in payables_page
+    assert 'setCurrentPage(1);' in payables_page
     assert 'PaymentRequestDetailsDialog' in payables_page
     assert 'Không có công nợ phải trả' in payables_page
     assert 'type PaymentRequestsProps = {' in page

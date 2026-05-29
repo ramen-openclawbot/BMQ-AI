@@ -18,6 +18,7 @@ export interface PaymentRequestWithSupplier extends PaymentRequest {
   payment_allocations?: Array<Pick<PaymentAllocation, "id" | "amount" | "payment_id" | "created_at">> | null;
   goods_receipts?: { id: string; receipt_number: string | null; receipt_date: string | null; payable_status: string | null } | null;
   purchase_orders?: { id: string; po_number: string | null; status: string | null } | null;
+  invoices?: { id: string; invoice_number: string | null } | null;
 }
 
 export interface PaymentRequestItemWithInventory extends PaymentRequestItem {
@@ -58,7 +59,7 @@ export function usePaymentRequests() {
   return useQuery({
     queryKey: ["payment-requests"],
     queryFn: async () => {
-      const relationSelect = "*, suppliers(id, name), payment_request_items(id, product_name, raw_product_name), payment_allocations(id, amount, payment_id, created_at), goods_receipts(id, receipt_number, receipt_date, payable_status), purchase_orders(id, po_number, status)";
+      const relationSelect = "*, suppliers(id, name), payment_request_items(id, product_name, raw_product_name), payment_allocations(id, amount, payment_id, created_at), goods_receipts(id, receipt_number, receipt_date, payable_status), purchase_orders(id, po_number, status), invoices:invoices!payment_requests_invoice_id_fkey(id, invoice_number)";
       const fallbackSelect = "*, suppliers(id, name), payment_request_items(id, product_name, raw_product_name), payment_allocations(id, amount, payment_id, created_at)";
 
       const { data, error } = await supabase
@@ -88,7 +89,7 @@ export function usePaymentRequest(id: string | null) {
       if (!id) return null;
       const { data, error } = await supabase
         .from("payment_requests")
-        .select("*, suppliers(id, name), payment_allocations(id, amount, payment_id, created_at), goods_receipts(id, receipt_number, receipt_date, payable_status), purchase_orders(id, po_number, status)")
+        .select("*, suppliers(id, name), payment_allocations(id, amount, payment_id, created_at), goods_receipts(id, receipt_number, receipt_date, payable_status), purchase_orders(id, po_number, status), invoices:invoices!payment_requests_invoice_id_fkey(id, invoice_number)")
         .eq("id", id)
         .single();
       if (error) throw error;
