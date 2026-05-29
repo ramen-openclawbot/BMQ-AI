@@ -36,12 +36,23 @@ export function usePaymentRequests() {
   return useQuery({
     queryKey: ["payment-requests"],
     queryFn: async () => {
+      const relationSelect = "*, suppliers(id, name), payment_request_items(id, product_name, raw_product_name), payment_allocations(id, amount, payment_id, created_at), goods_receipts(id, receipt_number, receipt_date, payable_status), purchase_orders(id, po_number, status)";
+      const fallbackSelect = "*, suppliers(id, name), payment_request_items(id, product_name, raw_product_name), payment_allocations(id, amount, payment_id, created_at)";
+
       const { data, error } = await supabase
         .from("payment_requests")
-        .select("*, suppliers(id, name), payment_request_items(id, product_name, raw_product_name), payment_allocations(id, amount, payment_id, created_at), goods_receipts(id, receipt_number, receipt_date, payable_status), purchase_orders(id, po_number, status)")
+        .select(relationSelect)
         .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data as PaymentRequestWithSupplier[];
+
+      if (!error) return data as PaymentRequestWithSupplier[];
+
+      console.warn("[usePaymentRequests] Falling back without receipt/PO relations", error);
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from("payment_requests")
+        .select(fallbackSelect)
+        .order("created_at", { ascending: false });
+      if (fallbackError) throw fallbackError;
+      return fallbackData as PaymentRequestWithSupplier[];
     },
     staleTime: 30000,
     gcTime: 5 * 60 * 1000,

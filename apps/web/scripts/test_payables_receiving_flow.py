@@ -225,6 +225,9 @@ def test_finance_payables_ui_filters_and_labels_warehouse_generated_requests():
 
     assert "goods_receipts(id, receipt_number, receipt_date, payable_status)" in hook
     assert "purchase_orders(id, po_number, status)" in hook
+    assert "fallbackSelect" in hook
+    assert "Falling back without receipt/PO relations" in hook
+    assert 'select(fallbackSelect)' in hook
     assert "goods_receipts?:" in hook
     assert "purchase_orders?:" in hook
 
