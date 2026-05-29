@@ -302,6 +302,9 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
 
     assert "  Eye," not in page
     assert "<Eye" not in page
+    assert "const { language, t } = useLanguage();" in page
+    assert "{t.poPurchasing}" in page
+    assert "{isVi ? \"Đơn đặt hàng\" : \"Purchase Orders\"}" not in page
     assert "{isVi ? \"Sản phẩm\" : \"Products\"}" in page
     assert "getOrderProductNames" in page
     assert "order.purchase_order_items" in page

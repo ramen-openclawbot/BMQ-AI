@@ -56,7 +56,7 @@ export default function PurchaseOrders() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [deleteOrderId, setDeleteOrderId] = useState<string | null>(null);
 
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const isVi = language === "vi";
   const locale = language === "vi" ? vi : enUS;
   
@@ -155,7 +155,7 @@ export default function PurchaseOrders() {
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-2">
             <FileText className="h-8 w-8" />
-            {isVi ? "Đơn đặt hàng" : "Purchase Orders"}
+            {t.poPurchasing}
           </h1>
           <p className="text-muted-foreground">{isVi ? "Quản lý đơn đặt hàng gửi cho nhà cung cấp" : "Manage purchase orders sent to suppliers"}</p>
         </div>
