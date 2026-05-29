@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { format } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
-import { Package, Eye, Trash2, CheckCircle, Clock, FileCheck } from "lucide-react";
+import { Package, Eye, Trash2, CheckCircle, Clock, FileCheck, AlertCircle, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,6 +64,21 @@ export default function GoodsReceipts() {
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
+  };
+
+  const getPayableBadge = (receipt: (typeof receipts)[number]) => {
+    if (receipt.payable_status === "generated") {
+      return <Badge className="bg-emerald-600"><CheckCircle className="h-3 w-3 mr-1" />{isVi ? "Đã tạo công nợ" : "Payable created"}</Badge>;
+    }
+    if (receipt.payable_status === "pending") {
+      return <Badge variant="default"><Clock className="h-3 w-3 mr-1" />{isVi ? "Đang xử lý công nợ" : "Payable pending"}</Badge>;
+    }
+    return <Badge variant="outline"><AlertCircle className="h-3 w-3 mr-1" />{isVi ? "Chưa tạo công nợ" : "No payable"}</Badge>;
+  };
+
+  const getReceiptActionLabel = (receipt: (typeof receipts)[number]) => {
+    if (receipt.payable_status === "generated") return isVi ? "Đã tạo công nợ" : "Payable created";
+    return isVi ? "Nhập kho + Tạo công nợ" : "Receive + Create payable";
   };
 
   const handleDelete = async () => {
@@ -156,19 +171,20 @@ export default function GoodsReceipts() {
                 <TableHead>{isVi ? "Ngày nhận" : "Receipt date"}</TableHead>
                 <TableHead>{isVi ? "Số lượng" : "Quantity"}</TableHead>
                 <TableHead>{isVi ? "Trạng thái" : "Status"}</TableHead>
+                <TableHead>{isVi ? "PO / Công nợ" : "PO / Payable"}</TableHead>
                 <TableHead>{isVi ? "Thao tác" : "Actions"}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8">
+                  <TableCell colSpan={7} className="text-center py-8">
                     {isVi ? "Đang tải..." : "Loading..."}
                   </TableCell>
                 </TableRow>
               ) : filteredReceipts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8">
+                  <TableCell colSpan={7} className="text-center py-8">
                     <Package className="h-12 w-12 mx-auto text-muted-foreground mb-2" />
                     <p className="text-muted-foreground">{isVi ? "Chưa có phiếu nhập kho nào" : "No goods receipts yet"}</p>
                   </TableCell>
@@ -182,6 +198,22 @@ export default function GoodsReceipts() {
                     <TableCell>{receipt.total_quantity?.toLocaleString("vi-VN") || 0}</TableCell>
                     <TableCell>{getStatusBadge(receipt.status)}</TableCell>
                     <TableCell>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <Link2 className="h-3 w-3" />
+                          <span>PO: {receipt.purchase_orders?.po_number || "-"}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {getPayableBadge(receipt)}
+                        </div>
+                        {receipt.payment_requests?.request_number && (
+                          <div className="font-mono text-muted-foreground">
+                            {receipt.payment_requests.request_number}
+                          </div>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
                       <div className="flex items-center gap-2">
                         <Button
                           variant="ghost"
@@ -191,7 +223,7 @@ export default function GoodsReceipts() {
                           <Eye className="h-4 w-4" />
                         </Button>
 
-                        {receipt.status === "confirmed" && (
+                        {receipt.status === "confirmed" && receipt.payable_status !== "generated" && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -199,7 +231,7 @@ export default function GoodsReceipts() {
                             disabled={confirmReceipt.isPending}
                           >
                             <CheckCircle className="h-4 w-4 mr-1" />
-                            {isVi ? "Nhập kho" : "Receive"}
+                            {getReceiptActionLabel(receipt)}
                           </Button>
                         )}
 

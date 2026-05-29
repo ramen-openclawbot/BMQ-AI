@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { CheckCircle, Clock, FileCheck, Package, ExternalLink, Loader2 } from "lucide-react";
+import { CheckCircle, Clock, FileCheck, Package, ExternalLink, Loader2, AlertCircle, Link2 } from "lucide-react";
 import { useGoodsReceipt, useGoodsReceiptItems, useConfirmGoodsReceipt, getGoodsReceiptImageUrl } from "@/hooks/useGoodsReceipts";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -48,11 +48,35 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
     }
   };
 
+  const getPayableBadge = () => {
+    if (receipt?.payable_status === "generated") {
+      return <Badge className="bg-emerald-600"><CheckCircle className="h-3 w-3 mr-1" />Đã tạo công nợ</Badge>;
+    }
+    if (receipt?.payable_status === "pending") {
+      return <Badge variant="default"><Clock className="h-3 w-3 mr-1" />Đang xử lý công nợ</Badge>;
+    }
+    return <Badge variant="outline"><AlertCircle className="h-3 w-3 mr-1" />Chưa tạo công nợ</Badge>;
+  };
+
+  const lineStatusLabel = (status?: string | null) => {
+    if (status === "thieu") return "Thiếu";
+    if (status === "du_thua") return "Dư";
+    if (status === "du") return "Đủ";
+    return "-";
+  };
+
+  const lineStatusBadge = (status?: string | null) => {
+    if (status === "thieu") return <Badge variant="destructive">Thiếu</Badge>;
+    if (status === "du_thua") return <Badge variant="secondary">Dư</Badge>;
+    if (status === "du") return <Badge className="bg-green-500">Đủ</Badge>;
+    return <Badge variant="outline">-</Badge>;
+  };
+
   const handleConfirmReceipt = async () => {
     if (!receiptId) return;
     try {
       await confirmReceipt.mutateAsync(receiptId);
-      toast.success("Đã nhập hàng vào kho thành công");
+      toast.success("Đã nhập hàng vào kho và tạo công nợ chờ duyệt");
       onOpenChange(false);
     } catch (error) {
       toast.error("Không thể nhập hàng vào kho");
@@ -60,6 +84,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
   };
 
   const isLoading = receiptLoading || itemsLoading;
+  const isFinalizedWithPayable = receipt?.payable_status === "generated";
 
   return (
     <>
@@ -100,6 +125,48 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                 </div>
               </div>
 
+              {/* Payable audit */}
+              <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium">Đối soát công nợ</p>
+                    <p className="text-xs text-muted-foreground">Liên kết PO → phiếu nhập → công nợ phải trả</p>
+                  </div>
+                  {getPayableBadge()}
+                </div>
+                <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
+                  <div>
+                    <p className="text-muted-foreground">Mã PO</p>
+                    <p className="font-mono font-medium">{receipt.purchase_orders?.po_number || "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Mã công nợ</p>
+                    <p className="font-mono font-medium">{receipt.payment_requests?.request_number || "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Trạng thái duyệt</p>
+                    <p className="font-medium">{receipt.payment_requests?.status || "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Ngày chốt</p>
+                    <p className="font-medium">
+                      {receipt.finalized_at ? format(new Date(receipt.finalized_at), "dd/MM/yyyy HH:mm", { locale: vi }) : "-"}
+                    </p>
+                  </div>
+                </div>
+                {receipt.variance_summary && (
+                  <p className="text-xs text-muted-foreground">
+                    Tổng hợp lệch: {JSON.stringify(receipt.variance_summary)}
+                  </p>
+                )}
+                {isFinalizedWithPayable && (
+                  <p className="flex items-center gap-1 text-xs text-emerald-700">
+                    <Link2 className="h-3 w-3" />
+                    Không chốt lại phiếu đã tạo công nợ; mọi điều chỉnh tiếp theo phải đi qua quy trình audit/điều chỉnh.
+                  </p>
+                )}
+              </div>
+
               {/* Image */}
               {imageUrl && (
                 <div>
@@ -123,7 +190,9 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                     <TableRow>
                       <TableHead>Sản phẩm</TableHead>
                       <TableHead>SKU</TableHead>
-                      <TableHead className="text-right">Số lượng</TableHead>
+                      <TableHead className="text-right">Đặt</TableHead>
+                      <TableHead className="text-right">Thực nhận</TableHead>
+                      <TableHead>Trạng thái</TableHead>
                       <TableHead>Đơn vị</TableHead>
                       <TableHead>HSD</TableHead>
                     </TableRow>
@@ -140,10 +209,14 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                           )}
                         </TableCell>
                         <TableCell className="text-right font-mono">
-                          {item.quantity.toLocaleString("vi-VN")}
+                          {(item.ordered_quantity ?? item.quantity).toLocaleString("vi-VN")}
                         </TableCell>
+                        <TableCell className="text-right font-mono">
+                          {(item.actual_quantity ?? item.quantity).toLocaleString("vi-VN")}
+                        </TableCell>
+                        <TableCell title={lineStatusLabel(item.line_status)}>{lineStatusBadge(item.line_status)}</TableCell>
                         <TableCell>{item.unit || "kg"}</TableCell>
-                        <TableCell>{(item as any).expiry_date ? format(new Date((item as any).expiry_date), "dd/MM/yyyy", { locale: vi }) : "-"}</TableCell>
+                        <TableCell>{item.expiry_date ? format(new Date(item.expiry_date), "dd/MM/yyyy", { locale: vi }) : "-"}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -169,7 +242,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
               )}
 
               {/* Actions */}
-              {receipt.status === "confirmed" && (
+              {receipt.status === "confirmed" && !isFinalizedWithPayable && (
                 <div className="flex justify-end">
                   <Button
                     onClick={handleConfirmReceipt}
@@ -180,7 +253,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                     ) : (
                       <CheckCircle className="h-4 w-4 mr-2" />
                     )}
-                    Xác nhận nhập kho
+                    Xác nhận nhập kho + Tạo công nợ
                   </Button>
                 </div>
               )}

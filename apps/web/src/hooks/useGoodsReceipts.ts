@@ -5,11 +5,17 @@ import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 
 export type GoodsReceipt = Tables<"goods_receipts"> & {
   suppliers?: { id: string; name: string } | null;
+  purchase_orders?: { id: string; po_number: string | null; status: string | null } | null;
+  payment_requests?: { id: string; request_number: string | null; status: string | null; total_amount: number | null; payment_status: string | null } | null;
+  payable_status: string;
+  finalized_at: string | null;
+  variance_summary: unknown;
 };
 
 export type GoodsReceiptItem = Tables<"goods_receipt_items"> & {
   product_skus?: { id: string; sku_code: string; product_name: string } | null;
   inventory_items?: { id: string; name: string; quantity: number } | null;
+  purchase_order_items?: { id: string; product_name: string | null; quantity: number | null; unit_price: number | null } | null;
 };
 
 export type GoodsReceiptInsert = TablesInsert<"goods_receipts">;
@@ -22,7 +28,7 @@ export function useGoodsReceipts() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("goods_receipts")
-        .select("*, suppliers(id, name)")
+        .select("*, suppliers(id, name), purchase_orders(id, po_number, status), payment_requests(id, request_number, status, total_amount, payment_status)")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data as GoodsReceipt[];
@@ -41,7 +47,7 @@ export function useGoodsReceipt(id: string | null) {
       if (!id) throw new Error("No ID provided");
       const { data, error } = await supabase
         .from("goods_receipts")
-        .select("*, suppliers(id, name)")
+        .select("*, suppliers(id, name), purchase_orders(id, po_number, status), payment_requests(id, request_number, status, total_amount, payment_status)")
         .eq("id", id)
         .single();
       if (error) throw error;
@@ -60,7 +66,7 @@ export function useGoodsReceiptItems(receiptId: string | null) {
       if (!receiptId) throw new Error("No receipt ID provided");
       const { data, error } = await supabase
         .from("goods_receipt_items")
-        .select("*, product_skus(id, sku_code, product_name), inventory_items(id, name, quantity)")
+        .select("*, product_skus(id, sku_code, product_name), inventory_items(id, name, quantity), purchase_order_items(id, product_name, quantity, unit_price)")
         .eq("goods_receipt_id", receiptId)
         .order("created_at", { ascending: true });
       if (error) throw error;

@@ -9,6 +9,8 @@ SCAN_RESULT_EDITOR = ROOT / "src/warehouse/components/ScanResultEditor.tsx"
 MATCH_DELIVERY_FUNCTION = ROOT / "supabase/functions/match-delivery-note/index.ts"
 FINALIZE_RECEIPT_FUNCTION = ROOT / "supabase/functions/finalize-goods-receipt/index.ts"
 GOODS_RECEIPTS_HOOK = ROOT / "src/hooks/useGoodsReceipts.ts"
+GOODS_RECEIPTS_PAGE = ROOT / "src/pages/GoodsReceipts.tsx"
+GOODS_RECEIPT_DETAILS = ROOT / "src/components/dialogs/GoodsReceiptDetailsDialog.tsx"
 SUPABASE_CONFIG = ROOT / "supabase/config.toml"
 MIGRATIONS = ROOT / "supabase/migrations"
 TYPES = ROOT / "src/integrations/supabase/types.ts"
@@ -169,6 +171,39 @@ def test_goods_receipt_confirm_uses_finalization_edge_function_not_client_side_i
     assert "verify_jwt = false" in config.split("[functions.finalize-goods-receipt]", 1)[1].split("[functions.", 1)[0]
 
 
+def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finalization():
+    hook = read(GOODS_RECEIPTS_HOOK)
+    page = read(GOODS_RECEIPTS_PAGE)
+    details = read(GOODS_RECEIPT_DETAILS)
+
+    assert "purchase_orders" in hook
+    assert "payment_requests" in hook
+    assert "payable_status" in hook
+
+    assert "getPayableBadge" in page
+    assert "payable_status" in page
+    assert "Công nợ" in page
+    assert "Chưa tạo công nợ" in page
+    assert "Đã tạo công nợ" in page
+    assert "Đang xử lý công nợ" in page
+    assert "receipt.payable_status === \"generated\"" in page
+    assert "receipt.payment_requests?.request_number" in page
+    assert "receipt.purchase_orders?.po_number" in page
+    assert "Tạo công nợ" in page
+
+    assert "Đối soát công nợ" in details
+    assert "Mã PO" in details
+    assert "Mã công nợ" in details
+    assert "payment_requests?.request_number" in details
+    assert "purchase_orders?.po_number" in details
+    assert "finalized_at" in details
+    assert "variance_summary" in details
+    assert "ordered_quantity" in details
+    assert "actual_quantity" in details
+    assert "line_status" in details
+    assert "Không chốt lại phiếu đã tạo công nợ" in details
+
+
 if __name__ == "__main__":
     test_payables_receiving_helpers_are_present_and_use_actual_quantity()
     test_migration_adds_receipt_variance_and_payable_state_without_breaking_existing_columns()
@@ -178,4 +213,5 @@ if __name__ == "__main__":
     test_warehouse_ui_exposes_po_receipt_match_metadata()
     test_finalization_function_posts_inventory_and_generates_pending_payable_from_actual_quantities()
     test_goods_receipt_confirm_uses_finalization_edge_function_not_client_side_inventory_mutations()
-    print("ok - 8 tests passed")
+    test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finalization()
+    print("ok - 9 tests passed")
