@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
     // 1. Fetch payment request with items
     const { data: paymentRequest, error: prError } = await supabase
       .from("payment_requests")
-      .select("id, supplier_id, total_amount, vat_amount, image_url, invoice_created")
+      .select("id, supplier_id, total_amount, vat_amount, image_url, invoice_created, purchase_order_id, goods_receipt_id")
       .eq("id", payment_request_id)
       .single();
 
@@ -115,6 +115,8 @@ Deno.serve(async (req) => {
         image_url: paymentRequest.image_url,
         payment_slip_url: payment_slip_url || null,
         payment_request_id,
+        purchase_order_id: paymentRequest.purchase_order_id,
+        goods_receipt_id: paymentRequest.goods_receipt_id,
         created_by: user.id,
       })
       .select("id")

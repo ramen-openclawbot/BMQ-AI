@@ -18,9 +18,19 @@ export interface Invoice {
   created_at: string;
   updated_at: string;
   payment_request_id: string | null;
+  purchase_order_id: string | null;
+  goods_receipt_id: string | null;
   suppliers?: {
     id: string;
     name: string;
+  } | null;
+  purchase_orders?: {
+    id: string;
+    po_number: string;
+  } | null;
+  goods_receipts?: {
+    id: string;
+    receipt_number: string;
   } | null;
 }
 
@@ -63,6 +73,8 @@ export interface CreateInvoiceData {
   notes?: string | null;
   created_by?: string | null;
   payment_request_id?: string | null;
+  purchase_order_id?: string | null;
+  goods_receipt_id?: string | null;
 }
 
 export interface CreateInvoiceItemData {
@@ -97,7 +109,9 @@ export function useInvoices() {
         .from("invoices")
         .select(`
           *,
-          suppliers (id, name)
+          suppliers (id, name),
+          purchase_orders (id, po_number),
+          goods_receipts (id, receipt_number)
         `)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -117,7 +131,9 @@ export function useInvoice(id: string | null) {
         .from("invoices")
         .select(`
           *,
-          suppliers (id, name)
+          suppliers (id, name),
+          purchase_orders (id, po_number),
+          goods_receipts (id, receipt_number)
         `)
         .eq("id", id)
         .maybeSingle();

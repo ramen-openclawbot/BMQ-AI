@@ -951,6 +951,8 @@ export type Database = {
           notes: string | null
           payment_request_id: string | null
           payment_slip_url: string | null
+          purchase_order_id: string | null
+          goods_receipt_id: string | null
           subtotal: number | null
           supplier_id: string | null
           total_amount: number | null
@@ -967,6 +969,8 @@ export type Database = {
           notes?: string | null
           payment_request_id?: string | null
           payment_slip_url?: string | null
+          purchase_order_id?: string | null
+          goods_receipt_id?: string | null
           subtotal?: number | null
           supplier_id?: string | null
           total_amount?: number | null
@@ -983,6 +987,8 @@ export type Database = {
           notes?: string | null
           payment_request_id?: string | null
           payment_slip_url?: string | null
+          purchase_order_id?: string | null
+          goods_receipt_id?: string | null
           subtotal?: number | null
           supplier_id?: string | null
           total_amount?: number | null
@@ -991,10 +997,24 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "invoices_goods_receipt_id_fkey"
+            columns: ["goods_receipt_id"]
+            isOneToOne: false
+            referencedRelation: "goods_receipts"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "invoices_payment_request_id_fkey"
             columns: ["payment_request_id"]
             isOneToOne: false
             referencedRelation: "payment_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_purchase_order_id_fkey"
+            columns: ["purchase_order_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_orders"
             referencedColumns: ["id"]
           },
           {

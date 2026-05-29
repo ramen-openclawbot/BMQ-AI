@@ -208,6 +208,8 @@ export function CreateInvoiceFromRequestDialog({
             image_url: request.image_url || null,
             payment_slip_url: uploadedPaymentSlipUrl || null,
             payment_request_id: request.id,
+            purchase_order_id: request.purchase_order_id || null,
+            goods_receipt_id: request.goods_receipt_id || null,
           })
           .select("id")
           .single();

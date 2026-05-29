@@ -220,6 +220,10 @@ export function AddInvoiceDialog() {
   );
   const vatAmount = form.watch("vat_amount") || 0;
   const totalAmount = subtotal + vatAmount;
+  const selectedRequest = useMemo(
+    () => availableRequests.find((request) => request.id === selectedRequestId) || null,
+    [availableRequests, selectedRequestId],
+  );
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -397,6 +401,8 @@ export function AddInvoiceDialog() {
         notes: data.notes || null,
         created_by: user?.id || null,
         payment_request_id: data.payment_request_id || null,
+        purchase_order_id: selectedRequest?.purchase_order_id || null,
+        goods_receipt_id: selectedRequest?.goods_receipt_id || null,
       });
 
       // If linked to payment request, update the request

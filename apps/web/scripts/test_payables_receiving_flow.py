@@ -260,6 +260,43 @@ def test_finance_payables_ui_filters_and_labels_warehouse_generated_requests():
     assert 'request.purchase_orders?.po_number' in details
 
 
+def test_invoice_accounting_links_po_receipt_context_without_enterprise_ledger_rewrite():
+    migrations = "\n".join(read(path) for path in sorted(MIGRATIONS.glob("*.sql")))
+    types = read(TYPES)
+    invoice_hook = read(ROOT / "src/hooks/useInvoices.ts")
+    add_invoice = read(ROOT / "src/components/dialogs/AddInvoiceDialog.tsx")
+    create_from_pr_dialog = read(ROOT / "src/components/dialogs/CreateInvoiceFromRequestDialog.tsx")
+    create_from_pr_function = read(ROOT / "supabase/functions/create-invoice-from-pr/index.ts")
+
+    assert "ALTER TABLE public.invoices" in migrations
+    assert "purchase_order_id uuid" in migrations
+    assert "goods_receipt_id uuid" in migrations
+    assert "invoices_purchase_order_id_fkey" in migrations
+    assert "invoices_goods_receipt_id_fkey" in migrations
+    assert "uniq_invoices_supplier_invoice_number" in migrations
+    assert "idx_invoices_purchase_order_id" in migrations
+    assert "idx_invoices_goods_receipt_id" in migrations
+
+    invoice_types = types.split("invoices: {", 1)[1].split("order_items:", 1)[0]
+    assert "purchase_order_id: string | null" in invoice_types
+    assert "goods_receipt_id: string | null" in invoice_types
+    assert "foreignKeyName: \"invoices_purchase_order_id_fkey\"" in invoice_types
+    assert "foreignKeyName: \"invoices_goods_receipt_id_fkey\"" in invoice_types
+
+    assert "purchase_order_id: string | null;" in invoice_hook
+    assert "goods_receipt_id: string | null;" in invoice_hook
+    assert "purchase_orders (id, po_number)" in invoice_hook
+    assert "goods_receipts (id, receipt_number)" in invoice_hook
+
+    assert "selectedRequest?.purchase_order_id || null" in add_invoice
+    assert "selectedRequest?.goods_receipt_id || null" in add_invoice
+    assert "paymentRequest.purchase_order_id" in create_from_pr_function
+    assert "paymentRequest.goods_receipt_id" in create_from_pr_function
+    assert "purchase_order_id: request.purchase_order_id || null" in create_from_pr_dialog
+    assert "goods_receipt_id: request.goods_receipt_id || null" in create_from_pr_dialog
+    assert "Tạo từ đề nghị chi" in create_from_pr_dialog
+
+
 def test_payables_management_is_accessible_from_cost_sidebar_with_filtered_route():
     sidebar = read(SIDEBAR)
     routes = read(APP_ROUTES)
@@ -418,6 +455,7 @@ if __name__ == "__main__":
     test_goods_receipt_confirm_uses_finalization_edge_function_not_client_side_inventory_mutations()
     test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finalization()
     test_finance_payables_ui_filters_and_labels_warehouse_generated_requests()
+    test_invoice_accounting_links_po_receipt_context_without_enterprise_ledger_rewrite()
     test_payables_management_is_accessible_from_cost_sidebar_with_filtered_route()
     test_purchase_orders_list_row_opens_details_and_shows_product_names_without_eye_icon()
-    print("ok - 12 tests passed")
+    print("ok - 13 tests passed")
