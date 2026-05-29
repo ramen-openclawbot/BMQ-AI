@@ -309,6 +309,13 @@ function formatVnd(amount: number | null | undefined): string {
   return `${Number(amount || 0).toLocaleString("vi-VN")}đ`;
 }
 
+function productionReportQty(row: { actual_qty?: number | null; planned_qty?: number | null; ordered_qty?: number | null }): number {
+  const actualQty = Number(row.actual_qty || 0);
+  const plannedQty = Number(row.planned_qty || 0);
+  const orderedQty = Number(row.ordered_qty || 0);
+  return actualQty > 0 ? actualQty : plannedQty > 0 ? plannedQty : orderedQty;
+}
+
 function getVietnamDateParts(offsetDays = 0): { iso: string; period: string; label: string } {
   const currentParts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Ho_Chi_Minh",
@@ -612,7 +619,7 @@ async function fetchDashboardQuickReport(): Promise<DashboardQuickReport> {
     if (error) throw error;
     const rows = data || [];
     rows.forEach((row: { delivery_date?: string | null; actual_qty?: number | null; planned_qty?: number | null; ordered_qty?: number | null }) => {
-      const qty = Number(row.actual_qty ?? row.planned_qty ?? row.ordered_qty ?? 0);
+      const qty = productionReportQty(row);
       if (row.delivery_date === yesterday.iso) yesterdayProductionQty += qty;
       if (row.delivery_date === today.iso) todayProductionQty += qty;
     });
