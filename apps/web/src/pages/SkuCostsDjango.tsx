@@ -97,22 +97,22 @@ function SkuImageThumb({ sku, uploading, onClick }: { sku: SkuRow; uploading?: b
     <button
       type="button"
       onClick={onClick}
-      className="group relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-[18px] border border-white/10 bg-[#231913] shadow-inner transition hover:border-amber-300/40"
+      className="group relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-[18px] border border-border/70 bg-muted/45 shadow-inner transition hover:border-primary/40"
       aria-label={`Cập nhật ảnh ${sku.product_name}`}
     >
       {sku.image_url ? (
         <img src={sku.image_url} alt={sku.product_name} className="h-full w-full object-cover" loading="lazy" />
       ) : (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-1 bg-[radial-gradient(circle_at_50%_30%,rgba(245,158,11,0.18),transparent_60%)] text-white/40">
+        <div className="flex h-full w-full flex-col items-center justify-center gap-1 bg-muted text-muted-foreground">
           <ImageIcon className="h-5 w-5" />
           <span className="text-[9px] font-bold leading-none">Chưa có ảnh</span>
         </div>
       )}
-      <span className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 bg-black/58 py-1 text-[9px] font-extrabold text-amber-200 opacity-0 backdrop-blur transition group-hover:opacity-100">
+      <span className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 bg-foreground/70 py-1 text-[9px] font-extrabold text-primary opacity-0 backdrop-blur transition group-hover:opacity-100">
         <Camera className="h-3 w-3" /> Đổi ảnh
       </span>
       {uploading && (
-        <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-amber-200 backdrop-blur-sm">
+        <span className="absolute inset-0 flex items-center justify-center bg-foreground/60 text-primary backdrop-blur-sm">
           <Loader2 className="h-5 w-5 animate-spin" />
         </span>
       )}
@@ -303,18 +303,18 @@ export default function SkuCostsDjango() {
   const maxBand = Math.max(1, ...stats.bandCounts.map((b) => b.count));
 
   return (
-    <div className="-m-4 min-h-screen bg-[#0b0908] text-white md:-m-6">
-      <div className="mx-auto min-h-screen w-full max-w-[430px] bg-[radial-gradient(circle_at_50%_-8%,rgba(245,158,11,0.26),transparent_34%),linear-gradient(180deg,#17100c_0%,#0b0908_44%,#070605_100%)] px-4 pb-28 pt-3 shadow-2xl md:max-w-[560px] md:px-5 lg:hidden">
-        <header className="sticky top-0 z-20 -mx-4 bg-gradient-to-b from-[#17100c]/98 via-[#17100c]/90 to-[#17100c]/70 px-4 pb-3 pt-2 backdrop-blur-xl md:-mx-5 md:px-5">
+    <div data-stitch-sku-cost-dashboard-theme="pantone-2026-light" className="-m-4 min-h-screen bg-background text-foreground md:-m-6">
+      <div className="mx-auto min-h-screen w-full max-w-[430px] bg-background px-4 pb-28 pt-3 shadow-2xl md:max-w-[560px] md:px-5 lg:hidden">
+        <header className="sticky top-0 z-20 -mx-4 border-b border-border/60 bg-background/92 px-4 pb-3 pt-2 backdrop-blur-xl md:-mx-5 md:px-5">
           <div className="flex items-center justify-between gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-amber-100 shadow-inner">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-card/80 text-primary shadow-inner">
               <Package2 className="h-5 w-5" />
             </div>
             <div className="min-w-0 text-center">
-              <h1 className="text-[21px] font-black leading-tight tracking-[-0.03em] text-white">Tổng quan giá vốn</h1>
-              <p className="mt-0.5 text-[11px] font-bold text-white/42">Toàn bộ SKU thành phẩm hiện có</p>
+              <h1 className="text-[21px] font-black leading-tight tracking-[-0.03em] text-foreground">Tổng quan giá vốn</h1>
+              <p className="mt-0.5 text-[11px] font-bold text-muted-foreground">Toàn bộ SKU thành phẩm hiện có</p>
             </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-amber-300/20 bg-amber-300/10 text-amber-200 shadow-inner">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary shadow-inner">
               <Camera className="h-5 w-5" />
             </div>
           </div>
@@ -329,7 +329,7 @@ export default function SkuCostsDjango() {
                   className={({ isActive }) =>
                     cn(
                       "inline-flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[12px] font-extrabold transition",
-                      isActive ? "bg-amber-400 text-[#1b1004] shadow-[0_10px_24px_rgba(245,158,11,0.24)]" : "border border-white/10 bg-white/[0.045] text-white/48 hover:text-white"
+                      isActive ? "bg-primary text-primary-foreground shadow-card" : "border border-border/70 bg-muted/45 text-muted-foreground hover:text-foreground"
                     )
                   }
                 >
@@ -342,7 +342,7 @@ export default function SkuCostsDjango() {
         </header>
 
         <main className="space-y-4 pt-4">
-          <section className="rounded-[28px] border border-white/10 bg-white/[0.055] p-4 shadow-[0_18px_60px_rgba(0,0,0,0.34)] backdrop-blur-xl">
+          <section className="rounded-[28px] border border-border/70 bg-card/70 p-4 shadow-card backdrop-blur-xl">
             <div className="grid grid-cols-2 gap-3">
               {[
                 { label: "SKU thành phẩm", value: loading ? "..." : stats.count, sub: "đang quản lý" },
@@ -350,43 +350,43 @@ export default function SkuCostsDjango() {
                 { label: "Giá cao nhất", value: loading ? "..." : vnd(stats.maxSelling), sub: "top giá bán" },
                 { label: "Cập nhật", value: loading ? "..." : formatDateTime(stats.updatedAt), sub: "gần nhất" },
               ].map((card) => (
-                <article key={card.label} className="min-h-[94px] rounded-[22px] border border-white/10 bg-[#14100d]/88 p-3.5 shadow-inner">
-                  <p className="text-[11px] font-extrabold uppercase tracking-[0.12em] text-white/35">{card.label}</p>
-                  <div className="mt-3 text-[22px] font-black leading-none tracking-[-0.04em] text-white">{card.value}</div>
-                  <p className="mt-2 text-[11px] font-bold text-white/38">{card.sub}</p>
+                <article key={card.label} className="min-h-[94px] rounded-[22px] border border-border/70 bg-card/80 p-3.5 shadow-inner">
+                  <p className="text-[11px] font-extrabold uppercase tracking-[0.12em] text-muted-foreground">{card.label}</p>
+                  <div className="mt-3 text-[22px] font-black leading-none tracking-[-0.04em] text-foreground">{card.value}</div>
+                  <p className="mt-2 text-[11px] font-bold text-muted-foreground">{card.sub}</p>
                 </article>
               ))}
             </div>
             <div className="mt-3 grid grid-cols-3 gap-2">
               {[
-                { label: "Có giá bán", value: stats.pricedCount, tone: "text-emerald-300" },
-                { label: "Chưa có giá", value: stats.missingPrice, tone: stats.missingPrice ? "text-rose-300" : "text-white/70" },
-                { label: "Có ảnh", value: stats.imageCount, tone: "text-amber-200" },
+                { label: "Có giá bán", value: stats.pricedCount, tone: "text-success" },
+                { label: "Chưa có giá", value: stats.missingPrice, tone: stats.missingPrice ? "text-destructive" : "text-foreground/70" },
+                { label: "Có ảnh", value: stats.imageCount, tone: "text-primary" },
               ].map((chip) => (
-                <div key={chip.label} className="rounded-2xl border border-white/10 bg-[#211915]/80 px-3 py-2 text-center">
+                <div key={chip.label} className="rounded-2xl border border-border/70 bg-muted/50 px-3 py-2 text-center">
                   <div className={cn("text-[18px] font-black", chip.tone)}>{loading ? "..." : chip.value}</div>
-                  <div className="mt-0.5 text-[10px] font-bold text-white/38">{chip.label}</div>
+                  <div className="mt-0.5 text-[10px] font-bold text-muted-foreground">{chip.label}</div>
                 </div>
               ))}
             </div>
           </section>
 
-          <section className="rounded-[24px] border border-white/10 bg-[#14100d]/95 p-4 shadow-[0_18px_60px_rgba(0,0,0,0.34)]">
+          <section className="rounded-[24px] border border-border/70 bg-card/80 p-4 shadow-card">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-[16px] font-black tracking-[-0.02em] text-white">Phân bổ giá bán SKU</h2>
-                <p className="mt-0.5 text-[11px] font-semibold text-white/38">Nhìn nhanh dải giá toàn bộ SKU.</p>
+                <h2 className="text-[16px] font-black tracking-[-0.02em] text-foreground">Phân bổ giá bán SKU</h2>
+                <p className="mt-0.5 text-[11px] font-semibold text-muted-foreground">Nhìn nhanh dải giá toàn bộ SKU.</p>
               </div>
-              <span className="rounded-full bg-amber-300/10 px-2.5 py-1 text-[11px] font-extrabold text-amber-200 ring-1 ring-amber-300/20">{stats.count} SKU</span>
+              <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-extrabold text-primary ring-1 ring-primary/20">{stats.count} SKU</span>
             </div>
             <div className="space-y-2.5">
               {stats.bandCounts.map((band) => (
                 <div key={band.label} className="grid grid-cols-[48px_minmax(0,1fr)_28px] items-center gap-2">
-                  <span className="text-[11px] font-bold text-white/45">{band.label}</span>
-                  <div className="h-3 overflow-hidden rounded-full bg-white/[0.07]">
-                    <div className="h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-300" style={{ width: `${Math.max(6, (band.count / maxBand) * 100)}%` }} />
+                  <span className="text-[11px] font-bold text-muted-foreground">{band.label}</span>
+                  <div className="h-3 overflow-hidden rounded-full bg-muted/60">
+                    <div className="h-full rounded-full bg-gradient-to-r from-primary to-warning" style={{ width: `${Math.max(6, (band.count / maxBand) * 100)}%` }} />
                   </div>
-                  <span className="text-right text-[12px] font-black tabular-nums text-white">{loading ? "-" : band.count}</span>
+                  <span className="text-right text-[12px] font-black tabular-nums text-foreground">{loading ? "-" : band.count}</span>
                 </div>
               ))}
             </div>
@@ -395,56 +395,56 @@ export default function SkuCostsDjango() {
           <section className="space-y-3">
             <div className="flex items-end justify-between gap-3">
               <div>
-                <h2 className="text-[18px] font-black tracking-[-0.02em] text-white">Toàn bộ SKU hiện có</h2>
-                <p className="mt-0.5 text-[11px] font-bold text-white/38">Bấm ảnh để upload/cập nhật hình SKU.</p>
+                <h2 className="text-[18px] font-black tracking-[-0.02em] text-foreground">Toàn bộ SKU hiện có</h2>
+                <p className="mt-0.5 text-[11px] font-bold text-muted-foreground">Bấm ảnh để upload/cập nhật hình SKU.</p>
               </div>
               <button
                 type="button"
                 onClick={() => setSortMode((mode) => (mode === "price" ? "updated" : "price"))}
-                className="rounded-full border border-amber-300/20 bg-amber-300/[0.06] px-3 py-2 text-[11px] font-extrabold text-amber-200"
+                className="rounded-full border border-primary/20 bg-primary/10 px-3 py-2 text-[11px] font-extrabold text-primary"
               >
                 {sortMode === "price" ? "Giá bán" : "Mới cập nhật"}
               </button>
             </div>
-            <div className="flex items-center gap-2 rounded-[18px] border border-white/10 bg-[#211915] px-3 py-2 shadow-inner">
-              <Search className="h-4 w-4 shrink-0 text-white/35" />
+            <div className="flex items-center gap-2 rounded-[18px] border border-border/70 bg-muted/45 px-3 py-2 shadow-inner">
+              <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
               <Input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Tìm SKU"
-                className="h-9 border-0 bg-transparent px-0 text-[13px] font-bold text-white placeholder:text-white/28 focus-visible:ring-0"
+                className="h-9 border-0 bg-transparent px-0 text-[13px] font-bold text-foreground placeholder:text-muted-foreground/70 focus-visible:ring-0"
               />
             </div>
 
             {loading ? (
-              <div className="rounded-[24px] border border-white/10 bg-white/[0.04] px-4 py-8 text-center text-[13px] font-bold text-white/45">Đang tải SKU...</div>
+              <div className="rounded-[24px] border border-border/70 bg-muted/40 px-4 py-8 text-center text-[13px] font-bold text-muted-foreground">Đang tải SKU...</div>
             ) : filteredSkus.length === 0 ? (
-              <div className="rounded-[24px] border border-dashed border-white/12 bg-white/[0.035] px-4 py-8 text-center text-[13px] font-bold text-white/45">Không tìm thấy SKU phù hợp.</div>
+              <div className="rounded-[24px] border border-dashed border-border/70 bg-muted/35 px-4 py-8 text-center text-[13px] font-bold text-muted-foreground">Không tìm thấy SKU phù hợp.</div>
             ) : (
               <div className="space-y-3">
                 {filteredSkus.map((sku) => {
                   const hasPrice = sku.sellingPrice > 0;
                   return (
-                    <article key={sku.id} className="flex items-center gap-3 rounded-[24px] border border-white/10 bg-[#14100d]/95 p-3 shadow-[0_14px_42px_rgba(0,0,0,0.28)]">
+                    <article key={sku.id} className="flex items-center gap-3 rounded-[24px] border border-border/70 bg-card/80 p-3 shadow-card">
                       <SkuImageThumb sku={sku} uploading={uploadingSkuId === sku.id} onClick={() => openUploadModal(sku)} />
                       <button type="button" onClick={() => openSkuDetail(sku)} className="min-w-0 flex-1 text-left" aria-label={`Xem chi tiết ${sku.product_name}`}>
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <h3 className="truncate text-[14px] font-black leading-tight text-white">{sku.product_name}</h3>
-                            <p className="mt-1 truncate font-mono text-[10px] font-bold text-white/35">{sku.sku_code || sku.id}</p>
+                            <h3 className="truncate text-[14px] font-black leading-tight text-foreground">{sku.product_name}</h3>
+                            <p className="mt-1 truncate font-mono text-[10px] font-bold text-muted-foreground">{sku.sku_code || sku.id}</p>
                           </div>
-                          <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-white/25" />
+                          <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground/60" />
                         </div>
                         <div className="mt-3 flex items-center justify-between gap-2">
                           <div>
-                            <div className="text-[17px] font-black leading-none tracking-[-0.03em] text-amber-300">{vnd(sku.sellingPrice)}</div>
-                            <div className="mt-1 text-[10px] font-bold text-white/34">Giá bán</div>
+                            <div className="text-[17px] font-black leading-none tracking-[-0.03em] text-primary">{vnd(sku.sellingPrice)}</div>
+                            <div className="mt-1 text-[10px] font-bold text-muted-foreground">Giá bán</div>
                           </div>
                           <div className="flex items-center gap-1.5">
-                            <span className={cn("rounded-full px-2 py-1 text-[10px] font-extrabold ring-1", hasPrice ? "bg-emerald-400/10 text-emerald-300 ring-emerald-300/20" : "bg-rose-400/10 text-rose-300 ring-rose-300/20")}>
+                            <span className={cn("rounded-full px-2 py-1 text-[10px] font-extrabold ring-1", hasPrice ? "bg-success/10 text-success ring-success/20" : "bg-destructive/10 text-destructive ring-destructive/20")}>
                               {hasPrice ? "Có giá" : "Chưa giá"}
                             </span>
-                            <span className="rounded-xl border border-white/10 bg-white/[0.045] px-2 py-1 text-[10px] font-black text-white/58">
+                            <span className="rounded-xl border border-border/70 bg-muted/45 px-2 py-1 text-[10px] font-black text-muted-foreground">
                               LC {Number.isFinite(sku.marginPct) ? `${Math.round(sku.marginPct)}%` : "—"}
                             </span>
                           </div>
@@ -458,31 +458,31 @@ export default function SkuCostsDjango() {
           </section>
         </main>
 
-        <div className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[430px] bg-gradient-to-t from-[#070605] via-[#070605]/96 to-transparent px-4 pb-4 pt-8 md:max-w-[560px] lg:hidden">
-          <div className="grid grid-cols-2 gap-3 rounded-[24px] border border-white/10 bg-[#14100d]/92 p-2 shadow-[0_-14px_48px_rgba(0,0,0,0.42)] backdrop-blur-xl">
-            <Button onClick={exportSkuSheet} className="h-12 rounded-[18px] border border-white/10 bg-white/[0.06] text-[13px] font-extrabold text-white hover:bg-white/[0.1]">Xuất sheet SKU</Button>
-            <Button onClick={() => navigate("/sku-costs/management")} className="h-12 rounded-[18px] bg-amber-400 text-[13px] font-extrabold text-[#1b1004] shadow-[0_12px_26px_rgba(245,158,11,0.22)] hover:bg-amber-300">Cập nhật giá</Button>
+        <div className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[430px] bg-gradient-to-t from-background via-background/96 to-transparent px-4 pb-4 pt-8 md:max-w-[560px] lg:hidden">
+          <div className="grid grid-cols-2 gap-3 rounded-[24px] border border-border/70 bg-card/80 p-2 shadow-card backdrop-blur-xl">
+            <Button onClick={exportSkuSheet} className="h-12 rounded-[18px] border border-border/70 bg-card/80 text-[13px] font-extrabold text-foreground hover:bg-muted/70">Xuất sheet SKU</Button>
+            <Button onClick={() => navigate("/sku-costs/management")} className="h-12 rounded-[18px] bg-primary text-[13px] font-extrabold text-primary-foreground shadow-card hover:bg-primary/90">Cập nhật giá</Button>
           </div>
         </div>
       </div>
 
-      <div className="hidden min-h-screen bg-[radial-gradient(circle_at_18%_-12%,rgba(245,158,11,0.18),transparent_34%),linear-gradient(180deg,#140f0c_0%,#0b0908_42%,#070605_100%)] px-8 py-8 lg:block">
+      <div className="hidden min-h-screen bg-background px-8 py-8 lg:block">
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
-          <header className="rounded-[32px] border border-white/10 bg-white/[0.055] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.34)] backdrop-blur-xl">
+          <header className="rounded-[32px] border border-border/70 bg-card/70 p-6 shadow-card backdrop-blur-xl">
             <div className="flex items-start justify-between gap-6">
               <div className="flex items-start gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-amber-300/20 bg-amber-300/10 text-amber-200 shadow-inner">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary shadow-inner">
                   <Package2 className="h-7 w-7" />
                 </div>
                 <div>
-                  <p className="text-xs font-extrabold uppercase tracking-[0.22em] text-amber-200/70">SKU Costs</p>
-                  <h1 className="mt-1 text-[34px] font-black leading-tight tracking-[-0.04em] text-white">Tổng quan giá vốn</h1>
-                  <p className="mt-2 max-w-2xl text-sm font-semibold text-white/45">Dashboard desktop cho toàn bộ SKU thành phẩm, giá bán, giá vốn và trạng thái ảnh sản phẩm.</p>
+                  <p className="text-xs font-extrabold uppercase tracking-[0.22em] text-primary/70">SKU Costs</p>
+                  <h1 className="mt-1 text-[34px] font-black leading-tight tracking-[-0.04em] text-foreground">Tổng quan giá vốn</h1>
+                  <p className="mt-2 max-w-2xl text-sm font-semibold text-muted-foreground">Dashboard desktop cho toàn bộ SKU thành phẩm, giá bán, giá vốn và trạng thái ảnh sản phẩm.</p>
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-3">
-                <Button onClick={exportSkuSheet} className="h-11 rounded-2xl border border-white/10 bg-white/[0.06] px-5 text-sm font-extrabold text-white hover:bg-white/[0.1]">Xuất sheet SKU</Button>
-                <Button onClick={() => navigate("/sku-costs/management")} className="h-11 rounded-2xl bg-amber-400 px-5 text-sm font-extrabold text-[#1b1004] shadow-[0_12px_28px_rgba(245,158,11,0.22)] hover:bg-amber-300">Cập nhật giá</Button>
+                <Button onClick={exportSkuSheet} className="h-11 rounded-2xl border border-border/70 bg-card/80 px-5 text-sm font-extrabold text-foreground hover:bg-muted/70">Xuất sheet SKU</Button>
+                <Button onClick={() => navigate("/sku-costs/management")} className="h-11 rounded-2xl bg-primary px-5 text-sm font-extrabold text-primary-foreground shadow-card hover:bg-primary/90">Cập nhật giá</Button>
               </div>
             </div>
 
@@ -496,7 +496,7 @@ export default function SkuCostsDjango() {
                     className={({ isActive }) =>
                       cn(
                         "inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-extrabold transition",
-                        isActive ? "bg-amber-400 text-[#1b1004] shadow-[0_10px_24px_rgba(245,158,11,0.22)]" : "border border-white/10 bg-white/[0.045] text-white/50 hover:text-white"
+                        isActive ? "bg-primary text-primary-foreground shadow-card" : "border border-border/70 bg-muted/45 text-muted-foreground hover:text-foreground"
                       )
                     }
                   >
@@ -510,87 +510,87 @@ export default function SkuCostsDjango() {
 
           <section className="grid grid-cols-4 gap-4">
             {[
-              { label: "SKU thành phẩm", value: loading ? "..." : stats.count, sub: "đang quản lý", tone: "text-white" },
-              { label: "Giá bán TB", value: loading ? "..." : vnd(stats.avgSelling), sub: `${stats.pricedCount} SKU có giá`, tone: "text-amber-200" },
-              { label: "Giá cao nhất", value: loading ? "..." : vnd(stats.maxSelling), sub: "top giá bán", tone: "text-orange-200" },
-              { label: "Cập nhật", value: loading ? "..." : formatDateTime(stats.updatedAt), sub: "gần nhất", tone: "text-emerald-200" },
+              { label: "SKU thành phẩm", value: loading ? "..." : stats.count, sub: "đang quản lý", tone: "text-foreground" },
+              { label: "Giá bán TB", value: loading ? "..." : vnd(stats.avgSelling), sub: `${stats.pricedCount} SKU có giá`, tone: "text-primary" },
+              { label: "Giá cao nhất", value: loading ? "..." : vnd(stats.maxSelling), sub: "top giá bán", tone: "text-warning" },
+              { label: "Cập nhật", value: loading ? "..." : formatDateTime(stats.updatedAt), sub: "gần nhất", tone: "text-success" },
             ].map((card) => (
-              <article key={card.label} className="rounded-[28px] border border-white/10 bg-[#14100d]/90 p-5 shadow-[0_18px_60px_rgba(0,0,0,0.28)]">
-                <p className="text-xs font-extrabold uppercase tracking-[0.15em] text-white/35">{card.label}</p>
+              <article key={card.label} className="rounded-[28px] border border-border/70 bg-card/80 p-5 shadow-card">
+                <p className="text-xs font-extrabold uppercase tracking-[0.15em] text-muted-foreground">{card.label}</p>
                 <div className={cn("mt-4 text-[30px] font-black leading-none tracking-[-0.04em]", card.tone)}>{card.value}</div>
-                <p className="mt-3 text-sm font-bold text-white/38">{card.sub}</p>
+                <p className="mt-3 text-sm font-bold text-muted-foreground">{card.sub}</p>
               </article>
             ))}
           </section>
 
           <section className="grid grid-cols-[minmax(0,0.95fr)_minmax(0,1.35fr)] gap-5">
-            <article className="rounded-[30px] border border-white/10 bg-[#14100d]/92 p-5 shadow-[0_20px_70px_rgba(0,0,0,0.3)]">
+            <article className="rounded-[30px] border border-border/70 bg-card/80 p-5 shadow-card">
               <div className="mb-5 flex items-start justify-between gap-4">
                 <div>
-                  <h2 className="text-xl font-black tracking-[-0.03em] text-white">Phân bổ giá bán SKU</h2>
-                  <p className="mt-1 text-sm font-semibold text-white/38">Dải giá toàn bộ SKU thành phẩm.</p>
+                  <h2 className="text-xl font-black tracking-[-0.03em] text-foreground">Phân bổ giá bán SKU</h2>
+                  <p className="mt-1 text-sm font-semibold text-muted-foreground">Dải giá toàn bộ SKU thành phẩm.</p>
                 </div>
-                <span className="rounded-full bg-amber-300/10 px-3 py-1.5 text-xs font-extrabold text-amber-200 ring-1 ring-amber-300/20">{stats.count} SKU</span>
+                <span className="rounded-full bg-primary/10 px-3 py-1.5 text-xs font-extrabold text-primary ring-1 ring-primary/20">{stats.count} SKU</span>
               </div>
               <div className="space-y-4">
                 {stats.bandCounts.map((band) => (
                   <div key={band.label} className="grid grid-cols-[64px_minmax(0,1fr)_40px] items-center gap-3">
-                    <span className="text-sm font-bold text-white/48">{band.label}</span>
-                    <div className="h-4 overflow-hidden rounded-full bg-white/[0.07]">
-                      <div className="h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-300" style={{ width: `${Math.max(6, (band.count / maxBand) * 100)}%` }} />
+                    <span className="text-sm font-bold text-muted-foreground">{band.label}</span>
+                    <div className="h-4 overflow-hidden rounded-full bg-muted/60">
+                      <div className="h-full rounded-full bg-gradient-to-r from-primary to-warning" style={{ width: `${Math.max(6, (band.count / maxBand) * 100)}%` }} />
                     </div>
-                    <span className="text-right text-sm font-black tabular-nums text-white">{loading ? "-" : band.count}</span>
+                    <span className="text-right text-sm font-black tabular-nums text-foreground">{loading ? "-" : band.count}</span>
                   </div>
                 ))}
               </div>
             </article>
 
-            <article className="rounded-[30px] border border-white/10 bg-[#14100d]/92 p-5 shadow-[0_20px_70px_rgba(0,0,0,0.3)]">
+            <article className="rounded-[30px] border border-border/70 bg-card/80 p-5 shadow-card">
               <div className="mb-5 flex items-start justify-between gap-4">
                 <div>
-                  <h2 className="text-xl font-black tracking-[-0.03em] text-white">Tình trạng dữ liệu</h2>
-                  <p className="mt-1 text-sm font-semibold text-white/38">Theo dõi giá bán và ảnh sản phẩm trước khi review COGS.</p>
+                  <h2 className="text-xl font-black tracking-[-0.03em] text-foreground">Tình trạng dữ liệu</h2>
+                  <p className="mt-1 text-sm font-semibold text-muted-foreground">Theo dõi giá bán và ảnh sản phẩm trước khi review COGS.</p>
                 </div>
-                <Camera className="h-5 w-5 text-amber-200/70" />
+                <Camera className="h-5 w-5 text-primary/70" />
               </div>
               <div className="grid grid-cols-3 gap-3">
                 {[
-                  { label: "Có giá bán", value: stats.pricedCount, tone: "text-emerald-300" },
-                  { label: "Chưa có giá", value: stats.missingPrice, tone: stats.missingPrice ? "text-rose-300" : "text-white/70" },
-                  { label: "Có ảnh", value: stats.imageCount, tone: "text-amber-200" },
+                  { label: "Có giá bán", value: stats.pricedCount, tone: "text-success" },
+                  { label: "Chưa có giá", value: stats.missingPrice, tone: stats.missingPrice ? "text-destructive" : "text-foreground/70" },
+                  { label: "Có ảnh", value: stats.imageCount, tone: "text-primary" },
                 ].map((chip) => (
-                  <div key={chip.label} className="rounded-[24px] border border-white/10 bg-[#211915]/80 p-5 text-center">
+                  <div key={chip.label} className="rounded-[24px] border border-border/70 bg-muted/50 p-5 text-center">
                     <div className={cn("text-[32px] font-black leading-none", chip.tone)}>{loading ? "..." : chip.value}</div>
-                    <div className="mt-3 text-xs font-extrabold uppercase tracking-[0.12em] text-white/38">{chip.label}</div>
+                    <div className="mt-3 text-xs font-extrabold uppercase tracking-[0.12em] text-muted-foreground">{chip.label}</div>
                   </div>
                 ))}
               </div>
-              <div className="mt-4 rounded-[24px] border border-amber-300/15 bg-amber-300/[0.055] p-4 text-sm font-semibold leading-relaxed text-amber-50/68">
+              <div className="mt-4 rounded-[24px] border border-warning/25 bg-warning/10 p-4 text-sm font-semibold leading-relaxed text-warning">
                 Desktop dùng cùng dữ liệu realtime với mobile. Upload ảnh, xuất sheet và mở quản trị SKU hoạt động chung một state.
               </div>
             </article>
           </section>
 
-          <section className="rounded-[32px] border border-white/10 bg-[#14100d]/94 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.34)]">
+          <section className="rounded-[32px] border border-border/70 bg-card/80 p-5 shadow-card">
             <div className="mb-5 flex items-end justify-between gap-5">
               <div>
-                <h2 className="text-2xl font-black tracking-[-0.03em] text-white">Toàn bộ SKU hiện có</h2>
-                <p className="mt-1 text-sm font-bold text-white/38">Bấm ảnh để upload/cập nhật hình; bấm dòng để mở quản trị SKU.</p>
+                <h2 className="text-2xl font-black tracking-[-0.03em] text-foreground">Toàn bộ SKU hiện có</h2>
+                <p className="mt-1 text-sm font-bold text-muted-foreground">Bấm ảnh để upload/cập nhật hình; bấm dòng để mở quản trị SKU.</p>
               </div>
               <div className="flex min-w-[420px] items-center gap-3">
-                <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-white/10 bg-[#211915] px-3 py-2.5 shadow-inner">
-                  <Search className="h-4 w-4 shrink-0 text-white/35" />
+                <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-border/70 bg-muted/45 px-3 py-2.5 shadow-inner">
+                  <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <Input
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="Tìm SKU theo tên hoặc mã"
-                    className="h-9 border-0 bg-transparent px-0 text-sm font-bold text-white placeholder:text-white/28 focus-visible:ring-0"
+                    className="h-9 border-0 bg-transparent px-0 text-sm font-bold text-foreground placeholder:text-muted-foreground/70 focus-visible:ring-0"
                   />
                 </div>
                 <button
                   type="button"
                   onClick={() => setSortMode((mode) => (mode === "price" ? "updated" : "price"))}
-                  className="h-12 rounded-2xl border border-amber-300/20 bg-amber-300/[0.06] px-4 text-sm font-extrabold text-amber-200"
+                  className="h-12 rounded-2xl border border-primary/20 bg-primary/10 px-4 text-sm font-extrabold text-primary"
                 >
                   Sort: {sortMode === "price" ? "Giá bán" : "Mới cập nhật"}
                 </button>
@@ -598,13 +598,13 @@ export default function SkuCostsDjango() {
             </div>
 
             {loading ? (
-              <div className="rounded-[24px] border border-white/10 bg-white/[0.04] px-4 py-12 text-center text-sm font-bold text-white/45">Đang tải SKU...</div>
+              <div className="rounded-[24px] border border-border/70 bg-muted/40 px-4 py-12 text-center text-sm font-bold text-muted-foreground">Đang tải SKU...</div>
             ) : filteredSkus.length === 0 ? (
-              <div className="rounded-[24px] border border-dashed border-white/12 bg-white/[0.035] px-4 py-12 text-center text-sm font-bold text-white/45">Không tìm thấy SKU phù hợp.</div>
+              <div className="rounded-[24px] border border-dashed border-border/70 bg-muted/35 px-4 py-12 text-center text-sm font-bold text-muted-foreground">Không tìm thấy SKU phù hợp.</div>
             ) : (
-              <div className="overflow-hidden rounded-[26px] border border-white/10">
+              <div className="overflow-hidden rounded-[26px] border border-border/70">
                 <table className="w-full border-collapse text-left">
-                  <thead className="bg-white/[0.045] text-xs font-extrabold uppercase tracking-[0.12em] text-white/38">
+                  <thead className="bg-muted/45 text-xs font-extrabold uppercase tracking-[0.12em] text-muted-foreground">
                     <tr>
                       <th className="px-4 py-3">SKU</th>
                       <th className="px-4 py-3">Giá bán</th>
@@ -615,31 +615,31 @@ export default function SkuCostsDjango() {
                       <th className="px-4 py-3 text-right">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/8">
+                  <tbody className="divide-y divide-border/50">
                     {filteredSkus.map((sku) => {
                       const hasPrice = sku.sellingPrice > 0;
                       return (
-                        <tr key={sku.id} className="group bg-[#120e0b]/72 transition hover:bg-white/[0.045]">
+                        <tr key={sku.id} className="group bg-card/60 transition hover:bg-muted/45">
                           <td className="px-4 py-3">
                             <div className="flex min-w-0 items-center gap-3">
                               <SkuImageThumb sku={sku} uploading={uploadingSkuId === sku.id} onClick={() => openUploadModal(sku)} />
                               <button type="button" onClick={() => openSkuDetail(sku)} className="min-w-0 text-left" aria-label={`Xem chi tiết ${sku.product_name}`}>
-                                <div className="max-w-[340px] truncate text-sm font-black text-white group-hover:text-amber-100">{sku.product_name}</div>
-                                <div className="mt-1 truncate font-mono text-xs font-bold text-white/35">{sku.sku_code || sku.id}</div>
+                                <div className="max-w-[340px] truncate text-sm font-black text-foreground group-hover:text-primary">{sku.product_name}</div>
+                                <div className="mt-1 truncate font-mono text-xs font-bold text-muted-foreground">{sku.sku_code || sku.id}</div>
                               </button>
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-sm font-black text-amber-300">{vnd(sku.sellingPrice)}</td>
-                          <td className="px-4 py-3 text-sm font-bold text-white/72">{vnd(sku.totalCost)}</td>
-                          <td className="px-4 py-3 text-sm font-black text-white">{Number.isFinite(sku.marginPct) ? `${Math.round(sku.marginPct)}%` : "—"}</td>
+                          <td className="px-4 py-3 text-sm font-black text-primary">{vnd(sku.sellingPrice)}</td>
+                          <td className="px-4 py-3 text-sm font-bold text-foreground/72">{vnd(sku.totalCost)}</td>
+                          <td className="px-4 py-3 text-sm font-black text-foreground">{Number.isFinite(sku.marginPct) ? `${Math.round(sku.marginPct)}%` : "—"}</td>
                           <td className="px-4 py-3">
-                            <span className={cn("rounded-full px-2.5 py-1 text-xs font-extrabold ring-1", hasPrice ? "bg-emerald-400/10 text-emerald-300 ring-emerald-300/20" : "bg-rose-400/10 text-rose-300 ring-rose-300/20")}>
+                            <span className={cn("rounded-full px-2.5 py-1 text-xs font-extrabold ring-1", hasPrice ? "bg-success/10 text-success ring-success/20" : "bg-destructive/10 text-destructive ring-destructive/20")}>
                               {hasPrice ? "Có giá" : "Chưa giá"}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-sm font-semibold text-white/45">{formatDateTime(sku.updated_at)}</td>
+                          <td className="px-4 py-3 text-sm font-semibold text-muted-foreground">{formatDateTime(sku.updated_at)}</td>
                           <td className="px-4 py-3 text-right">
-                            <Button type="button" onClick={() => openSkuDetail(sku)} className="h-10 rounded-2xl bg-white/[0.06] px-4 text-xs font-extrabold text-white hover:bg-amber-300 hover:text-[#1b1004]">
+                            <Button type="button" onClick={() => openSkuDetail(sku)} className="h-10 rounded-2xl bg-muted/50 px-4 text-xs font-extrabold text-foreground hover:bg-primary/90 hover:text-primary-foreground">
                               Mở chi tiết
                               <ChevronRight className="ml-1.5 h-4 w-4" />
                             </Button>
@@ -656,33 +656,33 @@ export default function SkuCostsDjango() {
       </div>
 
       <Dialog open={!!editingSku} onOpenChange={(open) => { if (!open && !uploadingSkuId) { setEditingSku(null); setSelectedFile(null); setUploadError(null); } }}>
-        <DialogContent className="border-white/10 bg-[#14100d] text-white sm:max-w-[420px]">
+        <DialogContent className="border-border/70 bg-card text-foreground sm:max-w-[420px]">
           <DialogHeader>
-            <DialogTitle className="text-white">Cập nhật ảnh SKU</DialogTitle>
+            <DialogTitle className="text-foreground">Cập nhật ảnh SKU</DialogTitle>
           </DialogHeader>
           {editingSku && (
             <div className="space-y-4">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
-                <p className="text-sm font-black text-white">{editingSku.product_name}</p>
-                <p className="mt-1 font-mono text-xs font-bold text-white/40">{editingSku.sku_code || editingSku.id}</p>
+              <div className="rounded-2xl border border-border/70 bg-muted/40 p-3">
+                <p className="text-sm font-black text-foreground">{editingSku.product_name}</p>
+                <p className="mt-1 font-mono text-xs font-bold text-muted-foreground">{editingSku.sku_code || editingSku.id}</p>
               </div>
-              <div className="overflow-hidden rounded-[22px] border border-white/10 bg-[#211915]">
+              <div className="overflow-hidden rounded-[22px] border border-border/70 bg-muted/45">
                 {previewUrl || editingSku.image_url ? (
                   <img src={previewUrl || editingSku.image_url || ""} alt="Preview ảnh SKU" className="h-56 w-full object-cover" />
                 ) : (
-                  <div className="flex h-56 flex-col items-center justify-center gap-2 text-white/42">
+                  <div className="flex h-56 flex-col items-center justify-center gap-2 text-muted-foreground">
                     <ImageIcon className="h-8 w-8" />
                     <span className="text-sm font-extrabold">Chưa có ảnh</span>
                   </div>
                 )}
               </div>
               <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleFileChange} />
-              <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={!!uploadingSkuId} className="h-11 w-full rounded-2xl border-amber-300/25 bg-amber-300/[0.06] text-amber-200 hover:bg-amber-300/10 hover:text-amber-100">
+              <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={!!uploadingSkuId} className="h-11 w-full rounded-2xl border-primary/25 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary">
                 <Upload className="mr-2 h-4 w-4" /> Chọn ảnh
               </Button>
-              {selectedFile && <p className="text-xs font-bold text-white/45">Đã chọn: {selectedFile.name}</p>}
+              {selectedFile && <p className="text-xs font-bold text-muted-foreground">Đã chọn: {selectedFile.name}</p>}
               {uploadError && (
-                <div className="flex items-start gap-2 rounded-2xl border border-rose-400/20 bg-rose-500/10 p-3 text-xs font-bold text-rose-200">
+                <div className="flex items-start gap-2 rounded-2xl border border-destructive/25 bg-destructive/10 p-3 text-xs font-bold text-destructive">
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>{uploadError}</span>
                 </div>
@@ -690,8 +690,8 @@ export default function SkuCostsDjango() {
             </div>
           )}
           <DialogFooter className="gap-2 sm:gap-2">
-            <Button type="button" variant="ghost" disabled={!!uploadingSkuId} onClick={() => { setEditingSku(null); setSelectedFile(null); setUploadError(null); }} className="text-white/60 hover:bg-white/[0.06] hover:text-white">Hủy</Button>
-            <Button type="button" onClick={saveSkuImage} disabled={!selectedFile || !!uploadingSkuId} className="bg-amber-400 font-extrabold text-[#1b1004] hover:bg-amber-300">
+            <Button type="button" variant="ghost" disabled={!!uploadingSkuId} onClick={() => { setEditingSku(null); setSelectedFile(null); setUploadError(null); }} className="text-muted-foreground hover:bg-muted/50 hover:text-foreground">Hủy</Button>
+            <Button type="button" onClick={saveSkuImage} disabled={!selectedFile || !!uploadingSkuId} className="bg-primary font-extrabold text-primary-foreground hover:bg-primary/90">
               {uploadingSkuId ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Lưu ảnh
             </Button>
