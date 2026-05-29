@@ -4,6 +4,9 @@ ROOT = Path(__file__).resolve().parents[1]
 FLOW_LIB = ROOT / "src/lib/payables-receiving-flow.ts"
 QUEUE_HOOK = ROOT / "src/hooks/usePurchaseReceiptQueue.ts"
 PO_HOOK = ROOT / "src/hooks/usePurchaseOrders.ts"
+WAREHOUSE_HOME = ROOT / "src/warehouse/pages/WarehouseHome.tsx"
+SCAN_RESULT_EDITOR = ROOT / "src/warehouse/components/ScanResultEditor.tsx"
+MATCH_DELIVERY_FUNCTION = ROOT / "supabase/functions/match-delivery-note/index.ts"
 MIGRATIONS = ROOT / "supabase/migrations"
 TYPES = ROOT / "src/integrations/supabase/types.ts"
 
@@ -88,9 +91,46 @@ def test_purchase_order_send_ensures_single_pending_receipt_queue():
     assert "ensureReceiptForPurchaseOrder(id)" in send_section
 
 
+def test_warehouse_scan_matches_pending_po_receipt_queue_before_legacy_payment_requests():
+    edge = read(MATCH_DELIVERY_FUNCTION)
+    assert "PendingReceiptCandidate" in edge
+    assert "findBestPendingReceiptMatch" in edge
+    assert ".from(\"goods_receipts\")" in edge
+    assert "purchase_order_id" in edge
+    assert ".in(\"status\", [\"draft\", \"confirmed\"])" in edge
+    assert "goods_receipt_items" in edge
+    assert "purchase_orders" in edge
+    assert "payment_request_items" in edge
+    assert edge.index("findBestPendingReceiptMatch") < edge.index("findBestPaymentRequestMatch")
+    assert "goodsReceiptId" in edge
+    assert "purchaseOrderId" in edge
+    assert "poNumber" in edge
+    assert "matchSource: \"purchase_order_receipt\"" in edge
+    assert "matchSource: \"payment_request\"" in edge
+
+
+def test_warehouse_ui_exposes_po_receipt_match_metadata():
+    home = read(WAREHOUSE_HOME)
+    editor = read(SCAN_RESULT_EDITOR)
+    assert "goodsReceiptId" in home
+    assert "purchaseOrderId" in home
+    assert "poNumber" in home
+    assert "matchSource" in home
+    assert "goodsReceiptId: matchResult?.goodsReceiptId" in home
+    assert "line_status" in home
+    assert "ordered_quantity" in home
+    assert "actual_quantity" in home
+    assert "purchase_order_receipt" in editor
+    assert "Đã tìm thấy phiếu chờ nhập kho" in editor
+    assert "Đối chiếu PO" in editor
+    assert "poNumber" in editor
+
+
 if __name__ == "__main__":
     test_payables_receiving_helpers_are_present_and_use_actual_quantity()
     test_migration_adds_receipt_variance_and_payable_state_without_breaking_existing_columns()
     test_generated_types_include_receipt_variance_fields_for_frontend_safety()
     test_purchase_order_send_ensures_single_pending_receipt_queue()
-    print("ok - 4 tests passed")
+    test_warehouse_scan_matches_pending_po_receipt_queue_before_legacy_payment_requests()
+    test_warehouse_ui_exposes_po_receipt_match_metadata()
+    print("ok - 6 tests passed")

@@ -34,12 +34,21 @@ export interface EditableItem {
   originalName?: string;
   originalQty?: number;
   originalUnit?: string;
+  ordered_quantity?: number | null;
+  actual_quantity?: number | null;
+  line_status?: "du" | "thieu" | "du_thua";
 }
 
 export interface ScanResultEditorProps {
-  // Matched PR info
+  // Matched source info
   isMatched: boolean;
   matchScore?: number;
+  matchSource?: "purchase_order_receipt" | "payment_request" | "none";
+  goodsReceiptId?: string;
+  receiptNumber?: string;
+  purchaseOrderId?: string;
+  poNumber?: string;
+  poTitle?: string;
   paymentRequestId?: string;
   paymentRequestNumber?: string;
   paymentRequestTitle?: string;
@@ -59,6 +68,12 @@ export interface ScanResultEditorProps {
 export function ScanResultEditor({
   isMatched,
   matchScore,
+  matchSource,
+  goodsReceiptId,
+  receiptNumber,
+  purchaseOrderId,
+  poNumber,
+  poTitle,
   paymentRequestId,
   paymentRequestNumber,
   paymentRequestTitle,
@@ -163,6 +178,14 @@ export function ScanResultEditor({
   };
 
   const selectedSupplier = suppliers.find(s => s.id === selectedSupplierId);
+  const isPurchaseOrderReceipt = matchSource === "purchase_order_receipt";
+  const matchedTitle = isPurchaseOrderReceipt
+    ? "Đã tìm thấy phiếu chờ nhập kho"
+    : "Đã tìm thấy Đề nghị chi khớp";
+  const unmatchedTitle = isPurchaseOrderReceipt
+    ? "Chưa tìm thấy phiếu chờ nhập kho"
+    : "Chưa tìm thấy Đề nghị chi";
+  const sourceLabel = isPurchaseOrderReceipt ? "Đối chiếu PO" : "Đề nghị chi";
 
   return (
     <div className="space-y-4">
@@ -174,12 +197,12 @@ export function ScanResultEditor({
               {isMatched ? (
                 <>
                   <CheckCircle className="h-5 w-5 text-green-500" />
-                  Đã tìm thấy Đề nghị chi khớp
+                  {matchedTitle}
                 </>
               ) : (
                 <>
                   <AlertTriangle className="h-5 w-5 text-yellow-500" />
-                  Chưa tìm thấy Đề nghị chi
+                  {unmatchedTitle}
                 </>
               )}
             </CardTitle>
@@ -191,15 +214,28 @@ export function ScanResultEditor({
           </div>
         </CardHeader>
         
-        {isMatched && paymentRequestNumber && (
+        {isMatched && (paymentRequestNumber || poNumber || receiptNumber) && (
           <CardContent className="pt-0">
             <div className="bg-primary/10 rounded-lg p-3">
-              <p className="text-sm font-medium text-primary">
-                {paymentRequestNumber}
+              <p className="text-xs font-medium uppercase tracking-wide text-primary/70">
+                {sourceLabel}
               </p>
-              {paymentRequestTitle && (
+              <p className="text-sm font-medium text-primary">
+                {isPurchaseOrderReceipt ? (poNumber || receiptNumber) : paymentRequestNumber}
+              </p>
+              {(poTitle || paymentRequestTitle) && (
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  {paymentRequestTitle}
+                  {isPurchaseOrderReceipt ? poTitle : paymentRequestTitle}
+                </p>
+              )}
+              {isPurchaseOrderReceipt && receiptNumber && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Phiếu chờ: {receiptNumber}
+                </p>
+              )}
+              {isPurchaseOrderReceipt && (purchaseOrderId || goodsReceiptId) && (
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Đang đối chiếu phiếu nhập kho từ PO
                 </p>
               )}
             </div>

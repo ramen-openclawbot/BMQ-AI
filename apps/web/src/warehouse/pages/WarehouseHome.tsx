@@ -35,6 +35,12 @@ interface MatchItem {
 interface MatchResult {
   isMatched: boolean;
   matchScore: number;
+  matchSource?: "purchase_order_receipt" | "payment_request" | "none";
+  goodsReceiptId?: string;
+  receiptNumber?: string;
+  purchaseOrderId?: string;
+  poNumber?: string;
+  poTitle?: string;
   paymentRequestId?: string;
   paymentRequestNumber?: string;
   paymentRequestTitle?: string;
@@ -97,7 +103,7 @@ export default function WarehouseHome() {
   const convertToEditableItems = useCallback((result: MatchResult): EditableItem[] => {
     // Use extractedItems if available, otherwise convert from match items
     if (result.extractedItems && result.extractedItems.length > 0) {
-      return result.extractedItems.map((item, index) => {
+      const extractedEditableItems = result.extractedItems.map((item, index) => {
         // Find matching item status
         const matchItem = result.items.find(
           mi => mi.deliveryName.toLowerCase() === item.product_name.toLowerCase()
@@ -113,21 +119,46 @@ export default function WarehouseHome() {
           originalName: matchItem?.matchedName,
           originalQty: matchItem?.matchedQty,
           originalUnit: matchItem?.matchedUnit,
+          ordered_quantity: matchItem?.matchedQty,
+          actual_quantity: item.quantity,
+          line_status: matchItem?.status === "match" ? "du" : matchItem?.status === "mismatch" && matchItem.matchedQty !== undefined && item.quantity < matchItem.matchedQty ? "thieu" : matchItem?.status === "mismatch" ? "du_thua" : undefined,
         };
       });
+
+      const missingEditableItems = result.items
+        .filter(item => item.status === "missing")
+        .map((item, index) => ({
+          id: `missing-${index}`,
+          product_name: item.deliveryName,
+          quantity: 0,
+          unit: item.deliveryUnit,
+          expiry_date: "",
+          status: item.status,
+          originalName: item.deliveryName,
+          originalQty: item.deliveryQty,
+          originalUnit: item.deliveryUnit,
+          ordered_quantity: item.deliveryQty,
+          actual_quantity: 0,
+          line_status: "thieu" as const,
+        }));
+
+      return [...extractedEditableItems, ...missingEditableItems];
     }
     
     // Fallback to match items
     return result.items.map((item, index) => ({
       id: `item-${index}`,
       product_name: item.deliveryName,
-      quantity: item.deliveryQty,
+      quantity: item.status === "missing" ? 0 : item.deliveryQty,
       unit: item.deliveryUnit,
       expiry_date: "",
       status: item.status,
       originalName: item.matchedName,
-      originalQty: item.matchedQty,
+      originalQty: item.matchedQty ?? (item.status === "missing" ? item.deliveryQty : undefined),
       originalUnit: item.matchedUnit,
+      ordered_quantity: item.matchedQty ?? (item.status === "missing" ? item.deliveryQty : undefined),
+      actual_quantity: item.status === "missing" ? 0 : item.deliveryQty,
+      line_status: item.status === "match" ? "du" : item.status === "missing" ? "thieu" : item.status === "mismatch" && item.matchedQty !== undefined && item.deliveryQty < item.matchedQty ? "thieu" : item.status === "mismatch" ? "du_thua" : undefined,
     }));
   }, []);
 
@@ -194,10 +225,11 @@ export default function WarehouseHome() {
         setSelectedSupplierId(response.data.supplierId || "");
         setCurrentStep("edit");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Đã xảy ra lỗi khi quét phiếu giao hàng";
       toast({
         title: "Lỗi xử lý",
-        description: err.message || "Đã xảy ra lỗi khi quét phiếu giao hàng",
+        description: message,
         variant: "destructive",
       });
     } finally {
@@ -235,14 +267,18 @@ export default function WarehouseHome() {
       const response = await callEdgeFunction<{ receiptNumber: string; receiptId: string }>(
         "create-warehouse-receipt",
         {
+          goodsReceiptId: matchResult?.goodsReceiptId,
           paymentRequestId: matchResult?.paymentRequestId,
           deliveryImage: deliveryPhoto,
           productPhotos: productPhotos,
           items: editableItems.map(item => ({
             product_name: item.product_name,
             quantity: item.quantity,
+            ordered_quantity: item.ordered_quantity ?? item.originalQty ?? null,
+            actual_quantity: item.actual_quantity ?? item.quantity,
             unit: item.unit,
             unit_price: item.unit_price,
+            line_status: item.line_status,
           })),
           supplierId: selectedSupplierId || matchResult?.supplierId,
         },
@@ -272,10 +308,11 @@ export default function WarehouseHome() {
           description: `Đã tạo phiếu nhập kho ${response.data.receiptNumber}`,
         });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Đã xảy ra lỗi khi tạo phiếu nhập kho";
       toast({
         title: "Lỗi tạo phiếu",
-        description: err.message || "Đã xảy ra lỗi khi tạo phiếu nhập kho",
+        description: message,
         variant: "destructive",
       });
     } finally {
@@ -351,6 +388,12 @@ export default function WarehouseHome() {
           <ScanResultEditor
             isMatched={matchResult.isMatched}
             matchScore={matchResult.matchScore}
+            matchSource={matchResult.matchSource}
+            goodsReceiptId={matchResult.goodsReceiptId}
+            receiptNumber={matchResult.receiptNumber}
+            purchaseOrderId={matchResult.purchaseOrderId}
+            poNumber={matchResult.poNumber}
+            poTitle={matchResult.poTitle}
             paymentRequestId={matchResult.paymentRequestId}
             paymentRequestNumber={matchResult.paymentRequestNumber}
             paymentRequestTitle={matchResult.paymentRequestTitle}

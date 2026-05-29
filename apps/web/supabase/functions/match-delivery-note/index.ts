@@ -20,6 +20,48 @@ interface MatchItem {
   status: "match" | "mismatch" | "extra" | "missing";
 }
 
+interface CandidateLine {
+  id: string;
+  product_name: string;
+  quantity: number;
+  unit?: string | null;
+  unit_price?: number | null;
+  purchase_order_item_id?: string | null;
+}
+
+interface PendingReceiptCandidate {
+  id: string;
+  receipt_number: string;
+  purchase_order_id: string;
+  supplier_id: string | null;
+  suppliers?: { id: string; name: string } | null;
+  purchase_orders?: { id: string; po_number: string; title?: string | null } | null;
+  goods_receipt_items?: Array<{
+    id: string;
+    product_name: string;
+    ordered_quantity: number | null;
+    quantity: number | null;
+    unit: string | null;
+    unit_price: number | null;
+    purchase_order_item_id: string | null;
+  }>;
+}
+
+interface PaymentRequestCandidate {
+  id: string;
+  request_number: string;
+  title: string;
+  supplier_id: string | null;
+  suppliers?: { id: string; name: string } | null;
+  payment_request_items?: CandidateLine[];
+}
+
+interface CandidateMatch<T> {
+  candidate: T;
+  score: number;
+  items: MatchItem[];
+}
+
 // Remove Vietnamese diacritics for fuzzy matching
 function removeDiacritics(str: string): string {
   return str
@@ -94,7 +136,147 @@ function similarity(s1: string, s2: string): number {
 function quantityMatches(q1: number, q2: number, tolerance = 0.05): boolean {
   const diff = Math.abs(q1 - q2);
   const max = Math.max(q1, q2);
+  if (max === 0) return true;
   return diff / max <= tolerance;
+}
+
+function toReceiptCandidateLines(receipt: PendingReceiptCandidate): CandidateLine[] {
+  return (receipt.goods_receipt_items || []).map((item) => ({
+    id: item.id,
+    product_name: item.product_name,
+    quantity: Number(item.ordered_quantity ?? item.quantity ?? 0),
+    unit: item.unit,
+    unit_price: item.unit_price,
+    purchase_order_item_id: item.purchase_order_item_id,
+  }));
+}
+
+function matchExtractedItemsToCandidateLines(
+  extractedItems: ExtractedItem[],
+  candidateItems: CandidateLine[],
+): { matchedCount: number; matchItems: MatchItem[] } {
+  const matchItems: MatchItem[] = [];
+  let matchedCount = 0;
+  const usedCandidateItemIds = new Set<string>();
+
+  for (const extracted of extractedItems) {
+    const normalizedExtracted = removeDiacritics(extracted.product_name);
+    const normalizedExtractedUnit = normalizeUnit(extracted.unit);
+
+    let bestItemMatch: {
+      item: CandidateLine;
+      nameSimilarity: number;
+    } | null = null;
+
+    for (const candidateItem of candidateItems) {
+      if (usedCandidateItemIds.has(candidateItem.id)) continue;
+
+      const normalizedCandidateName = removeDiacritics(candidateItem.product_name);
+      const nameSimilarity = similarity(normalizedExtracted, normalizedCandidateName);
+
+      if (nameSimilarity > 0.6 && (!bestItemMatch || nameSimilarity > bestItemMatch.nameSimilarity)) {
+        bestItemMatch = { item: candidateItem, nameSimilarity };
+      }
+    }
+
+    if (bestItemMatch) {
+      usedCandidateItemIds.add(bestItemMatch.item.id);
+      const normalizedCandidateUnit = normalizeUnit(bestItemMatch.item.unit || "");
+      const unitMatch = normalizedExtractedUnit === normalizedCandidateUnit;
+      const qtyMatch = quantityMatches(extracted.quantity, Number(bestItemMatch.item.quantity || 0));
+
+      matchItems.push({
+        deliveryName: extracted.product_name,
+        deliveryQty: extracted.quantity,
+        deliveryUnit: extracted.unit,
+        matchedName: bestItemMatch.item.product_name,
+        matchedQty: Number(bestItemMatch.item.quantity || 0),
+        matchedUnit: bestItemMatch.item.unit || "",
+        status: unitMatch && qtyMatch ? "match" : "mismatch",
+      });
+
+      if (unitMatch && qtyMatch) matchedCount++;
+    } else {
+      matchItems.push({
+        deliveryName: extracted.product_name,
+        deliveryQty: extracted.quantity,
+        deliveryUnit: extracted.unit,
+        status: "extra",
+      });
+    }
+  }
+
+  for (const candidateItem of candidateItems) {
+    if (!usedCandidateItemIds.has(candidateItem.id)) {
+      matchItems.push({
+        deliveryName: candidateItem.product_name,
+        deliveryQty: Number(candidateItem.quantity || 0),
+        deliveryUnit: candidateItem.unit || "",
+        status: "missing",
+      });
+    }
+  }
+
+  return { matchedCount, matchItems };
+}
+
+function scoreCandidate<T>(
+  candidate: T,
+  supplierName: string,
+  candidateSupplierName: string,
+  candidateItems: CandidateLine[],
+  extractedItems: ExtractedItem[],
+): CandidateMatch<T> | null {
+  const normalizedSupplierName = removeDiacritics(supplierName || "");
+  const normalizedCandidateSupplierName = removeDiacritics(candidateSupplierName || "");
+  const supplierSimilarity = normalizedSupplierName
+    ? similarity(normalizedSupplierName, normalizedCandidateSupplierName)
+    : 0.5;
+
+  if (supplierSimilarity < 0.5) return null;
+
+  const { matchedCount, matchItems } = matchExtractedItemsToCandidateLines(extractedItems, candidateItems);
+  const totalItems = Math.max(extractedItems.length, candidateItems.length, 1);
+  const score = (matchedCount / totalItems) * supplierSimilarity;
+  return { candidate, score, items: matchItems };
+}
+
+function findBestPendingReceiptMatch(
+  receipts: PendingReceiptCandidate[],
+  supplierName: string,
+  extractedItems: ExtractedItem[],
+): CandidateMatch<PendingReceiptCandidate> | null {
+  let bestMatch: CandidateMatch<PendingReceiptCandidate> | null = null;
+
+  for (const receipt of receipts) {
+    const candidateItems = toReceiptCandidateLines(receipt);
+    const candidateSupplierName = (receipt.suppliers as any)?.name || "";
+    const scored = scoreCandidate(receipt, supplierName, candidateSupplierName, candidateItems, extractedItems);
+    if (scored && (!bestMatch || scored.score > bestMatch.score)) {
+      bestMatch = scored;
+    }
+  }
+
+  return bestMatch;
+}
+
+function findBestPaymentRequestMatch(
+  paymentRequests: PaymentRequestCandidate[],
+  supplierName: string,
+  extractedItems: ExtractedItem[],
+): CandidateMatch<PaymentRequestCandidate> | null {
+  let bestMatch: CandidateMatch<PaymentRequestCandidate> | null = null;
+
+  for (const pr of paymentRequests) {
+    const prItems = pr.payment_request_items || [];
+    const candidateSupplierName = (pr.suppliers as any)?.name || "";
+    const scored = scoreCandidate(pr, supplierName, candidateSupplierName, prItems, extractedItems);
+    if (scored && (!bestMatch || scored.score > bestMatch.score)) {
+      bestMatch = scored;
+    }
+  }
+
+  return bestMatch;
 }
 
 serve(async (req) => {
@@ -254,7 +436,60 @@ Important:
       );
     }
 
-    // Query approved payment requests that don't have goods_receipt yet
+    // Prefer pending PO receipt queue so warehouse starts from PO/receipt, not payable.
+    const { data: pendingReceipts, error: receiptError } = await supabase
+      .from("goods_receipts")
+      .select(`
+        id,
+        receipt_number,
+        purchase_order_id,
+        supplier_id,
+        suppliers(id, name),
+        purchase_orders(id, po_number, title),
+        goods_receipt_items(id, product_name, ordered_quantity, quantity, unit, unit_price, purchase_order_item_id)
+      `)
+      .not("purchase_order_id", "is", null)
+      .in("status", ["draft", "confirmed"])
+      .order("created_at", { ascending: true });
+
+    if (receiptError) {
+      console.error("Error fetching pending PO receipt queue:", receiptError);
+      return new Response(
+        JSON.stringify({ error: "Failed to fetch pending warehouse receipt queue" }),
+        { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+      );
+    }
+
+    const bestReceiptMatch = findBestPendingReceiptMatch(
+      (pendingReceipts || []) as PendingReceiptCandidate[],
+      supplier_name,
+      extractedItems,
+    );
+
+    if (bestReceiptMatch) {
+      const receipt = bestReceiptMatch.candidate;
+      const isMatched = bestReceiptMatch.score >= 0.8;
+
+      return new Response(
+        JSON.stringify({
+          isMatched,
+          matchScore: bestReceiptMatch.score,
+          matchSource: "purchase_order_receipt",
+          goodsReceiptId: receipt.id,
+          receiptNumber: receipt.receipt_number,
+          purchaseOrderId: receipt.purchase_order_id,
+          poNumber: (receipt.purchase_orders as any)?.po_number,
+          poTitle: (receipt.purchase_orders as any)?.title,
+          supplierId: receipt.supplier_id,
+          supplierName: (receipt.suppliers as any)?.name || supplier_name,
+          items: bestReceiptMatch.items,
+          extractedItems,
+        }),
+        { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+      );
+    }
+
+    // Legacy fallback: approved payment requests that don't have goods_receipt yet.
     const { data: paymentRequests, error: prError } = await supabase
       .from("payment_requests")
       .select(`
@@ -277,11 +512,18 @@ Important:
       );
     }
 
-    if (!paymentRequests || paymentRequests.length === 0) {
+    const bestPaymentRequestMatch = findBestPaymentRequestMatch(
+      (paymentRequests || []) as PaymentRequestCandidate[],
+      supplier_name,
+      extractedItems,
+    );
+
+    if (!bestPaymentRequestMatch) {
       return new Response(
         JSON.stringify({
           isMatched: false,
           matchScore: 0,
+          matchSource: "none",
           items: extractedItems.map(item => ({
             deliveryName: item.product_name,
             deliveryQty: item.quantity,
@@ -289,145 +531,26 @@ Important:
             status: "extra" as const,
           })),
           supplierName: supplier_name || "Không xác định",
-          error: "Không tìm thấy đề nghị chi nào đang chờ nhận hàng"
+          error: "Không tìm thấy phiếu chờ nhập kho hoặc đề nghị chi phù hợp"
         }),
         { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
-    // Find best matching payment request
-    let bestMatch: {
-      pr: typeof paymentRequests[0];
-      score: number;
-      items: MatchItem[];
-    } | null = null;
-
-    const normalizedSupplierName = removeDiacritics(supplier_name || "");
-
-    for (const pr of paymentRequests) {
-      const prSupplierName = removeDiacritics((pr.suppliers as any)?.name || "");
-      const supplierSimilarity = normalizedSupplierName 
-        ? similarity(normalizedSupplierName, prSupplierName)
-        : 0.5; // Default if supplier not extracted
-
-      if (supplierSimilarity < 0.5) continue; // Skip if supplier doesn't match at all
-
-      const prItems = pr.payment_request_items || [];
-      const matchItems: MatchItem[] = [];
-      let matchedCount = 0;
-
-      // Match extracted items to PR items
-      const usedPrItemIds = new Set<string>();
-
-      for (const extracted of extractedItems) {
-        const normalizedExtracted = removeDiacritics(extracted.product_name);
-        const normalizedExtractedUnit = normalizeUnit(extracted.unit);
-
-        let bestItemMatch: {
-          prItem: typeof prItems[0];
-          nameSimilarity: number;
-        } | null = null;
-
-        for (const prItem of prItems) {
-          if (usedPrItemIds.has(prItem.id)) continue;
-
-          const normalizedPrName = removeDiacritics(prItem.product_name);
-          const nameSimilarity = similarity(normalizedExtracted, normalizedPrName);
-
-          if (nameSimilarity > 0.6 && (!bestItemMatch || nameSimilarity > bestItemMatch.nameSimilarity)) {
-            bestItemMatch = { prItem, nameSimilarity };
-          }
-        }
-
-        if (bestItemMatch) {
-          usedPrItemIds.add(bestItemMatch.prItem.id);
-          const normalizedPrUnit = normalizeUnit(bestItemMatch.prItem.unit || "");
-          const unitMatch = normalizedExtractedUnit === normalizedPrUnit;
-          const qtyMatch = quantityMatches(extracted.quantity, bestItemMatch.prItem.quantity);
-
-          if (unitMatch && qtyMatch) {
-            matchItems.push({
-              deliveryName: extracted.product_name,
-              deliveryQty: extracted.quantity,
-              deliveryUnit: extracted.unit,
-              matchedName: bestItemMatch.prItem.product_name,
-              matchedQty: bestItemMatch.prItem.quantity,
-              matchedUnit: bestItemMatch.prItem.unit || "",
-              status: "match",
-            });
-            matchedCount++;
-          } else {
-            matchItems.push({
-              deliveryName: extracted.product_name,
-              deliveryQty: extracted.quantity,
-              deliveryUnit: extracted.unit,
-              matchedName: bestItemMatch.prItem.product_name,
-              matchedQty: bestItemMatch.prItem.quantity,
-              matchedUnit: bestItemMatch.prItem.unit || "",
-              status: "mismatch",
-            });
-          }
-        } else {
-          matchItems.push({
-            deliveryName: extracted.product_name,
-            deliveryQty: extracted.quantity,
-            deliveryUnit: extracted.unit,
-            status: "extra",
-          });
-        }
-      }
-
-      // Add missing items from PR
-      for (const prItem of prItems) {
-        if (!usedPrItemIds.has(prItem.id)) {
-          matchItems.push({
-            deliveryName: prItem.product_name,
-            deliveryQty: prItem.quantity,
-            deliveryUnit: prItem.unit || "",
-            status: "missing",
-          });
-        }
-      }
-
-      // Calculate match score
-      const totalItems = Math.max(extractedItems.length, prItems.length);
-      const score = (matchedCount / totalItems) * supplierSimilarity;
-
-      if (!bestMatch || score > bestMatch.score) {
-        bestMatch = { pr, score, items: matchItems };
-      }
-    }
-
-    if (!bestMatch) {
-      return new Response(
-        JSON.stringify({
-          isMatched: false,
-          matchScore: 0,
-          items: extractedItems.map(item => ({
-            deliveryName: item.product_name,
-            deliveryQty: item.quantity,
-            deliveryUnit: item.unit,
-            status: "extra" as const,
-          })),
-          supplierName: supplier_name || "Không xác định",
-          error: "Không tìm thấy đề nghị chi phù hợp"
-        }),
-        { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-      );
-    }
-
-    const isMatched = bestMatch.score >= 0.8;
+    const pr = bestPaymentRequestMatch.candidate;
+    const isMatched = bestPaymentRequestMatch.score >= 0.8;
 
     return new Response(
       JSON.stringify({
         isMatched,
-        matchScore: bestMatch.score,
-        paymentRequestId: bestMatch.pr.id,
-        paymentRequestNumber: bestMatch.pr.request_number,
-        paymentRequestTitle: bestMatch.pr.title,
-        supplierId: bestMatch.pr.supplier_id,
-        supplierName: (bestMatch.pr.suppliers as any)?.name || supplier_name,
-        items: bestMatch.items,
+        matchScore: bestPaymentRequestMatch.score,
+        matchSource: "payment_request",
+        paymentRequestId: pr.id,
+        paymentRequestNumber: pr.request_number,
+        paymentRequestTitle: pr.title,
+        supplierId: pr.supplier_id,
+        supplierName: (pr.suppliers as any)?.name || supplier_name,
+        items: bestPaymentRequestMatch.items,
         extractedItems,
       }),
       { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }

@@ -5,9 +5,12 @@ import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 interface ExtractedItem {
   product_name: string;
   quantity: number;
+  ordered_quantity?: number | null;
+  actual_quantity?: number | null;
   unit: string;
   expiry_date?: string;
   unit_price?: number;
+  line_status?: "du" | "thieu" | "du_thua";
 }
 
 serve(async (req) => {
@@ -17,6 +20,7 @@ serve(async (req) => {
 
   try {
     const { 
+      goodsReceiptId,
       paymentRequestId, 
       deliveryImage, 
       productPhotos = [], 
@@ -24,9 +28,9 @@ serve(async (req) => {
       supplierId 
     } = await req.json();
 
-    if (!paymentRequestId) {
+    if (!goodsReceiptId && !paymentRequestId) {
       return new Response(
-        JSON.stringify({ error: "Missing payment request ID" }),
+        JSON.stringify({ error: "Missing goods receipt ID or payment request ID" }),
         { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
@@ -52,6 +56,159 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ error: "Invalid token" }),
         { status: 401, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+      );
+    }
+
+    if (goodsReceiptId) {
+      const { data: existingReceipt, error: receiptLookupError } = await supabase
+        .from("goods_receipts")
+        .select("id, receipt_number, status, supplier_id, purchase_order_id")
+        .eq("id", goodsReceiptId)
+        .single();
+
+      if (receiptLookupError || !existingReceipt) {
+        return new Response(
+          JSON.stringify({ error: "Goods receipt not found" }),
+          { status: 404, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+        );
+      }
+
+      if (!["draft", "confirmed"].includes(existingReceipt.status)) {
+        return new Response(
+          JSON.stringify({ error: "Goods receipt is not pending warehouse confirmation" }),
+          { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+        );
+      }
+
+      const receiptNumber = existingReceipt.receipt_number;
+      let deliveryImageUrl: string | null = null;
+      if (deliveryImage) {
+        try {
+          const imageData = deliveryImage.includes(",") ? deliveryImage.split(",")[1] : deliveryImage;
+          const fileName = `delivery/${receiptNumber}_${Date.now()}.jpg`;
+          const { error: uploadError } = await supabase.storage
+            .from("warehouse-photos")
+            .upload(fileName, Uint8Array.from(atob(imageData), c => c.charCodeAt(0)), {
+              contentType: "image/jpeg",
+              upsert: true,
+            });
+          if (!uploadError) {
+            const { data: urlData } = supabase.storage.from("warehouse-photos").getPublicUrl(fileName);
+            deliveryImageUrl = urlData.publicUrl;
+          }
+        } catch (uploadErr) {
+          console.error("Error processing delivery image:", uploadErr);
+        }
+      }
+
+      const productPhotoUrls: string[] = [];
+      for (let i = 0; i < productPhotos.length; i++) {
+        try {
+          const photo = productPhotos[i];
+          const imageData = photo.includes(",") ? photo.split(",")[1] : photo;
+          const fileName = `products/${receiptNumber}_${i + 1}_${Date.now()}.jpg`;
+          const { error: uploadError } = await supabase.storage
+            .from("warehouse-photos")
+            .upload(fileName, Uint8Array.from(atob(imageData), c => c.charCodeAt(0)), {
+              contentType: "image/jpeg",
+              upsert: true,
+            });
+          if (!uploadError) {
+            const { data: urlData } = supabase.storage.from("warehouse-photos").getPublicUrl(fileName);
+            productPhotoUrls.push(urlData.publicUrl);
+          }
+        } catch (uploadErr) {
+          console.error("Error processing product photo:", uploadErr);
+        }
+      }
+
+      const incomingItems = items as ExtractedItem[];
+      const totalQuantity = incomingItems.reduce((sum, item) => sum + Number(item.actual_quantity ?? item.quantity ?? 0), 0);
+      const varianceSummary = incomingItems.reduce((summary, item) => {
+        const key = item.line_status || "du";
+        summary[key] = (summary[key] || 0) + 1;
+        return summary;
+      }, {} as Record<string, number>);
+
+      const { data: existingItems } = await supabase
+        .from("goods_receipt_items")
+        .select("id, product_name")
+        .eq("goods_receipt_id", goodsReceiptId);
+
+      const usedExistingIds = new Set<string>();
+      for (const item of incomingItems) {
+        const actualQuantity = Number(item.actual_quantity ?? item.quantity ?? 0);
+        const existingItem = (existingItems || []).find((candidate: any) =>
+          !usedExistingIds.has(candidate.id) &&
+          String(candidate.product_name || "").trim().toLowerCase() === String(item.product_name || "").trim().toLowerCase()
+        );
+
+        if (existingItem) {
+          usedExistingIds.add(existingItem.id);
+          const { error: itemUpdateError } = await supabase
+            .from("goods_receipt_items")
+            .update({
+              product_name: item.product_name,
+              quantity: actualQuantity,
+              ordered_quantity: item.ordered_quantity ?? null,
+              actual_quantity: actualQuantity,
+              unit: item.unit,
+              unit_price: item.unit_price ?? null,
+              line_status: item.line_status || null,
+              expiry_date: item.expiry_date || null,
+            })
+            .eq("id", existingItem.id);
+          if (itemUpdateError) console.error("Error updating receipt item:", itemUpdateError);
+        } else {
+          const { error: itemInsertError } = await supabase
+            .from("goods_receipt_items")
+            .insert({
+              goods_receipt_id: goodsReceiptId,
+              product_name: item.product_name,
+              quantity: actualQuantity,
+              ordered_quantity: item.ordered_quantity ?? null,
+              actual_quantity: actualQuantity,
+              unit: item.unit,
+              unit_price: item.unit_price ?? null,
+              line_status: item.line_status || null,
+              expiry_date: item.expiry_date || null,
+            });
+          if (itemInsertError) console.error("Error inserting receipt item:", itemInsertError);
+        }
+      }
+
+      const { error: receiptUpdateError } = await supabase
+        .from("goods_receipts")
+        .update({
+          supplier_id: supplierId || existingReceipt.supplier_id,
+          image_url: deliveryImageUrl,
+          product_photos: productPhotoUrls.length > 0 ? productPhotoUrls : null,
+          status: "confirmed",
+          total_quantity: totalQuantity,
+          variance_summary: varianceSummary,
+          notes: `Kho xác nhận phiếu chờ nhập từ PO: ${existingReceipt.purchase_order_id || "không rõ PO"}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", goodsReceiptId);
+
+      if (receiptUpdateError) {
+        console.error("Error updating pending goods receipt:", receiptUpdateError);
+        return new Response(
+          JSON.stringify({ error: "Failed to update pending goods receipt" }),
+          { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          receiptId: goodsReceiptId,
+          receiptNumber,
+          deliveryImageUrl,
+          productPhotoUrls,
+          varianceSummary,
+        }),
+        { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
