@@ -134,29 +134,36 @@ def test_warehouse_ui_exposes_po_receipt_match_metadata():
     assert "poNumber" in editor
 
 
-def test_finalization_function_posts_inventory_and_generates_pending_payable_from_actual_quantities():
+def test_finalization_rpc_posts_inventory_and_generates_pending_payable_atomically():
+    migrations = "\n".join(read(path) for path in sorted(MIGRATIONS.glob("*.sql")))
     edge = read(FINALIZE_RECEIPT_FUNCTION)
-    assert "finalize-goods-receipt" in edge
-    assert ".from(\"goods_receipts\")" in edge
-    assert "payable_status" in edge
-    assert "not_generated" in edge
-    assert "already finalized" in edge or "already received" in edge
-    assert "actual_quantity ?? item.quantity" in edge
-    assert "actualQuantity > 0" in edge
-    assert ".from(\"inventory_items\")" in edge
-    assert ".from(\"inventory_batches\")" in edge
-    assert "createPayableRequestNumber" in edge
-    assert ".from(\"payment_requests\")" in edge
-    assert "status: \"pending\"" in edge
-    assert "delivery_status: \"delivered\"" in edge
-    assert "payment_status: \"unpaid\"" in edge
-    assert "purchase_order_id" in edge
-    assert "goods_receipt_id" in edge
-    assert ".from(\"payment_request_items\")" in edge
-    assert "line_total: payableLineTotal" in edge
-    assert "payable_status: \"generated\"" in edge
-    assert "finalized_at" in edge
-    assert "finalized_by" in edge
+
+    assert "CREATE OR REPLACE FUNCTION public.finalize_goods_receipt" in migrations
+    assert "LANGUAGE plpgsql" in migrations
+    assert "SECURITY DEFINER" in migrations
+    assert "FOR UPDATE" in migrations
+    assert "actual_quantity" in migrations
+    assert "v_actual_quantity > 0" in migrations
+    assert "public.inventory_items" in migrations
+    assert "public.inventory_batches" in migrations
+    assert "public.payment_requests" in migrations
+    assert "public.payment_request_items" in migrations
+    assert "payable_status = 'generated'" in migrations
+    assert "finalized_at = now()" in migrations
+    assert "finalized_by = p_user_id" in migrations
+    assert "RAISE EXCEPTION" in migrations
+    assert "GRANT EXECUTE ON FUNCTION public.finalize_goods_receipt(uuid, uuid) TO authenticated" in migrations
+    assert "GRANT EXECUTE ON FUNCTION public.finalize_goods_receipt(uuid, uuid) TO service_role" in migrations
+
+    assert 'rpc("finalize_goods_receipt"' in edge
+    assert "p_receipt_id" in edge
+    assert "p_user_id" in edge
+    assert "Failed to finalize goods receipt" in edge
+    rpc_section = edge.split('rpc("finalize_goods_receipt"', 1)[1]
+    assert ".from(\"inventory_items\")" not in rpc_section
+    assert ".from(\"inventory_batches\")" not in rpc_section
+    assert ".from(\"payment_requests\")" not in rpc_section
+    assert ".from(\"payment_request_items\")" not in rpc_section
 
 
 def test_goods_receipt_confirm_uses_finalization_edge_function_not_client_side_inventory_mutations():
@@ -241,7 +248,7 @@ if __name__ == "__main__":
     test_purchase_order_send_ensures_single_pending_receipt_queue()
     test_warehouse_scan_matches_pending_po_receipt_queue_before_legacy_payment_requests()
     test_warehouse_ui_exposes_po_receipt_match_metadata()
-    test_finalization_function_posts_inventory_and_generates_pending_payable_from_actual_quantities()
+    test_finalization_rpc_posts_inventory_and_generates_pending_payable_atomically()
     test_goods_receipt_confirm_uses_finalization_edge_function_not_client_side_inventory_mutations()
     test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finalization()
     test_finance_payables_ui_filters_and_labels_warehouse_generated_requests()
