@@ -324,13 +324,16 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert "onKeyDown={(event) => handleOrderRowKeyDown(event, order.id)}" in page
     assert "event.stopPropagation()" in page
     assert "aria-label={isVi ? \"Xóa PO\" : \"Delete PO\"}" in page
-    assert "bg-slate-50 dark:bg-slate-950" in page
+    assert "bg-slate-50 dark:bg-[#1d1813]" in page
     assert "lg:grid-cols-[minmax(0,1fr)_260px]" in page
     assert "grid-cols-2 lg:grid-cols-5" in page
-    assert "dark:bg-slate-900/80" in page
-    assert "dark:border-slate-700" in page
+    assert "dark:bg-[#241f18]/90" in page
+    assert "dark:border-[#443b30]" in page
+    assert "dark:text-[#f3ece4]" in page
+    assert "dark:text-[#a99b8c]" in page
+    assert "dark:hover:bg-[#342b22]/70" in page
     assert "h-[52px]" in page
-    assert "bg-slate-100 dark:bg-slate-800" in page
+    assert "bg-slate-100 dark:bg-[#2b241c]" in page
     assert "{isVi ? \"Ngày dự kiến\" : \"Expected\"}" in page
     assert "formatOptionalDate(order.expected_date)" in page
     assert "const PAGE_SIZE = 20;" in page

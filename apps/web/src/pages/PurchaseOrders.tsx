@@ -195,14 +195,14 @@ export default function PurchaseOrders() {
   };
 
   return (
-    <div className="bg-slate-50 dark:bg-slate-950 -m-4 space-y-4 p-4 text-slate-950 dark:text-slate-100 md:-m-6 md:p-6">
-      <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/80 lg:flex-row lg:items-center lg:justify-between">
+    <div className="bg-slate-50 dark:bg-[#1d1813] -m-4 space-y-4 p-4 text-slate-950 dark:text-[#f3ece4] md:-m-6 md:p-6">
+      <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-[#443b30] dark:bg-[#241f18]/90 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
-          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-slate-100">
+          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-[#f3ece4]">
             <FileText className="h-6 w-6 text-amber-600" />
             {t.poPurchasing}
           </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">{isVi ? "Quản lý vận hành nhập hàng & công nợ nhà cung cấp" : "Manage supplier purchasing operations and payables"}</p>
+          <p className="text-sm text-slate-500 dark:text-[#a99b8c]">{isVi ? "Quản lý vận hành nhập hàng & công nợ nhà cung cấp" : "Manage supplier purchasing operations and payables"}</p>
         </div>
         <AddPurchaseOrderDialog />
       </div>
@@ -210,29 +210,29 @@ export default function PurchaseOrders() {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
         <div className="min-w-0 space-y-4">
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            <Card className={`cursor-pointer border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/80 ${statusFilter === "all" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("all")}>
-              <CardHeader className="px-3 py-2"><CardTitle className="text-xs font-medium text-slate-500 dark:text-slate-400">{isVi ? "Tổng đơn" : "Total orders"}</CardTitle></CardHeader>
-              <CardContent className="px-3 pb-3 pt-0"><p className="text-xl font-semibold text-slate-950 dark:text-slate-100">{stats.total}</p></CardContent>
+            <Card className={`cursor-pointer border-slate-200 bg-white dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "all" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("all")}>
+              <CardHeader className="px-3 py-2"><CardTitle className="text-xs font-medium text-slate-500 dark:text-[#a99b8c]">{isVi ? "Tổng đơn" : "Total orders"}</CardTitle></CardHeader>
+              <CardContent className="px-3 pb-3 pt-0"><p className="text-xl font-semibold text-slate-950 dark:text-[#f3ece4]">{stats.total}</p></CardContent>
             </Card>
-            <Card className={`cursor-pointer border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/80 ${statusFilter === "draft" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("draft")}>
-              <CardHeader className="px-3 py-2"><CardTitle className="text-xs font-medium text-slate-500 dark:text-slate-400">{isVi ? "Nháp" : "Draft"}</CardTitle></CardHeader>
-              <CardContent className="px-3 pb-3 pt-0"><p className="text-xl font-semibold text-slate-950 dark:text-slate-100">{stats.draft}</p></CardContent>
+            <Card className={`cursor-pointer border-slate-200 bg-white dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "draft" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("draft")}>
+              <CardHeader className="px-3 py-2"><CardTitle className="text-xs font-medium text-slate-500 dark:text-[#a99b8c]">{isVi ? "Nháp" : "Draft"}</CardTitle></CardHeader>
+              <CardContent className="px-3 pb-3 pt-0"><p className="text-xl font-semibold text-slate-950 dark:text-[#f3ece4]">{stats.draft}</p></CardContent>
             </Card>
-            <Card className={`cursor-pointer border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/80 ${statusFilter === "sent" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("sent")}>
-              <CardHeader className="px-3 py-2"><CardTitle className="text-xs font-medium text-blue-600 dark:text-blue-300">{isVi ? "Đã gửi" : "Sent"}</CardTitle></CardHeader>
-              <CardContent className="px-3 pb-3 pt-0"><p className="text-xl font-semibold text-blue-600 dark:text-blue-300">{stats.sent}</p></CardContent>
+            <Card className={`cursor-pointer border-slate-200 bg-white dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "sent" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("sent")}>
+              <CardHeader className="px-3 py-2"><CardTitle className="text-xs font-medium text-blue-600 dark:text-[#f0ad4e]">{isVi ? "Đã gửi" : "Sent"}</CardTitle></CardHeader>
+              <CardContent className="px-3 pb-3 pt-0"><p className="text-xl font-semibold text-blue-600 dark:text-[#f0ad4e]">{stats.sent}</p></CardContent>
             </Card>
-            <Card className={`cursor-pointer border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/80 ${statusFilter === "in_transit" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("in_transit")}>
-              <CardHeader className="px-3 py-2"><CardTitle className="text-xs font-medium text-amber-600 dark:text-amber-300">{isVi ? "Đang giao" : "In transit"}</CardTitle></CardHeader>
-              <CardContent className="px-3 pb-3 pt-0"><p className="text-xl font-semibold text-amber-600 dark:text-amber-300">{stats.inTransit}</p></CardContent>
+            <Card className={`cursor-pointer border-slate-200 bg-white dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "in_transit" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("in_transit")}>
+              <CardHeader className="px-3 py-2"><CardTitle className="text-xs font-medium text-amber-600 dark:text-[#f0ad4e]">{isVi ? "Đang giao" : "In transit"}</CardTitle></CardHeader>
+              <CardContent className="px-3 pb-3 pt-0"><p className="text-xl font-semibold text-amber-600 dark:text-[#f0ad4e]">{stats.inTransit}</p></CardContent>
             </Card>
-            <Card className="border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/80">
-              <CardHeader className="px-3 py-2"><CardTitle className="text-xs font-medium text-slate-500 dark:text-slate-400">{isVi ? "Tổng giá trị" : "Total value"}</CardTitle></CardHeader>
-              <CardContent className="px-3 pb-3 pt-0"><p className="truncate text-sm font-semibold text-slate-950 dark:text-slate-100">{formatCurrency(stats.totalValue)}</p></CardContent>
+            <Card className="border-slate-200 bg-white dark:border-[#443b30] dark:bg-[#241f18]/90">
+              <CardHeader className="px-3 py-2"><CardTitle className="text-xs font-medium text-slate-500 dark:text-[#a99b8c]">{isVi ? "Tổng giá trị" : "Total value"}</CardTitle></CardHeader>
+              <CardContent className="px-3 pb-3 pt-0"><p className="truncate text-sm font-semibold text-slate-950 dark:text-[#f3ece4]">{formatCurrency(stats.totalValue)}</p></CardContent>
             </Card>
           </div>
 
-          <Card className="border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/80">
+          <Card className="border-slate-200 bg-white dark:border-[#443b30] dark:bg-[#241f18]/90">
             <CardContent className="flex flex-col gap-3 p-3 md:flex-row md:items-center">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -240,11 +240,11 @@ export default function PurchaseOrders() {
                   placeholder={isVi ? "Tìm theo số PO, nhà cung cấp, sản phẩm... hỗ trợ không dấu" : "Search PO, supplier, product... diacritics optional"}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="h-9 border-slate-200 bg-slate-50 pl-10 text-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  className="h-9 border-slate-200 bg-slate-50 pl-10 text-sm dark:border-[#443b30] dark:bg-[#1d1813] dark:text-[#f3ece4]"
                 />
               </div>
               <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
-                <SelectTrigger className="h-9 w-full border-slate-200 bg-white text-sm dark:border-slate-700 dark:bg-slate-950 md:w-44"><SelectValue placeholder={isVi ? "Trạng thái" : "Status"} /></SelectTrigger>
+                <SelectTrigger className="h-9 w-full border-slate-200 bg-white text-sm dark:border-[#443b30] dark:bg-[#1d1813] md:w-44"><SelectValue placeholder={isVi ? "Trạng thái" : "Status"} /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{isVi ? "Tất cả" : "All"}</SelectItem>
                   <SelectItem value="draft">{isVi ? "Nháp" : "Draft"}</SelectItem>
@@ -257,25 +257,25 @@ export default function PurchaseOrders() {
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/80">
+          <Card className="overflow-hidden border-slate-200 bg-white dark:border-[#443b30] dark:bg-[#241f18]/90">
             <CardContent className="p-0">
               {isLoading ? (
                 <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin" /></div>
               ) : error ? (
                 <div className="py-12 text-center text-destructive">{isVi ? "Lỗi tải dữ liệu" : "Failed to load data"}</div>
               ) : filteredOrders.length === 0 ? (
-                <div className="py-12 text-center text-slate-500 dark:text-slate-400"><Package className="mx-auto mb-4 h-12 w-12 opacity-50" /><p>{isVi ? "Chưa có đơn đặt hàng nào" : "No purchase orders yet"}</p></div>
+                <div className="py-12 text-center text-slate-500 dark:text-[#a99b8c]"><Package className="mx-auto mb-4 h-12 w-12 opacity-50" /><p>{isVi ? "Chưa có đơn đặt hàng nào" : "No purchase orders yet"}</p></div>
               ) : (
                 <Table>
-                  <TableHeader className="bg-slate-100 dark:bg-slate-800">
-                    <TableRow className="border-slate-200 dark:border-slate-700 hover:bg-transparent">
-                      <TableHead className="h-9 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{isVi ? "Số PO" : "PO #"}</TableHead>
-                      <TableHead className="h-9 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{isVi ? "Nhà cung cấp" : "Supplier"}</TableHead>
-                      <TableHead className="h-9 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{isVi ? "Sản phẩm" : "Products"}</TableHead>
-                      <TableHead className="h-9 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{isVi ? "Ngày đặt" : "Order date"}</TableHead>
-                      <TableHead className="h-9 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{isVi ? "Ngày dự kiến" : "Expected"}</TableHead>
-                      <TableHead className="h-9 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{isVi ? "Tổng tiền" : "Total"}</TableHead>
-                      <TableHead className="h-9 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{isVi ? "Trạng thái" : "Status"}</TableHead>
+                  <TableHeader className="bg-slate-100 dark:bg-[#2b241c]">
+                    <TableRow className="border-slate-200 dark:border-[#443b30] hover:bg-transparent">
+                      <TableHead className="h-9 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-[#a99b8c]">{isVi ? "Số PO" : "PO #"}</TableHead>
+                      <TableHead className="h-9 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-[#a99b8c]">{isVi ? "Nhà cung cấp" : "Supplier"}</TableHead>
+                      <TableHead className="h-9 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-[#a99b8c]">{isVi ? "Sản phẩm" : "Products"}</TableHead>
+                      <TableHead className="h-9 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-[#a99b8c]">{isVi ? "Ngày đặt" : "Order date"}</TableHead>
+                      <TableHead className="h-9 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-[#a99b8c]">{isVi ? "Ngày dự kiến" : "Expected"}</TableHead>
+                      <TableHead className="h-9 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-[#a99b8c]">{isVi ? "Tổng tiền" : "Total"}</TableHead>
+                      <TableHead className="h-9 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-[#a99b8c]">{isVi ? "Trạng thái" : "Status"}</TableHead>
                       <TableHead className="h-9 w-12"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -285,16 +285,16 @@ export default function PurchaseOrders() {
                         key={order.id}
                         role="button"
                         tabIndex={0}
-                        className="h-[52px] cursor-pointer border-slate-200 text-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 dark:border-slate-700 dark:hover:bg-slate-800/60"
+                        className="h-[52px] cursor-pointer border-slate-200 text-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 dark:border-[#443b30] dark:hover:bg-[#342b22]/70"
                         onClick={() => setSelectedOrderId(order.id)}
                         onKeyDown={(event) => handleOrderRowKeyDown(event, order.id)}
                       >
-                        <TableCell className="py-2 font-semibold text-slate-950 dark:text-slate-100">{order.po_number}</TableCell>
-                        <TableCell className="max-w-[180px] py-2 text-slate-700 dark:text-slate-200">{order.suppliers?.name || (order.supplier_id ? supplierMap.get(order.supplier_id) : undefined) || (isVi ? "N/A" : "N/A")}</TableCell>
-                        <TableCell className="max-w-[260px] truncate py-2 text-slate-500 dark:text-slate-400" title={getOrderProductNames(order)}>{getOrderProductNames(order)}</TableCell>
-                        <TableCell className="whitespace-nowrap py-2 text-slate-600 dark:text-slate-300">{format(new Date(order.order_date), "dd/MM/yyyy", { locale })}</TableCell>
-                        <TableCell className="whitespace-nowrap py-2 text-slate-600 dark:text-slate-300">{formatOptionalDate(order.expected_date)}</TableCell>
-                        <TableCell className="whitespace-nowrap py-2 text-right font-semibold text-slate-950 dark:text-slate-100">{formatCurrency(order.total_amount || 0)}</TableCell>
+                        <TableCell className="py-2 font-semibold text-slate-950 dark:text-[#f3ece4]">{order.po_number}</TableCell>
+                        <TableCell className="max-w-[180px] py-2 text-slate-700 dark:text-[#e8ded2]">{order.suppliers?.name || (order.supplier_id ? supplierMap.get(order.supplier_id) : undefined) || (isVi ? "N/A" : "N/A")}</TableCell>
+                        <TableCell className="max-w-[260px] truncate py-2 text-slate-500 dark:text-[#a99b8c]" title={getOrderProductNames(order)}>{getOrderProductNames(order)}</TableCell>
+                        <TableCell className="whitespace-nowrap py-2 text-slate-600 dark:text-[#d6c8b8]">{format(new Date(order.order_date), "dd/MM/yyyy", { locale })}</TableCell>
+                        <TableCell className="whitespace-nowrap py-2 text-slate-600 dark:text-[#d6c8b8]">{formatOptionalDate(order.expected_date)}</TableCell>
+                        <TableCell className="whitespace-nowrap py-2 text-right font-semibold text-slate-950 dark:text-[#f3ece4]">{formatCurrency(order.total_amount || 0)}</TableCell>
                         <TableCell className="py-2">{getStatusBadge(order.status)}</TableCell>
                         <TableCell className="py-2">
                           <div className="flex items-center justify-end gap-1">
@@ -303,7 +303,7 @@ export default function PurchaseOrders() {
                                 variant="ghost"
                                 size="icon"
                                 aria-label={isVi ? "Xóa PO" : "Delete PO"}
-                                className="h-8 w-8 text-slate-500 hover:text-destructive dark:text-slate-400"
+                                className="h-8 w-8 text-slate-500 hover:text-destructive dark:text-[#a99b8c]"
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   setDeleteOrderId(order.id);
@@ -320,18 +320,18 @@ export default function PurchaseOrders() {
                 </Table>
               )}
               {!isLoading && !error && filteredOrders.length > 0 && (
-                <div className="flex flex-col gap-2 border-t border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-2 border-t border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-[#443b30] dark:bg-[#241f18] dark:text-[#a99b8c] sm:flex-row sm:items-center sm:justify-between">
                   <span>
                     {isVi ? "Hiển thị" : "Showing"} {pageStartIndex + 1}-{Math.min(pageStartIndex + paginatedOrders.length, filteredOrders.length)} / {filteredOrders.length} · {PAGE_SIZE} {isVi ? "dòng/trang" : "rows/page"}
                   </span>
                   <div className="flex items-center gap-2">
-                    <Button type="button" variant="outline" size="sm" className="h-8 border-slate-200 bg-white text-xs dark:border-slate-700 dark:bg-slate-950" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPageSafe <= 1}>
+                    <Button type="button" variant="outline" size="sm" className="h-8 border-slate-200 bg-white text-xs dark:border-[#443b30] dark:bg-[#1d1813]" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPageSafe <= 1}>
                       {isVi ? "Trang trước" : "Previous"}
                     </Button>
-                    <span className="min-w-[88px] text-center font-medium text-slate-600 dark:text-slate-300">
+                    <span className="min-w-[88px] text-center font-medium text-slate-600 dark:text-[#d6c8b8]">
                       {isVi ? "Trang" : "Page"} {currentPageSafe} / {totalPages}
                     </span>
-                    <Button type="button" variant="outline" size="sm" className="h-8 border-slate-200 bg-white text-xs dark:border-slate-700 dark:bg-slate-950" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPageSafe >= totalPages}>
+                    <Button type="button" variant="outline" size="sm" className="h-8 border-slate-200 bg-white text-xs dark:border-[#443b30] dark:bg-[#1d1813]" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPageSafe >= totalPages}>
                       {isVi ? "Trang sau" : "Next"}
                     </Button>
                   </div>
@@ -341,38 +341,38 @@ export default function PurchaseOrders() {
           </Card>
         </div>
 
-        <Card className="h-fit border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/80">
+        <Card className="h-fit border-slate-200 bg-white dark:border-[#443b30] dark:bg-[#241f18]/90">
           <CardHeader className="px-4 py-3">
-            <CardTitle className="text-sm font-semibold text-slate-950 dark:text-slate-100">{isVi ? "Cần xử lý" : "Needs action"}</CardTitle>
+            <CardTitle className="text-sm font-semibold text-slate-950 dark:text-[#f3ece4]">{isVi ? "Cần xử lý" : "Needs action"}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 px-4 pb-4 pt-0">
             <button
               type="button"
-              className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${statusFilter === "draft" ? "border-amber-500 bg-amber-50 text-amber-800 dark:border-amber-500 dark:bg-amber-950/30 dark:text-amber-200" : "border-slate-200 bg-slate-50 text-slate-700 hover:border-amber-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"}`}
+              className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${statusFilter === "draft" ? "border-amber-500 bg-amber-50 text-amber-800 dark:border-amber-500 dark:bg-[#3a2612]/80 dark:text-[#ffd08a]" : "border-slate-200 bg-slate-50 text-slate-700 hover:border-amber-300 dark:border-[#443b30] dark:bg-[#1d1813] dark:text-[#d6c8b8]"}`}
               onClick={() => setStatusFilter("draft")}
             >
               <div className="flex items-center justify-between"><span>{isVi ? "PO nháp" : "Draft POs"}</span><strong>{stats.draft}</strong></div>
             </button>
             <button
               type="button"
-              className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${statusFilter === "in_transit" ? "border-amber-500 bg-amber-50 text-amber-800 dark:border-amber-500 dark:bg-amber-950/30 dark:text-amber-200" : "border-slate-200 bg-slate-50 text-slate-700 hover:border-amber-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"}`}
+              className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${statusFilter === "in_transit" ? "border-amber-500 bg-amber-50 text-amber-800 dark:border-amber-500 dark:bg-[#3a2612]/80 dark:text-[#ffd08a]" : "border-slate-200 bg-slate-50 text-slate-700 hover:border-amber-300 dark:border-[#443b30] dark:bg-[#1d1813] dark:text-[#d6c8b8]"}`}
               onClick={() => setStatusFilter("in_transit")}
             >
               <div className="flex items-center justify-between"><span>{isVi ? "Đang vận chuyển" : "In transit"}</span><strong>{stats.inTransit}</strong></div>
             </button>
-            <div className="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-700">
+            <div className="space-y-2 border-t border-slate-200 pt-3 dark:border-[#443b30]">
               {actionOrders.length === 0 ? (
-                <p className="text-sm text-slate-500 dark:text-slate-400">{isVi ? "Không có PO cần xử lý" : "No purchase orders need action"}</p>
+                <p className="text-sm text-slate-500 dark:text-[#a99b8c]">{isVi ? "Không có PO cần xử lý" : "No purchase orders need action"}</p>
               ) : (
                 actionOrders.map((order) => (
                   <button
                     key={order.id}
                     type="button"
-                    className="w-full rounded-md p-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                    className="w-full rounded-md p-2 text-left hover:bg-slate-50 dark:hover:bg-[#342b22]/70"
                     onClick={() => setSelectedOrderId(order.id)}
                   >
-                    <div className="truncate text-sm font-semibold text-slate-950 dark:text-slate-100">{order.po_number}</div>
-                    <div className="truncate text-xs text-slate-500 dark:text-slate-400">{order.suppliers?.name || getOrderProductNames(order)}</div>
+                    <div className="truncate text-sm font-semibold text-slate-950 dark:text-[#f3ece4]">{order.po_number}</div>
+                    <div className="truncate text-xs text-slate-500 dark:text-[#a99b8c]">{order.suppliers?.name || getOrderProductNames(order)}</div>
                   </button>
                 ))
               )}
