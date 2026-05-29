@@ -103,7 +103,7 @@ const PayablesManagement = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<PayableStatusFilter>("all");
   const [approvalStatusFilter, setApprovalStatusFilter] = useState<ApprovalStatusFilter>("all");
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("warehouse_receipt");
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [dateFrom, setDateFrom] = useState(getMonthStartInputValue);
   const [dateTo, setDateTo] = useState(getMonthEndInputValue);
 
