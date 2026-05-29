@@ -235,12 +235,13 @@ def test_finance_payables_ui_filters_and_labels_warehouse_generated_requests():
     assert 'sourceFilter' in page
     assert 'warehouse_receipt' in page
     assert 'Công nợ tạo từ nhập kho' in page
-    assert 'Từ phiếu nhập kho' in page
     assert 'request.goods_receipt_id' in page
-    assert 'request.goods_receipts?.receipt_number' in page
-    assert 'request.purchase_orders?.po_number' in page
     assert 'stats.warehouseGenerated' in page
     assert 'filteredRequests' in page
+
+    table_section = page.split('<TableHeader className="bg-slate-50 dark:bg-slate-900/50">', 1)[1].split('</Table>', 1)[0]
+    assert '{language === "vi" ? "Nguồn" : "Source"}' not in table_section
+    assert 'renderSourceBadge(request)' not in table_section
 
     assert 'Công nợ tạo từ nhập kho' in details
     assert 'Phiếu nhập kho' in details

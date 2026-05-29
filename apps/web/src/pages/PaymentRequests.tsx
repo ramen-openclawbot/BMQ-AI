@@ -264,27 +264,6 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
     }
   };
 
-  const renderSourceBadge = (request: PaymentRequestWithSupplier) => {
-    if (!isWarehouseReceiptPayable(request)) {
-      return <Badge variant="outline" className="text-xs">{language === "vi" ? "Nguồn khác" : "Other source"}</Badge>;
-    }
-
-    return (
-      <div className="space-y-1 text-xs">
-        <Badge className="bg-emerald-600 text-xs">
-          <PackageCheck className="mr-1 h-3 w-3" />
-          {language === "vi" ? "Từ phiếu nhập kho" : "From warehouse receipt"}
-        </Badge>
-        <div className="font-mono text-muted-foreground">
-          {request.goods_receipts?.receipt_number || request.goods_receipt_id}
-        </div>
-        {request.purchase_orders?.po_number && (
-          <div className="font-mono text-muted-foreground">PO: {request.purchase_orders.po_number}</div>
-        )}
-      </div>
-    );
-  };
-
   const renderProductNames = (request: PaymentRequestWithSupplier) => {
     const productNames = getProductNames(request);
 
@@ -718,7 +697,6 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                   <TableHead className="min-w-[300px] text-slate-700 dark:text-slate-300">
                     {language === "vi" ? "Tên sản phẩm duyệt chi" : "Payment request products"}
                   </TableHead>
-                  <TableHead className="min-w-[190px] text-slate-700 dark:text-slate-300">{language === "vi" ? "Nguồn" : "Source"}</TableHead>
                   <TableHead className="min-w-[150px] text-right text-slate-700 dark:text-slate-300">Số tiền</TableHead>
                   <TableHead className="min-w-[140px] text-center text-slate-700 dark:text-slate-300">{t.status}</TableHead>
                   <TableHead className="min-w-[160px] text-slate-700 dark:text-slate-300">Người tạo</TableHead>
@@ -779,7 +757,6 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                     </TableCell>
                     <TableCell className="font-medium text-slate-800 dark:text-slate-100">{request.suppliers?.name || "-"}</TableCell>
                     <TableCell>{renderProductNames(request)}</TableCell>
-                    <TableCell>{renderSourceBadge(request)}</TableCell>
                     <TableCell className="text-right font-semibold text-slate-900 dark:text-slate-50">
                       {formatCurrency(request.total_amount || 0)}
                       {allocatedAmount > 0 && (
