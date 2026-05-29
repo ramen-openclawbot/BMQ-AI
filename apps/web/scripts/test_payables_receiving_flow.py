@@ -315,6 +315,9 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert 'const searchableText = normalizeSearchText(`${order.po_number} ${order.suppliers?.name || ""} ${productNames}`);' in page
     assert "{isVi ? \"Sản phẩm\" : \"Products\"}" in page
     assert "getOrderProductNames" in page
+    assert "const capitalizeProductName" in page
+    assert 'firstCharacter.toLocaleUpperCase("vi-VN")' in page
+    assert "capitalizeProductName(item.product_name)" in page
     assert "order.purchase_order_items" in page
     assert "onClick={() => setSelectedOrderId(order.id)}" in page
     assert "cursor-pointer" in page

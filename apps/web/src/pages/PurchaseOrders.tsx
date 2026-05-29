@@ -60,6 +60,13 @@ const normalizeSearchText = (value: string | null | undefined) =>
     .replace(/đ/g, "d")
     .trim();
 
+const capitalizeProductName = (value: string | null | undefined) => {
+  const trimmedValue = String(value || "").trim();
+  const [firstCharacter, ...remainingCharacters] = Array.from(trimmedValue);
+  if (!firstCharacter) return "";
+  return `${firstCharacter.toLocaleUpperCase("vi-VN")}${remainingCharacters.join("")}`;
+};
+
 export default function PurchaseOrders() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -112,7 +119,7 @@ export default function PurchaseOrders() {
 
   const getOrderProductNames = (order: PurchaseOrder) => {
     const names = (order.purchase_order_items || [])
-      .map((item) => item.product_name?.trim())
+      .map((item) => capitalizeProductName(item.product_name))
       .filter((name): name is string => Boolean(name));
 
     if (names.length === 0) return isVi ? "Chưa có sản phẩm" : "No products";
