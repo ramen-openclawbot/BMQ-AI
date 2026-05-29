@@ -8,17 +8,13 @@ import {
   ChevronRight,
   CircleDollarSign,
   Clock3,
-  CreditCard,
   FileText,
   Filter,
-  Image,
   Link2,
-  Pencil,
   ReceiptText,
   RefreshCw,
   Search,
   Sparkles,
-  Trash2,
   TrendingUp,
   UploadCloud,
   XCircle,
@@ -59,7 +55,6 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { resolveImageUrl } from "@/lib/storage-url";
 import { toast } from "sonner";
 
 const PAGE_SIZE = 20;
@@ -152,8 +147,6 @@ const Invoices = () => {
   const [viewingInvoiceId, setViewingInvoiceId] = useState<string | null>(null);
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
   const [deletingInvoiceId, setDeletingInvoiceId] = useState<string | null>(null);
-  const [viewingImageUrl, setViewingImageUrl] = useState<string | null>(null);
-  const [viewingImageTitle, setViewingImageTitle] = useState<string>(isVi ? "Ảnh hóa đơn" : "Invoice image");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
@@ -267,19 +260,6 @@ const Invoices = () => {
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages);
   }, [currentPage, totalPages]);
-
-  const openAttachmentPreview = async (rawUrl: string | null | undefined, title: string, preferredBucket = "invoices") => {
-    const resolved = await resolveImageUrl(rawUrl || null, { preferredBucket });
-
-    if (!resolved) {
-      toast.error(isVi ? "Không tìm thấy file đính kèm trong kho lưu trữ" : "Attachment file was not found in storage");
-      setViewingImageUrl(null);
-      return;
-    }
-
-    setViewingImageUrl(resolved);
-    setViewingImageTitle(title);
-  };
 
   const handleDelete = async () => {
     if (deletingInvoiceId) {
@@ -476,13 +456,12 @@ const Invoices = () => {
                       <TableRow className="border-border hover:bg-transparent">
                         <TableHead className="min-w-[140px] text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Số hóa đơn" : "Invoice #"}</TableHead>
                         <TableHead className="min-w-[170px] text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Nhà cung cấp" : "Supplier"}</TableHead>
-                        <TableHead className="min-w-[180px] text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Nguồn/PO/PNK" : "Source/PO/Receipt"}</TableHead>
                         <TableHead className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Ngày HĐ" : "Date"}</TableHead>
                         <TableHead className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Hạn TT" : "Due"}</TableHead>
                         <TableHead className="text-right text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Giá trị" : "Amount"}</TableHead>
                         <TableHead className="min-w-[150px] text-right text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Đã trả/Còn lại" : "Paid/Remaining"}</TableHead>
                         <TableHead className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Trạng thái" : "Status"}</TableHead>
-                        <TableHead className="text-right text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Thao tác" : "Actions"}</TableHead>
+                        <TableHead className="min-w-[180px] text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Nguồn/PO/PNK" : "Source/PO/Receipt"}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -501,14 +480,6 @@ const Invoices = () => {
                           <TableCell>
                             <div className="font-medium text-foreground">{invoice.suppliers?.name || <span className="text-muted-foreground">-</span>}</div>
                           </TableCell>
-                          <TableCell>
-                            <div className="flex flex-col gap-1">
-                              <Badge variant="outline" className="w-fit border-border bg-muted/70 text-foreground">
-                                {getSourceLabel(sourceMeta.source, isVi)}
-                              </Badge>
-                              {sourceMeta.reference && <span className="max-w-[170px] truncate font-mono text-xs text-muted-foreground">{sourceMeta.reference}</span>}
-                            </div>
-                          </TableCell>
                           <TableCell className="whitespace-nowrap text-muted-foreground">{format(new Date(invoice.invoice_date), "dd/MM/yyyy")}</TableCell>
                           <TableCell className="whitespace-nowrap text-muted-foreground">{format(dueDate, "dd/MM/yyyy")}</TableCell>
                           <TableCell className="text-right font-semibold text-foreground">{formatFullCurrency(total)}</TableCell>
@@ -519,20 +490,12 @@ const Invoices = () => {
                           <TableCell>
                             <Badge variant="outline" className={getStatusClassName(status)}>{getStatusLabel(status, isVi)}</Badge>
                           </TableCell>
-                          <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
-                            <div className="flex items-center justify-end gap-1">
-                              {invoice.image_url && (
-                                <Button variant="ghost" size="sm" onClick={() => openAttachmentPreview(invoice.image_url, isVi ? "Hóa đơn" : "Invoice", "invoices")} title={isVi ? "Xem hóa đơn" : "View invoice"}>
-                                  <Image className="h-4 w-4" />
-                                </Button>
-                              )}
-                              {invoice.payment_slip_url && (
-                                <Button variant="ghost" size="sm" onClick={() => openAttachmentPreview(invoice.payment_slip_url, isVi ? "UNC / Chứng từ TT" : "UNC / Payment slip", "invoices")} title={isVi ? "Xem UNC" : "View UNC"} className="text-primary">
-                                  <CreditCard className="h-4 w-4" />
-                                </Button>
-                              )}
-                              <Button variant="ghost" size="sm" onClick={() => setEditingInvoiceId(invoice.id)} title={isVi ? "Chỉnh sửa" : "Edit"}><Pencil className="h-4 w-4" /></Button>
-                              <Button variant="ghost" size="sm" onClick={() => setDeletingInvoiceId(invoice.id)} className="text-destructive hover:text-destructive" title={isVi ? "Xóa" : "Delete"}><Trash2 className="h-4 w-4" /></Button>
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              <Badge variant="outline" className="w-fit border-border bg-muted/70 text-foreground">
+                                {getSourceLabel(sourceMeta.source, isVi)}
+                              </Badge>
+                              {sourceMeta.reference && <span className="max-w-[170px] truncate font-mono text-xs text-muted-foreground">{sourceMeta.reference}</span>}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -612,7 +575,19 @@ const Invoices = () => {
         </aside>
       </div>
 
-      <InvoiceDetailsDialog invoiceId={viewingInvoiceId} open={!!viewingInvoiceId} onOpenChange={(open) => !open && setViewingInvoiceId(null)} />
+      <InvoiceDetailsDialog
+        invoiceId={viewingInvoiceId}
+        open={!!viewingInvoiceId}
+        onOpenChange={(open) => !open && setViewingInvoiceId(null)}
+        onEdit={(invoiceId) => {
+          setEditingInvoiceId(invoiceId);
+          setViewingInvoiceId(null);
+        }}
+        onDelete={(invoiceId) => {
+          setDeletingInvoiceId(invoiceId);
+          setViewingInvoiceId(null);
+        }}
+      />
       <EditInvoiceDialog invoiceId={editingInvoiceId} open={!!editingInvoiceId} onOpenChange={(open) => !open && setEditingInvoiceId(null)} />
 
       <AlertDialog open={!!deletingInvoiceId} onOpenChange={(open) => !open && setDeletingInvoiceId(null)}>
@@ -625,14 +600,6 @@ const Invoices = () => {
             <AlertDialogCancel>{isVi ? "Hủy" : "Cancel"}</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{isVi ? "Xóa" : "Delete"}</AlertDialogAction>
           </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={!!viewingImageUrl} onOpenChange={(open) => !open && setViewingImageUrl(null)}>
-        <AlertDialogContent className="max-w-4xl">
-          <AlertDialogHeader><AlertDialogTitle>{viewingImageTitle}</AlertDialogTitle></AlertDialogHeader>
-          <div className="max-h-[70vh] overflow-auto">{viewingImageUrl && <img src={viewingImageUrl} alt={isVi ? "Hóa đơn" : "Invoice"} className="w-full h-auto rounded-lg" />}</div>
-          <AlertDialogFooter><AlertDialogCancel>{isVi ? "Đóng" : "Close"}</AlertDialogCancel></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>

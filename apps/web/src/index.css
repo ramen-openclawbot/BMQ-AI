@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,58 +6,59 @@
 
 @layer base {
   :root {
-    --background: 40 33% 98%;
-    --foreground: 25 30% 12%;
+    --background: 36 45% 97%;
+    --foreground: 90 4% 11%;
 
-    --card: 40 40% 99%;
-    --card-foreground: 25 30% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 90 4% 11%;
 
-    --popover: 40 40% 99%;
-    --popover-foreground: 25 30% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 90 4% 11%;
 
-    --primary: 35 85% 45%;
-    --primary-foreground: 40 33% 98%;
+    --primary: 202 40% 35%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 35 30% 90%;
-    --secondary-foreground: 25 30% 20%;
+    --secondary: 43 57% 83%;
+    --secondary-foreground: 45 80% 8%;
 
-    --muted: 35 20% 94%;
-    --muted-foreground: 25 15% 45%;
+    --muted: 40 20% 94%;
+    --muted-foreground: 205 9% 28%;
 
-    --accent: 25 70% 35%;
-    --accent-foreground: 40 33% 98%;
+    --accent: 202 48% 74%;
+    --accent-foreground: 201 58% 13%;
 
-    --destructive: 0 65% 50%;
-    --destructive-foreground: 40 33% 98%;
+    --destructive: 0 75% 42%;
+    --destructive-foreground: 0 0% 100%;
 
-    --success: 142 60% 40%;
-    --success-foreground: 40 33% 98%;
+    --success: 80 47% 39%;
+    --success-foreground: 0 0% 100%;
 
-    --warning: 45 90% 50%;
-    --warning-foreground: 25 30% 12%;
+    --warning: 43 57% 83%;
+    --warning-foreground: 45 80% 8%;
 
-    --border: 35 25% 88%;
-    --input: 35 25% 88%;
-    --ring: 35 85% 45%;
+    --border: 207 12% 78%;
+    --input: 207 12% 78%;
+    --ring: 202 40% 35%;
 
     --radius: 0.75rem;
 
-    --sidebar-background: 25 25% 15%;
-    --sidebar-foreground: 40 20% 90%;
-    --sidebar-primary: 35 85% 55%;
-    --sidebar-primary-foreground: 40 33% 98%;
-    --sidebar-accent: 25 20% 22%;
-    --sidebar-accent-foreground: 40 20% 90%;
-    --sidebar-border: 25 15% 25%;
-    --sidebar-ring: 35 85% 55%;
+    --sidebar-background: 0 0% 100% / 0.7;
+    --sidebar-foreground: 90 4% 11%;
+    --sidebar-primary: 202 40% 35%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 40 20% 94%;
+    --sidebar-accent-foreground: 202 40% 35%;
+    --sidebar-border: 207 12% 78%;
+    --sidebar-ring: 202 40% 35%;
 
-    --font-display: 'Playfair Display', serif;
-    --font-body: 'Inter', sans-serif;
+    --font-display: 'Manrope', sans-serif;
+    --font-body: 'Manrope', sans-serif;
+    --font-mono-data: 'JetBrains Mono', monospace;
 
-    --gradient-warm: linear-gradient(135deg, hsl(35 85% 45%), hsl(25 70% 40%));
-    --gradient-card: linear-gradient(180deg, hsl(var(--card)), hsl(var(--muted)));
-    --shadow-warm: 0 4px 20px -4px hsl(25 30% 30% / 0.12);
-    --shadow-card: 0 2px 12px -2px hsl(25 30% 30% / 0.08);
+    --gradient-warm: linear-gradient(135deg, hsl(202 40% 35%), hsl(202 48% 74%));
+    --gradient-card: linear-gradient(180deg, hsl(0 0% 100% / 0.78), hsl(40 20% 94% / 0.62));
+    --shadow-warm: 0 12px 32px -18px hsl(202 40% 35% / 0.45);
+    --shadow-card: 0 4px 20px -5px hsl(90 4% 11% / 0.08);
   }
 
   .dark {
@@ -114,21 +115,28 @@
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-body);
+    background:
+      radial-gradient(circle at top left, hsl(var(--accent) / 0.22), transparent 32rem),
+      radial-gradient(circle at bottom right, hsl(var(--secondary) / 0.38), transparent 34rem),
+      hsl(var(--background));
   }
 
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
+    letter-spacing: -0.02em;
   }
 }
 
 @layer components {
   .card-elevated {
     background: var(--gradient-card);
+    border: 1px solid hsl(var(--border) / 0.55);
     box-shadow: var(--shadow-card);
+    backdrop-filter: blur(16px);
   }
 
   .btn-gradient {
-    background: var(--gradient-warm);
+    background: hsl(var(--primary));
     color: hsl(var(--primary-foreground));
     box-shadow: var(--shadow-warm);
     transition: all 0.2s ease;
@@ -142,7 +150,9 @@
   .stat-card {
     @apply relative overflow-hidden rounded-xl p-6;
     background: var(--gradient-card);
+    border: 1px solid hsl(var(--border) / 0.55);
     box-shadow: var(--shadow-card);
+    backdrop-filter: blur(16px);
   }
 
   .stat-card::before {

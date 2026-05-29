@@ -197,7 +197,7 @@ export function Sidebar() {
         />
       )}
       <aside className={cn(
-        "fixed left-0 top-0 z-40 h-dvh bg-sidebar border-r border-sidebar-border transition-all duration-200",
+        "fixed left-0 top-0 z-40 h-dvh border-r border-sidebar-border/60 bg-sidebar/70 shadow-card backdrop-blur-xl transition-all duration-200",
         collapsed ? "-translate-x-full w-16 md:translate-x-0" : "w-64"
       )}>
       <div className="flex h-full flex-col">
@@ -324,7 +324,7 @@ export function Sidebar() {
         </nav>
 
         {/* Settings */}
-        <div className="px-4 py-4 border-t border-sidebar-border pb-[max(1rem,env(safe-area-inset-bottom))] bg-sidebar">
+        <div className="px-4 py-4 border-t border-sidebar-border/60 pb-[max(1rem,env(safe-area-inset-bottom))] bg-sidebar/60 backdrop-blur-xl">
           <NavLink
             to="/settings"
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-sidebar-foreground/75 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground transition-all duration-200"

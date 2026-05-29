@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/table";
 import { useInvoice, useInvoiceItems } from "@/hooks/useInvoices";
 import { format } from "date-fns";
-import { FileText, CreditCard, ExternalLink } from "lucide-react";
+import { FileText, CreditCard, ExternalLink, Pencil, Trash2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { ImagePreviewDialog } from "./ImagePreviewDialog";
 import { resolveImageUrl } from "@/lib/storage-url";
@@ -28,12 +28,16 @@ interface InvoiceDetailsDialogProps {
   invoiceId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onEdit?: (invoiceId: string) => void;
+  onDelete?: (invoiceId: string) => void;
 }
 
 export function InvoiceDetailsDialog({
   invoiceId,
   open,
   onOpenChange,
+  onEdit,
+  onDelete,
 }: InvoiceDetailsDialogProps) {
   const [showInvoiceImagePreview, setShowInvoiceImagePreview] = useState(false);
   const [showPaymentSlipPreview, setShowPaymentSlipPreview] = useState(false);
@@ -69,10 +73,28 @@ export function InvoiceDetailsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
-            Chi tiết hóa đơn
-          </DialogTitle>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-primary" />
+              Chi tiết hóa đơn
+            </DialogTitle>
+            {invoice && !isLoading && (
+              <div className="flex items-center gap-2">
+                {onEdit && (
+                  <Button size="sm" variant="outline" onClick={() => onEdit(invoice.id)}>
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Chỉnh sửa
+                  </Button>
+                )}
+                {onDelete && (
+                  <Button size="sm" variant="outline" className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => onDelete(invoice.id)}>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Xóa
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
         </DialogHeader>
 
         {isLoading ? (

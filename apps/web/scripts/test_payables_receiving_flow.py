@@ -324,6 +324,9 @@ def test_invoices_page_matches_approved_stitch_dashboard_handoff():
     assert "Thủ công" in page
     assert "Số hóa đơn" in page
     assert "Nguồn/PO/PNK" in page
+    assert "Trạng thái" in page
+    assert page.index('isVi ? "Trạng thái"') < page.index('isVi ? "Nguồn/PO/PNK"')
+    assert "Thao tác" not in page
     assert "Đã trả/Còn lại" in page
     assert "Top NCC theo công nợ" in page
     assert "Thiếu PO/PNK" in page
@@ -336,7 +339,30 @@ def test_invoices_page_matches_approved_stitch_dashboard_handoff():
     assert "purchase_orders?.po_number" in page
     assert "goods_receipts?.receipt_number" in page
     assert "setViewingInvoiceId(invoice.id)" in page
+    assert "onEdit={(invoiceId)" in page
+    assert "onDelete={(invoiceId)" in page
     assert "onKeyDown={(event) => handleRowKeyDown(event, invoice.id)}" in page
+
+
+def test_light_theme_uses_stitch_mediterranean_glass_tokens():
+    css = read(ROOT / "src/index.css")
+    tailwind = read(ROOT.parent / "tailwind.config.ts")
+    sidebar = read(SIDEBAR)
+    header = read(ROOT / "src/components/layout/Header.tsx")
+
+    assert "Manrope" in css
+    assert "JetBrains Mono" in css
+    assert "--background: 36 45% 97%;" in css
+    assert "--primary: 202 40% 35%;" in css
+    assert "--secondary: 43 57% 83%;" in css
+    assert "--font-display: 'Manrope', sans-serif;" in css
+    assert "backdrop-filter: blur(16px)" in css
+    assert "display: ['Manrope', 'sans-serif']" in tailwind
+    assert "monoData: ['JetBrains Mono', 'monospace']" in tailwind
+    assert "bg-sidebar/70" in sidebar
+    assert "backdrop-blur-xl" in sidebar
+    assert "bg-card/70" in header
+    assert "backdrop-blur-xl" in header
 
 
 def test_payables_management_is_accessible_from_cost_sidebar_with_filtered_route():

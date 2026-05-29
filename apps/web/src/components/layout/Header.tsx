@@ -17,7 +17,7 @@ export function Header() {
   const initials = displayName.charAt(0).toUpperCase();
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-background px-3 sm:h-16 sm:px-6">
+    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border/60 bg-card/70 px-3 shadow-card backdrop-blur-xl sm:h-16 sm:px-6">
       <Button
         variant="ghost"
         size="icon"

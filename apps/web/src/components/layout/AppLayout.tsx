@@ -33,7 +33,7 @@ export function AppLayout() {
       {showRecoveryOverlay && (
         <SessionRecoveryOverlay onRetry={handleRetry} />
       )}
-      <div className="min-h-dvh bg-background">
+      <div className="min-h-dvh bg-background/80">
         <Sidebar />
         <div className="flex h-dvh flex-col md:pl-[var(--sidebar-width)]">
           <Header />
