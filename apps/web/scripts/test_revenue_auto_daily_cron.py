@@ -214,6 +214,33 @@ def test_manual_parse_page_shows_clickable_auto_daily_log_rows() -> None:
         assert_contains(finance_revenue, needle, label)
 
 
+def test_manual_parse_page_uses_shared_light_theme_tokens() -> None:
+    for needle, label in [
+        ('data-stitch-revenue-parse-theme="pantone-2026-light"', "parse setup light-theme marker"),
+        ("bg-card/70", "light card surface"),
+        ("text-foreground", "semantic foreground text"),
+        ("btn-gradient text-primary-foreground", "shared primary action styling"),
+        ("bg-primary/10 text-primary", "semantic accent surfaces"),
+        ("bg-warning/10", "semantic warning surfaces"),
+    ]:
+        assert_contains(finance_revenue, needle, label)
+
+    rendered_section = finance_revenue[finance_revenue.index("return ("):]
+    forbidden_old_theme_tokens = [
+        "bg-stone-900",
+        "bg-stone-950",
+        "text-stone-100",
+        "text-stone-200",
+        "text-amber-50",
+        "text-amber-100",
+        "bg-amber-400",
+        "border-amber-300",
+        "bg-gradient-to-br from-stone",
+    ]
+    for token in forbidden_old_theme_tokens:
+        assert token not in rendered_section, f"manual parse setup should not use old dark theme token {token!r}"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

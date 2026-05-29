@@ -566,20 +566,20 @@ export default function FinanceRevenueControl() {
         : "Kết quả parse theo ngày";
 
   return (
-    <div className="space-y-5">
-      <div className="rounded-2xl border border-amber-200/15 bg-gradient-to-br from-stone-950 via-stone-900 to-amber-950/25 p-4 text-stone-100 shadow-sm md:p-6">
+    <div className="space-y-5" data-stitch-revenue-parse-theme="pantone-2026-light">
+      <div className="rounded-2xl border border-border bg-card/70 p-4 text-foreground shadow-card backdrop-blur-xl md:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-2">
-            <Badge className="border border-amber-300/35 bg-amber-400/10 text-amber-100">
+            <Badge className="border border-primary/20 bg-primary/10 text-primary">
               Auto-parse daily • {scheduleLoading ? "Loading..." : scheduleSummary}
             </Badge>
-            <h1 className="font-display text-2xl font-semibold tracking-tight text-amber-50 md:text-4xl">
+            <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground md:text-4xl">
               Daily Auto-Parse Operations
             </h1>
           </div>
           <Button
             variant="outline"
-            className="w-full border-amber-300/35 bg-amber-400/[0.08] text-amber-100 hover:bg-amber-400/[0.14] sm:w-auto"
+            className="w-full border-border bg-background/80 text-foreground hover:bg-primary/10 sm:w-auto"
             onClick={() => window.location.assign("/finance-control/revenue") }
           >
             <Eye className="mr-2 h-4 w-4" />Open dashboard
@@ -588,8 +588,8 @@ export default function FinanceRevenueControl() {
       </div>
 
       {!canRunAutomation ? (
-        <Card className="border-amber-300/30 bg-amber-50/70">
-          <CardContent className="flex items-start gap-3 p-4 text-sm text-amber-900">
+        <Card className="border-primary/20 bg-primary/10">
+          <CardContent className="flex items-start gap-3 p-4 text-sm text-primary">
             <CircleAlert className="mt-0.5 h-4 w-4" />
             {isVi ? "Chỉ owner được parse và approve kết quả ngày. Sau approve, staff có thể review/edit doanh thu đã vào ledger." : "Only owners can parse and approve daily results. After approval, staff can review/edit parsed revenue in the ledger."}
           </CardContent>
@@ -597,8 +597,8 @@ export default function FinanceRevenueControl() {
       ) : null}
 
       {automationRunMessage ? (
-        <Card className="border-emerald-300/30 bg-emerald-50">
-          <CardContent className="p-4 text-sm text-emerald-900">{automationRunMessage}</CardContent>
+        <Card className="border-primary/20 bg-primary/10">
+          <CardContent className="p-4 text-sm text-primary">{automationRunMessage}</CardContent>
         </Card>
       ) : null}
 
@@ -608,19 +608,19 @@ export default function FinanceRevenueControl() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-amber-200/20 bg-stone-900 p-4 text-stone-100">
-              <div className="flex items-center gap-2 text-sm font-medium text-amber-100">
+            <div className="rounded-xl border border-border bg-card/80 p-4 text-foreground shadow-sm">
+              <div className="flex items-center gap-2 text-sm font-medium text-primary">
                 <CalendarDays className="h-4 w-4" />Ngày doanh thu
               </div>
-              <div className="mt-2 text-xl font-semibold text-stone-100">
+              <div className="mt-2 text-xl font-semibold text-foreground">
                 {formatDate(parseWindow.revenueDateFrom)}
               </div>
             </div>
-            <div className="rounded-xl border border-stone-700 bg-stone-900 p-4 text-stone-100">
-              <div className="flex items-center gap-2 text-sm font-medium text-stone-200">
+            <div className="rounded-xl border border-border bg-card/80 p-4 text-foreground shadow-sm">
+              <div className="flex items-center gap-2 text-sm font-medium text-primary">
                 <ShieldCheck className="h-4 w-4" />PO/email
               </div>
-              <div className="mt-2 text-xl font-semibold text-stone-100">
+              <div className="mt-2 text-xl font-semibold text-foreground">
                 {formatDate(parseWindow.poReceivedFrom)}
               </div>
             </div>
@@ -631,7 +631,7 @@ export default function FinanceRevenueControl() {
               <Eye className="mr-2 h-4 w-4" />Ledger / Dashboard
             </Button>
             <Button
-              className="w-full border border-amber-300/60 bg-amber-400 text-stone-950 hover:bg-amber-300 disabled:opacity-60 sm:w-auto"
+              className="w-full btn-gradient text-primary-foreground disabled:opacity-60 sm:w-auto"
               disabled={!canRunAutomation || actionBusy}
               onClick={() => void runDailyPreview()}
               title={canRunAutomation ? "Owner-only daily parse preview" : "Owner-only"}
@@ -655,7 +655,7 @@ export default function FinanceRevenueControl() {
               <button
                 key={log.id}
                 type="button"
-                className="w-full rounded-xl border bg-card p-3 text-left shadow-sm transition hover:bg-amber-50/70"
+                className="w-full rounded-xl border border-border bg-card/80 p-3 text-left shadow-sm transition hover:bg-primary/5"
                 onClick={() => setSelectedAutoDailyLog(log)}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -663,7 +663,7 @@ export default function FinanceRevenueControl() {
                     <div className="font-semibold tabular-nums">{formatDate(log.revenue_date)}</div>
                     <div className="mt-1 text-xs text-muted-foreground">Kết thúc: {formatDateTime(log.finished_at || log.updated_at)}</div>
                   </div>
-                  <Badge className={log.status === "success" ? "border border-emerald-200 bg-emerald-50 text-emerald-700" : log.status === "failed" ? "border border-rose-200 bg-rose-50 text-rose-700" : "border border-amber-200 bg-amber-50 text-amber-700"}>
+                  <Badge className={log.status === "success" ? "border border-primary/20 bg-primary/10 text-primary" : log.status === "failed" ? "border border-destructive/20 bg-destructive/10 text-destructive" : "border border-primary/20 bg-primary/10 text-primary"}>
                     {statusLabel(log.status)}
                   </Badge>
                 </div>
@@ -677,7 +677,7 @@ export default function FinanceRevenueControl() {
                     <div className="mt-1 truncate font-medium" title={vnd(Number(log.gross_total || 0))}>{vnd(Number(log.gross_total || 0))}</div>
                   </div>
                 </div>
-                <div className="mt-3 text-right text-sm font-medium text-amber-700">Chi tiết</div>
+                <div className="mt-3 text-right text-sm font-medium text-primary">Chi tiết</div>
               </button>
             )) : (
               <div className="rounded-xl border px-3 py-4 text-sm text-muted-foreground">Chưa có log parse tự động hằng ngày.</div>
@@ -700,19 +700,19 @@ export default function FinanceRevenueControl() {
                 <button
                   key={log.id}
                   type="button"
-                  className="grid w-full grid-cols-12 items-center gap-2 px-3 py-3 text-left text-sm transition hover:bg-amber-50/70"
+                  className="grid w-full grid-cols-12 items-center gap-2 px-3 py-3 text-left text-sm transition hover:bg-primary/5"
                   onClick={() => setSelectedAutoDailyLog(log)}
                 >
                   <div className="col-span-2 font-medium tabular-nums">{formatDate(log.revenue_date)}</div>
                   <div className="col-span-2">
-                    <Badge className={log.status === "success" ? "border border-emerald-200 bg-emerald-50 text-emerald-700" : log.status === "failed" ? "border border-rose-200 bg-rose-50 text-rose-700" : "border border-amber-200 bg-amber-50 text-amber-700"}>
+                    <Badge className={log.status === "success" ? "border border-primary/20 bg-primary/10 text-primary" : log.status === "failed" ? "border border-destructive/20 bg-destructive/10 text-destructive" : "border border-primary/20 bg-primary/10 text-primary"}>
                       {statusLabel(log.status)}
                     </Badge>
                   </div>
                   <div className="col-span-2 truncate text-muted-foreground" title={formatDateTime(log.finished_at || log.updated_at)}>{formatDateTime(log.finished_at || log.updated_at)}</div>
                   <div className="col-span-2 tabular-nums">{numberFmt(Number(log.row_count || 0))}</div>
                   <div className="col-span-3 truncate font-medium" title={vnd(Number(log.gross_total || 0))}>{vnd(Number(log.gross_total || 0))}</div>
-                  <div className="col-span-1 text-right text-amber-700">Chi tiết</div>
+                  <div className="col-span-1 text-right text-primary">Chi tiết</div>
                 </button>
               )) : (
                 <div className="px-3 py-4 text-sm text-muted-foreground">Chưa có log parse tự động hằng ngày.</div>
@@ -760,14 +760,14 @@ export default function FinanceRevenueControl() {
                 </div>
               </div>
               {selectedAutoDailyLog.error_message ? (
-                <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-rose-800">
+                <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-destructive">
                   <div className="font-medium">Lỗi</div>
                   <div className="mt-1 whitespace-pre-wrap">{selectedAutoDailyLog.error_message}</div>
                 </div>
               ) : null}
               <details className="rounded-lg border p-3">
                 <summary className="cursor-pointer font-medium">Metadata</summary>
-                <pre className="mt-3 max-h-72 overflow-auto rounded bg-stone-950 p-3 text-xs text-stone-100">{JSON.stringify(selectedAutoDailyLog.metadata || {}, null, 2)}</pre>
+                <pre className="mt-3 max-h-72 overflow-auto rounded border border-border bg-muted/60 p-3 text-xs text-foreground">{JSON.stringify(selectedAutoDailyLog.metadata || {}, null, 2)}</pre>
               </details>
             </div>
           ) : null}
@@ -775,10 +775,10 @@ export default function FinanceRevenueControl() {
       </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={(open) => !actionBusy && setDialogOpen(open)}>
-        <DialogContent className="max-h-[88vh] overflow-y-auto border-amber-200/20 bg-stone-950 text-stone-100 sm:max-w-4xl">
+        <DialogContent className="max-h-[88vh] overflow-y-auto border-border bg-card text-foreground sm:max-w-4xl">
           <DialogHeader>
-            <DialogTitle className="text-amber-50">{dialogTitle}</DialogTitle>
-            <DialogDescription className="text-stone-300">
+            <DialogTitle className="text-foreground">{dialogTitle}</DialogTitle>
+            <DialogDescription className="text-muted-foreground">
               Ngày doanh thu {formatDate(parseWindow.revenueDateFrom)} • PO/email {formatDate(parseWindow.poReceivedFrom)}.
             </DialogDescription>
           </DialogHeader>
@@ -786,12 +786,12 @@ export default function FinanceRevenueControl() {
           {parseState === "running" ? (
             <div className="space-y-5 py-6">
               <div className="flex flex-col items-center gap-3 text-center">
-                <div className="flex h-20 w-20 items-center justify-center rounded-full border border-amber-300/30 bg-amber-400/10">
-                  <Loader2 className="h-10 w-10 animate-spin text-amber-200" />
+                <div className="flex h-20 w-20 items-center justify-center rounded-full border border-primary/20 bg-primary/10">
+                  <Loader2 className="h-10 w-10 animate-spin text-primary" />
                 </div>
                 <div className="space-y-2">
-                  <p className="font-medium text-amber-50">{parseProgress.message}</p>
-                  <p className="text-sm text-stone-400">Đang parse PO/email cho ngày đã chọn. Chưa có dòng nào được lưu vào ledger trước khi approve.</p>
+                  <p className="font-medium text-foreground">{parseProgress.message}</p>
+                  <p className="text-sm text-muted-foreground">Đang parse PO/email cho ngày đã chọn. Chưa có dòng nào được lưu vào ledger trước khi approve.</p>
                 </div>
               </div>
 
@@ -802,46 +802,46 @@ export default function FinanceRevenueControl() {
                   { label: "Mail đã parse", value: numberFmt(parseProgress.totalParsedMails), helper: `${numberFmt(parseProgress.totalParsedLines)} dòng preview` },
                   { label: "Ngày xử lý", value: formatDate(parseWindow.revenueDateFrom), helper: parseProgress.stage },
                 ].map((item) => (
-                  <div key={item.label} className="rounded-xl border border-stone-800 bg-stone-900 p-3">
-                    <div className="text-[10px] uppercase tracking-[0.14em] text-stone-500">{item.label}</div>
-                    <div className="mt-1 truncate text-lg font-semibold text-amber-100" title={String(item.value)}>{item.value}</div>
-                    <div className="mt-1 truncate text-xs text-stone-400" title={item.helper}>{item.helper}</div>
+                  <div key={item.label} className="rounded-xl border border-border bg-card/80 p-3 shadow-sm">
+                    <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">{item.label}</div>
+                    <div className="mt-1 truncate text-lg font-semibold text-primary" title={String(item.value)}>{item.value}</div>
+                    <div className="mt-1 truncate text-xs text-muted-foreground" title={item.helper}>{item.helper}</div>
                   </div>
                 ))}
               </div>
 
               <div className="space-y-3">
-                <div className="flex items-center justify-between text-xs text-stone-400">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>Tiến độ parse ngày</span>
                   <span>Đang xử lý</span>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-stone-800">
-                  <div className="h-full w-1/3 animate-pulse rounded-full bg-amber-300 transition-all" />
+                <div className="h-2 overflow-hidden rounded-full bg-muted">
+                  <div className="h-full w-1/3 animate-pulse rounded-full bg-primary transition-all" />
                 </div>
               </div>
 
-              <div className="rounded-xl border border-stone-800 bg-stone-900/80 p-4">
+              <div className="rounded-xl border border-border bg-card/80 p-4 shadow-sm">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-semibold text-stone-100">Mail đang parse theo channel</h3>
-                    <p className="text-xs text-stone-500">Cập nhật live khi backend map từng mail thành dòng preview.</p>
+                    <h3 className="text-sm font-semibold text-foreground">Mail đang parse theo channel</h3>
+                    <p className="text-xs text-muted-foreground">Cập nhật live khi backend map từng mail thành dòng preview.</p>
                   </div>
-                  <Badge className="border border-amber-300/30 bg-amber-400/10 text-amber-100">{numberFmt(parseProgress.channels.length)} channel</Badge>
+                  <Badge className="border border-primary/20 bg-primary/10 text-primary">{numberFmt(parseProgress.channels.length)} channel</Badge>
                 </div>
                 <div className="space-y-2">
                   {parseProgress.channels.length > 0 ? parseProgress.channels.map((channel) => (
-                    <div key={channel.channel} className="flex items-center justify-between gap-3 rounded-lg border border-stone-800 bg-stone-950/60 p-3">
+                    <div key={channel.channel} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background/70 p-3">
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-stone-100" title={channel.channel}>{channel.channel}</div>
-                        <div className="text-xs text-stone-500">{numberFmt(channel.lines)} dòng preview</div>
+                        <div className="truncate text-sm font-medium text-foreground" title={channel.channel}>{channel.channel}</div>
+                        <div className="text-xs text-muted-foreground">{numberFmt(channel.lines)} dòng preview</div>
                       </div>
                       <div className="text-right">
-                        <div className="text-lg font-semibold tabular-nums text-amber-100">{numberFmt(channel.mails)}</div>
-                        <div className="text-[10px] uppercase tracking-[0.14em] text-stone-500">mail</div>
+                        <div className="text-lg font-semibold tabular-nums text-primary">{numberFmt(channel.mails)}</div>
+                        <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">mail</div>
                       </div>
                     </div>
                   )) : (
-                    <div className="rounded-lg border border-dashed border-stone-700 p-4 text-center text-sm text-stone-400">
+                    <div className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
                       Đang lấy mail từ Gmail; danh sách channel sẽ xuất hiện khi bắt đầu parse inbox.
                     </div>
                   )}
@@ -859,116 +859,116 @@ export default function FinanceRevenueControl() {
                   { label: "Sản lượng", value: numberFmt(previewSummary.quantity), helper: "Từ PO/email" },
                   { label: "Customer", value: numberFmt(previewSummary.customers), helper: "Theo customer/NPP" },
                 ].map((item) => (
-                  <div key={item.label} className="rounded-xl border border-stone-700 bg-stone-900 p-3">
-                    <div className="text-[11px] uppercase tracking-[0.16em] text-stone-500">{item.label}</div>
-                    <div className="mt-2 truncate text-lg font-semibold text-amber-100" title={item.value}>{item.value}</div>
-                    <div className="mt-1 text-xs text-stone-400">{item.helper}</div>
+                  <div key={item.label} className="rounded-xl border border-border bg-card/80 p-3 shadow-sm">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{item.label}</div>
+                    <div className="mt-2 truncate text-lg font-semibold text-primary" title={item.value}>{item.value}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{item.helper}</div>
                   </div>
                 ))}
               </div>
 
               {previewReviewFlags > 0 ? (
-                <div className="rounded-xl border border-amber-300/35 bg-amber-400/[0.08] p-4 text-sm text-amber-100">
+                <div className="rounded-xl border border-warning/20 bg-warning/10 p-4 text-sm text-warning">
                   {numberFmt(previewReviewFlags)} dòng có parser flag để edit/audit sau. Các flag này không chặn approve: toàn bộ preview ngày sẽ được ghi vào ledger và dashboard.
                 </div>
               ) : null}
 
               {overwritePrompt ? (
-                <div className="rounded-xl border border-amber-300/40 bg-amber-400/[0.08] p-4 text-sm text-amber-50">
+                <div className="rounded-xl border border-warning/20 bg-warning/10 p-4 text-sm text-warning">
                   <div className="font-semibold">Đã có kết quả parse cho kỳ {previewSummary.period}</div>
-                  <div className="mt-2 space-y-1 text-amber-100/90">
+                  <div className="mt-2 space-y-1 text-warning">
                     {overwritePrompt.map((item) => (
                       <div key={item.id}>• {item.sourceName || item.id} {item.importedAt ? `(${new Date(item.importedAt).toLocaleString("vi-VN")})` : ""}</div>
                     ))}
                   </div>
-                  <p className="mt-2 text-xs text-amber-100/80">Replace sẽ supersede bản cũ và ghi bản mới vào ledger; dashboard chỉ tính bản mới, không double-count.</p>
+                  <p className="mt-2 text-xs text-warning/80">Replace sẽ supersede bản cũ và ghi bản mới vào ledger; dashboard chỉ tính bản mới, không double-count.</p>
                 </div>
               ) : null}
 
               <div className="space-y-3">
                 <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                   <div>
-                    <h3 className="text-sm font-semibold text-stone-100">Summary theo kênh dashboard</h3>
-                    <p className="text-xs text-stone-400">Tổng hợp theo đúng kênh đang dùng trên dashboard Quản lý doanh thu.</p>
+                    <h3 className="text-sm font-semibold text-foreground">Summary theo kênh dashboard</h3>
+                    <p className="text-xs text-muted-foreground">Tổng hợp theo đúng kênh đang dùng trên dashboard Quản lý doanh thu.</p>
                   </div>
-                  <Badge className="w-fit border border-amber-300/30 bg-amber-400/10 text-amber-100">
+                  <Badge className="w-fit border border-primary/20 bg-primary/10 text-primary">
                     {numberFmt(channelSummaries.length)} kênh
                   </Badge>
                 </div>
                 {previewTruncated ? (
-                  <div className="rounded-xl border border-amber-300/35 bg-amber-400/[0.08] p-3 text-xs text-amber-100">
+                  <div className="rounded-xl border border-warning/20 bg-warning/10 p-3 text-xs text-warning">
                     Hệ thống chỉ trả sample 200 dòng đầu cho preview chi tiết, nên số parser flag chỉ hiển thị ở tổng quan ({numberFmt(previewReviewFlags)} flag) thay vì chia theo từng kênh.
                   </div>
                 ) : null}
                 <div className="grid gap-3">
                   {channelSummaries.map((channel) => (
-                    <div key={channel.channel} className="rounded-xl border border-stone-800 bg-stone-900/80 p-4">
+                    <div key={channel.channel} className="rounded-xl border border-border bg-card/80 p-4 shadow-sm">
                       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                         <div className="min-w-0 space-y-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <div className="truncate font-semibold text-stone-100" title={channel.label}>{channel.label}</div>
-                            <Badge className="border border-stone-600 bg-stone-800 text-stone-200">{channel.hint}</Badge>
+                            <div className="truncate font-semibold text-foreground" title={channel.label}>{channel.label}</div>
+                            <Badge className="border border-border bg-muted/70 text-muted-foreground">{channel.hint}</Badge>
                           </div>
-                          <div className="text-xs text-stone-500" title={channel.channel}>Mã kênh ledger: {channel.channel}</div>
+                          <div className="text-xs text-muted-foreground" title={channel.channel}>Mã kênh ledger: {channel.channel}</div>
                         </div>
                         <div className="grid min-w-full gap-2 text-sm sm:grid-cols-4 lg:min-w-[520px]">
-                          <div className="rounded-lg border border-stone-800 bg-stone-950/60 p-2">
-                            <div className="text-[10px] uppercase tracking-[0.14em] text-stone-500">Doanh thu</div>
-                            <div className="mt-1 font-semibold text-amber-100">{vnd(channel.grossRevenue)}</div>
+                          <div className="rounded-lg border border-border bg-background/70 p-2">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Doanh thu</div>
+                            <div className="mt-1 font-semibold text-primary">{vnd(channel.grossRevenue)}</div>
                           </div>
-                          <div className="rounded-lg border border-stone-800 bg-stone-950/60 p-2">
-                            <div className="text-[10px] uppercase tracking-[0.14em] text-stone-500">Sản lượng</div>
-                            <div className="mt-1 font-semibold text-stone-100">{numberFmt(channel.quantity)}</div>
+                          <div className="rounded-lg border border-border bg-background/70 p-2">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Sản lượng</div>
+                            <div className="mt-1 font-semibold text-foreground">{numberFmt(channel.quantity)}</div>
                           </div>
-                          <div className="rounded-lg border border-stone-800 bg-stone-950/60 p-2">
-                            <div className="text-[10px] uppercase tracking-[0.14em] text-stone-500">Số dòng</div>
-                            <div className="mt-1 font-semibold text-stone-100">{numberFmt(channel.rows)}</div>
+                          <div className="rounded-lg border border-border bg-background/70 p-2">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Số dòng</div>
+                            <div className="mt-1 font-semibold text-foreground">{numberFmt(channel.rows)}</div>
                           </div>
-                          <div className="rounded-lg border border-stone-800 bg-stone-950/60 p-2">
-                            <div className="text-[10px] uppercase tracking-[0.14em] text-stone-500">Tỷ trọng</div>
-                            <div className="mt-1 font-semibold text-stone-100">{numberFmt(channel.percent)}%</div>
+                          <div className="rounded-lg border border-border bg-background/70 p-2">
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Tỷ trọng</div>
+                            <div className="mt-1 font-semibold text-foreground">{numberFmt(channel.percent)}%</div>
                           </div>
                         </div>
                       </div>
-                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-800">
-                        <div className="h-full rounded-full bg-amber-300" style={{ width: `${Math.min(100, Math.max(0, channel.percent))}%` }} />
+                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+                        <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, Math.max(0, channel.percent))}%` }} />
                       </div>
                       {channel.needsReview !== null && channel.needsReview > 0 ? (
-                        <Badge className="mt-3 border border-amber-300/30 bg-amber-400/[0.08] text-amber-100">
+                        <Badge className="mt-3 border border-warning/20 bg-warning/10 text-warning">
                           {numberFmt(channel.needsReview)} flag edit/audit sau
                         </Badge>
                       ) : null}
                     </div>
                   ))}
-                  {channelSummaries.length === 0 ? <div className="rounded-xl border border-stone-800 p-4 text-sm text-stone-400">Không có dữ liệu summary theo kênh trong kỳ này.</div> : null}
+                  {channelSummaries.length === 0 ? <div className="rounded-xl border border-border p-4 text-sm text-muted-foreground">Không có dữ liệu summary theo kênh trong kỳ này.</div> : null}
                 </div>
               </div>
             </div>
           ) : null}
 
           {parseState === "approved" ? (
-            <div className="rounded-xl border border-emerald-300/30 bg-emerald-400/[0.08] p-4 text-sm text-emerald-100">
+            <div className="rounded-xl border border-success/20 bg-success/10 p-4 text-sm text-success">
               <CheckCircle2 className="mb-2 h-5 w-5" />Đã ghi kết quả parse ngày vào ledger ở trạng thái Doanh thu đã kiểm soát. Dashboard cập nhật ngay; user có thể review/edit sau.
             </div>
           ) : null}
 
           <DialogFooter className="gap-2 sm:gap-2">
             {parseState === "approved" ? (
-              <Button className="bg-amber-400 text-stone-950 hover:bg-amber-300" onClick={() => window.location.assign(`/finance-control/revenue?period=${previewSummary?.period || parseWindow.period}`)}>
+              <Button className="btn-gradient text-primary-foreground" onClick={() => window.location.assign(`/finance-control/revenue?period=${previewSummary?.period || parseWindow.period}`)}>
                 Open dashboard
               </Button>
             ) : parseState === "preview_ready" || overwritePrompt ? (
               <>
                 {overwritePrompt ? (
-                  <Button variant="outline" className="border-stone-600 bg-transparent text-stone-200 hover:bg-stone-800" onClick={() => setOverwritePrompt(null)} disabled={actionBusy}>
+                  <Button variant="outline" className="border-border bg-background/80 text-foreground hover:bg-muted" onClick={() => setOverwritePrompt(null)} disabled={actionBusy}>
                     Cancel replace
                   </Button>
                 ) : (
-                  <Button variant="outline" className="border-rose-300/40 bg-rose-400/[0.06] text-rose-100 hover:bg-rose-400/[0.12]" onClick={() => void rejectPreview()} disabled={actionBusy}>
+                  <Button variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15" onClick={() => void rejectPreview()} disabled={actionBusy}>
                     {parseState === "rejecting" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}Reject
                   </Button>
                 )}
-                <Button className="bg-amber-400 text-stone-950 hover:bg-amber-300" onClick={() => void approvePreview(Boolean(overwritePrompt))} disabled={actionBusy || !previewRun?.id || !previewSummary || previewLedgerRows <= 0 || previewDashboardGross <= 0 || !canRunAutomation}>
+                <Button className="btn-gradient text-primary-foreground" onClick={() => void approvePreview(Boolean(overwritePrompt))} disabled={actionBusy || !previewRun?.id || !previewSummary || previewLedgerRows <= 0 || previewDashboardGross <= 0 || !canRunAutomation}>
                   {parseState === "approving" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
                   {overwritePrompt ? "Replace bản hiện tại & approve" : previewLedgerRows <= 0 ? "Không có dòng để approve" : "Approve & đưa vào dashboard"}
                 </Button>
