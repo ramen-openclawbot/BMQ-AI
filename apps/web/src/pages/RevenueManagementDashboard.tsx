@@ -1,27 +1,72 @@
 import { type KeyboardEvent, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CalendarDays, CheckCircle2, Loader2, Settings, Users } from "lucide-react";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  AlertTriangle,
+  CalendarDays,
+  CheckCircle2,
+  Loader2,
+  Settings,
+  Users,
+} from "lucide-react";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Line,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 const vnd = (v: number) =>
-  new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(v || 0);
+  new Intl.NumberFormat("vi-VN", {
+    style: "currency",
+    currency: "VND",
+    maximumFractionDigits: 0,
+  }).format(v || 0);
 
-const numberFmt = (v: number) => new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(v || 0);
+const numberFmt = (v: number) =>
+  new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(v || 0);
 
 const compactVnd = (v: number) => {
   const abs = Math.abs(v || 0);
   const sign = v < 0 ? "-" : "";
-  if (abs >= 1_000_000_000) return `${sign}${numberFmt(abs / 1_000_000_000)} tỷ ₫`;
+  if (abs >= 1_000_000_000)
+    return `${sign}${numberFmt(abs / 1_000_000_000)} tỷ ₫`;
   if (abs >= 1_000_000) return `${sign}${numberFmt(abs / 1_000_000)} tr ₫`;
   return vnd(v);
 };
@@ -37,10 +82,10 @@ const periodLabel = (value: string) => {
   return `Tháng ${month}/${year}`;
 };
 
-const MOM_PREVIOUS_COLOR = "#F2C15C";
-const MOM_CURRENT_COLOR = "#34D399";
-const FORECAST_REMAINDER_COLOR = "#F59E0B";
-const TREND_GRID_COLOR = "rgba(245,158,11,0.12)";
+const MOM_PREVIOUS_COLOR = "#D9B86C";
+const MOM_CURRENT_COLOR = "#3C7781";
+const FORECAST_REMAINDER_COLOR = "#7A913F";
+const TREND_GRID_COLOR = "rgba(62,119,129,0.16)";
 
 const vietnamToday = () => {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -49,8 +94,13 @@ const vietnamToday = () => {
     month: "2-digit",
     day: "2-digit",
   }).formatToParts(new Date());
-  const get = (type: string) => parts.find((part) => part.type === type)?.value || "01";
-  return { year: Number(get("year")), month: Number(get("month")), day: Number(get("day")) };
+  const get = (type: string) =>
+    parts.find((part) => part.type === type)?.value || "01";
+  return {
+    year: Number(get("year")),
+    month: Number(get("month")),
+    day: Number(get("day")),
+  };
 };
 
 const monthNow = () => {
@@ -74,7 +124,10 @@ type RevenueLine = {
   raw_payload: unknown;
 };
 
-type RevenueQuery = PromiseLike<{ data: RevenueLine[] | null; error: { message?: string } | null }> & {
+type RevenueQuery = PromiseLike<{
+  data: RevenueLine[] | null;
+  error: { message?: string } | null;
+}> & {
   eq: (column: string, value: string) => RevenueQuery;
   in: (column: string, values: string[]) => RevenueQuery;
   order: (column: string, options: { ascending: boolean }) => RevenueQuery;
@@ -86,7 +139,9 @@ const db = supabase as unknown as {
 };
 
 const asRecord = (value: unknown): Record<string, unknown> =>
-  value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 
 const normalizedCustomerName = (value: string) =>
   value
@@ -124,8 +179,16 @@ const lineDateDay = (row: RevenueLine) => dayOfMonth(row.revenue_date);
 
 const dispatchAmountBucket = (row: RevenueLine) => {
   const raw = asRecord(row.raw_payload);
-  const status = String(raw.revenue_amount_status || raw.dispatch_confirmation_status || "");
-  if (status === "confirmed_dispatch_amount" || status === "month_end_audit_adjusted" || status === "confirmed" || status === "revised") return "confirmed";
+  const status = String(
+    raw.revenue_amount_status || raw.dispatch_confirmation_status || "",
+  );
+  if (
+    status === "confirmed_dispatch_amount" ||
+    status === "month_end_audit_adjusted" ||
+    status === "confirmed" ||
+    status === "revised"
+  )
+    return "confirmed";
   if (status === "needs_sku_allocation") return "needsAllocation";
   return "temporary";
 };
@@ -137,13 +200,20 @@ const lineWeekday = (date: string) => {
 
 const extractRawText = (rawPayload: unknown, keys: string[]) => {
   const raw = asRecord(rawPayload);
-  const records = [raw, asRecord(raw.product), asRecord(raw.sku), asRecord(raw.item), asRecord(raw.line_item)];
+  const records = [
+    raw,
+    asRecord(raw.product),
+    asRecord(raw.sku),
+    asRecord(raw.item),
+    asRecord(raw.line_item),
+  ];
 
   for (const record of records) {
     for (const key of keys) {
       const value = record[key];
       if (typeof value === "string" && value.trim()) return value.trim();
-      if (typeof value === "number" && Number.isFinite(value)) return String(value);
+      if (typeof value === "number" && Number.isFinite(value))
+        return String(value);
     }
   }
 
@@ -151,15 +221,26 @@ const extractRawText = (rawPayload: unknown, keys: string[]) => {
 };
 
 const productSkuKey = (row: RevenueLine) => {
-  const keys = ["product", "product_name", "product_code", "product_group", "sku", "sku_id", "sku_code", "sku_name"];
+  const keys = [
+    "product",
+    "product_name",
+    "product_code",
+    "product_group",
+    "sku",
+    "sku_id",
+    "sku_code",
+    "sku_name",
+  ];
   const rawValue = extractRawText(row.raw_payload, keys);
   if (rawValue) return rawValue.toLocaleUpperCase("vi-VN");
 
   const rowRecord = row as unknown as Record<string, unknown>;
   for (const key of keys) {
     const value = rowRecord[key];
-    if (typeof value === "string" && value.trim()) return value.trim().toLocaleUpperCase("vi-VN");
-    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    if (typeof value === "string" && value.trim())
+      return value.trim().toLocaleUpperCase("vi-VN");
+    if (typeof value === "number" && Number.isFinite(value))
+      return String(value);
   }
 
   return row.source_tab ? `SOURCE:${row.source_tab}` : "unknown";
@@ -177,16 +258,24 @@ const timingBucketLabel: Record<string, string> = {
   late: "cuối tháng",
 };
 
-const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(Math.max(value, min), max);
 
-const dateForPeriodDay = (period: string, day: number) => `${period}-${String(day).padStart(2, "0")}`;
+const dateForPeriodDay = (period: string, day: number) =>
+  `${period}-${String(day).padStart(2, "0")}`;
 
-const sumRevenue = (rows: RevenueLine[]) => rows.reduce((sum, r) => sum + lineRevenue(r), 0);
+const sumRevenue = (rows: RevenueLine[]) =>
+  rows.reduce((sum, r) => sum + lineRevenue(r), 0);
 
 const maxRevenueDay = (rows: RevenueLine[], fallbackPeriod: string) => {
-  const latest = rows.reduce((max, r) => Math.max(max, dayOfMonth(r.revenue_date)), 0);
+  const latest = rows.reduce(
+    (max, r) => Math.max(max, dayOfMonth(r.revenue_date)),
+    0,
+  );
   if (latest > 0) return latest;
-  return fallbackPeriod === monthNow() ? vietnamToday().day : daysInPeriod(fallbackPeriod);
+  return fallbackPeriod === monthNow()
+    ? vietnamToday().day
+    : daysInPeriod(fallbackPeriod);
 };
 
 async function fetchAllRevenueLines(period: string, controlledOnly: boolean) {
@@ -196,12 +285,17 @@ async function fetchAllRevenueLines(period: string, controlledOnly: boolean) {
   for (let from = 0; ; from += pageSize) {
     let q = db
       .from("revenue_ledger_lines")
-      .select("id,period,revenue_date,channel,source_tab,customer_id,parent_customer_id,customer_name,quantity,gross_revenue,source_type,approval_status,raw_payload,source_document:revenue_source_documents!inner(status)")
+      .select(
+        "id,period,revenue_date,channel,source_tab,customer_id,parent_customer_id,customer_name,quantity,gross_revenue,source_type,approval_status,raw_payload,source_document:revenue_source_documents!inner(status)",
+      )
       .eq("period", period)
       .order("revenue_date", { ascending: true })
       .range(from, from + pageSize - 1);
 
-    if (controlledOnly) q = q.eq("approval_status", "approved").in("source_document.status", ["controlled", "trusted"]);
+    if (controlledOnly)
+      q = q
+        .eq("approval_status", "approved")
+        .in("source_document.status", ["controlled", "trusted"]);
 
     const { data, error } = await q;
     if (error) throw error;
@@ -244,9 +338,9 @@ const metricCards = [
     detailLabel: "Chạm để xem chi tiết",
     params: { scope: "controlled_ledger" },
     icon: CheckCircle2,
-    valueTone: "text-emerald-200",
-    iconShell: "border-emerald-300/25 bg-emerald-400/[0.08] text-emerald-200",
-    cardTone: "from-stone-900/95 via-stone-950 to-stone-900/70",
+    valueTone: "text-primary",
+    iconShell: "border-primary/20 bg-primary/10 text-primary",
+    cardTone: "from-card/90 via-card/75 to-accent/20",
   },
   {
     key: "qty",
@@ -255,9 +349,9 @@ const metricCards = [
     detailLabel: "Chạm để xem chi tiết",
     params: { scope: "controlled_ledger", focus: "quantity" },
     icon: CalendarDays,
-    valueTone: "text-amber-100/80",
-    iconShell: "border-amber-300/20 bg-amber-400/[0.08] text-amber-300/70",
-    cardTone: "from-stone-900/95 via-stone-950 to-stone-900/70",
+    valueTone: "text-secondary-foreground",
+    iconShell: "border-secondary/70 bg-secondary/45 text-secondary-foreground",
+    cardTone: "from-card/90 via-card/75 to-secondary/25",
   },
   {
     key: "customers",
@@ -266,30 +360,43 @@ const metricCards = [
     detailLabel: "Chạm để xem chi tiết",
     params: { scope: "controlled_ledger", focus: "customers" },
     icon: Users,
-    valueTone: "text-stone-100",
-    iconShell: "border-stone-500/30 bg-stone-400/[0.08] text-stone-300",
-    cardTone: "from-stone-900/95 via-stone-950 to-stone-900/70",
+    valueTone: "text-foreground",
+    iconShell: "border-border/70 bg-muted/70 text-muted-foreground",
+    cardTone: "from-card/90 via-card/75 to-muted/40",
   },
 ] as const;
 
-const CHANNEL_COLORS = ["#FCD34D", "#FBBF24", "#6EE7B7", "#FCA5A5", "#D6D3D1"] as const;
+const CHANNEL_COLORS = [
+  "#FCD34D",
+  "#FBBF24",
+  "#6EE7B7",
+  "#FCA5A5",
+  "#D6D3D1",
+] as const;
 
 const getChannelColor = (key: string, fallbackIndex: number) => {
   const knownIndex = Object.keys(channelLabel).indexOf(key);
-  return CHANNEL_COLORS[(knownIndex >= 0 ? knownIndex : fallbackIndex) % CHANNEL_COLORS.length];
+  return CHANNEL_COLORS[
+    (knownIndex >= 0 ? knownIndex : fallbackIndex) % CHANNEL_COLORS.length
+  ];
 };
 
 export default function RevenueManagementDashboard() {
   const { language } = useLanguage();
   const isVi = language === "vi";
   const navigate = useNavigate();
-  const initialPeriod = new URLSearchParams(window.location.search).get("period") || monthNow();
+  const initialPeriod =
+    new URLSearchParams(window.location.search).get("period") || monthNow();
   const [period, setPeriod] = useState(initialPeriod);
   const prevPeriod = previousMonth(period);
   const forecastBasePeriod = previousMonth(prevPeriod);
   const isSelectedCurrentMonth = period === monthNow();
 
-  const { data: lines = [], isLoading, error } = useQuery<RevenueLine[]>({
+  const {
+    data: lines = [],
+    isLoading,
+    error,
+  } = useQuery<RevenueLine[]>({
     queryKey: ["revenue-ledger-lines", period],
     queryFn: async () => {
       return fetchAllRevenueLines(period, true);
@@ -311,14 +418,38 @@ export default function RevenueManagementDashboard() {
   });
 
   const stats = useMemo(() => {
-    const total = lines.reduce((sum, r) => sum + Number(r.gross_revenue || 0), 0);
+    const total = lines.reduce(
+      (sum, r) => sum + Number(r.gross_revenue || 0),
+      0,
+    );
     const qty = lines.reduce((sum, r) => sum + Number(r.quantity || 0), 0);
-    const approved = lines.filter((r) => r.approval_status === "approved").reduce((sum, r) => sum + Number(r.gross_revenue || 0), 0);
-    const customers = new Set(lines.map((r) => r.parent_customer_id || r.customer_id || r.customer_name)).size;
-    const dispatchTemporary = lines.filter((r) => dispatchAmountBucket(r) === "temporary").length;
-    const dispatchConfirmed = lines.filter((r) => dispatchAmountBucket(r) === "confirmed").length;
-    const dispatchNeedsAllocation = lines.filter((r) => dispatchAmountBucket(r) === "needsAllocation").length;
-    return { total, qty, approved, customers, rows: lines.length, dispatchTemporary, dispatchConfirmed, dispatchNeedsAllocation };
+    const approved = lines
+      .filter((r) => r.approval_status === "approved")
+      .reduce((sum, r) => sum + Number(r.gross_revenue || 0), 0);
+    const customers = new Set(
+      lines.map(
+        (r) => r.parent_customer_id || r.customer_id || r.customer_name,
+      ),
+    ).size;
+    const dispatchTemporary = lines.filter(
+      (r) => dispatchAmountBucket(r) === "temporary",
+    ).length;
+    const dispatchConfirmed = lines.filter(
+      (r) => dispatchAmountBucket(r) === "confirmed",
+    ).length;
+    const dispatchNeedsAllocation = lines.filter(
+      (r) => dispatchAmountBucket(r) === "needsAllocation",
+    ).length;
+    return {
+      total,
+      qty,
+      approved,
+      customers,
+      rows: lines.length,
+      dispatchTemporary,
+      dispatchConfirmed,
+      dispatchNeedsAllocation,
+    };
   }, [lines]);
 
   const byDay = useMemo(() => {
@@ -333,10 +464,19 @@ export default function RevenueManagementDashboard() {
   }, [lines]);
 
   const byChannel = useMemo(() => {
-    const map = new Map<string, { key: string; label: string; revenue: number; qty: number; rows: number }>();
+    const map = new Map<
+      string,
+      { key: string; label: string; revenue: number; qty: number; rows: number }
+    >();
     for (const row of lines) {
       const key = row.channel || "unknown";
-      const cur = map.get(key) || { key, label: channelLabel[key] || key, revenue: 0, qty: 0, rows: 0 };
+      const cur = map.get(key) || {
+        key,
+        label: channelLabel[key] || key,
+        revenue: 0,
+        qty: 0,
+        rows: 0,
+      };
       cur.revenue += Number(row.gross_revenue || 0);
       cur.qty += Number(row.quantity || 0);
       cur.rows += 1;
@@ -370,29 +510,57 @@ export default function RevenueManagementDashboard() {
       const revenue = lineRevenue(row);
       const productKey = productSkuKey(row);
       const channelKey = row.channel || "unknown";
-      const customerKey = row.parent_customer_id || row.customer_id || row.customer_name || "unknown";
+      const customerKey =
+        row.parent_customer_id ||
+        row.customer_id ||
+        row.customer_name ||
+        "unknown";
       const day = lineDateDay(row);
 
-      currentProductTotals.set(productKey, (currentProductTotals.get(productKey) || 0) + revenue);
-      currentChannelTotals.set(channelKey, (currentChannelTotals.get(channelKey) || 0) + revenue);
-      currentCustomerTotals.set(customerKey, (currentCustomerTotals.get(customerKey) || 0) + revenue);
-      if (day > 0) currentDailyTotals.set(day, (currentDailyTotals.get(day) || 0) + revenue);
+      currentProductTotals.set(
+        productKey,
+        (currentProductTotals.get(productKey) || 0) + revenue,
+      );
+      currentChannelTotals.set(
+        channelKey,
+        (currentChannelTotals.get(channelKey) || 0) + revenue,
+      );
+      currentCustomerTotals.set(
+        customerKey,
+        (currentCustomerTotals.get(customerKey) || 0) + revenue,
+      );
+      if (day > 0)
+        currentDailyTotals.set(
+          day,
+          (currentDailyTotals.get(day) || 0) + revenue,
+        );
     }
 
     const productKnownRevenue = Array.from(currentProductTotals.entries())
       .filter(([key]) => key !== "unknown" && !key.startsWith("SOURCE:"))
       .reduce((sum, [, revenue]) => sum + revenue, 0);
-    const productMixCoverage = actualControlled > 0 ? productKnownRevenue / actualControlled : 0;
-    const topChannel = Array.from(currentChannelTotals.entries()).sort((a, b) => b[1] - a[1])[0] || ["unknown", 0];
-    const topCustomer = Array.from(currentCustomerTotals.entries()).sort((a, b) => b[1] - a[1])[0] || ["unknown", 0];
-    const topChannelShare = actualControlled > 0 ? topChannel[1] / actualControlled : 0;
-    const topCustomerShare = actualControlled > 0 ? topCustomer[1] / actualControlled : 0;
+    const productMixCoverage =
+      actualControlled > 0 ? productKnownRevenue / actualControlled : 0;
+    const topChannel = Array.from(currentChannelTotals.entries()).sort(
+      (a, b) => b[1] - a[1],
+    )[0] || ["unknown", 0];
+    const topCustomer = Array.from(currentCustomerTotals.entries()).sort(
+      (a, b) => b[1] - a[1],
+    )[0] || ["unknown", 0];
+    const topChannelShare =
+      actualControlled > 0 ? topChannel[1] / actualControlled : 0;
+    const topCustomerShare =
+      actualControlled > 0 ? topCustomer[1] / actualControlled : 0;
     const mtdDailyAverage = cutoffDay > 0 ? actualControlled / cutoffDay : 0;
     const recentDays = Array.from(currentDailyTotals.entries())
       .filter(([, revenue]) => revenue > 0)
       .sort((a, b) => b[0] - a[0])
       .slice(0, 7);
-    const recentDailyAverage = recentDays.length > 0 ? recentDays.reduce((sum, [, revenue]) => sum + revenue, 0) / recentDays.length : mtdDailyAverage;
+    const recentDailyAverage =
+      recentDays.length > 0
+        ? recentDays.reduce((sum, [, revenue]) => sum + revenue, 0) /
+          recentDays.length
+        : mtdDailyAverage;
 
     const allBaselines = [
       { period: forecastBasePeriod, lines: forecastBaseLines },
@@ -408,47 +576,83 @@ export default function RevenueManagementDashboard() {
 
       for (const row of baseline.lines) {
         const revenue = lineRevenue(row);
-        productTotals.set(productSkuKey(row), (productTotals.get(productSkuKey(row)) || 0) + revenue);
-        channelTotals.set(row.channel || "unknown", (channelTotals.get(row.channel || "unknown") || 0) + revenue);
-        weekdayTotals.set(lineWeekday(row.revenue_date), (weekdayTotals.get(lineWeekday(row.revenue_date)) || 0) + revenue);
-        timingTotals.set(timingBucket(lineDateDay(row), baselineDays), (timingTotals.get(timingBucket(lineDateDay(row), baselineDays)) || 0) + revenue);
+        productTotals.set(
+          productSkuKey(row),
+          (productTotals.get(productSkuKey(row)) || 0) + revenue,
+        );
+        channelTotals.set(
+          row.channel || "unknown",
+          (channelTotals.get(row.channel || "unknown") || 0) + revenue,
+        );
+        weekdayTotals.set(
+          lineWeekday(row.revenue_date),
+          (weekdayTotals.get(lineWeekday(row.revenue_date)) || 0) + revenue,
+        );
+        timingTotals.set(
+          timingBucket(lineDateDay(row), baselineDays),
+          (timingTotals.get(timingBucket(lineDateDay(row), baselineDays)) ||
+            0) + revenue,
+        );
       }
 
       const baselineDailyAnchor = dailyAverage;
-      const channelLiftFromComparableShares = actualControlled > 0 && total > 0
-        ? Array.from(currentChannelTotals.entries()).reduce((sum, [key, revenue]) => {
-          const currentShare = revenue / actualControlled;
-          const baselineShare = (channelTotals.get(key) || 0) / total;
-          const shareLift = key !== "unknown" && baselineShare > 0 ? currentShare / baselineShare : 1;
-          return sum + currentShare * shareLift;
-        }, 0)
-        : 1;
-      const channelMixFactor = actualControlled > 0 && total > 0
-        ? clamp(channelLiftFromComparableShares || 1, 0.9, 1.1)
-        : 1;
-      const productLiftFromKnownProducts = actualControlled > 0 && total > 0 && productMixCoverage >= 0.25
-        ? Array.from(currentProductTotals.entries()).reduce((sum, [key, revenue]) => {
-          const currentShare = revenue / actualControlled;
-          const baselineShare = (productTotals.get(key) || 0) / total;
-          const hasKnownProduct = key !== "unknown" && !key.startsWith("SOURCE:");
-          const shareLift = hasKnownProduct && baselineShare > 0 ? currentShare / baselineShare : 1;
-          return sum + currentShare * shareLift;
-        }, 0)
-        : 1;
-      const productMixFactor = productMixCoverage >= 0.25
-        ? clamp(productLiftFromKnownProducts || 1, 0.9, 1.1)
-        : 1;
+      const channelLiftFromComparableShares =
+        actualControlled > 0 && total > 0
+          ? Array.from(currentChannelTotals.entries()).reduce(
+              (sum, [key, revenue]) => {
+                const currentShare = revenue / actualControlled;
+                const baselineShare = (channelTotals.get(key) || 0) / total;
+                const shareLift =
+                  key !== "unknown" && baselineShare > 0
+                    ? currentShare / baselineShare
+                    : 1;
+                return sum + currentShare * shareLift;
+              },
+              0,
+            )
+          : 1;
+      const channelMixFactor =
+        actualControlled > 0 && total > 0
+          ? clamp(channelLiftFromComparableShares || 1, 0.9, 1.1)
+          : 1;
+      const productLiftFromKnownProducts =
+        actualControlled > 0 && total > 0 && productMixCoverage >= 0.25
+          ? Array.from(currentProductTotals.entries()).reduce(
+              (sum, [key, revenue]) => {
+                const currentShare = revenue / actualControlled;
+                const baselineShare = (productTotals.get(key) || 0) / total;
+                const hasKnownProduct =
+                  key !== "unknown" && !key.startsWith("SOURCE:");
+                const shareLift =
+                  hasKnownProduct && baselineShare > 0
+                    ? currentShare / baselineShare
+                    : 1;
+                return sum + currentShare * shareLift;
+              },
+              0,
+            )
+          : 1;
+      const productMixFactor =
+        productMixCoverage >= 0.25
+          ? clamp(productLiftFromKnownProducts || 1, 0.9, 1.1)
+          : 1;
       const baselineComparableFloor = dailyAverage * 0.9;
       const comparableDaily = clamp(
         baselineDailyAnchor * channelMixFactor * productMixFactor,
         baselineComparableFloor,
         dailyAverage * 1.15,
       );
-      const elapsedTimingShare = total > 0
-        ? Array.from(timingTotals.entries())
-          .filter(([bucket]) => bucket === "early" || (cutoffDay > periodDays / 3 && bucket === "mid") || (cutoffDay > (periodDays * 2) / 3 && bucket === "late"))
-          .reduce((sum, [, revenue]) => sum + revenue, 0) / total
-        : 0;
+      const elapsedTimingShare =
+        total > 0
+          ? Array.from(timingTotals.entries())
+              .filter(
+                ([bucket]) =>
+                  bucket === "early" ||
+                  (cutoffDay > periodDays / 3 && bucket === "mid") ||
+                  (cutoffDay > (periodDays * 2) / 3 && bucket === "late"),
+              )
+              .reduce((sum, [, revenue]) => sum + revenue, 0) / total
+          : 0;
       const projected = actualControlled + comparableDaily * remainingDays;
       return {
         ...baseline,
@@ -463,11 +667,25 @@ export default function RevenueManagementDashboard() {
     });
     const baselines = allBaselines.filter((baseline) => baseline.total > 0);
 
-    const baselineAverage = baselines.length > 0 ? baselines.reduce((sum, baseline) => sum + baseline.total, 0) / baselines.length : 0;
-    const baselineDailyAverage = baselines.length > 0 ? baselines.reduce((sum, baseline) => sum + baseline.comparableDaily, 0) / baselines.length : mtdDailyAverage;
+    const baselineAverage =
+      baselines.length > 0
+        ? baselines.reduce((sum, baseline) => sum + baseline.total, 0) /
+          baselines.length
+        : 0;
+    const baselineDailyAverage =
+      baselines.length > 0
+        ? baselines.reduce(
+            (sum, baseline) => sum + baseline.comparableDaily,
+            0,
+          ) / baselines.length
+        : mtdDailyAverage;
     const weekdayRevenue = new Map<number, number>();
     for (const baseline of baselines) {
-      for (const [weekday, revenue] of baseline.weekdayTotals) weekdayRevenue.set(weekday, (weekdayRevenue.get(weekday) || 0) + revenue);
+      for (const [weekday, revenue] of baseline.weekdayTotals)
+        weekdayRevenue.set(
+          weekday,
+          (weekdayRevenue.get(weekday) || 0) + revenue,
+        );
     }
     const weekdayCounts = new Map<number, number>();
     for (const baseline of baselines) {
@@ -476,50 +694,117 @@ export default function RevenueManagementDashboard() {
         weekdayCounts.set(weekday, (weekdayCounts.get(weekday) || 0) + 1);
       }
     }
-    const totalBaselineDays = Array.from(weekdayCounts.values()).reduce((sum, count) => sum + count, 0);
-    const overallWeekdayAverage = totalBaselineDays > 0 && baselines.length > 0
-      ? baselines.reduce((sum, baseline) => sum + baseline.total, 0) / totalBaselineDays
-      : baselineDailyAverage;
+    const totalBaselineDays = Array.from(weekdayCounts.values()).reduce(
+      (sum, count) => sum + count,
+      0,
+    );
+    const overallWeekdayAverage =
+      totalBaselineDays > 0 && baselines.length > 0
+        ? baselines.reduce((sum, baseline) => sum + baseline.total, 0) /
+          totalBaselineDays
+        : baselineDailyAverage;
     const weekdayFactors = new Map<number, number>();
     for (let weekday = 0; weekday < 7; weekday += 1) {
-      const weekdayAverage = (weekdayRevenue.get(weekday) || 0) / Math.max(weekdayCounts.get(weekday) || 1, 1);
-      weekdayFactors.set(weekday, overallWeekdayAverage > 0 ? clamp(weekdayAverage / overallWeekdayAverage, 0.6, 1.45) : 1);
+      const weekdayAverage =
+        (weekdayRevenue.get(weekday) || 0) /
+        Math.max(weekdayCounts.get(weekday) || 1, 1);
+      weekdayFactors.set(
+        weekday,
+        overallWeekdayAverage > 0
+          ? clamp(weekdayAverage / overallWeekdayAverage, 0.6, 1.45)
+          : 1,
+      );
     }
-    const remainingWeekdayFactor = remainingDays > 0
-      ? Array.from({ length: remainingDays }, (_, index) => weekdayFactors.get(lineWeekday(dateForPeriodDay(period, cutoffDay + index + 1))) || 1).reduce((sum, factor) => sum + factor, 0) / remainingDays
-      : 1;
-    const baselineElapsedShare = baselines.length > 0 ? baselines.reduce((sum, baseline) => sum + baseline.elapsedTimingShare, 0) / baselines.length : cutoffDay / Math.max(periodDays, 1);
-    const currentMonthShare = baselineAverage > 0 ? actualControlled / baselineAverage : baselineElapsedShare;
-    const timingFactor = baselineElapsedShare > 0 ? clamp(currentMonthShare / baselineElapsedShare, 0.85, 1.15) : 1;
-    const trendFactor = mtdDailyAverage > 0 ? clamp(recentDailyAverage / mtdDailyAverage, 0.75, 1.25) : 1;
+    const remainingWeekdayFactor =
+      remainingDays > 0
+        ? Array.from(
+            { length: remainingDays },
+            (_, index) =>
+              weekdayFactors.get(
+                lineWeekday(dateForPeriodDay(period, cutoffDay + index + 1)),
+              ) || 1,
+          ).reduce((sum, factor) => sum + factor, 0) / remainingDays
+        : 1;
+    const baselineElapsedShare =
+      baselines.length > 0
+        ? baselines.reduce(
+            (sum, baseline) => sum + baseline.elapsedTimingShare,
+            0,
+          ) / baselines.length
+        : cutoffDay / Math.max(periodDays, 1);
+    const currentMonthShare =
+      baselineAverage > 0
+        ? actualControlled / baselineAverage
+        : baselineElapsedShare;
+    const timingFactor =
+      baselineElapsedShare > 0
+        ? clamp(currentMonthShare / baselineElapsedShare, 0.85, 1.15)
+        : 1;
+    const trendFactor =
+      mtdDailyAverage > 0
+        ? clamp(recentDailyAverage / mtdDailyAverage, 0.75, 1.25)
+        : 1;
     const blendedDailyRate = Math.max(
       0,
-      (baselineDailyAverage * 0.55 + recentDailyAverage * 0.35 + mtdDailyAverage * 0.1) * remainingWeekdayFactor * timingFactor * (0.85 + trendFactor * 0.15),
+      (baselineDailyAverage * 0.55 +
+        recentDailyAverage * 0.35 +
+        mtdDailyAverage * 0.1) *
+        remainingWeekdayFactor *
+        timingFactor *
+        (0.85 + trendFactor * 0.15),
     );
-    const scenarioValues = baselines.map((baseline) => actualControlled + baseline.comparableDaily * remainingWeekdayFactor * timingFactor * remainingDays).filter((value) => value > 0);
+    const scenarioValues = baselines
+      .map(
+        (baseline) =>
+          actualControlled +
+          baseline.comparableDaily *
+            remainingWeekdayFactor *
+            timingFactor *
+            remainingDays,
+      )
+      .filter((value) => value > 0);
     const unclampedTotal = actualControlled + blendedDailyRate * remainingDays;
-    const lowScenario = Math.min(...(scenarioValues.length ? scenarioValues : [unclampedTotal]));
-    const highScenario = Math.max(...(scenarioValues.length ? scenarioValues : [unclampedTotal]));
-    const low = Math.max(actualControlled, Math.min(unclampedTotal, lowScenario * 0.92));
-    const high = Math.max(unclampedTotal, highScenario * 1.08, actualControlled);
+    const lowScenario = Math.min(
+      ...(scenarioValues.length ? scenarioValues : [unclampedTotal]),
+    );
+    const highScenario = Math.max(
+      ...(scenarioValues.length ? scenarioValues : [unclampedTotal]),
+    );
+    const low = Math.max(
+      actualControlled,
+      Math.min(unclampedTotal, lowScenario * 0.92),
+    );
+    const high = Math.max(
+      unclampedTotal,
+      highScenario * 1.08,
+      actualControlled,
+    );
     const total = Math.max(actualControlled, clamp(unclampedTotal, low, high));
     const remainder = Math.max(total - actualControlled, 0);
-    const volatility = baselineAverage > 0 && baselines.length > 1
-      ? Math.abs(baselines[0].total - baselines[1].total) / baselineAverage
-      : 0;
-    const confidenceScore = 100
-      - (baselines.length < 2 ? 24 : 0)
-      - (lines.length < 20 ? 14 : 0)
-      - (productMixCoverage < 0.25 ? 12 : 0)
-      - (topCustomerShare > 0.35 ? 16 : 0)
-      - (topChannelShare > 0.6 ? 12 : 0)
-      - (volatility > 0.25 ? 12 : 0);
-    const confidenceLabel = confidenceScore >= 72 ? "Cao" : confidenceScore >= 48 ? "Trung bình" : "Thấp";
-    const confidenceTone = confidenceLabel === "Cao"
-      ? "border-emerald-300/35 bg-emerald-400/10 text-emerald-100"
-      : confidenceLabel === "Trung bình"
-        ? "border-amber-300/35 bg-amber-400/10 text-amber-100"
-        : "border-rose-300/35 bg-rose-400/10 text-rose-100";
+    const volatility =
+      baselineAverage > 0 && baselines.length > 1
+        ? Math.abs(baselines[0].total - baselines[1].total) / baselineAverage
+        : 0;
+    const confidenceScore =
+      100 -
+      (baselines.length < 2 ? 24 : 0) -
+      (lines.length < 20 ? 14 : 0) -
+      (productMixCoverage < 0.25 ? 12 : 0) -
+      (topCustomerShare > 0.35 ? 16 : 0) -
+      (topChannelShare > 0.6 ? 12 : 0) -
+      (volatility > 0.25 ? 12 : 0);
+    const confidenceLabel =
+      confidenceScore >= 72
+        ? "Cao"
+        : confidenceScore >= 48
+          ? "Trung bình"
+          : "Thấp";
+    const confidenceTone =
+      confidenceLabel === "Cao"
+        ? "border-success/30 bg-success/10 text-success"
+        : confidenceLabel === "Trung bình"
+          ? "border-warning/40 bg-warning/30 text-warning-foreground"
+          : "border-destructive/30 bg-destructive/10 text-destructive";
     const drivers = [
       productMixCoverage >= 0.25
         ? `Mix sản phẩm/SKU: ${numberFmt(productMixCoverage * 100)}% doanh thu có mã sản phẩm/SKU để so với baseline.`
@@ -569,10 +854,21 @@ export default function RevenueManagementDashboard() {
         },
       ],
     };
-  }, [forecastBaseLines, forecastBasePeriod, lines, period, prevPeriod, previousLines, stats.total]);
+  }, [
+    forecastBaseLines,
+    forecastBasePeriod,
+    lines,
+    period,
+    prevPeriod,
+    previousLines,
+    stats.total,
+  ]);
 
   const throughDate = dateForPeriodDay(period, forecast.cutoffDay || 1);
-  const forecastProgress = forecast.total > 0 ? clamp((forecast.actualControlled / forecast.total) * 100, 0, 100) : 0;
+  const forecastProgress =
+    forecast.total > 0
+      ? clamp((forecast.actualControlled / forecast.total) * 100, 0, 100)
+      : 0;
 
   const trendChart = useMemo(() => {
     const daily = new Map<number, number>();
@@ -586,10 +882,16 @@ export default function RevenueManagementDashboard() {
       const day = index + 1;
       cumulative += daily.get(day) || 0;
       const isPastOrCurrent = day <= forecast.cutoffDay;
-      const remainingDays = Math.max(forecast.periodDays - forecast.cutoffDay, 1);
+      const remainingDays = Math.max(
+        forecast.periodDays - forecast.cutoffDay,
+        1,
+      );
       const projected = isPastOrCurrent
         ? cumulative
-        : forecast.actualControlled + ((forecast.total - forecast.actualControlled) * (day - forecast.cutoffDay)) / remainingDays;
+        : forecast.actualControlled +
+          ((forecast.total - forecast.actualControlled) *
+            (day - forecast.cutoffDay)) /
+            remainingDays;
       return {
         day: String(day).padStart(2, "0"),
         ledger: isPastOrCurrent ? cumulative : null,
@@ -597,7 +899,13 @@ export default function RevenueManagementDashboard() {
         current: day === forecast.cutoffDay ? cumulative : null,
       };
     });
-  }, [forecast.actualControlled, forecast.cutoffDay, forecast.periodDays, forecast.total, lines]);
+  }, [
+    forecast.actualControlled,
+    forecast.cutoffDay,
+    forecast.periodDays,
+    forecast.total,
+    lines,
+  ]);
 
   const byCustomer = useMemo(() => {
     const historicalParentByCustomerName = new Map<string, CustomerRollup>();
@@ -606,10 +914,13 @@ export default function RevenueManagementDashboard() {
       const raw = asRecord(row.raw_payload);
       const parentName = String(raw.parent_customer_name || "").trim();
       if (row.parent_customer_id || parentName) {
-        historicalParentByCustomerName.set(normalizedCustomerName(row.customer_name), {
-          key: row.parent_customer_id || parentName,
-          name: parentName || row.customer_name || "Chưa rõ khách hàng",
-        });
+        historicalParentByCustomerName.set(
+          normalizedCustomerName(row.customer_name),
+          {
+            key: row.parent_customer_id || parentName,
+            name: parentName || row.customer_name || "Chưa rõ khách hàng",
+          },
+        );
       }
     }
 
@@ -623,7 +934,9 @@ export default function RevenueManagementDashboard() {
         };
       }
 
-      const historicalParent = historicalParentByCustomerName.get(normalizedCustomerName(row.customer_name));
+      const historicalParent = historicalParentByCustomerName.get(
+        normalizedCustomerName(row.customer_name),
+      );
       if (historicalParent) return historicalParent;
 
       return {
@@ -635,19 +948,49 @@ export default function RevenueManagementDashboard() {
     const previousMap = new Map<string, { revenue: number; name: string }>();
     for (const row of previousLines) {
       const rollup = resolveRollup(row);
-      const cur = previousMap.get(rollup.key) || { revenue: 0, name: rollup.name };
+      const cur = previousMap.get(rollup.key) || {
+        revenue: 0,
+        name: rollup.name,
+      };
       cur.revenue += Number(row.gross_revenue || 0);
       previousMap.set(rollup.key, cur);
     }
 
-    const map = new Map<string, { key: string; name: string; revenue: number; previousRevenue: number; qty: number; rows: number; sourceTypes: Set<string> }>();
+    const map = new Map<
+      string,
+      {
+        key: string;
+        name: string;
+        revenue: number;
+        previousRevenue: number;
+        qty: number;
+        rows: number;
+        sourceTypes: Set<string>;
+      }
+    >();
     for (const [key, prev] of previousMap) {
-      map.set(key, { key, name: prev.name, revenue: 0, previousRevenue: prev.revenue, qty: 0, rows: 0, sourceTypes: new Set<string>() });
+      map.set(key, {
+        key,
+        name: prev.name,
+        revenue: 0,
+        previousRevenue: prev.revenue,
+        qty: 0,
+        rows: 0,
+        sourceTypes: new Set<string>(),
+      });
     }
 
     for (const row of lines) {
       const rollup = resolveRollup(row);
-      const cur = map.get(rollup.key) || { key: rollup.key, name: rollup.name, revenue: 0, previousRevenue: previousMap.get(rollup.key)?.revenue || 0, qty: 0, rows: 0, sourceTypes: new Set<string>() };
+      const cur = map.get(rollup.key) || {
+        key: rollup.key,
+        name: rollup.name,
+        revenue: 0,
+        previousRevenue: previousMap.get(rollup.key)?.revenue || 0,
+        qty: 0,
+        rows: 0,
+        sourceTypes: new Set<string>(),
+      };
       cur.name = rollup.name || cur.name;
       cur.revenue += Number(row.gross_revenue || 0);
       cur.qty += Number(row.quantity || 0);
@@ -659,7 +1002,10 @@ export default function RevenueManagementDashboard() {
       .map((row) => ({
         ...row,
         delta: row.revenue - row.previousRevenue,
-        pct: row.previousRevenue > 0 ? ((row.revenue - row.previousRevenue) / row.previousRevenue) * 100 : null,
+        pct:
+          row.previousRevenue > 0
+            ? ((row.revenue - row.previousRevenue) / row.previousRevenue) * 100
+            : null,
       }))
       .sort((a, b) => {
         if (b.revenue !== a.revenue) return b.revenue - a.revenue;
@@ -673,40 +1019,67 @@ export default function RevenueManagementDashboard() {
     navigate(`/finance-control/revenue/sources?${sp.toString()}`);
   };
 
-  const handleCardKeyDown = (event: KeyboardEvent<HTMLDivElement>, params: Readonly<Record<string, string>>) => {
+  const handleCardKeyDown = (
+    event: KeyboardEvent<HTMLDivElement>,
+    params: Readonly<Record<string, string>>,
+  ) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     openSources(params);
   };
 
   return (
-    <div className="relative space-y-6 rounded-lg border border-amber-200/10 bg-stone-950/40 p-4 ring-1 ring-stone-200/5 md:p-6">
+    <div
+      data-stitch-revenue-theme="pantone-2026-glass"
+      className="relative space-y-6 rounded-2xl border border-border/55 bg-card/70 p-4 shadow-card backdrop-blur-xl md:p-6"
+    >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-3">
-          <h1 className="font-display text-3xl font-semibold tracking-tight text-amber-50 md:text-4xl">
+          <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
             {isVi ? "Quản lý doanh thu" : "Revenue Management"}
           </h1>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge className="border border-amber-300/25 bg-amber-400/[0.08] px-3 py-1 text-amber-100" variant="outline">
+            <Badge
+              className="border border-primary/25 bg-primary/10 px-3 py-1 text-primary"
+              variant="outline"
+            >
               {periodLabel(period)}
             </Badge>
-            <Badge className="border border-emerald-300/25 bg-emerald-400/[0.08] px-3 py-1 text-emerald-100" variant="outline">
+            <Badge
+              className="border border-success/25 bg-success/10 px-3 py-1 text-success"
+              variant="outline"
+            >
               Tính đến {formatDate(throughDate)}
             </Badge>
           </div>
         </div>
-        <div aria-label="Xem doanh thu theo tháng" className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <Input type="month" value={period} onChange={(e) => setPeriod(e.target.value || monthNow())} className="h-10 w-full border-stone-600/70 bg-stone-950/50 text-stone-100 hover:border-amber-300/40 focus-visible:ring-amber-300/30 sm:w-[160px]" />
-          <Button className="h-10 w-full border border-amber-300/30 bg-transparent text-amber-100 hover:border-amber-300/50 hover:bg-amber-400/[0.08] sm:w-auto" variant="outline" onClick={() => navigate("/finance-control/revenue/setup")}>
-            <Settings className="mr-2 h-4 w-4" />Thiết lập Parse
+        <div
+          aria-label="Xem doanh thu theo tháng"
+          className="flex flex-col gap-2 sm:flex-row sm:items-center"
+        >
+          <Input
+            type="month"
+            value={period}
+            onChange={(e) => setPeriod(e.target.value || monthNow())}
+            className="h-10 w-full border-border/70 bg-card/80 text-foreground hover:border-primary/40 focus-visible:ring-primary/30 sm:w-[160px]"
+          />
+          <Button
+            className="h-10 w-full border border-primary/25 bg-card/70 text-primary hover:border-primary/45 hover:bg-primary/10 sm:w-auto"
+            variant="outline"
+            onClick={() => navigate("/finance-control/revenue/setup")}
+          >
+            <Settings className="mr-2 h-4 w-4" />
+            Thiết lập Parse
           </Button>
         </div>
       </div>
 
       {error ? (
-        <Card className="border border-rose-300/40 bg-stone-950/80 ring-1 ring-rose-200/10">
-          <CardContent className="flex items-center gap-3 bg-rose-400/[0.08] p-4 text-sm text-rose-200">
-            <AlertTriangle className="h-5 w-5" />Không đọc được revenue ledger. Kiểm tra migration/database quyền truy cập.
+        <Card className="border border-destructive/35 bg-card/90 ring-1 ring-destructive/10">
+          <CardContent className="flex items-center gap-3 bg-destructive/10 p-4 text-sm text-destructive">
+            <AlertTriangle className="h-5 w-5" />
+            Không đọc được revenue ledger. Kiểm tra migration/database quyền
+            truy cập.
           </CardContent>
         </Card>
       ) : null}
@@ -716,26 +1089,42 @@ export default function RevenueManagementDashboard() {
         tabIndex={0}
         aria-label="Đã vào ledger: Chạm để xem chi tiết"
         onClick={() => openSources({ scope: "controlled_ledger" })}
-        onKeyDown={(event) => handleCardKeyDown(event, { scope: "controlled_ledger" })}
-        className="cursor-pointer overflow-hidden rounded-[1.35rem] border border-amber-200/15 bg-[radial-gradient(circle_at_top_right,rgba(245,158,11,0.22),transparent_32%),linear-gradient(135deg,rgba(41,28,20,0.96),rgba(12,10,9,0.98))] ring-1 ring-amber-100/10 transition duration-150 hover:border-amber-200/35 hover:shadow-[0_0_32px_rgba(245,158,11,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/45 active:scale-[0.99]"
+        onKeyDown={(event) =>
+          handleCardKeyDown(event, { scope: "controlled_ledger" })
+        }
+        className="cursor-pointer overflow-hidden rounded-[1.35rem] border border-primary/20 bg-[radial-gradient(circle_at_top_right,hsl(var(--accent)/0.32),transparent_34%),linear-gradient(135deg,hsl(var(--card)/0.92),hsl(var(--secondary)/0.28))] shadow-card backdrop-blur-xl transition duration-150 hover:border-primary/35 hover:shadow-warm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 active:scale-[0.99]"
       >
         <CardContent className="p-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <div className="text-[11px] uppercase tracking-[0.18em] text-stone-300/80">Đã vào ledger</div>
-                <Badge className="border border-emerald-300/25 bg-emerald-400/[0.1] text-emerald-100" variant="outline">Tạm từ PO</Badge>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                  Đã vào ledger
+                </div>
+                <Badge
+                  className="border border-success/25 bg-success/10 text-success"
+                  variant="outline"
+                >
+                  Tạm từ PO
+                </Badge>
               </div>
-              <div className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(2rem,8.5vw,3.25rem)] font-semibold leading-none tabular-nums tracking-[-0.05em] text-emerald-100" title={vnd(stats.approved)}>
-                {isLoading ? <span className="inline-block h-10 w-48 animate-pulse rounded bg-stone-700/70 align-middle" /> : vnd(stats.approved)}
+              <div
+                className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(2rem,8.5vw,3.25rem)] font-semibold leading-none tabular-nums tracking-[-0.05em] text-primary"
+                title={vnd(stats.approved)}
+              >
+                {isLoading ? (
+                  <span className="inline-block h-10 w-48 animate-pulse rounded bg-muted align-middle" />
+                ) : (
+                  vnd(stats.approved)
+                )}
               </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-stone-300/75">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <span>{stats.rows} dòng đã kiểm soát</span>
-                <span className="text-stone-600">•</span>
+                <span className="text-border">•</span>
                 <span>Đến ngày {formatDate(throughDate)}</span>
               </div>
             </div>
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-emerald-300/25 bg-emerald-400/[0.08] text-emerald-200">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
               <CheckCircle2 className="h-5 w-5" />
             </div>
           </div>
@@ -747,16 +1136,30 @@ export default function RevenueManagementDashboard() {
           role="button"
           tabIndex={0}
           aria-label="Sản lượng: Chạm để xem chi tiết"
-          onClick={() => openSources({ scope: "controlled_ledger", focus: "quantity" })}
-          onKeyDown={(event) => handleCardKeyDown(event, { scope: "controlled_ledger", focus: "quantity" })}
-          className="cursor-pointer rounded-2xl border border-amber-100/10 bg-stone-950/60 ring-1 ring-stone-200/5 transition hover:border-amber-200/30 active:scale-[0.99]"
+          onClick={() =>
+            openSources({ scope: "controlled_ledger", focus: "quantity" })
+          }
+          onKeyDown={(event) =>
+            handleCardKeyDown(event, {
+              scope: "controlled_ledger",
+              focus: "quantity",
+            })
+          }
+          className="cursor-pointer rounded-2xl border border-border/55 bg-card/70 shadow-card backdrop-blur-xl transition hover:border-primary/30 active:scale-[0.99]"
         >
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-2">
-              <div className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Sản lượng</div>
-              <CalendarDays className="h-4 w-4 text-amber-300/75" />
+              <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                Sản lượng
+              </div>
+              <CalendarDays className="h-4 w-4 text-primary/75" />
             </div>
-            <div className="mt-3 truncate text-2xl font-semibold tabular-nums text-amber-100" title={numberFmt(stats.qty)}>{isLoading ? "—" : numberFmt(stats.qty)}</div>
+            <div
+              className="mt-3 truncate text-2xl font-semibold tabular-nums text-primary"
+              title={numberFmt(stats.qty)}
+            >
+              {isLoading ? "—" : numberFmt(stats.qty)}
+            </div>
           </CardContent>
         </Card>
 
@@ -764,91 +1167,254 @@ export default function RevenueManagementDashboard() {
           role="button"
           tabIndex={0}
           aria-label="Customer/NPP: Chạm để xem chi tiết"
-          onClick={() => openSources({ scope: "controlled_ledger", focus: "customers" })}
-          onKeyDown={(event) => handleCardKeyDown(event, { scope: "controlled_ledger", focus: "customers" })}
-          className="cursor-pointer rounded-2xl border border-amber-100/10 bg-stone-950/60 ring-1 ring-stone-200/5 transition hover:border-amber-200/30 active:scale-[0.99]"
+          onClick={() =>
+            openSources({ scope: "controlled_ledger", focus: "customers" })
+          }
+          onKeyDown={(event) =>
+            handleCardKeyDown(event, {
+              scope: "controlled_ledger",
+              focus: "customers",
+            })
+          }
+          className="cursor-pointer rounded-2xl border border-border/55 bg-card/70 shadow-card backdrop-blur-xl transition hover:border-primary/30 active:scale-[0.99]"
         >
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-2">
-              <div className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Customer/NPP</div>
-              <Users className="h-4 w-4 text-stone-300" />
+              <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                Customer/NPP
+              </div>
+              <Users className="h-4 w-4 text-muted-foreground" />
             </div>
-            <div className="mt-3 text-2xl font-semibold tabular-nums text-stone-100">{isLoading ? "—" : stats.customers}</div>
+            <div className="mt-3 text-2xl font-semibold tabular-nums text-foreground">
+              {isLoading ? "—" : stats.customers}
+            </div>
           </CardContent>
         </Card>
 
-        <Card className="col-span-2 rounded-2xl border border-amber-100/10 bg-gradient-to-br from-stone-900/90 via-stone-950/80 to-amber-950/20 ring-1 ring-stone-200/5">
+        <Card className="col-span-2 rounded-2xl border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
           <CardContent className="p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Forecast tháng</div>
-                <div className="mt-2 truncate text-2xl font-semibold tabular-nums text-amber-100" title={vnd(forecast.total)}>{compactVnd(forecast.total)}</div>
-                <div className="mt-1 text-xs text-stone-400">{numberFmt(forecastProgress)}% kế hoạch · tin cậy {forecast.confidenceLabel}</div>
+                <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Forecast tháng
+                </div>
+                <div
+                  className="mt-2 truncate text-2xl font-semibold tabular-nums text-primary"
+                  title={vnd(forecast.total)}
+                >
+                  {compactVnd(forecast.total)}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {numberFmt(forecastProgress)}% kế hoạch · tin cậy{" "}
+                  {forecast.confidenceLabel}
+                </div>
               </div>
-              <Badge className={`shrink-0 border ${forecast.confidenceTone}`} variant="outline">{forecast.confidenceLabel}</Badge>
+              <Badge
+                className={`shrink-0 border ${forecast.confidenceTone}`}
+                variant="outline"
+              >
+                {forecast.confidenceLabel}
+              </Badge>
             </div>
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-800">
-              <div className="h-full rounded-full bg-gradient-to-r from-emerald-300 to-amber-300" style={{ width: `${forecastProgress}%` }} />
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-primary to-accent"
+                style={{ width: `${forecastProgress}%` }}
+              />
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <Card className="border border-amber-100/10 bg-stone-950/45 ring-1 ring-stone-200/5">
-        <CardContent className="flex flex-wrap items-center gap-2 p-3 text-xs text-stone-300">
-          <span className="font-medium text-stone-200">Trạng thái số xuất:</span>
-          <Badge variant="outline" className="border-amber-200/20 text-amber-100">Doanh thu tạm từ PO: {stats.dispatchTemporary}</Badge>
-          <Badge variant="outline" className="border-emerald-300/25 text-emerald-100">Đã xác nhận: {stats.dispatchConfirmed}</Badge>
-          <Badge variant="outline" className="border-rose-300/25 text-rose-100">Cần SKU: {stats.dispatchNeedsAllocation}</Badge>
+      <Card className="border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
+        <CardContent className="flex flex-wrap items-center gap-2 p-3 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">
+            Trạng thái số xuất:
+          </span>
+          <Badge
+            variant="outline"
+            className="border-warning/40 bg-warning/25 text-primary"
+          >
+            Doanh thu tạm từ PO: {stats.dispatchTemporary}
+          </Badge>
+          <Badge
+            variant="outline"
+            className="border-success/25 bg-success/10 text-success"
+          >
+            Đã xác nhận: {stats.dispatchConfirmed}
+          </Badge>
+          <Badge
+            variant="outline"
+            className="border-destructive/25 bg-destructive/10 text-destructive"
+          >
+            Cần SKU: {stats.dispatchNeedsAllocation}
+          </Badge>
         </CardContent>
       </Card>
 
-      <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/95 via-stone-950 to-amber-950/15 ring-1 ring-stone-200/5">
-        <CardHeader className="border-b border-amber-100/10 bg-stone-900/30 pb-3">
+      <Card className="overflow-hidden border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
+        <CardHeader className="border-b border-border/55 bg-muted/35 pb-3">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <CardTitle className="text-amber-50">Xu hướng doanh thu</CardTitle>
-              <CardDescription className="text-stone-300/70">Ledger thực tế và forecast đến cuối tháng.</CardDescription>
+              <CardTitle className="text-foreground">
+                Xu hướng doanh thu
+              </CardTitle>
+              <CardDescription className="text-muted-foreground">
+                Ledger thực tế và forecast đến cuối tháng.
+              </CardDescription>
             </div>
-            <Badge className="border border-emerald-300/25 bg-emerald-400/[0.08] text-emerald-100" variant="outline">{formatDate(throughDate)}</Badge>
+            <Badge
+              className="border border-success/25 bg-success/10 text-success"
+              variant="outline"
+            >
+              {formatDate(throughDate)}
+            </Badge>
           </div>
         </CardHeader>
         <CardContent className="h-[280px] p-3 md:h-[340px] md:p-4">
-          <div className="h-full overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]" aria-label="Cuộn ngang để xem đủ xu hướng doanh thu trong tháng">
+          <div
+            className="h-full overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]"
+            aria-label="Cuộn ngang để xem đủ xu hướng doanh thu trong tháng"
+          >
             <div className="h-full min-w-[880px] md:min-w-0">
               <ChartContainer
                 config={{
                   ledger: { label: "Ledger", color: MOM_CURRENT_COLOR },
-                  forecast: { label: "Forecast", color: FORECAST_REMAINDER_COLOR },
+                  forecast: {
+                    label: "Forecast",
+                    color: FORECAST_REMAINDER_COLOR,
+                  },
                 }}
                 className="h-full"
               >
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={trendChart} margin={{ top: 14, right: 12, bottom: 8, left: 0 }}>
+                  <AreaChart
+                    data={trendChart}
+                    margin={{ top: 14, right: 12, bottom: 8, left: 0 }}
+                  >
                     <defs>
-                      <linearGradient id="ledgerTrendFill" x1="0" x2="0" y1="0" y2="1">
-                        <stop offset="5%" stopColor={MOM_CURRENT_COLOR} stopOpacity={0.36} />
-                        <stop offset="95%" stopColor={MOM_CURRENT_COLOR} stopOpacity={0.02} />
+                      <linearGradient
+                        id="ledgerTrendFill"
+                        x1="0"
+                        x2="0"
+                        y1="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="5%"
+                          stopColor={MOM_CURRENT_COLOR}
+                          stopOpacity={0.36}
+                        />
+                        <stop
+                          offset="95%"
+                          stopColor={MOM_CURRENT_COLOR}
+                          stopOpacity={0.02}
+                        />
                       </linearGradient>
-                      <linearGradient id="forecastTrendFill" x1="0" x2="0" y1="0" y2="1">
-                        <stop offset="5%" stopColor={FORECAST_REMAINDER_COLOR} stopOpacity={0.22} />
-                        <stop offset="95%" stopColor={FORECAST_REMAINDER_COLOR} stopOpacity={0.02} />
+                      <linearGradient
+                        id="forecastTrendFill"
+                        x1="0"
+                        x2="0"
+                        y1="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="5%"
+                          stopColor={FORECAST_REMAINDER_COLOR}
+                          stopOpacity={0.22}
+                        />
+                        <stop
+                          offset="95%"
+                          stopColor={FORECAST_REMAINDER_COLOR}
+                          stopOpacity={0.02}
+                        />
                       </linearGradient>
                     </defs>
                     <CartesianGrid stroke={TREND_GRID_COLOR} vertical={false} />
-                    <XAxis dataKey="day" tickLine={false} axisLine={false} fontSize={11} interval="preserveStartEnd" tick={{ fill: "rgba(245,245,244,0.68)" }} />
-                    <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`} tickLine={false} axisLine={false} width={42} tick={{ fill: "rgba(245,245,244,0.68)" }} />
-                    <Tooltip
-                      cursor={{ stroke: "rgba(251,191,36,0.32)", strokeDasharray: "4 4" }}
-                      contentStyle={{ background: "#1c1917", border: "1px solid rgba(251,191,36,0.28)", borderRadius: "12px", color: "#fef3c7", boxShadow: "0 18px 36px rgba(0,0,0,0.38)" }}
-                      formatter={(value, name) => [vnd(Number(value)), name === "ledger" ? "Ledger" : "Forecast"]}
-                      labelFormatter={(label) => `Ngày ${label}/${period.slice(5)}`}
-                      labelStyle={{ color: "#fef3c7", fontWeight: 600 }}
+                    <XAxis
+                      dataKey="day"
+                      tickLine={false}
+                      axisLine={false}
+                      fontSize={11}
+                      interval="preserveStartEnd"
+                      tick={{ fill: "hsl(var(--muted-foreground))" }}
                     />
-                    <Legend wrapperStyle={{ color: "rgba(245,245,244,0.74)", fontSize: 12 }} />
-                    <Area type="monotone" dataKey="forecast" stroke={FORECAST_REMAINDER_COLOR} strokeDasharray="5 5" strokeWidth={2} fill="url(#forecastTrendFill)" dot={false} activeDot={{ r: 4 }} />
-                    <Area type="monotone" dataKey="ledger" stroke={MOM_CURRENT_COLOR} strokeWidth={3} fill="url(#ledgerTrendFill)" connectNulls={false} dot={false} activeDot={{ r: 5, stroke: "#052e16", strokeWidth: 2 }} />
-                    <Line type="monotone" dataKey="current" stroke="#FEF3C7" strokeWidth={0} dot={{ r: 5, fill: "#FEF3C7", stroke: MOM_CURRENT_COLOR, strokeWidth: 3 }} legendType="none" />
+                    <YAxis
+                      tickFormatter={(v) =>
+                        `${Math.round(Number(v) / 1_000_000)}tr`
+                      }
+                      tickLine={false}
+                      axisLine={false}
+                      width={42}
+                      tick={{ fill: "hsl(var(--muted-foreground))" }}
+                    />
+                    <Tooltip
+                      cursor={{
+                        stroke: "hsl(var(--primary) / 0.32)",
+                        strokeDasharray: "4 4",
+                      }}
+                      contentStyle={{
+                        background: "hsl(var(--card))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: "12px",
+                        color: "hsl(var(--foreground))",
+                        boxShadow: "var(--shadow-card)",
+                      }}
+                      formatter={(value, name) => [
+                        vnd(Number(value)),
+                        name === "ledger" ? "Ledger" : "Forecast",
+                      ]}
+                      labelFormatter={(label) =>
+                        `Ngày ${label}/${period.slice(5)}`
+                      }
+                      labelStyle={{
+                        color: "hsl(var(--foreground))",
+                        fontWeight: 600,
+                      }}
+                    />
+                    <Legend
+                      wrapperStyle={{
+                        color: "hsl(var(--muted-foreground))",
+                        fontSize: 12,
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="forecast"
+                      stroke={FORECAST_REMAINDER_COLOR}
+                      strokeDasharray="5 5"
+                      strokeWidth={2}
+                      fill="url(#forecastTrendFill)"
+                      dot={false}
+                      activeDot={{ r: 4 }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="ledger"
+                      stroke={MOM_CURRENT_COLOR}
+                      strokeWidth={3}
+                      fill="url(#ledgerTrendFill)"
+                      connectNulls={false}
+                      dot={false}
+                      activeDot={{
+                        r: 5,
+                        stroke: "hsl(var(--card))",
+                        strokeWidth: 2,
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="current"
+                      stroke="hsl(var(--foreground))"
+                      strokeWidth={0}
+                      dot={{
+                        r: 5,
+                        fill: "hsl(var(--foreground))",
+                        stroke: MOM_CURRENT_COLOR,
+                        strokeWidth: 3,
+                      }}
+                      legendType="none"
+                    />
                   </AreaChart>
                 </ResponsiveContainer>
               </ChartContainer>
@@ -858,41 +1424,104 @@ export default function RevenueManagementDashboard() {
       </Card>
 
       {isLoading ? (
-        <div className="flex min-h-[240px] items-center justify-center rounded-md border border-amber-200/10 bg-gradient-to-br from-stone-900/75 to-stone-950/60 ring-1 ring-stone-200/5"><Loader2 className="h-8 w-8 animate-spin text-amber-300" /></div>
+        <div className="flex min-h-[240px] items-center justify-center rounded-md border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
       ) : (
         <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList className="inline-flex gap-6 border-b border-stone-700/50 bg-transparent p-0">
-            <TabsTrigger value="overview" className="rounded-none border-b-2 border-transparent bg-transparent px-1 pb-2 text-sm text-stone-300 data-[state=active]:border-amber-300 data-[state=active]:bg-transparent data-[state=active]:text-amber-100">Tổng quan</TabsTrigger>
-            <TabsTrigger value="customers" className="rounded-none border-b-2 border-transparent bg-transparent px-1 pb-2 text-sm text-stone-300 data-[state=active]:border-amber-300 data-[state=active]:bg-transparent data-[state=active]:text-amber-100">Theo customer</TabsTrigger>
-            <TabsTrigger value="channels" className="rounded-none border-b-2 border-transparent bg-transparent px-1 pb-2 text-sm text-stone-300 data-[state=active]:border-amber-300 data-[state=active]:bg-transparent data-[state=active]:text-amber-100">Theo kênh</TabsTrigger>
+          <TabsList className="inline-flex gap-6 border-b border-border/70 bg-transparent p-0">
+            <TabsTrigger
+              value="overview"
+              className="rounded-none border-b-2 border-transparent bg-transparent px-1 pb-2 text-sm text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary"
+            >
+              Tổng quan
+            </TabsTrigger>
+            <TabsTrigger
+              value="customers"
+              className="rounded-none border-b-2 border-transparent bg-transparent px-1 pb-2 text-sm text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary"
+            >
+              Theo customer
+            </TabsTrigger>
+            <TabsTrigger
+              value="channels"
+              className="rounded-none border-b-2 border-transparent bg-transparent px-1 pb-2 text-sm text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary"
+            >
+              Theo kênh
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="grid gap-4">
-            <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/90 via-stone-950/75 to-amber-950/20 ring-1 ring-stone-200/5">
-              <CardHeader className="border-b border-amber-100/10 bg-stone-900/30">
-                <CardTitle className="text-amber-50">Doanh thu theo ngày</CardTitle>
-                <CardDescription className="text-stone-300/75">Click bảng customer/kênh để mở chi tiết source/audit.</CardDescription>
+            <Card className="overflow-hidden border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
+              <CardHeader className="border-b border-border/55 bg-muted/35">
+                <CardTitle className="text-foreground">
+                  Doanh thu theo ngày
+                </CardTitle>
+                <CardDescription className="text-muted-foreground">
+                  Click bảng customer/kênh để mở chi tiết source/audit.
+                </CardDescription>
               </CardHeader>
               <CardContent className="h-[360px] pt-6">
                 {byDay.length === 0 ? (
-                  <div className="flex h-full items-center justify-center rounded-md border border-amber-100/10 bg-stone-950/40 text-sm text-stone-300/75">
+                  <div className="flex h-full items-center justify-center rounded-md border border-border/55 bg-muted/25 text-sm text-muted-foreground">
                     Chưa có dữ liệu doanh thu cho kỳ này.
                   </div>
                 ) : (
                   <div className="h-full overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
                     <div className="h-full min-w-[720px]">
-                      <ChartContainer config={{ revenue: { label: "Doanh thu", color: "#F2C15C" } }} className="h-full">
+                      <ChartContainer
+                        config={{
+                          revenue: {
+                            label: "Doanh thu",
+                            color: MOM_PREVIOUS_COLOR,
+                          },
+                        }}
+                        className="h-full"
+                      >
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={byDay} margin={{ top: 8, right: 18, bottom: 18, left: 8 }}>
-                            <CartesianGrid stroke="rgba(245,158,11,0.14)" vertical={false} />
-                            <XAxis dataKey="date" tickLine={false} axisLine={false} fontSize={12} tick={{ fill: "rgba(245,245,244,0.74)" }} />
-                            <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`} tickLine={false} axisLine={false} width={48} tick={{ fill: "rgba(245,245,244,0.74)" }} />
-                            <ChartTooltip content={<ChartTooltipContent formatter={(value) => vnd(Number(value))} className="border-amber-300/30 bg-stone-900 text-amber-50 shadow-xl" />} />
+                          <BarChart
+                            data={byDay}
+                            margin={{ top: 8, right: 18, bottom: 18, left: 8 }}
+                          >
+                            <CartesianGrid
+                              stroke="hsl(var(--border) / 0.55)"
+                              vertical={false}
+                            />
+                            <XAxis
+                              dataKey="date"
+                              tickLine={false}
+                              axisLine={false}
+                              fontSize={12}
+                              tick={{ fill: "hsl(var(--muted-foreground))" }}
+                            />
+                            <YAxis
+                              tickFormatter={(v) =>
+                                `${Math.round(Number(v) / 1_000_000)}tr`
+                              }
+                              tickLine={false}
+                              axisLine={false}
+                              width={48}
+                              tick={{ fill: "hsl(var(--muted-foreground))" }}
+                            />
+                            <ChartTooltip
+                              content={
+                                <ChartTooltipContent
+                                  formatter={(value) => vnd(Number(value))}
+                                  className="border-primary/25 bg-card text-foreground shadow-xl"
+                                />
+                              }
+                            />
                             <Legend
-                              wrapperStyle={{ color: "rgba(245,245,244,0.74)", fontSize: 12 }}
+                              wrapperStyle={{
+                                color: "hsl(var(--muted-foreground))",
+                                fontSize: 12,
+                              }}
                               formatter={() => "Doanh thu"}
                             />
-                            <Bar dataKey="revenue" fill="var(--color-revenue)" radius={[2, 2, 0, 0]} />
+                            <Bar
+                              dataKey="revenue"
+                              fill="var(--color-revenue)"
+                              radius={[2, 2, 0, 0]}
+                            />
                           </BarChart>
                         </ResponsiveContainer>
                       </ChartContainer>
@@ -904,26 +1533,101 @@ export default function RevenueManagementDashboard() {
           </TabsContent>
 
           <TabsContent value="customers">
-            <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/90 via-stone-950/75 to-amber-950/15 ring-1 ring-stone-200/5">
-              <CardHeader className="border-b border-amber-100/10 bg-stone-900/30">
-                <CardTitle className="text-amber-50">Doanh thu theo customer / NPP</CardTitle>
-                <CardDescription className="text-stone-300/75">Click “Chi tiết” để xem source lines, PO trace và trạng thái audit. Sắp xếp theo doanh thu hiện tại từ cao xuống thấp; khách chỉ có kỳ trước sẽ nằm cuối bảng.</CardDescription>
+            <Card className="overflow-hidden border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
+              <CardHeader className="border-b border-border/55 bg-muted/35">
+                <CardTitle className="text-foreground">
+                  Doanh thu theo customer / NPP
+                </CardTitle>
+                <CardDescription className="text-muted-foreground">
+                  Click “Chi tiết” để xem source lines, PO trace và trạng thái
+                  audit. Sắp xếp theo doanh thu hiện tại từ cao xuống thấp;
+                  khách chỉ có kỳ trước sẽ nằm cuối bảng.
+                </CardDescription>
               </CardHeader>
               <CardContent className="overflow-x-auto pt-4">
                 <Table>
-                  <TableHeader><TableRow className="border-b border-stone-700/50"><TableHead className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Customer / NPP</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Qty</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Revenue</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">MoM</TableHead><TableHead className="text-[11px] uppercase tracking-[0.16em] text-stone-400">Source</TableHead><TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-stone-400">Action</TableHead></TableRow></TableHeader>
+                  <TableHeader>
+                    <TableRow className="border-b border-border/70">
+                      <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                        Customer / NPP
+                      </TableHead>
+                      <TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                        Qty
+                      </TableHead>
+                      <TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                        Revenue
+                      </TableHead>
+                      <TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                        MoM
+                      </TableHead>
+                      <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                        Source
+                      </TableHead>
+                      <TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                        Action
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
                   <TableBody>
                     {byCustomer.map((row) => (
-                      <TableRow key={row.key} className="border-b border-stone-800/60 hover:bg-amber-400/[0.08]">
-                        <TableCell className="font-medium text-stone-100">{row.name}<div className="text-xs text-stone-400/70">{row.rows} lines</div></TableCell>
-                        <TableCell className="text-right tabular-nums text-stone-100">{numberFmt(row.qty)}</TableCell>
-                        <TableCell className="text-right font-semibold tabular-nums text-amber-100">{vnd(row.revenue)}</TableCell>
-                        <TableCell className={`text-right tabular-nums ${row.delta >= 0 ? "text-emerald-100" : "text-rose-100"}`}>
-                          <div className="font-medium">{vnd(row.delta)}</div>
-                          <div className="text-xs text-stone-400">{row.pct === null ? "N/A" : `${row.pct >= 0 ? "+" : ""}${numberFmt(row.pct)}%`}</div>
+                      <TableRow
+                        key={row.key}
+                        className="border-b border-border/60 hover:bg-primary/10"
+                      >
+                        <TableCell className="font-medium text-foreground">
+                          {row.name}
+                          <div className="text-xs text-muted-foreground/80">
+                            {row.rows} lines
+                          </div>
                         </TableCell>
-                        <TableCell>{row.sourceTypes.size > 0 ? Array.from(row.sourceTypes).map((s) => <Badge key={s} className="mr-1 border border-amber-300/25 bg-amber-400/[0.07] text-amber-100" variant="secondary">{sourceTypeLabel[s] || s}</Badge>) : <Badge className="border border-stone-500/50 bg-stone-800/70 text-stone-200" variant="secondary">Kỳ trước</Badge>}</TableCell>
-                        <TableCell className="text-right"><Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100" size="sm" variant="outline" onClick={() => openSources({ customer_key: row.key })}>Chi tiết</Button></TableCell>
+                        <TableCell className="text-right tabular-nums text-foreground">
+                          {numberFmt(row.qty)}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold tabular-nums text-primary">
+                          {vnd(row.revenue)}
+                        </TableCell>
+                        <TableCell
+                          className={`text-right tabular-nums ${row.delta >= 0 ? "text-success" : "text-destructive"}`}
+                        >
+                          <div className="font-medium">{vnd(row.delta)}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {row.pct === null
+                              ? "N/A"
+                              : `${row.pct >= 0 ? "+" : ""}${numberFmt(row.pct)}%`}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {row.sourceTypes.size > 0 ? (
+                            Array.from(row.sourceTypes).map((s) => (
+                              <Badge
+                                key={s}
+                                className="mr-1 border border-primary/25 bg-primary/10 text-primary"
+                                variant="secondary"
+                              >
+                                {sourceTypeLabel[s] || s}
+                              </Badge>
+                            ))
+                          ) : (
+                            <Badge
+                              className="border border-border/70 bg-muted/70 text-foreground"
+                              variant="secondary"
+                            >
+                              Kỳ trước
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            className="border border-border/70 bg-transparent text-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              openSources({ customer_key: row.key })
+                            }
+                          >
+                            Chi tiết
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -933,11 +1637,19 @@ export default function RevenueManagementDashboard() {
           </TabsContent>
 
           <TabsContent value="channels">
-            <Card className="overflow-hidden border border-amber-100/10 bg-gradient-to-br from-stone-900/90 via-stone-950/75 to-amber-950/15 ring-1 ring-stone-200/5">
-              <CardHeader className="border-b border-amber-100/10 bg-stone-900/30"><CardTitle className="text-amber-50">Doanh thu theo kênh</CardTitle><CardDescription className="text-stone-300/75">Circle chart theo tỷ trọng revenue của từng kênh trong ledger đã kiểm soát.</CardDescription></CardHeader>
+            <Card className="overflow-hidden border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
+              <CardHeader className="border-b border-border/55 bg-muted/35">
+                <CardTitle className="text-foreground">
+                  Doanh thu theo kênh
+                </CardTitle>
+                <CardDescription className="text-muted-foreground">
+                  Circle chart theo tỷ trọng revenue của từng kênh trong ledger
+                  đã kiểm soát.
+                </CardDescription>
+              </CardHeader>
               <CardContent className="pt-4">
                 {byChannel.length === 0 ? (
-                  <div className="flex min-h-[260px] items-center justify-center rounded-md border border-amber-100/10 bg-stone-950/40 text-sm text-stone-300/75">
+                  <div className="flex min-h-[260px] items-center justify-center rounded-md border border-border/55 bg-muted/25 text-sm text-muted-foreground">
                     Chưa có dữ liệu kênh cho kỳ này.
                   </div>
                 ) : (
@@ -957,47 +1669,87 @@ export default function RevenueManagementDashboard() {
                             strokeWidth={0}
                           >
                             {byChannel.map((row, index) => (
-                              <Cell key={row.key} fill={getChannelColor(row.key, index)} />
+                              <Cell
+                                key={row.key}
+                                fill={getChannelColor(row.key, index)}
+                              />
                             ))}
                           </Pie>
                           <Tooltip
                             contentStyle={{
-                              background: "#1c1917",
-                              border: "1px solid rgba(251,191,36,0.28)",
+                              background: "hsl(var(--card))",
+                              border: "1px solid hsl(var(--border))",
                               borderRadius: "6px",
-                              boxShadow: "0 12px 30px rgba(0,0,0,0.35)",
-                              color: "#fef3c7",
+                              boxShadow: "var(--shadow-card)",
+                              color: "hsl(var(--foreground))",
                               fontSize: "12px",
                             }}
-                            formatter={(value) => [vnd(Number(value)), "Revenue"]}
-                            itemStyle={{ color: "#fef3c7", fontWeight: 600 }}
-                            labelStyle={{ color: "#fef3c7", fontWeight: 600 }}
+                            formatter={(value) => [
+                              vnd(Number(value)),
+                              "Revenue",
+                            ]}
+                            itemStyle={{
+                              color: "hsl(var(--foreground))",
+                              fontWeight: 600,
+                            }}
+                            labelStyle={{
+                              color: "hsl(var(--foreground))",
+                              fontWeight: 600,
+                            }}
                           />
                         </PieChart>
                       </ResponsiveContainer>
                     </div>
 
-                    <div className="min-w-0 flex-1 divide-y divide-stone-800/60">
+                    <div className="min-w-0 flex-1 divide-y divide-border/60">
                       {byChannel.map((row, index) => {
-                        const pct = stats.total > 0 ? ((row.revenue / stats.total) * 100).toFixed(1) : "0.0";
+                        const pct =
+                          stats.total > 0
+                            ? ((row.revenue / stats.total) * 100).toFixed(1)
+                            : "0.0";
                         const color = getChannelColor(row.key, index);
 
                         return (
-                          <div key={row.key} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center">
+                          <div
+                            key={row.key}
+                            className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center"
+                          >
                             <div className="flex min-w-0 flex-1 items-center gap-3">
-                              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
+                              <span
+                                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                style={{ background: color }}
+                              />
                               <div className="min-w-0 flex-1">
-                                <div className="truncate text-sm font-medium text-stone-100">{row.label}</div>
-                                <div className="truncate text-xs text-stone-400/70">{row.key}</div>
-                                <div className="text-xs text-stone-400/70">{row.rows} rows · {numberFmt(row.qty)} qty</div>
+                                <div className="truncate text-sm font-medium text-foreground">
+                                  {row.label}
+                                </div>
+                                <div className="truncate text-xs text-muted-foreground/80">
+                                  {row.key}
+                                </div>
+                                <div className="text-xs text-muted-foreground/80">
+                                  {row.rows} rows · {numberFmt(row.qty)} qty
+                                </div>
                               </div>
                             </div>
                             <div className="flex shrink-0 items-center justify-between gap-3 sm:justify-end">
                               <div className="text-right">
-                                <div className="text-sm font-semibold tabular-nums text-amber-100">{vnd(row.revenue)}</div>
-                                <div className="text-xs text-stone-400">{pct}%</div>
+                                <div className="text-sm font-semibold tabular-nums text-primary">
+                                  {vnd(row.revenue)}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {pct}%
+                                </div>
                               </div>
-                              <Button className="border border-stone-600/60 bg-transparent text-stone-200 hover:border-amber-300/40 hover:bg-amber-400/[0.07] hover:text-amber-100" size="sm" variant="outline" onClick={() => openSources({ channel: row.key })}>Chi tiết</Button>
+                              <Button
+                                className="border border-border/70 bg-transparent text-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                                size="sm"
+                                variant="outline"
+                                onClick={() =>
+                                  openSources({ channel: row.key })
+                                }
+                              >
+                                Chi tiết
+                              </Button>
                             </div>
                           </div>
                         );
