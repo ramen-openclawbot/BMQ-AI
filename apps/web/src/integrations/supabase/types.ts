@@ -548,43 +548,61 @@ export type Database = {
       }
       goods_receipt_items: {
         Row: {
+          actual_quantity: number | null
           created_at: string
           expiry_date: string | null
           goods_receipt_id: string
           id: string
           inventory_item_id: string | null
+          line_status: string | null
           manufacture_date: string | null
           notes: string | null
+          ordered_quantity: number | null
           product_name: string
+          purchase_order_item_id: string | null
           quantity: number
           sku_id: string | null
           unit: string | null
+          unit_price: number | null
+          variance_reason: string | null
         }
         Insert: {
+          actual_quantity?: number | null
           created_at?: string
           expiry_date?: string | null
           goods_receipt_id: string
           id?: string
           inventory_item_id?: string | null
+          line_status?: string | null
           manufacture_date?: string | null
           notes?: string | null
+          ordered_quantity?: number | null
           product_name: string
+          purchase_order_item_id?: string | null
           quantity?: number
           sku_id?: string | null
           unit?: string | null
+          unit_price?: number | null
+          variance_reason?: string | null
         }
         Update: {
+          actual_quantity?: number | null
           created_at?: string
           expiry_date?: string | null
           goods_receipt_id?: string
           id?: string
           inventory_item_id?: string | null
+          line_status?: string | null
           manufacture_date?: string | null
           notes?: string | null
+          ordered_quantity?: number | null
           product_name?: string
+          purchase_order_item_id?: string | null
           quantity?: number
           sku_id?: string | null
           unit?: string | null
+          unit_price?: number | null
+          variance_reason?: string | null
         }
         Relationships: [
           {
@@ -602,6 +620,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "goods_receipt_items_purchase_order_item_id_fkey"
+            columns: ["purchase_order_item_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_order_items"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "goods_receipt_items_sku_id_fkey"
             columns: ["sku_id"]
             isOneToOne: false
@@ -614,9 +639,12 @@ export type Database = {
         Row: {
           created_at: string
           created_by: string | null
+          finalized_at: string | null
+          finalized_by: string | null
           id: string
           image_url: string | null
           notes: string | null
+          payable_status: string
           payment_request_id: string | null
           product_photos: string[] | null
           purchase_order_id: string | null
@@ -626,13 +654,17 @@ export type Database = {
           supplier_id: string | null
           total_quantity: number | null
           updated_at: string
+          variance_summary: Json
         }
         Insert: {
           created_at?: string
           created_by?: string | null
+          finalized_at?: string | null
+          finalized_by?: string | null
           id?: string
           image_url?: string | null
           notes?: string | null
+          payable_status?: string
           payment_request_id?: string | null
           product_photos?: string[] | null
           purchase_order_id?: string | null
@@ -642,13 +674,17 @@ export type Database = {
           supplier_id?: string | null
           total_quantity?: number | null
           updated_at?: string
+          variance_summary?: Json
         }
         Update: {
           created_at?: string
           created_by?: string | null
+          finalized_at?: string | null
+          finalized_by?: string | null
           id?: string
           image_url?: string | null
           notes?: string | null
+          payable_status?: string
           payment_request_id?: string | null
           product_photos?: string[] | null
           purchase_order_id?: string | null
@@ -658,6 +694,7 @@ export type Database = {
           supplier_id?: string | null
           total_quantity?: number | null
           updated_at?: string
+          variance_summary?: Json
         }
         Relationships: [
           {
@@ -1752,6 +1789,10 @@ export type Database = {
       }
     }
     Functions: {
+      ensure_purchase_order_receipt_queue: {
+        Args: { p_purchase_order_id: string }
+        Returns: string
+      }
       generate_po_number: { Args: never; Returns: string }
       generate_receipt_number: { Args: never; Returns: string }
       generate_sku_code: {

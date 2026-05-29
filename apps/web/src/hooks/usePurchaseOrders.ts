@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables, TablesInsert } from "@/integrations/supabase/types";
 import { resolveImageUrl } from "@/lib/storage-url";
+import { ensureReceiptForPurchaseOrder } from "./usePurchaseReceiptQueue";
 
 // Helper function to get signed URL for PO images
 export async function getPurchaseOrderImageUrl(path: string): Promise<string | null> {
@@ -133,11 +134,17 @@ export function useUpdatePurchaseOrder() {
         .select()
         .single();
       if (error) throw error;
+
+      if (updates.status === "sent" || updates.status === "in_transit") {
+        await ensureReceiptForPurchaseOrder(id);
+      }
+
       return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
       queryClient.invalidateQueries({ queryKey: ["purchase-order"] });
+      queryClient.invalidateQueries({ queryKey: ["goods-receipts"] });
     },
   });
 }
@@ -195,10 +202,13 @@ export function useSendPurchaseOrder() {
         .update({ status: "sent" })
         .eq("id", id);
       if (error) throw error;
+
+      await ensureReceiptForPurchaseOrder(id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
       queryClient.invalidateQueries({ queryKey: ["purchase-order"] });
+      queryClient.invalidateQueries({ queryKey: ["goods-receipts"] });
     },
   });
 }
