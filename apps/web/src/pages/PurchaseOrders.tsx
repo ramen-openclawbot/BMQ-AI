@@ -50,6 +50,14 @@ import { toast } from "sonner";
 
 type StatusFilter = "all" | "draft" | "sent" | "in_transit" | "completed" | "cancelled";
 
+const normalizeSearchText = (value: string | null | undefined) =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .trim();
+
 export default function PurchaseOrders() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -125,14 +133,12 @@ export default function PurchaseOrders() {
   const filteredOrders = useMemo(() => {
     if (!orders) return [];
     return orders.filter((order) => {
-      const normalizedSearch = searchTerm.toLowerCase();
+      const normalizedSearch = normalizeSearchText(searchTerm);
       const productNames = (order.purchase_order_items || [])
         .map((item) => item.product_name || "")
-        .join(" ")
-        .toLowerCase();
-      const matchesSearch = order.po_number.toLowerCase().includes(normalizedSearch) ||
-        order.suppliers?.name?.toLowerCase().includes(normalizedSearch) ||
-        productNames.includes(normalizedSearch);
+        .join(" ");
+      const searchableText = normalizeSearchText(`${order.po_number} ${order.suppliers?.name || ""} ${productNames}`);
+      const matchesSearch = searchableText.includes(normalizedSearch);
       const matchesStatus = statusFilter === "all" || order.status === statusFilter;
       return matchesSearch && matchesStatus;
     });

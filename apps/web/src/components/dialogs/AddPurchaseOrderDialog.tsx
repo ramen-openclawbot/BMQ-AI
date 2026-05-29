@@ -441,7 +441,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        {children || <Button><Plus className="h-4 w-4 mr-2" />Tạo đơn đặt hàng</Button>}
+        {children || <Button><Plus className="h-4 w-4 mr-2" />Tạo PO (Mua hàng)</Button>}
       </DialogTrigger>
       <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>

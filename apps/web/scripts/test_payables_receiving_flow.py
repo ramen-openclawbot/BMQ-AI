@@ -15,6 +15,7 @@ PAYMENT_REQUESTS_HOOK = ROOT / "src/hooks/usePaymentRequests.ts"
 PAYMENT_REQUESTS_PAGE = ROOT / "src/pages/PaymentRequests.tsx"
 PAYABLES_MANAGEMENT_PAGE = ROOT / "src/pages/PayablesManagement.tsx"
 PURCHASE_ORDERS_PAGE = ROOT / "src/pages/PurchaseOrders.tsx"
+ADD_PURCHASE_ORDER_DIALOG = ROOT / "src/components/dialogs/AddPurchaseOrderDialog.tsx"
 PAYMENT_REQUEST_DETAILS = ROOT / "src/components/dialogs/PaymentRequestDetailsDialog.tsx"
 SIDEBAR = ROOT / "src/components/layout/Sidebar.tsx"
 APP_ROUTES = ROOT / "src/components/AppRoutes.tsx"
@@ -296,6 +297,7 @@ def test_payables_management_is_accessible_from_cost_sidebar_with_filtered_route
 def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_eye_icon():
     hook = read(PO_HOOK)
     page = read(PURCHASE_ORDERS_PAGE)
+    add_dialog = read(ADD_PURCHASE_ORDER_DIALOG)
 
     assert "purchase_order_items(id, product_name)" in hook
     assert "purchase_order_items?: Array<Pick<Tables<\"purchase_order_items\">, \"id\" | \"product_name\">> | null;" in hook
@@ -305,6 +307,12 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert "const { language, t } = useLanguage();" in page
     assert "{t.poPurchasing}" in page
     assert "{isVi ? \"Đơn đặt hàng\" : \"Purchase Orders\"}" not in page
+    assert "const normalizeSearchText" in page
+    assert '.normalize("NFD")' in page
+    assert '.replace(/[\\u0300-\\u036f]/g, "")' in page
+    assert '.replace(/đ/g, "d")' in page
+    assert 'const normalizedSearch = normalizeSearchText(searchTerm);' in page
+    assert 'const searchableText = normalizeSearchText(`${order.po_number} ${order.suppliers?.name || ""} ${productNames}`);' in page
     assert "{isVi ? \"Sản phẩm\" : \"Products\"}" in page
     assert "getOrderProductNames" in page
     assert "order.purchase_order_items" in page
@@ -313,6 +321,8 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert "onKeyDown={(event) => handleOrderRowKeyDown(event, order.id)}" in page
     assert "event.stopPropagation()" in page
     assert "aria-label={isVi ? \"Xóa PO\" : \"Delete PO\"}" in page
+    assert "Tạo PO (Mua hàng)" in add_dialog
+    assert "Tạo đơn đặt hàng</Button>" not in add_dialog
 
 
 if __name__ == "__main__":
