@@ -11,6 +11,8 @@ import {
   Truck,
   CreditCard,
   Pencil,
+  ArrowLeft,
+  MoreVertical,
 } from "lucide-react";
 import { ImagePreviewDialog } from "./ImagePreviewDialog";
 import { Button } from "@/components/ui/button";
@@ -187,8 +189,8 @@ export function PurchaseOrderDetailsDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto p-0 md:p-6 data-[state=open]:md:rounded-lg max-md:h-[100dvh] max-md:max-h-[100dvh] max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0 max-md:bg-[#1d1813]">
+          <DialogHeader className="px-4 pt-4 md:px-0 md:pt-0 max-md:hidden">
             <DialogTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
               Chi tiết Đơn Đặt Hàng
@@ -211,6 +213,129 @@ export function PurchaseOrderDetailsDialog({
             </div>
           ) : order ? (
             <div className="space-y-6">
+              <div className="space-y-4 pb-24 md:hidden" data-stitch-mobile-po-approve-detail>
+                <header className="sticky top-0 z-40 -mx-0 flex h-14 items-center border-b border-[#443b30] bg-[#17130e] px-4">
+                  <button type="button" className="-ml-2 rounded-full p-2 text-[#ffb77d]" onClick={() => onOpenChange(false)} aria-label="Quay lại">
+                    <ArrowLeft className="h-5 w-5" />
+                  </button>
+                  <div className="ml-2 flex-1">
+                    <div className="mb-0.5 text-xs text-[#a99b8c]">PO (Mua hàng)</div>
+                    <h1 className="text-lg font-bold leading-none text-[#f3ece4]">Duyệt PO</h1>
+                  </div>
+                  <button type="button" className="-mr-2 rounded-full p-2 text-[#ffb77d]" aria-label="Thao tác khác">
+                    <MoreVertical className="h-5 w-5" />
+                  </button>
+                </header>
+
+                <main className="space-y-4 px-4">
+                  <div className="flex justify-end">
+                    <span className="rounded-full border border-[#d97706]/30 bg-[#d97706]/20 px-2.5 py-0.5 text-xs font-medium text-[#d97706]">
+                      {order.status === "draft" ? "Chờ duyệt" : getStatusBadge(order.status)}
+                    </span>
+                  </div>
+
+                  <section className="rounded-xl border border-[#443b30] bg-[#241f18] p-4 shadow-sm">
+                    <div className="mb-4 flex items-start justify-between">
+                      <div>
+                        <h2 className="text-base font-semibold text-[#f3ece4]">{order.po_number}</h2>
+                        <p className="mt-1 text-sm text-[#a99b8c]">{order.suppliers?.name || "N/A"}</p>
+                      </div>
+                    </div>
+                    <div className="mb-4 grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="mb-1 text-xs text-[#a99b8c]">Tổng tiền</p>
+                        <p className="text-lg font-bold text-[#d97706]">{formatCurrency(order.total_amount || 0)}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="mb-1 text-xs text-[#a99b8c]">Ngày đặt</p>
+                        <p className="text-sm font-medium text-[#f3ece4]">{format(new Date(order.order_date), "dd/MM/yyyy", { locale })}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between border-t border-[#443b30] pt-3 text-sm">
+                      <span className="text-[#a99b8c]">Người tạo</span>
+                      <span className="flex items-center gap-2 font-medium text-[#f3ece4]"><FileText className="h-4 w-4" />BMQ-AI</span>
+                    </div>
+                  </section>
+
+                  <section className="overflow-hidden rounded-xl border border-[#443b30] bg-[#241f18] shadow-sm">
+                    <div className="border-b border-[#443b30] bg-[#2b241c] px-4 py-3">
+                      <h3 className="text-sm font-semibold text-[#f3ece4]">Chi tiết sản phẩm ({items?.length || 0})</h3>
+                    </div>
+                    <div className="divide-y divide-[#443b30]">
+                      {items && items.length > 0 ? items.map((item) => (
+                        <div key={item.id} className="p-4 transition-colors hover:bg-[#342b22]">
+                          <div className="mb-1 flex items-start justify-between gap-3">
+                            <h4 className="font-medium text-[#f3ece4]">{item.product_name}</h4>
+                            <span className="whitespace-nowrap font-medium text-[#f3ece4]">{formatCurrency(item.line_total || 0)}</span>
+                          </div>
+                          <p className="text-sm text-[#a99b8c]">{item.quantity} {item.unit} × {formatCurrency(item.unit_price || 0)}</p>
+                        </div>
+                      )) : (
+                        <p className="py-4 text-center text-sm text-[#a99b8c]">Không có sản phẩm</p>
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="space-y-4 rounded-xl border border-[#443b30] bg-[#241f18] p-4 shadow-sm">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-2 text-[#a99b8c]"><Clock className="h-4 w-4" />Giao dự kiến</span>
+                      <span className="font-medium text-[#f3ece4]">{order.expected_date ? format(new Date(order.expected_date), "dd/MM/yyyy", { locale }) : "Chưa xác định"}</span>
+                    </div>
+                    <div className="flex items-center justify-between border-t border-[#443b30] pt-4 text-sm">
+                      <span className="flex items-center gap-2 text-[#a99b8c]"><Package className="h-4 w-4" />Trạng thái</span>
+                      <span className="font-medium text-[#f3ece4]">{getStatusBadge(order.status)}</span>
+                    </div>
+                    {order.notes && (
+                      <div className="border-t border-[#443b30] pt-4">
+                        <span className="mb-2 block text-sm text-[#a99b8c]">Ghi chú PO</span>
+                        <p className="rounded-lg border border-[#443b30] bg-[#1d1813] p-3 text-sm text-[#f3ece4]">{order.notes}</p>
+                      </div>
+                    )}
+                  </section>
+
+                  {order.status === "draft" && (
+                    <section className="rounded-xl border border-[#443b30] bg-[#241f18] p-4 shadow-sm">
+                      <h3 className="mb-4 text-sm font-semibold text-[#f3ece4]">Checklist duyệt</h3>
+                      <div className="space-y-3">
+                        {["Đã kiểm tra NCC", "Đã kiểm tra giá", "Đã kiểm tra số lượng"].map((label) => (
+                          <label key={label} className="flex items-center gap-3 text-sm font-medium text-[#f3ece4]">
+                            <input type="checkbox" className="h-5 w-5 rounded border-[#443b30] bg-[#1d1813] text-[#d97706] focus:ring-[#d97706]/50" />
+                            {label}
+                          </label>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </main>
+
+                <nav className="fixed bottom-0 left-0 z-50 flex h-[72px] w-full gap-4 rounded-t-xl border-t border-[#443b30] bg-[#241f18] p-4 shadow-lg">
+                  {order.status === "draft" ? (
+                    <>
+                      <Button type="button" variant="outline" className="h-full flex-1 border-[#DC2626] text-[#DC2626] hover:bg-[#DC2626]/10" onClick={() => setShowCancelConfirm(true)}>
+                        <XCircle className="mr-2 h-4 w-4" />Từ chối
+                      </Button>
+                      <Button type="button" className="h-full flex-1 bg-[#D97706] font-semibold text-white hover:bg-[#b45309]" onClick={() => setShowSendConfirm(true)}>
+                        <CheckCircle className="mr-2 h-4 w-4" />Duyệt PO
+                      </Button>
+                    </>
+                  ) : order.status === "sent" ? (
+                    <>
+                      <Button type="button" variant="outline" className="h-full flex-1 border-[#DC2626] text-[#DC2626] hover:bg-[#DC2626]/10" onClick={() => setShowCancelConfirm(true)}>
+                        <XCircle className="mr-2 h-4 w-4" />Hủy
+                      </Button>
+                      <Button type="button" className="h-full flex-1 bg-[#D97706] font-semibold text-white hover:bg-[#b45309]" onClick={() => setShowReceiveDialog(true)}>
+                        <CheckCircle className="mr-2 h-4 w-4" />Đã nhận
+                      </Button>
+                    </>
+                  ) : (
+                    <Button type="button" className="h-full flex-1 bg-[#D97706] font-semibold text-white hover:bg-[#b45309]" onClick={() => setShowCreatePaymentRequest(true)}>
+                      <CreditCard className="mr-2 h-4 w-4" />Tạo đề nghị thanh toán
+                    </Button>
+                  )}
+                </nav>
+              </div>
+
+              <div className="hidden space-y-6 md:block">
               {/* Order Info */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg">
                 <div>
@@ -401,6 +526,7 @@ export function PurchaseOrderDetailsDialog({
                     Tạo đề nghị thanh toán
                   </Button>
                 )}
+              </div>
               </div>
             </div>
           ) : (

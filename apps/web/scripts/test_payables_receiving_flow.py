@@ -17,6 +17,7 @@ PAYABLES_MANAGEMENT_PAGE = ROOT / "src/pages/PayablesManagement.tsx"
 PURCHASE_ORDERS_PAGE = ROOT / "src/pages/PurchaseOrders.tsx"
 ADD_PURCHASE_ORDER_DIALOG = ROOT / "src/components/dialogs/AddPurchaseOrderDialog.tsx"
 PAYMENT_REQUEST_DETAILS = ROOT / "src/components/dialogs/PaymentRequestDetailsDialog.tsx"
+PURCHASE_ORDER_DETAILS = ROOT / "src/components/dialogs/PurchaseOrderDetailsDialog.tsx"
 SIDEBAR = ROOT / "src/components/layout/Sidebar.tsx"
 APP_ROUTES = ROOT / "src/components/AppRoutes.tsx"
 LANGUAGE_CONTEXT = ROOT / "src/contexts/LanguageContext.tsx"
@@ -298,6 +299,7 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     hook = read(PO_HOOK)
     page = read(PURCHASE_ORDERS_PAGE)
     add_dialog = read(ADD_PURCHASE_ORDER_DIALOG)
+    detail_dialog = read(PURCHASE_ORDER_DETAILS)
 
     assert "purchase_order_items(id, product_name)" in hook
     assert "purchase_order_items?: Array<Pick<Tables<\"purchase_order_items\">, \"id\" | \"product_name\">> | null;" in hook
@@ -346,8 +348,22 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert "setCurrentPage(1);" in page
     assert "Cần xử lý" in page
     assert "statusFilter === \"in_transit\"" in page
+    assert "data-stitch-mobile-po-main" in page
+    assert "data-stitch-mobile-po-card" in page
+    assert "Quản lý đề xuất mua hàng cần duyệt" in page
+    assert "Hỗ trợ tìm không dấu" in page
+    assert "Chờ nhận hàng" in page
+    assert "fixed bottom-24 right-4" in page
+    assert "Đơn hàng" in page and "Kho hàng" in page and "Cá nhân" in page
     assert "Tạo PO (Mua hàng)" in add_dialog
     assert "Tạo đơn đặt hàng</Button>" not in add_dialog
+    assert "data-stitch-mobile-po-approve-detail" in detail_dialog
+    assert "Duyệt PO" in detail_dialog
+    assert "Chi tiết sản phẩm" in detail_dialog
+    assert "Checklist duyệt" in detail_dialog
+    assert "Đã kiểm tra NCC" in detail_dialog
+    assert "Từ chối" in detail_dialog
+    assert "bg-[#D97706]" in detail_dialog
 
 
 if __name__ == "__main__":

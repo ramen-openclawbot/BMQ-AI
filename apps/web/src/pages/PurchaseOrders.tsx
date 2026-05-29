@@ -11,6 +11,13 @@ import {
   Clock,
   CheckCircle,
   XCircle,
+  Bell,
+  Plus,
+  Home,
+  Warehouse,
+  User,
+  Mic,
+  SlidersHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -98,6 +105,23 @@ export default function PurchaseOrders() {
     const parsedDate = new Date(date);
     if (Number.isNaN(parsedDate.getTime())) return "—";
     return format(parsedDate, "dd/MM/yyyy", { locale });
+  };
+
+  const getStatusMeta = (status: string) => {
+    switch (status) {
+      case "draft":
+        return { label: isVi ? "Chờ duyệt" : "Pending approval", accent: "#F59E0B", icon: Clock };
+      case "sent":
+        return { label: isVi ? "Đã duyệt" : "Approved", accent: "#0F766E", icon: Send };
+      case "in_transit":
+        return { label: isVi ? "Chờ nhận hàng" : "Awaiting receipt", accent: "#80d5cb", icon: Package };
+      case "completed":
+        return { label: isVi ? "Hoàn thành" : "Completed", accent: "#16A34A", icon: CheckCircle };
+      case "cancelled":
+        return { label: isVi ? "Đã hủy" : "Cancelled", accent: "#DC2626", icon: XCircle };
+      default:
+        return { label: status, accent: "#A99B8C", icon: FileText };
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -195,7 +219,150 @@ export default function PurchaseOrders() {
   };
 
   return (
-    <div className="bg-slate-50 dark:bg-[#1d1813] -m-4 space-y-4 p-4 text-slate-950 dark:text-[#f3ece4] md:-m-6 md:p-6">
+    <div className="bg-slate-50 dark:bg-[#1d1813] -m-4 min-h-screen text-slate-950 dark:text-[#f3ece4] md:-m-6">
+      <section className="min-h-screen pb-24 md:hidden" data-stitch-mobile-po-main>
+        <header className="sticky top-0 z-40 flex items-center justify-between border-b border-[#443b30] bg-[#241f18] px-4 py-3 shadow-sm">
+          <button type="button" aria-label="Menu" className="-ml-2 rounded-full p-2 text-[#ffb77d] transition hover:bg-[#2f2923]">
+            <FileText className="h-5 w-5" />
+          </button>
+          <div className="text-center">
+            <h1 className="text-xl font-bold text-[#ffb77d]">PO (Mua hàng)</h1>
+            <p className="text-[10px] text-[#dbc2b0]">Quản lý đề xuất mua hàng cần duyệt</p>
+          </div>
+          <button type="button" aria-label="Notifications" className="relative -mr-2 rounded-full p-2 text-[#ffb77d] transition hover:bg-[#2f2923]">
+            <Bell className="h-5 w-5" />
+            {stats.draft > 0 && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[#ffb4ab]" />}
+          </button>
+        </header>
+
+        <div className="sticky top-[57px] z-30 border-b border-[#443b30] bg-[#1d1813]/95 px-4 pb-3 pt-4 backdrop-blur-sm">
+          <div className="relative mb-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#dbc2b0]" />
+            <Input
+              placeholder={isVi ? "Tìm PO, nhà cung cấp, sản phẩm..." : "Search PO, supplier, product..."}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="h-11 rounded-xl border-[#443b30] bg-[#241f18] pl-10 pr-10 text-sm text-[#f3ece4] placeholder:text-[#a99b8c]/70 focus:border-[#ffb77d] focus:ring-[#ffb77d]"
+            />
+            <Mic className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#dbc2b0]" />
+          </div>
+          <p className="mb-3 px-1 text-right text-[10px] italic text-[#a99b8c]">Hỗ trợ tìm không dấu</p>
+          <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {([
+              ["all", isVi ? "Tất cả" : "All"],
+              ["draft", isVi ? "Chờ duyệt" : "Pending"],
+              ["sent", isVi ? "Đã duyệt" : "Approved"],
+              ["in_transit", isVi ? "Chờ nhận hàng" : "Awaiting"],
+              ["cancelled", isVi ? "Đã huỷ" : "Cancelled"],
+            ] as Array<[StatusFilter, string]>).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={`whitespace-nowrap rounded-full px-4 py-1.5 text-xs font-medium transition ${statusFilter === value ? "bg-[#d97707] text-[#432100]" : "border border-[#443b30] bg-[#241f18] text-[#dbc2b0]"}`}
+                onClick={() => setStatusFilter(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <main className="px-4 py-4">
+          <div className="mb-6 grid grid-cols-2 gap-3">
+            {[
+              { label: isVi ? "Chờ duyệt" : "Pending", value: stats.draft, icon: Clock, color: "#F59E0B", filter: "draft" as StatusFilter },
+              { label: isVi ? "Tổng giá trị" : "Total value", value: formatCurrency(stats.totalValue), icon: FileText, color: "#ffb77d", filter: "all" as StatusFilter },
+              { label: isVi ? "Đã duyệt" : "Approved", value: stats.sent, icon: CheckCircle, color: "#0F766E", filter: "sent" as StatusFilter },
+              { label: isVi ? "Cần nhận hàng" : "Need receipt", value: stats.inTransit, icon: Package, color: "#80d5cb", filter: "in_transit" as StatusFilter },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.label}
+                  type="button"
+                  className={`flex h-[88px] flex-col justify-between rounded-xl border p-3 text-left transition ${statusFilter === item.filter ? "border-[#d97707] bg-[#2f2923]" : "border-[#443b30] bg-[#241f18]"}`}
+                  onClick={() => setStatusFilter(item.filter)}
+                >
+                  <div className="flex items-start justify-between">
+                    <span className="text-xs font-medium text-[#dbc2b0]">{item.label}</span>
+                    <Icon className="h-4 w-4" style={{ color: item.color }} />
+                  </div>
+                  <span className="truncate text-2xl font-bold text-[#f3ece4]">{item.value}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mb-3 flex items-end justify-between">
+            <h2 className="text-sm font-semibold text-[#f3ece4]">Danh sách PO</h2>
+            <span className="flex items-center gap-1 text-xs font-medium text-[#ffb77d]"><SlidersHorizontal className="h-3.5 w-3.5" />Lọc thêm</span>
+          </div>
+
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-[#ffb77d]" /></div>
+          ) : error ? (
+            <div className="py-12 text-center text-[#ffb4ab]">{isVi ? "Lỗi tải dữ liệu" : "Failed to load data"}</div>
+          ) : filteredOrders.length === 0 ? (
+            <div className="rounded-xl border border-[#443b30] bg-[#241f18] py-12 text-center text-[#a99b8c]"><Package className="mx-auto mb-4 h-12 w-12 opacity-50" /><p>{isVi ? "Chưa có đơn đặt hàng nào" : "No purchase orders yet"}</p></div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {paginatedOrders.map((order) => {
+                const meta = getStatusMeta(order.status);
+                return (
+                  <button
+                    key={order.id}
+                    type="button"
+                    className={`relative overflow-hidden rounded-xl border border-[#443b30] bg-[#241f18] p-3 text-left shadow-sm transition active:scale-[0.99] ${order.status === "cancelled" ? "opacity-70" : ""}`}
+                    onClick={() => setSelectedOrderId(order.id)}
+                    data-stitch-mobile-po-card
+                  >
+                    <span className="absolute bottom-0 left-0 top-0 w-1" style={{ backgroundColor: meta.accent }} />
+                    <div className="pl-2">
+                      <div className="mb-1.5 flex items-center justify-between gap-3">
+                        <span className={`text-sm font-semibold ${order.status === "cancelled" ? "text-[#a99b8c] line-through" : "text-[#f3ece4]"}`}>{order.po_number}</span>
+                        <span className="rounded border px-2 py-0.5 text-[10px] font-medium" style={{ borderColor: `${meta.accent}33`, color: meta.accent, backgroundColor: `${meta.accent}1A` }}>{meta.label}</span>
+                      </div>
+                      <div className="mb-1 truncate text-xs font-medium text-[#dbc2b0]">{order.suppliers?.name || (order.supplier_id ? supplierMap.get(order.supplier_id) : undefined) || "N/A"}</div>
+                      <div className="mb-2 truncate text-[11px] text-[#a99b8c]">{getOrderProductNames(order)}</div>
+                      <div className="flex items-end justify-between border-t border-[#443b30]/70 pt-2">
+                        <span className="text-[10px] text-[#a99b8c]">{format(new Date(order.order_date), "dd/MM/yyyy", { locale })}</span>
+                        <span className={`text-sm font-bold ${order.status === "cancelled" ? "text-[#a99b8c] line-through" : "text-[#ffb77d]"}`}>{formatCurrency(order.total_amount || 0)}</span>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {!isLoading && !error && filteredOrders.length > 0 && (
+            <div className="mt-4 flex items-center justify-between rounded-xl border border-[#443b30] bg-[#241f18] px-3 py-2 text-xs text-[#a99b8c]">
+              <span>{pageStartIndex + 1}-{Math.min(pageStartIndex + paginatedOrders.length, filteredOrders.length)} / {filteredOrders.length}</span>
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" size="sm" className="h-8 border-[#443b30] bg-[#1d1813] text-xs" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPageSafe <= 1}>{isVi ? "Trước" : "Prev"}</Button>
+                <span>{currentPageSafe}/{totalPages}</span>
+                <Button type="button" variant="outline" size="sm" className="h-8 border-[#443b30] bg-[#1d1813] text-xs" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPageSafe >= totalPages}>{isVi ? "Sau" : "Next"}</Button>
+              </div>
+            </div>
+          )}
+        </main>
+
+        <div className="fixed bottom-24 right-4 z-40">
+          <AddPurchaseOrderDialog>
+            <Button className="rounded-2xl bg-[#d97707] px-4 py-6 text-sm font-semibold text-[#432100] shadow-lg hover:bg-[#ffb77d]">
+              <Plus className="mr-2 h-4 w-4" />Tạo PO
+            </Button>
+          </AddPurchaseOrderDialog>
+        </div>
+        <nav className="fixed bottom-0 z-50 flex w-full items-center justify-around border-t border-[#443b30] bg-[#201b16] px-2 py-3 shadow-lg">
+          <button type="button" className="flex flex-col items-center justify-center rounded-xl bg-[#d97707] px-4 py-1 text-[#432100]"><FileText className="h-5 w-5" /><span className="mt-1 text-xs">Đơn hàng</span></button>
+          <button type="button" className="flex flex-col items-center justify-center text-[#dbc2b0]"><Home className="h-5 w-5" /><span className="mt-1 text-xs">Trang chủ</span></button>
+          <button type="button" className="flex flex-col items-center justify-center text-[#dbc2b0]"><Warehouse className="h-5 w-5" /><span className="mt-1 text-xs">Kho hàng</span></button>
+          <button type="button" className="flex flex-col items-center justify-center text-[#dbc2b0]"><User className="h-5 w-5" /><span className="mt-1 text-xs">Cá nhân</span></button>
+        </nav>
+      </section>
+
+      <div className="hidden space-y-4 p-4 md:block md:p-6">
       <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-[#443b30] dark:bg-[#241f18]/90 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
           <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-[#f3ece4]">
@@ -379,6 +546,7 @@ export default function PurchaseOrders() {
             </div>
           </CardContent>
         </Card>
+      </div>
       </div>
 
       <PurchaseOrderDetailsDialog orderId={selectedOrderId} open={!!selectedOrderId} onOpenChange={(open) => !open && setSelectedOrderId(null)} />
