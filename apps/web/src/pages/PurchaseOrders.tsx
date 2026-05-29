@@ -1,4 +1,4 @@
-import { useState, useMemo, type KeyboardEvent } from "react";
+import { useEffect, useState, useMemo, type KeyboardEvent } from "react";
 import { format } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
 import {
@@ -50,6 +50,8 @@ import { toast } from "sonner";
 
 type StatusFilter = "all" | "draft" | "sent" | "in_transit" | "completed" | "cancelled";
 
+const PAGE_SIZE = 20;
+
 const normalizeSearchText = (value: string | null | undefined) =>
   String(value || "")
     .toLowerCase()
@@ -61,6 +63,7 @@ const normalizeSearchText = (value: string | null | undefined) =>
 export default function PurchaseOrders() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [currentPage, setCurrentPage] = useState(1);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [deleteOrderId, setDeleteOrderId] = useState<string | null>(null);
 
@@ -151,6 +154,21 @@ export default function PurchaseOrders() {
       return matchesSearch && matchesStatus;
     });
   }, [orders, searchTerm, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
+  const currentPageSafe = Math.min(currentPage, totalPages);
+  const pageStartIndex = (currentPageSafe - 1) * PAGE_SIZE;
+  const paginatedOrders = filteredOrders.slice(pageStartIndex, pageStartIndex + PAGE_SIZE);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const actionOrders = useMemo(() => {
     return (orders || [])
@@ -255,7 +273,7 @@ export default function PurchaseOrders() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredOrders.map((order) => (
+                    {paginatedOrders.map((order) => (
                       <TableRow
                         key={order.id}
                         role="button"
@@ -293,6 +311,24 @@ export default function PurchaseOrders() {
                     ))}
                   </TableBody>
                 </Table>
+              )}
+              {!isLoading && !error && filteredOrders.length > 0 && (
+                <div className="flex flex-col gap-2 border-t border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+                  <span>
+                    {isVi ? "Hiển thị" : "Showing"} {pageStartIndex + 1}-{Math.min(pageStartIndex + paginatedOrders.length, filteredOrders.length)} / {filteredOrders.length} · {PAGE_SIZE} {isVi ? "dòng/trang" : "rows/page"}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button type="button" variant="outline" size="sm" className="h-8 border-slate-200 bg-white text-xs dark:border-slate-700 dark:bg-slate-950" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPageSafe <= 1}>
+                      {isVi ? "Trang trước" : "Previous"}
+                    </Button>
+                    <span className="min-w-[88px] text-center font-medium text-slate-600 dark:text-slate-300">
+                      {isVi ? "Trang" : "Page"} {currentPageSafe} / {totalPages}
+                    </span>
+                    <Button type="button" variant="outline" size="sm" className="h-8 border-slate-200 bg-white text-xs dark:border-slate-700 dark:bg-slate-950" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPageSafe >= totalPages}>
+                      {isVi ? "Trang sau" : "Next"}
+                    </Button>
+                  </div>
+                </div>
               )}
             </CardContent>
           </Card>

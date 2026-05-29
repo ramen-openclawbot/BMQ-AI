@@ -330,6 +330,14 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert "bg-slate-100 dark:bg-slate-800" in page
     assert "{isVi ? \"Ngày dự kiến\" : \"Expected\"}" in page
     assert "formatOptionalDate(order.expected_date)" in page
+    assert "const PAGE_SIZE = 20;" in page
+    assert "const [currentPage, setCurrentPage] = useState(1);" in page
+    assert "const paginatedOrders = filteredOrders.slice(pageStartIndex, pageStartIndex + PAGE_SIZE);" in page
+    assert "{paginatedOrders.map((order) => (" in page
+    assert "dòng/trang" in page
+    assert "Trang trước" in page
+    assert "Trang sau" in page
+    assert "setCurrentPage(1);" in page
     assert "Cần xử lý" in page
     assert "statusFilter === \"in_transit\"" in page
     assert "Tạo PO (Mua hàng)" in add_dialog
