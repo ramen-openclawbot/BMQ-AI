@@ -13,6 +13,7 @@ import Inventory from "@/pages/Inventory";
 import Suppliers from "@/pages/Suppliers";
 import Invoices from "@/pages/Invoices";
 import PaymentRequests from "@/pages/PaymentRequests";
+import PayablesManagement from "@/pages/PayablesManagement";
 import LowStock from "@/pages/LowStock";
 import GoodsReceipts from "@/pages/GoodsReceipts";
 import KitchenInventory from "@/pages/KitchenInventory";
@@ -210,6 +211,7 @@ export function AppRoutes() {
         <Route path="/finance-control/cost" element={<Navigate to="/finance-control/ceo-declaration" replace />} />
         <Route path="/finance-control/ceo-declaration" element={<ModuleRoute moduleKey="finance_cost"><Suspense fallback={<AppLoadingFallback />}><FinanceControl mode="ceo" /></Suspense></ModuleRoute>} />
         <Route path="/finance-control/classification" element={<ModuleRoute moduleKey="finance_cost"><Suspense fallback={<AppLoadingFallback />}><FinanceControl mode="classification" /></Suspense></ModuleRoute>} />
+        <Route path="/finance-control/payables" element={<ModuleRoute moduleKey="payment_requests"><PayablesManagement /></ModuleRoute>} />
         <Route path="/finance-control/revenue" element={<Suspense fallback={<AppLoadingFallback />}><RevenueManagementDashboard /></Suspense>} />
         <Route path="/finance-control/revenue/sources" element={<Suspense fallback={<AppLoadingFallback />}><RevenueSourceDetail /></Suspense>} />
         <Route path="/finance-control/revenue/setup" element={<Suspense fallback={<AppLoadingFallback />}><FinanceRevenueControl /></Suspense>} />

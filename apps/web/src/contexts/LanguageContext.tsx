@@ -27,6 +27,7 @@ interface Translations {
   financeCostManagement: string;
   financeCeoDeclaration: string;
   financeCostClassification: string;
+  financePayablesManagement: string;
   financeRevenueManagement: string;
   financeDebtManagement: string;
   financeRevenueSetup: string;
@@ -219,6 +220,7 @@ const translations: Record<Language, Translations> = {
     financeCostManagement: "Cost Management",
     financeCeoDeclaration: "CEO Declaration",
     financeCostClassification: "Cost Classification",
+    financePayablesManagement: "Supplier Payables",
     financeRevenueManagement: "Revenue Management",
     financeDebtManagement: "Debt Management",
     financeRevenueSetup: "Revenue Setup",
@@ -409,6 +411,7 @@ const translations: Record<Language, Translations> = {
     financeCostManagement: "Quản lý chi phí",
     financeCeoDeclaration: "CEO khai báo",
     financeCostClassification: "Phân loại chi phí",
+    financePayablesManagement: "Quản lý công nợ phải trả",
     financeRevenueManagement: "Quản lý doanh thu",
     financeDebtManagement: "Quản lý công nợ phải thu",
     financeRevenueSetup: "Thiết lập doanh thu",

@@ -105,12 +105,16 @@ const getProductNames = (request: PaymentRequestWithSupplier) => {
 
 const isWarehouseReceiptPayable = (request: PaymentRequestWithSupplier) => Boolean(request.goods_receipt_id);
 
-const PaymentRequests = () => {
+type PaymentRequestsProps = {
+  defaultSourceFilter?: "all" | "warehouse_receipt" | "manual";
+};
+
+const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) => {
   const queryClient = useQueryClient();
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [sourceFilter, setSourceFilter] = useState<string>(defaultSourceFilter);
   const [searchTerm, setSearchTerm] = useState("");
   const [activeCardFilter, setActiveCardFilter] = useState<CardFilterType>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());

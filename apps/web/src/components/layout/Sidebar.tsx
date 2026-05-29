@@ -68,6 +68,7 @@ const navItems: NavItem[] = [
     children: [
       { icon: CalendarClock, labelKey: "financeCeoDeclaration", path: "/finance-control/ceo-declaration", section: "finance", moduleKey: "finance_cost" },
       { icon: ClipboardCheck, labelKey: "financeCostClassification", path: "/finance-control/classification", section: "finance", moduleKey: "finance_cost" },
+      { icon: FileCheck, labelKey: "financePayablesManagement", path: "/finance-control/payables", section: "finance", moduleKey: "payment_requests" },
     ],
   },
   {

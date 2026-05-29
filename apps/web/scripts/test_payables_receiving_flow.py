@@ -13,7 +13,11 @@ GOODS_RECEIPTS_PAGE = ROOT / "src/pages/GoodsReceipts.tsx"
 GOODS_RECEIPT_DETAILS = ROOT / "src/components/dialogs/GoodsReceiptDetailsDialog.tsx"
 PAYMENT_REQUESTS_HOOK = ROOT / "src/hooks/usePaymentRequests.ts"
 PAYMENT_REQUESTS_PAGE = ROOT / "src/pages/PaymentRequests.tsx"
+PAYABLES_MANAGEMENT_PAGE = ROOT / "src/pages/PayablesManagement.tsx"
 PAYMENT_REQUEST_DETAILS = ROOT / "src/components/dialogs/PaymentRequestDetailsDialog.tsx"
+SIDEBAR = ROOT / "src/components/layout/Sidebar.tsx"
+APP_ROUTES = ROOT / "src/components/AppRoutes.tsx"
+LANGUAGE_CONTEXT = ROOT / "src/contexts/LanguageContext.tsx"
 SUPABASE_CONFIG = ROOT / "supabase/config.toml"
 MIGRATIONS = ROOT / "supabase/migrations"
 TYPES = ROOT / "src/integrations/supabase/types.ts"
@@ -241,6 +245,38 @@ def test_finance_payables_ui_filters_and_labels_warehouse_generated_requests():
     assert 'request.purchase_orders?.po_number' in details
 
 
+def test_payables_management_is_accessible_from_cost_sidebar_with_filtered_route():
+    sidebar = read(SIDEBAR)
+    routes = read(APP_ROUTES)
+    language = read(LANGUAGE_CONTEXT)
+    page = read(PAYMENT_REQUESTS_PAGE)
+    payables_page = read(PAYABLES_MANAGEMENT_PAGE)
+
+    cost_section = sidebar.split('labelKey: "financeCostManagement"', 1)[1].split('labelKey: "financeRevenueManagement"', 1)[0]
+    assert 'labelKey: "financePayablesManagement"' in cost_section
+    assert 'path: "/finance-control/payables"' in cost_section
+    assert 'moduleKey: "payment_requests"' in cost_section
+    assert 'import PayablesManagement from "@/pages/PayablesManagement";' in routes
+    assert '<Route path="/finance-control/payables" element={<ModuleRoute moduleKey="payment_requests"><PayablesManagement /></ModuleRoute>}' in routes
+    assert '<PaymentRequests defaultSourceFilter="warehouse_receipt"' not in routes
+    assert 'financePayablesManagement: string;' in language
+    assert 'financePayablesManagement: "Supplier Payables"' in language
+    assert 'financePayablesManagement: "Quản lý công nợ phải trả"' in language
+
+    assert 'type PaymentRequestsProps' in page
+    assert 'Quản lý công nợ phải trả' in payables_page
+    assert 'Công nợ từ phiếu nhập kho' in payables_page
+    assert 'paymentRequest.goods_receipt_id' in payables_page
+    assert 'paymentRequest.goods_receipts?.receipt_number' in payables_page
+    assert 'paymentRequest.purchase_orders?.po_number' in payables_page
+    assert 'getRemainingPaymentAmount(paymentRequest)' in payables_page
+    assert 'PaymentRequestDetailsDialog' in payables_page
+    assert 'Không có công nợ phải trả' in payables_page
+    assert 'type PaymentRequestsProps = {' in page
+    assert 'defaultSourceFilter?: "all" | "warehouse_receipt" | "manual";' in page
+    assert 'useState<string>(defaultSourceFilter)' in page
+
+
 if __name__ == "__main__":
     test_payables_receiving_helpers_are_present_and_use_actual_quantity()
     test_migration_adds_receipt_variance_and_payable_state_without_breaking_existing_columns()
@@ -252,4 +288,5 @@ if __name__ == "__main__":
     test_goods_receipt_confirm_uses_finalization_edge_function_not_client_side_inventory_mutations()
     test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finalization()
     test_finance_payables_ui_filters_and_labels_warehouse_generated_requests()
-    print("ok - 10 tests passed")
+    test_payables_management_is_accessible_from_cost_sidebar_with_filtered_route()
+    print("ok - 11 tests passed")
