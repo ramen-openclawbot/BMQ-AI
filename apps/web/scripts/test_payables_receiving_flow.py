@@ -321,6 +321,17 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert "onKeyDown={(event) => handleOrderRowKeyDown(event, order.id)}" in page
     assert "event.stopPropagation()" in page
     assert "aria-label={isVi ? \"Xóa PO\" : \"Delete PO\"}" in page
+    assert "bg-slate-50 dark:bg-slate-950" in page
+    assert "lg:grid-cols-[minmax(0,1fr)_260px]" in page
+    assert "grid-cols-2 lg:grid-cols-5" in page
+    assert "dark:bg-slate-900/80" in page
+    assert "dark:border-slate-700" in page
+    assert "h-[52px]" in page
+    assert "bg-slate-100 dark:bg-slate-800" in page
+    assert "{isVi ? \"Ngày dự kiến\" : \"Expected\"}" in page
+    assert "formatOptionalDate(order.expected_date)" in page
+    assert "Cần xử lý" in page
+    assert "statusFilter === \"in_transit\"" in page
     assert "Tạo PO (Mua hàng)" in add_dialog
     assert "Tạo đơn đặt hàng</Button>" not in add_dialog
 
