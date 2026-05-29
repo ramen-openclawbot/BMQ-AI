@@ -11,6 +11,9 @@ FINALIZE_RECEIPT_FUNCTION = ROOT / "supabase/functions/finalize-goods-receipt/in
 GOODS_RECEIPTS_HOOK = ROOT / "src/hooks/useGoodsReceipts.ts"
 GOODS_RECEIPTS_PAGE = ROOT / "src/pages/GoodsReceipts.tsx"
 GOODS_RECEIPT_DETAILS = ROOT / "src/components/dialogs/GoodsReceiptDetailsDialog.tsx"
+PAYMENT_REQUESTS_HOOK = ROOT / "src/hooks/usePaymentRequests.ts"
+PAYMENT_REQUESTS_PAGE = ROOT / "src/pages/PaymentRequests.tsx"
+PAYMENT_REQUEST_DETAILS = ROOT / "src/components/dialogs/PaymentRequestDetailsDialog.tsx"
 SUPABASE_CONFIG = ROOT / "supabase/config.toml"
 MIGRATIONS = ROOT / "supabase/migrations"
 TYPES = ROOT / "src/integrations/supabase/types.ts"
@@ -204,6 +207,33 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "Không chốt lại phiếu đã tạo công nợ" in details
 
 
+def test_finance_payables_ui_filters_and_labels_warehouse_generated_requests():
+    hook = read(PAYMENT_REQUESTS_HOOK)
+    page = read(PAYMENT_REQUESTS_PAGE)
+    details = read(PAYMENT_REQUEST_DETAILS)
+
+    assert "goods_receipts(id, receipt_number, receipt_date, payable_status)" in hook
+    assert "purchase_orders(id, po_number, status)" in hook
+    assert "goods_receipts?:" in hook
+    assert "purchase_orders?:" in hook
+
+    assert 'sourceFilter' in page
+    assert 'warehouse_receipt' in page
+    assert 'Công nợ tạo từ nhập kho' in page
+    assert 'Từ phiếu nhập kho' in page
+    assert 'request.goods_receipt_id' in page
+    assert 'request.goods_receipts?.receipt_number' in page
+    assert 'request.purchase_orders?.po_number' in page
+    assert 'stats.warehouseGenerated' in page
+    assert 'filteredRequests' in page
+
+    assert 'Công nợ tạo từ nhập kho' in details
+    assert 'Phiếu nhập kho' in details
+    assert 'PO liên kết' in details
+    assert 'request.goods_receipts?.receipt_number' in details
+    assert 'request.purchase_orders?.po_number' in details
+
+
 if __name__ == "__main__":
     test_payables_receiving_helpers_are_present_and_use_actual_quantity()
     test_migration_adds_receipt_variance_and_payable_state_without_breaking_existing_columns()
@@ -214,4 +244,5 @@ if __name__ == "__main__":
     test_finalization_function_posts_inventory_and_generates_pending_payable_from_actual_quantities()
     test_goods_receipt_confirm_uses_finalization_edge_function_not_client_side_inventory_mutations()
     test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finalization()
-    print("ok - 9 tests passed")
+    test_finance_payables_ui_filters_and_labels_warehouse_generated_requests()
+    print("ok - 10 tests passed")

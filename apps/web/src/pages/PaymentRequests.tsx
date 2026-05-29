@@ -11,6 +11,7 @@ import {
   Clock3,
   FileText,
   Loader2,
+  PackageCheck,
   Plus,
   RefreshCw,
   Search,
@@ -102,11 +103,14 @@ const getProductNames = (request: PaymentRequestWithSupplier) => {
   return Array.from(uniqueNames);
 };
 
+const isWarehouseReceiptPayable = (request: PaymentRequestWithSupplier) => Boolean(request.goods_receipt_id);
+
 const PaymentRequests = () => {
   const queryClient = useQueryClient();
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [activeCardFilter, setActiveCardFilter] = useState<CardFilterType>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -189,6 +193,12 @@ const PaymentRequests = () => {
         amount: rejected.reduce((sum, request) => sum + (Number(request.total_amount) || 0), 0),
         count: rejected.length,
       },
+      warehouseGenerated: {
+        amount: source
+          .filter((request) => isWarehouseReceiptPayable(request))
+          .reduce((sum, request) => sum + (Number(request.total_amount) || 0), 0),
+        count: source.filter((request) => isWarehouseReceiptPayable(request)).length,
+      },
     };
   }, [dateFilteredRequests]);
 
@@ -225,6 +235,16 @@ const PaymentRequests = () => {
       icon: XCircle,
       tone: "red",
     },
+    {
+      key: null,
+      label: language === "vi" ? "Công nợ tạo từ nhập kho" : "Warehouse-generated payables",
+      amount: stats.warehouseGenerated.amount,
+      count: stats.warehouseGenerated.count,
+      icon: PackageCheck,
+      tone: "blue",
+      onClick: () => setSourceFilter(sourceFilter === "warehouse_receipt" ? "all" : "warehouse_receipt"),
+      isActive: sourceFilter === "warehouse_receipt",
+    },
   ];
 
   const getStatToneClass = (tone: string) => {
@@ -238,6 +258,27 @@ const PaymentRequests = () => {
       default:
         return "bg-primary/10 text-primary dark:bg-primary/15";
     }
+  };
+
+  const renderSourceBadge = (request: PaymentRequestWithSupplier) => {
+    if (!isWarehouseReceiptPayable(request)) {
+      return <Badge variant="outline" className="text-xs">{language === "vi" ? "Nguồn khác" : "Other source"}</Badge>;
+    }
+
+    return (
+      <div className="space-y-1 text-xs">
+        <Badge className="bg-emerald-600 text-xs">
+          <PackageCheck className="mr-1 h-3 w-3" />
+          {language === "vi" ? "Từ phiếu nhập kho" : "From warehouse receipt"}
+        </Badge>
+        <div className="font-mono text-muted-foreground">
+          {request.goods_receipts?.receipt_number || request.goods_receipt_id}
+        </div>
+        {request.purchase_orders?.po_number && (
+          <div className="font-mono text-muted-foreground">PO: {request.purchase_orders.po_number}</div>
+        )}
+      </div>
+    );
   };
 
   const renderProductNames = (request: PaymentRequestWithSupplier) => {
@@ -328,16 +369,22 @@ const PaymentRequests = () => {
     return dateFilteredRequests.filter((r) => {
       // Dropdown filters
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
+      if (sourceFilter === "warehouse_receipt" && !isWarehouseReceiptPayable(r)) return false;
+      if (sourceFilter === "manual" && isWarehouseReceiptPayable(r)) return false;
 
       if (normalizedSearchTerm) {
         const supplierName = normalizeSearch(r.suppliers?.name);
         const requestCode = normalizeSearch(getRequestCode(r));
         const productNames = normalizeSearch(getProductNames(r).join(" "));
+        const receiptNumber = normalizeSearch(r.goods_receipts?.receipt_number);
+        const poNumber = normalizeSearch(r.purchase_orders?.po_number);
 
         if (
           !supplierName.includes(normalizedSearchTerm) &&
           !productNames.includes(normalizedSearchTerm) &&
-          !requestCode.includes(normalizedSearchTerm)
+          !requestCode.includes(normalizedSearchTerm) &&
+          !receiptNumber.includes(normalizedSearchTerm) &&
+          !poNumber.includes(normalizedSearchTerm)
         ) {
           return false;
         }
@@ -357,11 +404,11 @@ const PaymentRequests = () => {
       
       return true;
     });
-  }, [dateFilteredRequests, statusFilter, searchTerm, activeCardFilter]);
+  }, [dateFilteredRequests, statusFilter, sourceFilter, searchTerm, activeCardFilter]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, searchTerm, activeCardFilter, pageSize, dateFrom, dateTo]);
+  }, [statusFilter, sourceFilter, searchTerm, activeCardFilter, pageSize, dateFrom, dateTo]);
 
   // Get selectable requests (pending OR approved with remaining amount)
   const selectableRequests = useMemo(() => {
@@ -458,6 +505,17 @@ const PaymentRequests = () => {
             </SelectContent>
           </Select>
 
+          <Select value={sourceFilter} onValueChange={setSourceFilter}>
+            <SelectTrigger className="h-12 rounded-md border-slate-200 bg-white px-4 text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100 xl:w-[280px]">
+              <SelectValue placeholder={language === "vi" ? "Nguồn công nợ" : "Payable source"} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{language === "vi" ? "Tất cả nguồn" : "All sources"}</SelectItem>
+              <SelectItem value="warehouse_receipt">{language === "vi" ? "Công nợ tạo từ nhập kho" : "Generated from warehouse receipt"}</SelectItem>
+              <SelectItem value="manual">{language === "vi" ? "Tạo thủ công / nguồn khác" : "Manual / other source"}</SelectItem>
+            </SelectContent>
+          </Select>
+
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
             <Input
@@ -500,7 +558,7 @@ const PaymentRequests = () => {
         <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-4">
           {statCards.map((card) => {
             const Icon = card.icon;
-            const isActive = card.key === null ? activeCardFilter === null : activeCardFilter === card.key;
+            const isActive = card.isActive ?? (card.key === null ? activeCardFilter === null && sourceFilter === "all" : activeCardFilter === card.key);
 
             return (
               <Card
@@ -509,7 +567,13 @@ const PaymentRequests = () => {
                   "cursor-pointer rounded-md border-slate-200 bg-white shadow-none transition-colors hover:border-primary/40 dark:border-slate-800 dark:bg-card dark:hover:border-primary/40",
                   isActive && "border-primary/60 ring-1 ring-primary/15"
                 )}
-                onClick={() => setActiveCardFilter(card.key === activeCardFilter ? null : card.key)}
+                onClick={() => {
+                  if (card.onClick) {
+                    card.onClick();
+                    return;
+                  }
+                  setActiveCardFilter(card.key === activeCardFilter ? null : card.key);
+                }}
               >
                 <CardContent className="flex items-center gap-5 p-6">
                   <div className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-md", getStatToneClass(card.tone))}>
@@ -650,6 +714,7 @@ const PaymentRequests = () => {
                   <TableHead className="min-w-[300px] text-slate-700 dark:text-slate-300">
                     {language === "vi" ? "Tên sản phẩm duyệt chi" : "Payment request products"}
                   </TableHead>
+                  <TableHead className="min-w-[190px] text-slate-700 dark:text-slate-300">{language === "vi" ? "Nguồn" : "Source"}</TableHead>
                   <TableHead className="min-w-[150px] text-right text-slate-700 dark:text-slate-300">Số tiền</TableHead>
                   <TableHead className="min-w-[140px] text-center text-slate-700 dark:text-slate-300">{t.status}</TableHead>
                   <TableHead className="min-w-[160px] text-slate-700 dark:text-slate-300">Người tạo</TableHead>
@@ -710,6 +775,7 @@ const PaymentRequests = () => {
                     </TableCell>
                     <TableCell className="font-medium text-slate-800 dark:text-slate-100">{request.suppliers?.name || "-"}</TableCell>
                     <TableCell>{renderProductNames(request)}</TableCell>
+                    <TableCell>{renderSourceBadge(request)}</TableCell>
                     <TableCell className="text-right font-semibold text-slate-900 dark:text-slate-50">
                       {formatCurrency(request.total_amount || 0)}
                       {allocatedAmount > 0 && (

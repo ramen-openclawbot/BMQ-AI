@@ -108,11 +108,11 @@ export function PaymentRequestDetailsDialog({
   const { data: items, isLoading: itemsLoading } = usePaymentRequestItems(requestId);
   
   // Fetch linked goods receipt if exists
-  const goodsReceiptId = (request as any)?.goods_receipt_id;
+  const goodsReceiptId = request?.goods_receipt_id;
   const { data: linkedGoodsReceipt } = useGoodsReceipt(goodsReceiptId || null);
   
   // Fetch linked purchase order if exists
-  const purchaseOrderId = (request as any)?.purchase_order_id;
+  const purchaseOrderId = request?.purchase_order_id;
   const { data: linkedPurchaseOrder } = usePurchaseOrder(purchaseOrderId || null);
   
   const approveRequest = useApprovePaymentRequest();
@@ -292,7 +292,30 @@ export function PaymentRequestDetailsDialog({
                 {getPaymentMethodBadge(request.payment_method)}
                 {getDeliveryStatusBadge(request.delivery_status)}
                 {getPaymentStatusBadge(request.payment_status)}
+                {request.goods_receipt_id && (
+                  <Badge className="bg-emerald-600 gap-1">
+                    <Package className="h-3 w-3" />
+                    Công nợ tạo từ nhập kho
+                  </Badge>
+                )}
               </div>
+
+              {request.goods_receipt_id && (
+                <Alert>
+                  <Package className="h-4 w-4" />
+                  <AlertDescription>
+                    <div className="space-y-1">
+                      <p className="font-medium">Công nợ tạo từ nhập kho</p>
+                      <p>
+                        Phiếu nhập kho: <span className="font-mono">{request.goods_receipts?.receipt_number || request.goods_receipt_id}</span>
+                      </p>
+                      <p>
+                        PO liên kết: <span className="font-mono">{request.purchase_orders?.po_number || request.purchase_order_id || "-"}</span>
+                      </p>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
 
               {/* Request Info */}
               <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg">
@@ -313,13 +336,13 @@ export function PaymentRequestDetailsDialog({
                 <div>
                   <Label className="text-muted-foreground">Tổng tiền</Label>
                   <div className="space-y-1">
-                    {(request as any).vat_amount > 0 && (
+                    {request.vat_amount > 0 && (
                       <>
                         <p className="text-sm text-muted-foreground">
-                          Tạm tính: {formatCurrency((request.total_amount || 0) - ((request as any).vat_amount || 0))}
+                          Tạm tính: {formatCurrency((request.total_amount || 0) - (request.vat_amount || 0))}
                         </p>
                         <p className="text-sm text-muted-foreground">
-                          VAT: {formatCurrency((request as any).vat_amount || 0)}
+                          VAT: {formatCurrency(request.vat_amount || 0)}
                         </p>
                       </>
                     )}
@@ -371,7 +394,7 @@ export function PaymentRequestDetailsDialog({
                 <div>
                   <Label className="text-muted-foreground">Loại thanh toán</Label>
                   <div className="mt-1">
-                    {(request as any).payment_type === "new_order" ? (
+                    {request.payment_type === "new_order" ? (
                       <Badge variant="default">🆕 Đơn mới</Badge>
                     ) : (
                       <Badge variant="secondary">📋 Đơn cũ (công nợ)</Badge>
