@@ -301,6 +301,13 @@ def test_invoices_page_matches_approved_stitch_dashboard_handoff():
     page = read(ROOT / "src/pages/Invoices.tsx")
 
     assert "data-stitch-invoice-dashboard" in page
+    assert "bg-card" in page
+    assert "border-border" in page
+    assert "text-primary" in page
+    assert "btn-gradient" in page
+    assert "bg-slate-50/60" not in page
+    assert "#D97706" not in page
+    assert "#B45309" not in page
     assert "data-stitch-invoice-filters" in page
     assert "data-stitch-invoice-table" in page
     assert "data-stitch-invoice-insights" in page

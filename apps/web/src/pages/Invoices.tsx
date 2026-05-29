@@ -136,9 +136,9 @@ const getStatusLabel = (status: InvoicePaymentStatus, isVi: boolean) => {
 };
 
 const getStatusClassName = (status: InvoicePaymentStatus) => {
-  if (status === "paid") return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300";
-  if (status === "overdue") return "border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300";
-  return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-300";
+  if (status === "paid") return "border-success/20 bg-success/10 text-success";
+  if (status === "overdue") return "border-destructive/20 bg-destructive/10 text-destructive";
+  return "border-warning/30 bg-warning/10 text-warning-foreground";
 };
 
 const Invoices = () => {
@@ -307,91 +307,91 @@ const Invoices = () => {
   };
 
   return (
-    <div className="space-y-5 bg-slate-50/60 p-0 text-slate-950 dark:bg-slate-950/30 dark:text-slate-100" data-stitch-invoice-dashboard>
-      <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 lg:flex-row lg:items-center lg:justify-between">
+    <div className="space-y-5 p-0 text-foreground" data-stitch-invoice-dashboard>
+      <div className="flex flex-col gap-4 rounded-2xl border bg-card p-5 shadow-card lg:flex-row lg:items-center lg:justify-between">
         <div className="space-y-1">
-          <div className="flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-300">
+          <div className="flex items-center gap-2 text-sm font-medium text-primary">
             <ReceiptText className="h-4 w-4" />
             {isVi ? "Kế toán phải trả" : "Accounts payable"}
           </div>
-          <h1 className="text-3xl font-display font-bold tracking-tight text-slate-950 dark:text-slate-50">{isVi ? "Hóa đơn" : "Invoices"}</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <h1 className="text-3xl font-display font-bold tracking-tight text-foreground">{isVi ? "Hóa đơn" : "Invoices"}</h1>
+          <p className="text-sm text-muted-foreground">
             {isVi ? "Theo dõi hóa đơn, công nợ và liên kết PO/phiếu nhập" : "Track invoices, payables, and PO/receipt links"}
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Button
             variant="outline"
-            className="border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+            className="border-border bg-card text-foreground hover:bg-muted"
             onClick={() => toast.info(isVi ? "Chọn đề nghị chi/phiếu nhập trong luồng công nợ để tạo hóa đơn liên kết." : "Create linked invoices from payable/receipt workflows.")}
           >
             <UploadCloud className="mr-2 h-4 w-4" />
             {isVi ? "Nhập từ phiếu nhập" : "Import from receipt"}
           </Button>
-          <div className="[&_button]:bg-[#D97706] [&_button]:text-white [&_button:hover]:bg-[#B45309]">
+          <div className="[&_button]:btn-gradient">
             <AddInvoiceDialog />
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Card className="border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
+        <Card className="border-border bg-card shadow-card">
           <CardContent className="flex items-center justify-between p-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isVi ? "Tổng hóa đơn" : "Total invoices"}</p>
-              <p className="mt-1 text-2xl font-bold text-slate-950 dark:text-slate-50">{formatCurrency(stats.totalAmount)}</p>
-              <p className="text-xs text-slate-500">{invoiceRows.length} {isVi ? "hóa đơn" : "invoices"}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{isVi ? "Tổng hóa đơn" : "Total invoices"}</p>
+              <p className="mt-1 text-2xl font-bold text-foreground">{formatCurrency(stats.totalAmount)}</p>
+              <p className="text-xs text-muted-foreground">{invoiceRows.length} {isVi ? "hóa đơn" : "invoices"}</p>
             </div>
-            <div className="rounded-xl bg-amber-50 p-3 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"><CircleDollarSign className="h-5 w-5" /></div>
+            <div className="rounded-xl bg-primary/10 p-3 text-primary"><CircleDollarSign className="h-5 w-5" /></div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
+        <Card className="border-border bg-card shadow-card">
           <CardContent className="flex items-center justify-between p-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isVi ? "Chờ thanh toán" : "Pending payment"}</p>
-              <p className="mt-1 text-2xl font-bold text-slate-950 dark:text-slate-50">{formatCurrency(stats.waitingAmount)}</p>
-              <p className="text-xs text-slate-500">{isVi ? "Còn lại phải trả" : "Remaining balance"}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{isVi ? "Chờ thanh toán" : "Pending payment"}</p>
+              <p className="mt-1 text-2xl font-bold text-foreground">{formatCurrency(stats.waitingAmount)}</p>
+              <p className="text-xs text-muted-foreground">{isVi ? "Còn lại phải trả" : "Remaining balance"}</p>
             </div>
-            <div className="rounded-xl bg-blue-50 p-3 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"><Clock3 className="h-5 w-5" /></div>
+            <div className="rounded-xl bg-primary/10 p-3 text-primary"><Clock3 className="h-5 w-5" /></div>
           </CardContent>
         </Card>
-        <Card className="border-red-100 bg-white shadow-sm dark:border-red-900/40 dark:bg-slate-900/80">
+        <Card className="border-destructive/20 bg-card shadow-card">
           <CardContent className="flex items-center justify-between p-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-red-600">{isVi ? "Quá hạn" : "Overdue"}</p>
-              <p className="mt-1 text-2xl font-bold text-red-700 dark:text-red-300">{formatCurrency(stats.overdueAmount)}</p>
-              <p className="text-xs text-slate-500">{isVi ? "Cần xử lý trước" : "Needs attention"}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-destructive">{isVi ? "Quá hạn" : "Overdue"}</p>
+              <p className="mt-1 text-2xl font-bold text-destructive">{formatCurrency(stats.overdueAmount)}</p>
+              <p className="text-xs text-muted-foreground">{isVi ? "Cần xử lý trước" : "Needs attention"}</p>
             </div>
-            <div className="rounded-xl bg-red-50 p-3 text-red-700 dark:bg-red-950/40 dark:text-red-300"><AlertTriangle className="h-5 w-5" /></div>
+            <div className="rounded-xl bg-destructive/10 p-3 text-destructive"><AlertTriangle className="h-5 w-5" /></div>
           </CardContent>
         </Card>
-        <Card className="border-amber-100 bg-white shadow-sm dark:border-amber-900/40 dark:bg-slate-900/80">
+        <Card className="border-warning/30 bg-card shadow-card">
           <CardContent className="flex items-center justify-between p-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">{isVi ? "Chưa liên kết chứng từ" : "Unlinked docs"}</p>
-              <p className="mt-1 text-2xl font-bold text-amber-700 dark:text-amber-300">{stats.unlinkedCount}</p>
-              <p className="text-xs text-slate-500">{isVi ? "hóa đơn cần gắn PO/PNK" : "need PO/receipt link"}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-primary">{isVi ? "Chưa liên kết chứng từ" : "Unlinked docs"}</p>
+              <p className="mt-1 text-2xl font-bold text-primary">{stats.unlinkedCount}</p>
+              <p className="text-xs text-muted-foreground">{isVi ? "hóa đơn cần gắn PO/PNK" : "need PO/receipt link"}</p>
             </div>
-            <div className="rounded-xl bg-amber-50 p-3 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"><Link2 className="h-5 w-5" /></div>
+            <div className="rounded-xl bg-primary/10 p-3 text-primary"><Link2 className="h-5 w-5" /></div>
           </CardContent>
         </Card>
       </div>
 
-      <Card className="border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/80" data-stitch-invoice-filters>
+      <Card className="border-border bg-card shadow-card" data-stitch-invoice-filters>
         <CardContent className="p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
             <div className="relative min-w-[260px] flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
                 placeholder={isVi ? "Tìm số hóa đơn, nhà cung cấp, PO..." : "Search invoice, supplier, PO..."}
-                className="h-10 border-slate-200 bg-slate-50 pl-9 dark:border-slate-700 dark:bg-slate-950/40"
+                className="h-10 border-border bg-background pl-9"
               />
             </div>
             <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:w-auto">
               <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
-                <SelectTrigger className="h-10 border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"><SelectValue placeholder={isVi ? "Trạng thái" : "Status"} /></SelectTrigger>
+                <SelectTrigger className="h-10 border-border bg-card"><SelectValue placeholder={isVi ? "Trạng thái" : "Status"} /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{isVi ? "Tất cả trạng thái" : "All statuses"}</SelectItem>
                   <SelectItem value="waiting">{isVi ? "Chờ thanh toán" : "Pending"}</SelectItem>
@@ -400,7 +400,7 @@ const Invoices = () => {
                 </SelectContent>
               </Select>
               <Select value={sourceFilter} onValueChange={(value) => setSourceFilter(value as SourceFilter)}>
-                <SelectTrigger className="h-10 border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"><SelectValue placeholder={isVi ? "Nguồn" : "Source"} /></SelectTrigger>
+                <SelectTrigger className="h-10 border-border bg-card"><SelectValue placeholder={isVi ? "Nguồn" : "Source"} /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{isVi ? "Tất cả nguồn" : "All sources"}</SelectItem>
                   <SelectItem value="warehouse_receipt">{isVi ? "Từ phiếu nhập kho" : "From receipt"}</SelectItem>
@@ -410,14 +410,14 @@ const Invoices = () => {
                 </SelectContent>
               </Select>
               <Select value={monthFilter} onValueChange={(value) => setMonthFilter(value as MonthFilter)}>
-                <SelectTrigger className="h-10 border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"><SelectValue placeholder={isVi ? "Thời gian" : "Period"} /></SelectTrigger>
+                <SelectTrigger className="h-10 border-border bg-card"><SelectValue placeholder={isVi ? "Thời gian" : "Period"} /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="this_month">{isVi ? "Tháng này" : "This month"}</SelectItem>
                   <SelectItem value="all">{isVi ? "Tất cả thời gian" : "All time"}</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={supplierFilter} onValueChange={setSupplierFilter}>
-                <SelectTrigger className="h-10 border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"><SelectValue placeholder={isVi ? "Nhà cung cấp" : "Supplier"} /></SelectTrigger>
+                <SelectTrigger className="h-10 border-border bg-card"><SelectValue placeholder={isVi ? "Nhà cung cấp" : "Supplier"} /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{isVi ? "Tất cả NCC" : "All suppliers"}</SelectItem>
                   {suppliers.map((supplier) => <SelectItem key={supplier} value={supplier}>{supplier}</SelectItem>)}
@@ -426,14 +426,14 @@ const Invoices = () => {
             </div>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Button size="sm" variant={quickOverdueOnly ? "default" : "outline"} className={quickOverdueOnly ? "bg-red-600 text-white hover:bg-red-700" : "border-slate-200"} onClick={() => setQuickOverdueOnly((value) => !value)}>
+            <Button size="sm" variant={quickOverdueOnly ? "default" : "outline"} className={quickOverdueOnly ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : "border-border"} onClick={() => setQuickOverdueOnly((value) => !value)}>
               <AlertTriangle className="mr-2 h-3.5 w-3.5" />{isVi ? "Quá hạn" : "Overdue"}
             </Button>
-            <Button size="sm" variant={quickUnlinkedOnly ? "default" : "outline"} className={quickUnlinkedOnly ? "bg-[#D97706] text-white hover:bg-[#B45309]" : "border-slate-200"} onClick={() => setQuickUnlinkedOnly((value) => !value)}>
+            <Button size="sm" variant={quickUnlinkedOnly ? "default" : "outline"} className={quickUnlinkedOnly ? "btn-gradient" : "border-border"} onClick={() => setQuickUnlinkedOnly((value) => !value)}>
               <Link2 className="mr-2 h-3.5 w-3.5" />{isVi ? "Chưa gắn PO/PNK" : "Missing PO/receipt"}
             </Button>
             {(searchTerm || statusFilter !== "all" || sourceFilter !== "all" || monthFilter !== "this_month" || supplierFilter !== "all" || selectedSupplierName || quickOverdueOnly || quickUnlinkedOnly) && (
-              <Button size="sm" variant="ghost" onClick={clearOperationalFilters} className="text-slate-500">
+              <Button size="sm" variant="ghost" onClick={clearOperationalFilters} className="text-muted-foreground">
                 <Filter className="mr-2 h-3.5 w-3.5" />{isVi ? "Xóa lọc" : "Clear filters"}
               </Button>
             )}
@@ -442,14 +442,14 @@ const Invoices = () => {
       </Card>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
-        <Card className="overflow-hidden border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/80" data-stitch-invoice-table>
-          <CardHeader className="border-b border-slate-100 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900/80">
+        <Card className="overflow-hidden border-border bg-card shadow-card" data-stitch-invoice-table>
+          <CardHeader className="border-b border-border bg-card px-4 py-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <CardTitle className="flex items-center gap-2 text-base text-slate-950 dark:text-slate-50">
-                <FileText className="h-5 w-5 text-amber-600" />
+              <CardTitle className="flex items-center gap-2 text-base text-foreground">
+                <FileText className="h-5 w-5 text-primary" />
                 {selectedSupplierName ? `${isVi ? "Hóa đơn của" : "Invoices for"} ${selectedSupplierName}` : isVi ? "Danh sách hóa đơn" : "Invoice list"}
               </CardTitle>
-              <div className="flex items-center gap-2 text-xs text-slate-500">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span>{filteredInvoices.length} {isVi ? "kết quả" : "results"}</span>
                 <Button variant="ghost" size="sm" onClick={() => refetch()} disabled={isFetching}>
                   <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
@@ -472,49 +472,49 @@ const Invoices = () => {
               <>
                 <div className="overflow-x-auto">
                   <Table>
-                    <TableHeader className="bg-slate-100 dark:bg-slate-800/80">
-                      <TableRow className="border-slate-200 hover:bg-transparent dark:border-slate-800">
-                        <TableHead className="min-w-[140px] text-xs font-bold uppercase tracking-wide text-slate-500">{isVi ? "Số hóa đơn" : "Invoice #"}</TableHead>
-                        <TableHead className="min-w-[170px] text-xs font-bold uppercase tracking-wide text-slate-500">{isVi ? "Nhà cung cấp" : "Supplier"}</TableHead>
-                        <TableHead className="min-w-[180px] text-xs font-bold uppercase tracking-wide text-slate-500">{isVi ? "Nguồn/PO/PNK" : "Source/PO/Receipt"}</TableHead>
-                        <TableHead className="text-xs font-bold uppercase tracking-wide text-slate-500">{isVi ? "Ngày HĐ" : "Date"}</TableHead>
-                        <TableHead className="text-xs font-bold uppercase tracking-wide text-slate-500">{isVi ? "Hạn TT" : "Due"}</TableHead>
-                        <TableHead className="text-right text-xs font-bold uppercase tracking-wide text-slate-500">{isVi ? "Giá trị" : "Amount"}</TableHead>
-                        <TableHead className="min-w-[150px] text-right text-xs font-bold uppercase tracking-wide text-slate-500">{isVi ? "Đã trả/Còn lại" : "Paid/Remaining"}</TableHead>
-                        <TableHead className="text-xs font-bold uppercase tracking-wide text-slate-500">{isVi ? "Trạng thái" : "Status"}</TableHead>
-                        <TableHead className="text-right text-xs font-bold uppercase tracking-wide text-slate-500">{isVi ? "Thao tác" : "Actions"}</TableHead>
+                    <TableHeader className="bg-muted/70">
+                      <TableRow className="border-border hover:bg-transparent">
+                        <TableHead className="min-w-[140px] text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Số hóa đơn" : "Invoice #"}</TableHead>
+                        <TableHead className="min-w-[170px] text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Nhà cung cấp" : "Supplier"}</TableHead>
+                        <TableHead className="min-w-[180px] text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Nguồn/PO/PNK" : "Source/PO/Receipt"}</TableHead>
+                        <TableHead className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Ngày HĐ" : "Date"}</TableHead>
+                        <TableHead className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Hạn TT" : "Due"}</TableHead>
+                        <TableHead className="text-right text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Giá trị" : "Amount"}</TableHead>
+                        <TableHead className="min-w-[150px] text-right text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Đã trả/Còn lại" : "Paid/Remaining"}</TableHead>
+                        <TableHead className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Trạng thái" : "Status"}</TableHead>
+                        <TableHead className="text-right text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Thao tác" : "Actions"}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {paginatedInvoices.map(({ invoice, sourceMeta, status, total, paidAmount, remainingAmount, dueDate }) => (
                         <TableRow
                           key={invoice.id}
-                          className="h-[52px] cursor-pointer border-slate-100 transition-colors hover:bg-amber-50/50 dark:border-slate-800 dark:hover:bg-slate-800/60"
+                          className="h-[52px] cursor-pointer border-border transition-colors hover:bg-muted/60"
                           tabIndex={0}
                           onClick={() => setViewingInvoiceId(invoice.id)}
                           onKeyDown={(event) => handleRowKeyDown(event, invoice.id)}
                         >
                           <TableCell>
-                            <div className="font-semibold text-slate-950 dark:text-slate-50">{invoice.invoice_number}</div>
-                            {invoice.notes && <div className="max-w-[180px] truncate text-xs text-slate-500">{invoice.notes}</div>}
+                            <div className="font-semibold text-foreground">{invoice.invoice_number}</div>
+                            {invoice.notes && <div className="max-w-[180px] truncate text-xs text-muted-foreground">{invoice.notes}</div>}
                           </TableCell>
                           <TableCell>
-                            <div className="font-medium text-slate-800 dark:text-slate-100">{invoice.suppliers?.name || <span className="text-muted-foreground">-</span>}</div>
+                            <div className="font-medium text-foreground">{invoice.suppliers?.name || <span className="text-muted-foreground">-</span>}</div>
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-col gap-1">
-                              <Badge variant="outline" className="w-fit border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                              <Badge variant="outline" className="w-fit border-border bg-muted/70 text-foreground">
                                 {getSourceLabel(sourceMeta.source, isVi)}
                               </Badge>
-                              {sourceMeta.reference && <span className="max-w-[170px] truncate font-mono text-xs text-slate-500">{sourceMeta.reference}</span>}
+                              {sourceMeta.reference && <span className="max-w-[170px] truncate font-mono text-xs text-muted-foreground">{sourceMeta.reference}</span>}
                             </div>
                           </TableCell>
-                          <TableCell className="whitespace-nowrap text-slate-600 dark:text-slate-300">{format(new Date(invoice.invoice_date), "dd/MM/yyyy")}</TableCell>
-                          <TableCell className="whitespace-nowrap text-slate-600 dark:text-slate-300">{format(dueDate, "dd/MM/yyyy")}</TableCell>
-                          <TableCell className="text-right font-semibold text-slate-950 dark:text-slate-50">{formatFullCurrency(total)}</TableCell>
+                          <TableCell className="whitespace-nowrap text-muted-foreground">{format(new Date(invoice.invoice_date), "dd/MM/yyyy")}</TableCell>
+                          <TableCell className="whitespace-nowrap text-muted-foreground">{format(dueDate, "dd/MM/yyyy")}</TableCell>
+                          <TableCell className="text-right font-semibold text-foreground">{formatFullCurrency(total)}</TableCell>
                           <TableCell className="text-right">
-                            <div className="text-xs text-emerald-700 dark:text-emerald-300">{formatFullCurrency(paidAmount)}</div>
-                            <div className={remainingAmount > 0 ? "text-xs font-semibold text-amber-700 dark:text-amber-300" : "text-xs text-slate-400"}>{formatFullCurrency(remainingAmount)}</div>
+                            <div className="text-xs text-success">{formatFullCurrency(paidAmount)}</div>
+                            <div className={remainingAmount > 0 ? "text-xs font-semibold text-primary" : "text-xs text-muted-foreground"}>{formatFullCurrency(remainingAmount)}</div>
                           </TableCell>
                           <TableCell>
                             <Badge variant="outline" className={getStatusClassName(status)}>{getStatusLabel(status, isVi)}</Badge>
@@ -540,7 +540,7 @@ const Invoices = () => {
                     </TableBody>
                   </Table>
                 </div>
-                <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 text-sm text-slate-500 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-3 border-t border-border px-4 py-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                   <div>{PAGE_SIZE} {isVi ? "dòng/trang" : "rows/page"} · {isVi ? "Hiển thị" : "Showing"} {pageStartIndex + 1}-{Math.min(pageStartIndex + PAGE_SIZE, filteredInvoices.length)} / {filteredInvoices.length}</div>
                   <div className="flex items-center gap-2">
                     <Button variant="outline" size="sm" disabled={safeCurrentPage <= 1} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}>
@@ -564,28 +564,28 @@ const Invoices = () => {
         </Card>
 
         <aside className="space-y-4" data-stitch-invoice-insights>
-          <Card className="border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
-            <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-4 w-4 text-amber-600" />{isVi ? "Cần xử lý" : "Needs action"}</CardTitle></CardHeader>
+          <Card className="border-border bg-card shadow-card">
+            <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-4 w-4 text-primary" />{isVi ? "Cần xử lý" : "Needs action"}</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              <button className="flex w-full items-center justify-between rounded-xl border border-red-100 bg-red-50/70 p-3 text-left text-sm hover:bg-red-50 dark:border-red-900/40 dark:bg-red-950/20" onClick={() => { setQuickOverdueOnly(true); setStatusFilter("all"); }}>
-                <span className="flex items-center gap-2 text-red-700 dark:text-red-300"><XCircle className="h-4 w-4" />{isVi ? "Hóa đơn quá hạn" : "Overdue invoices"}</span>
-                <span className="font-bold text-red-700 dark:text-red-300">{formatCurrency(stats.overdueAmount)}</span>
+              <button className="flex w-full items-center justify-between rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-left text-sm hover:bg-destructive/15" onClick={() => { setQuickOverdueOnly(true); setStatusFilter("all"); }}>
+                <span className="flex items-center gap-2 text-destructive"><XCircle className="h-4 w-4" />{isVi ? "Hóa đơn quá hạn" : "Overdue invoices"}</span>
+                <span className="font-bold text-destructive">{formatCurrency(stats.overdueAmount)}</span>
               </button>
-              <button className="flex w-full items-center justify-between rounded-xl border border-amber-100 bg-amber-50/70 p-3 text-left text-sm hover:bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/20" onClick={() => setQuickUnlinkedOnly(true)}>
-                <span className="flex items-center gap-2 text-amber-700 dark:text-amber-300"><Link2 className="h-4 w-4" />{isVi ? "Thiếu PO/PNK" : "Missing PO/receipt"}</span>
-                <span className="font-bold text-amber-700 dark:text-amber-300">{stats.unlinkedCount}</span>
+              <button className="flex w-full items-center justify-between rounded-xl border border-primary/20 bg-primary/10 p-3 text-left text-sm hover:bg-primary/15" onClick={() => setQuickUnlinkedOnly(true)}>
+                <span className="flex items-center gap-2 text-primary"><Link2 className="h-4 w-4" />{isVi ? "Thiếu PO/PNK" : "Missing PO/receipt"}</span>
+                <span className="font-bold text-primary">{stats.unlinkedCount}</span>
               </button>
-              <div className="flex items-center justify-between rounded-xl border border-emerald-100 bg-emerald-50/70 p-3 text-sm dark:border-emerald-900/40 dark:bg-emerald-950/20">
-                <span className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="h-4 w-4" />{isVi ? "Đã đối soát" : "Reconciled"}</span>
-                <span className="font-bold text-emerald-700 dark:text-emerald-300">{formatCurrency(stats.paidAmount)}</span>
+              <div className="flex items-center justify-between rounded-xl border border-success/20 bg-success/10 p-3 text-sm ">
+                <span className="flex items-center gap-2 text-success"><CheckCircle2 className="h-4 w-4" />{isVi ? "Đã đối soát" : "Reconciled"}</span>
+                <span className="font-bold text-success">{formatCurrency(stats.paidAmount)}</span>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
+          <Card className="border-border bg-card shadow-card">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between gap-2">
-                <CardTitle className="flex items-center gap-2 text-base"><TrendingUp className="h-4 w-4 text-amber-600" />{isVi ? "Top NCC theo công nợ" : "Top supplier debt"}</CardTitle>
+                <CardTitle className="flex items-center gap-2 text-base"><TrendingUp className="h-4 w-4 text-primary" />{isVi ? "Top NCC theo công nợ" : "Top supplier debt"}</CardTitle>
                 {selectedSupplierName && <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setSelectedSupplierName(null)}>{isVi ? "Xóa lọc" : "Clear"}</Button>}
               </div>
             </CardHeader>
@@ -593,19 +593,19 @@ const Invoices = () => {
               {supplierDebtRanking.length > 0 ? supplierDebtRanking.map((supplier, index) => (
                 <button
                   key={supplier.name}
-                  className={`w-full rounded-xl border p-3 text-left transition-colors ${selectedSupplierName === supplier.name ? "border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30" : "border-slate-100 bg-slate-50 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-950/40 dark:hover:bg-slate-800"}`}
+                  className={`w-full rounded-xl border p-3 text-left transition-colors ${selectedSupplierName === supplier.name ? "border-primary/30 bg-primary/10" : "border-border bg-muted/50 hover:bg-muted"}`}
                   onClick={() => setSelectedSupplierName(supplier.name)}
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{index + 1}. {supplier.name}</div>
-                      <div className="text-xs text-slate-500">{supplier.count} {isVi ? "hóa đơn còn nợ" : "open invoices"}</div>
+                      <div className="truncate text-sm font-semibold text-foreground">{index + 1}. {supplier.name}</div>
+                      <div className="text-xs text-muted-foreground">{supplier.count} {isVi ? "hóa đơn còn nợ" : "open invoices"}</div>
                     </div>
-                    <div className="whitespace-nowrap text-sm font-bold text-amber-700 dark:text-amber-300">{formatCurrency(supplier.amount)}</div>
+                    <div className="whitespace-nowrap text-sm font-bold text-primary">{formatCurrency(supplier.amount)}</div>
                   </div>
                 </button>
               )) : (
-                <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950/40">{isVi ? "Không còn công nợ mở" : "No open debt"}</div>
+                <div className="rounded-xl border border-border bg-muted/50 p-4 text-sm text-muted-foreground">{isVi ? "Không còn công nợ mở" : "No open debt"}</div>
               )}
             </CardContent>
           </Card>
