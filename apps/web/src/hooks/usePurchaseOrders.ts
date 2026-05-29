@@ -11,6 +11,7 @@ export async function getPurchaseOrderImageUrl(path: string): Promise<string | n
 
 export type PurchaseOrder = Tables<"purchase_orders"> & {
   suppliers?: { id: string; name: string } | null;
+  purchase_order_items?: Array<Pick<Tables<"purchase_order_items">, "id" | "product_name">> | null;
 };
 
 export type PurchaseOrderItem = Tables<"purchase_order_items"> & {
@@ -26,7 +27,7 @@ export function usePurchaseOrders() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("purchase_orders")
-        .select("*, suppliers(id, name)")
+        .select("*, suppliers(id, name), purchase_order_items(id, product_name)")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data as PurchaseOrder[];

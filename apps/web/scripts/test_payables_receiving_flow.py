@@ -14,6 +14,7 @@ GOODS_RECEIPT_DETAILS = ROOT / "src/components/dialogs/GoodsReceiptDetailsDialog
 PAYMENT_REQUESTS_HOOK = ROOT / "src/hooks/usePaymentRequests.ts"
 PAYMENT_REQUESTS_PAGE = ROOT / "src/pages/PaymentRequests.tsx"
 PAYABLES_MANAGEMENT_PAGE = ROOT / "src/pages/PayablesManagement.tsx"
+PURCHASE_ORDERS_PAGE = ROOT / "src/pages/PurchaseOrders.tsx"
 PAYMENT_REQUEST_DETAILS = ROOT / "src/components/dialogs/PaymentRequestDetailsDialog.tsx"
 SIDEBAR = ROOT / "src/components/layout/Sidebar.tsx"
 APP_ROUTES = ROOT / "src/components/AppRoutes.tsx"
@@ -284,6 +285,25 @@ def test_payables_management_is_accessible_from_cost_sidebar_with_filtered_route
     assert 'useState<string>(defaultSourceFilter)' in page
 
 
+def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_eye_icon():
+    hook = read(PO_HOOK)
+    page = read(PURCHASE_ORDERS_PAGE)
+
+    assert "purchase_order_items(id, product_name)" in hook
+    assert "purchase_order_items?: Array<Pick<Tables<\"purchase_order_items\">, \"id\" | \"product_name\">> | null;" in hook
+
+    assert "  Eye," not in page
+    assert "<Eye" not in page
+    assert "{isVi ? \"Sản phẩm\" : \"Products\"}" in page
+    assert "getOrderProductNames" in page
+    assert "order.purchase_order_items" in page
+    assert "onClick={() => setSelectedOrderId(order.id)}" in page
+    assert "cursor-pointer" in page
+    assert "onKeyDown={(event) => handleOrderRowKeyDown(event, order.id)}" in page
+    assert "event.stopPropagation()" in page
+    assert "aria-label={isVi ? \"Xóa PO\" : \"Delete PO\"}" in page
+
+
 if __name__ == "__main__":
     test_payables_receiving_helpers_are_present_and_use_actual_quantity()
     test_migration_adds_receipt_variance_and_payable_state_without_breaking_existing_columns()
@@ -296,4 +316,5 @@ if __name__ == "__main__":
     test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finalization()
     test_finance_payables_ui_filters_and_labels_warehouse_generated_requests()
     test_payables_management_is_accessible_from_cost_sidebar_with_filtered_route()
-    print("ok - 11 tests passed")
+    test_purchase_orders_list_row_opens_details_and_shows_product_names_without_eye_icon()
+    print("ok - 12 tests passed")

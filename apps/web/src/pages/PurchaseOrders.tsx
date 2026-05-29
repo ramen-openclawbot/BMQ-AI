@@ -1,11 +1,10 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, type KeyboardEvent } from "react";
 import { format } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
 import {
   FileText,
   Search,
   Loader2,
-  Eye,
   Trash2,
   Send,
   Package,
@@ -44,7 +43,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { AddPurchaseOrderDialog } from "@/components/dialogs/AddPurchaseOrderDialog";
 import { PurchaseOrderDetailsDialog } from "@/components/dialogs/PurchaseOrderDetailsDialog";
-import { usePurchaseOrders, useDeletePurchaseOrder } from "@/hooks/usePurchaseOrders";
+import { usePurchaseOrders, useDeletePurchaseOrder, type PurchaseOrder } from "@/hooks/usePurchaseOrders";
 import { useSuppliers } from "@/hooks/useSuppliers";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
@@ -93,6 +92,25 @@ export default function PurchaseOrders() {
     }
   };
 
+  const getOrderProductNames = (order: PurchaseOrder) => {
+    const names = (order.purchase_order_items || [])
+      .map((item) => item.product_name?.trim())
+      .filter((name): name is string => Boolean(name));
+
+    if (names.length === 0) return isVi ? "Chưa có sản phẩm" : "No products";
+
+    const visibleNames = names.slice(0, 2).join(", ");
+    const hiddenCount = names.length - 2;
+    return hiddenCount > 0 ? `${visibleNames} +${hiddenCount}` : visibleNames;
+  };
+
+  const handleOrderRowKeyDown = (event: KeyboardEvent<HTMLTableRowElement>, orderId: string) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      setSelectedOrderId(orderId);
+    }
+  };
+
   const stats = useMemo(() => {
     if (!orders) return { total: 0, draft: 0, sent: 0, completed: 0, totalValue: 0 };
     return {
@@ -107,8 +125,14 @@ export default function PurchaseOrders() {
   const filteredOrders = useMemo(() => {
     if (!orders) return [];
     return orders.filter((order) => {
-      const matchesSearch = order.po_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.suppliers?.name?.toLowerCase().includes(searchTerm.toLowerCase());
+      const normalizedSearch = searchTerm.toLowerCase();
+      const productNames = (order.purchase_order_items || [])
+        .map((item) => item.product_name || "")
+        .join(" ")
+        .toLowerCase();
+      const matchesSearch = order.po_number.toLowerCase().includes(normalizedSearch) ||
+        order.suppliers?.name?.toLowerCase().includes(normalizedSearch) ||
+        productNames.includes(normalizedSearch);
       const matchesStatus = statusFilter === "all" || order.status === statusFilter;
       return matchesSearch && matchesStatus;
     });
@@ -164,7 +188,7 @@ export default function PurchaseOrders() {
       <div className="flex items-center gap-4">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder={isVi ? "Tìm theo số PO, nhà cung cấp..." : "Search by PO number, supplier..."} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10" />
+          <Input placeholder={isVi ? "Tìm theo số PO, nhà cung cấp, sản phẩm..." : "Search by PO number, supplier, product..."} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10" />
         </div>
         <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
           <SelectTrigger className="w-40"><SelectValue placeholder={isVi ? "Trạng thái" : "Status"} /></SelectTrigger>
@@ -192,24 +216,44 @@ export default function PurchaseOrders() {
                 <TableRow>
                   <TableHead>{isVi ? "Số PO" : "PO #"}</TableHead>
                   <TableHead>{isVi ? "Nhà cung cấp" : "Supplier"}</TableHead>
+                  <TableHead>{isVi ? "Sản phẩm" : "Products"}</TableHead>
                   <TableHead>{isVi ? "Ngày đặt" : "Order date"}</TableHead>
                   <TableHead>{isVi ? "Trạng thái" : "Status"}</TableHead>
                   <TableHead className="text-right">{isVi ? "Tổng tiền" : "Total"}</TableHead>
-                  <TableHead className="w-24"></TableHead>
+                  <TableHead className="w-14"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredOrders.map((order) => (
-                  <TableRow key={order.id}>
+                  <TableRow
+                    key={order.id}
+                    role="button"
+                    tabIndex={0}
+                    className="cursor-pointer hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => setSelectedOrderId(order.id)}
+                    onKeyDown={(event) => handleOrderRowKeyDown(event, order.id)}
+                  >
                     <TableCell className="font-medium">{order.po_number}</TableCell>
                     <TableCell>{order.suppliers?.name || (order.supplier_id ? supplierMap.get(order.supplier_id) : undefined) || (isVi ? "N/A" : "N/A")}</TableCell>
+                    <TableCell className="max-w-[280px] truncate text-muted-foreground" title={getOrderProductNames(order)}>{getOrderProductNames(order)}</TableCell>
                     <TableCell>{format(new Date(order.order_date), "dd/MM/yyyy", { locale })}</TableCell>
                     <TableCell>{getStatusBadge(order.status)}</TableCell>
                     <TableCell className="text-right font-medium">{formatCurrency(order.total_amount || 0)}</TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => setSelectedOrderId(order.id)}><Eye className="h-4 w-4" /></Button>
-                        {order.status === "draft" && <Button variant="ghost" size="icon" onClick={() => setDeleteOrderId(order.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+                      <div className="flex items-center justify-end gap-1">
+                        {order.status === "draft" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={isVi ? "Xóa PO" : "Delete PO"}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setDeleteOrderId(order.id);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
