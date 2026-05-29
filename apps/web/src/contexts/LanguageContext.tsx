@@ -410,7 +410,7 @@ const translations: Record<Language, Translations> = {
     financeCeoDeclaration: "CEO khai báo",
     financeCostClassification: "Phân loại chi phí",
     financeRevenueManagement: "Quản lý doanh thu",
-    financeDebtManagement: "Quản lý công nợ",
+    financeDebtManagement: "Quản lý công nợ phải thu",
     financeRevenueSetup: "Thiết lập doanh thu",
     crm: "CRM",
     poPurchasing: "PO (Mua hàng)",
