@@ -352,16 +352,23 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert "const periodOrders = useMemo" in page
     assert "const selectedSupplierSummary = useMemo" in page
     assert "const selectedSupplierName = useMemo" in page
+    assert "const normalizeSupplierKey =" in page
+    assert "const supplierKey = normalizeSupplierKey(supplierName);" in page
+    assert "ids: new Set<string>" in page
     assert "selectedSupplierSummary?.poCount || 0" in page
     assert "selectedSupplierId ? `PO của ${selectedSupplierName}`" in page
     assert "orderMatchesSelectedPeriod(order)" in page
-    assert "order.supplier_id === selectedSupplierId" in page
+    assert "selectedSupplierSummary.ids.has(order.supplier_id)" in page
     assert "Xếp hạng NCC theo giá trị PO" in page
     assert "Đang xem:" in page
     assert "Xóa lọc NCC" in page
     assert "PO của" in page
     assert "Không có PO trong kỳ đã chọn" in page
     assert "Ngày / Tháng / Năm" in page
+    assert page.count("Ngày / Tháng / Năm") == 1
+    ranking_card = page[page.index("data-stitch-desktop-supplier-ranking"):]
+    assert "handleTimeFilterModeChange(mode)" not in ranking_card
+    assert "grid grid-cols-3" not in ranking_card
     assert "data-stitch-desktop-supplier-ranking" in page
     assert "data-stitch-mobile-po-main" in page
     assert "data-stitch-mobile-po-card" in page

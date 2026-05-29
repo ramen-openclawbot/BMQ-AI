@@ -108,6 +108,9 @@ const normalizeSearchText = (value: string | null | undefined) =>
     .replace(/đ/g, "d")
     .trim();
 
+const normalizeSupplierKey = (value: string | null | undefined) =>
+  normalizeSearchText(value).replace(/\s+/g, " ");
+
 const capitalizeProductName = (value: string | null | undefined) => {
   const trimmedValue = String(value || "").trim();
   const [firstCharacter, ...remainingCharacters] = Array.from(trimmedValue);
@@ -234,16 +237,18 @@ export default function PurchaseOrders() {
   }, [periodOrders]);
 
   const supplierRanking = useMemo(() => {
-    const ranking = new Map<string, { id: string; name: string; totalValue: number; poCount: number }>();
+    const ranking = new Map<string, { id: string; name: string; totalValue: number; poCount: number; ids: Set<string> }>();
     periodOrders
       .filter((order) => order.status !== "cancelled" && order.supplier_id)
       .forEach((order) => {
         const supplierId = order.supplier_id as string;
         const supplierName = order.suppliers?.name || supplierMap.get(supplierId) || (isVi ? "Không rõ NCC" : "Unknown supplier");
-        const current = ranking.get(supplierId) || { id: supplierId, name: supplierName, totalValue: 0, poCount: 0 };
+        const supplierKey = normalizeSupplierKey(supplierName);
+        const current = ranking.get(supplierKey) || { id: supplierKey, name: supplierName, totalValue: 0, poCount: 0, ids: new Set<string>() };
+        current.ids.add(supplierId);
         current.totalValue += order.total_amount || 0;
         current.poCount += 1;
-        ranking.set(supplierId, current);
+        ranking.set(supplierKey, current);
       });
     return Array.from(ranking.values()).sort((a, b) => b.totalValue - a.totalValue);
   }, [isVi, periodOrders, supplierMap]);
@@ -267,10 +272,10 @@ export default function PurchaseOrders() {
       const searchableText = normalizeSearchText(`${order.po_number} ${order.suppliers?.name || ""} ${productNames}`);
       const matchesSearch = searchableText.includes(normalizedSearch);
       const matchesStatus = statusFilter === "all" || order.status === statusFilter;
-      const matchesSupplier = !selectedSupplierId || order.supplier_id === selectedSupplierId;
+      const matchesSupplier = !selectedSupplierId || (!!order.supplier_id && !!selectedSupplierSummary && selectedSupplierSummary.ids.has(order.supplier_id));
       return matchesSearch && matchesStatus && matchesSupplier;
     });
-  }, [periodOrders, searchTerm, selectedSupplierId, statusFilter]);
+  }, [periodOrders, searchTerm, selectedSupplierId, selectedSupplierSummary, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
   const currentPageSafe = Math.min(currentPage, totalPages);
@@ -651,25 +656,6 @@ export default function PurchaseOrders() {
             <div>
               <CardTitle className="text-sm font-semibold text-slate-950 dark:text-[#f3ece4]">Xếp hạng NCC theo giá trị PO</CardTitle>
               <p className="mt-1 text-xs text-slate-500 dark:text-[#a99b8c]">{periodLabel}</p>
-            </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-2 dark:border-[#443b30] dark:bg-[#1d1813]">
-              <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-[#a99b8c]">Ngày / Tháng / Năm</div>
-              <div className="grid grid-cols-3 gap-1">
-                {([
-                  ["day", isVi ? "Ngày" : "Day"],
-                  ["month", isVi ? "Tháng" : "Month"],
-                  ["year", isVi ? "Năm" : "Year"],
-                ] as Array<[TimeFilterMode, string]>).map(([mode, label]) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    className={`rounded-md px-2 py-1.5 text-[11px] font-semibold transition ${timeFilterMode === mode ? "bg-[#D97706] text-white" : "text-slate-500 hover:bg-white dark:text-[#a99b8c] dark:hover:bg-[#2b241c]"}`}
-                    onClick={() => handleTimeFilterModeChange(mode)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-3 px-4 pb-4 pt-0">
