@@ -231,6 +231,11 @@ def test_finance_payables_ui_filters_and_labels_warehouse_generated_requests():
     assert 'select(fallbackSelect)' in hook
     assert "goods_receipts?:" in hook
     assert "purchase_orders?:" in hook
+    assert "creator_profile?:" in hook
+    assert "attachCreatorProfiles" in hook
+    assert '.from("profiles")' in hook
+    assert '.select("user_id, full_name, email")' in hook
+    assert '.in("user_id", creatorIds)' in hook
 
     assert 'sourceFilter' in page
     assert 'warehouse_receipt' in page
@@ -242,6 +247,8 @@ def test_finance_payables_ui_filters_and_labels_warehouse_generated_requests():
     table_section = page.split('<TableHeader className="bg-slate-50 dark:bg-slate-900/50">', 1)[1].split('</Table>', 1)[0]
     assert '{language === "vi" ? "Nguồn" : "Source"}' not in table_section
     assert 'renderSourceBadge(request)' not in table_section
+    assert 'request.creator_profile' in page
+    assert 'profile?.full_name?.trim()' in page
 
     assert 'Công nợ tạo từ nhập kho' in details
     assert 'Phiếu nhập kho' in details

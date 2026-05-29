@@ -155,8 +155,10 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
   const getRequestCode = (request: PaymentRequestWithSupplier) =>
     request.request_number || request.title || `DC-${request.id.slice(0, 8).toUpperCase()}`;
 
-  const getCreatorName = (request: PaymentRequestWithSupplier) =>
-    request.created_by ? `User ${request.created_by.slice(0, 8)}` : "-";
+  const getCreatorName = (request: PaymentRequestWithSupplier) => {
+    const profile = request.creator_profile;
+    return profile?.full_name?.trim() || profile?.email?.trim() || (request.created_by ? `User ${request.created_by.slice(0, 8)}` : "-");
+  };
 
   const dateRangeLabel = useMemo(() => {
     const fromLabel = dateFrom ? format(new Date(`${dateFrom}T00:00:00`), "dd/MM/yyyy") : "--/--/----";

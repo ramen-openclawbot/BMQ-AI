@@ -13,6 +13,7 @@ type PaymentRequestItemInsert = Database["public"]["Tables"]["payment_request_it
 
 export interface PaymentRequestWithSupplier extends PaymentRequest {
   suppliers?: { id: string; name: string } | null;
+  creator_profile?: { user_id: string; full_name: string | null; email: string | null } | null;
   payment_request_items?: Array<Pick<PaymentRequestItem, "id" | "product_name" | "raw_product_name">> | null;
   payment_allocations?: Array<Pick<PaymentAllocation, "id" | "amount" | "payment_id" | "created_at">> | null;
   goods_receipts?: { id: string; receipt_number: string | null; receipt_date: string | null; payable_status: string | null } | null;
@@ -32,6 +33,27 @@ export const getRemainingPaymentAmount = (request: Pick<PaymentRequestWithSuppli
 export const hasOutstandingPayment = (request: Pick<PaymentRequestWithSupplier, "payment_status" | "total_amount" | "payment_allocations">) =>
   request.payment_status === "unpaid" || request.payment_status === "partial" || getRemainingPaymentAmount(request) > 0;
 
+async function attachCreatorProfiles(requests: PaymentRequestWithSupplier[]) {
+  const creatorIds = Array.from(new Set(requests.map((request) => request.created_by).filter(Boolean) as string[]));
+  if (!creatorIds.length) return requests;
+
+  const { data: profiles, error } = await supabase
+    .from("profiles")
+    .select("user_id, full_name, email")
+    .in("user_id", creatorIds);
+
+  if (error) {
+    console.warn("[usePaymentRequests] Could not load creator profiles", error);
+    return requests;
+  }
+
+  const profileByUserId = new Map((profiles || []).map((profile) => [profile.user_id, profile]));
+  return requests.map((request) => ({
+    ...request,
+    creator_profile: request.created_by ? profileByUserId.get(request.created_by) || null : null,
+  }));
+}
+
 export function usePaymentRequests() {
   return useQuery({
     queryKey: ["payment-requests"],
@@ -44,7 +66,7 @@ export function usePaymentRequests() {
         .select(relationSelect)
         .order("created_at", { ascending: false });
 
-      if (!error) return data as PaymentRequestWithSupplier[];
+      if (!error) return attachCreatorProfiles((data || []) as PaymentRequestWithSupplier[]);
 
       console.warn("[usePaymentRequests] Falling back without receipt/PO relations", error);
       const { data: fallbackData, error: fallbackError } = await supabase
@@ -52,7 +74,7 @@ export function usePaymentRequests() {
         .select(fallbackSelect)
         .order("created_at", { ascending: false });
       if (fallbackError) throw fallbackError;
-      return fallbackData as PaymentRequestWithSupplier[];
+      return attachCreatorProfiles((fallbackData || []) as PaymentRequestWithSupplier[]);
     },
     staleTime: 30000,
     gcTime: 5 * 60 * 1000,
@@ -70,7 +92,8 @@ export function usePaymentRequest(id: string | null) {
         .eq("id", id)
         .single();
       if (error) throw error;
-      return data as PaymentRequestWithSupplier;
+      const [request] = await attachCreatorProfiles([data as PaymentRequestWithSupplier]);
+      return request;
     },
     enabled: !!id,
     staleTime: 30000,
