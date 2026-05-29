@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/contexts/AuthContext";
-import { useTheme } from "@/contexts/ThemeContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Separator } from "@/components/ui/separator";
 import { supabase } from "@/integrations/supabase/client";
@@ -19,7 +18,6 @@ import {
 
 const Settings = () => {
   const { user, profile, signOut, refreshProfile } = useAuth();
-  const { theme, toggleTheme } = useTheme();
   const { language, setLanguage, t } = useLanguage();
   const [displayName, setDisplayName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -39,8 +37,9 @@ const Settings = () => {
       
       if (error) throw error;
       await refreshProfile();
-    } catch (error: any) {
-      console.error("Profile update failed:", error.message);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("Profile update failed:", message);
     } finally {
       setSaving(false);
     }
@@ -149,12 +148,16 @@ const Settings = () => {
           <h2 className="font-display font-semibold text-lg">{t.appearance}</h2>
         </div>
         <Separator />
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/30 p-4">
             <div>
               <p className="font-medium">{t.darkMode}</p>
-              <p className="text-sm text-muted-foreground">{t.darkModeDesc}</p>
+              <p className="text-sm text-muted-foreground">
+                Tạm thời tắt để tập trung phát triển light mode và đồng bộ theme chung.
+              </p>
             </div>
-            <Switch checked={theme === "dark"} onCheckedChange={toggleTheme} />
+            <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-semibold text-muted-foreground">
+              Light mode
+            </span>
           </div>
       </div>
 

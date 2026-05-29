@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, ReactNode } from "react";
 
 type Theme = "light" | "dark";
 
@@ -10,28 +10,28 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    const stored = localStorage.getItem("theme");
-    if (stored === "dark" || stored === "light") return stored;
-    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-  });
+const FORCED_THEME: Theme = "light";
 
+export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === "dark") {
-      root.classList.add("dark");
-    } else {
-      root.classList.remove("dark");
-    }
-    localStorage.setItem("theme", theme);
-  }, [theme]);
+    root.classList.remove("dark");
+    root.dataset.theme = FORCED_THEME;
+    localStorage.setItem("theme", FORCED_THEME);
+  }, []);
 
-  const toggleTheme = () => setThemeState((prev) => (prev === "dark" ? "light" : "dark"));
-  const setTheme = (newTheme: Theme) => setThemeState(newTheme);
+  // Dark mode is intentionally disabled while the BMQ-AI light theme is being finalized.
+  // Keep the public API stable so existing components do not need special-case guards.
+  const enforceLightTheme = () => {
+    document.documentElement.classList.remove("dark");
+    document.documentElement.dataset.theme = FORCED_THEME;
+    localStorage.setItem("theme", FORCED_THEME);
+  };
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>
+    <ThemeContext.Provider
+      value={{ theme: FORCED_THEME, toggleTheme: enforceLightTheme, setTheme: enforceLightTheme }}
+    >
       {children}
     </ThemeContext.Provider>
   );
