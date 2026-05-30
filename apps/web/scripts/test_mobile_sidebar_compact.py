@@ -7,13 +7,14 @@ source = SIDEBAR.read_text(encoding="utf-8")
 required_tokens = [
     'data-stitch-mobile-sidebar="compact-readable"',
     'space-y-0.5 overflow-y-auto px-3 py-3 pb-20',
-    'text-sidebar-foreground/85',
-    'text-[13px] font-extrabold',
-    'drop-shadow-[0_1px_0_rgba(255,255,255,0.55)]',
+    'text-white',
+    'md:text-white',
+    'text-[13px] font-extrabold text-white',
+    'drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)]',
     'bg-sidebar-accent/85',
     'h-10 items-center',
     'h-9 items-center',
-    'before:w-0.5 before:rounded-full before:bg-sidebar-primary',
+    'before:w-0.5 before:rounded-full before:bg-white',
     'md:space-y-1 md:px-4 md:py-6 md:pb-24',
 ]
 

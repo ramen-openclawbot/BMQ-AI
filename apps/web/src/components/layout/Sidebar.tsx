@@ -235,7 +235,7 @@ export function Sidebar() {
                 {!collapsed && showSectionHeader && (
                   <div className="pt-2.5 first:pt-0 md:pt-4">
                     {idx !== 0 && <div className="mx-3 mb-2 border-t border-sidebar-border/70 md:mx-4 md:mb-3" />}
-                    <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em] text-sidebar-foreground/60 md:px-4 md:text-[11px] md:font-semibold md:text-sidebar-foreground/45">
+                    <div className="px-3 pb-1 text-[10px] font-extrabold uppercase tracking-[0.08em] text-white/80 drop-shadow-[0_1px_1px_rgba(0,0,0,0.45)] md:px-4 md:text-[11px] md:font-bold md:text-white/70 md:drop-shadow-none">
                       {sectionLabels[item.section]}
                     </div>
                   </div>
@@ -243,7 +243,7 @@ export function Sidebar() {
 
                 {item.children ? (
                   <div>
-                    <div className="group relative flex h-10 items-center gap-2.5 rounded-lg border border-transparent px-3 text-[13px] font-extrabold text-sidebar-foreground/85 drop-shadow-[0_1px_0_rgba(255,255,255,0.55)] md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-semibold md:text-sidebar-foreground/75 md:drop-shadow-none">
+                    <div className="group relative flex h-10 items-center gap-2.5 rounded-lg border border-transparent px-3 text-[13px] font-extrabold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-bold md:text-white md:drop-shadow-none">
                       <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-sidebar-accent/30 transition-colors md:h-8 md:w-8">
                         <item.icon className="h-4 w-4" />
                       </span>
@@ -261,10 +261,10 @@ export function Sidebar() {
                                 if (window.matchMedia("(max-width: 767px)").matches) setCollapsed(true);
                               }}
                               className={cn(
-                                "relative flex h-9 items-center gap-2 rounded-md px-3 text-[13px] font-extrabold drop-shadow-[0_1px_0_rgba(255,255,255,0.55)] transition-colors md:h-auto md:py-1.5 md:text-sm md:font-medium md:drop-shadow-none",
+                                "relative flex h-9 items-center gap-2 rounded-md px-3 text-[13px] font-extrabold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] transition-colors md:h-auto md:py-1.5 md:text-sm md:font-bold md:text-white md:drop-shadow-none",
                                 childActive
-                                  ? "bg-sidebar-accent/85 text-sidebar-primary before:absolute before:left-0 before:top-1.5 before:h-6 before:w-0.5 before:rounded-full before:bg-sidebar-primary md:before:hidden"
-                                  : "text-sidebar-foreground/85 hover:bg-sidebar-accent/30 hover:text-sidebar-foreground md:text-sidebar-foreground/65"
+                                  ? "bg-sidebar-accent/85 text-white before:absolute before:left-0 before:top-1.5 before:h-6 before:w-0.5 before:rounded-full before:bg-white md:before:hidden"
+                                  : "hover:bg-sidebar-accent/30 hover:text-white"
                               )}
                             >
                               <child.icon className="h-3.5 w-3.5" />
@@ -283,10 +283,10 @@ export function Sidebar() {
                     }}
                     className={({ isActive }) =>
                       cn(
-                        "group relative flex h-10 items-center gap-2.5 rounded-lg border border-transparent px-3 text-[13px] font-extrabold drop-shadow-[0_1px_0_rgba(255,255,255,0.55)] transition-all duration-200 md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-medium md:drop-shadow-none",
+                        "group relative flex h-10 items-center gap-2.5 rounded-lg border border-transparent px-3 text-[13px] font-extrabold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] transition-all duration-200 md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-bold md:text-white md:drop-shadow-none",
                         isActive
-                          ? "bg-sidebar-accent/85 text-sidebar-primary border-sidebar-border/80 shadow-sm before:absolute before:left-0 before:top-2 before:h-6 before:w-0.5 before:rounded-full before:bg-sidebar-primary md:before:hidden md:font-semibold"
-                          : "text-sidebar-foreground/85 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground md:text-sidebar-foreground/75"
+                          ? "bg-sidebar-accent/85 text-white border-sidebar-border/80 shadow-sm before:absolute before:left-0 before:top-2 before:h-6 before:w-0.5 before:rounded-full before:bg-white md:before:hidden"
+                          : "hover:bg-sidebar-accent/40 hover:text-white"
                       )
                     }
                   >
@@ -312,7 +312,7 @@ export function Sidebar() {
                   <div className="ml-8 mt-0.5 md:ml-10 md:mt-1">
                     <button
                       onClick={handleScanDrive}
-                      className="flex h-8 w-full items-center gap-1.5 rounded-md px-3 text-xs font-semibold text-primary/90 transition-colors hover:bg-sidebar-accent/30 hover:text-primary md:h-auto md:py-1.5"
+                      className="flex h-8 w-full items-center gap-1.5 rounded-md px-3 text-xs font-extrabold text-white/95 drop-shadow-[0_1px_1px_rgba(0,0,0,0.5)] transition-colors hover:bg-sidebar-accent/30 hover:text-white md:h-auto md:py-1.5 md:font-bold md:drop-shadow-none"
                     >
                       <FolderSearch className="h-3 w-3" />
                       <span>{t.createPOFromDrive}</span>
@@ -329,7 +329,7 @@ export function Sidebar() {
         <div className="border-t border-sidebar-border/60 bg-sidebar/60 px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-xl md:px-4 md:py-4 md:pb-[max(1rem,env(safe-area-inset-bottom))]">
           <NavLink
             to="/settings"
-            className="relative flex h-10 items-center gap-2.5 rounded-lg px-3 text-[13px] font-extrabold text-sidebar-foreground/85 drop-shadow-[0_1px_0_rgba(255,255,255,0.55)] transition-all duration-200 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-medium md:text-sidebar-foreground/75 md:drop-shadow-none"
+            className="relative flex h-10 items-center gap-2.5 rounded-lg px-3 text-[13px] font-extrabold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] transition-all duration-200 hover:bg-sidebar-accent/40 hover:text-white md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-bold md:text-white md:drop-shadow-none"
           >
             <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-sidebar-accent/30 md:h-8 md:w-8">
               <Settings className="h-4 w-4" />
