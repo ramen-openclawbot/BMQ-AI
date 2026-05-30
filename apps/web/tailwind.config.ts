@@ -18,6 +18,7 @@ export default {
         display: ['Manrope', 'sans-serif'],
         body: ['Manrope', 'sans-serif'],
         monoData: ['JetBrains Mono', 'monospace'],
+        sidebar: ['Be Vietnam Pro', 'Manrope', 'sans-serif'],
       },
       colors: {
         border: "hsl(var(--border))",

@@ -226,7 +226,7 @@ export function Sidebar() {
         </div>
 
         {/* Navigation - scrollable */}
-        <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-3 pb-20 md:space-y-1 md:px-4 md:py-6 md:pb-24">
+        <nav className="font-sidebar flex-1 space-y-0.5 overflow-y-auto px-3 py-3 pb-20 md:space-y-1 md:px-4 md:py-6 md:pb-24">
           {visibleItems.map((item, idx) => {
             const prevItem = idx > 0 ? visibleItems[idx - 1] : null;
             const showSectionHeader = !prevItem || prevItem.section !== item.section;
@@ -263,7 +263,7 @@ export function Sidebar() {
                               className={cn(
                                 "relative flex h-9 items-center gap-2 rounded-md px-3 text-[13px] font-extrabold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] transition-colors md:h-auto md:py-1.5 md:text-sm md:font-bold md:text-white md:drop-shadow-none",
                                 childActive
-                                  ? "bg-sidebar-accent/85 text-white before:absolute before:left-0 before:top-1.5 before:h-6 before:w-0.5 before:rounded-full before:bg-white md:before:hidden"
+                                  ? "bg-sidebar-accent/85 text-black md:text-black before:absolute before:left-0 before:top-1.5 before:h-6 before:w-0.5 before:rounded-full before:bg-black md:before:hidden"
                                   : "hover:bg-sidebar-accent/30 hover:text-white"
                               )}
                             >
@@ -285,7 +285,7 @@ export function Sidebar() {
                       cn(
                         "group relative flex h-10 items-center gap-2.5 rounded-lg border border-transparent px-3 text-[13px] font-extrabold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] transition-all duration-200 md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-bold md:text-white md:drop-shadow-none",
                         isActive
-                          ? "bg-sidebar-accent/85 text-white border-sidebar-border/80 shadow-sm before:absolute before:left-0 before:top-2 before:h-6 before:w-0.5 before:rounded-full before:bg-white md:before:hidden"
+                          ? "bg-sidebar-accent/85 text-black md:text-black border-sidebar-border/80 shadow-sm before:absolute before:left-0 before:top-2 before:h-6 before:w-0.5 before:rounded-full before:bg-black md:before:hidden"
                           : "hover:bg-sidebar-accent/40 hover:text-white"
                       )
                     }
@@ -329,7 +329,12 @@ export function Sidebar() {
         <div className="border-t border-sidebar-border/60 bg-sidebar/60 px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-xl md:px-4 md:py-4 md:pb-[max(1rem,env(safe-area-inset-bottom))]">
           <NavLink
             to="/settings"
-            className="relative flex h-10 items-center gap-2.5 rounded-lg px-3 text-[13px] font-extrabold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] transition-all duration-200 hover:bg-sidebar-accent/40 hover:text-white md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-bold md:text-white md:drop-shadow-none"
+            className={({ isActive }) =>
+              cn(
+                "relative flex h-10 items-center gap-2.5 rounded-lg px-3 text-[13px] font-extrabold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] transition-all duration-200 hover:bg-sidebar-accent/40 hover:text-white md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-bold md:text-white md:drop-shadow-none",
+                isActive && "bg-sidebar-accent/85 text-black md:text-black shadow-sm hover:text-black"
+              )
+            }
           >
             <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-sidebar-accent/30 md:h-8 md:w-8">
               <Settings className="h-4 w-4" />

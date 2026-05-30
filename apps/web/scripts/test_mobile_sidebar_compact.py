@@ -2,19 +2,28 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SIDEBAR = ROOT / "src/components/layout/Sidebar.tsx"
-source = SIDEBAR.read_text(encoding="utf-8")
+TAILWIND = ROOT / "tailwind.config.ts"
+INDEX_CSS = ROOT / "src/index.css"
+source = "\n".join([
+    SIDEBAR.read_text(encoding="utf-8"),
+    TAILWIND.read_text(encoding="utf-8"),
+    INDEX_CSS.read_text(encoding="utf-8"),
+])
 
 required_tokens = [
     'data-stitch-mobile-sidebar="compact-readable"',
-    'space-y-0.5 overflow-y-auto px-3 py-3 pb-20',
+    'font-sidebar flex-1 space-y-0.5 overflow-y-auto px-3 py-3 pb-20',
     'text-white',
+    'text-black',
+    'fontFamily',
+    'Be Vietnam Pro',
     'md:text-white',
     'text-[13px] font-extrabold text-white',
     'drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)]',
     'bg-sidebar-accent/85',
     'h-10 items-center',
     'h-9 items-center',
-    'before:w-0.5 before:rounded-full before:bg-white',
+    'before:w-0.5 before:rounded-full before:bg-black',
     'md:space-y-1 md:px-4 md:py-6 md:pb-24',
 ]
 
