@@ -1654,11 +1654,18 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
     ? (cronScheduledAttempt ? "scheduled_cron_proxy" : "explicit")
     : "auto_daily_window";
   const manualRecovery = Boolean(explicitRevenueDate) && !cronScheduledAttempt;
+  // The 23:59 VN cron intentionally seeds tomorrow's delivery date from PO emails
+  // received before midnight. A second same-day recovery cron runs after daytime
+  // PO corrections/late emails have arrived. That recovery must supersede the
+  // earlier zero/partial auto-post instead of being skipped by idempotency.
+  const sameLocalDayScheduledRecovery = cronScheduledAttempt
+    && Boolean(explicitRevenueDate)
+    && explicitRevenueDate === autoDailyWindow().revenueDateFrom;
   const startedAt = new Date().toISOString();
   let runId: string | null = null;
 
   try {
-    if (cronScheduledAttempt) {
+    if (cronScheduledAttempt && !sameLocalDayScheduledRecovery) {
       const existingReport = await fetchExistingAutoDailyReport(supabaseAdmin, window.revenueDateFrom);
       if (existingReport) {
         return jsonResponse(req, {
@@ -1685,7 +1692,7 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
       startedAt,
       poReceivedFrom: window.poReceivedFrom,
       poReceivedTo: window.poReceivedTo,
-      metadata: { revenueDateSource, manualRecovery, cronScheduledAttempt, noDoubleCountKey, trigger },
+      metadata: { revenueDateSource, manualRecovery, cronScheduledAttempt, sameLocalDayScheduledRecovery, noDoubleCountKey, trigger },
     });
 
     const preview = await runCurrentMonthPreview(req, supabaseAdmin, null, undefined, {
@@ -1747,7 +1754,7 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
       rowCount,
       grossTotal,
       reviewFlaggedLineCount,
-      metadata: { revenueDateSource, manualRecovery, cronScheduledAttempt, noDoubleCountKey, gmailSyncSummary, postResult },
+      metadata: { revenueDateSource, manualRecovery, cronScheduledAttempt, sameLocalDayScheduledRecovery, noDoubleCountKey, gmailSyncSummary, postResult },
     });
 
     return jsonResponse(req, {
@@ -1761,6 +1768,7 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
       noDoubleCountKey,
       poReceivedFrom: window.poReceivedFrom,
       poReceivedTo: window.poReceivedTo,
+      sameLocalDayScheduledRecovery,
       stagingRunId: String(asRecord(preview.run).id || ""),
       previewSummary: preview.summary,
       postResult: data,
@@ -1777,7 +1785,7 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
       poReceivedFrom: window.poReceivedFrom,
       poReceivedTo: window.poReceivedTo,
       errorMessage: message,
-      metadata: { revenueDateSource, manualRecovery, cronScheduledAttempt, noDoubleCountKey },
+      metadata: { revenueDateSource, manualRecovery, cronScheduledAttempt, sameLocalDayScheduledRecovery, noDoubleCountKey },
     });
     throw error;
   }

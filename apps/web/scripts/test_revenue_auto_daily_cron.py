@@ -25,9 +25,12 @@ def assert_contains(text: str, needle: str, label: str) -> None:
     assert needle in text, f"missing {label}: expected to find {needle!r}"
 
 
-def test_single_vercel_cron_after_business_day_close_vietnam_time() -> None:
+def test_vercel_crons_seed_next_day_and_recover_same_day_vietnam_time() -> None:
     crons = vercel.get("crons", [])
-    assert crons == [{"path": "/api/po-sync-cron", "schedule": "59 17 * * *"}]
+    assert crons == [
+        {"path": "/api/po-sync-cron", "schedule": "59 16 * * *"},
+        {"path": "/api/po-sync-cron", "schedule": "5 7 * * *"},
+    ]
 
 
 def test_proxy_uses_intended_vietnam_business_date() -> None:
@@ -77,7 +80,7 @@ def test_auto_daily_window_and_metadata() -> None:
         ("revenueDateFrom = current.date", "today revenue date from"),
         ("revenueDateTo = current.date", "today revenue date to"),
         ("poReceivedFrom = shiftLocalDate(current.date, -1)", "yesterday PO received start"),
-        ("poReceivedTo = shiftLocalDate(current.date, -1)", "yesterday PO received end"),
+        ("poReceivedTo = current.date", "same-day PO received correction end"),
         ('monthlyParseKind: "auto_daily_post"', "auto daily parse kind"),
         ('controlled_kind: "auto_daily_temporary_controlled_parse"', "temporary controlled kind"),
         ("temporary_controlled_revenue: true", "temporary revenue metadata"),
@@ -100,7 +103,7 @@ def test_explicit_revenue_date_cron_window_and_metadata() -> None:
         ("revenueDateFrom: revenueDate", "explicit revenue date from"),
         ("revenueDateTo: revenueDate", "explicit revenue date to"),
         ("poReceivedFrom: shiftLocalDate(revenueDate, -1)", "explicit PO received start"),
-        ("poReceivedTo: shiftLocalDate(revenueDate, -1)", "explicit PO received end"),
+        ("poReceivedTo: revenueDate", "explicit PO received same-day correction end"),
         ("hasRevenueWindow: true", "explicit revenue window enabled"),
         ("Object.prototype.hasOwnProperty.call(body, \"revenueDate\")", "body-only explicit date detection"),
         ("Invalid revenueDate. Expected a real date in YYYY-MM-DD format.", "invalid explicit date 400 message"),
@@ -109,8 +112,9 @@ def test_explicit_revenue_date_cron_window_and_metadata() -> None:
         ("explicitRevenueDate", "explicit date response metadata"),
         ("noDoubleCountKey", "response no-double-count key"),
         ("auto_daily_po_email_parse:${window.revenueDateFrom}", "stable date-based no-double-count key"),
-        ("fetchExistingAutoDailyReport(supabaseAdmin, window.revenueDateFrom)", "scheduled cron skips already posted dates"),
+        ("fetchExistingAutoDailyReport(supabaseAdmin, window.revenueDateFrom)", "scheduled cron skips already posted future-seed dates"),
         ('reason: "auto_daily_already_posted_for_revenue_date"', "skip reason for retries"),
+        ("sameLocalDayScheduledRecovery", "same-day recovery bypasses skip to supersede zero/partial posts"),
         ("monthly_parse_kind: options.monthlyParseKind", "final run summary retains parse kind"),
         ("...(options.runSummary || {})", "run summary preserves explicit metadata"),
         ("revenue_date_source: revenueDateSource", "line payload explicit source metadata"),

@@ -1,6 +1,7 @@
 {
   "crons": [
-    { "path": "/api/po-sync-cron", "schedule": "59 16 * * *" }
+    { "path": "/api/po-sync-cron", "schedule": "59 16 * * *" },
+    { "path": "/api/po-sync-cron", "schedule": "5 7 * * *" }
   ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }

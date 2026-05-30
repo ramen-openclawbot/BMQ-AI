@@ -89,7 +89,7 @@ def test_source_detail_filters_controlled_daily_source() -> None:
         ('.eq("source_document.status", "controlled")', "controlled source status filter for daily route"),
         ('.eq("source_document.source_type", "po_email_parse")', "daily route source type guard"),
         ('.eq("source_document.summary->>monthly_parse_kind", "auto_daily_post")', "daily route auto daily kind guard"),
-        ('query = query.eq("source_document.status", "trusted")', "trusted filter only for default view"),
+        ('next = next.eq("source_document.status", "trusted")', "trusted filter only for default view"),
         ("Auto daily source", "controlled daily source badge"),
     ]:
         assert_contains(detail, needle, label)

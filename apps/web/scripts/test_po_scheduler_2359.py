@@ -22,21 +22,24 @@ def assert_contains(text: str, needle: str, label: str) -> None:
     assert needle in text, f"missing {label}: expected to find {needle!r}"
 
 
-def test_vercel_cron_runs_at_2359_vietnam_time() -> None:
+def test_vercel_cron_runs_at_2359_and_same_day_recovery_vietnam_time() -> None:
     assert_contains(vercel, '"schedule": "59 16 * * *"', "23:59 Asia/Ho_Chi_Minh cron in UTC")
+    assert_contains(vercel, '"schedule": "5 7 * * *"', "14:05 Asia/Ho_Chi_Minh same-day recovery cron in UTC")
 
 
-def test_vercel_keeps_single_cron_path() -> None:
+def test_vercel_keeps_revenue_crons_on_same_proxy_path() -> None:
     crons = vercel_config.get("crons", [])
-    assert len(crons) == 1, f"expected exactly one Vercel cron, found {len(crons)}"
-    assert crons[0] == {"path": "/api/po-sync-cron", "schedule": "59 16 * * *"}
+    assert crons == [
+        {"path": "/api/po-sync-cron", "schedule": "59 16 * * *"},
+        {"path": "/api/po-sync-cron", "schedule": "5 7 * * *"},
+    ]
 
 
 def test_vercel_cron_targets_revenue_auto_daily_post() -> None:
     for needle, label in [
         ("revenue-monthly-parse-preview", "revenue monthly parse function target"),
         ("REVENUE_MONTHLY_PARSE_PREVIEW_URL", "revenue function URL override"),
-        ('JSON.stringify({ action: "auto_daily_post" })', "auto daily post action body"),
+        ('action: "auto_daily_post"', "auto daily post action body"),
         ("REVENUE_CRON_SECRET || process.env.PO_SYNC_CRON_SECRET", "revenue cron secret with compatibility fallback"),
         ("po-sync-scheduler-run", "legacy scheduler target absent"),
     ]:
@@ -54,6 +57,17 @@ def test_schedule_migration_upserts_2359_local_time() -> None:
         ("on conflict (config_key) do update", "idempotent schedule upsert"),
     ]:
         assert_contains(migration, needle, label)
+
+
+def test_same_day_recovery_cron_supersedes_earlier_zero_or_partial_post() -> None:
+    monthly = (ROOT / "supabase/functions/revenue-monthly-parse-preview/index.ts").read_text(encoding="utf-8")
+    for needle, label in [
+        ("sameLocalDayScheduledRecovery", "same-day scheduled recovery flag"),
+        ("cronScheduledAttempt && !sameLocalDayScheduledRecovery", "skip guard bypass for same-day recovery"),
+        ("explicitRevenueDate === autoDailyWindow().revenueDateFrom", "same local date detection"),
+        ("sameLocalDayScheduledRecovery, noDoubleCountKey", "recovery metadata persisted"),
+    ]:
+        assert_contains(monthly, needle, label)
 
 
 def test_due_logic_checks_hour_and_minute() -> None:
