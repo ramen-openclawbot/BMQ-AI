@@ -24,14 +24,14 @@ def assert_contains(text: str, needle: str, label: str) -> None:
 
 def test_vercel_cron_runs_at_2359_and_same_day_recovery_vietnam_time() -> None:
     assert_contains(vercel, '"schedule": "59 16 * * *"', "23:59 Asia/Ho_Chi_Minh cron in UTC")
-    assert_contains(vercel, '"schedule": "5 7 * * *"', "14:05 Asia/Ho_Chi_Minh same-day recovery cron in UTC")
+    assert_contains(vercel, '"schedule": "15 8 * * *"', "15:15 Asia/Ho_Chi_Minh same-day recovery cron in UTC")
 
 
 def test_vercel_keeps_revenue_crons_on_same_proxy_path() -> None:
     crons = vercel_config.get("crons", [])
     assert crons == [
         {"path": "/api/po-sync-cron", "schedule": "59 16 * * *"},
-        {"path": "/api/po-sync-cron", "schedule": "5 7 * * *"},
+        {"path": "/api/po-sync-cron", "schedule": "15 8 * * *"},
     ]
 
 

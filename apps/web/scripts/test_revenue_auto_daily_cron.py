@@ -29,7 +29,7 @@ def test_vercel_crons_seed_next_day_and_recover_same_day_vietnam_time() -> None:
     crons = vercel.get("crons", [])
     assert crons == [
         {"path": "/api/po-sync-cron", "schedule": "59 16 * * *"},
-        {"path": "/api/po-sync-cron", "schedule": "5 7 * * *"},
+        {"path": "/api/po-sync-cron", "schedule": "15 8 * * *"},
     ]
 
 
