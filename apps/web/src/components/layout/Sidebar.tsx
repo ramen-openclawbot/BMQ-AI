@@ -196,14 +196,16 @@ export function Sidebar() {
           onClick={() => setCollapsed(true)}
         />
       )}
-      <aside className={cn(
+      <aside
+        data-stitch-mobile-sidebar="compact-readable"
+        className={cn(
         "fixed left-0 top-0 z-40 h-dvh border-r border-sidebar-border/60 bg-sidebar/70 shadow-card backdrop-blur-xl transition-all duration-200",
         collapsed ? "-translate-x-full w-16 md:translate-x-0" : "w-64"
       )}>
       <div className="flex h-full flex-col">
         {/* Logo */}
-        <div className={cn("flex items-center gap-3 border-b border-sidebar-border", collapsed ? "px-3 py-4" : "px-6 py-5")}>
-          <img src={bmqLogo} alt="BMQ Logo" className={cn("h-10 w-auto", collapsed ? "mx-auto" : "h-12")} />
+        <div className={cn("flex items-center gap-3 border-b border-sidebar-border", collapsed ? "px-3 py-4" : "px-4 py-3 md:px-6 md:py-5")}>
+          <img src={bmqLogo} alt="BMQ Logo" className={cn("h-10 w-auto", collapsed ? "mx-auto" : "h-10 md:h-12")} />
           {!collapsed && (
             <div className="flex-1">
               <h1 className="font-display text-sm font-bold text-sidebar-foreground leading-tight">
@@ -224,16 +226,16 @@ export function Sidebar() {
         </div>
 
         {/* Navigation - scrollable */}
-        <nav className="flex-1 px-4 py-6 pb-24 space-y-1 overflow-y-auto">
+        <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-3 pb-20 md:space-y-1 md:px-4 md:py-6 md:pb-24">
           {visibleItems.map((item, idx) => {
             const prevItem = idx > 0 ? visibleItems[idx - 1] : null;
             const showSectionHeader = !prevItem || prevItem.section !== item.section;
             return (
               <div key={item.path || item.labelKey}>
                 {!collapsed && showSectionHeader && (
-                  <div className="pt-4 first:pt-0">
-                    {idx !== 0 && <div className="mx-4 mb-3 border-t border-sidebar-border/70" />}
-                    <div className="px-4 pb-1 text-[11px] uppercase tracking-[0.08em] text-sidebar-foreground/45 font-semibold">
+                  <div className="pt-2.5 first:pt-0 md:pt-4">
+                    {idx !== 0 && <div className="mx-3 mb-2 border-t border-sidebar-border/70 md:mx-4 md:mb-3" />}
+                    <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em] text-sidebar-foreground/60 md:px-4 md:text-[11px] md:font-semibold md:text-sidebar-foreground/45">
                       {sectionLabels[item.section]}
                     </div>
                   </div>
@@ -241,14 +243,14 @@ export function Sidebar() {
 
                 {item.children ? (
                   <div>
-                    <div className="group relative flex items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-sm font-semibold text-sidebar-foreground/75">
-                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-sidebar-accent/30 transition-colors">
+                    <div className="group relative flex h-10 items-center gap-2.5 rounded-lg border border-transparent px-3 text-[13px] font-bold text-sidebar-foreground/80 md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-semibold md:text-sidebar-foreground/75">
+                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-sidebar-accent/30 transition-colors md:h-8 md:w-8">
                         <item.icon className="h-4 w-4" />
                       </span>
                       {!collapsed && <span className="flex-1">{t[item.labelKey]}</span>}
                     </div>
                     {!collapsed && (
-                      <div className="ml-10 mt-1 space-y-1">
+                      <div className="ml-8 mt-0.5 space-y-0.5 md:ml-10 md:mt-1 md:space-y-1">
                         {item.children.map((child) => {
                           const childActive = isChildActive(child);
                           return (
@@ -259,10 +261,10 @@ export function Sidebar() {
                                 if (window.matchMedia("(max-width: 767px)").matches) setCollapsed(true);
                               }}
                               className={cn(
-                                "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                                "relative flex h-9 items-center gap-2 rounded-md px-3 text-[13px] font-bold transition-colors md:h-auto md:py-1.5 md:text-sm md:font-medium",
                                 childActive
-                                  ? "bg-sidebar-accent/70 text-sidebar-primary"
-                                  : "text-sidebar-foreground/65 hover:bg-sidebar-accent/30 hover:text-sidebar-foreground"
+                                  ? "bg-sidebar-accent/75 text-sidebar-primary before:absolute before:left-0 before:top-1.5 before:h-6 before:w-0.5 before:rounded-full before:bg-sidebar-primary md:before:hidden"
+                                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent/30 hover:text-sidebar-foreground md:text-sidebar-foreground/65"
                               )}
                             >
                               <child.icon className="h-3.5 w-3.5" />
@@ -281,14 +283,14 @@ export function Sidebar() {
                     }}
                     className={({ isActive }) =>
                       cn(
-                        "group relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 border border-transparent",
+                        "group relative flex h-10 items-center gap-2.5 rounded-lg border border-transparent px-3 text-[13px] font-bold transition-all duration-200 md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-medium",
                         isActive
-                          ? "bg-sidebar-accent/80 text-sidebar-primary font-semibold border-sidebar-border/80 shadow-sm"
-                          : "text-sidebar-foreground/75 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
+                          ? "bg-sidebar-accent/80 text-sidebar-primary border-sidebar-border/80 shadow-sm before:absolute before:left-0 before:top-2 before:h-6 before:w-0.5 before:rounded-full before:bg-sidebar-primary md:before:hidden md:font-semibold"
+                          : "text-sidebar-foreground/80 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground md:text-sidebar-foreground/75"
                       )
                     }
                   >
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-sidebar-accent/30 group-hover:bg-sidebar-accent/50 transition-colors">
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-sidebar-accent/30 transition-colors group-hover:bg-sidebar-accent/50 md:h-8 md:w-8">
                       <item.icon className="h-4 w-4" />
                     </span>
                     {!collapsed && <span className="flex-1">{t[item.labelKey]}</span>}
@@ -307,10 +309,10 @@ export function Sidebar() {
 
                 {/* Quick Action: Tạo PO từ GG Drive - under Purchase Orders */}
                 {item.path === "/purchase-orders" && !collapsed && (
-                  <div className="ml-10 mt-1">
+                  <div className="ml-8 mt-0.5 md:ml-10 md:mt-1">
                     <button
                       onClick={handleScanDrive}
-                      className="flex items-center gap-1.5 text-xs text-blue-500/90 hover:text-blue-500 px-3 py-1.5 w-full rounded-md hover:bg-sidebar-accent/30 transition-colors"
+                      className="flex h-8 w-full items-center gap-1.5 rounded-md px-3 text-xs font-semibold text-primary/90 transition-colors hover:bg-sidebar-accent/30 hover:text-primary md:h-auto md:py-1.5"
                     >
                       <FolderSearch className="h-3 w-3" />
                       <span>{t.createPOFromDrive}</span>
@@ -324,12 +326,12 @@ export function Sidebar() {
         </nav>
 
         {/* Settings */}
-        <div className="px-4 py-4 border-t border-sidebar-border/60 pb-[max(1rem,env(safe-area-inset-bottom))] bg-sidebar/60 backdrop-blur-xl">
+        <div className="border-t border-sidebar-border/60 bg-sidebar/60 px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-xl md:px-4 md:py-4 md:pb-[max(1rem,env(safe-area-inset-bottom))]">
           <NavLink
             to="/settings"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-sidebar-foreground/75 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground transition-all duration-200"
+            className="relative flex h-10 items-center gap-2.5 rounded-lg px-3 text-[13px] font-bold text-sidebar-foreground/80 transition-all duration-200 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-medium md:text-sidebar-foreground/75"
           >
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-sidebar-accent/30">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-sidebar-accent/30 md:h-8 md:w-8">
               <Settings className="h-4 w-4" />
             </span>
             {!collapsed && t.settings}
