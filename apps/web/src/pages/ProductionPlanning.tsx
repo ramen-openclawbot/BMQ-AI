@@ -159,10 +159,10 @@ interface AggregatedPlanItem {
 }
 
 const productGradientClassNames = [
-  "from-amber-500/30 via-orange-500/20 to-stone-950",
-  "from-yellow-400/25 via-amber-500/20 to-red-950",
-  "from-orange-400/24 via-yellow-500/16 to-stone-950",
-  "from-amber-300/18 via-orange-500/18 to-zinc-950",
+  "from-primary/15 via-accent/25 to-secondary/40",
+  "from-secondary/45 via-background to-accent/20",
+  "from-success/12 via-card to-primary/12",
+  "from-muted via-card to-secondary/35",
 ];
 
 type ProductSkuImageRow = {
@@ -264,11 +264,11 @@ const ProductVisual = ({
   gradientClassName: string;
   children?: ReactNode;
 }) => (
-  <div className={`relative overflow-hidden rounded-3xl border border-white/10 bg-[#231913] shadow-inner ${className}`}>
+  <div className={`relative overflow-hidden rounded-3xl border border-border/55 bg-card shadow-inner ${className}`}>
     {imageUrl ? (
       <img src={imageUrl} alt={productName} className="h-full w-full object-cover object-center" loading="lazy" />
     ) : (
-      <div className={`flex h-full w-full flex-col items-center justify-center gap-1 bg-gradient-to-br ${gradientClassName} text-amber-100/45`}>
+      <div className={`flex h-full w-full flex-col items-center justify-center gap-1 bg-gradient-to-br ${gradientClassName} text-muted-foreground`}>
         <ImageIcon className="h-6 w-6" />
         <span className="text-[10px] font-extrabold uppercase tracking-wide">Chưa có ảnh</span>
       </div>
@@ -1016,24 +1016,33 @@ export default function ProductionPlanning() {
   const ordersEmpty = !loadingOrders && productionOrders.length === 0;
 
   return (
-    <div className="-m-4 min-h-screen space-y-5 bg-[radial-gradient(circle_at_18%_-12%,rgba(245,158,11,0.18),transparent_34%),linear-gradient(180deg,#140f0c_0%,#0b0908_42%,#070605_100%)] p-4 text-white md:-m-6 md:p-6">
-      <div className="rounded-[2rem] border border-white/10 bg-white/[0.055] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.34)] backdrop-blur-xl md:p-5">
+    <div className="-m-4 min-h-screen space-y-5 bg-background p-4 text-foreground md:-m-6 md:p-6" data-stitch-production-planning="bmq-light-operations">
+      <div className="card-elevated rounded-[1.5rem] p-4 md:p-5" data-stitch-production-header="true">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="space-y-2">
-            <Badge className="w-fit bg-amber-100 text-amber-900 hover:bg-amber-100">
-              {isVi ? "Tự động từ PO đã parse" : "Auto from parsed POs"}
-            </Badge>
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className="w-fit rounded-full bg-primary/10 text-primary hover:bg-primary/10">
+                {isVi ? "Tự động từ PO đã parse" : "Auto from parsed POs"}
+              </Badge>
+              <Badge variant="outline" className="w-fit rounded-full border-border/70 bg-card/70 text-muted-foreground">
+                <CalendarDays className="mr-1 h-3.5 w-3.5" />
+                {isVi ? `Ngày giao ${formatDateOnly(productionPoDateIso)}` : `Delivery ${formatDateOnly(productionPoDateIso)}`}
+              </Badge>
+            </div>
             <div>
-              <h1 className="font-display text-3xl font-bold tracking-tight text-white md:text-4xl">
+              <h1 className="font-display text-3xl font-extrabold tracking-tight text-foreground md:text-4xl">
                 {isVi ? "Kế hoạch sản xuất - Xưởng Q7" : "Q7 Workshop Production Plan"}
               </h1>
+              <p className="mt-1 max-w-3xl text-sm font-medium text-muted-foreground md:text-base">
+                {isVi ? "Tổng hợp PO, SKU và số lượng cần sản xuất theo ngày giao." : "Summarize POs, SKUs, and production quantities by delivery date."}
+              </p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:flex">
             <Button
               variant="outline"
               size="lg"
-              className={`h-12 rounded-2xl border-white/10 text-base ${activeTab === "settings" ? "bg-amber-400 text-[#1b1004] hover:bg-amber-300 hover:text-[#1b1004]" : "bg-white/[0.06] text-white hover:bg-white/[0.1] hover:text-white"}`}
+              className={`h-12 rounded-2xl border-border text-base ${activeTab === "settings" ? "bg-secondary text-secondary-foreground hover:bg-secondary/90" : "bg-card/80 text-foreground hover:bg-muted"}`}
               onClick={() => setActiveTab("settings")}
             >
               {isVi ? "Thiết lập SX" : "Production setup"}
@@ -1043,25 +1052,25 @@ export default function ProductionPlanning() {
                 <Button
                   variant="outline"
                   size="lg"
-                  className="h-12 rounded-2xl border-white/10 bg-white/[0.06] text-base text-white hover:bg-white/[0.1] hover:text-white"
+                  className="h-12 rounded-2xl border-primary/30 bg-card/80 text-base font-bold text-primary hover:bg-primary/10 hover:text-primary"
                   disabled={checkPoMutation.isPending}
                   onClick={() => checkPoMutation.mutate()}
                 >
                   {checkPoMutation.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <MailCheck className="mr-2 h-5 w-5" />}
                   {isVi ? "Kiểm tra PO" : "Check POs"}
                 </Button>
-                <Button variant="outline" size="lg" className="h-12 rounded-2xl border-white/10 bg-white/[0.06] text-base text-white hover:bg-white/[0.1] hover:text-white" onClick={handleOpenTvMode}>
+                <Button variant="outline" size="lg" className="h-12 rounded-2xl border-border bg-card/80 text-base text-foreground hover:bg-muted" onClick={handleOpenTvMode}>
                   <Monitor className="mr-2 h-5 w-5" />
                   {isVi ? "Màn hình TV" : "TV View"}
                 </Button>
                 <Button
                   size="lg"
-                  className="h-12 rounded-2xl bg-amber-400 text-base font-black text-[#1b1004] shadow-[0_12px_28px_rgba(245,158,11,0.22)] hover:bg-amber-300"
+                  className="btn-gradient h-12 rounded-2xl text-base font-black"
                   disabled={!canEditLocation || visiblePendingPos.length === 0}
                   onClick={() => visiblePendingPos[0] && handleCreateClick(visiblePendingPos[0])}
                 >
                   <ClipboardCheck className="mr-2 h-5 w-5" />
-                  {isVi ? "Xác nhận" : "Confirm"}
+                  {isVi ? "Tạo kế hoạch SX" : "Create plan"}
                 </Button>
               </>
             )}
@@ -1070,34 +1079,34 @@ export default function ProductionPlanning() {
       </div>
 
       {activeTab === "settings" ? (
-        <Card className="rounded-[1.75rem] border-white/10 bg-[#14100d]/94 text-white shadow-sm">
+        <Card className="card-elevated rounded-[1.5rem]" data-stitch-production-settings="true">
           <CardHeader>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <CardTitle className="text-2xl font-black">{isVi ? "Thiết lập SKU sản xuất - Xưởng Q7" : "Q7 production SKU setup"}</CardTitle>
-                <CardDescription className="mt-1 text-white/45">
+                <CardTitle className="text-2xl font-black text-foreground">{isVi ? "Thiết lập SKU sản xuất - Xưởng Q7" : "Q7 production SKU setup"}</CardTitle>
+                <CardDescription className="mt-1 text-muted-foreground">
                   {isVi ? "Chỉ SKU được check mới hiển thị trong kế hoạch sản xuất khi PO đẩy về xưởng này." : "Only checked SKUs appear in this workshop production plan when POs arrive."}
                 </CardDescription>
               </div>
-              <Badge className="w-fit bg-amber-400 text-[#1b1004] hover:bg-amber-400">
+              <Badge className="w-fit bg-primary text-primary-foreground hover:bg-primary">
                 {enabledSkuIds.size}/{skuImageRows.length} {isVi ? "SKU bật" : "enabled"}
               </Badge>
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
             {!canEditLocation && (
-              <Alert className="rounded-2xl border-amber-300/20 bg-amber-300/10">
-                <AlertDescription className="text-sm text-amber-100/80">
+              <Alert className="rounded-2xl border-warning/40 bg-warning/20">
+                <AlertDescription className="text-sm text-warning-foreground">
                   {isVi ? "Bạn chỉ có quyền xem. Cần quyền Sửa của module Xưởng Q7 để thay đổi thiết lập SKU." : "View only. Edit permission for Q7 Workshop is required to change SKU settings."}
                 </AlertDescription>
               </Alert>
             )}
             {loadingSkus || loadingLocationSettings ? (
-              <div className="flex min-h-[240px] items-center justify-center rounded-3xl border border-white/10 bg-white/[0.04]">
-                <Loader2 className="h-8 w-8 animate-spin text-white/45" />
+              <div className="flex min-h-[240px] items-center justify-center rounded-3xl border border-border/60 bg-card/60">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               </div>
             ) : skuImageRows.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-white/15 bg-white/[0.04] p-10 text-center text-white/45">
+              <div className="rounded-3xl border border-dashed border-border bg-card/60 p-10 text-center text-muted-foreground">
                 {isVi ? "Chưa có SKU nào trong hệ thống." : "No SKUs found."}
               </div>
             ) : (
@@ -1107,7 +1116,7 @@ export default function ProductionPlanning() {
                   return (
                     <label
                       key={sku.id}
-                      className={`grid min-h-[104px] cursor-pointer grid-cols-[72px_minmax(0,1fr)_28px] items-center gap-3 rounded-3xl border p-3 transition ${enabled ? "border-amber-300/30 bg-amber-300/[0.08]" : "border-white/10 bg-white/[0.04] hover:bg-white/[0.06]"}`}
+                      className={`grid min-h-[104px] cursor-pointer grid-cols-[72px_minmax(0,1fr)_28px] items-center gap-3 rounded-3xl border p-3 transition ${enabled ? "border-primary/30 bg-primary/10" : "border-border/60 bg-card/70 hover:bg-muted/60"}`}
                     >
                       <ProductVisual
                         imageUrl={sku.image_url}
@@ -1116,16 +1125,16 @@ export default function ProductionPlanning() {
                         gradientClassName={productGradientClassNames[idx % productGradientClassNames.length]}
                       />
                       <div className="min-w-0 overflow-hidden">
-                        <p className="line-clamp-2 break-words text-[13px] font-black leading-snug text-white">{sku.product_name}</p>
-                        <p className="mt-1 truncate font-mono text-[10px] font-bold leading-tight text-white/35">{sku.sku_code || sku.id}</p>
-                        <p className="mt-1 w-fit rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-bold uppercase text-white/45">{sku.unit || "-"}</p>
+                        <p className="line-clamp-2 break-words text-[13px] font-black leading-snug text-foreground">{sku.product_name}</p>
+                        <p className="mt-1 truncate font-mono text-[10px] font-bold leading-tight text-muted-foreground">{sku.sku_code || sku.id}</p>
+                        <p className="mt-1 w-fit rounded-full bg-muted px-2 py-0.5 text-[10px] font-bold uppercase text-muted-foreground">{sku.unit || "-"}</p>
                       </div>
                       <input
                         type="checkbox"
                         checked={enabled}
                         disabled={!canEditLocation || toggleLocationSkuMutation.isPending}
                         onChange={(event) => toggleLocationSkuMutation.mutate({ skuId: sku.id, enabled: event.target.checked })}
-                        className="h-5 w-5 justify-self-end accent-amber-400 disabled:opacity-50"
+                        className="h-5 w-5 justify-self-end accent-primary disabled:opacity-50"
                       />
                     </label>
                   );
@@ -1136,120 +1145,168 @@ export default function ProductionPlanning() {
         </Card>
       ) : (
         <>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Card className="rounded-3xl border-amber-300/20 bg-amber-300/10 text-white shadow-sm">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4" data-stitch-production-metrics="true">
+        <Card className="stat-card p-0">
           <CardHeader className="space-y-1 p-4">
-            <CardDescription className="text-sm font-medium text-amber-100/70">{isVi ? "Tổng cần sản xuất" : "Planned quantity"}</CardDescription>
-            <CardTitle className="text-4xl font-black tracking-tight text-amber-100">
+            <CardDescription className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground"><Package className="h-4 w-4" />{isVi ? "Tổng cần sản xuất" : "Planned quantity"}</CardDescription>
+            <CardTitle className="text-4xl font-black tracking-tight text-foreground">
               {loadingPos ? <Loader2 className="h-7 w-7 animate-spin" /> : stats.plannedQty.toLocaleString("vi-VN")}
             </CardTitle>
           </CardHeader>
         </Card>
-        <Card className="rounded-3xl border-white/10 bg-[#14100d]/90 text-white shadow-sm">
+        <Card className="stat-card p-0">
           <CardHeader className="space-y-1 p-4">
-            <CardDescription>{isVi ? "SKU ngày giao ngày mai" : "Tomorrow delivery SKUs"}</CardDescription>
-            <CardTitle className="text-4xl font-black">{stats.plannedSkuCount}</CardTitle>
+            <CardDescription className="text-sm font-semibold text-muted-foreground">{isVi ? "SKU cần sản xuất" : "Production SKUs"}</CardDescription>
+            <CardTitle className="text-4xl font-black text-foreground">{stats.plannedSkuCount}</CardTitle>
           </CardHeader>
         </Card>
-        <Card className="rounded-3xl border-white/10 bg-[#14100d]/90 text-white shadow-sm">
+        <Card className="stat-card p-0 before:bg-warning">
           <CardHeader className="space-y-1 p-4">
-            <CardDescription>{isVi ? "PO có SKU bật" : "POs with enabled SKUs"}</CardDescription>
-            <CardTitle className="text-4xl font-black text-orange-600">{loadingPos ? "..." : stats.pendingPos}</CardTitle>
+            <CardDescription className="text-sm font-semibold text-warning-foreground">{isVi ? "PO cần xác nhận" : "POs to confirm"}</CardDescription>
+            <CardTitle className="text-4xl font-black text-warning-foreground">{loadingPos ? "..." : stats.pendingPos}</CardTitle>
           </CardHeader>
         </Card>
-        <Card className="rounded-3xl border-white/10 bg-[#14100d]/90 text-white shadow-sm">
+        <Card className="stat-card p-0 before:bg-success">
           <CardHeader className="space-y-1 p-4">
-            <CardDescription>{isVi ? "Đang sản xuất" : "In progress"}</CardDescription>
-            <CardTitle className="text-4xl font-black text-emerald-600">{stats.inProgressOrders}</CardTitle>
+            <CardDescription className="text-sm font-semibold text-muted-foreground">{isVi ? "Đang sản xuất" : "In progress"}</CardDescription>
+            <CardTitle className="text-4xl font-black text-success">{stats.inProgressOrders}</CardTitle>
           </CardHeader>
         </Card>
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
         <section className="space-y-4">
-          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h2 className="text-2xl font-black tracking-tight text-white">{isVi ? "PO cần xác nhận cho ngày giao ngày mai" : "POs to confirm for tomorrow delivery"}</h2>
-              <p className="font-semibold text-white/45">
-                {isVi ? "Buổi sáng bấm Kiểm tra PO, xác nhận để lập lệnh SX cho ngày giao kế tiếp." : "Morning PO check confirms tomorrow-delivery production orders."}
-              </p>
+          <div className="card-elevated overflow-hidden rounded-[1.5rem]" data-stitch-production-po-check="true">
+            <div className="flex flex-col gap-3 border-b border-border/60 bg-card/50 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="flex items-center gap-2 text-xl font-black tracking-tight text-foreground md:text-2xl">
+                  <ClipboardCheck className="h-6 w-6 text-primary" />
+                  {isVi ? "Thiết lập SX & Kiểm tra PO" : "Production setup & PO check"}
+                </h2>
+                <p className="mt-1 font-semibold text-muted-foreground">
+                  {isVi ? "Buổi sáng bấm Kiểm tra PO, xác nhận để lập lệnh SX cho ngày giao kế tiếp." : "Morning PO check confirms tomorrow-delivery production orders."}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline" className="w-fit rounded-full border-border bg-card px-3 py-1 text-sm text-muted-foreground">
+                  {isVi ? `Ngày giao ${formatDateOnly(productionPoDateIso)}` : formatDateOnly(productionPoDateIso)}
+                </Badge>
+                {stats.pendingPos > 0 && (
+                  <Badge className="w-fit rounded-full bg-warning px-3 py-1 text-sm text-warning-foreground hover:bg-warning">
+                    {isVi ? `Còn ${stats.pendingPos} PO cần xác nhận` : `${stats.pendingPos} POs to confirm`}
+                  </Badge>
+                )}
+              </div>
             </div>
-            <Badge variant="outline" className="w-fit rounded-full border-white/10 bg-white/[0.045] px-3 py-1 text-sm text-white/70">
-              {formatDateOnly(productionPoDateIso)}
-            </Badge>
-          </div>
 
-          {loadingPos ? (
-            <div className="flex min-h-[320px] items-center justify-center rounded-3xl border border-white/10 bg-white/[0.04]">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : pendingPosEmpty ? (
-            <div className="flex min-h-[320px] flex-col items-center justify-center rounded-3xl border border-white/10 bg-white/[0.04] text-center">
-              <Package className="mb-3 h-14 w-14 text-muted-foreground" />
-              <h3 className="text-xl font-bold">{isVi ? "Chưa có PO chờ sản xuất cho ngày giao này" : "No POs awaiting production for this delivery date"}</h3>
-              <p className="mt-1 max-w-md text-muted-foreground">
-                {isVi ? "Khi parser ghi nhận PO đã duyệt, sản phẩm sẽ hiện ở đây." : "Parsed and approved POs will appear here."}
-              </p>
-            </div>
-          ) : (
-            <div className="grid gap-2.5 md:grid-cols-2 2xl:grid-cols-3">
-              {aggregatedPlanItems.map((item, index) => (
-                <article
-                  key={item.key}
-                  className="group flex min-h-[96px] items-center gap-3 rounded-[24px] border border-white/10 bg-[#14100d]/95 p-3 shadow-[0_14px_42px_rgba(0,0,0,0.28)] transition hover:border-amber-300/30 hover:bg-white/[0.045] md:min-h-[104px]"
-                >
-                  <ProductVisual
-                    imageUrl={item.image_url}
-                    productName={item.product_name}
-                    className="h-[72px] w-[72px] shrink-0 rounded-[18px]"
-                    gradientClassName={productGradientClassNames[index % productGradientClassNames.length]}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <h3 className="line-clamp-2 text-[14px] font-black leading-tight text-white md:text-[15px]">{item.product_name}</h3>
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                          <span className="rounded-full bg-amber-300/10 px-2 py-0.5 text-[10px] font-extrabold text-amber-100 ring-1 ring-amber-300/15">
-                            {item.poCount} PO
-                          </span>
-                          <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-bold text-white/50">
-                            {formatDate(item.earliestDate)}
-                          </span>
+            {loadingPos ? (
+              <div className="flex min-h-[320px] items-center justify-center bg-card/40">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : pendingPosEmpty ? (
+              <div className="flex min-h-[320px] flex-col items-center justify-center bg-card/40 p-8 text-center">
+                <Package className="mb-3 h-14 w-14 text-muted-foreground" />
+                <h3 className="text-xl font-bold text-foreground">{isVi ? "Chưa có PO chờ sản xuất cho ngày giao này" : "No POs awaiting production for this delivery date"}</h3>
+                <p className="mt-1 max-w-md text-muted-foreground">
+                  {isVi ? "Khi parser ghi nhận PO đã duyệt, sản phẩm sẽ hiện ở đây." : "Parsed and approved POs will appear here."}
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="hidden overflow-x-auto lg:block" data-stitch-production-table="true">
+                  <table className="w-full border-collapse text-left text-sm">
+                    <thead className="sticky top-0 z-10 border-b border-border bg-muted/80 text-xs uppercase text-muted-foreground backdrop-blur">
+                      <tr>
+                        <th className="px-4 py-3 font-bold">{isVi ? "SKU / Thành phẩm" : "SKU / Product"}</th>
+                        <th className="px-4 py-3 text-right font-bold">{isVi ? "SL từ PO" : "PO qty"}</th>
+                        <th className="px-4 py-3 text-right font-bold text-primary">{isVi ? "Cần sản xuất" : "To produce"}</th>
+                        <th className="px-4 py-3 font-bold">{isVi ? "Đơn vị" : "Unit"}</th>
+                        <th className="px-4 py-3 text-center font-bold">{isVi ? "PO liên quan" : "Related POs"}</th>
+                        <th className="px-4 py-3 font-bold">{isVi ? "Trạng thái" : "Status"}</th>
+                        <th className="px-4 py-3 font-bold">{isVi ? "Nguồn" : "Source"}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/60 bg-card/35">
+                      {aggregatedPlanItems.map((item) => (
+                        <tr key={item.key} className="h-[52px] transition hover:bg-muted/55">
+                          <td className="min-w-[260px] px-4 py-3">
+                            <div className="font-black text-foreground">{item.product_name}</div>
+                            <div className="text-xs font-semibold text-muted-foreground">{formatDate(item.earliestDate)}</div>
+                          </td>
+                          <td className="px-4 py-3 text-right font-semibold text-foreground">{item.qty.toLocaleString("vi-VN")}</td>
+                          <td className="bg-primary/5 px-4 py-3 text-right text-lg font-black text-primary">{item.qty.toLocaleString("vi-VN")}</td>
+                          <td className="px-4 py-3 font-semibold text-muted-foreground">{item.unit}</td>
+                          <td className="px-4 py-3 text-center"><Badge variant="outline" className="rounded-full border-primary/30 bg-primary/5 text-primary">{item.poCount} PO</Badge></td>
+                          <td className="px-4 py-3"><Badge className="rounded-md bg-success/12 text-success hover:bg-success/12"><CheckCircle className="mr-1 h-3.5 w-3.5" />{isVi ? "Sẵn sàng SX" : "Ready"}</Badge></td>
+                          <td className="max-w-[220px] truncate px-4 py-3 text-xs font-semibold text-muted-foreground">{item.sourceNames.slice(0, 2).join(" · ")}{item.channelCount > 2 ? ` · +${item.channelCount - 2}` : ""}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="grid gap-2.5 p-3 md:grid-cols-2 lg:hidden">
+                  {aggregatedPlanItems.map((item, index) => (
+                    <article
+                      key={item.key}
+                      className="group flex min-h-[96px] items-center gap-3 rounded-[20px] border border-border/60 bg-card/70 p-3 shadow-card transition hover:border-primary/30 hover:bg-muted/45 md:min-h-[104px]"
+                    >
+                      <ProductVisual
+                        imageUrl={item.image_url}
+                        productName={item.product_name}
+                        className="h-[72px] w-[72px] shrink-0 rounded-[18px]"
+                        gradientClassName={productGradientClassNames[index % productGradientClassNames.length]}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <h3 className="line-clamp-2 text-[14px] font-black leading-tight text-foreground md:text-[15px]">{item.product_name}</h3>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-extrabold text-primary ring-1 ring-primary/15">
+                                {item.poCount} PO
+                              </span>
+                              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-bold text-muted-foreground">
+                                {formatDate(item.earliestDate)}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <div className="text-[30px] font-black leading-none tracking-[-0.04em] text-primary md:text-[34px]">{item.qty.toLocaleString("vi-VN")}</div>
+                            <div className="mt-1 text-[10px] font-extrabold uppercase text-muted-foreground">{item.unit}</div>
+                          </div>
                         </div>
+                        {item.sourceNames.length > 0 && (
+                          <p className="mt-2 truncate text-[10px] font-bold text-muted-foreground">
+                            {item.sourceNames.slice(0, 2).join(" · ")}{item.channelCount > 2 ? ` · +${item.channelCount - 2}` : ""}
+                          </p>
+                        )}
                       </div>
-                      <div className="shrink-0 text-right">
-                        <div className="text-[30px] font-black leading-none tracking-[-0.04em] text-amber-200 md:text-[34px]">{item.qty.toLocaleString("vi-VN")}</div>
-                        <div className="mt-1 text-[10px] font-extrabold uppercase text-white/42">{item.unit}</div>
-                      </div>
-                    </div>
-                    {item.sourceNames.length > 0 && (
-                      <p className="mt-2 truncate text-[10px] font-bold text-white/35">
-                        {item.sourceNames.slice(0, 2).join(" · ")}{item.channelCount > 2 ? ` · +${item.channelCount - 2}` : ""}
-                      </p>
-                    )}
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
+                    </article>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between border-t border-border/60 bg-card/45 px-5 py-3 text-xs font-semibold text-muted-foreground">
+                  <span>{isVi ? `Hiển thị ${aggregatedPlanItems.length} SKU · 20 dòng/trang` : `Showing ${aggregatedPlanItems.length} SKUs · 20 rows/page`}</span>
+                  <span>{isVi ? "Dữ liệu từ PO đã parse" : "Data from parsed POs"}</span>
+                </div>
+              </>
+            )}
+          </div>
         </section>
 
-        <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
-          <Card className="rounded-[1.75rem] border-white/10 bg-[#14100d]/94 text-white shadow-sm">
+        <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start" data-stitch-production-insights="true">
+          <Card className="card-elevated rounded-[1.5rem]">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-2xl font-black">
-                <ClipboardCheck className="h-6 w-6 text-emerald-600" />
-                {isVi ? "Xác nhận sản xuất" : "Confirm production"}
+              <CardTitle className="flex items-center gap-2 text-xl font-black text-foreground">
+                <AlertCircle className="h-5 w-5 text-warning-foreground" />
+                {isVi ? "Việc cần xử lý" : "Action queue"}
               </CardTitle>
-              <CardDescription className="text-base">
-                {isVi
-                  ? "Chọn từng PO để xác nhận. Có thể chỉnh số lượng trong bước xác nhận trước khi tạo lệnh."
-                  : "Confirm each PO. Quantities can be adjusted before creating the order."}
+              <CardDescription>
+                {isVi ? "Giữ nguyên luồng xác nhận hiện tại, chỉ làm rõ thứ tự ưu tiên." : "Existing confirmation workflow, clarified by priority."}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Alert className="rounded-2xl border-amber-300/20 bg-amber-300/10">
-                <AlertDescription className="text-sm leading-6 text-amber-100/78">
+              <Alert className="rounded-2xl border-warning/40 bg-warning/20">
+                <AlertDescription className="text-sm leading-6 text-warning-foreground">
                   {isVi
                     ? "Backend hiện tạo lệnh sản xuất từ PO. Bước tự sinh phiếu xuất kho NVL theo BOM cần nối tiếp với bảng giá vốn/NVL ở phase sau."
                     : "Current backend creates production orders from POs. Material issue slips from BOM need the next integration phase."}
@@ -1262,14 +1319,14 @@ export default function ProductionPlanning() {
                     type="button"
                     disabled={!canEditLocation}
                     onClick={() => handleCreateClick(po)}
-                    className="flex min-h-20 w-full items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-left transition hover:border-amber-300/30 hover:bg-amber-300/[0.06] disabled:cursor-not-allowed disabled:opacity-55"
+                    className="flex min-h-20 w-full items-center justify-between gap-3 rounded-2xl border border-border/60 bg-card/70 p-3 text-left transition hover:border-primary/30 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-55"
                   >
                     <div className="min-w-0">
-                      <div className="truncate font-mono text-sm font-black">{po.po_number}</div>
+                      <div className="truncate font-mono text-sm font-black text-foreground">{po.po_number}</div>
                       <div className="truncate text-sm text-muted-foreground">{po.from_name}</div>
                       <div className="text-xs text-muted-foreground">{formatDate(po.delivery_date)}</div>
                     </div>
-                    <div className="shrink-0 rounded-xl bg-amber-400 px-3 py-2 text-sm font-black text-[#1b1004]">
+                    <div className="shrink-0 rounded-xl bg-primary px-3 py-2 text-sm font-black text-primary-foreground">
                       {isVi ? "Xác nhận" : "Confirm"}
                     </div>
                   </button>
@@ -1278,18 +1335,18 @@ export default function ProductionPlanning() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-[1.75rem] border-white/10 bg-[#0b0908] text-white shadow-sm">
+          <Card className="card-elevated rounded-[1.5rem]">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-2xl font-black">
-                <Monitor className="h-6 w-6 text-amber-300" />
+              <CardTitle className="flex items-center gap-2 text-xl font-black text-foreground">
+                <Monitor className="h-5 w-5 text-primary" />
                 {isVi ? "Màn hình đang sản xuất" : "Production TV"}
               </CardTitle>
-              <CardDescription className="text-zinc-300">
+              <CardDescription>
                 {isVi ? "Chỉ hiển thị sản phẩm và số lượng; không lộ công thức, giá vốn, tiền." : "Shows products and quantities only."}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button className="h-14 w-full rounded-2xl bg-amber-400 text-base font-black text-zinc-950 hover:bg-amber-300" onClick={handleOpenTvMode}>
+              <Button className="btn-gradient h-14 w-full rounded-2xl text-base font-black" onClick={handleOpenTvMode}>
                 {isVi ? "Mở chế độ TV" : "Open TV mode"}
               </Button>
             </CardContent>
@@ -1297,10 +1354,10 @@ export default function ProductionPlanning() {
         </aside>
       </div>
 
-      <Card className="rounded-[1.75rem] border-white/10 bg-[#14100d]/94 text-white shadow-sm">
+      <Card className="card-elevated rounded-[1.5rem]" data-stitch-production-orders="true">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-2xl font-black">
-            <Factory className="h-6 w-6" />
+          <CardTitle className="flex items-center gap-2 text-2xl font-black text-foreground">
+            <Factory className="h-6 w-6 text-primary" />
             {isVi ? "Lệnh sản xuất" : "Production Orders"}
           </CardTitle>
           <CardDescription>{isVi ? "Theo dõi lệnh đã tạo và trạng thái sản xuất." : "Track created orders and production status."}</CardDescription>
@@ -1318,7 +1375,7 @@ export default function ProductionPlanning() {
               {productionOrders.map((order) => {
                 const totalQty = getProductionOrderTotalQty(order);
                 return (
-                <div key={order.id} className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+                <div key={order.id} className="rounded-3xl border border-border/60 bg-card/70 p-4 shadow-card">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
@@ -1334,9 +1391,9 @@ export default function ProductionPlanning() {
                       </p>
                     </div>
                     <div className="flex shrink-0 flex-col gap-2 sm:items-end">
-                      <div className="rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-2 text-right">
-                        <div className="text-[10px] font-black uppercase tracking-[0.16em] text-amber-100/55">{isVi ? "Tổng số" : "Total qty"}</div>
-                        <div className="text-2xl font-black leading-none text-amber-100">{totalQty.toLocaleString("vi-VN")}</div>
+                      <div className="rounded-2xl border border-primary/20 bg-primary/10 px-4 py-2 text-right">
+                        <div className="text-[10px] font-black uppercase tracking-[0.16em] text-primary/70">{isVi ? "Tổng số" : "Total qty"}</div>
+                        <div className="text-2xl font-black leading-none text-primary">{totalQty.toLocaleString("vi-VN")}</div>
                       </div>
                       <Button
                         variant="outline"
@@ -1377,7 +1434,7 @@ export default function ProductionPlanning() {
                     <div className="mt-4 grid gap-2 border-t pt-4">
                       {((orderItems[expandedOrderId] as ProductionOrderItem[]) || []).length > 0 ? (
                         ((orderItems[expandedOrderId] as ProductionOrderItem[]) || []).map((item) => (
-                          <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl bg-[#211915]/80 p-3">
+                          <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl border border-border/50 bg-muted/45 p-3">
                             <div>
                               <p className="font-bold leading-tight">{item.product_name}</p>
                               <p className="text-sm text-muted-foreground">{formatDate(item.delivery_date)}</p>
@@ -1407,7 +1464,7 @@ export default function ProductionPlanning() {
       )}
 
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto rounded-3xl border-white/10 bg-[#14100d] text-white">
+        <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto rounded-3xl border-border bg-card text-foreground">
           <DialogHeader>
             <DialogTitle className="text-2xl font-black">
               {isVi ? "Xác nhận / điều chỉnh kế hoạch" : "Confirm / adjust plan"}
@@ -1416,13 +1473,13 @@ export default function ProductionPlanning() {
 
           {selectedPoForCreation && (
             <div className="space-y-5">
-              <div className="rounded-3xl border border-amber-300/20 bg-amber-300/10 p-4">
+              <div className="rounded-3xl border border-primary/20 bg-primary/10 p-4">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="font-mono text-lg font-black">{selectedPoForCreation.po_number}</p>
-                    <p className="font-semibold text-white/45">{selectedPoForCreation.from_name}</p>
+                    <p className="font-mono text-lg font-black text-foreground">{selectedPoForCreation.po_number}</p>
+                    <p className="font-semibold text-muted-foreground">{selectedPoForCreation.from_name}</p>
                   </div>
-                  <Badge className="w-fit bg-amber-400 text-[#1b1004] hover:bg-amber-400">
+                  <Badge className="w-fit bg-primary text-primary-foreground hover:bg-primary">
                     {isVi ? "Nguồn PO đã parse" : "Parsed PO source"}
                   </Badge>
                 </div>
@@ -1432,7 +1489,7 @@ export default function ProductionPlanning() {
                 {formData.items.map((item, idx) => {
                   const adjusted = item.planned_qty !== item.original_qty;
                   return (
-                    <div key={`${item.product_name}-${idx}`} className="rounded-3xl border border-white/10 bg-[#14100d]/94 p-4">
+                    <div key={`${item.product_name}-${idx}`} className="rounded-3xl border border-border/60 bg-card/70 p-4 shadow-card">
                       <div className="mb-4 flex gap-3">
                         <ProductVisual
                           imageUrl={resolveSkuImageUrl(item.product_name, skuImageRows)}
@@ -1445,7 +1502,7 @@ export default function ProductionPlanning() {
                           <p className="mt-1 text-sm text-muted-foreground">
                             {isVi ? "Khách đặt" : "Ordered"}: {item.original_qty.toLocaleString("vi-VN")} {item.unit}
                           </p>
-                          {adjusted && <Badge variant="outline" className="mt-2 border-orange-300 text-orange-700">{isVi ? "Đã điều chỉnh" : "Adjusted"}</Badge>}
+                          {adjusted && <Badge variant="outline" className="mt-2 border-warning/60 text-warning-foreground">{isVi ? "Đã điều chỉnh" : "Adjusted"}</Badge>}
                         </div>
                       </div>
 
@@ -1507,9 +1564,9 @@ export default function ProductionPlanning() {
                 />
               </div>
 
-              <Alert className="rounded-2xl border-emerald-300/20 bg-emerald-400/10">
-                <FilePlus2 className="h-4 w-4 text-emerald-300" />
-                <AlertDescription className="text-emerald-100/80">
+              <Alert className="rounded-2xl border-success/30 bg-success/10">
+                <FilePlus2 className="h-4 w-4 text-success" />
+                <AlertDescription className="text-success">
                   {isVi
                     ? "Sau khi xác nhận: tạo lệnh sản xuất và giữ link audit về PO nguồn. Phiếu xuất kho NVL sẽ được tự động hóa khi nối BOM/NVL."
                     : "After confirmation: production order is created and linked to source PO for audit. Material issue slip automation needs BOM integration."}
@@ -1520,7 +1577,7 @@ export default function ProductionPlanning() {
                 <Button variant="outline" className="h-12 rounded-2xl" onClick={() => setCreateDialogOpen(false)} disabled={createProductionOrderMutation.isPending}>
                   {isVi ? "Hủy" : "Cancel"}
                 </Button>
-                <Button className="h-12 rounded-2xl bg-amber-400 font-black text-[#1b1004] hover:bg-amber-300" onClick={handleSubmitCreate} disabled={!canEditLocation || createProductionOrderMutation.isPending}>
+                <Button className="btn-gradient h-12 rounded-2xl font-black" onClick={handleSubmitCreate} disabled={!canEditLocation || createProductionOrderMutation.isPending}>
                   {createProductionOrderMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
                   {isVi ? "Xác nhận tạo lệnh SX" : "Confirm production order"}
                 </Button>
@@ -1531,7 +1588,7 @@ export default function ProductionPlanning() {
       </Dialog>
 
       <Dialog open={!!editingOrder} onOpenChange={(open) => !open && closeEditOrder()}>
-        <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto rounded-3xl border-white/10 bg-[#14100d] text-white">
+        <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto rounded-3xl border-border bg-card text-foreground">
           <DialogHeader>
             <DialogTitle className="text-2xl font-black">
               {isVi ? "Sửa lệnh sản xuất" : "Edit production order"} {editingOrder?.production_number}
@@ -1567,11 +1624,11 @@ export default function ProductionPlanning() {
 
               <div className="grid gap-3">
                 {editForm.items.map((item, idx) => (
-                  <div key={item.id} className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+                  <div key={item.id} className="rounded-3xl border border-border/60 bg-card/70 p-4 shadow-card">
                     <div className="mb-3 flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <h3 className="text-base font-black leading-tight">{item.product_name}</h3>
-                        <p className="text-xs font-bold uppercase text-white/45">{item.unit}</p>
+                        <p className="text-xs font-bold uppercase text-muted-foreground">{item.unit}</p>
                       </div>
                     </div>
                     <div className="grid gap-3 md:grid-cols-[160px_180px_minmax(0,1fr)]">
@@ -1627,7 +1684,7 @@ export default function ProductionPlanning() {
                   {isVi ? "Hủy" : "Cancel"}
                 </Button>
                 <Button
-                  className="h-12 rounded-2xl bg-amber-400 font-black text-[#1b1004] hover:bg-amber-300"
+                  className="btn-gradient h-12 rounded-2xl font-black"
                   onClick={() => updateProductionOrderMutation.mutate({ orderId: editingOrder.id, form: editForm })}
                   disabled={!canEditLocation || updateProductionOrderMutation.isPending}
                 >
@@ -1641,10 +1698,10 @@ export default function ProductionPlanning() {
       </Dialog>
 
       <AlertDialog open={!!deleteOrder} onOpenChange={(open) => !open && setDeleteOrder(null)}>
-        <AlertDialogContent className="border-white/10 bg-[#14100d] text-white">
+        <AlertDialogContent className="border-border bg-card text-foreground">
           <AlertDialogHeader>
             <AlertDialogTitle>{isVi ? "Xoá lệnh sản xuất?" : "Delete production order?"}</AlertDialogTitle>
-            <AlertDialogDescription className="text-white/60">
+            <AlertDialogDescription className="text-muted-foreground">
               {isVi
                 ? `Owner sẽ xoá lệnh ${deleteOrder?.production_number || "SX"} và toàn bộ dòng hàng liên quan. Hành động này không thể hoàn tác.`
                 : `Owner will delete order ${deleteOrder?.production_number || "SX"} and all related line items. This cannot be undone.`}
