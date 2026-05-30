@@ -736,7 +736,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
 
       {/* Bulk Action Bar */}
       {selectedIds.size > 0 && (
-        <div data-stitch-section="mobile-sticky-bulk-actions" className="fixed inset-x-3 bottom-3 z-30 flex flex-col gap-3 rounded-3xl border border-border/80 bg-card/95 p-3 shadow-2xl backdrop-blur-xl lg:static lg:inset-auto lg:z-auto lg:flex-row lg:items-center lg:justify-between lg:rounded-md lg:bg-muted/40 lg:p-4 lg:shadow-none lg:backdrop-blur-0">
+        <div data-stitch-section="mobile-selected-actions-inline" className="flex flex-col gap-3 rounded-3xl border border-border/80 bg-card/95 p-3 shadow-card backdrop-blur-xl lg:flex-row lg:items-center lg:justify-between lg:rounded-md lg:bg-muted/40 lg:p-4 lg:shadow-none lg:backdrop-blur-0">
           <div className="flex flex-wrap items-center gap-4">
             <span className="font-medium">
               {t.selected}: {selectedIds.size}
@@ -823,7 +823,8 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
             </CardContent>
           </Card>
         ) : (
-          paginatedRequests.map((request, index) => {
+          <>
+            {paginatedRequests.map((request, index) => {
             const cue = getAccountingCue(request);
             const CueIcon = cue.icon;
             const isSelectable = request.status === "pending" || (request.status === "approved" && hasOutstandingPayment(request));
@@ -838,11 +839,15 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                 key={request.id}
                 data-stitch-card="mobile-payment-request"
                 className={cn(
-                  "overflow-hidden rounded-2xl border-border/80 bg-card/85 shadow-card backdrop-blur-xl transition-all",
+                  "relative overflow-visible rounded-xl border-border/80 bg-card/90 shadow-[0_14px_36px_rgba(15,23,42,0.10)] backdrop-blur-xl transition-all",
                   isSelected && "border-primary/45 ring-2 ring-primary/15"
                 )}
               >
-                <CardContent className="space-y-3 p-4">
+                <div
+                  aria-hidden="true"
+                  className="absolute -left-1.5 top-5 h-14 w-3 rounded-r-lg bg-primary shadow-[0_10px_24px_rgba(217,119,6,0.35)]"
+                />
+                <CardContent className="space-y-3 p-4 pl-5">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
@@ -949,7 +954,41 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                 </CardContent>
               </Card>
             );
-          })
+          })}
+
+            <div data-stitch-section="mobile-pagination" className="rounded-2xl border border-border/70 bg-card/85 p-3 shadow-card backdrop-blur-xl">
+              <div className="mb-3 flex items-center justify-between gap-3 text-sm">
+                <span className="font-medium text-muted-foreground">
+                  {language === "vi"
+                    ? `${firstResult} - ${lastResult} / ${totalResults} phiếu`
+                    : `${firstResult} - ${lastResult} / ${totalResults} requests`}
+                </span>
+                <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground">
+                  {language === "vi" ? `Trang ${safeCurrentPage}/${totalPages}` : `Page ${safeCurrentPage}/${totalPages}`}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  className="h-12 rounded-xl border-border bg-background/70 font-semibold shadow-none"
+                  disabled={safeCurrentPage <= 1}
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                >
+                  <ChevronLeft className="mr-2 h-4 w-4" />
+                  {language === "vi" ? "Trước" : "Previous"}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-12 rounded-xl border-border bg-background/70 font-semibold shadow-none"
+                  disabled={safeCurrentPage >= totalPages}
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                >
+                  {language === "vi" ? "Tiếp" : "Next"}
+                  <ChevronRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </>
         )}
       </div>
 

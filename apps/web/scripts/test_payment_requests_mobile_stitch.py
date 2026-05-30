@@ -10,7 +10,9 @@ required_tokens = [
     'data-stitch-section="mobile-approval-cards"',
     'data-stitch-card="mobile-payment-request"',
     'data-stitch-section="mobile-accounting-checklist"',
-    'data-stitch-section="mobile-sticky-bulk-actions"',
+    'data-stitch-section="mobile-selected-actions-inline"',
+    'data-stitch-section="mobile-pagination"',
+    'absolute -left-1.5 top-5 h-14 w-3 rounded-r-lg bg-primary',
     'lg:hidden',
     'rounded-3xl border-border/70 bg-card/85 shadow-card backdrop-blur-xl',
     'Cần duyệt',
@@ -18,6 +20,9 @@ required_tokens = [
     'PO / Phiếu nhập',
     'Phiếu nhập',
     'Cần đối soát PO',
+    'Trang ${safeCurrentPage}/${totalPages}',
+    'Trước',
+    'Tiếp',
 ]
 
 missing = [token for token in required_tokens if token not in source]
@@ -31,5 +36,8 @@ assert 'TableHead className="min-w-[130px] text-slate-700' in source, "Desktop t
 mobile_section = source.split('data-stitch-section="mobile-approval-cards"', 1)[1].split('{/* Requests Table */}', 1)[0]
 for token in ['h-12 rounded-xl', 'setSelectedRequestId(request.id)', 'openQuickApproveConfirm(request.id)']:
     assert token in mobile_section, f"Missing mobile action affordance: {token}"
+
+for forbidden in ['data-stitch-section="mobile-sticky-bulk-actions"', 'fixed inset-x-3 bottom-3']:
+    assert forbidden not in source, f"Mobile bottom menu/sticky bottom pattern should not be present: {forbidden}"
 
 print("payment requests mobile Stitch guard passed")
