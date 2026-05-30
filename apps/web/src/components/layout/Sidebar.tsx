@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -111,6 +111,10 @@ const navItems: NavItem[] = [
   { icon: AlertTriangle, labelKey: "lowStock", path: "/low-stock", section: "operations", moduleKey: "low_stock" },
 ];
 
+const SIDEBAR_SCROLL_STORAGE_KEY = "bmq-sidebar-scroll-top";
+const activeNavItemClass =
+  "bg-sidebar-accent/85 text-black md:text-black border-sidebar-border/80 shadow-sm hover:text-black before:absolute before:left-0 before:top-2 before:h-6 before:w-0.5 before:rounded-full before:bg-black md:before:hidden";
+
 export function Sidebar() {
   const { t } = useLanguage();
   const { pathname } = useLocation();
@@ -124,6 +128,8 @@ export function Sidebar() {
   const queryClient = useQueryClient();
   const { data: paymentStats } = usePaymentStats();
   const { data: draftPOCount } = useDraftPOCount();
+  const navRef = useRef<HTMLElement | null>(null);
+  const restoreScrollFrameRef = useRef<number | null>(null);
 
   const [showDriveDialog, setShowDriveDialog] = useState(false);
   const [isMobile, setIsMobile] = useState(() =>
@@ -146,10 +152,24 @@ export function Sidebar() {
   }, []);
 
   useEffect(() => {
-    const openSidebar = () => setCollapsed(false);
+    const openSidebar = () => {
+      setCollapsed(false);
+      restoreSidebarScroll();
+    };
     window.addEventListener("bmq:open-sidebar", openSidebar);
     return () => window.removeEventListener("bmq:open-sidebar", openSidebar);
   }, []);
+
+  useEffect(() => {
+    if (!collapsed) restoreSidebarScroll();
+
+    return () => {
+      if (restoreScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(restoreScrollFrameRef.current);
+        restoreScrollFrameRef.current = null;
+      }
+    };
+  }, [collapsed, pathname]);
 
   useEffect(() => {
     const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
@@ -162,6 +182,38 @@ export function Sidebar() {
 
   const handleScanDrive = () => {
     setShowDriveDialog(true);
+  };
+
+  const restoreSidebarScroll = () => {
+    if (typeof window === "undefined") return;
+    if (restoreScrollFrameRef.current !== null) window.cancelAnimationFrame(restoreScrollFrameRef.current);
+
+    restoreScrollFrameRef.current = window.requestAnimationFrame(() => {
+      const nav = navRef.current;
+      if (!nav) return;
+
+      const selectedItem = nav.querySelector<HTMLElement>('[data-sidebar-active="true"], [aria-current="page"]');
+      if (selectedItem) {
+        const navRect = nav.getBoundingClientRect();
+        const itemRect = selectedItem.getBoundingClientRect();
+        const isVisible = itemRect.top >= navRect.top && itemRect.bottom <= navRect.bottom;
+
+        if (!isVisible) {
+          selectedItem.scrollIntoView({ block: "center" });
+        }
+      } else {
+        const savedScroll = Number(window.sessionStorage.getItem(SIDEBAR_SCROLL_STORAGE_KEY) || "0");
+        if (Number.isFinite(savedScroll)) nav.scrollTop = savedScroll;
+      }
+
+      restoreScrollFrameRef.current = null;
+    });
+  };
+
+  const rememberSidebarScroll = () => {
+    const nav = navRef.current;
+    if (!nav || typeof window === "undefined") return;
+    window.sessionStorage.setItem(SIDEBAR_SCROLL_STORAGE_KEY, String(nav.scrollTop));
   };
 
   const canViewItem = (item: NavItem) => {
@@ -226,7 +278,7 @@ export function Sidebar() {
         </div>
 
         {/* Navigation - scrollable */}
-        <nav className="font-sidebar flex-1 space-y-0.5 overflow-y-auto px-3 py-3 pb-20 md:space-y-1 md:px-4 md:py-6 md:pb-24">
+        <nav ref={navRef} onScroll={rememberSidebarScroll} className="font-sidebar flex-1 space-y-0.5 overflow-y-auto px-3 py-3 pb-20 md:space-y-1 md:px-4 md:py-6 md:pb-24">
           {visibleItems.map((item, idx) => {
             const prevItem = idx > 0 ? visibleItems[idx - 1] : null;
             const showSectionHeader = !prevItem || prevItem.section !== item.section;
@@ -257,13 +309,15 @@ export function Sidebar() {
                             <NavLink
                               key={child.path}
                               to={child.path || "#"}
+                              data-sidebar-active={childActive ? "true" : undefined}
                               onClick={() => {
+                                rememberSidebarScroll();
                                 if (window.matchMedia("(max-width: 767px)").matches) setCollapsed(true);
                               }}
                               className={cn(
-                                "relative flex h-9 items-center gap-2 rounded-md px-3 text-[13px] font-extrabold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] transition-colors md:h-auto md:py-1.5 md:text-sm md:font-bold md:text-white md:drop-shadow-none",
+                                "relative flex h-9 items-center gap-2 rounded-md border border-transparent px-3 text-[13px] font-extrabold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] transition-colors md:h-auto md:py-1.5 md:text-sm md:font-bold md:text-white md:drop-shadow-none",
                                 childActive
-                                  ? "bg-sidebar-accent/85 text-black md:text-black before:absolute before:left-0 before:top-1.5 before:h-6 before:w-0.5 before:rounded-full before:bg-black md:before:hidden"
+                                  ? activeNavItemClass
                                   : "hover:bg-sidebar-accent/30 hover:text-white"
                               )}
                             >
@@ -279,13 +333,14 @@ export function Sidebar() {
                   <NavLink
                     to={item.path || "#"}
                     onClick={() => {
+                      rememberSidebarScroll();
                       if (window.matchMedia("(max-width: 767px)").matches) setCollapsed(true);
                     }}
                     className={({ isActive }) =>
                       cn(
                         "group relative flex h-10 items-center gap-2.5 rounded-lg border border-transparent px-3 text-[13px] font-extrabold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] transition-all duration-200 md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-bold md:text-white md:drop-shadow-none",
                         isActive
-                          ? "bg-sidebar-accent/85 text-black md:text-black border-sidebar-border/80 shadow-sm before:absolute before:left-0 before:top-2 before:h-6 before:w-0.5 before:rounded-full before:bg-black md:before:hidden"
+                          ? activeNavItemClass
                           : "hover:bg-sidebar-accent/40 hover:text-white"
                       )
                     }
@@ -329,10 +384,14 @@ export function Sidebar() {
         <div className="border-t border-sidebar-border/60 bg-sidebar/60 px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-xl md:px-4 md:py-4 md:pb-[max(1rem,env(safe-area-inset-bottom))]">
           <NavLink
             to="/settings"
+            onClick={() => {
+              rememberSidebarScroll();
+              if (window.matchMedia("(max-width: 767px)").matches) setCollapsed(true);
+            }}
             className={({ isActive }) =>
               cn(
-                "relative flex h-10 items-center gap-2.5 rounded-lg px-3 text-[13px] font-extrabold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] transition-all duration-200 hover:bg-sidebar-accent/40 hover:text-white md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-bold md:text-white md:drop-shadow-none",
-                isActive && "bg-sidebar-accent/85 text-black md:text-black shadow-sm hover:text-black"
+                "relative flex h-10 items-center gap-2.5 rounded-lg border border-transparent px-3 text-[13px] font-extrabold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] transition-all duration-200 hover:bg-sidebar-accent/40 hover:text-white md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-bold md:text-white md:drop-shadow-none",
+                isActive && activeNavItemClass
               )
             }
           >

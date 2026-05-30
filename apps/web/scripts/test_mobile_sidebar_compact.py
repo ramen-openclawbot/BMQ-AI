@@ -24,6 +24,11 @@ required_tokens = [
     'h-10 items-center',
     'h-9 items-center',
     'before:w-0.5 before:rounded-full before:bg-black',
+    'SIDEBAR_SCROLL_STORAGE_KEY = "bmq-sidebar-scroll-top"',
+    'restoreSidebarScroll',
+    '[data-sidebar-active="true"], [aria-current="page"]',
+    'onScroll={rememberSidebarScroll}',
+    'data-sidebar-active={childActive ? "true" : undefined}',
     'md:space-y-1 md:px-4 md:py-6 md:pb-24',
 ]
 
