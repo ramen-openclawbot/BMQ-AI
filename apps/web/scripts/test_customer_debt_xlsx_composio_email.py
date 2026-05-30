@@ -62,6 +62,50 @@ def test_google_sheet_export_prompts_before_overwrite():
     assert 'exportMutation.mutate({ overwrite: true })' in ui
 
 
+def test_npp_debt_page_uses_shared_light_semantic_theme():
+    ui = read(UI)
+    assert 'data-stitch-npp-debt-theme="pantone-2026-light"' in ui
+
+    required_tokens = [
+        "bg-background",
+        "bg-card/70",
+        "bg-card/80",
+        "text-foreground",
+        "text-muted-foreground",
+        "border-border/70",
+        "bg-primary/10",
+        "text-primary",
+        "shadow-card",
+        "[color-scheme:light]",
+    ]
+    for token in required_tokens:
+        assert token in ui, f"NPP debt page missing shared light theme token {token!r}"
+
+    forbidden_old_theme_tokens = [
+        "#0b0908",
+        "#17100c",
+        "#070605",
+        "#14100d",
+        "#211915",
+        "#120e0b",
+        "#1b1004",
+        "#f59e0b",
+        "text-white",
+        "border-white",
+        "bg-white/",
+        "amber-",
+        "orange-",
+        "text-slate-",
+        "bg-slate-",
+        "border-slate-",
+        "[color-scheme:dark]",
+        "rgba(255",
+        "rgba(245",
+    ]
+    for token in forbidden_old_theme_tokens:
+        assert token not in ui, f"NPP debt page still contains old dark/amber theme token {token!r}"
+
+
 def test_customer_debt_email_recipients_are_separate_from_recognition_emails():
     edge = read(EDGE)
     crm = read(CRM)

@@ -619,13 +619,13 @@ export default function NppDebtManagement() {
   };
 
   return (
-    <div className="space-y-4 md:space-y-6">
+    <div data-stitch-npp-debt-theme="pantone-2026-light" className="space-y-4 bg-background text-foreground md:space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="space-y-2">
           <h1 className="font-display text-2xl font-bold leading-tight md:text-3xl">Quản lý công nợ khách hàng</h1>
           <p className="hidden text-muted-foreground md:block">Theo dõi công nợ theo từng khách hàng: NPP, đại lý trực tiếp, B2B/Vietjet và các kênh doanh thu đã kiểm soát.</p>
           <div className="flex flex-wrap gap-2 text-xs text-muted-foreground md:hidden">
-            <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-100">
+            <Badge variant="outline" className="border-primary/20 bg-primary/10 text-primary">
               {isSelectedNpp ? "NPP" : "Khách hàng"}
             </Badge>
             <Badge variant="outline" className="border-border/70 bg-card/70">
@@ -663,7 +663,7 @@ export default function NppDebtManagement() {
               {pendingOverwrite?.spreadsheetName || "File công nợ"} đã có trên Google Drive. Anh muốn ghi đè file cũ hay huỷ thao tác xuất?
             </DialogDescription>
           </DialogHeader>
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-50">
+          <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning-foreground">
             Ghi đè sẽ xoá dữ liệu cũ trong file Google Sheet này và ghi lại số liệu công nợ mới cho {selectedCustomer?.customer_name || "khách hàng"} • {dateFrom} → {dateTo}.
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
@@ -682,7 +682,7 @@ export default function NppDebtManagement() {
       </Dialog>
 
       {exportStatus.kind !== "idle" && (
-        <Card className={exportStatus.kind === "error" ? "border-destructive/60 bg-destructive/5" : "border-amber-500/40 bg-amber-500/5"}>
+        <Card className={exportStatus.kind === "error" ? "border-destructive/60 bg-destructive/5" : "border-primary/20 bg-primary/5"}>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               {exportStatus.kind === "pending" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -700,7 +700,7 @@ export default function NppDebtManagement() {
         </Card>
       )}
 
-      <Card>
+      <Card className="bg-card/80 shadow-card">
         <CardHeader className="space-y-1 px-4 py-4 md:px-6 md:py-6">
           <CardTitle className="text-lg md:text-2xl">Bước 1: Chọn khách hàng</CardTitle>
           <CardDescription className="text-xs md:text-sm">Box mặc định xếp khách hàng theo doanh số từ cao xuống thấp; đại lý đã thuộc NPP sẽ nằm trong chi tiết NPP. Có thể tìm không dấu như “bach dang” để tìm “Bạch Đằng”.</CardDescription>
@@ -734,14 +734,14 @@ export default function NppDebtManagement() {
                   }}
                   className={cn(
                     "rounded-xl border p-3 text-left transition-colors",
-                    active ? "border-amber-500/60 bg-amber-500/10" : "border-border/70 bg-card/70 hover:bg-muted/40"
+                    active ? "border-primary/40 bg-primary/10 shadow-sm" : "border-border/70 bg-card/70 hover:bg-muted/40"
                   )}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold">{customer.customer_name}</div>
                       <div className="mt-1 text-xs text-muted-foreground">{customer.customer_group || "Khách hàng"}{customer.product_group ? ` • ${customer.product_group}` : ""}</div>
-                      <div className="mt-2 text-xs font-medium text-amber-200">Doanh số: {formatVnd(revenue)}</div>
+                      <div className="mt-2 text-xs font-medium text-primary">Doanh số: {formatVnd(revenue)}</div>
                     </div>
                     {customer.is_npp ? <Badge className="shrink-0">NPP</Badge> : null}
                   </div>
@@ -758,11 +758,11 @@ export default function NppDebtManagement() {
           <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 md:grid-cols-4">
             <div className="min-w-0 space-y-2 md:col-span-1">
               <Label className="text-xs md:text-sm">Từ ngày</Label>
-              <Input className="h-11 w-full min-w-0 text-sm [color-scheme:dark] md:h-10" type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setViewCustomerId(""); }} />
+              <Input className="h-11 w-full min-w-0 text-sm [color-scheme:light] md:h-10" type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setViewCustomerId(""); }} />
             </div>
             <div className="min-w-0 space-y-2 md:col-span-1">
               <Label className="text-xs md:text-sm">Đến ngày</Label>
-              <Input className="h-11 w-full min-w-0 text-sm [color-scheme:dark] md:h-10" type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setViewCustomerId(""); }} />
+              <Input className="h-11 w-full min-w-0 text-sm [color-scheme:light] md:h-10" type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setViewCustomerId(""); }} />
             </div>
             <div className="min-w-0 md:col-span-2 md:flex md:items-end">
               <Button className="h-11 w-full" onClick={handleViewDebt} disabled={!canViewDebt || customersLoading}>
@@ -772,7 +772,7 @@ export default function NppDebtManagement() {
             </div>
           </div>
           {selectedDraftCustomer && !hasViewedDebt && (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+            <div className="rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary">
               Đã chọn: {selectedDraftCustomer.customer_name}. Bấm “Xem công nợ” để tải dữ liệu và mở chức năng xuất/gửi mail.
             </div>
           )}
@@ -788,7 +788,7 @@ export default function NppDebtManagement() {
         <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">{isSelectedNpp ? "Công nợ sau phí" : "Công nợ phải thu"}</CardDescription><CardTitle className="break-words text-base leading-tight md:text-2xl">{formatVnd(totals.payable)}</CardTitle></CardHeader></Card>
       </div>
 
-      <Card>
+      <Card className="bg-card/80 shadow-card">
         <CardHeader className="space-y-1 px-4 py-4 md:px-6 md:py-6">
           <CardTitle className="text-lg md:text-2xl">{isSelectedNpp ? "Tổng công nợ NPP" : "Công nợ khách hàng"}</CardTitle>
           <CardDescription className="text-xs md:text-sm">
@@ -817,9 +817,9 @@ export default function NppDebtManagement() {
                         <div className="text-xs text-muted-foreground">Phí quản lí</div>
                         <div className="font-medium">{formatVnd(row.managementFee)}</div>
                       </div>
-                      <div className="col-span-2 rounded-lg bg-amber-500/10 p-3">
-                        <div className="text-xs text-amber-100/80">Công nợ</div>
-                        <div className="text-lg font-semibold text-amber-100">{formatVnd(row.payable)}</div>
+                      <div className="col-span-2 rounded-lg bg-primary/10 p-3">
+                        <div className="text-xs text-primary/80">Công nợ</div>
+                        <div className="text-lg font-semibold text-primary">{formatVnd(row.payable)}</div>
                       </div>
                     </div>
                     {expandedAgencyId === row.id && (
@@ -927,7 +927,7 @@ export default function NppDebtManagement() {
                         <div className="mt-1 text-xs text-muted-foreground">{line.revenue_date} • {line.channel || "-"}</div>
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-2 text-right">
-                        <div className="font-semibold text-amber-100">{formatVnd(Number(line.gross_revenue || 0))}</div>
+                        <div className="font-semibold text-primary">{formatVnd(Number(line.gross_revenue || 0))}</div>
                         {renderEditButton(line)}
                       </div>
                     </div>
