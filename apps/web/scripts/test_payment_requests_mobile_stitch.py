@@ -12,12 +12,15 @@ required_tokens = [
     'data-stitch-section="mobile-accounting-checklist"',
     'data-stitch-section="mobile-selected-actions-inline"',
     'data-stitch-section="mobile-pagination"',
-    'absolute -left-1.5 top-5 h-14 w-3 rounded-r-lg bg-primary',
+    'absolute bottom-0 left-0 top-0 w-1',
     'lg:hidden',
-    'rounded-3xl border-border/70 bg-card/85 shadow-card backdrop-blur-xl',
+    'rounded-xl border-white/40 bg-card/85 shadow-[0_20px_20px_rgba(143,155,179,0.08)] backdrop-blur-xl',
     'Cần duyệt',
-    'Đối soát trước khi duyệt',
-    'PO / Phiếu nhập',
+    'Từ chối/Chờ',
+    'Ghi chú: Đối soát trước khi duyệt',
+    'Hóa đơn:',
+    'Tài khoản chi:',
+    'PO / Phiếu nhập:',
     'Phiếu nhập',
     'Cần đối soát PO',
     'Trang ${safeCurrentPage}/${totalPages}',
@@ -34,10 +37,10 @@ assert 'TableHead className="min-w-[130px] text-slate-700' in source, "Desktop t
 
 # Mobile actions should be thumb-sized and preserve detail + approve paths.
 mobile_section = source.split('data-stitch-section="mobile-approval-cards"', 1)[1].split('{/* Requests Table */}', 1)[0]
-for token in ['h-12 rounded-xl', 'setSelectedRequestId(request.id)', 'openQuickApproveConfirm(request.id)']:
+for token in ['h-[52px] flex-1 rounded-lg', 'setSelectedRequestId(request.id)', 'openQuickApproveConfirm(request.id)']:
     assert token in mobile_section, f"Missing mobile action affordance: {token}"
 
-for forbidden in ['data-stitch-section="mobile-sticky-bulk-actions"', 'fixed inset-x-3 bottom-3']:
+for forbidden in ['data-stitch-section="mobile-sticky-bulk-actions"', 'fixed inset-x-3 bottom-3', 'fixed bottom-0', 'BottomNavBar']:
     assert forbidden not in source, f"Mobile bottom menu/sticky bottom pattern should not be present: {forbidden}"
 
 print("payment requests mobile Stitch guard passed")

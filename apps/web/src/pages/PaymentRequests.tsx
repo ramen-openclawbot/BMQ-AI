@@ -506,26 +506,72 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
   return (
     <div
       data-stitch-payment-requests-mobile="approved-card-flow"
-      className="space-y-4 bg-background pb-32 font-sans text-foreground lg:space-y-5 lg:pb-20"
+      className="space-y-4 bg-background pb-8 font-sans text-foreground lg:space-y-5 lg:pb-20"
     >
-      <div className="sticky top-0 z-20 -mx-4 border-b border-border/60 bg-background/85 px-4 py-3 backdrop-blur-xl lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:p-0 lg:backdrop-blur-0">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary lg:hidden">BMQ-AI</p>
-            <h1 className="truncate text-[26px] font-semibold leading-tight tracking-normal text-foreground lg:text-[28px]">
+      <div className="sticky top-0 z-20 -mx-4 border-b border-white/40 bg-background/85 px-4 py-3 shadow-[0_20px_20px_rgba(143,155,179,0.08)] backdrop-blur-xl lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none lg:backdrop-blur-0">
+        <div className="flex h-12 items-center justify-between gap-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-10 w-10 shrink-0 rounded-full text-foreground hover:bg-primary/10 lg:hidden"
+            onClick={() => window.history.back()}
+            title={language === "vi" ? "Quay lại" : "Back"}
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </Button>
+          <div className="min-w-0 flex-1 text-center lg:text-left">
+            <h1 className="truncate text-[26px] font-semibold leading-tight tracking-normal text-primary lg:text-[28px] lg:text-foreground">
               {t.paymentRequestsTitle}
             </h1>
-            <p className="mt-1 text-xs font-medium text-muted-foreground lg:hidden">{dateRangeLabel}</p>
+            <p className="mt-0.5 text-xs font-medium text-muted-foreground lg:hidden">{dateRangeLabel}</p>
           </div>
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-11 w-11 shrink-0 rounded-full border-border bg-card/80 shadow-sm lg:hidden"
-            onClick={() => refetch()}
-            title={language === "vi" ? "Làm mới" : "Refresh"}
-          >
-            <RefreshCw className={cn("h-5 w-5", isLoading && "animate-spin")} />
-          </Button>
+          <div className="flex items-center gap-1.5 lg:hidden">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-10 w-10 rounded-full text-muted-foreground hover:bg-primary/10"
+              onClick={() => setStatusFilter(statusFilter === "all" ? "pending" : "all")}
+              title={language === "vi" ? "Lọc nhanh" : "Quick filter"}
+            >
+              <Search className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-10 w-10 rounded-full text-muted-foreground hover:bg-primary/10"
+              onClick={() => refetch()}
+              title={language === "vi" ? "Làm mới" : "Refresh"}
+            >
+              <RefreshCw className={cn("h-5 w-5", isLoading && "animate-spin")} />
+            </Button>
+          </div>
+        </div>
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden">
+          <button type="button" className="h-9 shrink-0 rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground">
+            {dateFrom ? format(new Date(`${dateFrom}T00:00:00`), "MM/yyyy") : "Tháng này"}
+          </button>
+          <label className="flex h-9 shrink-0 items-center gap-2 rounded-full border border-white/40 bg-card/80 px-3 text-xs font-semibold text-muted-foreground shadow-[0_20px_20px_rgba(143,155,179,0.08)]">
+            Từ
+            <Input
+              type="date"
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={(event) => setDateFrom(event.target.value)}
+              aria-label={language === "vi" ? "Từ ngày" : "From date"}
+              className="h-7 w-[118px] border-0 bg-transparent p-0 text-xs shadow-none focus-visible:ring-0"
+            />
+          </label>
+          <label className="flex h-9 shrink-0 items-center gap-2 rounded-full border border-white/40 bg-card/80 px-3 text-xs font-semibold text-muted-foreground shadow-[0_20px_20px_rgba(143,155,179,0.08)]">
+            Đến
+            <Input
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={(event) => setDateTo(event.target.value)}
+              aria-label={language === "vi" ? "Đến ngày" : "To date"}
+              className="h-7 w-[118px] border-0 bg-transparent p-0 text-xs shadow-none focus-visible:ring-0"
+            />
+          </label>
         </div>
       </div>
 
@@ -617,81 +663,73 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
           </Button>
         </div>
 
-        <div data-stitch-section="mobile-summary-filters" className="space-y-3 lg:hidden">
-          <Card className="overflow-hidden rounded-3xl border-border/70 bg-card/85 shadow-card backdrop-blur-xl">
+        <div data-stitch-section="mobile-summary-filters" className="space-y-4 lg:hidden">
+          <Card className="overflow-hidden rounded-xl border-white/40 bg-card/85 shadow-[0_20px_20px_rgba(143,155,179,0.08)] backdrop-blur-xl">
             <CardContent className="space-y-4 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Cần duyệt</p>
-                  <p className="text-2xl font-extrabold tabular-nums text-foreground">{formatCurrency(stats.pending.amount)}</p>
-                  <p className="text-sm font-medium text-muted-foreground">{stats.pending.count} phiếu đang chờ</p>
-                </div>
-                <Badge className="rounded-full bg-primary/10 px-3 py-1.5 text-primary hover:bg-primary/10">
-                  {format(new Date(`${dateFrom}T00:00:00`), "MM/yyyy")}
-                </Badge>
+              <div className="space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Cần duyệt ({stats.pending.count} phiếu)</p>
+                <p className="text-[28px] font-extrabold leading-tight tabular-nums text-primary">{formatCurrency(stats.pending.amount)}</p>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-2xl bg-muted/50 p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Đã duyệt</p>
+              <div className="grid grid-cols-2 gap-4 border-t border-white/40 pt-4">
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground">Đã duyệt</p>
                   <p className="mt-1 text-sm font-bold tabular-nums text-foreground">{formatCurrency(stats.approved.amount)}</p>
                   <p className="text-[11px] text-muted-foreground">{stats.approved.count} phiếu</p>
                 </div>
-                <div className="rounded-2xl bg-destructive/10 p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-destructive">Từ chối</p>
-                  <p className="mt-1 text-sm font-bold tabular-nums text-foreground">{formatCurrency(stats.rejected.amount)}</p>
+                <div className="border-l border-white/40 pl-4">
+                  <p className="text-xs font-semibold text-muted-foreground">Từ chối/Chờ</p>
+                  <p className="mt-1 text-sm font-bold tabular-nums text-destructive">{formatCurrency(stats.rejected.amount)}</p>
                   <p className="text-[11px] text-muted-foreground">{stats.rejected.count} phiếu</p>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="rounded-3xl border-border/70 bg-card/80 shadow-card backdrop-blur-xl">
-            <CardContent className="space-y-3 p-3">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder={language === "vi" ? "Tìm mã phiếu, NCC..." : "Search code, supplier..."}
-                  className="h-12 rounded-2xl border-border bg-background/65 pl-11 text-sm shadow-none"
-                />
-              </div>
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {[
-                  { value: "all", label: language === "vi" ? "Tất cả" : "All" },
-                  { value: "pending", label: t.pending },
-                  { value: "approved", label: t.approved },
-                  { value: "rejected", label: t.rejected },
-                ].map((filter) => (
-                  <button
-                    key={filter.value}
-                    type="button"
-                    onClick={() => setStatusFilter(filter.value)}
-                    className={cn(
-                      "h-10 shrink-0 rounded-full border px-4 text-sm font-semibold transition-colors",
-                      statusFilter === filter.value
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-background/70 text-muted-foreground"
-                    )}
-                  >
-                    {filter.label}
-                  </button>
-                ))}
+          <section className="flex flex-col gap-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder={language === "vi" ? "Tìm mã phiếu, NCC..." : "Search code, supplier..."}
+                className="h-12 rounded-full border-white/40 bg-card/80 pl-11 text-sm shadow-[0_20px_20px_rgba(143,155,179,0.08)] backdrop-blur-xl"
+              />
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {[
+                { value: "all", label: language === "vi" ? "Tất cả" : "All" },
+                { value: "pending", label: t.pending },
+                { value: "approved", label: t.approved },
+                { value: "rejected", label: t.rejected },
+              ].map((filter) => (
                 <button
+                  key={filter.value}
                   type="button"
-                  onClick={() => setSourceFilter(sourceFilter === "warehouse_receipt" ? "all" : "warehouse_receipt")}
+                  onClick={() => setStatusFilter(filter.value)}
                   className={cn(
-                    "h-10 shrink-0 rounded-full border px-4 text-sm font-semibold transition-colors",
-                    sourceFilter === "warehouse_receipt"
+                    "h-10 shrink-0 rounded-full border px-4 text-sm font-semibold shadow-sm transition-colors",
+                    statusFilter === filter.value
                       ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border bg-background/70 text-muted-foreground"
+                      : "border-white/40 bg-card/80 text-muted-foreground"
                   )}
                 >
-                  Phiếu nhập
+                  {filter.label}
                 </button>
-              </div>
-            </CardContent>
-          </Card>
+              ))}
+              <button
+                type="button"
+                onClick={() => setSourceFilter(sourceFilter === "warehouse_receipt" ? "all" : "warehouse_receipt")}
+                className={cn(
+                  "h-10 shrink-0 rounded-full border px-4 text-sm font-semibold shadow-sm transition-colors",
+                  sourceFilter === "warehouse_receipt"
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-white/40 bg-card/80 text-muted-foreground"
+                )}
+              >
+                Phiếu nhập
+              </button>
+            </div>
+          </section>
         </div>
 
         <div className="hidden gap-5 md:grid-cols-2 lg:grid 2xl:grid-cols-4">
@@ -736,7 +774,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
 
       {/* Bulk Action Bar */}
       {selectedIds.size > 0 && (
-        <div data-stitch-section="mobile-selected-actions-inline" className="flex flex-col gap-3 rounded-3xl border border-border/80 bg-card/95 p-3 shadow-card backdrop-blur-xl lg:flex-row lg:items-center lg:justify-between lg:rounded-md lg:bg-muted/40 lg:p-4 lg:shadow-none lg:backdrop-blur-0">
+        <div data-stitch-section="mobile-selected-actions-inline" className="flex flex-col gap-3 rounded-xl border border-white/40 bg-card/90 p-3 shadow-[0_20px_20px_rgba(143,155,179,0.08)] backdrop-blur-xl lg:flex-row lg:items-center lg:justify-between lg:rounded-md lg:bg-muted/40 lg:p-4 lg:shadow-none lg:backdrop-blur-0">
           <div className="flex flex-wrap items-center gap-4">
             <span className="font-medium">
               {t.selected}: {selectedIds.size}
@@ -839,15 +877,18 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                 key={request.id}
                 data-stitch-card="mobile-payment-request"
                 className={cn(
-                  "relative overflow-visible rounded-xl border-border/80 bg-card/90 shadow-[0_14px_36px_rgba(15,23,42,0.10)] backdrop-blur-xl transition-all",
-                  isSelected && "border-primary/45 ring-2 ring-primary/15"
+                  "relative overflow-hidden rounded-xl border-white/40 bg-card/85 shadow-[0_20px_20px_rgba(143,155,179,0.08)] backdrop-blur-xl transition-all",
+                  isSelected && "border-primary/45 ring-1 ring-primary/20"
                 )}
               >
                 <div
                   aria-hidden="true"
-                  className="absolute -left-1.5 top-5 h-14 w-3 rounded-r-lg bg-primary shadow-[0_10px_24px_rgba(217,119,6,0.35)]"
+                  className={cn(
+                    "absolute bottom-0 left-0 top-0 w-1",
+                    cue.label.includes("Vượt") || request.status === "rejected" ? "bg-destructive/70" : isSelected || isExpanded ? "bg-primary" : "bg-primary/40"
+                  )}
                 />
-                <CardContent className="space-y-3 p-4 pl-5">
+                <CardContent className="space-y-3 p-4 pl-6">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
@@ -868,7 +909,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="text-lg font-extrabold tabular-nums text-foreground">
+                      <p className="text-lg font-extrabold tabular-nums text-primary">
                         {formatCurrency(request.total_amount || 0)}
                       </p>
                       {remainingAmount > 0 && allocatedAmount > 0 ? (
@@ -877,16 +918,16 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                     </div>
                   </div>
 
-                  <div className="rounded-2xl bg-muted/45 px-3 py-2">
+                  <div className="rounded border border-white/30 bg-muted/35 px-3 py-2">
                     <p className="line-clamp-2 text-sm font-medium text-foreground">
                       {request.title || productNames[0] || (language === "vi" ? "Đề nghị thanh toán" : "Payment request")}
                     </p>
                     <div className="mt-2 flex flex-wrap gap-1.5">
-                      <Badge variant="outline" className="rounded-full border-border bg-card/70 text-[11px] font-semibold">
+                      <Badge variant="outline" className="rounded bg-card/70 px-2 py-1 text-[11px] font-semibold text-muted-foreground">
                         {getSourceLabel(request)}
                       </Badge>
                       {productNames.slice(0, 2).map((name) => (
-                        <Badge key={name} variant="outline" className="max-w-[150px] truncate rounded-full border-border bg-card/70 text-[11px] font-medium">
+                        <Badge key={name} variant="outline" className="max-w-[150px] truncate rounded bg-card/70 px-2 py-1 text-[11px] font-medium text-muted-foreground">
                           {name}
                         </Badge>
                       ))}
@@ -899,34 +940,41 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                   </div>
 
                   {isExpanded && (
-                    <div data-stitch-section="mobile-accounting-checklist" className="space-y-2 rounded-2xl border border-border/70 bg-background/60 p-3 text-xs">
+                    <div data-stitch-section="mobile-accounting-checklist" className="space-y-2 border-t border-white/40 pt-3 text-xs">
                       <div className="flex items-center justify-between gap-3">
-                        <span className="text-muted-foreground">Chứng từ</span>
-                        <span className="font-semibold text-foreground">{request.image_url ? "Có ảnh đính kèm" : "Cần kiểm tra"}</span>
+                        <span className="text-muted-foreground">Chứng từ:</span>
+                        <span className="font-semibold text-foreground">{request.image_url ? "Đủ (có ảnh)" : "Cần kiểm tra"}</span>
                       </div>
                       <div className="flex items-center justify-between gap-3">
-                        <span className="text-muted-foreground">PO / Phiếu nhập</span>
-                        <span className="max-w-[170px] truncate font-semibold text-foreground">{getSourceLabel(request)}</span>
+                        <span className="text-muted-foreground">Hóa đơn:</span>
+                        <span className="font-semibold text-destructive">Cần xác minh</span>
                       </div>
                       <div className="flex items-center justify-between gap-3">
-                        <span className="text-muted-foreground">Kế toán</span>
-                        <span className="font-semibold text-foreground">Đối soát trước khi duyệt</span>
+                        <span className="text-muted-foreground">PO / Phiếu nhập:</span>
+                        <span className="max-w-[170px] truncate font-semibold text-primary underline">{getSourceLabel(request)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground">Tài khoản chi:</span>
+                        <span className="font-semibold text-foreground">Kế toán kiểm tra</span>
+                      </div>
+                      <div className="rounded border border-white/30 bg-muted/35 p-3 text-muted-foreground">
+                        Ghi chú: Đối soát trước khi duyệt
                       </div>
                     </div>
                   )}
 
-                  <div className="grid grid-cols-2 gap-2 pt-1">
+                  <div className="flex gap-3 pt-1">
                     <Button
                       variant="outline"
-                      className="h-12 rounded-xl border-border bg-card/80 font-semibold shadow-none"
+                      className="h-[52px] flex-1 rounded-lg border-primary/70 bg-card/80 font-semibold text-primary shadow-none"
                       onClick={() => setSelectedRequestId(request.id)}
                     >
                       <Eye className="mr-2 h-4 w-4" />
-                      {language === "vi" ? "Xem" : "View"}
+                      {request.status === "pending" ? (language === "vi" ? "Xem / Từ chối" : "View / Reject") : (language === "vi" ? "Xem" : "View")}
                     </Button>
                     {request.status === "pending" && canEditPaymentRequests ? (
                       <Button
-                        className="h-12 rounded-xl font-semibold shadow-sm"
+                        className="h-[52px] flex-[2] rounded-lg font-semibold shadow-md"
                         disabled={bulkApprove.isPending}
                         onClick={() => openQuickApproveConfirm(request.id)}
                       >
@@ -936,7 +984,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                     ) : (
                       <Button
                         variant="outline"
-                        className="h-12 rounded-xl border-border bg-card/80 font-semibold shadow-none"
+                        className="h-[52px] flex-1 rounded-lg border-border bg-card/80 font-semibold shadow-none"
                         onClick={() => {
                           const next = new Set(selectedIds);
                           if (isSelectable) {
@@ -956,7 +1004,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
             );
           })}
 
-            <div data-stitch-section="mobile-pagination" className="rounded-2xl border border-border/70 bg-card/85 p-3 shadow-card backdrop-blur-xl">
+            <div data-stitch-section="mobile-pagination" className="rounded-xl border border-white/40 bg-card/85 p-3 shadow-[0_20px_20px_rgba(143,155,179,0.08)] backdrop-blur-xl">
               <div className="mb-3 flex items-center justify-between gap-3 text-sm">
                 <span className="font-medium text-muted-foreground">
                   {language === "vi"
