@@ -436,7 +436,7 @@ const normalizePdfKey = (value: unknown) => normalizeTextKey(String(value ?? "")
 
 const prettifyKingfoodPdfProductName = (value: string) => {
   const compact = normalizePdfKey(value).replace(/\s+/g, "");
-  if (compact.includes("croissant160g40gx4cai")) return "Croissant (40g)";
+  if (compact.includes("croissant160g40gx4cai")) return "BMQ - BÁNH CROISSANT 160G (40G x 4 CÁI)";
   if (compact.includes("croissant50g")) return "BMQ - BÁNH CROISSANT 50G";
   if (compact.includes("crossbunnho180g")) return "BMQ - BÁNH CROSS BUN NHỎ 180G";
   if (compact.includes("cuaphomai90g")) return "BMQ - BÁNH CUA PHÔ MAI 90G";

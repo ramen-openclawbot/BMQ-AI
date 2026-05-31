@@ -46,6 +46,12 @@ def test_kingfood_cancel_and_pdf_only_guardrails() -> None:
     assert_contains(sync, "automation_status", "automation status metadata")
 
 
+def test_kingfood_pdf_croissant_160g_keeps_canonical_finished_sku_name() -> None:
+    assert_contains(sync, "croissant160g40gx4cai", "Kingfood Croissant 160g PDF alias")
+    assert_contains(sync, "BMQ - BÁNH CROISSANT 160G (40G x 4 CÁI)", "canonical Croissant 160g finished SKU name")
+    assert "return \"Croissant (40g)\"" not in sync, "Kingfood Croissant 160g must not be shortened; strict production SKU matching will hide it"
+
+
 def test_scheduler_keeps_unparsed_exception_out_of_pending_revenue() -> None:
     assert_contains(scheduler, "po_automation", "scheduler reads PO automation metadata")
     assert_contains(scheduler, "pdf_only_needs_review", "scheduler flags PDF-only exception")
