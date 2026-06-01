@@ -87,13 +87,28 @@ export function usePaymentRequest(id: string | null) {
     queryKey: ["payment-request", id],
     queryFn: async () => {
       if (!id) return null;
+      const relationSelect = "*, suppliers(id, name), payment_allocations(id, amount, payment_id, created_at), goods_receipts(id, receipt_number, receipt_date, payable_status), purchase_orders(id, po_number, status), invoices:invoices!payment_requests_invoice_id_fkey(id, invoice_number)";
+      const fallbackSelect = "*, suppliers(id, name), payment_allocations(id, amount, payment_id, created_at)";
+
       const { data, error } = await supabase
         .from("payment_requests")
-        .select("*, suppliers(id, name), payment_allocations(id, amount, payment_id, created_at), goods_receipts(id, receipt_number, receipt_date, payable_status), purchase_orders(id, po_number, status), invoices:invoices!payment_requests_invoice_id_fkey(id, invoice_number)")
+        .select(relationSelect)
         .eq("id", id)
         .single();
-      if (error) throw error;
-      const [request] = await attachCreatorProfiles([data as PaymentRequestWithSupplier]);
+
+      if (!error) {
+        const [request] = await attachCreatorProfiles([data as PaymentRequestWithSupplier]);
+        return request;
+      }
+
+      console.warn("[usePaymentRequest] Falling back without receipt/PO relations", error);
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from("payment_requests")
+        .select(fallbackSelect)
+        .eq("id", id)
+        .single();
+      if (fallbackError) throw fallbackError;
+      const [request] = await attachCreatorProfiles([fallbackData as PaymentRequestWithSupplier]);
       return request;
     },
     enabled: !!id,
