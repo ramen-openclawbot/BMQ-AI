@@ -223,6 +223,14 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "data-bmq-goods-receipts-mobile-optimized" in page
     assert "data-bmq-goods-receipts-mobile-card-list" in page
     assert "data-bmq-goods-receipt-row-click-detail" in page
+    assert "data-bmq-goods-receipts-pagination" in page
+    assert "data-bmq-goods-receipts-per-page={RECEIPTS_PER_PAGE}" in page
+    assert "const RECEIPTS_PER_PAGE = 20" in page
+    assert "paginatedReceipts.map((receipt)" in page
+    assert "filteredReceipts.slice(start, start + RECEIPTS_PER_PAGE)" in page
+    assert "renderPaginationControls(\"mobile\")" in page
+    assert "renderPaginationControls(\"desktop\")" in page
+    assert "setCurrentPage(1)" in page
     assert "onClick={() => handleViewDetails(receipt.id)}" in page
     assert "useSidebar" not in page
     assert 'window.dispatchEvent(new Event("bmq:open-sidebar"))' in page

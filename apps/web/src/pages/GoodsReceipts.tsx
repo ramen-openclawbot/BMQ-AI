@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { format } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
 import { Package, Trash2, CheckCircle, Clock, FileCheck, AlertCircle, Link2, Loader2, Menu } from "lucide-react";
@@ -14,6 +14,8 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { AddGoodsReceiptDialog } from "@/components/dialogs/AddGoodsReceiptDialog";
 import { GoodsReceiptDetailsDialog } from "@/components/dialogs/GoodsReceiptDetailsDialog";
 
+const RECEIPTS_PER_PAGE = 20;
+
 export default function GoodsReceipts() {
   const { language } = useLanguage();
   const locale = language === "vi" ? vi : enUS;
@@ -23,6 +25,7 @@ export default function GoodsReceipts() {
   const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const { data: receipts = [], isLoading, error } = useGoodsReceipts();
   const deleteReceipt = useDeleteGoodsReceipt();
@@ -34,6 +37,24 @@ export default function GoodsReceipts() {
       return true;
     });
   }, [receipts, statusFilter]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredReceipts.length / RECEIPTS_PER_PAGE));
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(Math.max(page, 1), totalPages));
+  }, [totalPages]);
+
+  const paginatedReceipts = useMemo(() => {
+    const start = (currentPage - 1) * RECEIPTS_PER_PAGE;
+    return filteredReceipts.slice(start, start + RECEIPTS_PER_PAGE);
+  }, [currentPage, filteredReceipts]);
+
+  const paginationStart = filteredReceipts.length === 0 ? 0 : (currentPage - 1) * RECEIPTS_PER_PAGE + 1;
+  const paginationEnd = Math.min(currentPage * RECEIPTS_PER_PAGE, filteredReceipts.length);
 
   const stats = useMemo(() => {
     return {
@@ -105,6 +126,47 @@ export default function GoodsReceipts() {
     setDetailsOpen(true);
   };
 
+  const renderPaginationControls = (surface: "mobile" | "desktop") => {
+    if (filteredReceipts.length <= RECEIPTS_PER_PAGE) return null;
+
+    return (
+      <div
+        className={`flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-3 text-sm ${surface === "mobile" ? "md:hidden" : "hidden md:flex"}`}
+        data-bmq-goods-receipts-pagination
+        data-bmq-goods-receipts-per-page={RECEIPTS_PER_PAGE}
+      >
+        <div className="min-w-0 text-muted-foreground">
+          <span className="font-medium text-foreground">{paginationStart}-{paginationEnd}</span> / {filteredReceipts.length} {isVi ? "phiếu" : "receipts"}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 px-3"
+            onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+            disabled={currentPage === 1}
+          >
+            {isVi ? "Trước" : "Prev"}
+          </Button>
+          <span className="whitespace-nowrap text-xs font-medium text-muted-foreground">
+            {isVi ? "Trang" : "Page"} {currentPage}/{totalPages}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 px-3"
+            onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+            disabled={currentPage === totalPages}
+          >
+            {isVi ? "Sau" : "Next"}
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
   const statusCards = [
     { key: "all", label: isVi ? "Tổng phiếu" : "Total", value: stats.total, tone: "text-primary" },
     { key: "draft", label: "Nháp", value: stats.draft, tone: "text-muted-foreground" },
@@ -167,6 +229,8 @@ export default function GoodsReceipts() {
           </CardContent>
         </Card>
 
+        {renderPaginationControls("mobile")}
+
         <div className="space-y-3 md:hidden" data-bmq-goods-receipts-mobile-card-list>
           {isLoading ? (
             <Card className="border-border bg-card p-6 text-center text-muted-foreground">
@@ -183,7 +247,7 @@ export default function GoodsReceipts() {
               {isVi ? "Chưa có phiếu nhập kho nào" : "No goods receipts yet"}
             </Card>
           ) : (
-            filteredReceipts.map((receipt) => (
+            paginatedReceipts.map((receipt) => (
               <Card
                 key={receipt.id}
                 role="button"
@@ -281,6 +345,8 @@ export default function GoodsReceipts() {
           )}
         </div>
 
+        {renderPaginationControls("mobile")}
+
         <Card className="hidden overflow-hidden border-border bg-card md:block">
           <CardContent className="p-0">
             <div className="overflow-x-auto">
@@ -320,7 +386,7 @@ export default function GoodsReceipts() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredReceipts.map((receipt) => (
+                    paginatedReceipts.map((receipt) => (
                       <TableRow
                         key={receipt.id}
                         role="button"
@@ -405,6 +471,8 @@ export default function GoodsReceipts() {
             </div>
           </CardContent>
         </Card>
+
+        {renderPaginationControls("desktop")}
 
         <GoodsReceiptDetailsDialog
           receiptId={selectedReceiptId}
