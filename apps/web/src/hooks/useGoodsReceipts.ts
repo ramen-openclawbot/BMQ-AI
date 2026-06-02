@@ -21,6 +21,37 @@ export type GoodsReceiptItem = Tables<"goods_receipt_items"> & {
 export type GoodsReceiptInsert = TablesInsert<"goods_receipts">;
 export type GoodsReceiptItemInsert = TablesInsert<"goods_receipt_items">;
 
+async function attachSupplierNames<T extends GoodsReceipt>(receipts: T[]): Promise<T[]> {
+  const missingSupplierIds = Array.from(new Set(
+    receipts
+      .filter((receipt) => receipt.supplier_id && !receipt.suppliers?.name)
+      .map((receipt) => receipt.supplier_id as string)
+  ));
+
+  if (missingSupplierIds.length === 0) return receipts;
+
+  const { data: suppliers, error } = await supabase
+    .from("suppliers")
+    .select("id, name")
+    .in("id", missingSupplierIds);
+
+  if (error) {
+    console.warn("Unable to attach supplier names to goods receipts", error);
+    return receipts;
+  }
+
+  const supplierById = new Map((suppliers || []).map((supplier) => [supplier.id, supplier]));
+
+  return receipts.map((receipt) => ({
+    ...receipt,
+    suppliers: receipt.suppliers?.name
+      ? receipt.suppliers
+      : receipt.supplier_id
+        ? supplierById.get(receipt.supplier_id) || receipt.suppliers || null
+        : receipt.suppliers || null,
+  }));
+}
+
 // Fetch all goods receipts
 export function useGoodsReceipts() {
   return useQuery({
@@ -32,7 +63,7 @@ export function useGoodsReceipts() {
         .order("created_at", { ascending: false });
 
       if (!relationQuery.error) {
-        return relationQuery.data as GoodsReceipt[];
+        return attachSupplierNames((relationQuery.data || []) as GoodsReceipt[]);
       }
 
       console.warn("Falling back to base goods_receipts query", relationQuery.error);
@@ -42,12 +73,12 @@ export function useGoodsReceipts() {
         .select("*")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data || []).map((receipt) => ({
+      return attachSupplierNames((data || []).map((receipt) => ({
         ...receipt,
         suppliers: null,
         purchase_orders: null,
         payment_requests: null,
-      })) as GoodsReceipt[];
+      })) as GoodsReceipt[]);
     },
     staleTime: 30000,
     gcTime: 5 * 60 * 1000,
@@ -68,7 +99,8 @@ export function useGoodsReceipt(id: string | null) {
         .single();
 
       if (!relationQuery.error) {
-        return relationQuery.data as GoodsReceipt;
+        const [receipt] = await attachSupplierNames([relationQuery.data as GoodsReceipt]);
+        return receipt;
       }
 
       console.warn("Falling back to base goods_receipt detail query", relationQuery.error);
@@ -79,12 +111,13 @@ export function useGoodsReceipt(id: string | null) {
         .eq("id", id)
         .single();
       if (error) throw error;
-      return {
+      const [receipt] = await attachSupplierNames([{
         ...data,
         suppliers: null,
         purchase_orders: null,
         payment_requests: null,
-      } as GoodsReceipt;
+      } as GoodsReceipt]);
+      return receipt;
     },
     enabled: !!id,
     staleTime: 30000,

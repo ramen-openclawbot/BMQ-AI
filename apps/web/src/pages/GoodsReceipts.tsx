@@ -13,13 +13,11 @@ import { useGoodsReceipts, useDeleteGoodsReceipt, useConfirmGoodsReceipt } from 
 import { useLanguage } from "@/contexts/LanguageContext";
 import { AddGoodsReceiptDialog } from "@/components/dialogs/AddGoodsReceiptDialog";
 import { GoodsReceiptDetailsDialog } from "@/components/dialogs/GoodsReceiptDetailsDialog";
-import { useSidebar } from "@/components/ui/sidebar";
 
 export default function GoodsReceipts() {
   const { language } = useLanguage();
   const locale = language === "vi" ? vi : enUS;
   const isVi = language === "vi";
-  const { setOpenMobile } = useSidebar();
   
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(null);
@@ -121,7 +119,7 @@ export default function GoodsReceipts() {
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="mb-2 flex items-center gap-2 md:hidden">
-                <Button type="button" variant="ghost" size="icon" className="-ml-2 h-8 w-8" onClick={() => setOpenMobile(true)} aria-label="Mở menu">
+                <Button type="button" variant="ghost" size="icon" className="-ml-2 h-8 w-8" onClick={() => window.dispatchEvent(new Event("bmq:open-sidebar"))} aria-label="Mở menu">
                   <Menu className="h-5 w-5" />
                 </Button>
                 <span className="text-xs font-semibold uppercase tracking-wide text-primary">Kho hàng</span>

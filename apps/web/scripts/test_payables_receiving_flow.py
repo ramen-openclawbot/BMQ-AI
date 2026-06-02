@@ -202,6 +202,9 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "purchase_orders" in hook
     assert "payment_requests" in hook
     assert "payable_status" in hook
+    assert "attachSupplierNames" in hook
+    assert '.from("suppliers")' in hook
+    assert '.in("id", missingSupplierIds)' in hook
     assert "Falling back to base goods_receipt detail query" in hook
     assert "Falling back to base goods_receipt_items query" in hook
     assert "product_skus: null" in hook
@@ -221,6 +224,8 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "data-bmq-goods-receipts-mobile-card-list" in page
     assert "data-bmq-goods-receipt-row-click-detail" in page
     assert "onClick={() => handleViewDetails(receipt.id)}" in page
+    assert "useSidebar" not in page
+    assert 'window.dispatchEvent(new Event("bmq:open-sidebar"))' in page
     assert "Chạm vào thẻ để xem chi tiết" in page
     assert "<Eye" not in page
 
