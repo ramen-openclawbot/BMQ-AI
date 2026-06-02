@@ -1,9 +1,10 @@
 import { useEffect, useState, useMemo } from "react";
 import { format } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
-import { Package, Trash2, CheckCircle, Clock, FileCheck, AlertCircle, Link2, Loader2, Menu } from "lucide-react";
+import { Package, Trash2, CheckCircle, Clock, FileCheck, AlertCircle, Link2, Loader2, Menu, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -15,6 +16,58 @@ import { AddGoodsReceiptDialog } from "@/components/dialogs/AddGoodsReceiptDialo
 import { GoodsReceiptDetailsDialog } from "@/components/dialogs/GoodsReceiptDetailsDialog";
 
 const RECEIPTS_PER_PAGE = 20;
+type TimeFilterMode = "week" | "month" | "year";
+
+const normalizeSearchText = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .trim();
+
+const toMonthValue = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+const toYearValue = (date: Date) => String(date.getFullYear());
+
+const parseReceiptDate = (rawDate: string | null) => {
+  if (!rawDate) return null;
+  const date = new Date(rawDate);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const buildWeekBuckets = (monthValue: string) => {
+  const [yearRaw, monthRaw] = monthValue.split("-");
+  const year = Number(yearRaw);
+  const monthIndex = Number(monthRaw) - 1;
+  if (!Number.isFinite(year) || !Number.isFinite(monthIndex)) return [];
+
+  const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+  const monthLabel = String(monthIndex + 1).padStart(2, "0");
+  return Array.from({ length: Math.ceil(lastDay / 7) }, (_, index) => {
+    const startDay = index * 7 + 1;
+    const endDay = Math.min(startDay + 6, lastDay);
+    return {
+      value: `${monthValue}-w${index + 1}`,
+      label: `Tuần ${index + 1} (${startDay}-${endDay}/${monthLabel})`,
+      startDay,
+      endDay,
+    };
+  });
+};
+
+const getWeekBucketValue = (date: Date) => {
+  const monthValue = toMonthValue(date);
+  const weekIndex = Math.floor((date.getDate() - 1) / 7) + 1;
+  return `${monthValue}-w${weekIndex}`;
+};
+
+const receiptMatchesPeriod = (rawDate: string | null, mode: TimeFilterMode, monthValue: string, yearValue: string, weekValue: string) => {
+  const date = parseReceiptDate(rawDate);
+  if (!date) return false;
+  if (mode === "year") return String(date.getFullYear()) === yearValue;
+  if (mode === "month") return toMonthValue(date) === monthValue;
+  return getWeekBucketValue(date) === weekValue;
+};
 
 export default function GoodsReceipts() {
   const { language } = useLanguage();
@@ -26,21 +79,40 @@ export default function GoodsReceipts() {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [supplierSearchTerm, setSupplierSearchTerm] = useState("");
+  const [timeFilterMode, setTimeFilterMode] = useState<TimeFilterMode>("week");
+  const [selectedMonthValue, setSelectedMonthValue] = useState(() => toMonthValue(new Date()));
+  const [selectedYearValue, setSelectedYearValue] = useState(() => toYearValue(new Date()));
+  const [selectedWeekValue, setSelectedWeekValue] = useState(() => getWeekBucketValue(new Date()));
 
   const { data: receipts = [], isLoading, error } = useGoodsReceipts();
   const deleteReceipt = useDeleteGoodsReceipt();
   const confirmReceipt = useConfirmGoodsReceipt();
 
+  const weekOptions = useMemo(() => buildWeekBuckets(selectedMonthValue), [selectedMonthValue]);
+
   const filteredReceipts = useMemo(() => {
+    const supplierNeedle = normalizeSearchText(supplierSearchTerm);
     return receipts.filter((r) => {
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
+      if (!receiptMatchesPeriod(r.receipt_date, timeFilterMode, selectedMonthValue, selectedYearValue, selectedWeekValue)) return false;
+      if (supplierNeedle) {
+        const supplierName = normalizeSearchText(r.suppliers?.name || "");
+        if (!supplierName.includes(supplierNeedle)) return false;
+      }
       return true;
     });
-  }, [receipts, statusFilter]);
+  }, [receipts, selectedMonthValue, selectedWeekValue, selectedYearValue, statusFilter, supplierSearchTerm, timeFilterMode]);
+
+  useEffect(() => {
+    if (weekOptions.length > 0 && !weekOptions.some((week) => week.value === selectedWeekValue)) {
+      setSelectedWeekValue(weekOptions[0].value);
+    }
+  }, [selectedWeekValue, weekOptions]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter]);
+  }, [statusFilter, supplierSearchTerm, selectedMonthValue, selectedWeekValue, selectedYearValue, timeFilterMode]);
 
   const totalPages = Math.max(1, Math.ceil(filteredReceipts.length / RECEIPTS_PER_PAGE));
 
@@ -213,19 +285,87 @@ export default function GoodsReceipts() {
           ))}
         </div>
 
-        <Card className="border-border bg-card">
-          <CardContent className="p-3">
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="h-9 w-full border-border bg-background text-sm sm:w-48">
-                <SelectValue placeholder={isVi ? "Trạng thái" : "Status"} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{isVi ? "Tất cả" : "All"}</SelectItem>
-                <SelectItem value="draft">{isVi ? "Nháp" : "Draft"}</SelectItem>
-                <SelectItem value="confirmed">{isVi ? "Đã xác nhận" : "Confirmed"}</SelectItem>
-                <SelectItem value="received">{isVi ? "Đã nhập kho" : "Received"}</SelectItem>
-              </SelectContent>
-            </Select>
+        <Card className="border-border bg-card" data-bmq-goods-receipts-period-filters data-bmq-goods-receipts-default-week-filter>
+          <CardContent className="space-y-3 p-3">
+            <div className="grid gap-3 lg:grid-cols-[1.25fr_0.7fr_0.9fr_0.8fr]">
+              <div className="relative" data-bmq-goods-receipts-supplier-search>
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={supplierSearchTerm}
+                  onChange={(event) => setSupplierSearchTerm(event.target.value)}
+                  className="h-9 border-border bg-background pl-9 text-sm"
+                  placeholder={isVi ? "Tìm theo nhà cung cấp..." : "Search supplier..."}
+                />
+              </div>
+
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="h-9 w-full border-border bg-background text-sm">
+                  <SelectValue placeholder={isVi ? "Trạng thái" : "Status"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{isVi ? "Tất cả" : "All"}</SelectItem>
+                  <SelectItem value="draft">{isVi ? "Nháp" : "Draft"}</SelectItem>
+                  <SelectItem value="confirmed">{isVi ? "Đã xác nhận" : "Confirmed"}</SelectItem>
+                  <SelectItem value="received">{isVi ? "Đã nhập kho" : "Received"}</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={timeFilterMode} onValueChange={(value) => setTimeFilterMode(value as TimeFilterMode)}>
+                <SelectTrigger className="h-9 w-full border-border bg-background text-sm" data-bmq-goods-receipts-time-mode>
+                  <SelectValue placeholder={isVi ? "Kỳ lọc" : "Period"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="week">{isVi ? "Theo tuần" : "Week"}</SelectItem>
+                  <SelectItem value="month">{isVi ? "Theo tháng" : "Month"}</SelectItem>
+                  <SelectItem value="year">{isVi ? "Theo năm" : "Year"}</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {timeFilterMode === "year" ? (
+                <Input
+                  value={selectedYearValue}
+                  onChange={(event) => setSelectedYearValue(event.target.value)}
+                  type="number"
+                  min="2020"
+                  max="2100"
+                  className="h-9 border-border bg-background text-sm"
+                  aria-label={isVi ? "Năm lọc" : "Filter year"}
+                  data-bmq-goods-receipts-year-filter
+                />
+              ) : (
+                <Input
+                  value={selectedMonthValue}
+                  onChange={(event) => setSelectedMonthValue(event.target.value)}
+                  type="month"
+                  className="h-9 border-border bg-background text-sm"
+                  aria-label={isVi ? "Tháng lọc" : "Filter month"}
+                  data-bmq-goods-receipts-month-filter
+                />
+              )}
+            </div>
+
+            {timeFilterMode === "week" && (
+              <div className="flex flex-col gap-2 rounded-xl border border-primary/15 bg-primary/5 p-3 sm:flex-row sm:items-center sm:justify-between" data-bmq-goods-receipts-week-buckets>
+                <div className="text-xs text-muted-foreground">
+                  <span className="font-semibold text-foreground">{isVi ? "Tuần mặc định" : "Default week"}</span>{" "}
+                  {isVi ? "được chia theo ngày trong tháng: 1-7, 8-14, 15-21, 22-28, 29-hết tháng." : "is split by month days: 1-7, 8-14, 15-21, 22-28, 29-end."}
+                </div>
+                <Select value={selectedWeekValue} onValueChange={setSelectedWeekValue}>
+                  <SelectTrigger className="h-9 w-full border-border bg-background text-sm sm:w-52" data-bmq-goods-receipts-week-filter>
+                    <SelectValue placeholder={isVi ? "Chọn tuần" : "Select week"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {weekOptions.map((week) => (
+                      <SelectItem key={week.value} value={week.value}>{week.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="text-xs text-muted-foreground">
+              {isVi ? "Đang hiển thị" : "Showing"} <span className="font-semibold text-foreground">{filteredReceipts.length}</span> / {receipts.length} {isVi ? "phiếu theo bộ lọc hiện tại" : "receipts for current filters"}
+            </div>
           </CardContent>
         </Card>
 

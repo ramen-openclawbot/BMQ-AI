@@ -225,6 +225,21 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "data-bmq-goods-receipt-row-click-detail" in page
     assert "data-bmq-goods-receipts-pagination" in page
     assert "data-bmq-goods-receipts-per-page={RECEIPTS_PER_PAGE}" in page
+    assert "data-bmq-goods-receipts-period-filters" in page
+    assert "data-bmq-goods-receipts-default-week-filter" in page
+    assert "data-bmq-goods-receipts-supplier-search" in page
+    assert "data-bmq-goods-receipts-week-buckets" in page
+    assert "data-bmq-goods-receipts-week-filter" in page
+    assert "data-bmq-goods-receipts-month-filter" in page
+    assert "data-bmq-goods-receipts-year-filter" in page
+    assert "type TimeFilterMode = \"week\" | \"month\" | \"year\";" in page
+    assert "const [timeFilterMode, setTimeFilterMode] = useState<TimeFilterMode>(\"week\");" in page
+    assert "const [supplierSearchTerm, setSupplierSearchTerm] = useState(\"\");" in page
+    assert "buildWeekBuckets" in page
+    assert "label: `Tuần ${index + 1}" in page
+    assert "1-7, 8-14, 15-21, 22-28, 29-hết tháng" in page
+    assert "receiptMatchesPeriod" in page
+    assert "normalizeSearchText(r.suppliers?.name || \"\")" in page
     assert "const RECEIPTS_PER_PAGE = 20" in page
     assert "paginatedReceipts.map((receipt)" in page
     assert "filteredReceipts.slice(start, start + RECEIPTS_PER_PAGE)" in page
