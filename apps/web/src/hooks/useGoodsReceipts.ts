@@ -236,6 +236,40 @@ export function useUpdateGoodsReceipt() {
   });
 }
 
+// Update actual received quantities and statuses for goods receipt items
+export function useUpdateGoodsReceiptItems() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      receiptId,
+      items,
+    }: {
+      receiptId: string;
+      items: Array<{
+        id: string;
+        actual_quantity: number;
+        line_status: string;
+        variance_reason: string | null;
+      }>;
+    }) => {
+      await Promise.all(
+        items.map(async ({ id, actual_quantity, line_status, variance_reason }) => {
+          const { error } = await supabase
+            .from("goods_receipt_items")
+            .update({ actual_quantity, line_status, variance_reason })
+            .eq("id", id);
+          if (error) throw error;
+        })
+      );
+    },
+    onSuccess: (_, { receiptId }) => {
+      queryClient.invalidateQueries({ queryKey: ["goods-receipt-items", receiptId] });
+      queryClient.invalidateQueries({ queryKey: ["goods-receipt", receiptId] });
+    },
+  });
+}
+
 // Delete goods receipt
 export function useDeleteGoodsReceipt() {
   const queryClient = useQueryClient();

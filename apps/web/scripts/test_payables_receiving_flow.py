@@ -602,6 +602,47 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert "bg-[#D97706]" in detail_dialog
 
 
+def test_goods_receipt_receiving_edit_mode():
+    hook = read(GOODS_RECEIPTS_HOOK)
+    details = read(GOODS_RECEIPT_DETAILS)
+
+    # Hook: mutation for bulk updating actual received quantities
+    assert "export function useUpdateGoodsReceiptItems" in hook
+    update_section = hook.split("export function useUpdateGoodsReceiptItems", 1)[1]
+    assert "actual_quantity" in update_section
+    assert "line_status" in update_section
+    assert "variance_reason" in update_section
+    assert "receiptId" in update_section
+    assert "goods_receipt_items" in update_section
+
+    # Dialog wires in the new mutation
+    assert "useUpdateGoodsReceiptItems" in details
+
+    # Stable regression markers
+    assert "data-bmq-goods-receipt-receive-editor" in details
+    assert "data-bmq-goods-receipt-mobile-receive-editor" in details
+    assert "data-bmq-goods-receipt-desktop-receive-editor" in details
+    assert "data-bmq-goods-receipt-shortage-reason" in details
+    assert "data-bmq-goods-receipt-actual-payable-only" in details
+
+    # Workflow Vietnamese copy
+    assert "Kho nhập số lượng thực nhận" in details
+    assert "Nhập kho + Tạo công nợ" in details
+    assert "thực nhận" in details
+    assert "Công nợ theo thực nhận" in details
+    assert "Lý do thiếu" in details
+
+    # Over-receipt blocked via validation message
+    assert "Vượt quá" in details
+
+    # Finalization gated on per-line validation
+    assert "canFinalize" in details
+    assert "disabled={" in details
+
+    # Shortage requires reason before finalizing
+    assert "variance_reason" in details
+
+
 if __name__ == "__main__":
     test_payables_receiving_helpers_are_present_and_use_actual_quantity()
     test_migration_adds_receipt_variance_and_payable_state_without_breaking_existing_columns()
@@ -617,4 +658,5 @@ if __name__ == "__main__":
     test_invoices_page_matches_approved_stitch_dashboard_handoff()
     test_payables_management_is_accessible_from_cost_sidebar_with_filtered_route()
     test_purchase_orders_list_row_opens_details_and_shows_product_names_without_eye_icon()
-    print("ok - 14 tests passed")
+    test_goods_receipt_receiving_edit_mode()
+    print("ok - 15 tests passed")
