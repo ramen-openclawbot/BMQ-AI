@@ -1,7 +1,10 @@
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Tables, TablesInsert, TablesUpdate } from "@/integrations/supabase/types";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
+import { normalizeUploadImage } from "@/lib/slip-image";
+import { matchOcrLinesToPoLines, OcrLineCandidate, OcrMatchResult } from "@/lib/payables-receiving-flow";
 
 export type GoodsReceipt = Tables<"goods_receipts"> & {
   suppliers?: { id: string; name: string } | null;
@@ -349,4 +352,72 @@ export async function getGoodsReceiptImageUrl(path: string): Promise<string> {
     .createSignedUrl(path, 60 * 60);
 
   return data?.signedUrl || "";
+}
+
+// Upload delivery note image (distinct from the general receipt image)
+export async function uploadDeliveryNoteImage(file: File, receiptId: string): Promise<string> {
+  const fileExt = file.name.split(".").pop() || "jpg";
+  const fileName = `delivery-note-${receiptId}-${Date.now()}.${fileExt}`;
+  const filePath = `goods-receipts/${fileName}`;
+  const { error } = await supabase.storage.from("invoices").upload(filePath, file);
+  if (error) throw error;
+  return filePath;
+}
+
+// OCR delivery note hook: upload → edge function OCR → heuristic PO matching
+// Gracefully falls back to manual entry if OCR service is unavailable.
+export function useDeliveryNoteOcr() {
+  const [status, setStatus] = useState<"idle" | "uploading" | "ocr" | "done" | "error">("idle");
+  const [suggestions, setSuggestions] = useState<OcrMatchResult[]>([]);
+  const [extractedLines, setExtractedLines] = useState<OcrLineCandidate[]>([]);
+  const [ocrError, setOcrError] = useState<string | null>(null);
+  const [uploadedPath, setUploadedPath] = useState<string | null>(null);
+
+  const process = async (
+    file: File,
+    receiptId: string,
+    poLines: Array<{ id: string; product_name: string; quantity: number }>,
+  ) => {
+    setStatus("uploading");
+    setOcrError(null);
+    setSuggestions([]);
+    setExtractedLines([]);
+
+    try {
+      const deliveryNotePath = await uploadDeliveryNoteImage(file, receiptId);
+      setUploadedPath(deliveryNotePath);
+      setStatus("ocr");
+
+      const { imageBase64, mimeType } = await normalizeUploadImage(file);
+      const deliveryImage = `data:${mimeType};base64,${imageBase64}`;
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const response = await callEdgeFunction<{
+        isMatched: boolean;
+        extractedItems?: Array<{ product_name: string; quantity: number; unit: string }>;
+        error?: string;
+      }>("match-delivery-note", { deliveryImage }, session?.access_token, 60000);
+
+      const extracted = (response.data?.extractedItems || []) as OcrLineCandidate[];
+      if (extracted.length > 0) {
+        setExtractedLines(extracted);
+        setSuggestions(matchOcrLinesToPoLines(extracted, poLines));
+      }
+      setStatus("done");
+      return deliveryNotePath;
+    } catch (err) {
+      setOcrError(err instanceof Error ? err.message : "OCR thất bại");
+      setStatus("error");
+    }
+  };
+
+  const reset = () => {
+    setStatus("idle");
+    setSuggestions([]);
+    setExtractedLines([]);
+    setOcrError(null);
+    setUploadedPath(null);
+  };
+
+  return { status, suggestions, extractedLines, ocrError, uploadedPath, process, reset };
 }

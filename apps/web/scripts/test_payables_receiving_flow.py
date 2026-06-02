@@ -260,6 +260,17 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "formatSafeDate" in details
     assert "Không tải được chi tiết phiếu nhập" in details
     assert "Đang tải chi tiết phiếu nhập" in details
+    assert "data-bmq-goods-receipt-delivery-note-required" in details
+    assert "data-bmq-goods-receipt-ocr-assist" in details
+    assert "data-bmq-goods-receipt-ocr-compare-po" in details
+    assert "data-bmq-goods-receipt-ocr-prefill-actuals" in details
+    assert "data-bmq-goods-receipt-variance-evidence-required" in details
+    assert "Chụp/scan phiếu giao hàng" in details
+    assert "OCR tự điền" in details
+    assert "So với PO" in details
+    assert "Nhân viên xác nhận cuối" in details
+    assert "useDeliveryNoteOcr" in details
+    assert "hasDeliveryNoteEvidence" in details
 
 
 def test_finance_payables_ui_filters_and_labels_warehouse_generated_requests():

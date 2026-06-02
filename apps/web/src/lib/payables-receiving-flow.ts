@@ -45,3 +45,74 @@ export function buildReceiptVarianceSummary(lines: ActualLine[]) {
     }
   );
 }
+
+// OCR delivery note matching utilities — client-side deterministic heuristics
+
+export interface OcrLineCandidate {
+  product_name: string;
+  quantity: number;
+  unit: string;
+}
+
+export interface OcrMatchResult {
+  itemId: string;
+  suggestedQuantity: number;
+  confidence: "high" | "medium" | "low";
+  matchedOcrName: string;
+}
+
+export function removeDiacriticsForMatch(str: string): string {
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase()
+    .trim();
+}
+
+export function stringSimilarity(s1: string, s2: string): number {
+  const tokens1 = removeDiacriticsForMatch(s1).split(/\s+/).filter(Boolean);
+  const tokens2 = removeDiacriticsForMatch(s2).split(/\s+/).filter(Boolean);
+  if (tokens1.length === 0 && tokens2.length === 0) return 1;
+  const set1 = new Set(tokens1);
+  const set2 = new Set(tokens2);
+  const intersection = tokens1.filter(t => set2.has(t));
+  const union = new Set([...set1, ...set2]);
+  return union.size === 0 ? 0 : intersection.length / union.size;
+}
+
+export function matchOcrLinesToPoLines(
+  ocrLines: OcrLineCandidate[],
+  poLines: Array<{ id: string; product_name: string; quantity: number }>,
+): OcrMatchResult[] {
+  const usedOcrIndices = new Set<number>();
+  const results: OcrMatchResult[] = [];
+
+  for (const poLine of poLines) {
+    let bestIdx = -1;
+    let bestScore = 0;
+
+    for (let i = 0; i < ocrLines.length; i++) {
+      if (usedOcrIndices.has(i)) continue;
+      const score = stringSimilarity(poLine.product_name, ocrLines[i].product_name);
+      if (score > bestScore) {
+        bestScore = score;
+        bestIdx = i;
+      }
+    }
+
+    if (bestIdx >= 0 && bestScore >= 0.4) {
+      usedOcrIndices.add(bestIdx);
+      const matched = ocrLines[bestIdx];
+      results.push({
+        itemId: poLine.id,
+        suggestedQuantity: matched.quantity,
+        confidence: bestScore >= 0.8 ? "high" : bestScore >= 0.55 ? "medium" : "low",
+        matchedOcrName: matched.product_name,
+      });
+    }
+  }
+
+  return results;
+}

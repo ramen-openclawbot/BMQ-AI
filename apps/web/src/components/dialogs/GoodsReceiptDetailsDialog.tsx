@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { CheckCircle, Clock, FileCheck, Package, ExternalLink, Loader2, AlertCircle, Link2, XCircle, AlertTriangle } from "lucide-react";
-import { useGoodsReceipt, useGoodsReceiptItems, useConfirmGoodsReceipt, useUpdateGoodsReceiptItems, getGoodsReceiptImageUrl } from "@/hooks/useGoodsReceipts";
+import { Camera, Sparkles, CheckCircle, Clock, FileCheck, Package, ExternalLink, Loader2, AlertCircle, Link2, XCircle, AlertTriangle } from "lucide-react";
+import { useGoodsReceipt, useGoodsReceiptItems, useConfirmGoodsReceipt, useUpdateGoodsReceiptItems, useUpdateGoodsReceipt, getGoodsReceiptImageUrl, useDeliveryNoteOcr } from "@/hooks/useGoodsReceipts";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
@@ -41,9 +41,12 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
   const { data: items = [], isLoading: itemsLoading } = useGoodsReceiptItems(receiptId);
   const confirmReceipt = useConfirmGoodsReceipt();
   const updateItems = useUpdateGoodsReceiptItems();
+  const updateReceipt = useUpdateGoodsReceipt();
+  const ocrDelivery = useDeliveryNoteOcr();
   const [imageOpen, setImageOpen] = useState(false);
   const [editDraft, setEditDraft] = useState<Record<string, LineEdit>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [deliveryNotePath, setDeliveryNotePath] = useState<string | null>(null);
 
   const receiptImageUrl = receipt?.image_url;
 
@@ -56,9 +59,13 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
     enabled: !!receiptImageUrl,
   });
 
-  // Reset draft when switching to a different receipt
+  // Reset draft and OCR state when switching to a different receipt
   useEffect(() => {
     setEditDraft({});
+    setDeliveryNotePath(null);
+    ocrDelivery.reset();
+    // ocrDelivery.reset is stable (closes over useState setters only)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [receiptId]);
 
   // Pre-populate draft from DB values once items load
@@ -76,11 +83,52 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
     });
   }, [items]);
 
+  useEffect(() => {
+    setDeliveryNotePath(receipt?.image_url ?? null);
+  }, [receipt?.image_url]);
+
+  useEffect(() => {
+    if (!receiptId || !ocrDelivery.uploadedPath || ocrDelivery.uploadedPath === receipt?.image_url) return;
+    setDeliveryNotePath(ocrDelivery.uploadedPath);
+    updateReceipt.mutate({ id: receiptId, image_url: ocrDelivery.uploadedPath });
+  }, [ocrDelivery.uploadedPath, receipt?.image_url, receiptId, updateReceipt]);
+
   const updateDraft = (id: string, field: keyof LineEdit, value: string) => {
     setEditDraft(prev => ({
       ...prev,
       [id]: { ...prev[id], [field]: value },
     }));
+  };
+
+  const handleDeliveryNoteSelect = async (file: File) => {
+    if (!receiptId) return;
+    const poLines = items.map(item => ({
+      id: item.id,
+      product_name: item.product_name,
+      quantity: Number(item.ordered_quantity ?? item.quantity ?? 0),
+    }));
+    const uploadedPath = await ocrDelivery.process(file, receiptId, poLines);
+    if (uploadedPath) {
+      setDeliveryNotePath(uploadedPath);
+      await updateReceipt.mutateAsync({ id: receiptId, image_url: uploadedPath });
+    }
+  };
+
+  const handleOcrPrefill = () => {
+    setEditDraft(prev => {
+      const next = { ...prev };
+      for (const suggestion of ocrDelivery.suggestions) {
+        if (!next[suggestion.itemId]) continue;
+        const item = items.find(i => i.id === suggestion.itemId);
+        const orderedQty = Number(item?.ordered_quantity ?? item?.quantity ?? 0);
+        next[suggestion.itemId] = {
+          ...next[suggestion.itemId],
+          actual_quantity: String(Math.min(suggestion.suggestedQuantity, orderedQty)),
+        };
+      }
+      return next;
+    });
+    toast.success("Đã điền số lượng từ OCR — kiểm tra và xác nhận trước khi chốt.");
   };
 
   const getStatusBadge = (status: string) => {
@@ -127,10 +175,20 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
   const actualTotal = items.reduce((sum, item) => sum + Number(item.actual_quantity ?? item.quantity ?? 0), 0);
   const varianceCount = items.filter((item) => item.line_status && item.line_status !== "du").length;
   const hasUnitPrices = items.some(item => item.unit_price != null || item.purchase_order_items?.unit_price != null);
+  const hasShortageItems = isReceiveMode && items.some(item => {
+    const draft = editDraft[item.id];
+    if (!draft) return false;
+    const qty = parseFloat(draft.actual_quantity);
+    return !isNaN(qty) && qty < Number(item.ordered_quantity ?? item.quantity ?? 0);
+  });
+  const hasDeliveryNoteEvidence = Boolean(deliveryNotePath || receiptImageUrl);
+  const hasRequiredVarianceEvidence = !hasShortageItems || hasDeliveryNoteEvidence;
 
   const canFinalize =
     isReceiveMode &&
     items.length > 0 &&
+    hasDeliveryNoteEvidence &&
+    hasRequiredVarianceEvidence &&
     items.every(item => {
       const orderedQty = Number(item.ordered_quantity ?? item.quantity ?? 0);
       return validateLine(editDraft[item.id], orderedQty) === null;
@@ -309,6 +367,101 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                     className="max-h-48 rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
                     onClick={() => setImageOpen(true)}
                   />
+                </div>
+              )}
+
+              {isReceiveMode && (
+                <div
+                  className="space-y-3 rounded-2xl border border-primary/20 bg-primary/5 p-4"
+                  data-bmq-goods-receipt-delivery-note-required
+                  data-bmq-goods-receipt-ocr-assist
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="flex items-center gap-2 text-sm font-semibold text-primary">
+                        <Camera className="h-4 w-4" />
+                        Chụp/scan phiếu giao hàng
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        OCR tự điền số thực nhận, So với PO, Nhân viên xác nhận cuối trước khi nhập kho.
+                      </p>
+                    </div>
+                    <label className="inline-flex cursor-pointer items-center justify-center rounded-md border border-primary/30 bg-background px-3 py-2 text-sm font-medium text-primary shadow-sm hover:bg-primary/10">
+                      <Camera className="mr-2 h-4 w-4" />
+                      Tải/chụp phiếu
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="sr-only"
+                        onChange={async (event) => {
+                          const file = event.target.files?.[0];
+                          if (file) await handleDeliveryNoteSelect(file);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid gap-2 text-xs sm:grid-cols-3" data-bmq-goods-receipt-ocr-compare-po>
+                    <div className="rounded-lg border border-border bg-card/80 p-2">
+                      <p className="font-medium">1. OCR tự điền</p>
+                      <p className="text-muted-foreground">Đọc số lượng từ phiếu giao hàng NCC.</p>
+                    </div>
+                    <div className="rounded-lg border border-border bg-card/80 p-2">
+                      <p className="font-medium">2. So với PO</p>
+                      <p className="text-muted-foreground">Tự flag đủ, thiếu, dư hoặc ngoài PO.</p>
+                    </div>
+                    <div className="rounded-lg border border-border bg-card/80 p-2">
+                      <p className="font-medium">3. Nhân viên xác nhận cuối</p>
+                      <p className="text-muted-foreground">Kho vẫn được sửa ngoại lệ trước khi chốt.</p>
+                    </div>
+                  </div>
+
+                  {ocrDelivery.status !== "idle" && (
+                    <div className="rounded-lg border border-border bg-background/80 p-3 text-sm">
+                      <p className="flex items-center gap-2 font-medium">
+                        {ocrDelivery.status === "uploading" || ocrDelivery.status === "ocr" ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                        ) : ocrDelivery.status === "done" ? (
+                          <Sparkles className="h-4 w-4 text-primary" />
+                        ) : (
+                          <AlertTriangle className="h-4 w-4 text-amber-600" />
+                        )}
+                        {ocrDelivery.status === "uploading" && "Đang tải chứng từ..."}
+                        {ocrDelivery.status === "ocr" && "Đang OCR phiếu giao hàng..."}
+                        {ocrDelivery.status === "done" && `OCR tìm thấy ${ocrDelivery.suggestions.length} dòng khớp PO`}
+                        {ocrDelivery.status === "error" && "OCR chưa đọc được, nhân viên nhập/sửa thủ công"}
+                      </p>
+                      {ocrDelivery.ocrError && <p className="mt-1 text-xs text-muted-foreground">{ocrDelivery.ocrError}</p>}
+                      {ocrDelivery.suggestions.length > 0 && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="mt-3"
+                          onClick={handleOcrPrefill}
+                          data-bmq-goods-receipt-ocr-prefill-actuals
+                        >
+                          <Sparkles className="mr-2 h-4 w-4" />
+                          Áp dụng OCR vào số thực nhận
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {!hasDeliveryNoteEvidence && (
+                    <p className="flex items-center gap-1 text-xs font-medium text-amber-700">
+                      <AlertTriangle className="h-3 w-3" />
+                      Bắt buộc có ảnh phiếu giao hàng trước khi Nhập kho + Tạo công nợ.
+                    </p>
+                  )}
+                  {hasShortageItems && (
+                    <p className="flex items-center gap-1 text-xs font-medium text-amber-700" data-bmq-goods-receipt-variance-evidence-required>
+                      <AlertTriangle className="h-3 w-3" />
+                      Thiếu/lệch hàng cần lý do và ảnh chứng từ để kế toán đối soát.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -541,7 +694,10 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
 
               {/* Actions */}
               {receipt.status === "confirmed" && !isFinalizedWithPayable && (
-                <div className="rounded-2xl border border-primary/20 bg-primary/5 p-3 sm:flex sm:justify-end">
+                <div className="rounded-2xl border border-primary/20 bg-primary/5 p-3 sm:flex sm:items-center sm:justify-between sm:gap-3">
+                  {!hasDeliveryNoteEvidence && (
+                    <p className="mb-2 text-xs font-medium text-amber-700 sm:mb-0">Cần chụp/scan phiếu giao hàng trước khi nhập kho.</p>
+                  )}
                   <Button
                     className="btn-gradient w-full sm:w-auto"
                     onClick={handleConfirmReceipt}
