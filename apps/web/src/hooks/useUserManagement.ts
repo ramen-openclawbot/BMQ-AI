@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { getFreshAccessToken } from "@/lib/supabase-helpers";
@@ -40,7 +41,7 @@ export const ALL_MODULES: { key: string; labelEn: string; labelVi: string }[] = 
   { key: "finance_revenue", labelEn: "Revenue Management", labelVi: "Quản lý doanh thu" },
   { key: "crm", labelEn: "CRM", labelVi: "CRM" },
   { key: "sales_po_inbox", labelEn: "Sales PO Inbox", labelVi: "PO (Bán hàng)" },
-  { key: "purchase_orders", labelEn: "Purchase Orders", labelVi: "Đơn đặt hàng" },
+  { key: "purchase_orders", labelEn: "PO (Purchasing)", labelVi: "PO (Mua hàng)" },
   { key: "production_q7", labelEn: "Production Planning - Q7 Workshop", labelVi: "Kế hoạch SX - Xưởng Q7" },
   { key: "attendance", labelEn: "Attendance", labelVi: "Chấm công" },
   { key: "payroll", labelEn: "Payroll", labelVi: "Bảng lương" },

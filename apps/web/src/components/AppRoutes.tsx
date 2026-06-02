@@ -197,7 +197,7 @@ export function AppRoutes() {
         <Route path="/invoices" element={<Invoices />} />
         <Route path="/payment-requests" element={<PaymentRequests />} />
         <Route path="/goods-receipts" element={<GoodsReceipts />} />
-        <Route path="/purchase-orders" element={<PurchaseOrders />} />
+        <Route path="/purchase-orders" element={<ModuleRoute moduleKey="purchase_orders"><PurchaseOrders /></ModuleRoute>} />
         <Route path="/low-stock" element={<LowStock />} />
         <Route path="/sku-costs" element={<Navigate to="/sku-costs/dashboard" replace />} />
         <Route path="/sku-costs/dashboard" element={<Suspense fallback={<AppLoadingFallback />}><SkuCostsDjango /></Suspense>} />

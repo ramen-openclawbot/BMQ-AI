@@ -18,6 +18,7 @@ PURCHASE_ORDERS_PAGE = ROOT / "src/pages/PurchaseOrders.tsx"
 ADD_PURCHASE_ORDER_DIALOG = ROOT / "src/components/dialogs/AddPurchaseOrderDialog.tsx"
 PAYMENT_REQUEST_DETAILS = ROOT / "src/components/dialogs/PaymentRequestDetailsDialog.tsx"
 PURCHASE_ORDER_DETAILS = ROOT / "src/components/dialogs/PurchaseOrderDetailsDialog.tsx"
+USER_MANAGEMENT_HOOK = ROOT / "src/hooks/useUserManagement.ts"
 SIDEBAR = ROOT / "src/components/layout/Sidebar.tsx"
 APP_ROUTES = ROOT / "src/components/AppRoutes.tsx"
 LANGUAGE_CONTEXT = ROOT / "src/contexts/LanguageContext.tsx"
@@ -424,6 +425,9 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     page = read(PURCHASE_ORDERS_PAGE)
     add_dialog = read(ADD_PURCHASE_ORDER_DIALOG)
     detail_dialog = read(PURCHASE_ORDER_DETAILS)
+    sidebar = read(SIDEBAR)
+    routes = read(APP_ROUTES)
+    user_management_hook = read(USER_MANAGEMENT_HOOK)
 
     assert "purchase_order_items(id, product_name)" in hook
     assert "purchase_order_items?: Array<Pick<Tables<\"purchase_order_items\">, \"id\" | \"product_name\">> | null;" in hook
@@ -503,6 +507,15 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert "fixed bottom-0" not in page
     assert "Kho hàng" not in page and "Cá nhân" not in page
     assert "Kỳ xem" in page
+    assert 'onClick={() => window.dispatchEvent(new Event("bmq:open-sidebar"))}' in page
+    assert 'sticky top-0 z-20' in page
+    assert 'sticky top-[57px] z-10' in page
+    assert 'fixed bottom-4 right-4 z-20' in page
+    assert 'fixed left-0 top-0 z-50' in sidebar
+    assert 'fixed inset-0 z-40 bg-black/45' in sidebar
+    assert '<Route path="/purchase-orders" element={<ModuleRoute moduleKey="purchase_orders"><PurchaseOrders /></ModuleRoute>}' in routes
+    assert 'Trang này yêu cầu quyền xem module {moduleKey}' in routes
+    assert '{ key: "purchase_orders", labelEn: "PO (Purchasing)", labelVi: "PO (Mua hàng)" }' in user_management_hook
     assert "Tạo PO (Mua hàng)" in add_dialog
     assert "Tạo đơn đặt hàng</Button>" not in add_dialog
     assert "data-stitch-mobile-po-approve-detail" in detail_dialog

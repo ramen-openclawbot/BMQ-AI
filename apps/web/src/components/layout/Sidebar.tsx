@@ -244,14 +244,14 @@ export function Sidebar() {
         <button
           type="button"
           aria-label="Đóng sidebar"
-          className="fixed inset-0 z-30 bg-black/45 md:hidden"
+          className="fixed inset-0 z-40 bg-black/45 md:hidden"
           onClick={() => setCollapsed(true)}
         />
       )}
       <aside
         data-stitch-mobile-sidebar="compact-readable"
         className={cn(
-        "fixed left-0 top-0 z-40 h-dvh border-r border-sidebar-border/60 bg-sidebar/70 shadow-card backdrop-blur-xl transition-all duration-200",
+        "fixed left-0 top-0 z-50 h-dvh border-r border-sidebar-border/60 bg-sidebar/70 shadow-card backdrop-blur-xl transition-all duration-200",
         collapsed ? "-translate-x-full w-16 md:translate-x-0" : "w-64"
       )}>
       <div className="flex h-full flex-col">

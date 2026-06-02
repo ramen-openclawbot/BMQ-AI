@@ -307,8 +307,13 @@ export default function PurchaseOrders() {
   return (
     <div className="bg-slate-50 dark:bg-[#1d1813] -m-4 min-h-screen text-slate-950 dark:text-[#f3ece4] md:-m-6">
       <section className="min-h-screen bg-slate-50 pb-8 md:hidden" data-stitch-mobile-po-main>
-        <header className="sticky top-0 z-40 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
-          <button type="button" aria-label="Menu" className="-ml-2 rounded-full p-2 text-amber-700 transition hover:bg-amber-50">
+        <header className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+          <button
+            type="button"
+            aria-label="Menu"
+            className="-ml-2 rounded-full p-2 text-amber-700 transition hover:bg-amber-50"
+            onClick={() => window.dispatchEvent(new Event("bmq:open-sidebar"))}
+          >
             <FileText className="h-5 w-5" />
           </button>
           <div className="text-center">
@@ -321,7 +326,7 @@ export default function PurchaseOrders() {
           </button>
         </header>
 
-        <div className="sticky top-[57px] z-30 border-b border-slate-200 bg-white/95 px-4 pb-3 pt-4 backdrop-blur-sm">
+        <div className="sticky top-[57px] z-10 border-b border-slate-200 bg-white/95 px-4 pb-3 pt-4 backdrop-blur-sm">
           <div className="relative mb-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
@@ -465,7 +470,7 @@ export default function PurchaseOrders() {
           )}
         </main>
 
-        <div className="fixed bottom-4 right-4 z-40">
+        <div className="fixed bottom-4 right-4 z-20">
           <AddPurchaseOrderDialog>
             <Button className="rounded-2xl bg-amber-600 px-4 py-6 text-sm font-semibold text-white shadow-lg hover:bg-amber-700">
               <Plus className="mr-2 h-4 w-4" />Tạo PO
