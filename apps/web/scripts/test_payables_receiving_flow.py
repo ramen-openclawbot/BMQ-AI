@@ -241,6 +241,14 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "line_status" in details
     assert "Không chốt lại phiếu đã tạo công nợ" in details
     assert "data-bmq-goods-receipt-detail-light-mobile" in details
+    assert "data-bmq-goods-receipt-detail-mobile-v2" in details
+    assert "data-bmq-goods-receipt-detail-mobile-hero" in details
+    assert "data-bmq-goods-receipt-detail-mobile-summary" in details
+    assert "data-bmq-goods-receipt-detail-mobile-item-cards" in details
+    assert "max-md:h-[96dvh]" in details
+    assert "hidden overflow-x-auto rounded-xl border border-border md:block" in details
+    assert "Dòng hàng" in details
+    assert "Thực nhận" in details
     assert "formatSafeDate" in details
     assert "Không tải được chi tiết phiếu nhập" in details
     assert "Đang tải chi tiết phiếu nhập" in details
