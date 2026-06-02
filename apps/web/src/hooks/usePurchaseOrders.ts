@@ -25,12 +25,27 @@ export function usePurchaseOrders() {
   return useQuery({
     queryKey: ["purchase-orders"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const relationQuery = await supabase
         .from("purchase_orders")
         .select("*, suppliers(id, name), purchase_order_items(id, product_name)")
         .order("created_at", { ascending: false });
+
+      if (!relationQuery.error) {
+        return relationQuery.data as PurchaseOrder[];
+      }
+
+      console.warn("Falling back to base purchase_orders query", relationQuery.error);
+
+      const { data, error } = await supabase
+        .from("purchase_orders")
+        .select("*")
+        .order("created_at", { ascending: false });
       if (error) throw error;
-      return data as PurchaseOrder[];
+      return (data || []).map((order) => ({
+        ...order,
+        suppliers: null,
+        purchase_order_items: [],
+      })) as PurchaseOrder[];
     },
     staleTime: 30000,
     gcTime: 5 * 60 * 1000,

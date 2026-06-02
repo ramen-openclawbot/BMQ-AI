@@ -13,10 +13,6 @@ import {
   XCircle,
   Bell,
   Plus,
-  Home,
-  Warehouse,
-  User,
-  Mic,
   SlidersHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -310,33 +306,33 @@ export default function PurchaseOrders() {
 
   return (
     <div className="bg-slate-50 dark:bg-[#1d1813] -m-4 min-h-screen text-slate-950 dark:text-[#f3ece4] md:-m-6">
-      <section className="min-h-screen pb-24 md:hidden" data-stitch-mobile-po-main>
-        <header className="sticky top-0 z-40 flex items-center justify-between border-b border-[#443b30] bg-[#241f18] px-4 py-3 shadow-sm">
-          <button type="button" aria-label="Menu" className="-ml-2 rounded-full p-2 text-[#ffb77d] transition hover:bg-[#2f2923]">
+      <section className="min-h-screen bg-slate-50 pb-8 md:hidden" data-stitch-mobile-po-main>
+        <header className="sticky top-0 z-40 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+          <button type="button" aria-label="Menu" className="-ml-2 rounded-full p-2 text-amber-700 transition hover:bg-amber-50">
             <FileText className="h-5 w-5" />
           </button>
           <div className="text-center">
-            <h1 className="text-xl font-bold text-[#ffb77d]">PO (Mua hàng)</h1>
-            <p className="text-[10px] text-[#dbc2b0]">Quản lý đề xuất mua hàng cần duyệt</p>
+            <h1 className="text-xl font-bold text-slate-950">PO (Mua hàng)</h1>
+            <p className="text-[10px] text-slate-500">Quản lý vận hành nhập hàng & công nợ NCC</p>
           </div>
-          <button type="button" aria-label="Notifications" className="relative -mr-2 rounded-full p-2 text-[#ffb77d] transition hover:bg-[#2f2923]">
+          <button type="button" aria-label="Notifications" className="relative -mr-2 rounded-full p-2 text-amber-700 transition hover:bg-amber-50">
             <Bell className="h-5 w-5" />
-            {stats.draft > 0 && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[#ffb4ab]" />}
+            {stats.draft > 0 && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500" />}
           </button>
         </header>
 
-        <div className="sticky top-[57px] z-30 border-b border-[#443b30] bg-[#1d1813]/95 px-4 pb-3 pt-4 backdrop-blur-sm">
+        <div className="sticky top-[57px] z-30 border-b border-slate-200 bg-white/95 px-4 pb-3 pt-4 backdrop-blur-sm">
           <div className="relative mb-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#dbc2b0]" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
               placeholder={isVi ? "Tìm PO, nhà cung cấp, sản phẩm..." : "Search PO, supplier, product..."}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="h-11 rounded-xl border-[#443b30] bg-[#241f18] pl-10 pr-10 text-sm text-[#f3ece4] placeholder:text-[#a99b8c]/70 focus:border-[#ffb77d] focus:ring-[#ffb77d]"
+              className="h-11 rounded-xl border-slate-200 bg-slate-50 pl-10 text-sm placeholder:text-slate-400 focus:border-amber-500 focus:ring-amber-500"
             />
-            <Mic className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#dbc2b0]" />
+
           </div>
-          <p className="mb-3 px-1 text-right text-[10px] italic text-[#a99b8c]">Hỗ trợ tìm không dấu</p>
+          <p className="mb-3 px-1 text-right text-[10px] italic text-slate-400">Hỗ trợ tìm không dấu</p>
           <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {([
               ["all", isVi ? "Tất cả" : "All"],
@@ -348,12 +344,44 @@ export default function PurchaseOrders() {
               <button
                 key={value}
                 type="button"
-                className={`whitespace-nowrap rounded-full px-4 py-1.5 text-xs font-medium transition ${statusFilter === value ? "bg-[#d97707] text-[#432100]" : "border border-[#443b30] bg-[#241f18] text-[#dbc2b0]"}`}
+                className={`whitespace-nowrap rounded-full px-4 py-1.5 text-xs font-medium transition ${statusFilter === value ? "bg-amber-600 text-white" : "border border-slate-200 bg-white text-slate-600"}`}
                 onClick={() => setStatusFilter(value)}
               >
                 {label}
               </button>
             ))}
+          </div>
+          <div className="mt-3 space-y-2 rounded-xl bg-slate-50 p-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium text-slate-600">Kỳ xem</span>
+              <span className="text-slate-500">{periodLabel}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex h-9 rounded-lg border border-slate-200 bg-white p-1">
+                {([
+                  ["day", isVi ? "Ngày" : "Day"],
+                  ["month", isVi ? "Tháng" : "Month"],
+                  ["year", isVi ? "Năm" : "Year"],
+                ] as Array<[TimeFilterMode, string]>).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={`rounded-md px-3 text-xs font-semibold transition ${timeFilterMode === mode ? "bg-amber-600 text-white shadow-sm" : "text-slate-500"}`}
+                    onClick={() => handleTimeFilterModeChange(mode)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <Input
+                type={timeFilterMode === "day" ? "date" : timeFilterMode === "month" ? "month" : "number"}
+                min={timeFilterMode === "year" ? "2020" : undefined}
+                max={timeFilterMode === "year" ? "2035" : undefined}
+                value={selectedPeriodValue}
+                onChange={(event) => setSelectedPeriodValue(event.target.value)}
+                className="h-9 flex-1 border-slate-200 bg-white text-sm"
+              />
+            </div>
           </div>
         </div>
 
@@ -361,7 +389,7 @@ export default function PurchaseOrders() {
           <div className="mb-6 grid grid-cols-2 gap-3">
             {[
               { label: isVi ? "Chờ duyệt" : "Pending", value: stats.draft, icon: Clock, color: "#F59E0B", filter: "draft" as StatusFilter },
-              { label: isVi ? "Tổng giá trị" : "Total value", value: formatCurrency(stats.totalValue), icon: FileText, color: "#ffb77d", filter: "all" as StatusFilter },
+              { label: isVi ? "Tổng giá trị" : "Total value", value: formatCurrency(stats.totalValue), icon: FileText, color: "#334155", filter: "all" as StatusFilter },
               { label: isVi ? "Đã duyệt" : "Approved", value: stats.sent, icon: CheckCircle, color: "#0F766E", filter: "sent" as StatusFilter },
               { label: isVi ? "Cần nhận hàng" : "Need receipt", value: stats.inTransit, icon: Package, color: "#80d5cb", filter: "in_transit" as StatusFilter },
             ].map((item) => {
@@ -370,30 +398,30 @@ export default function PurchaseOrders() {
                 <button
                   key={item.label}
                   type="button"
-                  className={`flex h-[88px] flex-col justify-between rounded-xl border p-3 text-left transition ${statusFilter === item.filter ? "border-[#d97707] bg-[#2f2923]" : "border-[#443b30] bg-[#241f18]"}`}
+                  className={`flex h-[88px] flex-col justify-between rounded-xl border bg-white p-3 text-left shadow-sm transition ${statusFilter === item.filter ? "border-amber-500 ring-2 ring-amber-100" : "border-slate-200"}`}
                   onClick={() => setStatusFilter(item.filter)}
                 >
                   <div className="flex items-start justify-between">
-                    <span className="text-xs font-medium text-[#dbc2b0]">{item.label}</span>
+                    <span className="text-xs font-medium text-slate-500">{item.label}</span>
                     <Icon className="h-4 w-4" style={{ color: item.color }} />
                   </div>
-                  <span className="truncate text-2xl font-bold text-[#f3ece4]">{item.value}</span>
+                  <span className="truncate text-2xl font-bold text-slate-950">{item.value}</span>
                 </button>
               );
             })}
           </div>
 
           <div className="mb-3 flex items-end justify-between">
-            <h2 className="text-sm font-semibold text-[#f3ece4]">Danh sách PO</h2>
-            <span className="flex items-center gap-1 text-xs font-medium text-[#ffb77d]"><SlidersHorizontal className="h-3.5 w-3.5" />Lọc thêm</span>
+            <h2 className="text-sm font-semibold text-slate-950">Danh sách PO</h2>
+            <span className="flex items-center gap-1 text-xs font-medium text-amber-700"><SlidersHorizontal className="h-3.5 w-3.5" />Lọc thêm</span>
           </div>
 
           {isLoading ? (
-            <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-[#ffb77d]" /></div>
+            <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-amber-600" /></div>
           ) : error ? (
-            <div className="py-12 text-center text-[#ffb4ab]">{isVi ? "Lỗi tải dữ liệu" : "Failed to load data"}</div>
+            <div className="rounded-xl border border-red-200 bg-red-50 py-10 text-center text-sm text-red-700">{isVi ? "Lỗi tải dữ liệu PO" : "Failed to load data"}</div>
           ) : filteredOrders.length === 0 ? (
-            <div className="rounded-xl border border-[#443b30] bg-[#241f18] py-12 text-center text-[#a99b8c]"><Package className="mx-auto mb-4 h-12 w-12 opacity-50" /><p>{isVi ? "Chưa có đơn đặt hàng nào" : "No purchase orders yet"}</p></div>
+            <div className="rounded-xl border border-dashed border-slate-200 bg-white py-12 text-center text-slate-500"><Package className="mx-auto mb-4 h-12 w-12 opacity-50" /><p>{isVi ? "Không có PO trong kỳ/bộ lọc này" : "No purchase orders in this period/filter"}</p></div>
           ) : (
             <div className="flex flex-col gap-3">
               {paginatedOrders.map((order) => {
@@ -402,21 +430,21 @@ export default function PurchaseOrders() {
                   <button
                     key={order.id}
                     type="button"
-                    className={`relative overflow-hidden rounded-xl border border-[#443b30] bg-[#241f18] p-3 text-left shadow-sm transition active:scale-[0.99] ${order.status === "cancelled" ? "opacity-70" : ""}`}
+                    className={`relative overflow-hidden rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition active:scale-[0.99] ${order.status === "cancelled" ? "opacity-70" : ""}`}
                     onClick={() => setSelectedOrderId(order.id)}
                     data-stitch-mobile-po-card
                   >
                     <span className="absolute bottom-0 left-0 top-0 w-1" style={{ backgroundColor: meta.accent }} />
                     <div className="pl-2">
                       <div className="mb-1.5 flex items-center justify-between gap-3">
-                        <span className={`text-sm font-semibold ${order.status === "cancelled" ? "text-[#a99b8c] line-through" : "text-[#f3ece4]"}`}>{order.po_number}</span>
+                        <span className={`text-sm font-semibold ${order.status === "cancelled" ? "text-slate-400 line-through" : "text-slate-950"}`}>{order.po_number}</span>
                         <span className="rounded border px-2 py-0.5 text-[10px] font-medium" style={{ borderColor: `${meta.accent}33`, color: meta.accent, backgroundColor: `${meta.accent}1A` }}>{meta.label}</span>
                       </div>
-                      <div className="mb-1 truncate text-xs font-medium text-[#dbc2b0]">{order.suppliers?.name || (order.supplier_id ? supplierMap.get(order.supplier_id) : undefined) || "N/A"}</div>
-                      <div className="mb-2 truncate text-[11px] text-[#a99b8c]">{getOrderProductNames(order)}</div>
-                      <div className="flex items-end justify-between border-t border-[#443b30]/70 pt-2">
-                        <span className="text-[10px] text-[#a99b8c]">{format(new Date(order.order_date), "dd/MM/yyyy", { locale })}</span>
-                        <span className={`text-sm font-bold ${order.status === "cancelled" ? "text-[#a99b8c] line-through" : "text-[#ffb77d]"}`}>{formatCurrency(order.total_amount || 0)}</span>
+                      <div className="mb-1 truncate text-xs font-medium text-slate-700">{order.suppliers?.name || (order.supplier_id ? supplierMap.get(order.supplier_id) : undefined) || "N/A"}</div>
+                      <div className="mb-2 truncate text-[11px] text-slate-500">{getOrderProductNames(order)}</div>
+                      <div className="flex items-end justify-between border-t border-slate-100 pt-2">
+                        <span className="text-[10px] text-slate-500">{format(new Date(order.order_date), "dd/MM/yyyy", { locale })}</span>
+                        <span className={`text-sm font-bold ${order.status === "cancelled" ? "text-slate-400 line-through" : "text-amber-700"}`}>{formatCurrency(order.total_amount || 0)}</span>
                       </div>
                     </div>
                   </button>
@@ -426,30 +454,24 @@ export default function PurchaseOrders() {
           )}
 
           {!isLoading && !error && filteredOrders.length > 0 && (
-            <div className="mt-4 flex items-center justify-between rounded-xl border border-[#443b30] bg-[#241f18] px-3 py-2 text-xs text-[#a99b8c]">
+            <div className="mt-4 flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500 shadow-sm">
               <span>{pageStartIndex + 1}-{Math.min(pageStartIndex + paginatedOrders.length, filteredOrders.length)} / {filteredOrders.length}</span>
               <div className="flex items-center gap-2">
-                <Button type="button" variant="outline" size="sm" className="h-8 border-[#443b30] bg-[#1d1813] text-xs" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPageSafe <= 1}>{isVi ? "Trước" : "Prev"}</Button>
+                <Button type="button" variant="outline" size="sm" className="h-8 border-slate-200 bg-white text-xs" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPageSafe <= 1}>{isVi ? "Trước" : "Prev"}</Button>
                 <span>{currentPageSafe}/{totalPages}</span>
-                <Button type="button" variant="outline" size="sm" className="h-8 border-[#443b30] bg-[#1d1813] text-xs" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPageSafe >= totalPages}>{isVi ? "Sau" : "Next"}</Button>
+                <Button type="button" variant="outline" size="sm" className="h-8 border-slate-200 bg-white text-xs" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPageSafe >= totalPages}>{isVi ? "Sau" : "Next"}</Button>
               </div>
             </div>
           )}
         </main>
 
-        <div className="fixed bottom-24 right-4 z-40">
+        <div className="fixed bottom-4 right-4 z-40">
           <AddPurchaseOrderDialog>
-            <Button className="rounded-2xl bg-[#d97707] px-4 py-6 text-sm font-semibold text-[#432100] shadow-lg hover:bg-[#ffb77d]">
+            <Button className="rounded-2xl bg-amber-600 px-4 py-6 text-sm font-semibold text-white shadow-lg hover:bg-amber-700">
               <Plus className="mr-2 h-4 w-4" />Tạo PO
             </Button>
           </AddPurchaseOrderDialog>
         </div>
-        <nav className="fixed bottom-0 z-50 flex w-full items-center justify-around border-t border-[#443b30] bg-[#201b16] px-2 py-3 shadow-lg">
-          <button type="button" className="flex flex-col items-center justify-center rounded-xl bg-[#d97707] px-4 py-1 text-[#432100]"><FileText className="h-5 w-5" /><span className="mt-1 text-xs">Đơn hàng</span></button>
-          <button type="button" className="flex flex-col items-center justify-center text-[#dbc2b0]"><Home className="h-5 w-5" /><span className="mt-1 text-xs">Trang chủ</span></button>
-          <button type="button" className="flex flex-col items-center justify-center text-[#dbc2b0]"><Warehouse className="h-5 w-5" /><span className="mt-1 text-xs">Kho hàng</span></button>
-          <button type="button" className="flex flex-col items-center justify-center text-[#dbc2b0]"><User className="h-5 w-5" /><span className="mt-1 text-xs">Cá nhân</span></button>
-        </nav>
       </section>
 
       <div className="hidden space-y-4 p-4 md:block md:p-6">

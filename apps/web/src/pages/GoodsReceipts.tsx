@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { format } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
-import { Package, Eye, Trash2, CheckCircle, Clock, FileCheck, AlertCircle, Link2 } from "lucide-react";
+import { Package, Eye, Trash2, CheckCircle, Clock, FileCheck, AlertCircle, Link2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,7 +24,7 @@ export default function GoodsReceipts() {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const { data: receipts = [], isLoading } = useGoodsReceipts();
+  const { data: receipts = [], isLoading, error } = useGoodsReceipts();
   const deleteReceipt = useDeleteGoodsReceipt();
   const confirmReceipt = useConfirmGoodsReceipt();
 
@@ -107,62 +107,69 @@ export default function GoodsReceipts() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-display font-bold text-foreground">{isVi ? "Phiếu nhập kho" : "Goods Receipts"}</h1>
-          <p className="text-muted-foreground">{isVi ? "Quản lý phiếu nhập kho nguyên vật liệu từ nhà cung cấp" : "Manage goods receipts from suppliers"}</p>
+    <div className="-m-4 min-h-screen bg-slate-50 p-4 text-slate-950 md:-m-6 md:p-6 dark:bg-[#1d1813] dark:text-[#f3ece4]">
+      <div className="space-y-4">
+        {/* Header */}
+        <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between dark:border-[#443b30] dark:bg-[#241f18]/90">
+          <div className="min-w-0">
+            <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-[#f3ece4]">
+              <Package className="h-6 w-6 text-amber-600" />
+              {isVi ? "Phiếu nhập kho" : "Goods Receipts"}
+            </h1>
+            <p className="text-sm text-slate-500 dark:text-[#a99b8c]">{isVi ? "Quản lý phiếu nhập kho nguyên vật liệu từ nhà cung cấp" : "Manage goods receipts from suppliers"}</p>
+          </div>
+          <AddGoodsReceiptDialog />
         </div>
-        <AddGoodsReceiptDialog />
-      </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-4 gap-4">
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("all")}>
-          <CardHeader className="pb-2">
-            <CardDescription>{isVi ? "Tổng phiếu" : "Total receipts"}</CardDescription>
-            <CardTitle className="text-2xl">{stats.total}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("draft")}>
-          <CardHeader className="pb-2">
-            <CardDescription>Nháp</CardDescription>
-            <CardTitle className="text-2xl">{stats.draft}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("confirmed")}>
-          <CardHeader className="pb-2">
-            <CardDescription>{isVi ? "Đã xác nhận" : "Confirmed"}</CardDescription>
-            <CardTitle className="text-2xl">{stats.confirmed}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setStatusFilter("received")}>
-          <CardHeader className="pb-2">
-            <CardDescription>{isVi ? "Đã nhập kho" : "Received"}</CardDescription>
-            <CardTitle className="text-2xl text-green-600">{stats.received}</CardTitle>
-          </CardHeader>
-        </Card>
-      </div>
+        {/* Stats Cards */}
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <Card className={`cursor-pointer border-slate-200 bg-white transition-shadow hover:shadow-md dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "all" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("all")}>
+            <CardHeader className="px-3 py-2">
+              <CardDescription>{isVi ? "Tổng phiếu" : "Total receipts"}</CardDescription>
+              <CardTitle className="text-2xl">{stats.total}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card className={`cursor-pointer border-slate-200 bg-white transition-shadow hover:shadow-md dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "draft" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("draft")}>
+            <CardHeader className="px-3 py-2">
+              <CardDescription>Nháp</CardDescription>
+              <CardTitle className="text-2xl">{stats.draft}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card className={`cursor-pointer border-slate-200 bg-white transition-shadow hover:shadow-md dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "confirmed" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("confirmed")}>
+            <CardHeader className="px-3 py-2">
+              <CardDescription>{isVi ? "Đã xác nhận" : "Confirmed"}</CardDescription>
+              <CardTitle className="text-2xl">{stats.confirmed}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card className={`cursor-pointer border-slate-200 bg-white transition-shadow hover:shadow-md dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "received" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("received")}>
+            <CardHeader className="px-3 py-2">
+              <CardDescription>{isVi ? "Đã nhập kho" : "Received"}</CardDescription>
+              <CardTitle className="text-2xl text-green-600">{stats.received}</CardTitle>
+            </CardHeader>
+          </Card>
+        </div>
 
-      {/* Filters */}
-      <div className="flex items-center gap-4">
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder={isVi ? "Trạng thái" : "Status"} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{isVi ? "Tất cả" : "All"}</SelectItem>
-            <SelectItem value="draft">{isVi ? "Nháp" : "Draft"}</SelectItem>
-            <SelectItem value="confirmed">{isVi ? "Đã xác nhận" : "Confirmed"}</SelectItem>
-            <SelectItem value="received">{isVi ? "Đã nhập kho" : "Received"}</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+        {/* Filters */}
+        <Card className="border-slate-200 bg-white dark:border-[#443b30] dark:bg-[#241f18]/90">
+          <CardContent className="p-3">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="h-9 w-full border-slate-200 bg-white text-sm sm:w-48 dark:border-[#443b30] dark:bg-[#1d1813]">
+                <SelectValue placeholder={isVi ? "Trạng thái" : "Status"} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{isVi ? "Tất cả" : "All"}</SelectItem>
+                <SelectItem value="draft">{isVi ? "Nháp" : "Draft"}</SelectItem>
+                <SelectItem value="confirmed">{isVi ? "Đã xác nhận" : "Confirmed"}</SelectItem>
+                <SelectItem value="received">{isVi ? "Đã nhập kho" : "Received"}</SelectItem>
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
 
-      {/* Table */}
-      <Card>
-        <CardContent className="p-0">
+        {/* Table */}
+        <Card className="overflow-hidden border-slate-200 bg-white dark:border-[#443b30] dark:bg-[#241f18]/90">
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -178,8 +185,17 @@ export default function GoodsReceipts() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8">
-                    {isVi ? "Đang tải..." : "Loading..."}
+                  <TableCell colSpan={7} className="py-10 text-center">
+                    <div className="flex items-center justify-center gap-2 text-slate-500 dark:text-[#a99b8c]">
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      {isVi ? "Đang tải phiếu nhập kho..." : "Loading goods receipts..."}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : error ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="py-10 text-center text-destructive">
+                    {isVi ? "Lỗi tải dữ liệu phiếu nhập kho. Vui lòng thử lại." : "Failed to load goods receipts. Please try again."}
                   </TableCell>
                 </TableRow>
               ) : filteredReceipts.length === 0 ? (
@@ -267,8 +283,9 @@ export default function GoodsReceipts() {
               )}
             </TableBody>
           </Table>
-        </CardContent>
-      </Card>
+            </div>
+          </CardContent>
+        </Card>
 
       {/* Details Dialog */}
       <GoodsReceiptDetailsDialog
@@ -276,6 +293,7 @@ export default function GoodsReceipts() {
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
       />
+      </div>
     </div>
   );
 }

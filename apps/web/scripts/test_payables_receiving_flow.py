@@ -496,11 +496,13 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert "data-stitch-desktop-supplier-ranking" in page
     assert "data-stitch-mobile-po-main" in page
     assert "data-stitch-mobile-po-card" in page
-    assert "Quản lý đề xuất mua hàng cần duyệt" in page
+    assert "Quản lý vận hành nhập hàng & công nợ NCC" in page
     assert "Hỗ trợ tìm không dấu" in page
     assert "Chờ nhận hàng" in page
-    assert "fixed bottom-24 right-4" in page
-    assert "Đơn hàng" in page and "Kho hàng" in page and "Cá nhân" in page
+    assert "fixed bottom-4 right-4" in page
+    assert "fixed bottom-0" not in page
+    assert "Kho hàng" not in page and "Cá nhân" not in page
+    assert "Kỳ xem" in page
     assert "Tạo PO (Mua hàng)" in add_dialog
     assert "Tạo đơn đặt hàng</Button>" not in add_dialog
     assert "data-stitch-mobile-po-approve-detail" in detail_dialog

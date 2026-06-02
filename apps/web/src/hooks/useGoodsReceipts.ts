@@ -26,12 +26,28 @@ export function useGoodsReceipts() {
   return useQuery({
     queryKey: ["goods-receipts"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const relationQuery = await supabase
         .from("goods_receipts")
         .select("*, suppliers(id, name), purchase_orders(id, po_number, status), payment_requests(id, request_number, status, total_amount, payment_status)")
         .order("created_at", { ascending: false });
+
+      if (!relationQuery.error) {
+        return relationQuery.data as GoodsReceipt[];
+      }
+
+      console.warn("Falling back to base goods_receipts query", relationQuery.error);
+
+      const { data, error } = await supabase
+        .from("goods_receipts")
+        .select("*")
+        .order("created_at", { ascending: false });
       if (error) throw error;
-      return data as GoodsReceipt[];
+      return (data || []).map((receipt) => ({
+        ...receipt,
+        suppliers: null,
+        purchase_orders: null,
+        payment_requests: null,
+      })) as GoodsReceipt[];
     },
     staleTime: 30000,
     gcTime: 5 * 60 * 1000,
