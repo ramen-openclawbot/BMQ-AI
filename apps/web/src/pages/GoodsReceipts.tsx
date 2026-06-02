@@ -97,7 +97,8 @@ export default function GoodsReceipts() {
       await confirmReceipt.mutateAsync(id);
       toast.success("Đã nhập hàng vào kho thành công");
     } catch (error) {
-      toast.error("Không thể nhập hàng vào kho");
+      const message = error instanceof Error ? error.message : "Không thể nhập hàng vào kho";
+      toast.error(message);
     }
   };
 

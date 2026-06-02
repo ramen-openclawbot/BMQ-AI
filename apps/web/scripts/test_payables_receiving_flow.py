@@ -160,6 +160,10 @@ def test_finalization_rpc_posts_inventory_and_generates_pending_payable_atomical
     assert "finalized_at = now()" in migrations
     assert "finalized_by = p_user_id" in migrations
     assert "RAISE EXCEPTION" in migrations
+    assert "Cannot create payable with zero amount" in migrations
+    zero_amount_guard = migrations.split("Cannot create payable with zero amount", 1)[0]
+    assert "v_total_amount := v_subtotal + v_vat_amount" in zero_amount_guard
+    assert zero_amount_guard.rfind("IF v_total_amount <= 0 THEN") > zero_amount_guard.rfind("v_total_amount := v_subtotal + v_vat_amount")
     assert "GRANT EXECUTE ON FUNCTION public.finalize_goods_receipt(uuid, uuid) TO authenticated" in migrations
     assert "GRANT EXECUTE ON FUNCTION public.finalize_goods_receipt(uuid, uuid) TO service_role" in migrations
 
