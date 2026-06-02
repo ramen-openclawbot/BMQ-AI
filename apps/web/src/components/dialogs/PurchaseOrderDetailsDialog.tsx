@@ -197,7 +197,7 @@ export function PurchaseOrderDetailsDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto p-0 md:p-6 data-[state=open]:md:rounded-lg max-md:h-[100dvh] max-md:max-h-[100dvh] max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0 max-md:bg-[#1d1813]">
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto p-0 md:p-6 data-[state=open]:md:rounded-lg max-md:h-[100dvh] max-md:max-h-[100dvh] max-md:w-screen max-md:max-w-none max-md:rounded-none max-md:border-0 max-md:bg-slate-50">
           <DialogHeader className="px-4 pt-4 md:px-0 md:pt-0 max-md:hidden">
             <DialogTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
@@ -221,126 +221,126 @@ export function PurchaseOrderDetailsDialog({
             </div>
           ) : order ? (
             <div className="space-y-6">
-              <div className="space-y-4 pb-24 md:hidden" data-stitch-mobile-po-approve-detail>
-                <header className="sticky top-0 z-40 -mx-0 flex h-14 items-center border-b border-[#443b30] bg-[#17130e] px-4">
-                  <button type="button" className="-ml-2 rounded-full p-2 text-[#ffb77d]" onClick={() => onOpenChange(false)} aria-label="Quay lại">
+              <div className="space-y-4 bg-gradient-to-b from-amber-50 via-white to-slate-50 pb-6 md:hidden" data-stitch-mobile-po-approve-detail data-bmq-po-detail-light-theme>
+                <header className="sticky top-0 z-40 flex min-h-16 items-center border-b border-amber-100 bg-white/95 px-4 shadow-sm backdrop-blur">
+                  <button type="button" className="-ml-2 rounded-full p-2 text-amber-700 hover:bg-amber-50" onClick={() => onOpenChange(false)} aria-label="Quay lại">
                     <ArrowLeft className="h-5 w-5" />
                   </button>
-                  <div className="ml-2 flex-1">
-                    <div className="mb-0.5 text-xs text-[#a99b8c]">PO (Mua hàng)</div>
-                    <h1 className="text-lg font-bold leading-none text-[#f3ece4]">Duyệt PO</h1>
+                  <div className="ml-2 flex-1 min-w-0">
+                    <div className="mb-0.5 text-xs font-medium text-amber-700">PO (Mua hàng)</div>
+                    <h1 className="text-lg font-bold leading-tight text-slate-950">Chi tiết PO</h1>
+                    <p className="mt-0.5 truncate text-xs text-slate-500">{order.po_number} • {order.suppliers?.name || "N/A"}</p>
                   </div>
-                  <button type="button" className="-mr-2 rounded-full p-2 text-[#ffb77d]" aria-label="Thao tác khác">
-                    <MoreVertical className="h-5 w-5" />
-                  </button>
+                  <div className="ml-2 shrink-0">{getStatusBadge(order.status)}</div>
                 </header>
 
                 <main className="space-y-4 px-4">
-                  <div className="flex justify-end">
-                    <span className="rounded-full border border-[#d97706]/30 bg-[#d97706]/20 px-2.5 py-0.5 text-xs font-medium text-[#d97706]">
-                      {order.status === "draft" ? "Chờ duyệt" : getStatusBadge(order.status)}
-                    </span>
-                  </div>
-
-                  <section className="rounded-xl border border-[#443b30] bg-[#241f18] p-4 shadow-sm">
-                    <div className="mb-4 flex items-start justify-between">
+                  <section className="rounded-2xl border border-amber-100 bg-white p-4 shadow-sm">
+                    <div className="mb-4 flex items-start justify-between gap-3">
                       <div>
-                        <h2 className="text-base font-semibold text-[#f3ece4]">{order.po_number}</h2>
-                        <p className="mt-1 text-sm text-[#a99b8c]">{order.suppliers?.name || "N/A"}</p>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Tổng giá trị PO</p>
+                        <h2 className="mt-1 text-2xl font-bold text-slate-950">{formatCurrency(order.total_amount || 0)}</h2>
+                        <p className="mt-1 text-sm text-slate-600">{order.suppliers?.name || "N/A"}</p>
+                      </div>
+                      <div className="rounded-xl bg-amber-50 p-3 text-amber-700">
+                        <FileText className="h-5 w-5" />
                       </div>
                     </div>
-                    <div className="mb-4 grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="mb-1 text-xs text-[#a99b8c]">Tổng tiền</p>
-                        <p className="text-lg font-bold text-[#d97706]">{formatCurrency(order.total_amount || 0)}</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                        <p className="mb-1 text-xs text-slate-500">Ngày đặt</p>
+                        <p className="text-sm font-semibold text-slate-900">{formatSafeDate(order.order_date)}</p>
                       </div>
-                      <div className="text-right">
-                        <p className="mb-1 text-xs text-[#a99b8c]">Ngày đặt</p>
-                        <p className="text-sm font-medium text-[#f3ece4]">{formatSafeDate(order.order_date)}</p>
+                      <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                        <p className="mb-1 text-xs text-slate-500">Giao dự kiến</p>
+                        <p className="text-sm font-semibold text-slate-900">{formatSafeDate(order.expected_date, "Chưa xác định")}</p>
                       </div>
                     </div>
-                    <div className="flex items-center justify-between border-t border-[#443b30] pt-3 text-sm">
-                      <span className="text-[#a99b8c]">Người tạo</span>
-                      <span className="flex items-center gap-2 font-medium text-[#f3ece4]"><FileText className="h-4 w-4" />BMQ-AI</span>
+                    <div className="mt-3 flex items-center justify-between rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-sm">
+                      <span className="text-amber-800">Mã PO</span>
+                      <span className="font-semibold text-slate-950">{order.po_number}</span>
                     </div>
                   </section>
 
-                  <section className="overflow-hidden rounded-xl border border-[#443b30] bg-[#241f18] shadow-sm">
-                    <div className="border-b border-[#443b30] bg-[#2b241c] px-4 py-3">
-                      <h3 className="text-sm font-semibold text-[#f3ece4]">Chi tiết sản phẩm ({items?.length || 0})</h3>
+                  <section className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+                    <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
+                      <h3 className="text-sm font-semibold text-slate-950">Chi tiết sản phẩm ({items?.length || 0})</h3>
                     </div>
-                    <div className="divide-y divide-[#443b30]">
+                    <div className="divide-y divide-slate-100">
                       {items && items.length > 0 ? items.map((item) => (
-                        <div key={item.id} className="p-4 transition-colors hover:bg-[#342b22]">
+                        <div key={item.id} className="p-4">
                           <div className="mb-1 flex items-start justify-between gap-3">
-                            <h4 className="font-medium text-[#f3ece4]">{item.product_name}</h4>
-                            <span className="whitespace-nowrap font-medium text-[#f3ece4]">{formatCurrency(item.line_total || 0)}</span>
+                            <h4 className="font-medium text-slate-950">{item.product_name}</h4>
+                            <span className="whitespace-nowrap font-semibold text-slate-950">{formatCurrency(item.line_total || 0)}</span>
                           </div>
-                          <p className="text-sm text-[#a99b8c]">{item.quantity} {item.unit} × {formatCurrency(item.unit_price || 0)}</p>
+                          <p className="text-sm text-slate-500">{item.quantity} {item.unit} × {formatCurrency(item.unit_price || 0)}</p>
                         </div>
                       )) : (
-                        <p className="py-4 text-center text-sm text-[#a99b8c]">Không có sản phẩm</p>
+                        <p className="py-4 text-center text-sm text-slate-500">Không có sản phẩm</p>
                       )}
                     </div>
                   </section>
 
-                  <section className="space-y-4 rounded-xl border border-[#443b30] bg-[#241f18] p-4 shadow-sm">
+                  <section className="space-y-4 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
                     <div className="flex items-center justify-between text-sm">
-                      <span className="flex items-center gap-2 text-[#a99b8c]"><Clock className="h-4 w-4" />Giao dự kiến</span>
-                      <span className="font-medium text-[#f3ece4]">{formatSafeDate(order.expected_date, "Chưa xác định")}</span>
+                      <span className="flex items-center gap-2 text-slate-500"><Clock className="h-4 w-4 text-amber-700" />Giao dự kiến</span>
+                      <span className="font-semibold text-slate-950">{formatSafeDate(order.expected_date, "Chưa xác định")}</span>
                     </div>
-                    <div className="flex items-center justify-between border-t border-[#443b30] pt-4 text-sm">
-                      <span className="flex items-center gap-2 text-[#a99b8c]"><Package className="h-4 w-4" />Trạng thái</span>
-                      <span className="font-medium text-[#f3ece4]">{getStatusBadge(order.status)}</span>
+                    <div className="flex items-center justify-between border-t border-slate-100 pt-4 text-sm">
+                      <span className="flex items-center gap-2 text-slate-500"><Package className="h-4 w-4 text-amber-700" />Trạng thái</span>
+                      <span className="font-medium text-slate-950">{getStatusBadge(order.status)}</span>
                     </div>
                     {order.notes && (
-                      <div className="border-t border-[#443b30] pt-4">
-                        <span className="mb-2 block text-sm text-[#a99b8c]">Ghi chú PO</span>
-                        <p className="rounded-lg border border-[#443b30] bg-[#1d1813] p-3 text-sm text-[#f3ece4]">{order.notes}</p>
+                      <div className="border-t border-slate-100 pt-4">
+                        <span className="mb-2 block text-sm text-slate-500">Ghi chú PO</span>
+                        <p className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm text-slate-700">{order.notes}</p>
                       </div>
                     )}
                   </section>
 
                   {order.status === "draft" && (
-                    <section className="rounded-xl border border-[#443b30] bg-[#241f18] p-4 shadow-sm">
-                      <h3 className="mb-4 text-sm font-semibold text-[#f3ece4]">Checklist duyệt</h3>
+                    <section className="rounded-2xl border border-amber-100 bg-white p-4 shadow-sm">
+                      <h3 className="mb-4 text-sm font-semibold text-slate-950">Checklist duyệt</h3>
                       <div className="space-y-3">
                         {["Đã kiểm tra NCC", "Đã kiểm tra giá", "Đã kiểm tra số lượng"].map((label) => (
-                          <label key={label} className="flex items-center gap-3 text-sm font-medium text-[#f3ece4]">
-                            <input type="checkbox" className="h-5 w-5 rounded border-[#443b30] bg-[#1d1813] text-[#d97706] focus:ring-[#d97706]/50" />
+                          <label key={label} className="flex items-center gap-3 text-sm font-medium text-slate-800">
+                            <input type="checkbox" className="h-5 w-5 rounded border-amber-200 text-amber-600 focus:ring-amber-500/40" />
                             {label}
                           </label>
                         ))}
                       </div>
                     </section>
                   )}
-                </main>
 
-                <nav className="fixed bottom-0 left-0 z-50 flex h-[72px] w-full gap-4 rounded-t-xl border-t border-[#443b30] bg-[#241f18] p-4 shadow-lg">
-                  {order.status === "draft" ? (
-                    <>
-                      <Button type="button" variant="outline" className="h-full flex-1 border-[#DC2626] text-[#DC2626] hover:bg-[#DC2626]/10" onClick={() => setShowCancelConfirm(true)}>
-                        <XCircle className="mr-2 h-4 w-4" />Từ chối
-                      </Button>
-                      <Button type="button" className="h-full flex-1 bg-[#D97706] font-semibold text-white hover:bg-[#b45309]" onClick={() => setShowSendConfirm(true)}>
-                        <CheckCircle className="mr-2 h-4 w-4" />Duyệt PO
-                      </Button>
-                    </>
-                  ) : order.status === "sent" ? (
-                    <>
-                      <Button type="button" variant="outline" className="h-full flex-1 border-[#DC2626] text-[#DC2626] hover:bg-[#DC2626]/10" onClick={() => setShowCancelConfirm(true)}>
-                        <XCircle className="mr-2 h-4 w-4" />Hủy
-                      </Button>
-                      <Button type="button" className="h-full flex-1 bg-[#D97706] font-semibold text-white hover:bg-[#b45309]" onClick={() => setShowReceiveDialog(true)}>
-                        <CheckCircle className="mr-2 h-4 w-4" />Đã nhận
-                      </Button>
-                    </>
-                  ) : (
-                    <Button type="button" className="h-full flex-1 bg-[#D97706] font-semibold text-white hover:bg-[#b45309]" onClick={() => setShowCreatePaymentRequest(true)}>
-                      <CreditCard className="mr-2 h-4 w-4" />Tạo đề nghị thanh toán
-                    </Button>
-                  )}
-                </nav>
+                  <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+                    <h3 className="mb-3 text-sm font-semibold text-slate-950">Thao tác</h3>
+                    <div className="flex gap-3">
+                      {order.status === "draft" ? (
+                        <>
+                          <Button type="button" variant="outline" className="h-12 flex-1 border-red-200 text-red-600 hover:bg-red-50" onClick={() => setShowCancelConfirm(true)}>
+                            <XCircle className="mr-2 h-4 w-4" />Từ chối
+                          </Button>
+                          <Button type="button" className="h-12 flex-1 bg-[#D97706] font-semibold text-white hover:bg-[#b45309]" onClick={() => setShowSendConfirm(true)}>
+                            <CheckCircle className="mr-2 h-4 w-4" />Duyệt PO
+                          </Button>
+                        </>
+                      ) : order.status === "sent" ? (
+                        <>
+                          <Button type="button" variant="outline" className="h-12 flex-1 border-red-200 text-red-600 hover:bg-red-50" onClick={() => setShowCancelConfirm(true)}>
+                            <XCircle className="mr-2 h-4 w-4" />Hủy
+                          </Button>
+                          <Button type="button" className="h-12 flex-1 bg-[#D97706] font-semibold text-white hover:bg-[#b45309]" onClick={() => setShowReceiveDialog(true)}>
+                            <CheckCircle className="mr-2 h-4 w-4" />Đã nhận
+                          </Button>
+                        </>
+                      ) : (
+                        <Button type="button" className="h-12 flex-1 bg-[#D97706] font-semibold text-white hover:bg-[#b45309]" onClick={() => setShowCreatePaymentRequest(true)}>
+                          <CreditCard className="mr-2 h-4 w-4" />Tạo đề nghị thanh toán
+                        </Button>
+                      )}
+                    </div>
+                  </section>
+                </main>
               </div>
 
               <div className="hidden space-y-6 md:block">

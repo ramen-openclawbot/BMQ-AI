@@ -516,11 +516,20 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert 'fixed left-0 top-0 z-50' in sidebar
     assert 'fixed inset-0 z-40 bg-black/45' in sidebar
     assert '<Route path="/purchase-orders" element={<ModuleRoute moduleKey="purchase_orders"><PurchaseOrders /></ModuleRoute>}' in routes
-    assert 'Trang này yêu cầu quyền xem module {moduleKey}' in routes
+    assert 'Trang này yêu cầu quyền xem module {moduleLabel}' in routes
     assert '{ key: "purchase_orders", labelEn: "PO (Purchasing)", labelVi: "PO (Mua hàng)" }' in user_management_hook
     assert "Tạo PO (Mua hàng)" in add_dialog
     assert "Tạo đơn đặt hàng</Button>" not in add_dialog
     assert "data-stitch-mobile-po-approve-detail" in detail_dialog
+    assert "data-bmq-po-detail-light-theme" in detail_dialog
+    assert "max-md:bg-slate-50" in detail_dialog
+    assert "bg-gradient-to-b from-amber-50 via-white to-slate-50" in detail_dialog
+    assert "max-md:bg-[#1d1813]" not in detail_dialog
+    assert "bg-[#17130e]" not in detail_dialog
+    assert "bg-[#241f18]" not in detail_dialog
+    assert "border-[#443b30]" not in detail_dialog
+    assert "text-[#f3ece4]" not in detail_dialog
+    assert "fixed bottom-0" not in detail_dialog
     assert "const formatSafeDate" in detail_dialog
     assert "formatSafeDate(order.order_date)" in detail_dialog
     assert "formatSafeDate(order.expected_date, \"Chưa xác định\")" in detail_dialog
