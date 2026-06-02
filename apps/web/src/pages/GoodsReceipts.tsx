@@ -29,6 +29,11 @@ const normalizeSearchText = (value: string) =>
 const toMonthValue = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 const toYearValue = (date: Date) => String(date.getFullYear());
 
+const formatMonthLabel = (monthValue: string) => {
+  const [year, month] = monthValue.split("-");
+  return `Tháng ${month}/${year}`;
+};
+
 const parseReceiptDate = (rawDate: string | null) => {
   if (!rawDate) return null;
   const date = new Date(rawDate);
@@ -91,10 +96,27 @@ export default function GoodsReceipts() {
 
   const weekOptions = useMemo(() => buildWeekBuckets(selectedMonthValue), [selectedMonthValue]);
 
-  const filteredReceipts = useMemo(() => {
+  const monthOptions = useMemo(() => {
+    const values = new Set<string>([toMonthValue(new Date())]);
+    receipts.forEach((receipt) => {
+      const date = parseReceiptDate(receipt.receipt_date);
+      if (date) values.add(toMonthValue(date));
+    });
+    return Array.from(values).sort((a, b) => b.localeCompare(a));
+  }, [receipts]);
+
+  const yearOptions = useMemo(() => {
+    const values = new Set<string>([toYearValue(new Date())]);
+    receipts.forEach((receipt) => {
+      const date = parseReceiptDate(receipt.receipt_date);
+      if (date) values.add(toYearValue(date));
+    });
+    return Array.from(values).sort((a, b) => b.localeCompare(a));
+  }, [receipts]);
+
+  const periodAndSupplierFilteredReceipts = useMemo(() => {
     const supplierNeedle = normalizeSearchText(supplierSearchTerm);
     return receipts.filter((r) => {
-      if (statusFilter !== "all" && r.status !== statusFilter) return false;
       if (!receiptMatchesPeriod(r.receipt_date, timeFilterMode, selectedMonthValue, selectedYearValue, selectedWeekValue)) return false;
       if (supplierNeedle) {
         const supplierName = normalizeSearchText(r.suppliers?.name || "");
@@ -102,7 +124,14 @@ export default function GoodsReceipts() {
       }
       return true;
     });
-  }, [receipts, selectedMonthValue, selectedWeekValue, selectedYearValue, statusFilter, supplierSearchTerm, timeFilterMode]);
+  }, [receipts, selectedMonthValue, selectedWeekValue, selectedYearValue, supplierSearchTerm, timeFilterMode]);
+
+  const filteredReceipts = useMemo(() => {
+    return periodAndSupplierFilteredReceipts.filter((r) => {
+      if (statusFilter !== "all" && r.status !== statusFilter) return false;
+      return true;
+    });
+  }, [periodAndSupplierFilteredReceipts, statusFilter]);
 
   useEffect(() => {
     if (weekOptions.length > 0 && !weekOptions.some((week) => week.value === selectedWeekValue)) {
@@ -130,12 +159,12 @@ export default function GoodsReceipts() {
 
   const stats = useMemo(() => {
     return {
-      total: receipts.length,
-      draft: receipts.filter((r) => r.status === "draft").length,
-      confirmed: receipts.filter((r) => r.status === "confirmed").length,
-      received: receipts.filter((r) => r.status === "received").length,
+      total: periodAndSupplierFilteredReceipts.length,
+      draft: periodAndSupplierFilteredReceipts.filter((r) => r.status === "draft").length,
+      confirmed: periodAndSupplierFilteredReceipts.filter((r) => r.status === "confirmed").length,
+      received: periodAndSupplierFilteredReceipts.filter((r) => r.status === "received").length,
     };
-  }, [receipts]);
+  }, [periodAndSupplierFilteredReceipts]);
 
   const formatReceiptDate = (rawDate: string | null) => {
     if (!rawDate) return "-";
@@ -270,7 +299,7 @@ export default function GoodsReceipts() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-bmq-goods-receipts-filtered-dashboard>
           {statusCards.map((card) => (
             <Card
               key={card.key}
@@ -287,7 +316,7 @@ export default function GoodsReceipts() {
 
         <Card className="border-border bg-card" data-bmq-goods-receipts-period-filters data-bmq-goods-receipts-default-week-filter>
           <CardContent className="space-y-3 p-3">
-            <div className="grid gap-3 lg:grid-cols-[1.25fr_0.7fr_0.9fr_0.8fr]">
+            <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[1.25fr_0.7fr_0.9fr_0.8fr]">
               <div className="relative" data-bmq-goods-receipts-supplier-search>
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -322,25 +351,27 @@ export default function GoodsReceipts() {
               </Select>
 
               {timeFilterMode === "year" ? (
-                <Input
-                  value={selectedYearValue}
-                  onChange={(event) => setSelectedYearValue(event.target.value)}
-                  type="number"
-                  min="2020"
-                  max="2100"
-                  className="h-9 border-border bg-background text-sm"
-                  aria-label={isVi ? "Năm lọc" : "Filter year"}
-                  data-bmq-goods-receipts-year-filter
-                />
+                <Select value={selectedYearValue} onValueChange={setSelectedYearValue}>
+                  <SelectTrigger className="h-9 min-w-0 w-full border-border bg-background text-sm" data-bmq-goods-receipts-year-filter>
+                    <SelectValue placeholder={isVi ? "Chọn năm" : "Select year"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {yearOptions.map((year) => (
+                      <SelectItem key={year} value={year}>{year}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               ) : (
-                <Input
-                  value={selectedMonthValue}
-                  onChange={(event) => setSelectedMonthValue(event.target.value)}
-                  type="month"
-                  className="h-9 border-border bg-background text-sm"
-                  aria-label={isVi ? "Tháng lọc" : "Filter month"}
-                  data-bmq-goods-receipts-month-filter
-                />
+                <Select value={selectedMonthValue} onValueChange={setSelectedMonthValue}>
+                  <SelectTrigger className="h-9 min-w-0 w-full border-border bg-background text-sm" data-bmq-goods-receipts-month-filter data-bmq-goods-receipts-month-select-stable>
+                    <SelectValue placeholder={isVi ? "Chọn tháng" : "Select month"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {monthOptions.map((month) => (
+                      <SelectItem key={month} value={month}>{formatMonthLabel(month)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
             </div>
 

@@ -232,6 +232,8 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "data-bmq-goods-receipts-week-filter" in page
     assert "data-bmq-goods-receipts-month-filter" in page
     assert "data-bmq-goods-receipts-year-filter" in page
+    assert "data-bmq-goods-receipts-month-select-stable" in page
+    assert "data-bmq-goods-receipts-filtered-dashboard" in page
     assert "type TimeFilterMode = \"week\" | \"month\" | \"year\";" in page
     assert "const [timeFilterMode, setTimeFilterMode] = useState<TimeFilterMode>(\"week\");" in page
     assert "const [supplierSearchTerm, setSupplierSearchTerm] = useState(\"\");" in page
@@ -239,7 +241,12 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "label: `Tuần ${index + 1}" in page
     assert "1-7, 8-14, 15-21, 22-28, 29-hết tháng" in page
     assert "receiptMatchesPeriod" in page
+    assert "periodAndSupplierFilteredReceipts" in page
+    assert "total: periodAndSupplierFilteredReceipts.length" in page
+    assert "periodAndSupplierFilteredReceipts.filter((r) => r.status === \"draft\").length" in page
     assert "normalizeSearchText(r.suppliers?.name || \"\")" in page
+    assert "formatMonthLabel(month)" in page
+    assert "type=\"month\"" not in page
     assert "const RECEIPTS_PER_PAGE = 20" in page
     assert "paginatedReceipts.map((receipt)" in page
     assert "filteredReceipts.slice(start, start + RECEIPTS_PER_PAGE)" in page
