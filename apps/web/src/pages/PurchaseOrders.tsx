@@ -305,39 +305,39 @@ export default function PurchaseOrders() {
   };
 
   return (
-    <div className="bg-slate-50 dark:bg-[#1d1813] -m-4 min-h-screen text-slate-950 dark:text-[#f3ece4] md:-m-6">
-      <section className="min-h-screen bg-slate-50 pb-8 md:hidden" data-stitch-mobile-po-main>
-        <header className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+    <div className="bg-background text-foreground -m-4 min-h-screen md:-m-6">
+      <section className="min-h-screen bg-background pb-28 md:hidden" data-stitch-mobile-po-main data-bmq-mobile-po-revenue-palette>
+        <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-card/95 px-4 py-3 shadow-card backdrop-blur-xl">
           <button
             type="button"
             aria-label="Menu"
-            className="-ml-2 rounded-full p-2 text-amber-700 transition hover:bg-amber-50"
+            className="-ml-2 rounded-full p-2 text-primary transition hover:bg-primary/10"
             onClick={() => window.dispatchEvent(new Event("bmq:open-sidebar"))}
           >
             <FileText className="h-5 w-5" />
           </button>
           <div className="text-center">
-            <h1 className="text-xl font-bold text-slate-950">PO (Mua hàng)</h1>
-            <p className="text-[10px] text-slate-500">Quản lý vận hành nhập hàng & công nợ NCC</p>
+            <h1 className="text-xl font-bold text-foreground">PO (Mua hàng)</h1>
+            <p className="text-[10px] text-muted-foreground">Quản lý vận hành nhập hàng & công nợ NCC</p>
           </div>
-          <button type="button" aria-label="Notifications" className="relative -mr-2 rounded-full p-2 text-amber-700 transition hover:bg-amber-50">
+          <button type="button" aria-label="Notifications" className="relative -mr-2 rounded-full p-2 text-primary transition hover:bg-primary/10">
             <Bell className="h-5 w-5" />
             {stats.draft > 0 && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500" />}
           </button>
         </header>
 
-        <div className="sticky top-[57px] z-10 border-b border-slate-200 bg-white/95 px-4 pb-3 pt-4 backdrop-blur-sm">
+        <div className="sticky top-[57px] z-10 border-b border-border bg-card/95 px-4 pb-3 pt-4 backdrop-blur-xl">
           <div className="relative mb-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder={isVi ? "Tìm PO, nhà cung cấp, sản phẩm..." : "Search PO, supplier, product..."}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="h-11 rounded-xl border-slate-200 bg-slate-50 pl-10 text-sm placeholder:text-slate-400 focus:border-amber-500 focus:ring-amber-500"
+              className="h-11 rounded-xl border-border bg-background/80 pl-10 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:ring-primary"
             />
 
           </div>
-          <p className="mb-3 px-1 text-right text-[10px] italic text-slate-400">Hỗ trợ tìm không dấu</p>
+          <p className="mb-3 px-1 text-right text-[10px] italic text-muted-foreground">Hỗ trợ tìm không dấu</p>
           <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {([
               ["all", isVi ? "Tất cả" : "All"],
@@ -349,20 +349,20 @@ export default function PurchaseOrders() {
               <button
                 key={value}
                 type="button"
-                className={`whitespace-nowrap rounded-full px-4 py-1.5 text-xs font-medium transition ${statusFilter === value ? "bg-amber-600 text-white" : "border border-slate-200 bg-white text-slate-600"}`}
+                className={`whitespace-nowrap rounded-full px-4 py-1.5 text-xs font-medium transition ${statusFilter === value ? "bg-primary text-primary-foreground" : "border border-border bg-card/80 text-muted-foreground hover:bg-primary/5"}`}
                 onClick={() => setStatusFilter(value)}
               >
                 {label}
               </button>
             ))}
           </div>
-          <div className="mt-3 space-y-2 rounded-xl bg-slate-50 p-2">
+          <div className="mt-3 space-y-2 rounded-xl border border-border bg-muted/30 p-2">
             <div className="flex items-center justify-between text-xs">
-              <span className="font-medium text-slate-600">Kỳ xem</span>
-              <span className="text-slate-500">{periodLabel}</span>
+              <span className="font-medium text-foreground">Kỳ xem</span>
+              <span className="text-muted-foreground">{periodLabel}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex h-9 rounded-lg border border-slate-200 bg-white p-1">
+              <div className="inline-flex h-9 rounded-lg border border-border bg-card p-1">
                 {([
                   ["day", isVi ? "Ngày" : "Day"],
                   ["month", isVi ? "Tháng" : "Month"],
@@ -371,7 +371,7 @@ export default function PurchaseOrders() {
                   <button
                     key={mode}
                     type="button"
-                    className={`rounded-md px-3 text-xs font-semibold transition ${timeFilterMode === mode ? "bg-amber-600 text-white shadow-sm" : "text-slate-500"}`}
+                    className={`rounded-md px-3 text-xs font-semibold transition ${timeFilterMode === mode ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"}`}
                     onClick={() => handleTimeFilterModeChange(mode)}
                   >
                     {label}
@@ -384,7 +384,7 @@ export default function PurchaseOrders() {
                 max={timeFilterMode === "year" ? "2035" : undefined}
                 value={selectedPeriodValue}
                 onChange={(event) => setSelectedPeriodValue(event.target.value)}
-                className="h-9 flex-1 border-slate-200 bg-white text-sm"
+                className="h-9 flex-1 border-border bg-background/80 text-sm text-foreground"
               />
             </div>
           </div>
@@ -403,30 +403,30 @@ export default function PurchaseOrders() {
                 <button
                   key={item.label}
                   type="button"
-                  className={`flex h-[88px] flex-col justify-between rounded-xl border bg-white p-3 text-left shadow-sm transition ${statusFilter === item.filter ? "border-amber-500 ring-2 ring-amber-100" : "border-slate-200"}`}
+                  className={`flex h-[88px] flex-col justify-between rounded-xl border bg-card/80 p-3 text-left shadow-card transition hover:bg-primary/5 ${statusFilter === item.filter ? "border-primary ring-2 ring-primary/15" : "border-border"}`}
                   onClick={() => setStatusFilter(item.filter)}
                 >
                   <div className="flex items-start justify-between">
-                    <span className="text-xs font-medium text-slate-500">{item.label}</span>
+                    <span className="text-xs font-medium text-muted-foreground">{item.label}</span>
                     <Icon className="h-4 w-4" style={{ color: item.color }} />
                   </div>
-                  <span className="truncate text-2xl font-bold text-slate-950">{item.value}</span>
+                  <span className="truncate text-2xl font-bold text-foreground">{item.value}</span>
                 </button>
               );
             })}
           </div>
 
           <div className="mb-3 flex items-end justify-between">
-            <h2 className="text-sm font-semibold text-slate-950">Danh sách PO</h2>
-            <span className="flex items-center gap-1 text-xs font-medium text-amber-700"><SlidersHorizontal className="h-3.5 w-3.5" />Lọc thêm</span>
+            <h2 className="text-sm font-semibold text-foreground">Danh sách PO</h2>
+            <span className="flex items-center gap-1 text-xs font-medium text-primary"><SlidersHorizontal className="h-3.5 w-3.5" />Lọc thêm</span>
           </div>
 
           {isLoading ? (
-            <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-amber-600" /></div>
+            <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
           ) : error ? (
             <div className="rounded-xl border border-red-200 bg-red-50 py-10 text-center text-sm text-red-700">{isVi ? "Lỗi tải dữ liệu PO" : "Failed to load data"}</div>
           ) : filteredOrders.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-white py-12 text-center text-slate-500"><Package className="mx-auto mb-4 h-12 w-12 opacity-50" /><p>{isVi ? "Không có PO trong kỳ/bộ lọc này" : "No purchase orders in this period/filter"}</p></div>
+            <div className="rounded-xl border border-dashed border-border bg-card/80 py-12 text-center text-muted-foreground"><Package className="mx-auto mb-4 h-12 w-12 opacity-50" /><p>{isVi ? "Không có PO trong kỳ/bộ lọc này" : "No purchase orders in this period/filter"}</p></div>
           ) : (
             <div className="flex flex-col gap-3">
               {paginatedOrders.map((order) => {
@@ -435,21 +435,21 @@ export default function PurchaseOrders() {
                   <button
                     key={order.id}
                     type="button"
-                    className={`relative overflow-hidden rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition active:scale-[0.99] ${order.status === "cancelled" ? "opacity-70" : ""}`}
+                    className={`relative overflow-hidden rounded-xl border border-border bg-card/80 p-3 text-left shadow-card transition hover:bg-primary/5 active:scale-[0.99] ${order.status === "cancelled" ? "opacity-70" : ""}`}
                     onClick={() => setSelectedOrderId(order.id)}
                     data-stitch-mobile-po-card
                   >
                     <span className="absolute bottom-0 left-0 top-0 w-1" style={{ backgroundColor: meta.accent }} />
                     <div className="pl-2">
                       <div className="mb-1.5 flex items-center justify-between gap-3">
-                        <span className={`text-sm font-semibold ${order.status === "cancelled" ? "text-slate-400 line-through" : "text-slate-950"}`}>{order.po_number}</span>
+                        <span className={`text-sm font-semibold ${order.status === "cancelled" ? "text-muted-foreground line-through" : "text-foreground"}`}>{order.po_number}</span>
                         <span className="rounded border px-2 py-0.5 text-[10px] font-medium" style={{ borderColor: `${meta.accent}33`, color: meta.accent, backgroundColor: `${meta.accent}1A` }}>{meta.label}</span>
                       </div>
-                      <div className="mb-1 truncate text-xs font-medium text-slate-700">{order.suppliers?.name || (order.supplier_id ? supplierMap.get(order.supplier_id) : undefined) || "N/A"}</div>
-                      <div className="mb-2 truncate text-[11px] text-slate-500">{getOrderProductNames(order)}</div>
-                      <div className="flex items-end justify-between border-t border-slate-100 pt-2">
-                        <span className="text-[10px] text-slate-500">{formatOptionalDate(order.order_date)}</span>
-                        <span className={`text-sm font-bold ${order.status === "cancelled" ? "text-slate-400 line-through" : "text-amber-700"}`}>{formatCurrency(order.total_amount || 0)}</span>
+                      <div className="mb-1 truncate text-xs font-medium text-foreground/80">{order.suppliers?.name || (order.supplier_id ? supplierMap.get(order.supplier_id) : undefined) || "N/A"}</div>
+                      <div className="mb-2 truncate text-[11px] text-muted-foreground">{getOrderProductNames(order)}</div>
+                      <div className="flex items-end justify-between border-t border-border pt-2">
+                        <span className="text-[10px] text-muted-foreground">{formatOptionalDate(order.order_date)}</span>
+                        <span className={`text-sm font-bold ${order.status === "cancelled" ? "text-muted-foreground line-through" : "text-primary"}`}>{formatCurrency(order.total_amount || 0)}</span>
                       </div>
                     </div>
                   </button>
@@ -459,20 +459,20 @@ export default function PurchaseOrders() {
           )}
 
           {!isLoading && !error && filteredOrders.length > 0 && (
-            <div className="mt-4 flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500 shadow-sm">
+            <div className="mt-4 flex items-center justify-between rounded-xl border border-border bg-card/80 px-3 py-2 text-xs text-muted-foreground shadow-card">
               <span>{pageStartIndex + 1}-{Math.min(pageStartIndex + paginatedOrders.length, filteredOrders.length)} / {filteredOrders.length}</span>
               <div className="flex items-center gap-2">
-                <Button type="button" variant="outline" size="sm" className="h-8 border-slate-200 bg-white text-xs" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPageSafe <= 1}>{isVi ? "Trước" : "Prev"}</Button>
+                <Button type="button" variant="outline" size="sm" className="h-8 border-border bg-background/80 text-xs" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPageSafe <= 1}>{isVi ? "Trước" : "Prev"}</Button>
                 <span>{currentPageSafe}/{totalPages}</span>
-                <Button type="button" variant="outline" size="sm" className="h-8 border-slate-200 bg-white text-xs" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPageSafe >= totalPages}>{isVi ? "Sau" : "Next"}</Button>
+                <Button type="button" variant="outline" size="sm" className="h-8 border-border bg-background/80 text-xs" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPageSafe >= totalPages}>{isVi ? "Sau" : "Next"}</Button>
               </div>
             </div>
           )}
         </main>
 
-        <div className="fixed bottom-4 right-4 z-20">
+        <div className="fixed bottom-4 right-4 z-40" data-bmq-mobile-po-create-fab>
           <AddPurchaseOrderDialog>
-            <Button className="rounded-2xl bg-amber-600 px-4 py-6 text-sm font-semibold text-white shadow-lg hover:bg-amber-700">
+            <Button className="btn-gradient rounded-2xl px-4 py-6 text-sm font-semibold text-primary-foreground shadow-lg">
               <Plus className="mr-2 h-4 w-4" />Tạo PO
             </Button>
           </AddPurchaseOrderDialog>

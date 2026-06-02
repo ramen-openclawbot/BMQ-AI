@@ -21,6 +21,7 @@ PURCHASE_ORDER_DETAILS = ROOT / "src/components/dialogs/PurchaseOrderDetailsDial
 USER_MANAGEMENT_HOOK = ROOT / "src/hooks/useUserManagement.ts"
 SIDEBAR = ROOT / "src/components/layout/Sidebar.tsx"
 APP_ROUTES = ROOT / "src/components/AppRoutes.tsx"
+GLOBAL_AGENT_CHAT_WIDGET = ROOT / "src/components/agent/GlobalAgentChatWidget.tsx"
 LANGUAGE_CONTEXT = ROOT / "src/contexts/LanguageContext.tsx"
 SUPABASE_CONFIG = ROOT / "supabase/config.toml"
 MIGRATIONS = ROOT / "supabase/migrations"
@@ -431,6 +432,7 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     detail_dialog = read(PURCHASE_ORDER_DETAILS)
     sidebar = read(SIDEBAR)
     routes = read(APP_ROUTES)
+    chat_widget = read(GLOBAL_AGENT_CHAT_WIDGET)
     user_management_hook = read(USER_MANAGEMENT_HOOK)
 
     assert "purchase_order_items(id, product_name)" in hook
@@ -458,7 +460,18 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert "onKeyDown={(event) => handleOrderRowKeyDown(event, order.id)}" in page
     assert "event.stopPropagation()" in page
     assert "aria-label={isVi ? \"Xóa PO\" : \"Delete PO\"}" in page
-    assert "bg-slate-50 dark:bg-[#1d1813]" in page
+    assert "data-bmq-mobile-po-revenue-palette" in page
+    mobile_section = page.split('data-bmq-mobile-po-revenue-palette', 1)[1].split('<div className="hidden space-y-4 p-4 md:block md:p-6">', 1)[0]
+    assert "bg-background" in mobile_section
+    assert "bg-card/95" in mobile_section
+    assert "bg-primary text-primary-foreground" in mobile_section
+    assert "btn-gradient rounded-2xl" in mobile_section
+    assert "data-bmq-mobile-po-create-fab" in mobile_section
+    assert "bg-amber-600" not in mobile_section
+    assert "text-amber-700" not in mobile_section
+    assert "bg-slate-50" not in mobile_section
+    assert "dark:bg-[#1d1813]" not in mobile_section
+    assert "fixed bottom-0" not in mobile_section
     assert "lg:grid-cols-[minmax(0,1fr)_260px]" in page
     assert "grid-cols-2 lg:grid-cols-5" in page
     assert "dark:bg-[#241f18]/90" in page
@@ -509,14 +522,19 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert "Quản lý vận hành nhập hàng & công nợ NCC" in page
     assert "Hỗ trợ tìm không dấu" in page
     assert "Chờ nhận hàng" in page
-    assert "fixed bottom-4 right-4" in page
-    assert "fixed bottom-0" not in page
+    assert "fixed bottom-4 right-4 z-40" in page
+    assert "data-bmq-mobile-po-create-fab" in page
+    assert 'const isPurchaseOrdersMobileContext = location.pathname.startsWith("/purchase-orders");' in chat_widget
+    assert "const shouldLiftMobileChatButton = isRevenueMobileContext || isSkuCostsMobileContext || isPurchaseOrdersMobileContext;" in chat_widget
+    assert "shouldLiftMobileChatButton" in chat_widget
+    assert "bottom-[calc(5rem+env(safe-area-inset-bottom))] right-3 h-11 w-11" in chat_widget
+    assert "fixed bottom-0" not in mobile_section
     assert "Kho hàng" not in page and "Cá nhân" not in page
     assert "Kỳ xem" in page
     assert 'onClick={() => window.dispatchEvent(new Event("bmq:open-sidebar"))}' in page
     assert 'sticky top-0 z-20' in page
     assert 'sticky top-[57px] z-10' in page
-    assert 'fixed bottom-4 right-4 z-20' in page
+    assert 'fixed bottom-4 right-4 z-40' in page
     assert 'fixed left-0 top-0 z-50' in sidebar
     assert 'fixed inset-0 z-40 bg-black/45' in sidebar
     assert '<Route path="/purchase-orders" element={<ModuleRoute moduleKey="purchase_orders"><PurchaseOrders /></ModuleRoute>}' in routes
