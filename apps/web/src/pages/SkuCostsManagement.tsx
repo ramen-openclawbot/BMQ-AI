@@ -863,36 +863,74 @@ export default function SkuCostsManagement() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 px-1 sm:space-y-6 sm:px-0">
       <SkuCostMenuBar />
-      <h1 className="text-2xl font-bold">Quản trị SKU thành phẩm</h1>
+      <h1 className="text-xl font-bold tracking-[-0.02em] sm:text-2xl">Quản trị SKU thành phẩm</h1>
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between"><CardTitle>Danh sách SKU thành phẩm</CardTitle><div className="flex gap-2"><Button onClick={openCreateSku}>Tạo SKU</Button></div></CardHeader>
-        <CardContent>
-          <Table><TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Tên</TableHead><TableHead>Giá bán</TableHead><TableHead>Trang đặt hàng</TableHead><TableHead>Chỉnh sửa lúc</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>
-            {finishedSkus.map((s) => <TableRow key={s.id}><TableCell className="font-mono">{s.sku_code}</TableCell><TableCell><button className="text-left underline decoration-dotted underline-offset-4 hover:text-primary transition-colors" onClick={() => openSkuDetail(s)}>{s.product_name}</button></TableCell><TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell><TableCell className="text-xs">{s.hide_from_dealer_portal ? <span className="rounded bg-muted px-2 py-1 text-muted-foreground">Đang ẩn</span> : <span className="rounded bg-emerald-100 px-2 py-1 text-emerald-800">Đang hiện</span>}</TableCell><TableCell className="text-xs">{s.updated_at ? new Date(s.updated_at).toLocaleString("vi-VN") : "-"}</TableCell><TableCell><div className="flex gap-2 justify-end"><Button variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button><Button variant="destructive" size="sm" onClick={() => removeSku(s)}>Xóa</Button></div></TableCell></TableRow>)}
-            {finishedSkus.length === 0 && <TableRow><TableCell colSpan={6} className="text-muted-foreground">Chưa có SKU thành phẩm.</TableCell></TableRow>}
-          </TableBody></Table>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <CardTitle className="text-lg sm:text-xl">Danh sách SKU thành phẩm</CardTitle>
+          <div className="flex gap-2"><Button className="h-11 w-full sm:h-10 sm:w-auto" onClick={openCreateSku}>Tạo SKU</Button></div>
+        </CardHeader>
+        <CardContent className="px-3 sm:px-6">
+          <div className="hidden md:block">
+            <Table><TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Tên</TableHead><TableHead>Giá bán</TableHead><TableHead>Trang đặt hàng</TableHead><TableHead>Chỉnh sửa lúc</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>
+              {finishedSkus.map((s) => <TableRow key={s.id}><TableCell className="font-mono">{s.sku_code}</TableCell><TableCell><button className="text-left underline decoration-dotted underline-offset-4 hover:text-primary transition-colors" onClick={() => openSkuDetail(s)}>{s.product_name}</button></TableCell><TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell><TableCell className="text-xs">{s.hide_from_dealer_portal ? <span className="rounded bg-muted px-2 py-1 text-muted-foreground">Đang ẩn</span> : <span className="rounded bg-emerald-100 px-2 py-1 text-emerald-800">Đang hiện</span>}</TableCell><TableCell className="text-xs">{s.updated_at ? new Date(s.updated_at).toLocaleString("vi-VN") : "-"}</TableCell><TableCell><div className="flex gap-2 justify-end"><Button variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button><Button variant="destructive" size="sm" onClick={() => removeSku(s)}>Xóa</Button></div></TableCell></TableRow>)}
+              {finishedSkus.length === 0 && <TableRow><TableCell colSpan={6} className="text-muted-foreground">Chưa có SKU thành phẩm.</TableCell></TableRow>}
+            </TableBody></Table>
+          </div>
+          <div className="space-y-3 md:hidden">
+            {finishedSkus.map((s) => {
+              const sellingPrice = toNumber(parseCostValues(s.cost_values).selling_price, 0);
+              return (
+                <article key={s.id} className="rounded-2xl border bg-card p-3 shadow-sm">
+                  <button className="block w-full text-left" onClick={() => openSkuDetail(s)}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-mono text-[11px] font-bold text-muted-foreground">{s.sku_code || s.id}</p>
+                        <h2 className="mt-1 line-clamp-2 text-[15px] font-semibold leading-snug text-foreground">{s.product_name}</h2>
+                      </div>
+                      {s.hide_from_dealer_portal ? <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">Đang ẩn</span> : <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-800">Đang hiện</span>}
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-xl bg-muted/45 p-2">
+                        <div className="text-muted-foreground">Giá bán</div>
+                        <div className="mt-1 text-base font-bold text-primary">{vnd(sellingPrice)}</div>
+                      </div>
+                      <div className="rounded-xl bg-muted/45 p-2">
+                        <div className="text-muted-foreground">Cập nhật</div>
+                        <div className="mt-1 font-semibold text-foreground">{s.updated_at ? new Date(s.updated_at).toLocaleString("vi-VN") : "-"}</div>
+                      </div>
+                    </div>
+                  </button>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <Button className="h-10" variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button>
+                    <Button className="h-10" variant="destructive" size="sm" onClick={() => removeSku(s)}>Xóa</Button>
+                  </div>
+                </article>
+              );
+            })}
+            {finishedSkus.length === 0 && <div className="rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Chưa có SKU thành phẩm.</div>}
+          </div>
         </CardContent>
       </Card>
 
       {/* Đã tắt scan ảnh theo yêu cầu: nhập NVL thủ công */}
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] overflow-y-auto rounded-2xl p-4 sm:max-w-6xl sm:p-6">
           <DialogHeader>
-            <DialogTitle>Chi tiết SKU</DialogTitle>
+            <DialogTitle className="text-lg leading-tight sm:text-xl">Chi tiết SKU</DialogTitle>
           </DialogHeader>
 
-          <div className="grid md:grid-cols-4 gap-3 text-sm">
-            <div className="rounded border p-3 bg-muted/30"><div className="text-muted-foreground">Tên SKU</div><div className="font-semibold mt-1">{activeSku.product_name || "-"}</div></div>
-            <div className="rounded border p-3 bg-muted/30"><div className="text-muted-foreground">Mã SKU</div><div className="font-mono mt-1">{activeSku.sku_code || "-"}</div></div>
+          <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 md:grid-cols-4">
+            <div className="rounded border p-3 bg-muted/30"><div className="text-muted-foreground">Tên SKU</div><div className="font-semibold mt-1 leading-snug break-words">{activeSku.product_name || "-"}</div></div>
+            <div className="rounded border p-3 bg-muted/30"><div className="text-muted-foreground">Mã SKU</div><div className="font-mono mt-1 break-all">{activeSku.sku_code || "-"}</div></div>
             <div className="rounded border p-3 bg-muted/30"><div className="text-muted-foreground">Thành phẩm</div><div className="mt-1">{toNumber(activeSku.finished_output_qty, FORMULA_BASE_QTY)} {activeSku.finished_output_unit || "cái"}</div></div>
             <div className="rounded border p-3 bg-muted/30"><div className="text-muted-foreground">Giá bán/cái</div><div className="font-semibold mt-1">{vnd(toNumber(costValues.selling_price, 0))}</div></div>
           </div>
 
-          <div className="rounded border mt-4">
-            <Table>
+          <div className="mt-4 rounded border">
+            <Table className="hidden md:table">
               <TableHeader>
                 <TableRow>
                   <TableHead>Mã NVL</TableHead>
@@ -918,9 +956,32 @@ export default function SkuCostsManagement() {
                 ))}
               </TableBody>
             </Table>
+            <div className="space-y-3 p-3 md:hidden">
+              {formulaComputed.length === 0 ? (
+                <div className="rounded-xl border border-dashed p-3 text-sm text-muted-foreground">Chưa có dữ liệu NVL</div>
+              ) : formulaComputed.map((r) => {
+                const materialCode = r.material_code || buildMaterialCode(r.displayName || r.ingredient_name);
+                return (
+                  <article key={r.id || `${r.ingredient_name}-${r.sort_order}`} className="rounded-2xl border bg-card p-3 text-sm shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="break-all font-mono text-[11px] font-semibold text-muted-foreground">{materialCode}</p>
+                        <h3 className="mt-1 line-clamp-2 font-semibold leading-snug text-foreground">{r.displayName || r.ingredient_name || "-"}</h3>
+                      </div>
+                      <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">{r.unit || "g"}</span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-xl bg-muted/45 p-2"><div className="text-muted-foreground">Đơn giá</div><div className="mt-1 font-bold text-foreground">{vnd(toNumber(r.unit_price, 0))}</div></div>
+                      <div className="rounded-xl bg-muted/45 p-2"><div className="text-muted-foreground">Định lượng</div><div className="mt-1 font-bold text-foreground">{toNumber(r.dosage_qty, 0)}</div></div>
+                      <div className="col-span-2 rounded-xl bg-primary/10 p-2"><div className="text-primary/80">Cost NVL</div><div className="mt-1 text-base font-bold text-primary">{vnd(toNumber(r.standardLineCost, 0))}</div></div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-3 text-sm mt-4">
+          <div className="grid grid-cols-1 gap-3 text-sm mt-4 sm:grid-cols-2 md:grid-cols-3">
             <div className="rounded border p-3">Total material cost/mẻ: <b>{vnd(detailCosting.materialBatch)}</b></div>
             <div className="rounded border p-3">Total material cost/cái: <b>{vnd(detailCosting.materialPerUnit)}</b></div>
             <div className="rounded border p-3">Total cost NVL/cái: <b>{vnd(detailCosting.totalCostNVLPerUnit)}</b></div>
