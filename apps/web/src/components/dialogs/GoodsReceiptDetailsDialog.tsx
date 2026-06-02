@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { CheckCircle, Clock, FileCheck, Package, ExternalLink, Loader2, AlertCircle, Link2 } from "lucide-react";
+import { CheckCircle, Clock, FileCheck, Package, ExternalLink, Loader2, AlertCircle, Link2, XCircle } from "lucide-react";
 import { useGoodsReceipt, useGoodsReceiptItems, useConfirmGoodsReceipt, getGoodsReceiptImageUrl } from "@/hooks/useGoodsReceipts";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -17,8 +17,15 @@ interface GoodsReceiptDetailsDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+const formatSafeDate = (rawDate?: string | null, pattern = "dd/MM/yyyy") => {
+  if (!rawDate) return "-";
+  const date = new Date(rawDate);
+  if (Number.isNaN(date.getTime())) return "-";
+  return format(date, pattern, { locale: vi });
+};
+
 export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: GoodsReceiptDetailsDialogProps) {
-  const { data: receipt, isLoading: receiptLoading } = useGoodsReceipt(receiptId);
+  const { data: receipt, isLoading: receiptLoading, error: receiptError } = useGoodsReceipt(receiptId);
   const { data: items = [], isLoading: itemsLoading } = useGoodsReceiptItems(receiptId);
   const confirmReceipt = useConfirmGoodsReceipt();
   const [imageOpen, setImageOpen] = useState(false);
@@ -79,7 +86,8 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
       toast.success("Đã nhập hàng vào kho và tạo công nợ chờ duyệt");
       onOpenChange(false);
     } catch (error) {
-      toast.error("Không thể nhập hàng vào kho");
+      const message = error instanceof Error ? error.message : "Không thể nhập hàng vào kho";
+      toast.error(message);
     }
   };
 
@@ -89,22 +97,28 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Package className="h-5 w-5" />
+        <DialogContent className="max-h-[92vh] overflow-y-auto border-border bg-card p-0 sm:max-w-3xl" data-bmq-goods-receipt-detail-light-mobile>
+          <DialogHeader className="border-b border-border bg-background/70 px-4 py-3 sm:px-6">
+            <DialogTitle className="flex items-center gap-2 text-lg">
+              <Package className="h-5 w-5 text-primary" />
               Chi tiết Phiếu Nhập Kho
             </DialogTitle>
           </DialogHeader>
 
           {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <div className="flex items-center justify-center gap-2 px-4 py-10 text-muted-foreground">
+              <Loader2 className="h-6 w-6 animate-spin" />
+              Đang tải chi tiết phiếu nhập...
+            </div>
+          ) : receiptError ? (
+            <div className="m-4 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+              <div className="mb-1 flex items-center gap-2 font-semibold"><XCircle className="h-4 w-4" />Không tải được chi tiết phiếu nhập</div>
+              <p>Vui lòng thử lại hoặc tải lại trang. Danh sách vẫn có thể hiển thị nếu liên kết phụ bị lỗi.</p>
             </div>
           ) : receipt ? (
-            <div className="space-y-6">
+            <div className="space-y-5 p-4 sm:space-y-6 sm:p-6">
               {/* Receipt Info */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-3 rounded-xl border border-border bg-background/70 p-4 sm:grid-cols-2">
                 <div>
                   <p className="text-sm text-muted-foreground">Mã phiếu</p>
                   <p className="font-mono font-medium">{receipt.receipt_number}</p>
@@ -120,13 +134,13 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                 <div>
                   <p className="text-sm text-muted-foreground">Ngày nhận hàng</p>
                   <p className="font-medium">
-                    {format(new Date(receipt.receipt_date), "dd/MM/yyyy", { locale: vi })}
+                    {formatSafeDate(receipt.receipt_date)}
                   </p>
                 </div>
               </div>
 
               {/* Payable audit */}
-              <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+              <div className="space-y-3 rounded-xl border border-border bg-muted/30 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-medium">Đối soát công nợ</p>
@@ -150,7 +164,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                   <div>
                     <p className="text-muted-foreground">Ngày chốt</p>
                     <p className="font-medium">
-                      {receipt.finalized_at ? format(new Date(receipt.finalized_at), "dd/MM/yyyy HH:mm", { locale: vi }) : "-"}
+                      {formatSafeDate(receipt.finalized_at, "dd/MM/yyyy HH:mm")}
                     </p>
                   </div>
                 </div>
@@ -184,7 +198,8 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
 
               {/* Items */}
               <div>
-                <h3 className="font-medium mb-3">Danh sách sản phẩm</h3>
+                <h3 className="mb-3 font-medium">Danh sách sản phẩm</h3>
+                <div className="overflow-x-auto rounded-xl border border-border">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -216,16 +231,17 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                         </TableCell>
                         <TableCell title={lineStatusLabel(item.line_status)}>{lineStatusBadge(item.line_status)}</TableCell>
                         <TableCell>{item.unit || "kg"}</TableCell>
-                        <TableCell>{item.expiry_date ? format(new Date(item.expiry_date), "dd/MM/yyyy", { locale: vi }) : "-"}</TableCell>
+                        <TableCell>{formatSafeDate(item.expiry_date)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
+                </div>
               </div>
 
               {/* Summary */}
-              <div className="bg-muted/50 rounded-lg p-4">
-                <div className="flex justify-between items-center">
+              <div className="rounded-xl border border-border bg-muted/50 p-4">
+                <div className="flex items-center justify-between">
                   <span className="font-medium">Tổng số lượng:</span>
                   <span className="text-lg font-bold">
                     {receipt.total_quantity?.toLocaleString("vi-VN") || 0}
@@ -245,6 +261,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
               {receipt.status === "confirmed" && !isFinalizedWithPayable && (
                 <div className="flex justify-end">
                   <Button
+                    className="btn-gradient w-full sm:w-auto"
                     onClick={handleConfirmReceipt}
                     disabled={confirmReceipt.isPending}
                   >
@@ -258,7 +275,11 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                 </div>
               )}
             </div>
-          ) : null}
+          ) : (
+            <div className="m-4 rounded-xl border border-dashed border-border p-6 text-center text-muted-foreground">
+              Chọn một phiếu nhập kho để xem chi tiết.
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

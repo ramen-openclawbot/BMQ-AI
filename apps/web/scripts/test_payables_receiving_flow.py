@@ -202,6 +202,10 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "purchase_orders" in hook
     assert "payment_requests" in hook
     assert "payable_status" in hook
+    assert "Falling back to base goods_receipt detail query" in hook
+    assert "Falling back to base goods_receipt_items query" in hook
+    assert "product_skus: null" in hook
+    assert "purchase_order_items: null" in hook
 
     assert "getPayableBadge" in page
     assert "payable_status" in page
@@ -213,6 +217,12 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "receipt.payment_requests?.request_number" in page
     assert "receipt.purchase_orders?.po_number" in page
     assert "Tạo công nợ" in page
+    assert "data-bmq-goods-receipts-mobile-optimized" in page
+    assert "data-bmq-goods-receipts-mobile-card-list" in page
+    assert "data-bmq-goods-receipt-row-click-detail" in page
+    assert "onClick={() => handleViewDetails(receipt.id)}" in page
+    assert "Chạm vào thẻ để xem chi tiết" in page
+    assert "<Eye" not in page
 
     assert "Đối soát công nợ" in details
     assert "Mã PO" in details
@@ -225,6 +235,10 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "actual_quantity" in details
     assert "line_status" in details
     assert "Không chốt lại phiếu đã tạo công nợ" in details
+    assert "data-bmq-goods-receipt-detail-light-mobile" in details
+    assert "formatSafeDate" in details
+    assert "Không tải được chi tiết phiếu nhập" in details
+    assert "Đang tải chi tiết phiếu nhập" in details
 
 
 def test_finance_payables_ui_filters_and_labels_warehouse_generated_requests():

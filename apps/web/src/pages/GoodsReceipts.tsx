@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { format } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
-import { Package, Eye, Trash2, CheckCircle, Clock, FileCheck, AlertCircle, Link2, Loader2 } from "lucide-react";
+import { Package, Trash2, CheckCircle, Clock, FileCheck, AlertCircle, Link2, Loader2, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,11 +13,13 @@ import { useGoodsReceipts, useDeleteGoodsReceipt, useConfirmGoodsReceipt } from 
 import { useLanguage } from "@/contexts/LanguageContext";
 import { AddGoodsReceiptDialog } from "@/components/dialogs/AddGoodsReceiptDialog";
 import { GoodsReceiptDetailsDialog } from "@/components/dialogs/GoodsReceiptDetailsDialog";
+import { useSidebar } from "@/components/ui/sidebar";
 
 export default function GoodsReceipts() {
   const { language } = useLanguage();
   const locale = language === "vi" ? vi : enUS;
   const isVi = language === "vi";
+  const { setOpenMobile } = useSidebar();
   
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(null);
@@ -28,7 +30,6 @@ export default function GoodsReceipts() {
   const deleteReceipt = useDeleteGoodsReceipt();
   const confirmReceipt = useConfirmGoodsReceipt();
 
-  // Filter receipts
   const filteredReceipts = useMemo(() => {
     return receipts.filter((r) => {
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
@@ -36,7 +37,6 @@ export default function GoodsReceipts() {
     });
   }, [receipts, statusFilter]);
 
-  // Stats
   const stats = useMemo(() => {
     return {
       total: receipts.length,
@@ -60,7 +60,7 @@ export default function GoodsReceipts() {
       case "confirmed":
         return <Badge variant="default"><FileCheck className="h-3 w-3 mr-1" />{isVi ? "Đã xác nhận" : "Confirmed"}</Badge>;
       case "received":
-        return <Badge className="bg-green-500"><CheckCircle className="h-3 w-3 mr-1" />{isVi ? "Đã nhập kho" : "Received"}</Badge>;
+        return <Badge className="bg-emerald-600"><CheckCircle className="h-3 w-3 mr-1" />{isVi ? "Đã nhập kho" : "Received"}</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -107,54 +107,56 @@ export default function GoodsReceipts() {
     setDetailsOpen(true);
   };
 
+  const statusCards = [
+    { key: "all", label: isVi ? "Tổng phiếu" : "Total", value: stats.total, tone: "text-primary" },
+    { key: "draft", label: "Nháp", value: stats.draft, tone: "text-muted-foreground" },
+    { key: "confirmed", label: isVi ? "Đã xác nhận" : "Confirmed", value: stats.confirmed, tone: "text-primary" },
+    { key: "received", label: isVi ? "Đã nhập" : "Received", value: stats.received, tone: "text-emerald-600" },
+  ];
+
   return (
-    <div className="-m-4 min-h-screen bg-slate-50 p-4 text-slate-950 md:-m-6 md:p-6 dark:bg-[#1d1813] dark:text-[#f3ece4]">
-      <div className="space-y-4">
-        {/* Header */}
-        <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between dark:border-[#443b30] dark:bg-[#241f18]/90">
-          <div className="min-w-0">
-            <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-[#f3ece4]">
-              <Package className="h-6 w-6 text-amber-600" />
-              {isVi ? "Phiếu nhập kho" : "Goods Receipts"}
-            </h1>
-            <p className="text-sm text-slate-500 dark:text-[#a99b8c]">{isVi ? "Quản lý phiếu nhập kho nguyên vật liệu từ nhà cung cấp" : "Manage goods receipts from suppliers"}</p>
+    <div className="-m-4 min-h-screen bg-background text-foreground md:-m-6" data-bmq-goods-receipts-mobile-optimized>
+      <div className="space-y-4 p-4 pb-8 md:p-6">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="mb-2 flex items-center gap-2 md:hidden">
+                <Button type="button" variant="ghost" size="icon" className="-ml-2 h-8 w-8" onClick={() => setOpenMobile(true)} aria-label="Mở menu">
+                  <Menu className="h-5 w-5" />
+                </Button>
+                <span className="text-xs font-semibold uppercase tracking-wide text-primary">Kho hàng</span>
+              </div>
+              <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-foreground">
+                <Package className="h-6 w-6 text-primary" />
+                {isVi ? "Phiếu nhập kho" : "Goods Receipts"}
+              </h1>
+              <p className="mt-1 text-sm text-muted-foreground">{isVi ? "Quản lý nhập kho từ PO và tạo công nợ phải trả" : "Manage receipt from PO and payable creation"}</p>
+            </div>
+            <div className="shrink-0">
+              <AddGoodsReceiptDialog />
+            </div>
           </div>
-          <AddGoodsReceiptDialog />
         </div>
 
-        {/* Stats Cards */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Card className={`cursor-pointer border-slate-200 bg-white transition-shadow hover:shadow-md dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "all" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("all")}>
-            <CardHeader className="px-3 py-2">
-              <CardDescription>{isVi ? "Tổng phiếu" : "Total receipts"}</CardDescription>
-              <CardTitle className="text-2xl">{stats.total}</CardTitle>
-            </CardHeader>
-          </Card>
-          <Card className={`cursor-pointer border-slate-200 bg-white transition-shadow hover:shadow-md dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "draft" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("draft")}>
-            <CardHeader className="px-3 py-2">
-              <CardDescription>Nháp</CardDescription>
-              <CardTitle className="text-2xl">{stats.draft}</CardTitle>
-            </CardHeader>
-          </Card>
-          <Card className={`cursor-pointer border-slate-200 bg-white transition-shadow hover:shadow-md dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "confirmed" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("confirmed")}>
-            <CardHeader className="px-3 py-2">
-              <CardDescription>{isVi ? "Đã xác nhận" : "Confirmed"}</CardDescription>
-              <CardTitle className="text-2xl">{stats.confirmed}</CardTitle>
-            </CardHeader>
-          </Card>
-          <Card className={`cursor-pointer border-slate-200 bg-white transition-shadow hover:shadow-md dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "received" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("received")}>
-            <CardHeader className="px-3 py-2">
-              <CardDescription>{isVi ? "Đã nhập kho" : "Received"}</CardDescription>
-              <CardTitle className="text-2xl text-green-600">{stats.received}</CardTitle>
-            </CardHeader>
-          </Card>
+          {statusCards.map((card) => (
+            <Card
+              key={card.key}
+              className={`cursor-pointer border-border bg-card transition-shadow hover:shadow-card ${statusFilter === card.key ? "ring-2 ring-primary" : ""}`}
+              onClick={() => setStatusFilter(card.key)}
+            >
+              <CardHeader className="px-3 py-2">
+                <CardDescription>{card.label}</CardDescription>
+                <CardTitle className={`text-2xl ${card.tone}`}>{card.value}</CardTitle>
+              </CardHeader>
+            </Card>
+          ))}
         </div>
 
-        {/* Filters */}
-        <Card className="border-slate-200 bg-white dark:border-[#443b30] dark:bg-[#241f18]/90">
+        <Card className="border-border bg-card">
           <CardContent className="p-3">
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="h-9 w-full border-slate-200 bg-white text-sm sm:w-48 dark:border-[#443b30] dark:bg-[#1d1813]">
+              <SelectTrigger className="h-9 w-full border-border bg-background text-sm sm:w-48">
                 <SelectValue placeholder={isVi ? "Trạng thái" : "Status"} />
               </SelectTrigger>
               <SelectContent>
@@ -167,133 +169,253 @@ export default function GoodsReceipts() {
           </CardContent>
         </Card>
 
-        {/* Table */}
-        <Card className="overflow-hidden border-slate-200 bg-white dark:border-[#443b30] dark:bg-[#241f18]/90">
+        <div className="space-y-3 md:hidden" data-bmq-goods-receipts-mobile-card-list>
+          {isLoading ? (
+            <Card className="border-border bg-card p-6 text-center text-muted-foreground">
+              <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
+              {isVi ? "Đang tải phiếu nhập kho..." : "Loading goods receipts..."}
+            </Card>
+          ) : error ? (
+            <Card className="border-destructive/30 bg-card p-6 text-center text-destructive">
+              {isVi ? "Lỗi tải dữ liệu phiếu nhập kho. Vui lòng thử lại." : "Failed to load goods receipts. Please try again."}
+            </Card>
+          ) : filteredReceipts.length === 0 ? (
+            <Card className="border-dashed border-border bg-card p-6 text-center text-muted-foreground">
+              <Package className="mx-auto mb-2 h-10 w-10 opacity-60" />
+              {isVi ? "Chưa có phiếu nhập kho nào" : "No goods receipts yet"}
+            </Card>
+          ) : (
+            filteredReceipts.map((receipt) => (
+              <Card
+                key={receipt.id}
+                role="button"
+                tabIndex={0}
+                data-bmq-goods-receipt-row-click-detail
+                className="cursor-pointer border-border bg-card shadow-card transition active:scale-[0.99]"
+                onClick={() => handleViewDetails(receipt.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    handleViewDetails(receipt.id);
+                  }
+                }}
+              >
+                <CardContent className="space-y-3 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-mono text-sm font-semibold text-primary">{receipt.receipt_number}</p>
+                      <p className="mt-1 truncate text-sm font-medium text-foreground">{receipt.suppliers?.name || "Chưa có NCC"}</p>
+                      <p className="text-xs text-muted-foreground">Chạm vào thẻ để xem chi tiết</p>
+                    </div>
+                    <div className="shrink-0">{getStatusBadge(receipt.status)}</div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 rounded-xl border border-border bg-background/70 p-3 text-xs">
+                    <div>
+                      <p className="text-muted-foreground">Ngày nhận</p>
+                      <p className="font-semibold">{formatReceiptDate(receipt.receipt_date)}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Số lượng</p>
+                      <p className="font-semibold">{receipt.total_quantity?.toLocaleString("vi-VN") || 0}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">PO</p>
+                      <p className="truncate font-mono font-semibold">{receipt.purchase_orders?.po_number || "-"}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Công nợ</p>
+                      <p className="truncate font-mono font-semibold">{receipt.payment_requests?.request_number || "-"}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {getPayableBadge(receipt)}
+                    {receipt.status === "confirmed" && receipt.payable_status !== "generated" && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="btn-gradient ml-auto h-8 text-xs"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleConfirmReceipt(receipt.id);
+                        }}
+                        disabled={confirmReceipt.isPending}
+                      >
+                        <CheckCircle className="mr-1 h-3.5 w-3.5" />
+                        {getReceiptActionLabel(receipt)}
+                      </Button>
+                    )}
+                    {receipt.status !== "received" && (
+                      <AlertDialog open={deleteId === receipt.id} onOpenChange={(open) => !open && setDeleteId(null)}>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setDeleteId(receipt.id);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>{isVi ? "Xóa phiếu nhập kho?" : "Delete goods receipt?"}</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              {isVi ? `Bạn có chắc chắn muốn xóa phiếu nhập kho ${receipt.receipt_number}? Hành động này không thể hoàn tác.` : `Are you sure you want to delete goods receipt ${receipt.receipt_number}? This action cannot be undone.`}
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>{isVi ? "Hủy" : "Cancel"}</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleDelete}>{isVi ? "Xóa" : "Delete"}</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </div>
+
+        <Card className="hidden overflow-hidden border-border bg-card md:block">
           <CardContent className="p-0">
             <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{isVi ? "Mã phiếu" : "Receipt #"}</TableHead>
-                <TableHead>{isVi ? "Nhà cung cấp" : "Supplier"}</TableHead>
-                <TableHead>{isVi ? "Ngày nhận" : "Receipt date"}</TableHead>
-                <TableHead>{isVi ? "Số lượng" : "Quantity"}</TableHead>
-                <TableHead>{isVi ? "Trạng thái" : "Status"}</TableHead>
-                <TableHead>{isVi ? "PO / Công nợ" : "PO / Payable"}</TableHead>
-                <TableHead>{isVi ? "Thao tác" : "Actions"}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="py-10 text-center">
-                    <div className="flex items-center justify-center gap-2 text-slate-500 dark:text-[#a99b8c]">
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                      {isVi ? "Đang tải phiếu nhập kho..." : "Loading goods receipts..."}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : error ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="py-10 text-center text-destructive">
-                    {isVi ? "Lỗi tải dữ liệu phiếu nhập kho. Vui lòng thử lại." : "Failed to load goods receipts. Please try again."}
-                  </TableCell>
-                </TableRow>
-              ) : filteredReceipts.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8">
-                    <Package className="h-12 w-12 mx-auto text-muted-foreground mb-2" />
-                    <p className="text-muted-foreground">{isVi ? "Chưa có phiếu nhập kho nào" : "No goods receipts yet"}</p>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                filteredReceipts.map((receipt) => (
-                  <TableRow key={receipt.id}>
-                    <TableCell className="font-mono font-medium">{receipt.receipt_number}</TableCell>
-                    <TableCell>{receipt.suppliers?.name || "-"}</TableCell>
-                    <TableCell>{formatReceiptDate(receipt.receipt_date)}</TableCell>
-                    <TableCell>{receipt.total_quantity?.toLocaleString("vi-VN") || 0}</TableCell>
-                    <TableCell>{getStatusBadge(receipt.status)}</TableCell>
-                    <TableCell>
-                      <div className="space-y-1 text-xs">
-                        <div className="flex items-center gap-1 text-muted-foreground">
-                          <Link2 className="h-3 w-3" />
-                          <span>PO: {receipt.purchase_orders?.po_number || "-"}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          {getPayableBadge(receipt)}
-                        </div>
-                        {receipt.payment_requests?.request_number && (
-                          <div className="font-mono text-muted-foreground">
-                            {receipt.payment_requests.request_number}
-                          </div>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleViewDetails(receipt.id)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-
-                        {receipt.status === "confirmed" && receipt.payable_status !== "generated" && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleConfirmReceipt(receipt.id)}
-                            disabled={confirmReceipt.isPending}
-                          >
-                            <CheckCircle className="h-4 w-4 mr-1" />
-                            {getReceiptActionLabel(receipt)}
-                          </Button>
-                        )}
-
-                        {receipt.status !== "received" && (
-                          <AlertDialog open={deleteId === receipt.id} onOpenChange={(open) => !open && setDeleteId(null)}>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => setDeleteId(receipt.id)}
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>{isVi ? "Xóa phiếu nhập kho?" : "Delete goods receipt?"}</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  {isVi ? `Bạn có chắc chắn muốn xóa phiếu nhập kho ${receipt.receipt_number}? Hành động này không thể hoàn tác.` : `Are you sure you want to delete goods receipt ${receipt.receipt_number}? This action cannot be undone.`}
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>{isVi ? "Hủy" : "Cancel"}</AlertDialogCancel>
-                                <AlertDialogAction onClick={handleDelete}>{isVi ? "Xóa" : "Delete"}</AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        )}
-                      </div>
-                    </TableCell>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{isVi ? "Mã phiếu" : "Receipt #"}</TableHead>
+                    <TableHead>{isVi ? "Nhà cung cấp" : "Supplier"}</TableHead>
+                    <TableHead>{isVi ? "Ngày nhận" : "Receipt date"}</TableHead>
+                    <TableHead>{isVi ? "Số lượng" : "Quantity"}</TableHead>
+                    <TableHead>{isVi ? "Trạng thái" : "Status"}</TableHead>
+                    <TableHead>{isVi ? "PO / Công nợ" : "PO / Payable"}</TableHead>
+                    <TableHead>{isVi ? "Thao tác" : "Actions"}</TableHead>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                </TableHeader>
+                <TableBody>
+                  {isLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="py-10 text-center">
+                        <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                          {isVi ? "Đang tải phiếu nhập kho..." : "Loading goods receipts..."}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : error ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="py-10 text-center text-destructive">
+                        {isVi ? "Lỗi tải dữ liệu phiếu nhập kho. Vui lòng thử lại." : "Failed to load goods receipts. Please try again."}
+                      </TableCell>
+                    </TableRow>
+                  ) : filteredReceipts.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="py-8 text-center">
+                        <Package className="mx-auto mb-2 h-12 w-12 text-muted-foreground" />
+                        <p className="text-muted-foreground">{isVi ? "Chưa có phiếu nhập kho nào" : "No goods receipts yet"}</p>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredReceipts.map((receipt) => (
+                      <TableRow
+                        key={receipt.id}
+                        role="button"
+                        tabIndex={0}
+                        data-bmq-goods-receipt-row-click-detail
+                        className="cursor-pointer hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        onClick={() => handleViewDetails(receipt.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            handleViewDetails(receipt.id);
+                          }
+                        }}
+                      >
+                        <TableCell className="font-mono font-medium">{receipt.receipt_number}</TableCell>
+                        <TableCell>{receipt.suppliers?.name || "-"}</TableCell>
+                        <TableCell>{formatReceiptDate(receipt.receipt_date)}</TableCell>
+                        <TableCell>{receipt.total_quantity?.toLocaleString("vi-VN") || 0}</TableCell>
+                        <TableCell>{getStatusBadge(receipt.status)}</TableCell>
+                        <TableCell>
+                          <div className="space-y-1 text-xs">
+                            <div className="flex items-center gap-1 text-muted-foreground">
+                              <Link2 className="h-3 w-3" />
+                              <span>PO: {receipt.purchase_orders?.po_number || "-"}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              {getPayableBadge(receipt)}
+                            </div>
+                            {receipt.payment_requests?.request_number && (
+                              <div className="font-mono text-muted-foreground">
+                                {receipt.payment_requests.request_number}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+                            {receipt.status === "confirmed" && receipt.payable_status !== "generated" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleConfirmReceipt(receipt.id)}
+                                disabled={confirmReceipt.isPending}
+                              >
+                                <CheckCircle className="h-4 w-4 mr-1" />
+                                {getReceiptActionLabel(receipt)}
+                              </Button>
+                            )}
+
+                            {receipt.status !== "received" && (
+                              <AlertDialog open={deleteId === receipt.id} onOpenChange={(open) => !open && setDeleteId(null)}>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setDeleteId(receipt.id)}
+                                  >
+                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>{isVi ? "Xóa phiếu nhập kho?" : "Delete goods receipt?"}</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      {isVi ? `Bạn có chắc chắn muốn xóa phiếu nhập kho ${receipt.receipt_number}? Hành động này không thể hoàn tác.` : `Are you sure you want to delete goods receipt ${receipt.receipt_number}? This action cannot be undone.`}
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>{isVi ? "Hủy" : "Cancel"}</AlertDialogCancel>
+                                    <AlertDialogAction onClick={handleDelete}>{isVi ? "Xóa" : "Delete"}</AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
             </div>
           </CardContent>
         </Card>
 
-      {/* Details Dialog */}
-      <GoodsReceiptDetailsDialog
-        receiptId={selectedReceiptId}
-        open={detailsOpen}
-        onOpenChange={setDetailsOpen}
-      />
+        <GoodsReceiptDetailsDialog
+          receiptId={selectedReceiptId}
+          open={detailsOpen}
+          onOpenChange={(open) => {
+            setDetailsOpen(open);
+            if (!open) setSelectedReceiptId(null);
+          }}
+        />
       </div>
     </div>
   );

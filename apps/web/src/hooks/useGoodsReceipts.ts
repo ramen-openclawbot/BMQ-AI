@@ -61,13 +61,30 @@ export function useGoodsReceipt(id: string | null) {
     queryKey: ["goods-receipt", id],
     queryFn: async () => {
       if (!id) throw new Error("No ID provided");
-      const { data, error } = await supabase
+      const relationQuery = await supabase
         .from("goods_receipts")
         .select("*, suppliers(id, name), purchase_orders(id, po_number, status), payment_requests(id, request_number, status, total_amount, payment_status)")
         .eq("id", id)
         .single();
+
+      if (!relationQuery.error) {
+        return relationQuery.data as GoodsReceipt;
+      }
+
+      console.warn("Falling back to base goods_receipt detail query", relationQuery.error);
+
+      const { data, error } = await supabase
+        .from("goods_receipts")
+        .select("*")
+        .eq("id", id)
+        .single();
       if (error) throw error;
-      return data as GoodsReceipt;
+      return {
+        ...data,
+        suppliers: null,
+        purchase_orders: null,
+        payment_requests: null,
+      } as GoodsReceipt;
     },
     enabled: !!id,
     staleTime: 30000,
@@ -80,13 +97,30 @@ export function useGoodsReceiptItems(receiptId: string | null) {
     queryKey: ["goods-receipt-items", receiptId],
     queryFn: async () => {
       if (!receiptId) throw new Error("No receipt ID provided");
-      const { data, error } = await supabase
+      const relationQuery = await supabase
         .from("goods_receipt_items")
         .select("*, product_skus(id, sku_code, product_name), inventory_items(id, name, quantity), purchase_order_items(id, product_name, quantity, unit_price)")
         .eq("goods_receipt_id", receiptId)
         .order("created_at", { ascending: true });
+
+      if (!relationQuery.error) {
+        return relationQuery.data as GoodsReceiptItem[];
+      }
+
+      console.warn("Falling back to base goods_receipt_items query", relationQuery.error);
+
+      const { data, error } = await supabase
+        .from("goods_receipt_items")
+        .select("*")
+        .eq("goods_receipt_id", receiptId)
+        .order("created_at", { ascending: true });
       if (error) throw error;
-      return data as GoodsReceiptItem[];
+      return (data || []).map((item) => ({
+        ...item,
+        product_skus: null,
+        inventory_items: null,
+        purchase_order_items: null,
+      })) as GoodsReceiptItem[];
     },
     enabled: !!receiptId,
     staleTime: 30000,
