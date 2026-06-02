@@ -122,6 +122,16 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function ModuleRoute({ moduleKey, children }: { moduleKey: string; children: React.ReactNode }) {
   const { user, loading, authzLoaded, canAccessModule } = useAuth();
+  const moduleLabels: Record<string, string> = {
+    suppliers: "Nhà cung cấp",
+    purchase_orders: "PO (Mua hàng)",
+    payment_requests: "Duyệt chi / Công nợ phải trả",
+    finance_cost: "Kiểm soát chi phí",
+    finance_revenue: "Doanh thu",
+    goods_receipts: "Phiếu nhập kho",
+    inventory: "Kho",
+  };
+  const moduleLabel = moduleLabels[moduleKey] || moduleKey;
 
   if (loading || (user && !authzLoaded)) {
     return <AppLoadingFallback />;
@@ -134,7 +144,7 @@ function ModuleRoute({ moduleKey, children }: { moduleKey: string; children: Rea
           <AlertTriangle className="mx-auto h-10 w-10 text-amber-500" />
           <h1 className="mt-3 text-xl font-semibold">Không có quyền truy cập</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Trang này yêu cầu quyền xem module {moduleKey} trong Quản lý người dùng.
+            Trang này yêu cầu quyền xem module {moduleLabel} trong Quản lý người dùng.
           </p>
         </div>
       </div>
@@ -193,7 +203,7 @@ export function AppRoutes() {
         <Route path="/" element={<Index />} />
         <Route path="/inventory" element={<Inventory />} />
         <Route path="/kitchen-inventory" element={<KitchenInventory />} />
-        <Route path="/suppliers" element={<Suppliers />} />
+        <Route path="/suppliers" element={<ModuleRoute moduleKey="suppliers"><Suppliers /></ModuleRoute>} />
         <Route path="/invoices" element={<Invoices />} />
         <Route path="/payment-requests" element={<PaymentRequests />} />
         <Route path="/goods-receipts" element={<GoodsReceipts />} />

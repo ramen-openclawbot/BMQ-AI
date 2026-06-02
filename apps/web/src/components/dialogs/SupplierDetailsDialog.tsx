@@ -15,7 +15,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { SupplierAliasManager } from "@/components/settings/SupplierAliasManager";
 import { useAuth } from "@/contexts/AuthContext";
 
-const categories = ["Flour", "Sugar", "Dairy", "Chocolate", "Nuts", "Yeast", "Eggs", "Packaging", "General"];
+const categories = ["Bột", "Đường", "Sữa", "Chocolate", "Hạt", "Men", "Trứng", "Bao bì", "Tổng hợp"];
 
 interface SupplierDetailsDialogProps {
   supplier: Supplier | null;
@@ -47,7 +47,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
       setDescription(supplier.description || "");
       setPhone(supplier.phone || "");
       setEmail(supplier.email || "");
-      setBankAccountName((supplier as any).bank_account_name || "");
+      setBankAccountName(supplier.bank_account_name || "");
       setDefaultPaymentMethod(supplier.default_payment_method || "bank_transfer");
       setPaymentTermsDays(supplier.payment_terms_days || 0);
       setContractUrl(supplier.contract_url || null);
@@ -65,7 +65,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
         setDescription(supplier.description || "");
         setPhone(supplier.phone || "");
         setEmail(supplier.email || "");
-        setBankAccountName((supplier as any).bank_account_name || "");
+        setBankAccountName(supplier.bank_account_name || "");
         setDefaultPaymentMethod(supplier.default_payment_method || "bank_transfer");
         setPaymentTermsDays(supplier.payment_terms_days || 0);
         setContractUrl(supplier.contract_url || null);
@@ -123,8 +123,8 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
       setContractUrl(newContractUrl);
       setContractFile(null);
       setIsEditing(false);
-    } catch (error: any) {
-      console.error("Error updating supplier:", error.message);
+    } catch (error: unknown) {
+      console.error("Error updating supplier:", error instanceof Error ? error.message : error);
     } finally {
       setLoading(false);
     }
@@ -136,7 +136,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
     setDescription(supplier.description || "");
     setPhone(supplier.phone || "");
     setEmail(supplier.email || "");
-    setBankAccountName((supplier as any).bank_account_name || "");
+    setBankAccountName(supplier.bank_account_name || "");
     setDefaultPaymentMethod(supplier.default_payment_method || "bank_transfer");
     setPaymentTermsDays(supplier.payment_terms_days || 0);
     setContractUrl(supplier.contract_url || null);
@@ -146,7 +146,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
 
   const handleDelete = async () => {
     if (!isOwner) return;
-    const confirmed = window.confirm(`Xóa nhà cung cấp \"${supplier.name}\"? Hành động này không thể hoàn tác.`);
+    const confirmed = window.confirm(`Xóa nhà cung cấp "${supplier.name}"? Hành động này không thể hoàn tác.`);
     if (!confirmed) return;
 
     setLoading(true);
@@ -160,9 +160,10 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
 
       queryClient.invalidateQueries({ queryKey: ["suppliers"] });
       onOpenChange(false);
-    } catch (error: any) {
-      console.error("Error deleting supplier:", error.message);
-      alert(error?.message || "Không thể xóa nhà cung cấp");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Không thể xóa nhà cung cấp";
+      console.error("Error deleting supplier:", message);
+      alert(message);
     } finally {
       setLoading(false);
     }
@@ -179,7 +180,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
               </span>
             </div>
             <div>
-              <span className="block">{isEditing ? "Edit Supplier" : supplier.name}</span>
+              <span className="block">{isEditing ? "Sửa nhà cung cấp" : supplier.name}</span>
               {!isEditing && <Badge variant="secondary" className="mt-1">{supplier.category}</Badge>}
             </div>
           </DialogTitle>
@@ -190,22 +191,22 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
             <>
               {/* Name */}
               <div className="space-y-2">
-                <Label htmlFor="edit-name">Supplier Name</Label>
+                <Label htmlFor="edit-name">Tên nhà cung cấp</Label>
                 <Input
                   id="edit-name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g., Premium Flour Co."
+                  placeholder="VD: Công ty Bột mì ABC"
                   required
                 />
               </div>
 
               {/* Category */}
               <div className="space-y-2">
-                <Label htmlFor="edit-category">Category</Label>
+                <Label htmlFor="edit-category">Nhóm NCC</Label>
                 <Select value={category} onValueChange={setCategory}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select category" />
+                    <SelectValue placeholder="Chọn nhóm" />
                   </SelectTrigger>
                   <SelectContent>
                     {categories.map((cat) => (
@@ -217,25 +218,25 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
 
               {/* Description */}
               <div className="space-y-2">
-                <Label htmlFor="edit-description">Description</Label>
+                <Label htmlFor="edit-description">Mô tả</Label>
                 <Textarea
                   id="edit-description"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="e.g., Main flour supplier for all bread products..."
+                  placeholder="VD: NCC bột chính cho sản xuất bánh mì..."
                   rows={3}
                 />
               </div>
 
               {/* Phone */}
               <div className="space-y-2">
-                <Label htmlFor="edit-phone">Phone</Label>
+                <Label htmlFor="edit-phone">Số điện thoại</Label>
                 <Input
                   id="edit-phone"
                   type="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  placeholder="+1 234 567 8900"
+                  placeholder="VD: 0901234567"
                 />
               </div>
 
@@ -357,19 +358,19 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
                 <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
                   <FileText className="h-5 w-5 text-primary mt-0.5" />
                   <div className="flex-1">
-                    <p className="text-sm text-muted-foreground">Description</p>
+                    <p className="text-sm text-muted-foreground">Mô tả</p>
                     <p className="font-medium">{supplier.description}</p>
                   </div>
                 </div>
               )}
 
               {/* Bank Account Name Display */}
-              {(supplier as any).bank_account_name && (
+              {supplier.bank_account_name && (
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
                   <CreditCard className="h-5 w-5 text-primary" />
                   <div>
                     <p className="text-sm text-muted-foreground">Tên tài khoản NH</p>
-                    <p className="font-medium">{(supplier as any).bank_account_name}</p>
+                    <p className="font-medium">{supplier.bank_account_name}</p>
                   </div>
                 </div>
               )}
@@ -424,7 +425,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
                   <Phone className="h-5 w-5 text-primary" />
                   <div className="flex-1">
-                    <p className="text-sm text-muted-foreground">Phone</p>
+                    <p className="text-sm text-muted-foreground">Số điện thoại</p>
                     <a href={`tel:${supplier.phone}`} className="font-medium text-primary hover:underline">
                       {supplier.phone}
                     </a>
@@ -449,14 +450,14 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
               <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
                 <Package className="h-5 w-5 text-primary" />
                 <div>
-                  <p className="text-sm text-muted-foreground">Payment Requests</p>
-                  <p className="font-medium">{supplier.order_count} requests</p>
+                  <p className="text-sm text-muted-foreground">Đề nghị thanh toán</p>
+                  <p className="font-medium">{supplier.order_count || 0} đề nghị</p>
                 </div>
               </div>
 
               {!supplier.phone && !supplier.email && !supplier.contract_url && (
                 <p className="text-sm text-muted-foreground text-center py-2">
-                  No contact information available
+                  Chưa có thông tin liên hệ
                 </p>
               )}
             </>
@@ -468,23 +469,23 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
               <>
                 <Button onClick={handleSave} disabled={loading} className="flex-1">
                   <Save className="h-4 w-4 mr-2" />
-                  {loading ? "Saving..." : "Save"}
+                  {loading ? "Đang lưu..." : "Lưu"}
                 </Button>
                 <Button variant="outline" onClick={handleCancel} disabled={loading}>
                   <X className="h-4 w-4 mr-2" />
-                  Cancel
+                  Hủy
                 </Button>
               </>
             ) : (
               <>
                 <Button variant="outline" onClick={() => setIsEditing(true)} className={isOwner ? "flex-1" : "w-full"}>
                   <Pencil className="h-4 w-4 mr-2" />
-                  Edit Supplier
+                  Sửa NCC
                 </Button>
                 {isOwner && (
                   <Button variant="destructive" onClick={handleDelete} disabled={loading}>
                     <Trash2 className="h-4 w-4 mr-2" />
-                    Delete
+                    Xóa
                   </Button>
                 )}
               </>

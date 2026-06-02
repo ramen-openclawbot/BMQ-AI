@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Plus, CreditCard, Banknote, FileUp, X } from "lucide-react";
+import { Plus, CreditCard, Banknote, FileUp, X, type LucideIcon } from "lucide-react";
 import { db } from "@/lib/supabase-helpers";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -16,7 +16,7 @@ import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Label } from "@/components/ui/label";
 
-const categories = ["Flour", "Sugar", "Dairy", "Chocolate", "Nuts", "Yeast", "Eggs", "Packaging", "General"];
+const categories = ["Bột", "Đường", "Sữa", "Chocolate", "Hạt", "Men", "Trứng", "Bao bì", "Tổng hợp"];
 
 // Helper to generate short code from name - exported for reuse
 export function generateShortCode(name: string): string {
@@ -35,20 +35,24 @@ export function generateShortCode(name: string): string {
 }
 
 const supplierSchema = z.object({
-  name: z.string().min(1, "Supplier name is required").max(255, "Name is too long"),
-  short_code: z.string().max(10, "Short code max 10 characters").optional(),
+  name: z.string().min(1, "Vui lòng nhập tên nhà cung cấp").max(255, "Tên quá dài"),
+  short_code: z.string().max(10, "Mã ngắn tối đa 10 ký tự").optional(),
   category: z.string().optional(),
-  description: z.string().max(1000, "Description is too long").optional(),
-  phone: z.string().max(20, "Phone number is too long").optional(),
-  email: z.string().email("Invalid email address").optional().or(z.literal("")),
-  bank_account_name: z.string().max(255, "Bank account name is too long").optional(),
+  description: z.string().max(1000, "Mô tả quá dài").optional(),
+  phone: z.string().max(20, "Số điện thoại quá dài").optional(),
+  email: z.string().email("Email không hợp lệ").optional().or(z.literal("")),
+  bank_account_name: z.string().max(255, "Tên tài khoản quá dài").optional(),
   default_payment_method: z.enum(["bank_transfer", "cash"]),
-  payment_terms_days: z.coerce.number().min(0, "Cannot be negative").max(365, "Max 365 days"),
+  payment_terms_days: z.coerce.number().min(0, "Không được âm").max(365, "Tối đa 365 ngày"),
 });
 
 type SupplierFormData = z.infer<typeof supplierSchema>;
 
-export function AddSupplierDialog() {
+interface AddSupplierDialogProps {
+  compactIcon?: LucideIcon;
+}
+
+export function AddSupplierDialog({ compactIcon: Icon = Plus }: AddSupplierDialogProps = {}) {
   const [open, setOpen] = useState(false);
   const [contractFile, setContractFile] = useState<File | null>(null);
   const { user } = useAuth();
@@ -121,35 +125,35 @@ export function AddSupplierDialog() {
       setOpen(false);
       form.reset();
       setContractFile(null);
-    } catch (error: any) {
-      console.error("Error adding supplier:", error.message);
+    } catch (error: unknown) {
+      console.error("Error adding supplier:", error instanceof Error ? error.message : error);
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button className="btn-gradient px-4 py-2 rounded-lg font-medium flex items-center gap-2">
-          <Plus className="h-4 w-4" />
-          Add Supplier
+        <button className="btn-gradient flex h-10 items-center justify-center gap-1.5 rounded-xl px-2 text-xs font-semibold sm:gap-2 sm:px-4 sm:text-sm">
+          <Icon className="h-4 w-4" />
+          Thêm NCC
         </button>
       </DialogTrigger>
-      <DialogContent className="max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Add Supplier</DialogTitle>
+          <DialogTitle>Thêm nhà cung cấp</DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-            <div className="grid grid-cols-3 gap-4">
-              <div className="col-span-2">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="sm:col-span-2">
                 <FormField
                   control={form.control}
                   name="name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Supplier Name</FormLabel>
+                      <FormLabel>Tên nhà cung cấp</FormLabel>
                       <FormControl>
-                        <Input {...field} placeholder="e.g., Premium Flour Co." />
+                        <Input {...field} placeholder="VD: Công ty Bột mì ABC" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -161,11 +165,11 @@ export function AddSupplierDialog() {
                 name="short_code"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Short Code</FormLabel>
+                    <FormLabel>Mã ngắn</FormLabel>
                     <FormControl>
                       <Input 
                         {...field} 
-                        placeholder="e.g., PFC" 
+                        placeholder="VD: BMAC"
                         maxLength={10}
                         className="font-mono uppercase"
                         onChange={(e) => field.onChange(e.target.value.toUpperCase())}
@@ -181,11 +185,11 @@ export function AddSupplierDialog() {
               name="category"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Category</FormLabel>
+                  <FormLabel>Nhóm NCC</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select category" />
+                        <SelectValue placeholder="Chọn nhóm" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -203,11 +207,11 @@ export function AddSupplierDialog() {
               name="description"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Description</FormLabel>
+                  <FormLabel>Mô tả</FormLabel>
                   <FormControl>
                     <Textarea
                       {...field}
-                      placeholder="e.g., Main flour supplier for all bread products..."
+                      placeholder="VD: NCC bột chính cho sản xuất bánh mì..."
                       rows={3}
                     />
                   </FormControl>
@@ -220,9 +224,9 @@ export function AddSupplierDialog() {
               name="phone"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Phone</FormLabel>
+                  <FormLabel>Số điện thoại</FormLabel>
                   <FormControl>
-                    <Input {...field} type="tel" placeholder="+1 234 567 8900" />
+                    <Input {...field} type="tel" placeholder="VD: 0901234567" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -271,7 +275,7 @@ export function AddSupplierDialog() {
                     <RadioGroup
                       value={field.value}
                       onValueChange={field.onChange}
-                      className="flex gap-4"
+                      className="grid gap-3 sm:grid-cols-2"
                     >
                       <div className="flex items-center space-x-2 p-3 border rounded-lg flex-1 cursor-pointer hover:bg-muted/50">
                         <RadioGroupItem value="bank_transfer" id="pm_unc" />
@@ -339,7 +343,7 @@ export function AddSupplierDialog() {
             </div>
 
             <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
-              {form.formState.isSubmitting ? "Adding..." : "Add Supplier"}
+              {form.formState.isSubmitting ? "Đang thêm..." : "Thêm nhà cung cấp"}
             </Button>
           </form>
         </Form>
