@@ -466,6 +466,8 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert "bg-slate-100 dark:bg-[#2b241c]" in page
     assert "{isVi ? \"Ngày dự kiến\" : \"Expected\"}" in page
     assert "formatOptionalDate(order.expected_date)" in page
+    assert "formatOptionalDate(order.order_date)" in page
+    assert 'format(new Date(order.order_date)' not in page
     assert "const PAGE_SIZE = 20;" in page
     assert "const [currentPage, setCurrentPage] = useState(1);" in page
     assert "const paginatedOrders = filteredOrders.slice(pageStartIndex, pageStartIndex + PAGE_SIZE);" in page
@@ -519,6 +521,13 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert "Tạo PO (Mua hàng)" in add_dialog
     assert "Tạo đơn đặt hàng</Button>" not in add_dialog
     assert "data-stitch-mobile-po-approve-detail" in detail_dialog
+    assert "const formatSafeDate" in detail_dialog
+    assert "formatSafeDate(order.order_date)" in detail_dialog
+    assert "formatSafeDate(order.expected_date, \"Chưa xác định\")" in detail_dialog
+    assert "formatSafeDate(gr.receipt_date)" in detail_dialog
+    assert 'format(new Date(order.order_date)' not in detail_dialog
+    assert 'format(new Date(order.expected_date)' not in detail_dialog
+    assert 'format(new Date(gr.receipt_date)' not in detail_dialog
     assert "Duyệt PO" in detail_dialog
     assert "Chi tiết sản phẩm" in detail_dialog
     assert "Checklist duyệt" in detail_dialog

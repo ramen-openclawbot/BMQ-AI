@@ -13,6 +13,7 @@ import {
   Pencil,
   ArrowLeft,
   MoreVertical,
+  Clock,
 } from "lucide-react";
 import { ImagePreviewDialog } from "./ImagePreviewDialog";
 import { Button } from "@/components/ui/button";
@@ -128,6 +129,13 @@ export function PurchaseOrderDetailsDialog({
       style: "currency",
       currency: "VND",
     }).format(amount);
+  };
+
+  const formatSafeDate = (date: string | null | undefined, fallback = "—") => {
+    if (!date) return fallback;
+    const parsedDate = new Date(date);
+    if (Number.isNaN(parsedDate.getTime())) return fallback;
+    return format(parsedDate, "dd/MM/yyyy", { locale });
   };
 
   const getStatusBadge = (status: string) => {
@@ -248,7 +256,7 @@ export function PurchaseOrderDetailsDialog({
                       </div>
                       <div className="text-right">
                         <p className="mb-1 text-xs text-[#a99b8c]">Ngày đặt</p>
-                        <p className="text-sm font-medium text-[#f3ece4]">{format(new Date(order.order_date), "dd/MM/yyyy", { locale })}</p>
+                        <p className="text-sm font-medium text-[#f3ece4]">{formatSafeDate(order.order_date)}</p>
                       </div>
                     </div>
                     <div className="flex items-center justify-between border-t border-[#443b30] pt-3 text-sm">
@@ -279,7 +287,7 @@ export function PurchaseOrderDetailsDialog({
                   <section className="space-y-4 rounded-xl border border-[#443b30] bg-[#241f18] p-4 shadow-sm">
                     <div className="flex items-center justify-between text-sm">
                       <span className="flex items-center gap-2 text-[#a99b8c]"><Clock className="h-4 w-4" />Giao dự kiến</span>
-                      <span className="font-medium text-[#f3ece4]">{order.expected_date ? format(new Date(order.expected_date), "dd/MM/yyyy", { locale }) : "Chưa xác định"}</span>
+                      <span className="font-medium text-[#f3ece4]">{formatSafeDate(order.expected_date, "Chưa xác định")}</span>
                     </div>
                     <div className="flex items-center justify-between border-t border-[#443b30] pt-4 text-sm">
                       <span className="flex items-center gap-2 text-[#a99b8c]"><Package className="h-4 w-4" />Trạng thái</span>
@@ -349,15 +357,13 @@ export function PurchaseOrderDetailsDialog({
                 <div>
                   <p className="text-sm text-muted-foreground">Ngày đặt</p>
                   <p className="font-medium">
-                    {format(new Date(order.order_date), "dd/MM/yyyy", { locale })}
+                    {formatSafeDate(order.order_date)}
                   </p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Ngày giao dự kiến</p>
                   <p className="font-medium">
-                    {order.expected_date
-                      ? format(new Date(order.expected_date), "dd/MM/yyyy", { locale })
-                      : "Chưa xác định"}
+                    {formatSafeDate(order.expected_date, "Chưa xác định")}
                   </p>
                 </div>
               </div>
@@ -589,7 +595,7 @@ export function PurchaseOrderDetailsDialog({
                 <SelectItem value="_none">Không liên kết</SelectItem>
                 {availableReceipts?.map((gr) => (
                   <SelectItem key={gr.id} value={gr.id}>
-                    {gr.receipt_number} - {format(new Date(gr.receipt_date), "dd/MM/yyyy")}
+                    {gr.receipt_number} - {formatSafeDate(gr.receipt_date)}
                   </SelectItem>
                 ))}
               </SelectContent>

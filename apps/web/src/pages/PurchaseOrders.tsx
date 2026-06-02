@@ -448,7 +448,7 @@ export default function PurchaseOrders() {
                       <div className="mb-1 truncate text-xs font-medium text-slate-700">{order.suppliers?.name || (order.supplier_id ? supplierMap.get(order.supplier_id) : undefined) || "N/A"}</div>
                       <div className="mb-2 truncate text-[11px] text-slate-500">{getOrderProductNames(order)}</div>
                       <div className="flex items-end justify-between border-t border-slate-100 pt-2">
-                        <span className="text-[10px] text-slate-500">{format(new Date(order.order_date), "dd/MM/yyyy", { locale })}</span>
+                        <span className="text-[10px] text-slate-500">{formatOptionalDate(order.order_date)}</span>
                         <span className={`text-sm font-bold ${order.status === "cancelled" ? "text-slate-400 line-through" : "text-amber-700"}`}>{formatCurrency(order.total_amount || 0)}</span>
                       </div>
                     </div>
@@ -629,7 +629,7 @@ export default function PurchaseOrders() {
                         <TableCell className="py-2 font-semibold text-slate-950 dark:text-[#f3ece4]">{order.po_number}</TableCell>
                         <TableCell className="max-w-[180px] py-2 text-slate-700 dark:text-[#e8ded2]">{order.suppliers?.name || (order.supplier_id ? supplierMap.get(order.supplier_id) : undefined) || (isVi ? "N/A" : "N/A")}</TableCell>
                         <TableCell className="max-w-[260px] truncate py-2 text-slate-500 dark:text-[#a99b8c]" title={getOrderProductNames(order)}>{getOrderProductNames(order)}</TableCell>
-                        <TableCell className="whitespace-nowrap py-2 text-slate-600 dark:text-[#d6c8b8]">{format(new Date(order.order_date), "dd/MM/yyyy", { locale })}</TableCell>
+                        <TableCell className="whitespace-nowrap py-2 text-slate-600 dark:text-[#d6c8b8]">{formatOptionalDate(order.order_date)}</TableCell>
                         <TableCell className="whitespace-nowrap py-2 text-slate-600 dark:text-[#d6c8b8]">{formatOptionalDate(order.expected_date)}</TableCell>
                         <TableCell className="whitespace-nowrap py-2 text-right font-semibold text-slate-950 dark:text-[#f3ece4]">{formatCurrency(order.total_amount || 0)}</TableCell>
                         <TableCell className="py-2">{getStatusBadge(order.status)}</TableCell>
