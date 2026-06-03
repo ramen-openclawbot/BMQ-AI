@@ -12,9 +12,18 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SkuCostMenuBar } from "@/components/sku-costs/SkuCostMenuBar";
 import { useDjangoProducts } from "@/hooks/useDjangoProducts";
 
 const API_BASE = import.meta.env.VITE_DJANGO_API_BASE || "/api";
+
+const formatVnd = (value: unknown) => new Intl.NumberFormat("vi-VN").format(Number(value || 0));
+const statusTone = (status?: string) => {
+  if (status === "active") return "bg-emerald-100 text-emerald-800 ring-emerald-200";
+  if (status === "development") return "bg-amber-100 text-amber-800 ring-amber-200";
+  if (status === "discontinued") return "bg-slate-100 text-slate-700 ring-slate-200";
+  return "bg-muted text-muted-foreground ring-border";
+};
 
 type FormState = {
   id?: number;
@@ -109,15 +118,26 @@ export default function SkuCostsProducts() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 px-1 sm:space-y-6 sm:px-0">
+      <SkuCostMenuBar />
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-primary/70">SKU Costs</p>
+          <h1 className="mt-1 text-xl font-bold tracking-[-0.02em] sm:text-2xl">SKU thành phẩm</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Quản lý mã, giá bán, danh mục và trạng thái sản phẩm.</p>
+        </div>
+        <Button className="h-11 w-full sm:w-auto" onClick={openCreate}>Thêm sản phẩm</Button>
+      </div>
+
       <Card>
-        <CardHeader>
-          <CardTitle>Bộ lọc</CardTitle>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base sm:text-lg">Bộ lọc</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <Input placeholder="Tìm kiếm" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Input className="h-11" placeholder="Tìm kiếm SKU hoặc tên" value={search} onChange={(e) => setSearch(e.target.value)} />
           <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-            <SelectTrigger><SelectValue placeholder="Danh mục" /></SelectTrigger>
+            <SelectTrigger className="h-11"><SelectValue placeholder="Danh mục" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Tất cả danh mục</SelectItem>
               {categories.map((c) => (
@@ -126,7 +146,7 @@ export default function SkuCostsProducts() {
             </SelectContent>
           </Select>
           <Select value={unitFilter} onValueChange={setUnitFilter}>
-            <SelectTrigger><SelectValue placeholder="Đơn vị" /></SelectTrigger>
+            <SelectTrigger className="h-11"><SelectValue placeholder="Đơn vị" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Tất cả đơn vị</SelectItem>
               {units.map((u) => (
@@ -135,7 +155,7 @@ export default function SkuCostsProducts() {
             </SelectContent>
           </Select>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger><SelectValue placeholder="Trạng thái" /></SelectTrigger>
+            <SelectTrigger className="h-11"><SelectValue placeholder="Trạng thái" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Tất cả</SelectItem>
               <SelectItem value="active">Active</SelectItem>
@@ -147,62 +167,104 @@ export default function SkuCostsProducts() {
       </Card>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Sản phẩm</CardTitle>
-          <Button onClick={openCreate}>Thêm sản phẩm</Button>
+        <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
+          <div>
+            <CardTitle className="text-base sm:text-lg">Sản phẩm</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">{filtered.length} / {(data || []).length} SKU</p>
+          </div>
         </CardHeader>
-        <CardContent>
-          {isError && <div className="text-sm text-red-500">Không tải được dữ liệu.</div>}
-          {isLoading && <Skeleton className="h-8 w-full" />}
+        <CardContent className="px-3 sm:px-6">
+          {isError && <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">Không tải được dữ liệu.</div>}
+          {isLoading && <Skeleton className="h-24 w-full rounded-2xl" />}
           {!isLoading && filtered && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>SKU</TableHead>
-                  <TableHead>Tên</TableHead>
-                  <TableHead>Danh mục</TableHead>
-                  <TableHead>Đơn vị</TableHead>
-                  <TableHead>Giá bán</TableHead>
-                  <TableHead>Trạng thái</TableHead>
-                  <TableHead>Hành động</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              <div className="hidden overflow-x-auto rounded-xl border md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>SKU</TableHead>
+                      <TableHead>Tên</TableHead>
+                      <TableHead>Danh mục</TableHead>
+                      <TableHead>Đơn vị</TableHead>
+                      <TableHead>Giá bán</TableHead>
+                      <TableHead>Trạng thái</TableHead>
+                      <TableHead className="text-right">Hành động</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered.length === 0 && <TableRow><TableCell colSpan={7} className="text-muted-foreground">Không tìm thấy SKU phù hợp.</TableCell></TableRow>}
+                    {filtered.map((p: any) => (
+                      <TableRow key={p.id}>
+                        <TableCell className="font-mono text-xs">{p.sku_code}</TableCell>
+                        <TableCell className="font-medium">{p.name}</TableCell>
+                        <TableCell>{p.category}</TableCell>
+                        <TableCell>{p.unit || "-"}</TableCell>
+                        <TableCell>{formatVnd(p.selling_price)}</TableCell>
+                        <TableCell>{p.status}</TableCell>
+                        <TableCell>
+                          <div className="flex justify-end gap-2">
+                            <Button variant="outline" size="sm" onClick={() => openEdit(p)}>Sửa</Button>
+                            <Button variant="destructive" size="sm" onClick={() => remove(p.id)}>Xoá</Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              <div className="space-y-3 md:hidden">
+                {filtered.length === 0 && <div className="rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Không tìm thấy SKU phù hợp.</div>}
                 {filtered.map((p: any) => (
-                  <TableRow key={p.id}>
-                    <TableCell className="font-mono text-xs">{p.sku_code}</TableCell>
-                    <TableCell>{p.name}</TableCell>
-                    <TableCell>{p.category}</TableCell>
-                    <TableCell>{p.unit || "-"}</TableCell>
-                    <TableCell>{new Intl.NumberFormat('vi-VN').format(p.selling_price || 0)}</TableCell>
-                    <TableCell>{p.status}</TableCell>
-                    <TableCell className="space-x-2">
-                      <Button variant="outline" size="sm" onClick={() => openEdit(p)}>Sửa</Button>
-                      <Button variant="destructive" size="sm" onClick={() => remove(p.id)}>Xoá</Button>
-                    </TableCell>
-                  </TableRow>
+                  <article key={p.id} className="rounded-2xl border bg-card p-3 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="break-all font-mono text-[11px] font-bold text-muted-foreground">{p.sku_code || p.id}</p>
+                        <h2 className="mt-1 line-clamp-2 text-[15px] font-semibold leading-snug">{p.name}</h2>
+                      </div>
+                      <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${statusTone(p.status)}`}>{p.status || "—"}</span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-xl bg-muted/45 p-2">
+                        <div className="text-muted-foreground">Giá bán</div>
+                        <div className="mt-1 text-base font-bold text-primary">{formatVnd(p.selling_price)}</div>
+                      </div>
+                      <div className="rounded-xl bg-muted/45 p-2">
+                        <div className="text-muted-foreground">Đơn vị</div>
+                        <div className="mt-1 font-semibold">{p.unit || "-"}</div>
+                      </div>
+                      <div className="col-span-2 rounded-xl bg-muted/45 p-2">
+                        <div className="text-muted-foreground">Danh mục</div>
+                        <div className="mt-1 font-semibold break-words">{p.category || "-"}</div>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <Button className="h-10" variant="outline" size="sm" onClick={() => openEdit(p)}>Sửa</Button>
+                      <Button className="h-10" variant="destructive" size="sm" onClick={() => remove(p.id)}>Xoá</Button>
+                    </div>
+                  </article>
                 ))}
-              </TableBody>
-            </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] overflow-y-auto rounded-2xl p-4 sm:max-w-2xl sm:p-6">
           <DialogHeader>
             <DialogTitle>{form.id ? "Cập nhật sản phẩm" : "Thêm sản phẩm"}</DialogTitle>
           </DialogHeader>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Input placeholder="SKU" value={form.sku_code} onChange={(e) => setForm({ ...form, sku_code: e.target.value })} />
-            <Input placeholder="Tên" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            <Input placeholder="Danh mục" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
-            <Input placeholder="Đơn vị" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
-            <Input placeholder="Giá bán" value={form.selling_price} onChange={(e) => setForm({ ...form, selling_price: e.target.value })} />
-            <Input placeholder="Trạng thái" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Input className="h-11" placeholder="SKU" value={form.sku_code} onChange={(e) => setForm({ ...form, sku_code: e.target.value })} />
+            <Input className="h-11" placeholder="Tên" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <Input className="h-11" placeholder="Danh mục" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+            <Input className="h-11" placeholder="Đơn vị" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
+            <Input className="h-11" placeholder="Giá bán" value={form.selling_price} onChange={(e) => setForm({ ...form, selling_price: e.target.value })} />
+            <Input className="h-11" placeholder="Trạng thái" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} />
           </div>
-          <DialogFooter>
-            <Button onClick={save}>Lưu</Button>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button className="w-full sm:w-auto" onClick={save}>Lưu</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

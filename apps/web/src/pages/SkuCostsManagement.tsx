@@ -994,17 +994,17 @@ export default function SkuCostsManagement() {
       </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] overflow-y-auto rounded-2xl p-4 sm:max-w-5xl sm:p-6">
           <DialogHeader>
             <DialogTitle>{skuForm.id ? "Sửa SKU" : "Tạo SKU theo form mẫu"}</DialogTitle>
             {skuForm.id && <div className="text-xs text-muted-foreground">Lần chỉnh sửa gần nhất: {skuForm.updated_at ? new Date(skuForm.updated_at).toLocaleString("vi-VN") : "-"}</div>}
           </DialogHeader>
 
           <div className="space-y-4">
-            <div className="sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border rounded p-2 flex flex-wrap items-center gap-2">
-              <Button type="button" variant="outline" onClick={addDraftMaterialRow}>+ Thêm NVL cấp 1</Button>
+            <div className="sticky top-0 z-20 flex flex-col gap-2 rounded-xl border bg-background/95 p-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:flex-row sm:flex-wrap sm:items-center">
+              <Button type="button" className="h-11 w-full sm:h-10 sm:w-auto" variant="outline" onClick={addDraftMaterialRow}>+ Thêm NVL cấp 1</Button>
               {level1Options.length > 0 && (
-                <Button type="button" variant="outline" onClick={addDraftMaterialLevel2Row}>+ Thêm NVL cấp 2</Button>
+                <Button type="button" className="h-11 w-full sm:h-10 sm:w-auto" variant="outline" onClick={addDraftMaterialLevel2Row}>+ Thêm NVL cấp 2</Button>
               )}
             </div>
             {missingScanFields.length > 0 ? (
@@ -1125,15 +1125,15 @@ export default function SkuCostsManagement() {
                   const perUnit = row.perUnit;
 
                   return (
-                    <div key={`draft-card-${idx}`} className={`rounded-lg border p-3 shadow-sm ${isLevel1Row ? "bg-background" : "bg-muted/30"}`}>
-                      <div className="mb-3 flex items-center justify-between gap-2">
+                    <div key={`draft-card-${idx}`} className={`rounded-2xl border p-3 shadow-sm ${isLevel1Row ? "bg-background" : "bg-muted/30"}`}>
+                      <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
                         <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
                           {isLevel1Row ? "NVL cấp 1" : `NVL cấp 2 · ${r.level1_name || "-"}`}
                         </span>
-                        <span className="rounded-full bg-muted px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
+                        <span className="min-w-0 flex-1 break-all rounded-full bg-muted px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
                           {buildMaterialCode(isLevel1Row ? (r.level1_name || r.ingredient_name) : `${r.level1_name || ""}${r.level2_name ? `${LEVEL2_SEPARATOR}${r.level2_name}` : ""}`)}
                         </span>
-                        <Button type="button" size="sm" variant="destructive" onClick={() => setImportedFormulaDraft((prev) => prev.filter((_, i) => i !== idx))}>Xóa</Button>
+                        <Button type="button" className="h-9 shrink-0" size="sm" variant="destructive" onClick={() => setImportedFormulaDraft((prev) => prev.filter((_, i) => i !== idx))}>Xóa</Button>
                       </div>
 
                       <div className="space-y-1">
@@ -1225,8 +1225,8 @@ export default function SkuCostsManagement() {
             </div>
           )}
 
-          <DialogFooter>
-            <Button type="button" onClick={saveSku} disabled={isSavingSku}>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button type="button" className="h-11 w-full sm:w-auto" onClick={saveSku} disabled={isSavingSku}>
               {isSavingSku ? "Đang lưu..." : "Lưu SKU"}
             </Button>
           </DialogFooter>
