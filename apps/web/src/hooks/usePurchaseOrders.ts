@@ -161,6 +161,8 @@ export function useUpdatePurchaseOrder() {
       queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
       queryClient.invalidateQueries({ queryKey: ["purchase-order"] });
       queryClient.invalidateQueries({ queryKey: ["goods-receipts"] });
+      queryClient.invalidateQueries({ queryKey: ["payment-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["payment-stats"] });
     },
   });
 }
@@ -225,6 +227,8 @@ export function useSendPurchaseOrder() {
       queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
       queryClient.invalidateQueries({ queryKey: ["purchase-order"] });
       queryClient.invalidateQueries({ queryKey: ["goods-receipts"] });
+      queryClient.invalidateQueries({ queryKey: ["payment-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["payment-stats"] });
     },
   });
 }
@@ -251,6 +255,8 @@ export function useMarkPOCompleted() {
       queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
       queryClient.invalidateQueries({ queryKey: ["purchase-order"] });
       queryClient.invalidateQueries({ queryKey: ["goods-receipts"] });
+      queryClient.invalidateQueries({ queryKey: ["payment-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["payment-stats"] });
     },
   });
 }

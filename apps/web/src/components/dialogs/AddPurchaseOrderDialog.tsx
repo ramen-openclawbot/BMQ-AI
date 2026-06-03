@@ -52,6 +52,7 @@ import {
   useCreatePurchaseOrder,
   useCreatePurchaseOrderItem,
 } from "@/hooks/usePurchaseOrders";
+import { ensureReceiptForPurchaseOrder } from "@/hooks/usePurchaseReceiptQueue";
 
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 
@@ -405,11 +406,19 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
         });
       }
 
-      // Invalidate queries to refresh list immediately (like AddSupplierDialog)
+      // Staff PO creation immediately opens the operating flow:
+      // - pending CEO payment request (duyệt chi)
+      // - draft warehouse goods receipt queue (phiếu nhập kho)
+      await ensureReceiptForPurchaseOrder(order.id);
+
+      // Invalidate queries to refresh all linked operational queues immediately (like AddSupplierDialog)
       queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
       queryClient.invalidateQueries({ queryKey: ["draft-po-count"] });
+      queryClient.invalidateQueries({ queryKey: ["goods-receipts"] });
+      queryClient.invalidateQueries({ queryKey: ["payment-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["payment-stats"] });
       
-      toast.success(`Đã tạo đơn đặt hàng ${poNumber}`);
+      toast.success(`Đã tạo PO ${poNumber}, phiếu duyệt chi và phiếu nhập kho`);
       form.reset();
       setScannedImage(null);
       setSelectedImagePreviews([]);
