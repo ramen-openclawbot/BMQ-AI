@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { format, startOfMonth, endOfMonth, subDays } from "date-fns";
+import { format, startOfMonth, endOfMonth } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 
 // ---------------------------------------------------------------------------
@@ -368,7 +368,6 @@ export function useMonthlyReconciliation(month: Date, enabled = true) {
 // ---------------------------------------------------------------------------
 export function useQtmOpeningBalance(closingDate: Date, currentDeclExtractionMeta: any, enabled = true) {
   const date = format(closingDate, "yyyy-MM-dd");
-  const prevDate = format(subDays(closingDate, 1), "yyyy-MM-dd");
 
   return useQuery({
     queryKey: ["qtm-opening-balance", date],
@@ -397,38 +396,31 @@ export function useQtmOpeningBalance(closingDate: Date, currentDeclExtractionMet
         return null;
       };
 
-      // Run both lookups in parallel – avoids waterfall when prevDay has no data.
-      // 1) Exact previous day  2) Nearest previous day before selected date
-      const [prevResult, nearestPrevResult] = await Promise.all([
-        (supabase as any)
-          .from("ceo_daily_closing_declarations")
-          .select("closing_date,cash_fund_topup_amount,qtm_extracted_amount,extraction_meta")
-          .eq("closing_date", prevDate)
-          .maybeSingle(),
-        (supabase as any)
-          .from("ceo_daily_closing_declarations")
-          .select("closing_date,cash_fund_topup_amount,qtm_extracted_amount,extraction_meta")
-          .lt("closing_date", date)
-          .order("closing_date", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-      ]);
+      const deriveQtmOpeningFromPriorDeclarations = (rows: any[]): number | null => {
+        for (const row of rows) {
+          const closing = deriveClosingFromRow(row);
+          if (closing !== null) return closing;
+        }
+        return null;
+      };
 
-      if (prevResult.error) {
-        console.error("[useQtmOpeningBalance] Error fetching previous day:", prevResult.error);
-        throw prevResult.error;
-      }
-      if (nearestPrevResult.error) {
-        console.error("[useQtmOpeningBalance] Error fetching nearest previous:", nearestPrevResult.error);
-        throw nearestPrevResult.error;
+      // Fetch a short prior window and choose the nearest approved close. A single
+      // unlocked declaration with qtm_closing_balance=0 must not shadow the actual
+      // carry-forward from the latest locked day.
+      const { data: priorRows, error } = await (supabase as any)
+        .from("ceo_daily_closing_declarations")
+        .select("closing_date,cash_fund_topup_amount,qtm_extracted_amount,extraction_meta")
+        .lt("closing_date", date)
+        .order("closing_date", { ascending: false })
+        .limit(31);
+
+      if (error) {
+        console.error("[useQtmOpeningBalance] Error fetching prior QTM declarations:", error);
+        throw error;
       }
 
-      // Apply same precedence: exact prev day first, then nearest
-      const prevClosing = deriveClosingFromRow(prevResult.data);
-      if (prevClosing !== null) return prevClosing;
-
-      const nearestPrevClosing = deriveClosingFromRow(nearestPrevResult.data);
-      if (nearestPrevClosing !== null) return nearestPrevClosing;
+      const priorClosing = deriveQtmOpeningFromPriorDeclarations((priorRows || []) as any[]);
+      if (priorClosing !== null) return priorClosing;
 
       // Fallback: use stored opening from current declaration
       const currentStoredOpening = toNumberOrNull(currentDeclExtractionMeta?.qtm_opening_balance);

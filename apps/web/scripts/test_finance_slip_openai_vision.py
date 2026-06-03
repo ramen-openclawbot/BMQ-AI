@@ -70,6 +70,8 @@ def main() -> None:
     assert_true("!targetUncFiles.length && !targetQtmFiles.length && (hasDeclaredUnc || !hasDeclaredQtm)" in finance_page, "QTM-only declarations with no Drive files must not be rejected by the empty-folder guard")
     assert_true("QTM đã khai báo ${vnd(Number(cashFundTopupAmount || 0))}" not in finance_page, "declared QTM with zero Drive files must not block close-day approval")
     assert_true("hasDeclaredQtm && Number(folderScanResult.qtmFolderTotal || 0) === 0" not in finance_page, "declared QTM with zero scanned total must be treated as no same-day spend, not a hard error")
+    assert_true("deriveQtmOpeningFromPriorDeclarations" in read(ROOT / "src/hooks/useFinanceReconciliation.ts"), "QTM opening hook must scan prior declarations, not trust one unlocked previous row")
+    assert_true("latest locked day" in read(ROOT / "src/hooks/useFinanceReconciliation.ts"), "QTM opening hook must document locked-day carry-forward behavior")
 
     assert_true("activeSlipScan" in finance_page, "CEO slip upload must track which input is actively scanning")
     assert_true("activeSlipScanLabel" in finance_page, "CEO slip upload must render an explicit scanning status label")
