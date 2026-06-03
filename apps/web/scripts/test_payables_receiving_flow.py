@@ -162,6 +162,10 @@ def test_finalization_rpc_posts_inventory_and_generates_pending_payable_atomical
     assert "finalized_by = p_user_id" in migrations
     assert "RAISE EXCEPTION" in migrations
     assert "Cannot create payable with zero amount" in migrations
+    assert "PO goods receipt requires an uploaded receipt/delivery-note image before finalizing" in migrations
+    assert "image_url = COALESCE(image_url, v_purchase_order.image_url)" in migrations
+    assert "v_purchase_order.image_url" in migrations
+    assert "data-bmq-goods-receipt-attached-evidence" in read(GOODS_RECEIPT_DETAILS)
     zero_amount_guard = migrations.split("Cannot create payable with zero amount", 1)[0]
     assert "v_total_amount := v_subtotal + v_vat_amount" in zero_amount_guard
     assert zero_amount_guard.rfind("IF v_total_amount <= 0 THEN") > zero_amount_guard.rfind("v_total_amount := v_subtotal + v_vat_amount")
@@ -287,7 +291,10 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "data-bmq-goods-receipt-ocr-compare-po" in details
     assert "data-bmq-goods-receipt-ocr-prefill-actuals" in details
     assert "data-bmq-goods-receipt-variance-evidence-required" in details
-    assert "Chụp/scan phiếu giao hàng" in details
+    assert "data-bmq-goods-receipt-attached-evidence" in details
+    assert "data-bmq-goods-receipt-evidence-required-always" in details
+    assert "Chụp/scan phiếu giao hàng bắt buộc" in details
+    assert "PO luôn phải có ảnh/chứng từ" in details
     assert "OCR tự điền" in details
     assert "So với PO" in details
     assert "Nhân viên xác nhận cuối" in details
@@ -661,7 +668,8 @@ def test_goods_receipt_receiving_edit_mode():
     # Workflow Vietnamese copy
     assert "Kế toán kho xác nhận thực nhận" in details
     assert "Phiếu nhập đã nhận đủ thông tin từ PO" in details
-    assert "mặc định thực nhận khớp số đặt" in details
+    assert "Mặc định số thực nhận bằng số đặt" in details
+    assert "phải giữ ảnh/chứng từ đính kèm" in details
     assert "Nhập kho + Tạo công nợ" in details
     assert "thực nhận" in details
     assert "Công nợ theo thực nhận" in details
@@ -670,7 +678,8 @@ def test_goods_receipt_receiving_edit_mode():
     # Over-receipt blocked via validation message
     assert "Vượt quá" in details
 
-    # Finalization gated on per-line validation
+    # Finalization gated on receipt evidence and per-line validation
+    assert "hasRequiredReceiptEvidence" in details
     assert "canFinalize" in details
     assert "disabled={" in details
 

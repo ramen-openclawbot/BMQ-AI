@@ -185,11 +185,13 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
     return !isNaN(qty) && qty < Number(item.ordered_quantity ?? item.quantity ?? 0);
   });
   const hasDeliveryNoteEvidence = Boolean(deliveryNotePath || receiptImageUrl);
+  const hasRequiredReceiptEvidence = !isReceiveMode || hasDeliveryNoteEvidence;
   const hasRequiredVarianceEvidence = !hasShortageItems || hasDeliveryNoteEvidence;
 
   const canFinalize =
     isReceiveMode &&
     items.length > 0 &&
+    hasRequiredReceiptEvidence &&
     hasRequiredVarianceEvidence &&
     items.every(item => {
       const orderedQty = Number(item.ordered_quantity ?? item.quantity ?? 0);
@@ -198,6 +200,11 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
 
   const handleConfirmReceipt = async () => {
     if (!receiptId || !isReceiveMode) return;
+
+    if (!hasRequiredReceiptEvidence) {
+      toast.error("Phiếu nhập kho PO phải đính kèm ảnh/chứng từ đã upload trước khi nhập kho.");
+      return;
+    }
 
     for (const item of items) {
       const orderedQty = Number(item.ordered_quantity ?? item.quantity ?? 0);
@@ -360,17 +367,31 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
               </div>
 
               {/* Image */}
-              {imageUrl && (
-                <div>
-                  <p className="text-sm text-muted-foreground mb-2">Ảnh phiếu giao hàng</p>
+              <div className="rounded-xl border border-border bg-background/70 p-4" data-bmq-goods-receipt-attached-evidence>
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Ảnh/chứng từ phiếu nhập kho</p>
+                    <p className="text-xs text-muted-foreground">Staff mở lại để đối chiếu PO, giao nhận và công nợ bất cứ lúc nào.</p>
+                  </div>
+                  {hasDeliveryNoteEvidence ? (
+                    <Badge className="bg-emerald-600">Đã đính kèm</Badge>
+                  ) : (
+                    <Badge variant="destructive">Bắt buộc</Badge>
+                  )}
+                </div>
+                {imageUrl ? (
                   <img
                     src={imageUrl}
-                    alt="Phiếu giao hàng"
-                    className="max-h-48 rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
+                    alt="Chứng từ phiếu nhập kho"
+                    className="max-h-48 cursor-pointer rounded-lg border object-contain transition-opacity hover:opacity-80"
                     onClick={() => setImageOpen(true)}
                   />
-                </div>
-              )}
+                ) : (
+                  <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 p-3 text-xs font-medium text-amber-800">
+                    Phiếu nhập kho từ PO chưa có ảnh/chứng từ đính kèm. Tải/chụp phiếu giao hàng hoặc chứng từ PO trước khi nhập kho.
+                  </div>
+                )}
+              </div>
 
               {isReceiveMode && (
                 <div
@@ -382,10 +403,10 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                     <div>
                       <p className="flex items-center gap-2 text-sm font-semibold text-primary">
                         <Camera className="h-4 w-4" />
-                        Chụp/scan phiếu giao hàng khi có lệch
+                        Chụp/scan phiếu giao hàng bắt buộc
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Phiếu nhập đã lấy đủ dòng từ PO và mặc định thực nhận khớp số đặt. Nếu chứng từ NCC có lệch, tải ảnh/OCR rồi cập nhật số thực nhận trước khi chốt.
+                        Phiếu nhập kho PO luôn phải có ảnh/chứng từ đã upload để staff đối chiếu sau này. Nếu chứng từ NCC có lệch, dùng OCR rồi cập nhật số thực nhận trước khi chốt.
                       </p>
                     </div>
                     <label className="inline-flex cursor-pointer items-center justify-center rounded-md border border-primary/30 bg-background px-3 py-2 text-sm font-medium text-primary shadow-sm hover:bg-primary/10">
@@ -452,10 +473,10 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                     </div>
                   )}
 
-                  {!hasDeliveryNoteEvidence && !hasShortageItems && (
-                    <p className="flex items-center gap-1 text-xs font-medium text-primary">
-                      <CheckCircle className="h-3 w-3" />
-                      Không có chứng từ lệch: hệ thống giữ số thực nhận khớp PO để kế toán kho chốt nhanh.
+                  {!hasDeliveryNoteEvidence && (
+                    <p className="flex items-center gap-1 text-xs font-medium text-amber-700" data-bmq-goods-receipt-evidence-required-always>
+                      <AlertTriangle className="h-3 w-3" />
+                      Bắt buộc đính kèm ảnh/chứng từ phiếu nhập trước khi Nhập kho + Tạo công nợ.
                     </p>
                   )}
                   {hasShortageItems && (
@@ -481,7 +502,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                   >
                     <p className="font-semibold text-primary">Kế toán kho xác nhận thực nhận</p>
                     <p className="mt-1 text-muted-foreground">
-                      Phiếu nhập đã nhận đủ thông tin từ PO. Mặc định số thực nhận bằng số đặt;
+                      Phiếu nhập đã nhận đủ thông tin từ PO và phải giữ ảnh/chứng từ đính kèm để đối chiếu. Mặc định số thực nhận bằng số đặt;
                       chỉ sửa hoặc OCR khi phiếu giao hàng có chênh lệch, rồi nhấn{" "}
                       <strong>Nhập kho + Tạo công nợ</strong>.
                     </p>
@@ -698,7 +719,10 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
               {/* Actions */}
               {receipt.status === "confirmed" && !isFinalizedWithPayable && (
                 <div className="rounded-2xl border border-primary/20 bg-primary/5 p-3 sm:flex sm:items-center sm:justify-between sm:gap-3">
-                  {!hasRequiredVarianceEvidence && (
+                  {!hasRequiredReceiptEvidence && (
+                    <p className="mb-2 text-xs font-medium text-amber-700 sm:mb-0">PO nhập hàng bắt buộc có ảnh/chứng từ đã upload trên phiếu nhập kho trước khi nhập kho.</p>
+                  )}
+                  {hasRequiredReceiptEvidence && !hasRequiredVarianceEvidence && (
                     <p className="mb-2 text-xs font-medium text-amber-700 sm:mb-0">Có chênh lệch/thiếu hàng: cần chụp/scan phiếu giao hàng trước khi nhập kho.</p>
                   )}
                   <Button
@@ -729,13 +753,13 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
       <Dialog open={imageOpen} onOpenChange={setImageOpen}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
-            <DialogTitle>Ảnh phiếu giao hàng</DialogTitle>
+            <DialogTitle>Ảnh/chứng từ phiếu nhập kho</DialogTitle>
           </DialogHeader>
           {imageUrl && (
             <div className="flex flex-col items-center gap-4">
               <img
                 src={imageUrl}
-                alt="Phiếu giao hàng"
+                alt="Chứng từ phiếu nhập kho"
                 className="max-h-[70vh] rounded-lg object-contain"
               />
               <Button variant="outline" asChild>

@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Tables, TablesInsert, TablesUpdate } from "@/integrations/supabase/types";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import { normalizeUploadImage } from "@/lib/slip-image";
+import { resolveImageUrl } from "@/lib/storage-url";
 import { matchOcrLinesToPoLines, OcrLineCandidate, OcrMatchResult } from "@/lib/payables-receiving-flow";
 
 export type GoodsReceipt = Tables<"goods_receipts"> & {
@@ -347,11 +348,8 @@ export async function uploadGoodsReceiptImage(file: File): Promise<string> {
 
 // Get signed URL for goods receipt image
 export async function getGoodsReceiptImageUrl(path: string): Promise<string> {
-  const { data } = await supabase.storage
-    .from("invoices")
-    .createSignedUrl(path, 60 * 60);
-
-  return data?.signedUrl || "";
+  const resolved = await resolveImageUrl(path, { preferredBucket: "invoices" });
+  return resolved || "";
 }
 
 // Upload delivery note image (distinct from the general receipt image)
