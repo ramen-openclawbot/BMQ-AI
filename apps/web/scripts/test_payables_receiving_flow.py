@@ -659,7 +659,9 @@ def test_goods_receipt_receiving_edit_mode():
     assert "data-bmq-goods-receipt-actual-payable-only" in details
 
     # Workflow Vietnamese copy
-    assert "Kho nhập số lượng thực nhận" in details
+    assert "Kế toán kho xác nhận thực nhận" in details
+    assert "Phiếu nhập đã nhận đủ thông tin từ PO" in details
+    assert "mặc định thực nhận khớp số đặt" in details
     assert "Nhập kho + Tạo công nợ" in details
     assert "thực nhận" in details
     assert "Công nợ theo thực nhận" in details

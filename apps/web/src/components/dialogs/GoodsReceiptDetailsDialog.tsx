@@ -172,7 +172,10 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
   const isFinalizedWithPayable = receipt?.payable_status === "generated";
   const isReceiveMode = receipt?.status === "confirmed" && !isFinalizedWithPayable;
   const itemCount = items.length;
-  const actualTotal = items.reduce((sum, item) => sum + Number(item.actual_quantity ?? item.quantity ?? 0), 0);
+  const displayActualQuantity = (item: typeof items[number]) => Number(
+    item.actual_quantity ?? item.ordered_quantity ?? item.quantity ?? 0
+  );
+  const actualTotal = items.reduce((sum, item) => sum + displayActualQuantity(item), 0);
   const varianceCount = items.filter((item) => item.line_status && item.line_status !== "du").length;
   const hasUnitPrices = items.some(item => item.unit_price != null || item.purchase_order_items?.unit_price != null);
   const hasShortageItems = isReceiveMode && items.some(item => {
@@ -187,7 +190,6 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
   const canFinalize =
     isReceiveMode &&
     items.length > 0 &&
-    hasDeliveryNoteEvidence &&
     hasRequiredVarianceEvidence &&
     items.every(item => {
       const orderedQty = Number(item.ordered_quantity ?? item.quantity ?? 0);
@@ -380,10 +382,10 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                     <div>
                       <p className="flex items-center gap-2 text-sm font-semibold text-primary">
                         <Camera className="h-4 w-4" />
-                        Chụp/scan phiếu giao hàng
+                        Chụp/scan phiếu giao hàng khi có lệch
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        OCR tự điền số thực nhận, So với PO, Nhân viên xác nhận cuối trước khi nhập kho.
+                        Phiếu nhập đã lấy đủ dòng từ PO và mặc định thực nhận khớp số đặt. Nếu chứng từ NCC có lệch, tải ảnh/OCR rồi cập nhật số thực nhận trước khi chốt.
                       </p>
                     </div>
                     <label className="inline-flex cursor-pointer items-center justify-center rounded-md border border-primary/30 bg-background px-3 py-2 text-sm font-medium text-primary shadow-sm hover:bg-primary/10">
@@ -450,10 +452,10 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                     </div>
                   )}
 
-                  {!hasDeliveryNoteEvidence && (
-                    <p className="flex items-center gap-1 text-xs font-medium text-amber-700">
-                      <AlertTriangle className="h-3 w-3" />
-                      Bắt buộc có ảnh phiếu giao hàng trước khi Nhập kho + Tạo công nợ.
+                  {!hasDeliveryNoteEvidence && !hasShortageItems && (
+                    <p className="flex items-center gap-1 text-xs font-medium text-primary">
+                      <CheckCircle className="h-3 w-3" />
+                      Không có chứng từ lệch: hệ thống giữ số thực nhận khớp PO để kế toán kho chốt nhanh.
                     </p>
                   )}
                   {hasShortageItems && (
@@ -477,9 +479,10 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                     className="mb-4 rounded-xl border border-primary/30 bg-primary/5 p-3 text-sm"
                     data-bmq-goods-receipt-receive-editor
                   >
-                    <p className="font-semibold text-primary">Kho nhập số lượng thực nhận</p>
+                    <p className="font-semibold text-primary">Kế toán kho xác nhận thực nhận</p>
                     <p className="mt-1 text-muted-foreground">
-                      Nhập số lượng thực nhận cho từng dòng hàng, sau đó nhấn{" "}
+                      Phiếu nhập đã nhận đủ thông tin từ PO. Mặc định số thực nhận bằng số đặt;
+                      chỉ sửa hoặc OCR khi phiếu giao hàng có chênh lệch, rồi nhấn{" "}
                       <strong>Nhập kho + Tạo công nợ</strong>.
                     </p>
                     <p
@@ -695,8 +698,8 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
               {/* Actions */}
               {receipt.status === "confirmed" && !isFinalizedWithPayable && (
                 <div className="rounded-2xl border border-primary/20 bg-primary/5 p-3 sm:flex sm:items-center sm:justify-between sm:gap-3">
-                  {!hasDeliveryNoteEvidence && (
-                    <p className="mb-2 text-xs font-medium text-amber-700 sm:mb-0">Cần chụp/scan phiếu giao hàng trước khi nhập kho.</p>
+                  {!hasRequiredVarianceEvidence && (
+                    <p className="mb-2 text-xs font-medium text-amber-700 sm:mb-0">Có chênh lệch/thiếu hàng: cần chụp/scan phiếu giao hàng trước khi nhập kho.</p>
                   )}
                   <Button
                     className="btn-gradient w-full sm:w-auto"
