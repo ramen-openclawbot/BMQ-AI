@@ -2428,7 +2428,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                   {!!uncSlipPreviews.length && (
                     <div className="flex flex-wrap gap-2">
                       {uncSlipPreviews.map((src, idx) => (
-                        <div key={`unc-${idx}`} className="group relative">
+                        <div key={`unc-${idx}`} className="group relative flex flex-col gap-1 rounded-md border bg-background p-1 md:block md:border-0 md:bg-transparent md:p-0">
                           <button
                             type="button"
                             className="overflow-hidden rounded border bg-background"
@@ -2439,7 +2439,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                           {isOwner && (
                             <button
                               type="button"
-                              className="absolute right-1 top-1 rounded bg-destructive p-1 text-destructive-foreground shadow-sm"
+                              className="absolute right-1 top-1 hidden rounded bg-destructive p-1 text-destructive-foreground shadow-sm md:block"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 deleteDeclaredSlip("unc", idx);
@@ -2448,6 +2448,22 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
+                          )}
+                          {isOwner && (
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              className="h-8 w-full px-2 text-xs md:hidden"
+                              disabled={saving || closeApprovalLocked}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteDeclaredSlip("unc", idx);
+                              }}
+                            >
+                              <Trash2 className="mr-1 h-3.5 w-3.5" />
+                              {isVi ? "Xoá slip" : "Delete slip"}
+                            </Button>
                           )}
                         </div>
                       ))}
@@ -2487,7 +2503,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                   {!!qtmSlipPreviews.length && (
                     <div className="flex flex-wrap gap-2">
                       {qtmSlipPreviews.map((src, idx) => (
-                        <div key={`qtm-${idx}`} className="group relative">
+                        <div key={`qtm-${idx}`} className="group relative flex flex-col gap-1 rounded-md border bg-background p-1 md:block md:border-0 md:bg-transparent md:p-0">
                           <button
                             type="button"
                             className="overflow-hidden rounded border bg-background"
@@ -2498,7 +2514,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                           {isOwner && (
                             <button
                               type="button"
-                              className="absolute right-1 top-1 rounded bg-destructive p-1 text-destructive-foreground shadow-sm"
+                              className="absolute right-1 top-1 hidden rounded bg-destructive p-1 text-destructive-foreground shadow-sm md:block"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 deleteDeclaredSlip("qtm", idx);
@@ -2507,6 +2523,22 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
+                          )}
+                          {isOwner && (
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              className="h-8 w-full px-2 text-xs md:hidden"
+                              disabled={saving || closeApprovalLocked}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteDeclaredSlip("qtm", idx);
+                              }}
+                            >
+                              <Trash2 className="mr-1 h-3.5 w-3.5" />
+                              {isVi ? "Xoá slip" : "Delete slip"}
+                            </Button>
                           )}
                         </div>
                       ))}
