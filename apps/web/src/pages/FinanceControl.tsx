@@ -2439,7 +2439,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                           {isOwner && (
                             <button
                               type="button"
-                              className="absolute right-1 top-1 hidden rounded bg-destructive p-1 text-destructive-foreground shadow-sm md:block"
+                              className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-sm ring-2 ring-background transition hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50 md:h-7 md:w-7"
+                              disabled={saving || closeApprovalLocked}
+                              data-bmq-mobile-ceo-slip-delete="unc"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 deleteDeclaredSlip("unc", idx);
@@ -2448,22 +2450,6 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
-                          )}
-                          {isOwner && (
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="sm"
-                              className="h-8 w-full px-2 text-xs md:hidden"
-                              disabled={saving || closeApprovalLocked}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deleteDeclaredSlip("unc", idx);
-                              }}
-                            >
-                              <Trash2 className="mr-1 h-3.5 w-3.5" />
-                              {isVi ? "Xoá slip" : "Delete slip"}
-                            </Button>
                           )}
                         </div>
                       ))}
@@ -2514,7 +2500,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                           {isOwner && (
                             <button
                               type="button"
-                              className="absolute right-1 top-1 hidden rounded bg-destructive p-1 text-destructive-foreground shadow-sm md:block"
+                              className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-sm ring-2 ring-background transition hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50 md:h-7 md:w-7"
+                              disabled={saving || closeApprovalLocked}
+                              data-bmq-mobile-ceo-slip-delete="qtm"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 deleteDeclaredSlip("qtm", idx);
@@ -2523,22 +2511,6 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
-                          )}
-                          {isOwner && (
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="sm"
-                              className="h-8 w-full px-2 text-xs md:hidden"
-                              disabled={saving || closeApprovalLocked}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deleteDeclaredSlip("qtm", idx);
-                              }}
-                            >
-                              <Trash2 className="mr-1 h-3.5 w-3.5" />
-                              {isVi ? "Xoá slip" : "Delete slip"}
-                            </Button>
                           )}
                         </div>
                       ))}
