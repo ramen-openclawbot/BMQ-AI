@@ -232,11 +232,12 @@ Hãy trích xuất các trường sau:
 Quy tắc quan trọng:
 - amount PHẢI là string, giữ nguyên định dạng gốc trên ảnh.
 - Trong tiếng Việt, dấu chấm (.) là phân cách hàng nghìn, dấu phẩy (,) là phân cách thập phân. VD: "41.006.300,00" = bốn mươi mốt triệu không trăm linh sáu nghìn ba trăm đồng.
+- Với UNC có số tiền tròn chục triệu, PHẢI giữ đủ chữ số 0. VD: "30.000.000" hoặc "30,000,000" = ba mươi triệu, KHÔNG được trả "3.000.000"/"3,000,000". Hãy đếm nhóm nghìn và đối chiếu dòng bằng chữ trước khi trả amount.
 - Ưu tiên các nhãn: "Số tiền", "Số tiền chuyển", "Giá trị giao dịch", "Amount", "Debit Amount", "Credit Amount", "Số tiền nợ", "Số tiền có".
 - Với Vietcombank / VCB / DigiBiz debit advice, ưu tiên số cạnh "Debit Amount" hoặc "Credit Amount" và đối chiếu dòng "In Words / Bằng chữ" nếu thấy.
 - Luôn trích xuất amount_in_words từ dòng "In Words", "Bằng chữ", "Số tiền bằng chữ" nếu có. Nếu amount dạng số và bằng chữ không cùng bậc giá trị, amount_in_words sẽ được dùng để phát hiện lỗi OCR.
 - Với dòng tiếng Anh kiểu "Twenty eight million four hundred eighty thousand Vietnam dong", hiểu là 28.480.000 VND; không được đọc thiếu thành 2.848.000 hoặc thừa thành 284.800.000.
-- Nếu amount dạng số và "In Words/Bằng chữ" lệch nhau đúng 1-3 bậc thập phân (x10/x100/x1000 hoặc /10//100//1000), ưu tiên số bằng chữ và giảm confidence để staff audit.
+- Nếu amount dạng số và "In Words/Bằng chữ" lệch nhau đúng 1-3 bậc thập phân (x10/x100/x1000 hoặc /10//100//1000), ưu tiên số bằng chữ và giảm confidence để staff audit. Regression marker: HA GAN UNC 14/05/2026 đọc "3.000.000" nhưng bằng chữ "ba mươi triệu đồng" phải chuẩn hóa thành 30.000.000.
 - KHÔNG lấy số tài khoản, số chứng từ, mã giao dịch, số điện thoại, ngày giờ, OTP, số dư làm amount.
 - Nếu có nhiều số, chọn số tiền thanh toán/chuyển khoản thực tế.
 - Nếu không chắc, vẫn trả best guess và giảm confidence.
@@ -331,7 +332,7 @@ const callOpenAiVision = async (imageBase64: string, mimeType: string, slipType?
           Authorization: `Bearer ${openaiApiKey}`,
         },
         body: JSON.stringify({
-          model: "gpt-4o-mini",
+          model: "gpt-4o",
           messages: [
             { role: "system", content: SLIP_EXTRACTION_SYSTEM_PROMPT },
             {

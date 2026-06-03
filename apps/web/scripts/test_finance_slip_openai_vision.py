@@ -30,6 +30,7 @@ def main() -> None:
 
     assert_true("paddle" not in combined, "PaddleOCR/Paddle backend must not appear in CEO/UNC slip flow")
     assert_true("https://api.openai.com/v1/chat/completions" in extract_fn, "edge function must call OpenAI Vision")
+    assert_true('model: "gpt-4o"' in extract_fn, "UNC/QTM finance OCR must use full gpt-4o, not mini, to reduce digit-scale mistakes")
     assert_true("provider: \"openai\"" in extract_fn, "edge function must tag extraction provider as openai")
     assert_true("finance-extract-slip-amount" in finance_page, "CEO upload must call finance-extract-slip-amount")
     assert_true("finance-extract-slip-amount" in folder_scan, "Drive UNC/QTM flow must call finance-extract-slip-amount")
@@ -39,6 +40,7 @@ def main() -> None:
     assert_true("insufficient_quota" in extract_fn, "edge function must preserve explicit OpenAI insufficient_quota errors")
     assert_true("OpenAI rate limit" in extract_fn, "edge function must distinguish generic OpenAI 429 rate limits from insufficient_quota")
     assert_true("amount_in_words" in extract_fn, "edge function must request/read amount words to guard OCR digit-scaling mistakes")
+    assert_true("HA GAN UNC 14/05/2026" in extract_fn and "30.000.000" in extract_fn, "edge prompt must guard the 3,000,000 vs 30,000,000 HA GAN UNC regression")
     assert_true("required: [\"amount\", \"amount_in_words\", \"confidence\"]" in extract_fn, "OpenAI schema must require amount_in_words so OCR can be cross-checked")
     assert_true("parseVietnameseAmountWords" in extract_fn, "edge function must parse Vietnamese amount words for mismatch correction")
     assert_true("parseEnglishAmountWords" in extract_fn, "edge function must parse English In Words amount lines for VCB/DigiBiz UNC")

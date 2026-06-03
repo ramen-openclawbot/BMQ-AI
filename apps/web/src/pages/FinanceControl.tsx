@@ -290,7 +290,7 @@ const formatMonthValue = (value: string | null | undefined) => {
   return y && m ? `${m}/${y}` : "-";
 };
 
-const OCR_CACHE_MIN_PROCESSED_AT = "2026-05-11T01:25:00.000Z";
+const OCR_CACHE_MIN_PROCESSED_AT = "2026-06-03T14:45:00.000Z";
 
 const isOcrCacheFresh = (processedAt: unknown) => {
   if (!processedAt) return false;
