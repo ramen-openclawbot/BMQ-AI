@@ -12,6 +12,7 @@ import {
   MailCheck,
   Monitor,
   Package,
+  Paperclip,
   ImageIcon,
   Pencil,
   Trash2,
@@ -70,6 +71,8 @@ interface CustomerPoInbox {
   production_items: ProductionItem[];
   total_amount: number;
   match_status: string;
+  has_attachments?: boolean | null;
+  attachment_names?: string[] | null;
 }
 
 interface ResolvedProductionItem extends ProductionItem {
@@ -338,6 +341,9 @@ const getProductionOrderDateIso = (order: ProductionOrder) => {
 
 const getProductionOrderTotalQty = (order: ProductionOrder) =>
   (order.items || []).reduce((sum, item) => sum + Number(item.planned_qty ?? item.ordered_qty ?? 0), 0);
+
+const getPoAttachmentNames = (po: Pick<CustomerPoInbox, "attachment_names" | "has_attachments">) =>
+  Array.isArray(po.attachment_names) ? po.attachment_names.filter(Boolean) : [];
 
 const getProductionOrderDisplayStatus = (order: ProductionOrder, productionDateIso: string): ProductionOrderDisplayStatus => {
   if (order.status === "completed" || order.status === "cancelled") return order.status;
@@ -1297,40 +1303,53 @@ export default function ProductionPlanning() {
           <Card className="card-elevated rounded-[1.5rem]">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-xl font-black text-foreground">
-                <AlertCircle className="h-5 w-5 text-warning-foreground" />
-                {isVi ? "Việc cần xử lý" : "Action queue"}
+                <Paperclip className="h-5 w-5 text-primary" />
+                {isVi ? "PO cần xác nhận" : "POs to verify"}
               </CardTitle>
-              <CardDescription>
-                {isVi ? "Giữ nguyên luồng xác nhận hiện tại, chỉ làm rõ thứ tự ưu tiên." : "Existing confirmation workflow, clarified by priority."}
-              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Alert className="rounded-2xl border-warning/40 bg-warning/20">
-                <AlertDescription className="text-sm leading-6 text-warning-foreground">
-                  {isVi
-                    ? "Backend hiện tạo lệnh sản xuất từ PO. Bước tự sinh phiếu xuất kho NVL theo BOM cần nối tiếp với bảng giá vốn/NVL ở phase sau."
-                    : "Current backend creates production orders from POs. Material issue slips from BOM need the next integration phase."}
-                </AlertDescription>
-              </Alert>
               <div className="grid gap-2">
-                {visiblePendingPos.slice(0, 6).map((po) => (
-                  <button
-                    key={po.id}
-                    type="button"
-                    disabled={!canEditLocation}
-                    onClick={() => handleCreateClick(po)}
-                    className="flex min-h-20 w-full items-center justify-between gap-3 rounded-2xl border border-border/60 bg-card/70 p-3 text-left transition hover:border-primary/30 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-55"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate font-mono text-sm font-black text-foreground">{po.po_number}</div>
-                      <div className="truncate text-sm text-muted-foreground">{po.from_name}</div>
-                      <div className="text-xs text-muted-foreground">{formatDate(po.delivery_date)}</div>
-                    </div>
-                    <div className="shrink-0 rounded-xl bg-primary px-3 py-2 text-sm font-black text-primary-foreground">
-                      {isVi ? "Xác nhận" : "Confirm"}
-                    </div>
-                  </button>
-                ))}
+                {visiblePendingPos.slice(0, 6).map((po) => {
+                  const attachmentNames = getPoAttachmentNames(po);
+                  return (
+                    <button
+                      key={po.id}
+                      type="button"
+                      disabled={!canEditLocation}
+                      onClick={() => handleCreateClick(po)}
+                      className="w-full rounded-2xl border border-border/60 bg-card/70 p-3 text-left transition hover:border-primary/30 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-55"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate font-mono text-sm font-black text-foreground">{po.po_number}</div>
+                          <div className="truncate text-sm text-muted-foreground">{po.from_name}</div>
+                          <div className="text-xs text-muted-foreground">{formatDate(po.delivery_date)}</div>
+                        </div>
+                        <div className="shrink-0 rounded-xl bg-primary px-3 py-2 text-sm font-black text-primary-foreground">
+                          {isVi ? "Xác nhận" : "Confirm"}
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {attachmentNames.length > 0 ? (
+                          attachmentNames.slice(0, 4).map((fileName) => (
+                            <span key={fileName} className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-1 text-[11px] font-bold text-primary">
+                              <Paperclip className="h-3 w-3 shrink-0" />
+                              <span className="truncate">{fileName}</span>
+                            </span>
+                          ))
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-1 text-[11px] font-bold text-muted-foreground">
+                            <Paperclip className="h-3 w-3" />
+                            {isVi ? "Không có file PO" : "No PO file"}
+                          </span>
+                        )}
+                        {attachmentNames.length > 4 && (
+                          <span className="rounded-full bg-muted px-2 py-1 text-[11px] font-bold text-muted-foreground">+{attachmentNames.length - 4}</span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </CardContent>
           </Card>
@@ -1482,6 +1501,21 @@ export default function ProductionPlanning() {
                   <Badge className="w-fit bg-primary text-primary-foreground hover:bg-primary">
                     {isVi ? "Nguồn PO đã parse" : "Parsed PO source"}
                   </Badge>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {getPoAttachmentNames(selectedPoForCreation).length > 0 ? (
+                    getPoAttachmentNames(selectedPoForCreation).map((fileName) => (
+                      <span key={fileName} className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/25 bg-background/80 px-2.5 py-1 text-xs font-bold text-primary">
+                        <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{fileName}</span>
+                      </span>
+                    ))
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background/80 px-2.5 py-1 text-xs font-bold text-muted-foreground">
+                      <Paperclip className="h-3.5 w-3.5" />
+                      {isVi ? "Không có file PO đính kèm" : "No attached PO file"}
+                    </span>
+                  )}
                 </div>
               </div>
 
