@@ -161,6 +161,13 @@ const displayDate = (value?: string | null) => {
   return date ? format(date, "dd/MM/yyyy") : "-";
 };
 
+const displayDateKey = (value?: string | null) => {
+  if (!value) return "-";
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return displayDate(value);
+  return `${match[3]}/${match[2]}/${match[1]}`;
+};
+
 const vnDateKey = (value?: string | null) => {
   if (!value) return null;
   if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
@@ -537,73 +544,73 @@ export default function QAInspection() {
   const selectedChecklist = checklistFromNotes(selectedInspection?.notes);
 
   return (
-    <div className="-m-4 min-h-screen bg-[#f7f2ec] p-4 text-stone-950 md:-m-6 md:p-6" data-stitch-qa-finished-goods="q7-sweet-bakery-flow">
+    <div className="-m-4 min-h-screen bg-background p-4 text-foreground md:-m-6 md:p-6" data-stitch-qa-finished-goods="q7-current-theme-vn-date">
       <div className="mx-auto max-w-7xl space-y-5">
-        <header className="rounded-[1.75rem] border border-amber-200 bg-gradient-to-br from-white via-amber-50 to-orange-50 p-4 shadow-sm md:p-6">
+        <header className="card-elevated rounded-[1.75rem] p-4 md:p-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-start gap-3">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-600 text-white shadow-lg shadow-amber-600/20">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-warm">
                 <ShieldCheck className="h-7 w-7" />
               </div>
               <div>
-                <Badge className="mb-2 rounded-full bg-emerald-100 text-emerald-800 hover:bg-emerald-100">
+                <Badge className="mb-2 rounded-full bg-success/15 text-success hover:bg-success/15">
                   {isVi ? "Xưởng Q7 · bánh ngọt" : "Q7 workshop · sweet bakery"}
                 </Badge>
                 <h1 className="text-2xl font-black tracking-tight md:text-4xl">{copy.title}</h1>
-                <p className="mt-1 max-w-3xl text-sm font-semibold text-stone-600 md:text-base">{copy.subtitle}</p>
+                <p className="mt-1 max-w-3xl text-sm font-semibold text-muted-foreground md:text-base">{copy.subtitle}</p>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-2xl border border-amber-200 bg-white/80 p-3">
-                <p className="text-xs font-bold text-stone-500">{isVi ? "QA pass" : "Passed"}</p>
-                <p className="text-2xl font-black text-emerald-700">{inspectionsLoading ? "…" : stats.passed}</p>
+              <div className="stat-card rounded-2xl p-3 before:bg-success">
+                <p className="text-xs font-bold text-muted-foreground">{isVi ? "QA pass" : "Passed"}</p>
+                <p className="text-2xl font-black text-success">{inspectionsLoading ? "…" : stats.passed}</p>
               </div>
-              <div className="rounded-2xl border border-amber-200 bg-white/80 p-3">
-                <p className="text-xs font-bold text-stone-500">{isVi ? "Ảnh audit" : "Photos"}</p>
-                <p className="text-2xl font-black text-blue-700">{inspectionsLoading ? "…" : stats.photos}</p>
+              <div className="stat-card rounded-2xl p-3 before:bg-accent">
+                <p className="text-xs font-bold text-muted-foreground">{isVi ? "Ảnh audit" : "Photos"}</p>
+                <p className="text-2xl font-black text-primary">{inspectionsLoading ? "…" : stats.photos}</p>
               </div>
-              <div className="rounded-2xl border border-amber-200 bg-white/80 p-3">
-                <p className="text-xs font-bold text-stone-500">{isVi ? "SL đang nhập" : "Receiving"}</p>
-                <p className="text-2xl font-black text-amber-700">{stats.items.toLocaleString("vi-VN")}</p>
+              <div className="stat-card rounded-2xl p-3 before:bg-warning">
+                <p className="text-xs font-bold text-muted-foreground">{isVi ? "SL đang nhập" : "Receiving"}</p>
+                <p className="text-2xl font-black text-warning-foreground">{stats.items.toLocaleString("vi-VN")}</p>
               </div>
             </div>
           </div>
         </header>
 
-        <Card className="rounded-[1.5rem] border-stone-200 bg-white shadow-sm">
+        <Card className="card-elevated rounded-[1.5rem]">
           <CardHeader>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle className="flex items-center gap-2 text-xl font-black">
-                  <CalendarDays className="h-5 w-5 text-blue-700" />
-                  {copy.auditToday} · {selectedDate === vnTodayIso() ? (isVi ? "Hôm nay" : "Today") : displayDate(selectedDate)}
+                  <CalendarDays className="h-5 w-5 text-primary" />
+                  {copy.auditToday} · {selectedDate === vnTodayIso() ? (isVi ? "Hôm nay" : "Today") : displayDateKey(selectedDate)}
                 </CardTitle>
                 <CardDescription>{isVi ? "Mở lại từng phiếu để xem lệnh SX, checklist và ảnh QA." : "Open any record to review order, checklist, and QA photos."}</CardDescription>
               </div>
-              <Input type="date" className="w-full rounded-2xl sm:w-48" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
+              <Input type="date" className="w-full rounded-2xl bg-background sm:w-48" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
             </div>
           </CardHeader>
           <CardContent>
             {inspectionsLoading ? (
-              <div className="flex min-h-32 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-blue-700" /></div>
+              <div className="flex min-h-32 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>
             ) : inspections.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-stone-300 bg-stone-50 p-8 text-center font-semibold text-stone-500">{copy.noAudits}</div>
+              <div className="rounded-3xl border border-dashed border-border bg-muted/50 p-8 text-center font-semibold text-muted-foreground">{copy.noAudits}</div>
             ) : (
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {inspections.map((inspection) => {
                   const inspectedAt = inspection.inspected_at || inspection.inspection_date || inspection.created_at;
                   return (
-                    <button key={inspection.id} type="button" onClick={() => handleOpenDetail(inspection)} className="rounded-3xl border border-stone-200 bg-stone-50 p-4 text-left transition hover:border-blue-300 hover:bg-blue-50">
+                    <button key={inspection.id} type="button" onClick={() => handleOpenDetail(inspection)} className="rounded-3xl border border-border bg-card/70 p-4 text-left transition hover:border-primary/45 hover:bg-accent/20">
                       <div className="flex items-start justify-between gap-2">
                         <div>
-                          <p className="font-mono text-sm font-black text-stone-900">{inspection.inspection_number || inspection.id.slice(0, 8)}</p>
-                          <p className="mt-1 text-sm font-bold text-stone-600">{inspection.production_order?.production_number || "-"}</p>
+                          <p className="font-mono text-sm font-black text-foreground">{inspection.inspection_number || inspection.id.slice(0, 8)}</p>
+                          <p className="mt-1 text-sm font-bold text-muted-foreground">{inspection.production_order?.production_number || "-"}</p>
                         </div>
-                        <Badge className={inspection.status === "approved" ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : inspection.status === "rejected" ? "bg-red-100 text-red-800 hover:bg-red-100" : "bg-amber-100 text-amber-800 hover:bg-amber-100"}>
+                        <Badge className={inspection.status === "approved" ? "bg-success/15 text-success hover:bg-success/15" : inspection.status === "rejected" ? "bg-destructive/15 text-destructive hover:bg-destructive/15" : "bg-warning text-warning-foreground hover:bg-warning"}>
                           {inspection.status === "approved" ? "QA pass" : inspection.status}
                         </Badge>
                       </div>
-                      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-stone-500">
+                      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-muted-foreground">
                         <span>{displayDateTime(inspectedAt)}</span>
                         <span>·</span>
                         <span>{inspection.product_photos?.length || 0} ảnh</span>
@@ -621,12 +628,12 @@ export default function QAInspection() {
 
         <div className="grid gap-5">
           <section className="space-y-4">
-            <Card className="rounded-[1.5rem] border-amber-200 bg-white shadow-sm">
+            <Card className="card-elevated rounded-[1.5rem]">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <CardTitle className="flex items-center gap-2 text-xl font-black">
-                      <Factory className="h-5 w-5 text-amber-700" />
+                      <Factory className="h-5 w-5 text-primary" />
                       {copy.orderQueue}
                     </CardTitle>
                     <CardDescription data-qa-date-filter-both="audit-and-orders">{isVi ? "Danh sách lệnh SX cũng lọc theo ngày audit đang chọn; bấm vào lệnh để QA pass & nhập kho." : "Production orders also follow the selected audit date; click an order to QA pass & receive stock."}</CardDescription>
@@ -638,11 +645,11 @@ export default function QAInspection() {
               </CardHeader>
               <CardContent className="space-y-3">
                 {ordersLoading ? (
-                  <div className="flex min-h-36 items-center justify-center rounded-3xl bg-amber-50">
-                    <Loader2 className="h-7 w-7 animate-spin text-amber-700" />
+                  <div className="flex min-h-36 items-center justify-center rounded-3xl bg-muted/50">
+                    <Loader2 className="h-7 w-7 animate-spin text-primary" />
                   </div>
                 ) : filteredProductionOrders.length === 0 ? (
-                  <div className="rounded-3xl border border-dashed border-amber-300 bg-amber-50 p-6 text-center font-semibold text-stone-600">{isVi ? `Không có lệnh SX cho ngày ${displayDate(selectedDate)}.` : `No production orders for ${displayDate(selectedDate)}.`}</div>
+                  <div className="rounded-3xl border border-dashed border-border bg-muted/50 p-6 text-center font-semibold text-muted-foreground">{isVi ? `Không có lệnh SX cho ngày ${displayDateKey(selectedDate)}.` : `No production orders for ${displayDateKey(selectedDate)}.`}</div>
                 ) : (
                   <div className="space-y-3">
                     {filteredProductionOrders.slice(0, 14).map((order) => {
@@ -655,27 +662,27 @@ export default function QAInspection() {
                           key={order.id}
                           type="button"
                           onClick={() => handleSelectOrder(order.id)}
-                          className={`w-full rounded-3xl border p-3 text-left transition ${selected ? "border-amber-600 bg-amber-50 shadow-inner" : "border-stone-200 bg-white hover:border-amber-300 hover:bg-amber-50/60"}`}
+                          className={`w-full rounded-3xl border p-3 text-left transition ${selected ? "border-primary bg-primary/10 shadow-inner" : "border-border bg-card/70 hover:border-primary/45 hover:bg-accent/20"}`}
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <div className="flex flex-wrap items-center gap-2">
-                                <p className="font-mono text-sm font-black text-stone-900">{order.production_number}</p>
-                                {alreadyPassed && <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">QA pass</Badge>}
+                                <p className="font-mono text-sm font-black text-foreground">{order.production_number}</p>
+                                {alreadyPassed && <Badge className="bg-success/15 text-success hover:bg-success/15">QA pass</Badge>}
                                 <Badge variant="outline" className="rounded-full text-[11px] uppercase">{order.status}</Badge>
                               </div>
-                              <p className="mt-1 line-clamp-2 text-sm font-semibold text-stone-600">
+                              <p className="mt-1 line-clamp-2 text-sm font-semibold text-muted-foreground">
                                 {items.slice(0, 2).map((item) => item.product_name).join(" · ") || (isVi ? "Chưa có dòng sản phẩm" : "No item lines")}
                               </p>
                             </div>
                             <div className="shrink-0 text-right">
-                              <p className="text-2xl font-black text-amber-700">{totalQty.toLocaleString("vi-VN")}</p>
-                              <p className="text-[11px] font-bold text-stone-500">{items.length} SKU</p>
+                              <p className="text-2xl font-black text-warning-foreground">{totalQty.toLocaleString("vi-VN")}</p>
+                              <p className="text-[11px] font-bold text-muted-foreground">{items.length} SKU</p>
                             </div>
                           </div>
-                          <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-bold text-stone-500">
-                            <span className="rounded-full bg-stone-100 px-2 py-1">SX {displayDate(order.planned_start_date || order.planned_end_date || order.created_at)}</span>
-                            <span className="rounded-full bg-stone-100 px-2 py-1">{isVi ? "Bấm để QA pass" : "Click to QA pass"}</span>
+                          <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-bold text-muted-foreground">
+                            <span className="rounded-full bg-muted px-2 py-1">SX {displayDateKey(order.planned_start_date || order.planned_end_date || order.created_at)}</span>
+                            <span className="rounded-full bg-muted px-2 py-1">{isVi ? "Bấm để QA pass" : "Click to QA pass"}</span>
                           </div>
                         </button>
                       );
@@ -693,28 +700,28 @@ export default function QAInspection() {
 
 
       <Dialog open={qaDialogOpen} onOpenChange={setQaDialogOpen}>
-        <DialogContent className="max-h-[92vh] w-[calc(100vw-1rem)] max-w-3xl overflow-y-auto rounded-3xl" data-qa-pass-modal="production-order-click">
+        <DialogContent className="max-h-[92vh] w-[calc(100vw-1rem)] max-w-3xl overflow-y-auto rounded-3xl border-border bg-card text-card-foreground" data-qa-pass-modal="production-order-click">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl font-black">
-              <PackageCheck className="h-5 w-5 text-emerald-700" />
+              <PackageCheck className="h-5 w-5 text-success" />
               {copy.qaPass}
             </DialogTitle>
             <CardDescription>{selectedOrder ? selectedOrder.production_number : isVi ? "Chọn một lệnh SX bên dưới để QA." : "Select a production order to QA."}</CardDescription>
           </DialogHeader>
           <div className="space-y-4">
                 <div>
-                  <label className="text-sm font-bold text-stone-700">{isVi ? "Người QA" : "Inspector"}</label>
-                  <Input data-qa-inspector-autofill="logged-in-user" className="mt-1 h-11 rounded-2xl" placeholder={loggedInInspectorName || (isVi ? "Ví dụ: Vũ Phương Nhi" : "Inspector name")} value={inspectedBy} onChange={(event) => setInspectedBy(event.target.value)} />
+                  <label className="text-sm font-bold text-foreground">{isVi ? "Người QA" : "Inspector"}</label>
+                  <Input data-qa-inspector-autofill="logged-in-user" className="mt-1 h-11 rounded-2xl bg-background" placeholder={loggedInInspectorName || (isVi ? "Ví dụ: Vũ Phương Nhi" : "Inspector name")} value={inspectedBy} onChange={(event) => setInspectedBy(event.target.value)} />
                 </div>
 
 
-                <div className="rounded-3xl border border-dashed border-blue-300 bg-blue-50 p-3">
+                <div className="rounded-3xl border border-dashed border-primary/35 bg-primary/10 p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-black text-blue-950">{copy.uploadPhotos}</p>
-                      <p className="text-xs font-semibold text-blue-700">{isVi ? "Chọn nhiều ảnh: số lượng chưa đóng gói, cảm quan, bao bì sau đóng gói." : "Select multiple photos for quantity, sensory, and packaging evidence."}</p>
+                      <p className="text-sm font-black text-foreground">{copy.uploadPhotos}</p>
+                      <p className="text-xs font-semibold text-muted-foreground">{isVi ? "Chọn nhiều ảnh: số lượng chưa đóng gói, cảm quan, bao bì sau đóng gói." : "Select multiple photos for quantity, sensory, and packaging evidence."}</p>
                     </div>
-                    <Button type="button" variant="outline" className="shrink-0 rounded-2xl bg-white" onClick={() => fileInputRef.current?.click()}>
+                    <Button type="button" variant="outline" className="shrink-0 rounded-2xl bg-background" onClick={() => fileInputRef.current?.click()}>
                       <UploadCloud className="mr-2 h-4 w-4" />
                       {isVi ? "Chọn ảnh" : "Choose"}
                     </Button>
@@ -723,9 +730,9 @@ export default function QAInspection() {
                   {qaFiles.length > 0 && (
                     <div className="mt-3 grid grid-cols-3 gap-2">
                       {qaFiles.map((file, index) => (
-                        <div key={`${file.name}-${index}`} className="relative rounded-2xl border border-blue-200 bg-white p-2">
-                          <ImageIcon className="h-5 w-5 text-blue-700" />
-                          <p className="mt-1 truncate text-[11px] font-bold text-stone-600">{file.name}</p>
+                        <div key={`${file.name}-${index}`} className="relative rounded-2xl border border-border bg-card p-2">
+                          <ImageIcon className="h-5 w-5 text-primary" />
+                          <p className="mt-1 truncate text-[11px] font-bold text-muted-foreground">{file.name}</p>
                           <button type="button" className="absolute -right-1 -top-1 rounded-full bg-red-600 p-1 text-white" onClick={() => setQaFiles((current) => current.filter((_, idx) => idx !== index))}>
                             <X className="h-3 w-3" />
                           </button>
@@ -737,30 +744,30 @@ export default function QAInspection() {
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-black text-stone-700">{isVi ? "Sản phẩm nhập kho từ lệnh SX" : "Finished goods from order"}</p>
+                    <p className="text-sm font-black text-foreground">{isVi ? "Sản phẩm nhập kho từ lệnh SX" : "Finished goods from order"}</p>
                     <Badge variant="outline">{formItems.length} dòng</Badge>
                   </div>
                   {formItems.length === 0 ? (
-                    <div className="rounded-2xl bg-stone-100 p-4 text-sm font-semibold text-stone-500">{isVi ? "Chọn lệnh SX để tự điền danh sách sản phẩm." : "Select an order to auto-fill items."}</div>
+                    <div className="rounded-2xl bg-muted p-4 text-sm font-semibold text-muted-foreground">{isVi ? "Chọn lệnh SX để tự điền danh sách sản phẩm." : "Select an order to auto-fill items."}</div>
                   ) : (
                     <div className="space-y-2">
                       {formItems.map((item, index) => (
-                        <div key={item.id || index} className="rounded-2xl border border-stone-200 bg-stone-50 p-3">
+                        <div key={item.id || index} className="rounded-2xl border border-border bg-muted/50 p-3">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
-                              <p className="line-clamp-2 text-sm font-black text-stone-900">{item.product_name}</p>
-                              <p className="text-xs font-bold text-stone-500">Plan {item.planned_qty.toLocaleString("vi-VN")} {item.unit}</p>
+                              <p className="line-clamp-2 text-sm font-black text-foreground">{item.product_name}</p>
+                              <p className="text-xs font-bold text-muted-foreground">Plan {item.planned_qty.toLocaleString("vi-VN")} {item.unit}</p>
                             </div>
-                            <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">{item.unit}</Badge>
+                            <Badge className="bg-warning text-warning-foreground hover:bg-warning">{item.unit}</Badge>
                           </div>
                           <div className="mt-3 grid grid-cols-2 gap-2">
                             <div>
-                              <label className="text-[11px] font-bold text-stone-500">{isVi ? "SL kiểm" : "Inspected"}</label>
-                              <Input type="number" className="mt-1 h-10 rounded-xl" value={item.inspected_qty} onChange={(event) => updateFormItem(index, "inspected_qty", event.target.value)} />
+                              <label className="text-[11px] font-bold text-muted-foreground">{isVi ? "SL kiểm" : "Inspected"}</label>
+                              <Input type="number" className="mt-1 h-10 rounded-xl bg-background" value={item.inspected_qty} onChange={(event) => updateFormItem(index, "inspected_qty", event.target.value)} />
                             </div>
                             <div>
-                              <label className="text-[11px] font-bold text-stone-500">{isVi ? "SL pass nhập kho" : "Passed qty"}</label>
-                              <Input type="number" className="mt-1 h-10 rounded-xl" value={item.approved_qty} onChange={(event) => updateFormItem(index, "approved_qty", event.target.value)} />
+                              <label className="text-[11px] font-bold text-muted-foreground">{isVi ? "SL pass nhập kho" : "Passed qty"}</label>
+                              <Input type="number" className="mt-1 h-10 rounded-xl bg-background" value={item.approved_qty} onChange={(event) => updateFormItem(index, "approved_qty", event.target.value)} />
                             </div>
                           </div>
                         </div>
@@ -770,11 +777,11 @@ export default function QAInspection() {
                 </div>
 
                 <div>
-                  <label className="text-sm font-bold text-stone-700">{isVi ? "Ghi chú audit" : "Audit notes"}</label>
-                  <Textarea className="mt-1 rounded-2xl" rows={3} placeholder={isVi ? "Ví dụ: PO 687, giao đủ 687; bao bì mới OK..." : "Notes for audit"} value={notes} onChange={(event) => setNotes(event.target.value)} />
+                  <label className="text-sm font-bold text-foreground">{isVi ? "Ghi chú audit" : "Audit notes"}</label>
+                  <Textarea className="mt-1 rounded-2xl bg-background" rows={3} placeholder={isVi ? "Ví dụ: PO 687, giao đủ 687; bao bì mới OK..." : "Notes for audit"} value={notes} onChange={(event) => setNotes(event.target.value)} />
                 </div>
 
-                <Button className="h-12 w-full rounded-2xl bg-emerald-700 text-base font-black hover:bg-emerald-800" disabled={qaPassMutation.isPending || !selectedOrderId} onClick={() => qaPassMutation.mutate()}>
+                <Button className="h-12 w-full rounded-2xl bg-success text-base font-black text-success-foreground hover:bg-success/90" disabled={qaPassMutation.isPending || !selectedOrderId} onClick={() => qaPassMutation.mutate()}>
                   {qaPassMutation.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CheckCircle2 className="mr-2 h-5 w-5" />}
                   {copy.qaPass}
                 </Button>
@@ -783,27 +790,27 @@ export default function QAInspection() {
       </Dialog>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-h-[92vh] w-[calc(100vw-1rem)] max-w-4xl overflow-y-auto rounded-3xl">
+        <DialogContent className="max-h-[92vh] w-[calc(100vw-1rem)] max-w-4xl overflow-y-auto rounded-3xl border-border bg-card text-card-foreground">
           <DialogHeader>
             <DialogTitle>{isVi ? "Chi tiết audit QA" : "QA audit details"}</DialogTitle>
           </DialogHeader>
           {selectedInspection && (
             <div className="space-y-4">
-              <div className="grid gap-3 rounded-3xl bg-stone-50 p-4 sm:grid-cols-2">
+              <div className="grid gap-3 rounded-3xl bg-muted/50 p-4 sm:grid-cols-2">
                 <div>
-                  <p className="text-xs font-bold text-stone-500">Mã QA</p>
+                  <p className="text-xs font-bold text-muted-foreground">Mã QA</p>
                   <p className="font-mono text-sm font-black">{selectedInspection.inspection_number || selectedInspection.id.slice(0, 8)}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-stone-500">Lệnh SX</p>
+                  <p className="text-xs font-bold text-muted-foreground">Lệnh SX</p>
                   <p className="text-sm font-black">{selectedInspection.production_order?.production_number || "-"}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-stone-500">Người QA</p>
+                  <p className="text-xs font-bold text-muted-foreground">Người QA</p>
                   <p className="text-sm font-black">{selectedInspection.inspected_by || "-"}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-stone-500">Thời gian</p>
+                  <p className="text-xs font-bold text-muted-foreground">Thời gian</p>
                   <p className="text-sm font-black">{displayDateTime(selectedInspection.inspected_at || selectedInspection.inspection_date || selectedInspection.created_at)}</p>
                 </div>
               </div>
@@ -817,7 +824,7 @@ export default function QAInspection() {
                   const ActiveIcon = Icon as typeof CheckCircle2;
                   const passed = selectedChecklist[key as "quality" | "sensory" | "packaging"] || selectedInspection.status === "approved";
                   return (
-                    <div key={String(key)} className={`rounded-2xl border p-3 ${passed ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-900"}`}>
+                    <div key={String(key)} className={`rounded-2xl border p-3 ${passed ? "border-success/25 bg-success/10 text-success" : "border-destructive/25 bg-destructive/10 text-destructive"}`}>
                       <ActiveIcon className="mb-2 h-5 w-5" />
                       <p className="text-sm font-black">{String(label)}</p>
                       <p className="text-xs font-bold">{passed ? "PASS" : "CHƯA PASS"}</p>
@@ -830,14 +837,14 @@ export default function QAInspection() {
                 <h3 className="mb-2 text-sm font-black">Sản phẩm đã QA</h3>
                 <div className="space-y-2">
                   {selectedItems.map((item) => (
-                    <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-2xl border border-stone-200 bg-white p-3">
+                    <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-2xl border border-border bg-card/70 p-3">
                       <div className="min-w-0">
                         <p className="line-clamp-2 text-sm font-black">{item.product_name}</p>
-                        <p className="text-xs font-bold text-stone-500">Kiểm {numberValue(item.inspected_qty).toLocaleString("vi-VN")} · Từ chối {numberValue(item.rejected_qty).toLocaleString("vi-VN")} {item.unit}</p>
+                        <p className="text-xs font-bold text-muted-foreground">Kiểm {numberValue(item.inspected_qty).toLocaleString("vi-VN")} · Từ chối {numberValue(item.rejected_qty).toLocaleString("vi-VN")} {item.unit}</p>
                       </div>
                       <div className="text-right">
-                        <p className="text-xl font-black text-emerald-700">{numberValue(item.approved_qty).toLocaleString("vi-VN")}</p>
-                        <p className="text-xs font-bold text-stone-500">{item.unit} nhập kho</p>
+                        <p className="text-xl font-black text-success">{numberValue(item.approved_qty).toLocaleString("vi-VN")}</p>
+                        <p className="text-xs font-bold text-muted-foreground">{item.unit} nhập kho</p>
                       </div>
                     </div>
                   ))}
@@ -849,7 +856,7 @@ export default function QAInspection() {
                   <h3 className="mb-2 text-sm font-black">Ảnh QA</h3>
                   <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
                     {selectedInspection.product_photos.map((photo, index) => (
-                      <a key={`${photo}-${index}`} href={photo} target="_blank" rel="noreferrer" className="group relative overflow-hidden rounded-2xl border border-stone-200 bg-stone-100">
+                      <a key={`${photo}-${index}`} href={photo} target="_blank" rel="noreferrer" className="group relative overflow-hidden rounded-2xl border border-border bg-muted">
                         <img src={photo} alt={`QA ${index + 1}`} className="h-40 w-full object-cover transition group-hover:scale-105" />
                         <span className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2 py-1 text-xs font-bold text-white"><Eye className="mr-1 inline h-3 w-3" />Mở</span>
                       </a>
@@ -859,9 +866,9 @@ export default function QAInspection() {
               )}
 
               {selectedInspection.notes && (
-                <div className="rounded-2xl bg-stone-50 p-3">
+                <div className="rounded-2xl bg-muted/50 p-3">
                   <p className="mb-1 text-sm font-black">Ghi chú audit</p>
-                  <pre className="whitespace-pre-wrap text-sm font-medium text-stone-700">{selectedInspection.notes.replace(/\[QA_CHECKLIST\][\s\S]*?\[\/QA_CHECKLIST\]\n?/g, "").trim() || "-"}</pre>
+                  <pre className="whitespace-pre-wrap text-sm font-medium text-muted-foreground">{selectedInspection.notes.replace(/\[QA_CHECKLIST\][\s\S]*?\[\/QA_CHECKLIST\]\n?/g, "").trim() || "-"}</pre>
                 </div>
               )}
             </div>

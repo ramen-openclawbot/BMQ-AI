@@ -16,9 +16,21 @@ def test_qa_pass_dialog_does_not_render_redundant_pass_buttons():
     assert "qaPassMutation.mutate()" in dialog_section
 
 
+def test_qa_selected_date_title_uses_date_key_without_timezone_shift():
+    source = QA_PAGE.read_text(encoding="utf-8")
+
+    assert "const displayDateKey" in source
+    assert "match(/^(\\d{4})-(\\d{2})-(\\d{2})/)" in source
+    assert "displayDateKey(selectedDate)" in source
+    assert "displayDate(selectedDate)" not in source
+    assert 'data-stitch-qa-finished-goods="q7-current-theme-vn-date"' in source
+    assert 'bg-[#f7f2ec]' not in source
+
+
 def main():
     test_qa_pass_dialog_does_not_render_redundant_pass_buttons()
-    print("PASS: QA pass dialog no longer renders three redundant PASS buttons")
+    test_qa_selected_date_title_uses_date_key_without_timezone_shift()
+    print("PASS: QA date title is timezone-safe and redundant pass buttons stay removed")
 
 
 if __name__ == "__main__":
