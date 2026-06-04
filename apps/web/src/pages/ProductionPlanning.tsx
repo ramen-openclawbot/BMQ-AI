@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import { type MouseEvent, type ReactNode, useCallback, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -8,6 +8,7 @@ import {
   ClipboardCheck,
   Factory,
   FilePlus2,
+  Download,
   Loader2,
   MailCheck,
   Monitor,
@@ -962,6 +963,67 @@ export default function ProductionPlanning() {
     setCreateDialogOpen(true);
   };
 
+  const downloadPoAttachment = useCallback(
+    async (po: Pick<CustomerPoInbox, "id" | "po_number">, fileName: string, event?: MouseEvent<HTMLElement>) => {
+      event?.preventDefault();
+      event?.stopPropagation();
+
+      const lowerName = fileName.toLowerCase();
+      const shouldOpenInline = /\.(pdf|png|jpe?g|webp)$/i.test(lowerName);
+      const viewerWindow = shouldOpenInline && typeof window !== "undefined" ? window.open("", "_blank") : null;
+
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData.session?.access_token;
+        if (!accessToken) {
+          viewerWindow?.close();
+          toast.error(isVi ? "Vui lòng đăng nhập để mở file PO" : "Please sign in to open the PO file");
+          return;
+        }
+
+        const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-gmail-attachment`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ inboxId: po.id, filename: fileName }),
+        });
+
+        if (!response.ok) {
+          viewerWindow?.close();
+          let message = response.statusText;
+          try {
+            const errorPayload = await response.json();
+            message = String(errorPayload?.error || message);
+          } catch {
+            // ignore non-JSON error body
+          }
+          throw new Error(message);
+        }
+
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        if (viewerWindow) {
+          viewerWindow.location.href = blobUrl;
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
+        } else {
+          const link = document.createElement("a");
+          link.href = blobUrl;
+          link.download = fileName;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+        }
+      } catch (error) {
+        console.error("Error opening PO attachment:", error);
+        toast.error(isVi ? "Không thể mở file PO thật từ email" : "Failed to open the original PO email attachment");
+      }
+    },
+    [isVi]
+  );
+
   const handleSubmitCreate = async () => {
     if (!selectedPoForCreation) return;
     if (!canEditLocation) {
@@ -1339,9 +1401,20 @@ export default function ProductionPlanning() {
                         <div className="mt-3 flex flex-wrap gap-1.5">
                           {attachmentNames.length > 0 ? (
                             attachmentNames.slice(0, 4).map((fileName) => (
-                              <span key={fileName} className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-1 text-[11px] font-bold text-primary">
+                              <span
+                                key={fileName}
+                                role="button"
+                                tabIndex={0}
+                                title={isVi ? `Mở file PO thật: ${fileName}` : `Open original PO file: ${fileName}`}
+                                onClick={(event) => downloadPoAttachment(po, fileName, event)}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter" || event.key === " ") void downloadPoAttachment(po, fileName, event as any);
+                                }}
+                                className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-1 text-[11px] font-bold text-primary ring-offset-background transition hover:border-primary/40 hover:bg-primary/15 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                              >
                                 <Paperclip className="h-3 w-3 shrink-0" />
                                 <span className="truncate">{fileName}</span>
+                                <Download className="h-3 w-3 shrink-0" />
                               </span>
                             ))
                           ) : (
@@ -1513,10 +1586,17 @@ export default function ProductionPlanning() {
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {getPoAttachmentNames(selectedPoForCreation).length > 0 ? (
                     getPoAttachmentNames(selectedPoForCreation).map((fileName) => (
-                      <span key={fileName} className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/25 bg-background/80 px-2.5 py-1 text-xs font-bold text-primary">
+                      <button
+                        key={fileName}
+                        type="button"
+                        title={isVi ? `Mở file PO thật: ${fileName}` : `Open original PO file: ${fileName}`}
+                        onClick={(event) => downloadPoAttachment(selectedPoForCreation, fileName, event)}
+                        className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/25 bg-background/80 px-2.5 py-1 text-xs font-bold text-primary transition hover:border-primary/50 hover:bg-background focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      >
                         <Paperclip className="h-3.5 w-3.5 shrink-0" />
                         <span className="truncate">{fileName}</span>
-                      </span>
+                        <Download className="h-3.5 w-3.5 shrink-0" />
+                      </button>
                     ))
                   ) : (
                     <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background/80 px-2.5 py-1 text-xs font-bold text-muted-foreground">

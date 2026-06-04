@@ -78,6 +78,11 @@ verify_jwt = false
 [functions.po-gmail-sync]
 verify_jwt = false
 
+[functions.po-gmail-attachment]
+# verify_jwt disabled: proxy may reject ES256 user tokens before the function runs.
+# Auth and production permission are checked inside the function.
+verify_jwt = false
+
 [functions.export-npp-debt-sheet]
 verify_jwt = false
 
