@@ -707,28 +707,6 @@ export default function QAInspection() {
                   <Input data-qa-inspector-autofill="logged-in-user" className="mt-1 h-11 rounded-2xl" placeholder={loggedInInspectorName || (isVi ? "Ví dụ: Vũ Phương Nhi" : "Inspector name")} value={inspectedBy} onChange={(event) => setInspectedBy(event.target.value)} />
                 </div>
 
-                <div className="grid gap-2 sm:grid-cols-3">
-                  {[
-                    ["quality", isVi ? "Chất lượng" : "Quality", CheckCircle2],
-                    ["sensory", isVi ? "Cảm quan" : "Sensory", Sparkles],
-                    ["packaging", isVi ? "Bao bì" : "Packaging", PackageCheck],
-                  ].map(([key, label, Icon]) => {
-                    const typedKey = key as "quality" | "sensory" | "packaging";
-                    const ActiveIcon = Icon as typeof CheckCircle2;
-                    return (
-                      <button
-                        key={typedKey}
-                        type="button"
-                        onClick={() => setChecklist((current) => ({ ...current, [typedKey]: !current[typedKey] }))}
-                        className={`rounded-2xl border p-3 text-left transition ${checklist[typedKey] ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-900"}`}
-                      >
-                        <ActiveIcon className="mb-2 h-5 w-5" />
-                        <p className="text-sm font-black">{label}</p>
-                        <p className="text-xs font-bold">{checklist[typedKey] ? "PASS" : "CHƯA PASS"}</p>
-                      </button>
-                    );
-                  })}
-                </div>
 
                 <div className="rounded-3xl border border-dashed border-blue-300 bg-blue-50 p-3">
                   <div className="flex items-center justify-between gap-3">
