@@ -1,4 +1,4 @@
-import { ChangeEvent, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 const QA_PHOTO_BUCKET = "sku-images";
 
@@ -211,6 +212,7 @@ const checklistFromNotes = (notes?: string | null) => ({
 
 export default function QAInspection() {
   const { language } = useLanguage();
+  const { profile, user } = useAuth();
   const isVi = language === "vi";
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -227,6 +229,20 @@ export default function QAInspection() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedInspection, setSelectedInspection] = useState<QAInspection | null>(null);
   const [selectedItems, setSelectedItems] = useState<QAInspectionItem[]>([]);
+
+  const loggedInInspectorName = useMemo(() => {
+    const fullName = profile?.full_name?.trim();
+    if (fullName) return fullName;
+    const metadataName = String(user?.user_metadata?.full_name || user?.user_metadata?.name || "").trim();
+    if (metadataName) return metadataName;
+    return user?.email?.split("@")[0] || "";
+  }, [profile?.full_name, user?.email, user?.user_metadata?.full_name, user?.user_metadata?.name]);
+
+  useEffect(() => {
+    if (!inspectedBy.trim() && loggedInInspectorName) {
+      setInspectedBy(loggedInInspectorName);
+    }
+  }, [inspectedBy, loggedInInspectorName]);
 
   const copy = {
     title: isVi ? "QA & nhập kho thành phẩm Q7" : "Q7 QA & finished goods receiving",
@@ -329,7 +345,7 @@ export default function QAInspection() {
 
   const handleSelectOrder = (orderId: string) => {
     setSelectedOrderId(orderId);
-    setInspectedBy("");
+    setInspectedBy(loggedInInspectorName);
     setNotes("");
     setChecklist({ quality: true, sensory: true, packaging: true });
     setQaFiles([]);
@@ -495,7 +511,7 @@ export default function QAInspection() {
         description: isVi ? "Đã upload ảnh, lưu audit theo ngày và nhập kho thành phẩm." : "Photos uploaded, daily audit saved, and finished goods received.",
       });
       setSelectedOrderId("");
-      setInspectedBy("");
+      setInspectedBy(loggedInInspectorName);
       setNotes("");
       setChecklist({ quality: true, sensory: true, packaging: true });
       setQaFiles([]);
@@ -688,7 +704,7 @@ export default function QAInspection() {
           <div className="space-y-4">
                 <div>
                   <label className="text-sm font-bold text-stone-700">{isVi ? "Người QA" : "Inspector"}</label>
-                  <Input className="mt-1 h-11 rounded-2xl" placeholder={isVi ? "Ví dụ: Vũ Phương Nhi" : "Inspector name"} value={inspectedBy} onChange={(event) => setInspectedBy(event.target.value)} />
+                  <Input data-qa-inspector-autofill="logged-in-user" className="mt-1 h-11 rounded-2xl" placeholder={loggedInInspectorName || (isVi ? "Ví dụ: Vũ Phương Nhi" : "Inspector name")} value={inspectedBy} onChange={(event) => setInspectedBy(event.target.value)} />
                 </div>
 
                 <div className="grid gap-2 sm:grid-cols-3">
