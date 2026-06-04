@@ -3,6 +3,7 @@ import { type MouseEvent, type ReactNode, useCallback, useMemo, useState } from 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
+  ArrowLeft,
   CalendarDays,
   CheckCircle,
   ClipboardCheck,
@@ -1107,16 +1108,26 @@ export default function ProductionPlanning() {
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:flex">
-            <Button
-              variant="outline"
-              size="lg"
-              className={`h-12 rounded-2xl border-border text-base ${activeTab === "settings" ? "bg-secondary text-secondary-foreground hover:bg-secondary/90" : "bg-card/80 text-foreground hover:bg-muted"}`}
-              onClick={() => setActiveTab("settings")}
-            >
-              {isVi ? "Thiết lập SX" : "Production setup"}
-            </Button>
-            {activeTab === "plan" && (
+            {activeTab === "settings" ? (
+              <Button
+                variant="outline"
+                size="lg"
+                className="h-12 rounded-2xl border-primary/30 bg-card/80 text-base font-bold text-primary hover:bg-primary/10 hover:text-primary"
+                onClick={() => setActiveTab("plan")}
+              >
+                <ArrowLeft className="mr-2 h-5 w-5" />
+                {isVi ? "Quay lại kế hoạch" : "Back to plan"}
+              </Button>
+            ) : (
               <>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="h-12 rounded-2xl border-border bg-card/80 text-base text-foreground hover:bg-muted"
+                  onClick={() => setActiveTab("settings")}
+                >
+                  {isVi ? "Thiết lập SX" : "Production setup"}
+                </Button>
                 <Button
                   variant="outline"
                   size="lg"
@@ -1156,9 +1167,19 @@ export default function ProductionPlanning() {
                   {isVi ? "Chỉ SKU được check mới hiển thị trong kế hoạch sản xuất khi PO đẩy về xưởng này." : "Only checked SKUs appear in this workshop production plan when POs arrive."}
                 </CardDescription>
               </div>
-              <Badge className="w-fit bg-primary text-primary-foreground hover:bg-primary">
-                {enabledSkuIds.size}/{skuImageRows.length} {isVi ? "SKU bật" : "enabled"}
-              </Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  className="rounded-2xl border-primary/30 bg-card/80 font-bold text-primary hover:bg-primary/10 hover:text-primary"
+                  onClick={() => setActiveTab("plan")}
+                >
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  {isVi ? "Quay lại" : "Back"}
+                </Button>
+                <Badge className="w-fit bg-primary text-primary-foreground hover:bg-primary">
+                  {enabledSkuIds.size}/{skuImageRows.length} {isVi ? "SKU bật" : "enabled"}
+                </Badge>
+              </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
