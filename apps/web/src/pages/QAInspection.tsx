@@ -1,63 +1,94 @@
-import { useState } from "react";
+import { ChangeEvent, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  ClipboardCheck,
-  Plus,
+  AlertTriangle,
+  CalendarDays,
   Camera,
   CheckCircle2,
-  XCircle,
+  ClipboardCheck,
+  Eye,
+  Factory,
+  Image as ImageIcon,
   Loader2,
-  Image,
+  PackageCheck,
   RefreshCw,
-  Trash2,
-  AlertTriangle,
+  ShieldCheck,
+  Sparkles,
+  UploadCloud,
+  X,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useLanguage } from "@/contexts/LanguageContext";
 
+const QA_PHOTO_BUCKET = "sku-images";
+
+type QueryResult<T = unknown> = { data: T | null; error: { message?: string } | null };
+type MutationPayload = Record<string, unknown>;
+
+type SupabaseQueryBuilder<T = unknown> = PromiseLike<QueryResult<T>> & {
+  select(columns?: string): SupabaseQueryBuilder<T>;
+  insert(values: MutationPayload | MutationPayload[]): SupabaseQueryBuilder<T>;
+  update(values: MutationPayload): SupabaseQueryBuilder<T>;
+  eq(column: string, value: unknown): SupabaseQueryBuilder<T>;
+  in(column: string, values: unknown[]): SupabaseQueryBuilder<T>;
+  gte(column: string, value: unknown): SupabaseQueryBuilder<T>;
+  lt(column: string, value: unknown): SupabaseQueryBuilder<T>;
+  ilike(column: string, pattern: string): SupabaseQueryBuilder<T>;
+  order(column: string, options?: Record<string, unknown>): SupabaseQueryBuilder<T>;
+  limit(count: number): SupabaseQueryBuilder<T>;
+  single(): SupabaseQueryBuilder<T>;
+  maybeSingle(): SupabaseQueryBuilder<T>;
+};
+
+type SupabaseLoose = {
+  from<T = unknown>(table: string): SupabaseQueryBuilder<T>;
+  rpc<T = unknown>(fn: string, args?: MutationPayload): PromiseLike<QueryResult<T>>;
+  storage: {
+    from(bucket: string): {
+      upload(path: string, file: File, options?: Record<string, unknown>): PromiseLike<QueryResult<unknown>>;
+      getPublicUrl(path: string): { data: { publicUrl: string } };
+    };
+  };
+};
+
+const db = supabase as unknown as SupabaseLoose;
+
+type QaStatus = "pending" | "approved" | "rejected";
+type ProductionStatus = "draft" | "planned" | "in_progress" | "completed" | "cancelled" | string;
+
 interface QAInspection {
   id: string;
-  production_order_id: string;
-  production_shift_id?: string;
-  inspected_by: string;
-  inspection_date: string;
-  status: "pending" | "approved" | "rejected";
-  notes?: string;
-  rejection_reason?: string;
-  product_photos?: string[];
+  inspection_number?: string | null;
+  production_order_id: string | null;
+  production_shift_id?: string | null;
+  inspected_by?: string | null;
+  inspected_at?: string | null;
+  inspection_date?: string | null;
+  status: QaStatus;
+  notes?: string | null;
+  rejection_reason?: string | null;
+  product_photos?: string[] | null;
   created_at: string;
   production_order?: {
     production_number: string;
-  };
-  production_shift?: {
-    shift_name: string;
-  };
+    status?: ProductionStatus | null;
+    planned_start_date?: string | null;
+    planned_end_date?: string | null;
+  } | null;
 }
 
 interface QAInspectionItem {
   id: string;
   qa_inspection_id: string;
+  sku_id?: string | null;
   product_name: string;
   unit: string;
   inspected_qty: number;
@@ -65,1147 +96,715 @@ interface QAInspectionItem {
   rejected_qty: number;
 }
 
+interface ProductionOrderItem {
+  id: string;
+  sku_id?: string | null;
+  product_name: string;
+  planned_qty?: number | null;
+  ordered_qty?: number | null;
+  actual_qty?: number | null;
+  unit: string;
+  delivery_date?: string | null;
+}
+
 interface ProductionOrder {
   id: string;
   production_number: string;
-  status: string;
+  status: ProductionStatus;
+  planned_start_date?: string | null;
+  planned_end_date?: string | null;
+  created_at?: string | null;
+  notes?: string | null;
+  production_order_items?: ProductionOrderItem[] | null;
 }
+
+interface QaFormItem {
+  id?: string;
+  sku_id?: string | null;
+  product_name: string;
+  unit: string;
+  planned_qty: number;
+  inspected_qty: number;
+  approved_qty: number;
+}
+
+const todayIso = () => format(new Date(), "yyyy-MM-dd");
+
+const numberValue = (value: unknown) => {
+  const parsed = Number(value || 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const safeDate = (value?: string | null) => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const displayDateTime = (value?: string | null) => {
+  const date = safeDate(value);
+  return date ? format(date, "dd/MM/yyyy HH:mm") : "-";
+};
+
+const displayDate = (value?: string | null) => {
+  const date = safeDate(value);
+  return date ? format(date, "dd/MM/yyyy") : "-";
+};
+
+const getErrorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error || ""));
+
+const slugPart = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "qa";
+
+const buildAuditNotes = (formNotes: string, checklist: Record<"quality" | "sensory" | "packaging", boolean>) => {
+  const lines = [
+    "[QA_CHECKLIST]",
+    `Chất lượng: ${checklist.quality ? "PASS" : "FAIL"}`,
+    `Cảm quan: ${checklist.sensory ? "PASS" : "FAIL"}`,
+    `Bao bì: ${checklist.packaging ? "PASS" : "FAIL"}`,
+    "[/QA_CHECKLIST]",
+  ];
+  if (formNotes.trim()) lines.push("", formNotes.trim());
+  return lines.join("\n");
+};
+
+const checklistFromNotes = (notes?: string | null) => ({
+  quality: /Chất lượng:\s*PASS/i.test(notes || ""),
+  sensory: /Cảm quan:\s*PASS/i.test(notes || ""),
+  packaging: /Bao bì:\s*PASS/i.test(notes || ""),
+});
 
 export default function QAInspection() {
   const { language } = useLanguage();
   const isVi = language === "vi";
-  const copy = {
-    success: isVi ? "Thành công" : "Success",
-    error: isVi ? "Lỗi" : "Error",
-    created: isVi ? "Đã tạo phiếu QA" : "QA record created",
-    createFailed: isVi ? "Không thể tạo phiếu QA" : "Unable to create QA record",
-    approved: isVi ? "Đã duyệt QA & nhập kho thành phẩm" : "QA approved and finished goods stocked",
-    approveFailed: isVi ? "Không thể duyệt QA" : "Unable to approve QA",
-    rejected: isVi ? "Đã từ chối QA" : "QA rejected",
-    rejectFailed: isVi ? "Không thể từ chối QA" : "Unable to reject QA",
-    pending: isVi ? "Chờ kiểm tra" : "Pending",
-    approvedLabel: isVi ? "Đã duyệt" : "Approved",
-    rejectedLabel: isVi ? "Từ chối" : "Rejected",
-    title: isVi ? "Kiểm Tra Chất Lượng" : "Quality Inspection",
-    createTitle: isVi ? "Tạo phiếu QA" : "Create QA record",
-    all: isVi ? "Tất cả" : "All",
-    qaCode: isVi ? "Mã QA" : "QA ID",
-    productionOrder: isVi ? "Lệnh SX" : "Production order",
-    productionShift: isVi ? "Ca SX" : "Shift",
-    status: isVi ? "Trạng thái" : "Status",
-    inspector: isVi ? "Người kiểm tra" : "Inspector",
-    inspectionDate: isVi ? "Ngày kiểm tra" : "Inspection date",
-    photos: isVi ? "Ảnh" : "Photos",
-    actions: isVi ? "Hành động" : "Actions",
-    noData: isVi ? "Không có dữ liệu" : "No data",
-    details: isVi ? "Chi tiết" : "Details",
-    cancel: isVi ? "Hủy" : "Cancel",
-    create: isVi ? "Tạo phiếu" : "Create record",
-    close: isVi ? "Đóng" : "Close",
-    approve: isVi ? "Duyệt" : "Approve",
-  };
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [filterStatus, setFilterStatus] = useState<"all" | "pending" | "approved" | "rejected">("all");
-  const [createOpen, setCreateOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [selectedDate, setSelectedDate] = useState(todayIso());
+  const [selectedOrderId, setSelectedOrderId] = useState("");
+  const [inspectedBy, setInspectedBy] = useState("");
+  const [notes, setNotes] = useState("");
+  const [checklist, setChecklist] = useState({ quality: true, sensory: true, packaging: true });
+  const [qaFiles, setQaFiles] = useState<File[]>([]);
+  const [formItems, setFormItems] = useState<QaFormItem[]>([]);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedInspection, setSelectedInspection] = useState<QAInspection | null>(null);
   const [selectedItems, setSelectedItems] = useState<QAInspectionItem[]>([]);
 
-  // Create form state
-  const [createForm, setCreateForm] = useState({
-    production_order_id: "",
-    production_shift_id: "",
-    inspected_by: "",
-    notes: "",
-    product_photos: [] as string[],
-    items: [] as Array<{
-      product_name: string;
-      unit: string;
-      inspected_qty: number;
-      approved_qty: number;
-      rejected_qty: number;
-    }>,
-  });
+  const copy = {
+    title: isVi ? "QA & nhập kho thành phẩm Q7" : "Q7 QA & finished goods receiving",
+    subtitle: isVi
+      ? "Gắn QA với lệnh sản xuất, chụp ảnh bằng chứng, xác nhận chất lượng/cảm quan/bao bì rồi nhập kho thành phẩm."
+      : "Tie QA to production orders, capture photo evidence, check quality/sensory/packaging, then receive finished goods.",
+    orderQueue: isVi ? "Lệnh SX chờ QA" : "Production orders waiting for QA",
+    qaPass: isVi ? "QA pass & nhập kho" : "QA pass & receive stock",
+    uploadPhotos: isVi ? "Upload nhiều ảnh QA" : "Upload QA photos",
+    auditToday: isVi ? "Audit QA theo ngày" : "Daily QA audit",
+    noOrders: isVi ? "Chưa có lệnh sản xuất phù hợp để QA." : "No suitable production orders found for QA.",
+    noAudits: isVi ? "Chưa có phiếu QA trong ngày này." : "No QA records for this day.",
+  };
 
-  // Detail form state
-  const [detailForm, setDetailForm] = useState({
-    rejection_reason: "",
-  });
-
-  // Disposition state: per rejected item, track action chosen
-  type DispositionAction = "repro" | "scrap" | null;
-  const [disposition, setDisposition] = useState<Record<string, DispositionAction>>({});
-  const [dispositionApplied, setDispositionApplied] = useState(false);
-
-  // Fetch QA inspections
-  const { data: inspections = [], isLoading: inspectionsLoading } = useQuery({
-    queryKey: ["qa_inspections", filterStatus],
+  const { data: productionOrders = [], isLoading: ordersLoading, refetch: refetchOrders } = useQuery<ProductionOrder[]>({
+    queryKey: ["qa_production_orders_q7"],
     queryFn: async () => {
-      let query = (supabase as any)
-        .from("qa_inspections")
+      const { data, error } = await db
+        .from<ProductionOrder[]>("production_orders")
+        .select(
+          `
+          id,production_number,status,planned_start_date,planned_end_date,created_at,notes,
+          production_order_items(id,sku_id,product_name,planned_qty,ordered_qty,actual_qty,unit,delivery_date)
+        `
+        )
+        .in("status", ["draft", "planned", "in_progress", "completed"])
+        .order("planned_start_date", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .limit(60);
+
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const { data: inspections = [], isLoading: inspectionsLoading } = useQuery<QAInspection[]>({
+    queryKey: ["qa_inspections_by_day", selectedDate],
+    queryFn: async () => {
+      const start = `${selectedDate}T00:00:00+07:00`;
+      const endDate = new Date(`${selectedDate}T00:00:00+07:00`);
+      endDate.setDate(endDate.getDate() + 1);
+      const end = endDate.toISOString();
+
+      const { data, error } = await db
+        .from<QAInspection[]>("qa_inspections")
         .select(
           `
           *,
-          production_order:production_orders(production_number),
-          production_shift:production_shifts(shift_name)
+          production_order:production_orders(production_number,status,planned_start_date,planned_end_date)
         `
-        );
+        )
+        .gte("inspected_at", start)
+        .lt("inspected_at", end)
+        .order("inspected_at", { ascending: false });
 
-      if (filterStatus !== "all") {
-        query = query.eq("status", filterStatus);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const selectedOrder = useMemo(
+    () => productionOrders.find((order) => order.id === selectedOrderId) || null,
+    [productionOrders, selectedOrderId]
+  );
+
+  const orderHasQa = useMemo(() => {
+    const approvedOrderIds = new Set(
+      inspections.filter((inspection) => inspection.status === "approved").map((inspection) => inspection.production_order_id).filter(Boolean)
+    );
+    return (orderId: string) => approvedOrderIds.has(orderId);
+  }, [inspections]);
+
+  const stats = useMemo(() => {
+    const passed = inspections.filter((inspection) => inspection.status === "approved").length;
+    const photos = inspections.reduce((sum, inspection) => sum + (inspection.product_photos?.length || 0), 0);
+    const items = formItems.reduce((sum, item) => sum + numberValue(item.approved_qty), 0);
+    return { passed, photos, items };
+  }, [formItems, inspections]);
+
+  const handleSelectOrder = (orderId: string) => {
+    setSelectedOrderId(orderId);
+    const order = productionOrders.find((entry) => entry.id === orderId);
+    const items = (order?.production_order_items || []).map((item) => {
+      const plannedQty = numberValue(item.planned_qty || item.ordered_qty || item.actual_qty);
+      return {
+        id: item.id,
+        sku_id: item.sku_id,
+        product_name: item.product_name,
+        unit: item.unit || "cái",
+        planned_qty: plannedQty,
+        inspected_qty: plannedQty,
+        approved_qty: plannedQty,
+      };
+    });
+    setFormItems(items);
+  };
+
+  const handleFilesChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith("image/"));
+    if (files.length === 0) return;
+    setQaFiles((current) => [...current, ...files].slice(0, 12));
+    event.target.value = "";
+  };
+
+  const updateFormItem = (index: number, key: "inspected_qty" | "approved_qty", value: string) => {
+    const qty = Math.max(0, numberValue(value));
+    setFormItems((current) => current.map((item, idx) => (idx === index ? { ...item, [key]: qty } : item)));
+  };
+
+  const generateInspectionNumber = async () => {
+    const refDate = todayIso();
+    try {
+      const { data, error } = await db.rpc<string>("generate_doc_number", { prefix: "QA", ref_date: refDate });
+      if (!error && data) return String(data);
+    } catch (error) {
+      console.warn("generate_doc_number unavailable", error);
+    }
+    const datePart = format(new Date(), "yyyyMMdd");
+    const { data } = await db
+      .from<Array<{ inspection_number: string | null }>>("qa_inspections")
+      .select("inspection_number")
+      .ilike("inspection_number", `QA-${datePart}-%`);
+    const next = String((data?.length || 0) + 1).padStart(3, "0");
+    return `QA-${datePart}-${next}`;
+  };
+
+  const uploadQaPhotos = async (inspectionNumber: string) => {
+    const urls: string[] = [];
+    for (const [index, file] of qaFiles.entries()) {
+      const ext = file.name.split(".").pop()?.toLowerCase() || file.type.split("/").pop() || "jpg";
+      const path = `qa-inspections/${format(new Date(), "yyyyMMdd")}/${slugPart(inspectionNumber)}/${Date.now()}-${index}.${ext}`;
+      const { error } = await (db).storage.from(QA_PHOTO_BUCKET).upload(path, file, {
+        upsert: false,
+        contentType: file.type || "image/jpeg",
+      });
+      if (error) throw error;
+      const publicUrl = (db).storage.from(QA_PHOTO_BUCKET).getPublicUrl(path).data?.publicUrl;
+      if (publicUrl) urls.push(publicUrl);
+    }
+    return urls;
+  };
+
+  const qaPassMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedOrder) throw new Error(isVi ? "Chọn lệnh sản xuất trước." : "Select a production order first.");
+      if (!inspectedBy.trim()) throw new Error(isVi ? "Nhập người QA trước." : "Enter inspector name first.");
+      if (!checklist.quality || !checklist.sensory || !checklist.packaging) {
+        throw new Error(isVi ? "Cần pass đủ chất lượng, cảm quan và bao bì." : "Quality, sensory, and packaging must all pass.");
       }
+      if (qaFiles.length === 0) throw new Error(isVi ? "Cần upload ít nhất 1 ảnh QA." : "Upload at least one QA photo.");
+      if (formItems.length === 0) throw new Error(isVi ? "Lệnh SX chưa có dòng sản phẩm để QA." : "The order has no items to inspect.");
 
-      const { data, error } = await query.order("created_at", { ascending: false });
+      const inspectionNumber = await generateInspectionNumber();
+      const photoUrls = await uploadQaPhotos(inspectionNumber);
+      const nowIso = new Date().toISOString();
+      const auditNotes = buildAuditNotes(notes, checklist);
 
-      if (error) throw error;
-      return data || [];
-    },
-  });
-
-  // Fetch production orders for create dialog
-  const { data: productionOrders = [] } = useQuery<ProductionOrder[]>({
-    queryKey: ["production_orders_active"],
-    queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from("production_orders")
-        .select("*")
-        .in("status", ["in_progress", "completed"])
-        .order("production_number", { ascending: false });
-
-      if (error) throw error;
-      return data || [];
-    },
-  });
-
-  // Fetch production shifts
-  const { data: productionShifts = [] } = useQuery({
-    queryKey: ["production_shifts"],
-    queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from("production_shifts")
-        .select("*")
-        .order("shift_date", { ascending: false });
-
-      if (error) throw error;
-      return data || [];
-    },
-  });
-
-  // Fetch QA inspection items
-  const { data: inspectionItems = [] } = useQuery({
-    queryKey: ["qa_inspection_items", selectedInspection?.id],
-    queryFn: async () => {
-      if (!selectedInspection?.id) return [];
-
-      const { data, error } = await (supabase as any)
-        .from("qa_inspection_items")
-        .select("*")
-        .eq("qa_inspection_id", selectedInspection.id);
-
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: !!selectedInspection?.id,
-  });
-
-  // Stats
-  const pendingCount = inspections.filter((i: QAInspection) => i.status === "pending").length;
-  const approvedCount = inspections.filter((i: QAInspection) => i.status === "approved").length;
-  const rejectedCount = inspections.filter((i: QAInspection) => i.status === "rejected").length;
-
-  // Create QA inspection mutation
-  const createMutation = useMutation({
-    mutationFn: async (formData: typeof createForm) => {
-      const { data: inspection, error: inspectionError } = await (supabase as any)
-        .from("qa_inspections")
+      const { data: inspection, error: inspectionError } = await db
+        .from<QAInspection>("qa_inspections")
         .insert({
-          production_order_id: formData.production_order_id,
-          production_shift_id: formData.production_shift_id || null,
-          inspected_by: formData.inspected_by,
-          status: "pending",
-          notes: formData.notes,
-          product_photos: formData.product_photos,
-          inspection_date: new Date().toISOString(),
+          inspection_number: inspectionNumber,
+          production_order_id: selectedOrder.id,
+          status: "approved",
+          inspected_by: inspectedBy.trim(),
+          inspected_at: nowIso,
+          product_photos: photoUrls,
+          notes: auditNotes,
         })
         .select()
         .single();
-
       if (inspectionError) throw inspectionError;
 
-      // Insert items
-      if (formData.items.length > 0) {
-        const itemsToInsert = formData.items.map((item) => ({
-          qa_inspection_id: inspection.id,
-          product_name: item.product_name,
-          unit: item.unit,
-          inspected_qty: item.inspected_qty,
-          approved_qty: item.approved_qty,
-          rejected_qty: item.rejected_qty,
-        }));
-
-        const { error: itemsError } = await (supabase as any)
-          .from("qa_inspection_items")
-          .insert(itemsToInsert);
-
-        if (itemsError) throw itemsError;
-      }
-
-      return inspection;
-    },
-    onSuccess: () => {
-      toast({
-        title: copy.success,
-        description: copy.created,
-      });
-      queryClient.invalidateQueries({ queryKey: ["qa_inspections"] });
-      setCreateOpen(false);
-      setCreateForm({
-        production_order_id: "",
-        production_shift_id: "",
-        inspected_by: "",
-        notes: "",
-        product_photos: [],
-        items: [],
-      });
-    },
-    onError: (error) => {
-      toast({
-        title: copy.error,
-        description: copy.createFailed,
-        variant: "destructive",
-      });
-      console.error(error);
-    },
-  });
-
-  // Approve QA inspection mutation
-  const approveMutation = useMutation({
-    mutationFn: async (inspection: QAInspection) => {
-      // Get items to process
-      const { data: items, error: itemsError } = await (supabase as any)
-        .from("qa_inspection_items")
-        .select("*")
-        .eq("qa_inspection_id", inspection.id);
-
+      const itemsToInsert = formItems.map((item) => ({
+        qa_inspection_id: inspection.id,
+        sku_id: item.sku_id || null,
+        product_name: item.product_name,
+        unit: item.unit || "cái",
+        inspected_qty: item.inspected_qty,
+        approved_qty: item.approved_qty,
+        rejected_qty: Math.max(0, item.inspected_qty - item.approved_qty),
+        notes: "QA pass từ lệnh sản xuất Q7",
+      }));
+      const { error: itemsError } = await (db).from("qa_inspection_items").insert(itemsToInsert);
       if (itemsError) throw itemsError;
 
-      // Update QA inspection status
-      const { error: updateError } = await (supabase as any)
-        .from("qa_inspections")
-        .update({ status: "approved" })
-        .eq("id", inspection.id);
+      for (const item of formItems) {
+        if (item.approved_qty <= 0) continue;
+        const { data: existingInventory } = await db
+          .from<{ id: string; quantity: number | string | null }>("inventory_items")
+          .select("id,quantity,product_name,unit")
+          .eq("product_name", item.product_name)
+          .maybeSingle();
 
-      if (updateError) throw updateError;
-
-      // Process each approved item
-      for (const item of items) {
-        if (item.approved_qty > 0) {
-          // Find or create inventory item for finished good
-          const { data: existingInventory } = await (supabase as any)
+        let inventoryItemId = existingInventory?.id;
+        if (existingInventory) {
+          const { error } = await (db)
             .from("inventory_items")
-            .select("*")
-            .eq("product_name", item.product_name)
-            .single();
-
-          let inventoryItemId: string;
-
-          if (existingInventory) {
-            // Update existing inventory
-            const { error: inventoryUpdateError } = await (supabase as any)
-              .from("inventory_items")
-              .update({
-                quantity: existingInventory.quantity + item.approved_qty,
-              })
-              .eq("id", existingInventory.id);
-
-            if (inventoryUpdateError) throw inventoryUpdateError;
-            inventoryItemId = existingInventory.id;
-          } else {
-            // Create new inventory item
-            const { data: newInventory, error: inventoryCreateError } = await (
-              supabase as any
-            )
-              .from("inventory_items")
-              .insert({
-                product_name: item.product_name,
-                unit: item.unit,
-                quantity: item.approved_qty,
-                warehouse_location: "Chưa xác định",
-              })
-              .select()
-              .single();
-
-            if (inventoryCreateError) throw inventoryCreateError;
-            inventoryItemId = newInventory.id;
-          }
-
-          // Insert inventory movement for production output
-          const { error: movementError } = await (supabase as any)
-            .from("inventory_movements")
+            .update({ quantity: numberValue(existingInventory.quantity) + item.approved_qty })
+            .eq("id", existingInventory.id);
+          if (error) throw error;
+        } else {
+          const { data: newInventory, error } = await db
+            .from<{ id: string }>("inventory_items")
             .insert({
-              inventory_item_id: inventoryItemId,
-              movement_type: "production_output",
+              product_name: item.product_name,
+              unit: item.unit || "cái",
               quantity: item.approved_qty,
-              reference_type: "qa_inspection",
-              reference_id: inspection.id,
-              movement_date: new Date().toISOString(),
-              notes: `QA duyệt từ phiếu kiểm tra ${inspection.id}`,
-            });
-
-          if (movementError) throw movementError;
-        }
-
-        // TODO: Implement raw material consumption via BOM
-        // Query sku_formulations for finished good to get ingredients
-        // Calculate consumed quantity based on approved qty, dosage, and wastage
-        // Deduct from inventory_items
-        // Insert inventory_movements with movement_type='production_consume'
-      }
-
-      return inspection;
-    },
-    onSuccess: () => {
-      toast({
-        title: copy.success,
-        description: copy.approved,
-      });
-      queryClient.invalidateQueries({ queryKey: ["qa_inspections"] });
-      queryClient.invalidateQueries({ queryKey: ["inventory_items"] });
-      setDetailOpen(false);
-      setSelectedInspection(null);
-    },
-    onError: (error) => {
-      toast({
-        title: copy.error,
-        description: copy.approveFailed,
-        variant: "destructive",
-      });
-      console.error(error);
-    },
-  });
-
-  // Reject QA inspection mutation
-  const rejectMutation = useMutation({
-    mutationFn: async (inspection: QAInspection) => {
-      const { error } = await (supabase as any)
-        .from("qa_inspections")
-        .update({
-          status: "rejected",
-          rejection_reason: detailForm.rejection_reason,
-        })
-        .eq("id", inspection.id);
-
-      if (error) throw error;
-      return inspection;
-    },
-    onSuccess: () => {
-      toast({
-        title: copy.success,
-        description: copy.rejected,
-      });
-      queryClient.invalidateQueries({ queryKey: ["qa_inspections"] });
-      setDetailOpen(false);
-      setSelectedInspection(null);
-      setDetailForm({ rejection_reason: "" });
-    },
-    onError: (error) => {
-      toast({
-        title: copy.error,
-        description: copy.rejectFailed,
-        variant: "destructive",
-      });
-      console.error(error);
-    },
-  });
-
-  // Apply disposition: scrap waste record + re-production shift
-  const applyDispositionMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedInspection) throw new Error("Chưa chọn phiếu QA");
-      const rejectedItems = selectedItems.filter((i) => i.rejected_qty > 0);
-
-      for (const item of rejectedItems) {
-        const action = disposition[item.id];
-        if (!action) continue;
-
-        if (action === "scrap") {
-          // Record as waste — note: rejected goods never entered inventory,
-          // so this is just an audit trail movement with negative qty
-          await (supabase as any).from("inventory_movements").insert({
-            movement_type: "adjustment",
-            quantity: -item.rejected_qty,
-            unit: item.unit,
-            reference_type: "qa_inspection",
-            reference_id: selectedInspection.id,
-            movement_date: format(new Date(), "yyyy-MM-dd"),
-            notes: `Phế phẩm QA từ chối — ${item.product_name}`,
-          });
-        }
-
-        if (action === "repro") {
-          // Create a new production shift for the deficit quantity
-          const dateStr = format(new Date(), "yyyyMMdd");
-          const { data: existingShifts } = await (supabase as any)
-            .from("production_shifts")
-            .select("id")
-            .ilike("shift_code", `CA-${dateStr}-%`);
-          const seq = String((existingShifts?.length ?? 0) + 1).padStart(3, "0");
-          const shiftCode = `CA-${dateStr}-${seq}`;
-
-          const { data: newShift, error: shiftErr } = await (supabase as any)
-            .from("production_shifts")
-            .insert({
-              shift_code: shiftCode,
-              production_order_id: selectedInspection.production_order_id,
-              shift_date: format(new Date(), "yyyy-MM-dd"),
-              shift_type: "morning",
-              status: "scheduled",
-              notes: `Tái sản xuất do QA từ chối — ${item.product_name} (${item.rejected_qty} ${item.unit})`,
+              warehouse_location: "Kho TP Q7",
             })
-            .select()
-            .single();
-          if (shiftErr) throw shiftErr;
-
-          // Find the production_order_item to link
-          const { data: poItems } = await (supabase as any)
-            .from("production_order_items")
             .select("id")
-            .eq("production_order_id", selectedInspection.production_order_id)
-            .ilike("product_name", `%${item.product_name}%`)
-            .maybeSingle();
+            .single();
+          if (error) throw error;
+          inventoryItemId = newInventory.id;
+        }
 
-          await (supabase as any).from("production_shift_items").insert({
-            production_shift_id: newShift.id,
-            production_order_item_id: poItems?.id ?? null,
-            planned_qty: item.rejected_qty,
-            actual_qty: 0,
-            unit: item.unit,
-            notes: `Tái SX từ lô QA bị từ chối`,
+        if (inventoryItemId) {
+          const { error } = await (db).from("inventory_movements").insert({
+            inventory_item_id: inventoryItemId,
+            movement_type: "production_output",
+            quantity: item.approved_qty,
+            unit: item.unit || "cái",
+            reference_type: "qa_inspection",
+            reference_id: inspection.id,
+            movement_date: todayIso(),
+            notes: `QA PASS ${inspectionNumber} — nhập kho TP từ ${selectedOrder.production_number}`,
           });
+          if (error) throw error;
+        }
+
+        if (item.id) {
+          await (db).from("production_order_items").update({ actual_qty: item.approved_qty }).eq("id", item.id);
         }
       }
-      setDispositionApplied(true);
+
+      return inspection;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["production_shifts"] });
-      queryClient.invalidateQueries({ queryKey: ["inventory_movements"] });
       toast({
-        title: "Đã xử lý lô lỗi",
-        description: "Phế phẩm đã ghi nhận. Ca tái sản xuất đã được tạo nếu có.",
+        title: isVi ? "QA pass" : "QA passed",
+        description: isVi ? "Đã upload ảnh, lưu audit theo ngày và nhập kho thành phẩm." : "Photos uploaded, daily audit saved, and finished goods received.",
       });
+      setSelectedOrderId("");
+      setInspectedBy("");
+      setNotes("");
+      setChecklist({ quality: true, sensory: true, packaging: true });
+      setQaFiles([]);
+      setFormItems([]);
+      queryClient.invalidateQueries({ queryKey: ["qa_inspections_by_day"] });
+      queryClient.invalidateQueries({ queryKey: ["qa_production_orders_q7"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory_items"] });
     },
-    onError: (e: any) => {
-      toast({ title: "Lỗi xử lý", description: e?.message, variant: "destructive" });
+    onError: (error: unknown) => {
+      toast({ title: isVi ? "Không thể QA pass" : "Unable to pass QA", description: getErrorMessage(error), variant: "destructive" });
     },
   });
 
   const handleOpenDetail = async (inspection: QAInspection) => {
     setSelectedInspection(inspection);
-    setDisposition({});
-    setDispositionApplied(false);
-    const { data: items } = await (supabase as any)
-      .from("qa_inspection_items")
-      .select("*")
-      .eq("qa_inspection_id", inspection.id);
-    setSelectedItems(items || []);
+    const { data } = await db.from<QAInspectionItem[]>("qa_inspection_items").select("*").eq("qa_inspection_id", inspection.id);
+    setSelectedItems(data || []);
     setDetailOpen(true);
   };
 
-  const getStatusBadgeColor = (status: string) => {
-    switch (status) {
-      case "pending":
-        return "bg-amber-100 text-amber-800";
-      case "approved":
-        return "bg-green-100 text-green-800";
-      case "rejected":
-        return "bg-red-100 text-red-800";
-      default:
-        return "bg-gray-100 text-gray-800";
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case "pending":
-        return copy.pending;
-      case "approved":
-        return copy.approvedLabel;
-      case "rejected":
-        return copy.rejectedLabel;
-      default:
-        return status;
-    }
-  };
+  const selectedChecklist = checklistFromNotes(selectedInspection?.notes);
 
   return (
-    <div className="space-y-6 p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <ClipboardCheck className="h-8 w-8 text-blue-600" />
-          <h1 className="text-3xl font-bold">{copy.title}</h1>
-        </div>
-        <Button onClick={() => setCreateOpen(true)} className="gap-2">
-          <Plus className="h-4 w-4" />
-          {copy.createTitle}
-        </Button>
-      </div>
-
-      {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-gray-600">
-              {copy.pending}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-amber-600">{pendingCount}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-gray-600">
-              {copy.approvedLabel}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-green-600">{approvedCount}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-gray-600">
-              {copy.rejectedLabel}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-red-600">{rejectedCount}</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-2 border-b">
-        {[
-          { value: "all", label: copy.all },
-          { value: "pending", label: copy.pending },
-          { value: "approved", label: copy.approvedLabel },
-          { value: "rejected", label: copy.rejectedLabel },
-        ].map((tab) => (
-          <button
-            key={tab.value}
-            onClick={() =>
-              setFilterStatus(tab.value as "all" | "pending" | "approved" | "rejected")
-            }
-            className={`px-4 py-2 font-medium text-sm ${
-              filterStatus === tab.value
-                ? "border-b-2 border-blue-600 text-blue-600"
-                : "text-gray-600 hover:text-gray-900"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Table */}
-      <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{copy.qaCode}</TableHead>
-              <TableHead>{copy.productionOrder}</TableHead>
-              <TableHead>{copy.productionShift}</TableHead>
-              <TableHead>{copy.status}</TableHead>
-              <TableHead>{copy.inspector}</TableHead>
-              <TableHead>{copy.inspectionDate}</TableHead>
-              <TableHead>{copy.photos}</TableHead>
-              <TableHead>{copy.actions}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {inspectionsLoading ? (
-              <TableRow>
-                <TableCell colSpan={8} className="text-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin mx-auto" />
-                </TableCell>
-              </TableRow>
-            ) : inspections.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-gray-500">
-                  {copy.noData}
-                </TableCell>
-              </TableRow>
-            ) : (
-              inspections.map((inspection: QAInspection) => (
-                <TableRow key={inspection.id}>
-                  <TableCell className="font-mono text-sm">
-                    {inspection.id.slice(0, 8)}
-                  </TableCell>
-                  <TableCell>
-                    {inspection.production_order?.production_number || "-"}
-                  </TableCell>
-                  <TableCell>
-                    {inspection.production_shift?.shift_name || "-"}
-                  </TableCell>
-                  <TableCell>
-                    <Badge className={getStatusBadgeColor(inspection.status)}>
-                      {getStatusLabel(inspection.status)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{inspection.inspected_by}</TableCell>
-                  <TableCell>
-                    {format(
-                      new Date(inspection.inspection_date),
-                      "dd/MM/yyyy HH:mm"
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {inspection.product_photos && inspection.product_photos.length > 0 ? (
-                      <div className="flex gap-1">
-                        {inspection.product_photos.slice(0, 2).map((photo, idx) => (
-                          <Image
-                            key={idx}
-                            className="h-4 w-4 text-blue-600 cursor-pointer"
-                          />
-                        ))}
-                        {inspection.product_photos.length > 2 && (
-                          <span className="text-xs text-gray-500">
-                            +{inspection.product_photos.length - 2}
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      "-"
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleOpenDetail(inspection)}
-                    >
-                      {copy.details}
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </Card>
-
-      {/* Create Dialog */}
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{copy.createTitle}</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            {/* Production Order Select */}
-            <div>
-              <label className="text-sm font-medium">{copy.productionOrder}</label>
-              <select
-                className="w-full mt-2 px-3 py-2 border rounded-md"
-                value={createForm.production_order_id}
-                onChange={(e) =>
-                  setCreateForm({
-                    ...createForm,
-                    production_order_id: e.target.value,
-                  })
-                }
-              >
-                <option value="">{isVi ? "-- Chọn lệnh SX --" : "-- Select production order --"}</option>
-                {productionOrders.map((order: ProductionOrder) => (
-                  <option key={order.id} value={order.id}>
-                    {order.production_number}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Production Shift Select */}
-            <div>
-              <label className="text-sm font-medium">{isVi ? "Ca SX (tùy chọn)" : "Shift (optional)"}</label>
-              <select
-                className="w-full mt-2 px-3 py-2 border rounded-md"
-                value={createForm.production_shift_id}
-                onChange={(e) =>
-                  setCreateForm({
-                    ...createForm,
-                    production_shift_id: e.target.value,
-                  })
-                }
-              >
-                <option value="">{isVi ? "-- Chọn ca SX --" : "-- Select shift --"}</option>
-                {productionShifts.map((shift: any) => (
-                  <option key={shift.id} value={shift.id}>
-                    {shift.shift_name} ({format(new Date(shift.shift_date), "dd/MM/yyyy")})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Inspected By */}
-            <div>
-              <label className="text-sm font-medium">{copy.inspector}</label>
-              <Input
-                className="mt-2"
-                placeholder={isVi ? "Nhập tên người kiểm tra" : "Enter inspector name"}
-                value={createForm.inspected_by}
-                onChange={(e) =>
-                  setCreateForm({ ...createForm, inspected_by: e.target.value })
-                }
-              />
-            </div>
-
-            {/* Items Section */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <label className="text-sm font-medium">Mục hàng kiểm tra</label>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    setCreateForm({
-                      ...createForm,
-                      items: [
-                        ...createForm.items,
-                        {
-                          product_name: "",
-                          unit: "",
-                          inspected_qty: 0,
-                          approved_qty: 0,
-                          rejected_qty: 0,
-                        },
-                      ],
-                    })
-                  }
-                >
-                  <Plus className="h-4 w-4" />
-                  Thêm mục
-                </Button>
+    <div className="-m-4 min-h-screen bg-[#f7f2ec] p-4 text-stone-950 md:-m-6 md:p-6" data-stitch-qa-finished-goods="q7-sweet-bakery-flow">
+      <div className="mx-auto max-w-7xl space-y-5">
+        <header className="rounded-[1.75rem] border border-amber-200 bg-gradient-to-br from-white via-amber-50 to-orange-50 p-4 shadow-sm md:p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-600 text-white shadow-lg shadow-amber-600/20">
+                <ShieldCheck className="h-7 w-7" />
               </div>
+              <div>
+                <Badge className="mb-2 rounded-full bg-emerald-100 text-emerald-800 hover:bg-emerald-100">
+                  {isVi ? "Xưởng Q7 · bánh ngọt" : "Q7 workshop · sweet bakery"}
+                </Badge>
+                <h1 className="text-2xl font-black tracking-tight md:text-4xl">{copy.title}</h1>
+                <p className="mt-1 max-w-3xl text-sm font-semibold text-stone-600 md:text-base">{copy.subtitle}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-2xl border border-amber-200 bg-white/80 p-3">
+                <p className="text-xs font-bold text-stone-500">{isVi ? "QA pass" : "Passed"}</p>
+                <p className="text-2xl font-black text-emerald-700">{inspectionsLoading ? "…" : stats.passed}</p>
+              </div>
+              <div className="rounded-2xl border border-amber-200 bg-white/80 p-3">
+                <p className="text-xs font-bold text-stone-500">{isVi ? "Ảnh audit" : "Photos"}</p>
+                <p className="text-2xl font-black text-blue-700">{inspectionsLoading ? "…" : stats.photos}</p>
+              </div>
+              <div className="rounded-2xl border border-amber-200 bg-white/80 p-3">
+                <p className="text-xs font-bold text-stone-500">{isVi ? "SL đang nhập" : "Receiving"}</p>
+                <p className="text-2xl font-black text-amber-700">{stats.items.toLocaleString("vi-VN")}</p>
+              </div>
+            </div>
+          </div>
+        </header>
 
-              {createForm.items.map((item, idx) => (
-                <div key={idx} className="space-y-2 p-3 border rounded-md mb-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input
-                      placeholder="Tên sản phẩm"
-                      value={item.product_name}
-                      onChange={(e) => {
-                        const updated = [...createForm.items];
-                        updated[idx].product_name = e.target.value;
-                        setCreateForm({ ...createForm, items: updated });
-                      }}
-                    />
-                    <Input
-                      placeholder="Đơn vị"
-                      value={item.unit}
-                      onChange={(e) => {
-                        const updated = [...createForm.items];
-                        updated[idx].unit = e.target.value;
-                        setCreateForm({ ...createForm, items: updated });
-                      }}
-                    />
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
+          <section className="space-y-4">
+            <Card className="rounded-[1.5rem] border-amber-200 bg-white shadow-sm">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <CardTitle className="flex items-center gap-2 text-xl font-black">
+                      <Factory className="h-5 w-5 text-amber-700" />
+                      {copy.orderQueue}
+                    </CardTitle>
+                    <CardDescription>{isVi ? "Bao gồm cả lệnh đã xác nhận đang lưu trạng thái nháp/kế hoạch để staff vẫn thấy được." : "Includes confirmed orders stored as draft/planned so staff can see them."}</CardDescription>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div>
-                      <label className="text-xs text-gray-600">Kiểm tra (cái)</label>
-                      <Input
-                        type="number"
-                        value={item.inspected_qty}
-                        onChange={(e) => {
-                          const updated = [...createForm.items];
-                          updated[idx].inspected_qty = parseInt(e.target.value) || 0;
-                          setCreateForm({ ...createForm, items: updated });
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-600">Duyệt (cái)</label>
-                      <Input
-                        type="number"
-                        value={item.approved_qty}
-                        onChange={(e) => {
-                          const updated = [...createForm.items];
-                          updated[idx].approved_qty = parseInt(e.target.value) || 0;
-                          setCreateForm({ ...createForm, items: updated });
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-600">Từ chối (cái)</label>
-                      <Input
-                        type="number"
-                        value={item.rejected_qty}
-                        onChange={(e) => {
-                          const updated = [...createForm.items];
-                          updated[idx].rejected_qty = parseInt(e.target.value) || 0;
-                          setCreateForm({ ...createForm, items: updated });
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-red-600 w-full"
-                    onClick={() => {
-                      setCreateForm({
-                        ...createForm,
-                        items: createForm.items.filter((_, i) => i !== idx),
-                      });
-                    }}
-                  >
-                    Xóa
+                  <Button variant="outline" size="sm" onClick={() => refetchOrders()} disabled={ordersLoading}>
+                    {ordersLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   </Button>
                 </div>
-              ))}
-            </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {ordersLoading ? (
+                  <div className="flex min-h-36 items-center justify-center rounded-3xl bg-amber-50">
+                    <Loader2 className="h-7 w-7 animate-spin text-amber-700" />
+                  </div>
+                ) : productionOrders.length === 0 ? (
+                  <div className="rounded-3xl border border-dashed border-amber-300 bg-amber-50 p-6 text-center font-semibold text-stone-600">{copy.noOrders}</div>
+                ) : (
+                  <div className="space-y-3">
+                    {productionOrders.slice(0, 14).map((order) => {
+                      const selected = order.id === selectedOrderId;
+                      const items = order.production_order_items || [];
+                      const totalQty = items.reduce((sum, item) => sum + numberValue(item.planned_qty || item.ordered_qty || item.actual_qty), 0);
+                      const alreadyPassed = orderHasQa(order.id);
+                      return (
+                        <button
+                          key={order.id}
+                          type="button"
+                          onClick={() => handleSelectOrder(order.id)}
+                          className={`w-full rounded-3xl border p-3 text-left transition ${selected ? "border-amber-600 bg-amber-50 shadow-inner" : "border-stone-200 bg-white hover:border-amber-300 hover:bg-amber-50/60"}`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-mono text-sm font-black text-stone-900">{order.production_number}</p>
+                                {alreadyPassed && <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">QA pass</Badge>}
+                                <Badge variant="outline" className="rounded-full text-[11px] uppercase">{order.status}</Badge>
+                              </div>
+                              <p className="mt-1 line-clamp-2 text-sm font-semibold text-stone-600">
+                                {items.slice(0, 2).map((item) => item.product_name).join(" · ") || (isVi ? "Chưa có dòng sản phẩm" : "No item lines")}
+                              </p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="text-2xl font-black text-amber-700">{totalQty.toLocaleString("vi-VN")}</p>
+                              <p className="text-[11px] font-bold text-stone-500">{items.length} SKU</p>
+                            </div>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-bold text-stone-500">
+                            <span className="rounded-full bg-stone-100 px-2 py-1">SX {displayDate(order.planned_start_date || order.planned_end_date || order.created_at)}</span>
+                            <span className="rounded-full bg-stone-100 px-2 py-1">{isVi ? "Tự điền dòng QA từ lệnh SX" : "Auto-fill QA lines from order"}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </section>
 
-            {/* Photo URLs */}
-            <div>
-              <label className="text-sm font-medium">Ảnh kiểm tra (URL)</label>
-              <div className="space-y-2 mt-2">
-                {createForm.product_photos.map((photo, idx) => (
-                  <div key={idx} className="flex gap-2">
-                    <Input
-                      value={photo}
-                      onChange={(e) => {
-                        const updated = [...createForm.product_photos];
-                        updated[idx] = e.target.value;
-                        setCreateForm({ ...createForm, product_photos: updated });
-                      }}
-                      placeholder="https://..."
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setCreateForm({
-                          ...createForm,
-                          product_photos: createForm.product_photos.filter(
-                            (_, i) => i !== idx
-                          ),
-                        });
-                      }}
-                    >
-                      Xóa
+          <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+            <Card className="rounded-[1.5rem] border-emerald-200 bg-white shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-xl font-black">
+                  <PackageCheck className="h-5 w-5 text-emerald-700" />
+                  {copy.qaPass}
+                </CardTitle>
+                <CardDescription>{selectedOrder ? selectedOrder.production_number : isVi ? "Chọn một lệnh SX bên trái để QA." : "Select a production order first."}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <label className="text-sm font-bold text-stone-700">{isVi ? "Người QA" : "Inspector"}</label>
+                  <Input className="mt-1 h-11 rounded-2xl" placeholder={isVi ? "Ví dụ: Vũ Phương Nhi" : "Inspector name"} value={inspectedBy} onChange={(event) => setInspectedBy(event.target.value)} />
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {[
+                    ["quality", isVi ? "Chất lượng" : "Quality", CheckCircle2],
+                    ["sensory", isVi ? "Cảm quan" : "Sensory", Sparkles],
+                    ["packaging", isVi ? "Bao bì" : "Packaging", PackageCheck],
+                  ].map(([key, label, Icon]) => {
+                    const typedKey = key as "quality" | "sensory" | "packaging";
+                    const ActiveIcon = Icon as typeof CheckCircle2;
+                    return (
+                      <button
+                        key={typedKey}
+                        type="button"
+                        onClick={() => setChecklist((current) => ({ ...current, [typedKey]: !current[typedKey] }))}
+                        className={`rounded-2xl border p-3 text-left transition ${checklist[typedKey] ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-900"}`}
+                      >
+                        <ActiveIcon className="mb-2 h-5 w-5" />
+                        <p className="text-sm font-black">{label}</p>
+                        <p className="text-xs font-bold">{checklist[typedKey] ? "PASS" : "CHƯA PASS"}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="rounded-3xl border border-dashed border-blue-300 bg-blue-50 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-black text-blue-950">{copy.uploadPhotos}</p>
+                      <p className="text-xs font-semibold text-blue-700">{isVi ? "Chọn nhiều ảnh: số lượng chưa đóng gói, cảm quan, bao bì sau đóng gói." : "Select multiple photos for quantity, sensory, and packaging evidence."}</p>
+                    </div>
+                    <Button type="button" variant="outline" className="shrink-0 rounded-2xl bg-white" onClick={() => fileInputRef.current?.click()}>
+                      <UploadCloud className="mr-2 h-4 w-4" />
+                      {isVi ? "Chọn ảnh" : "Choose"}
                     </Button>
                   </div>
-                ))}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    setCreateForm({
-                      ...createForm,
-                      product_photos: [...createForm.product_photos, ""],
-                    })
-                  }
-                  className="w-full"
-                >
-                  <Camera className="h-4 w-4 mr-2" />
-                  Thêm ảnh
-                </Button>
-              </div>
-            </div>
-
-            {/* Notes */}
-            <div>
-              <label className="text-sm font-medium">Ghi chú</label>
-              <Textarea
-                className="mt-2"
-                placeholder="Nhập ghi chú kiểm tra"
-                value={createForm.notes}
-                onChange={(e) => setCreateForm({ ...createForm, notes: e.target.value })}
-                rows={3}
-              />
-            </div>
-          </div>
-
-          <div className="flex gap-2 justify-end mt-6">
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>
-              {copy.cancel}
-            </Button>
-            <Button
-              onClick={() => createMutation.mutate(createForm)}
-              disabled={createMutation.isPending || !createForm.production_order_id}
-            >
-              {createMutation.isPending && (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              )}
-              {copy.create}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Detail Dialog */}
-      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{isVi ? "Chi tiết phiếu QA" : "QA record details"}</DialogTitle>
-          </DialogHeader>
-
-          {selectedInspection && (
-            <div className="space-y-4">
-              {/* Header Info */}
-              <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
-                <div>
-                  <p className="text-xs text-gray-600">Mã QA</p>
-                  <p className="font-mono text-sm">
-                    {selectedInspection.id.slice(0, 8)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-600">Lệnh SX</p>
-                  <p className="text-sm">
-                    {selectedInspection.production_order?.production_number || "-"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-600">Người kiểm tra</p>
-                  <p className="text-sm">{selectedInspection.inspected_by}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-600">Ngày kiểm tra</p>
-                  <p className="text-sm">
-                    {format(
-                      new Date(selectedInspection.inspection_date),
-                      "dd/MM/yyyy HH:mm"
-                    )}
-                  </p>
-                </div>
-                <div className="col-span-2">
-                  <p className="text-xs text-gray-600">Trạng thái</p>
-                  <Badge className={getStatusBadgeColor(selectedInspection.status)}>
-                    {getStatusLabel(selectedInspection.status)}
-                  </Badge>
-                </div>
-              </div>
-
-              {/* Items Table */}
-              <div>
-                <h3 className="text-sm font-medium mb-2">Các mục hàng</h3>
-                <div className="border rounded-lg overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Sản phẩm</TableHead>
-                        <TableHead>Đơn vị</TableHead>
-                        <TableHead>Kiểm tra</TableHead>
-                        {selectedInspection.status === "pending" ? (
-                          <>
-                            <TableHead>Duyệt</TableHead>
-                            <TableHead>Từ chối</TableHead>
-                          </>
-                        ) : (
-                          <>
-                            <TableHead>Duyệt</TableHead>
-                            <TableHead>Từ chối</TableHead>
-                          </>
-                        )}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {selectedItems.map((item: QAInspectionItem) => (
-                        <TableRow key={item.id}>
-                          <TableCell className="text-sm">{item.product_name}</TableCell>
-                          <TableCell className="text-sm">{item.unit}</TableCell>
-                          <TableCell className="text-sm">{item.inspected_qty}</TableCell>
-                          <TableCell>
-                            {selectedInspection.status === "pending" ? (
-                              <Input
-                                type="number"
-                                value={item.approved_qty}
-                                onChange={(e) => {
-                                  const updated = selectedItems.map((i) =>
-                                    i.id === item.id
-                                      ? {
-                                          ...i,
-                                          approved_qty: parseInt(e.target.value) || 0,
-                                        }
-                                      : i
-                                  );
-                                  setSelectedItems(updated);
-                                }}
-                                className="w-20"
-                              />
-                            ) : (
-                              <span className="text-sm">{item.approved_qty}</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-sm">{item.rejected_qty}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-
-              {/* Notes */}
-              {selectedInspection.notes && (
-                <div>
-                  <p className="text-sm font-medium mb-2">Ghi chú</p>
-                  <p className="text-sm p-3 bg-gray-50 rounded">
-                    {selectedInspection.notes}
-                  </p>
-                </div>
-              )}
-
-              {/* Rejection Reason */}
-              {selectedInspection.status === "rejected" && selectedInspection.rejection_reason && (
-                <div>
-                  <p className="text-sm font-medium mb-2">Lý do từ chối</p>
-                  <p className="text-sm p-3 bg-red-50 rounded text-red-800">
-                    {selectedInspection.rejection_reason}
-                  </p>
-                </div>
-              )}
-
-              {/* ── Xử lý lô lỗi (sau khi QA từ chối hoặc partial pass) ── */}
-              {(() => {
-                const rejectedItems = selectedItems.filter((i) => i.rejected_qty > 0);
-                const hasRejected = rejectedItems.length > 0;
-                const isSettled = selectedInspection.status === "rejected" || selectedInspection.status === "approved";
-                if (!hasRejected || !isSettled) return null;
-                return (
-                  <div className="border border-amber-200 rounded-lg overflow-hidden">
-                    <div className="bg-amber-50 px-4 py-2.5 flex items-center gap-2">
-                      <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0" />
-                      <p className="text-sm font-semibold text-amber-800">
-                        Xử lý lô bị từ chối ({rejectedItems.reduce((s, i) => s + i.rejected_qty, 0)} đơn vị)
-                      </p>
-                    </div>
-                    <div className="p-4 space-y-3 bg-white">
-                      <p className="text-xs text-muted-foreground">
-                        Chọn hướng xử lý cho từng sản phẩm bị từ chối:
-                      </p>
-                      {rejectedItems.map((item) => (
-                        <div key={item.id} className="flex items-center justify-between gap-3 py-2 border-b last:border-0">
-                          <div className="flex-1">
-                            <p className="text-sm font-medium">{item.product_name}</p>
-                            <p className="text-xs text-muted-foreground">Từ chối: <strong>{item.rejected_qty} {item.unit}</strong></p>
-                          </div>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => setDisposition((d) => ({ ...d, [item.id]: "repro" }))}
-                              disabled={dispositionApplied}
-                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors
-                                ${disposition[item.id] === "repro"
-                                  ? "bg-blue-600 text-white border-blue-600"
-                                  : "bg-white text-blue-700 border-blue-300 hover:bg-blue-50"}`}
-                            >
-                              <RefreshCw className="h-3 w-3" />
-                              Tái sản xuất
-                            </button>
-                            <button
-                              onClick={() => setDisposition((d) => ({ ...d, [item.id]: "scrap" }))}
-                              disabled={dispositionApplied}
-                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors
-                                ${disposition[item.id] === "scrap"
-                                  ? "bg-red-600 text-white border-red-600"
-                                  : "bg-white text-red-700 border-red-300 hover:bg-red-50"}`}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                              Ghi phế phẩm
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                      {dispositionApplied ? (
-                        <p className="text-xs text-green-700 bg-green-50 rounded px-3 py-2 flex items-center gap-1.5">
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Đã xử lý xong lô lỗi.
-                        </p>
-                      ) : (
-                        <div className="flex justify-end pt-1">
-                          <button
-                            onClick={() => applyDispositionMutation.mutate()}
-                            disabled={
-                              applyDispositionMutation.isPending ||
-                              rejectedItems.some((i) => !disposition[i.id])
-                            }
-                            className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm font-medium rounded-md transition-colors"
-                          >
-                            {applyDispositionMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                            Xác nhận xử lý lô lỗi
+                  <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFilesChange} />
+                  {qaFiles.length > 0 && (
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      {qaFiles.map((file, index) => (
+                        <div key={`${file.name}-${index}`} className="relative rounded-2xl border border-blue-200 bg-white p-2">
+                          <ImageIcon className="h-5 w-5 text-blue-700" />
+                          <p className="mt-1 truncate text-[11px] font-bold text-stone-600">{file.name}</p>
+                          <button type="button" className="absolute -right-1 -top-1 rounded-full bg-red-600 p-1 text-white" onClick={() => setQaFiles((current) => current.filter((_, idx) => idx !== index))}>
+                            <X className="h-3 w-3" />
                           </button>
                         </div>
-                      )}
+                      ))}
                     </div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-black text-stone-700">{isVi ? "Sản phẩm nhập kho từ lệnh SX" : "Finished goods from order"}</p>
+                    <Badge variant="outline">{formItems.length} dòng</Badge>
                   </div>
-                );
-              })()}
+                  {formItems.length === 0 ? (
+                    <div className="rounded-2xl bg-stone-100 p-4 text-sm font-semibold text-stone-500">{isVi ? "Chọn lệnh SX để tự điền danh sách sản phẩm." : "Select an order to auto-fill items."}</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {formItems.map((item, index) => (
+                        <div key={item.id || index} className="rounded-2xl border border-stone-200 bg-stone-50 p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="line-clamp-2 text-sm font-black text-stone-900">{item.product_name}</p>
+                              <p className="text-xs font-bold text-stone-500">Plan {item.planned_qty.toLocaleString("vi-VN")} {item.unit}</p>
+                            </div>
+                            <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">{item.unit}</Badge>
+                          </div>
+                          <div className="mt-3 grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[11px] font-bold text-stone-500">{isVi ? "SL kiểm" : "Inspected"}</label>
+                              <Input type="number" className="mt-1 h-10 rounded-xl" value={item.inspected_qty} onChange={(event) => updateFormItem(index, "inspected_qty", event.target.value)} />
+                            </div>
+                            <div>
+                              <label className="text-[11px] font-bold text-stone-500">{isVi ? "SL pass nhập kho" : "Passed qty"}</label>
+                              <Input type="number" className="mt-1 h-10 rounded-xl" value={item.approved_qty} onChange={(event) => updateFormItem(index, "approved_qty", event.target.value)} />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
-              {/* Rejection Reason Input - pending only */}
-              {selectedInspection.status === "pending" && (
                 <div>
-                  <label className="text-sm font-medium">Lý do từ chối (nếu cần)</label>
-                  <Textarea
-                    className="mt-2"
-                    placeholder="Nhập lý do từ chối"
-                    value={detailForm.rejection_reason}
-                    onChange={(e) =>
-                      setDetailForm({ rejection_reason: e.target.value })
-                    }
-                    rows={3}
-                  />
+                  <label className="text-sm font-bold text-stone-700">{isVi ? "Ghi chú audit" : "Audit notes"}</label>
+                  <Textarea className="mt-1 rounded-2xl" rows={3} placeholder={isVi ? "Ví dụ: PO 687, giao đủ 687; bao bì mới OK..." : "Notes for audit"} value={notes} onChange={(event) => setNotes(event.target.value)} />
                 </div>
-              )}
 
-              {/* Action Buttons */}
-              {selectedInspection.status === "pending" && (
-                <div className="flex gap-2 justify-end mt-6">
-                  <Button
-                    variant="outline"
-                    onClick={() => setDetailOpen(false)}
-                  >
-                    Hủy
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    onClick={() => rejectMutation.mutate(selectedInspection)}
-                    disabled={
-                      rejectMutation.isPending ||
-                      !detailForm.rejection_reason.trim()
-                    }
-                  >
-                    {rejectMutation.isPending && (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    )}
-                    {copy.rejectedLabel}
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      const updatedInspection = {
-                        ...selectedInspection,
-                      };
-                      approveMutation.mutate(updatedInspection);
-                    }}
-                    disabled={approveMutation.isPending}
-                  >
-                    {approveMutation.isPending && (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    )}
-                    <CheckCircle2 className="h-4 w-4 mr-2" />
-                    {copy.approve}
-                  </Button>
-                </div>
-              )}
-
-              {selectedInspection.status !== "pending" && (
-                <Button
-                  variant="outline"
-                  onClick={() => setDetailOpen(false)}
-                  className="w-full"
-                >
-                  {copy.close}
+                <Button className="h-12 w-full rounded-2xl bg-emerald-700 text-base font-black hover:bg-emerald-800" disabled={qaPassMutation.isPending || !selectedOrderId} onClick={() => qaPassMutation.mutate()}>
+                  {qaPassMutation.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CheckCircle2 className="mr-2 h-5 w-5" />}
+                  {copy.qaPass}
                 </Button>
+              </CardContent>
+            </Card>
+          </aside>
+        </div>
+
+        <Card className="rounded-[1.5rem] border-stone-200 bg-white shadow-sm">
+          <CardHeader>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-xl font-black">
+                  <CalendarDays className="h-5 w-5 text-blue-700" />
+                  {copy.auditToday}
+                </CardTitle>
+                <CardDescription>{isVi ? "Mở lại từng phiếu để xem lệnh SX, checklist và ảnh QA." : "Open any record to review order, checklist, and QA photos."}</CardDescription>
+              </div>
+              <Input type="date" className="w-full rounded-2xl sm:w-48" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
+            </div>
+          </CardHeader>
+          <CardContent>
+            {inspectionsLoading ? (
+              <div className="flex min-h-32 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-blue-700" /></div>
+            ) : inspections.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-stone-300 bg-stone-50 p-8 text-center font-semibold text-stone-500">{copy.noAudits}</div>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {inspections.map((inspection) => {
+                  const inspectedAt = inspection.inspected_at || inspection.inspection_date || inspection.created_at;
+                  return (
+                    <button key={inspection.id} type="button" onClick={() => handleOpenDetail(inspection)} className="rounded-3xl border border-stone-200 bg-stone-50 p-4 text-left transition hover:border-blue-300 hover:bg-blue-50">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-mono text-sm font-black text-stone-900">{inspection.inspection_number || inspection.id.slice(0, 8)}</p>
+                          <p className="mt-1 text-sm font-bold text-stone-600">{inspection.production_order?.production_number || "-"}</p>
+                        </div>
+                        <Badge className={inspection.status === "approved" ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : inspection.status === "rejected" ? "bg-red-100 text-red-800 hover:bg-red-100" : "bg-amber-100 text-amber-800 hover:bg-amber-100"}>
+                          {inspection.status === "approved" ? "QA pass" : inspection.status}
+                        </Badge>
+                      </div>
+                      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-stone-500">
+                        <span>{displayDateTime(inspectedAt)}</span>
+                        <span>·</span>
+                        <span>{inspection.product_photos?.length || 0} ảnh</span>
+                        <span>·</span>
+                        <span>{inspection.inspected_by || "-"}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className="max-h-[92vh] w-[calc(100vw-1rem)] max-w-4xl overflow-y-auto rounded-3xl">
+          <DialogHeader>
+            <DialogTitle>{isVi ? "Chi tiết audit QA" : "QA audit details"}</DialogTitle>
+          </DialogHeader>
+          {selectedInspection && (
+            <div className="space-y-4">
+              <div className="grid gap-3 rounded-3xl bg-stone-50 p-4 sm:grid-cols-2">
+                <div>
+                  <p className="text-xs font-bold text-stone-500">Mã QA</p>
+                  <p className="font-mono text-sm font-black">{selectedInspection.inspection_number || selectedInspection.id.slice(0, 8)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-stone-500">Lệnh SX</p>
+                  <p className="text-sm font-black">{selectedInspection.production_order?.production_number || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-stone-500">Người QA</p>
+                  <p className="text-sm font-black">{selectedInspection.inspected_by || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-stone-500">Thời gian</p>
+                  <p className="text-sm font-black">{displayDateTime(selectedInspection.inspected_at || selectedInspection.inspection_date || selectedInspection.created_at)}</p>
+                </div>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-3">
+                {[
+                  ["quality", "Chất lượng", CheckCircle2],
+                  ["sensory", "Cảm quan", Sparkles],
+                  ["packaging", "Bao bì", PackageCheck],
+                ].map(([key, label, Icon]) => {
+                  const ActiveIcon = Icon as typeof CheckCircle2;
+                  const passed = selectedChecklist[key as "quality" | "sensory" | "packaging"] || selectedInspection.status === "approved";
+                  return (
+                    <div key={String(key)} className={`rounded-2xl border p-3 ${passed ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-900"}`}>
+                      <ActiveIcon className="mb-2 h-5 w-5" />
+                      <p className="text-sm font-black">{String(label)}</p>
+                      <p className="text-xs font-bold">{passed ? "PASS" : "CHƯA PASS"}</p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div>
+                <h3 className="mb-2 text-sm font-black">Sản phẩm đã QA</h3>
+                <div className="space-y-2">
+                  {selectedItems.map((item) => (
+                    <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-2xl border border-stone-200 bg-white p-3">
+                      <div className="min-w-0">
+                        <p className="line-clamp-2 text-sm font-black">{item.product_name}</p>
+                        <p className="text-xs font-bold text-stone-500">Kiểm {numberValue(item.inspected_qty).toLocaleString("vi-VN")} · Từ chối {numberValue(item.rejected_qty).toLocaleString("vi-VN")} {item.unit}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xl font-black text-emerald-700">{numberValue(item.approved_qty).toLocaleString("vi-VN")}</p>
+                        <p className="text-xs font-bold text-stone-500">{item.unit} nhập kho</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {selectedInspection.product_photos && selectedInspection.product_photos.length > 0 && (
+                <div>
+                  <h3 className="mb-2 text-sm font-black">Ảnh QA</h3>
+                  <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                    {selectedInspection.product_photos.map((photo, index) => (
+                      <a key={`${photo}-${index}`} href={photo} target="_blank" rel="noreferrer" className="group relative overflow-hidden rounded-2xl border border-stone-200 bg-stone-100">
+                        <img src={photo} alt={`QA ${index + 1}`} className="h-40 w-full object-cover transition group-hover:scale-105" />
+                        <span className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2 py-1 text-xs font-bold text-white"><Eye className="mr-1 inline h-3 w-3" />Mở</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {selectedInspection.notes && (
+                <div className="rounded-2xl bg-stone-50 p-3">
+                  <p className="mb-1 text-sm font-black">Ghi chú audit</p>
+                  <pre className="whitespace-pre-wrap text-sm font-medium text-stone-700">{selectedInspection.notes.replace(/\[QA_CHECKLIST\][\s\S]*?\[\/QA_CHECKLIST\]\n?/g, "").trim() || "-"}</pre>
+                </div>
               )}
             </div>
           )}
