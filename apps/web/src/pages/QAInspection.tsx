@@ -128,7 +128,16 @@ interface QaFormItem {
   approved_qty: number;
 }
 
-const todayIso = () => format(new Date(), "yyyy-MM-dd");
+const vnTodayIso = () => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+};
 
 const numberValue = (value: unknown) => {
   const parsed = Number(value || 0);
@@ -186,13 +195,14 @@ export default function QAInspection() {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [selectedDate, setSelectedDate] = useState(todayIso());
+  const [selectedDate, setSelectedDate] = useState(vnTodayIso());
   const [selectedOrderId, setSelectedOrderId] = useState("");
   const [inspectedBy, setInspectedBy] = useState("");
   const [notes, setNotes] = useState("");
   const [checklist, setChecklist] = useState({ quality: true, sensory: true, packaging: true });
   const [qaFiles, setQaFiles] = useState<File[]>([]);
   const [formItems, setFormItems] = useState<QaFormItem[]>([]);
+  const [qaDialogOpen, setQaDialogOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedInspection, setSelectedInspection] = useState<QAInspection | null>(null);
   const [selectedItems, setSelectedItems] = useState<QAInspectionItem[]>([]);
@@ -277,6 +287,10 @@ export default function QAInspection() {
 
   const handleSelectOrder = (orderId: string) => {
     setSelectedOrderId(orderId);
+    setInspectedBy("");
+    setNotes("");
+    setChecklist({ quality: true, sensory: true, packaging: true });
+    setQaFiles([]);
     const order = productionOrders.find((entry) => entry.id === orderId);
     const items = (order?.production_order_items || []).map((item) => {
       const plannedQty = numberValue(item.planned_qty || item.ordered_qty || item.actual_qty);
@@ -291,6 +305,7 @@ export default function QAInspection() {
       };
     });
     setFormItems(items);
+    setQaDialogOpen(true);
   };
 
   const handleFilesChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -306,7 +321,7 @@ export default function QAInspection() {
   };
 
   const generateInspectionNumber = async () => {
-    const refDate = todayIso();
+    const refDate = vnTodayIso();
     try {
       const { data, error } = await db.rpc<string>("generate_doc_number", { prefix: "QA", ref_date: refDate });
       if (!error && data) return String(data);
@@ -419,7 +434,7 @@ export default function QAInspection() {
             unit: item.unit || "cái",
             reference_type: "qa_inspection",
             reference_id: inspection.id,
-            movement_date: todayIso(),
+            movement_date: vnTodayIso(),
             notes: `QA PASS ${inspectionNumber} — nhập kho TP từ ${selectedOrder.production_number}`,
           });
           if (error) throw error;
@@ -443,6 +458,7 @@ export default function QAInspection() {
       setChecklist({ quality: true, sensory: true, packaging: true });
       setQaFiles([]);
       setFormItems([]);
+      setQaDialogOpen(false);
       queryClient.invalidateQueries({ queryKey: ["qa_inspections_by_day"] });
       queryClient.invalidateQueries({ queryKey: ["qa_production_orders_q7"] });
       queryClient.invalidateQueries({ queryKey: ["inventory_items"] });
@@ -495,7 +511,56 @@ export default function QAInspection() {
           </div>
         </header>
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
+        <Card className="rounded-[1.5rem] border-stone-200 bg-white shadow-sm">
+          <CardHeader>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-xl font-black">
+                  <CalendarDays className="h-5 w-5 text-blue-700" />
+                  {copy.auditToday} · {selectedDate === vnTodayIso() ? (isVi ? "Hôm nay" : "Today") : displayDate(selectedDate)}
+                </CardTitle>
+                <CardDescription>{isVi ? "Mở lại từng phiếu để xem lệnh SX, checklist và ảnh QA." : "Open any record to review order, checklist, and QA photos."}</CardDescription>
+              </div>
+              <Input type="date" className="w-full rounded-2xl sm:w-48" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
+            </div>
+          </CardHeader>
+          <CardContent>
+            {inspectionsLoading ? (
+              <div className="flex min-h-32 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-blue-700" /></div>
+            ) : inspections.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-stone-300 bg-stone-50 p-8 text-center font-semibold text-stone-500">{copy.noAudits}</div>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {inspections.map((inspection) => {
+                  const inspectedAt = inspection.inspected_at || inspection.inspection_date || inspection.created_at;
+                  return (
+                    <button key={inspection.id} type="button" onClick={() => handleOpenDetail(inspection)} className="rounded-3xl border border-stone-200 bg-stone-50 p-4 text-left transition hover:border-blue-300 hover:bg-blue-50">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-mono text-sm font-black text-stone-900">{inspection.inspection_number || inspection.id.slice(0, 8)}</p>
+                          <p className="mt-1 text-sm font-bold text-stone-600">{inspection.production_order?.production_number || "-"}</p>
+                        </div>
+                        <Badge className={inspection.status === "approved" ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : inspection.status === "rejected" ? "bg-red-100 text-red-800 hover:bg-red-100" : "bg-amber-100 text-amber-800 hover:bg-amber-100"}>
+                          {inspection.status === "approved" ? "QA pass" : inspection.status}
+                        </Badge>
+                      </div>
+                      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-stone-500">
+                        <span>{displayDateTime(inspectedAt)}</span>
+                        <span>·</span>
+                        <span>{inspection.product_photos?.length || 0} ảnh</span>
+                        <span>·</span>
+                        <span>{inspection.inspected_by || "-"}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+
+        <div className="grid gap-5">
           <section className="space-y-4">
             <Card className="rounded-[1.5rem] border-amber-200 bg-white shadow-sm">
               <CardHeader className="pb-3">
@@ -505,7 +570,7 @@ export default function QAInspection() {
                       <Factory className="h-5 w-5 text-amber-700" />
                       {copy.orderQueue}
                     </CardTitle>
-                    <CardDescription>{isVi ? "Bao gồm cả lệnh đã xác nhận đang lưu trạng thái nháp/kế hoạch để staff vẫn thấy được." : "Includes confirmed orders stored as draft/planned so staff can see them."}</CardDescription>
+                    <CardDescription>{isVi ? "Bấm vào lệnh SX để mở cửa sổ QA pass & nhập kho." : "Click a production order to open the QA pass & receiving window."}</CardDescription>
                   </div>
                   <Button variant="outline" size="sm" onClick={() => refetchOrders()} disabled={ordersLoading}>
                     {ordersLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
@@ -551,7 +616,7 @@ export default function QAInspection() {
                           </div>
                           <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-bold text-stone-500">
                             <span className="rounded-full bg-stone-100 px-2 py-1">SX {displayDate(order.planned_start_date || order.planned_end_date || order.created_at)}</span>
-                            <span className="rounded-full bg-stone-100 px-2 py-1">{isVi ? "Tự điền dòng QA từ lệnh SX" : "Auto-fill QA lines from order"}</span>
+                            <span className="rounded-full bg-stone-100 px-2 py-1">{isVi ? "Bấm để QA pass" : "Click to QA pass"}</span>
                           </div>
                         </button>
                       );
@@ -562,16 +627,22 @@ export default function QAInspection() {
             </Card>
           </section>
 
-          <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
-            <Card className="rounded-[1.5rem] border-emerald-200 bg-white shadow-sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-xl font-black">
-                  <PackageCheck className="h-5 w-5 text-emerald-700" />
-                  {copy.qaPass}
-                </CardTitle>
-                <CardDescription>{selectedOrder ? selectedOrder.production_number : isVi ? "Chọn một lệnh SX bên trái để QA." : "Select a production order first."}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
+
+        </div>
+
+      </div>
+
+
+      <Dialog open={qaDialogOpen} onOpenChange={setQaDialogOpen}>
+        <DialogContent className="max-h-[92vh] w-[calc(100vw-1rem)] max-w-3xl overflow-y-auto rounded-3xl" data-qa-pass-modal="production-order-click">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl font-black">
+              <PackageCheck className="h-5 w-5 text-emerald-700" />
+              {copy.qaPass}
+            </DialogTitle>
+            <CardDescription>{selectedOrder ? selectedOrder.production_number : isVi ? "Chọn một lệnh SX bên dưới để QA." : "Select a production order to QA."}</CardDescription>
+          </DialogHeader>
+          <div className="space-y-4">
                 <div>
                   <label className="text-sm font-bold text-stone-700">{isVi ? "Người QA" : "Inspector"}</label>
                   <Input className="mt-1 h-11 rounded-2xl" placeholder={isVi ? "Ví dụ: Vũ Phương Nhi" : "Inspector name"} value={inspectedBy} onChange={(event) => setInspectedBy(event.target.value)} />
@@ -670,59 +741,9 @@ export default function QAInspection() {
                   {qaPassMutation.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CheckCircle2 className="mr-2 h-5 w-5" />}
                   {copy.qaPass}
                 </Button>
-              </CardContent>
-            </Card>
-          </aside>
-        </div>
-
-        <Card className="rounded-[1.5rem] border-stone-200 bg-white shadow-sm">
-          <CardHeader>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2 text-xl font-black">
-                  <CalendarDays className="h-5 w-5 text-blue-700" />
-                  {copy.auditToday}
-                </CardTitle>
-                <CardDescription>{isVi ? "Mở lại từng phiếu để xem lệnh SX, checklist và ảnh QA." : "Open any record to review order, checklist, and QA photos."}</CardDescription>
-              </div>
-              <Input type="date" className="w-full rounded-2xl sm:w-48" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
-            </div>
-          </CardHeader>
-          <CardContent>
-            {inspectionsLoading ? (
-              <div className="flex min-h-32 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-blue-700" /></div>
-            ) : inspections.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-stone-300 bg-stone-50 p-8 text-center font-semibold text-stone-500">{copy.noAudits}</div>
-            ) : (
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {inspections.map((inspection) => {
-                  const inspectedAt = inspection.inspected_at || inspection.inspection_date || inspection.created_at;
-                  return (
-                    <button key={inspection.id} type="button" onClick={() => handleOpenDetail(inspection)} className="rounded-3xl border border-stone-200 bg-stone-50 p-4 text-left transition hover:border-blue-300 hover:bg-blue-50">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="font-mono text-sm font-black text-stone-900">{inspection.inspection_number || inspection.id.slice(0, 8)}</p>
-                          <p className="mt-1 text-sm font-bold text-stone-600">{inspection.production_order?.production_number || "-"}</p>
-                        </div>
-                        <Badge className={inspection.status === "approved" ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : inspection.status === "rejected" ? "bg-red-100 text-red-800 hover:bg-red-100" : "bg-amber-100 text-amber-800 hover:bg-amber-100"}>
-                          {inspection.status === "approved" ? "QA pass" : inspection.status}
-                        </Badge>
-                      </div>
-                      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-stone-500">
-                        <span>{displayDateTime(inspectedAt)}</span>
-                        <span>·</span>
-                        <span>{inspection.product_photos?.length || 0} ảnh</span>
-                        <span>·</span>
-                        <span>{inspection.inspected_by || "-"}</span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="max-h-[92vh] w-[calc(100vw-1rem)] max-w-4xl overflow-y-auto rounded-3xl">
