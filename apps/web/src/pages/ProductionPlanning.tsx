@@ -1308,49 +1308,57 @@ export default function ProductionPlanning() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="grid gap-2">
-                {visiblePendingPos.slice(0, 6).map((po) => {
-                  const attachmentNames = getPoAttachmentNames(po);
-                  return (
-                    <button
-                      key={po.id}
-                      type="button"
-                      disabled={!canEditLocation}
-                      onClick={() => handleCreateClick(po)}
-                      className="w-full rounded-2xl border border-border/60 bg-card/70 p-3 text-left transition hover:border-primary/30 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-55"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate font-mono text-sm font-black text-foreground">{po.po_number}</div>
-                          <div className="truncate text-sm text-muted-foreground">{po.from_name}</div>
-                          <div className="text-xs text-muted-foreground">{formatDate(po.delivery_date)}</div>
+              {visiblePendingPos.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-border bg-muted/35 p-4 text-sm font-semibold text-muted-foreground">
+                  {isVi
+                    ? "Chưa có PO nào còn đủ điều kiện xác nhận cho ngày giao này. PO chỉ hiện ở đây khi đã parse được thành phẩm, khớp SKU xưởng Q7 và chưa tạo lệnh sản xuất."
+                    : "No POs currently qualify for confirmation on this delivery date. POs appear here only after parsing production items, matching enabled Q7 SKUs, and before a production order is created."}
+                </div>
+              ) : (
+                <div className="grid gap-2">
+                  {visiblePendingPos.slice(0, 6).map((po) => {
+                    const attachmentNames = getPoAttachmentNames(po);
+                    return (
+                      <button
+                        key={po.id}
+                        type="button"
+                        disabled={!canEditLocation}
+                        onClick={() => handleCreateClick(po)}
+                        className="w-full rounded-2xl border border-border/60 bg-card/70 p-3 text-left transition hover:border-primary/30 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-55"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate font-mono text-sm font-black text-foreground">{po.po_number}</div>
+                            <div className="truncate text-sm text-muted-foreground">{po.from_name}</div>
+                            <div className="text-xs text-muted-foreground">{formatDate(po.delivery_date)}</div>
+                          </div>
+                          <div className="shrink-0 rounded-xl bg-primary px-3 py-2 text-sm font-black text-primary-foreground">
+                            {isVi ? "Xác nhận" : "Confirm"}
+                          </div>
                         </div>
-                        <div className="shrink-0 rounded-xl bg-primary px-3 py-2 text-sm font-black text-primary-foreground">
-                          {isVi ? "Xác nhận" : "Confirm"}
-                        </div>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-1.5">
-                        {attachmentNames.length > 0 ? (
-                          attachmentNames.slice(0, 4).map((fileName) => (
-                            <span key={fileName} className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-1 text-[11px] font-bold text-primary">
-                              <Paperclip className="h-3 w-3 shrink-0" />
-                              <span className="truncate">{fileName}</span>
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {attachmentNames.length > 0 ? (
+                            attachmentNames.slice(0, 4).map((fileName) => (
+                              <span key={fileName} className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-1 text-[11px] font-bold text-primary">
+                                <Paperclip className="h-3 w-3 shrink-0" />
+                                <span className="truncate">{fileName}</span>
+                              </span>
+                            ))
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-1 text-[11px] font-bold text-muted-foreground">
+                              <Paperclip className="h-3 w-3" />
+                              {isVi ? "Không có file PO" : "No PO file"}
                             </span>
-                          ))
-                        ) : (
-                          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-1 text-[11px] font-bold text-muted-foreground">
-                            <Paperclip className="h-3 w-3" />
-                            {isVi ? "Không có file PO" : "No PO file"}
-                          </span>
-                        )}
-                        {attachmentNames.length > 4 && (
-                          <span className="rounded-full bg-muted px-2 py-1 text-[11px] font-bold text-muted-foreground">+{attachmentNames.length - 4}</span>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+                          )}
+                          {attachmentNames.length > 4 && (
+                            <span className="rounded-full bg-muted px-2 py-1 text-[11px] font-bold text-muted-foreground">+{attachmentNames.length - 4}</span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
 
