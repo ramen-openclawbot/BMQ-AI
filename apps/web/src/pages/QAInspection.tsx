@@ -160,6 +160,27 @@ const displayDate = (value?: string | null) => {
   return date ? format(date, "dd/MM/yyyy") : "-";
 };
 
+const vnDateKey = (value?: string | null) => {
+  if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  const date = safeDate(value);
+  if (!date) return null;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+};
+
+const orderMatchesDate = (order: ProductionOrder, selectedDate: string) => {
+  const orderDates = [order.planned_start_date, order.planned_end_date, order.created_at];
+  if (orderDates.some((value) => vnDateKey(value) === selectedDate)) return true;
+  return (order.production_order_items || []).some((item) => vnDateKey(item.delivery_date) === selectedDate);
+};
+
 const getErrorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error || ""));
 
 const slugPart = (value: string) =>
@@ -266,6 +287,27 @@ export default function QAInspection() {
     },
   });
 
+  const productionOrderIds = useMemo(() => productionOrders.map((order) => order.id), [productionOrders]);
+
+  const { data: orderQaInspections = [] } = useQuery<QAInspection[]>({
+    queryKey: ["qa_inspections_for_order_status", productionOrderIds.join(",")],
+    queryFn: async () => {
+      if (productionOrderIds.length === 0) return [];
+      const { data, error } = await db
+        .from<QAInspection[]>("qa_inspections")
+        .select("id,production_order_id,status,inspected_at")
+        .in("production_order_id", productionOrderIds)
+        .eq("status", "approved");
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const filteredProductionOrders = useMemo(
+    () => productionOrders.filter((order) => orderMatchesDate(order, selectedDate)),
+    [productionOrders, selectedDate]
+  );
+
   const selectedOrder = useMemo(
     () => productionOrders.find((order) => order.id === selectedOrderId) || null,
     [productionOrders, selectedOrderId]
@@ -273,10 +315,10 @@ export default function QAInspection() {
 
   const orderHasQa = useMemo(() => {
     const approvedOrderIds = new Set(
-      inspections.filter((inspection) => inspection.status === "approved").map((inspection) => inspection.production_order_id).filter(Boolean)
+      orderQaInspections.map((inspection) => inspection.production_order_id).filter(Boolean)
     );
     return (orderId: string) => approvedOrderIds.has(orderId);
-  }, [inspections]);
+  }, [orderQaInspections]);
 
   const stats = useMemo(() => {
     const passed = inspections.filter((inspection) => inspection.status === "approved").length;
@@ -460,6 +502,7 @@ export default function QAInspection() {
       setFormItems([]);
       setQaDialogOpen(false);
       queryClient.invalidateQueries({ queryKey: ["qa_inspections_by_day"] });
+      queryClient.invalidateQueries({ queryKey: ["qa_inspections_for_order_status"] });
       queryClient.invalidateQueries({ queryKey: ["qa_production_orders_q7"] });
       queryClient.invalidateQueries({ queryKey: ["inventory_items"] });
     },
@@ -570,7 +613,7 @@ export default function QAInspection() {
                       <Factory className="h-5 w-5 text-amber-700" />
                       {copy.orderQueue}
                     </CardTitle>
-                    <CardDescription>{isVi ? "Bấm vào lệnh SX để mở cửa sổ QA pass & nhập kho." : "Click a production order to open the QA pass & receiving window."}</CardDescription>
+                    <CardDescription data-qa-date-filter-both="audit-and-orders">{isVi ? "Danh sách lệnh SX cũng lọc theo ngày audit đang chọn; bấm vào lệnh để QA pass & nhập kho." : "Production orders also follow the selected audit date; click an order to QA pass & receive stock."}</CardDescription>
                   </div>
                   <Button variant="outline" size="sm" onClick={() => refetchOrders()} disabled={ordersLoading}>
                     {ordersLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
@@ -582,11 +625,11 @@ export default function QAInspection() {
                   <div className="flex min-h-36 items-center justify-center rounded-3xl bg-amber-50">
                     <Loader2 className="h-7 w-7 animate-spin text-amber-700" />
                   </div>
-                ) : productionOrders.length === 0 ? (
-                  <div className="rounded-3xl border border-dashed border-amber-300 bg-amber-50 p-6 text-center font-semibold text-stone-600">{copy.noOrders}</div>
+                ) : filteredProductionOrders.length === 0 ? (
+                  <div className="rounded-3xl border border-dashed border-amber-300 bg-amber-50 p-6 text-center font-semibold text-stone-600">{isVi ? `Không có lệnh SX cho ngày ${displayDate(selectedDate)}.` : `No production orders for ${displayDate(selectedDate)}.`}</div>
                 ) : (
                   <div className="space-y-3">
-                    {productionOrders.slice(0, 14).map((order) => {
+                    {filteredProductionOrders.slice(0, 14).map((order) => {
                       const selected = order.id === selectedOrderId;
                       const items = order.production_order_items || [];
                       const totalQty = items.reduce((sum, item) => sum + numberValue(item.planned_qty || item.ordered_qty || item.actual_qty), 0);
