@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables, TablesInsert } from "@/integrations/supabase/types";
 import { resolveImageUrl } from "@/lib/storage-url";
+import { getVietnamDayUtcRange } from "@/lib/vietnam-time";
 import { ensureReceiptForPurchaseOrder } from "./usePurchaseReceiptQueue";
 
 // Helper function to get signed URL for PO images
@@ -302,13 +303,18 @@ export function useCancelPurchaseOrder() {
 }
 
 export function useDraftPOCount() {
+  const today = getVietnamDayUtcRange();
+
   return useQuery({
-    queryKey: ["draft-po-count"],
+    queryKey: ["draft-po-count", today.dateKey],
     queryFn: async () => {
+      const { startIso, endIso } = getVietnamDayUtcRange();
       const { count, error } = await supabase
         .from("purchase_orders")
         .select("*", { count: "exact", head: true })
-        .eq("status", "draft");
+        .eq("status", "draft")
+        .gte("created_at", startIso)
+        .lt("created_at", endIso);
       if (error) throw error;
       return count || 0;
     },

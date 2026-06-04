@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { getRemainingPaymentAmount, type PaymentRequestWithSupplier } from "@/hooks/usePaymentRequests";
+import { getVietnamDayUtcRange } from "@/lib/vietnam-time";
 
 export interface PaymentStats {
   pendingCount: number;
@@ -13,9 +14,12 @@ export interface PaymentStats {
 }
 
 export function usePaymentStats() {
+  const today = getVietnamDayUtcRange();
+
   return useQuery({
-    queryKey: ["payment-stats"],
+    queryKey: ["payment-stats", today.dateKey],
     queryFn: async () => {
+      const { startIso, endIso } = getVietnamDayUtcRange();
       // Server-side filtering — chỉ lấy count/sum cần thiết, không download toàn bộ bảng
       const [
         pendingRes,
@@ -25,11 +29,13 @@ export function usePaymentStats() {
         cashRes,
         pendingInvoiceRes,
       ] = await Promise.all([
-        // Count pending
+        // Count pending trong ngày hiện tại theo giờ Việt Nam (badge Duyệt chi)
         supabase
           .from("payment_requests")
           .select("*", { count: "exact", head: true })
-          .eq("status", "pending"),
+          .eq("status", "pending")
+          .gte("created_at", startIso)
+          .lt("created_at", endIso),
 
         // Count approved + unpaid
         supabase

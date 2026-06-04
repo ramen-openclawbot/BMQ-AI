@@ -12,6 +12,8 @@ GOODS_RECEIPTS_HOOK = ROOT / "src/hooks/useGoodsReceipts.ts"
 GOODS_RECEIPTS_PAGE = ROOT / "src/pages/GoodsReceipts.tsx"
 GOODS_RECEIPT_DETAILS = ROOT / "src/components/dialogs/GoodsReceiptDetailsDialog.tsx"
 PAYMENT_REQUESTS_HOOK = ROOT / "src/hooks/usePaymentRequests.ts"
+PAYMENT_STATS_HOOK = ROOT / "src/hooks/usePaymentStats.ts"
+VIETNAM_TIME_LIB = ROOT / "src/lib/vietnam-time.ts"
 PAYMENT_REQUESTS_PAGE = ROOT / "src/pages/PaymentRequests.tsx"
 PAYABLES_MANAGEMENT_PAGE = ROOT / "src/pages/PayablesManagement.tsx"
 PURCHASE_ORDERS_PAGE = ROOT / "src/pages/PurchaseOrders.tsx"
@@ -37,6 +39,33 @@ def latest_receiving_migration() -> str:
     matches = sorted(MIGRATIONS.glob("*_payables_receiving_flow.sql"))
     assert matches, "Missing payables receiving flow migration"
     return read(matches[-1])
+
+
+def test_sidebar_badges_count_only_current_vietnam_day():
+    vietnam_time = read(VIETNAM_TIME_LIB)
+    payment_stats = read(PAYMENT_STATS_HOOK)
+    po_hook = read(PO_HOOK)
+    sidebar = read(SIDEBAR)
+
+    assert 'VIETNAM_TIME_ZONE = "Asia/Ho_Chi_Minh"' in vietnam_time
+    assert "export function getVietnamDayUtcRange" in vietnam_time
+    assert "Date.UTC(year, month - 1, day, -7" in vietnam_time
+    assert "endIso" in vietnam_time
+
+    assert 'queryKey: ["payment-stats", today.dateKey]' in payment_stats
+    pending_badge_section = payment_stats.split("Count pending trong ngày hiện tại", 1)[1].split("// Count approved", 1)[0]
+    assert '.eq("status", "pending")' in pending_badge_section
+    assert '.gte("created_at", startIso)' in pending_badge_section
+    assert '.lt("created_at", endIso)' in pending_badge_section
+
+    assert 'queryKey: ["draft-po-count", today.dateKey]' in po_hook
+    draft_badge_section = po_hook.split("export function useDraftPOCount", 1)[1]
+    assert '.eq("status", "draft")' in draft_badge_section
+    assert '.gte("created_at", startIso)' in draft_badge_section
+    assert '.lt("created_at", endIso)' in draft_badge_section
+
+    assert "const badgeCount = paymentStats?.pendingCount || 0" in sidebar
+    assert "item.showPOBadge" in sidebar
 
 
 def test_payables_receiving_helpers_are_present_and_use_actual_quantity():
