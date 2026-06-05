@@ -88,6 +88,16 @@ def test_operational_vietnamese_wording_and_not_final():
         assert phrase not in lowered
 
 
+def test_month_over_month_revenue_chart_uses_vietnamese_wording_and_multiple_periods():
+    src = read_dashboard()
+    assert "recentPeriods(period, 6)" in src
+    assert "monthlyRevenueChart" in src
+    assert "Doanh thu theo tháng" in src
+    assert "So sánh doanh thu từng tháng" in src
+    assert "Tháng trước" in src
+    assert "dataKey=\"revenue\"" in src
+
+
 def test_dashboard_refreshes_after_cron_or_manual_parse_posts_ledger_rows():
     src = read_dashboard()
     assert "refetchOnWindowFocus: true" in src

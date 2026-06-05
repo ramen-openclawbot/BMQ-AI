@@ -158,6 +158,21 @@ const previousMonth = (period: string) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 };
 
+const recentPeriods = (period: string, count: number) => {
+  const periods: string[] = [];
+  let cursor = period;
+  for (let index = 0; index < count; index += 1) {
+    periods.unshift(cursor);
+    cursor = previousMonth(cursor);
+  }
+  return periods;
+};
+
+const shortPeriodLabel = (value: string) => {
+  const [year, month] = value.split("-");
+  return `T${Number(month)}/${year.slice(2)}`;
+};
+
 const daysInPeriod = (period: string) => {
   const [year, month] = period.split("-").map(Number);
   return new Date(year, month, 0).getDate();
@@ -390,6 +405,7 @@ export default function RevenueManagementDashboard() {
   const [period, setPeriod] = useState(initialPeriod);
   const prevPeriod = previousMonth(period);
   const forecastBasePeriod = previousMonth(prevPeriod);
+  const monthlyPeriods = useMemo(() => recentPeriods(period, 6), [period]);
   const isSelectedCurrentMonth = period === monthNow();
 
   const {
@@ -415,6 +431,23 @@ export default function RevenueManagementDashboard() {
     queryKey: ["revenue-ledger-lines", forecastBasePeriod],
     queryFn: async () => fetchAllRevenueLines(forecastBasePeriod, true),
     refetchOnWindowFocus: true,
+  });
+
+  const { data: monthlyLinesByPeriod = {} } = useQuery<
+    Record<string, RevenueLine[]>
+  >({
+    queryKey: ["revenue-ledger-lines-monthly", monthlyPeriods],
+    queryFn: async () => {
+      const entries = await Promise.all(
+        monthlyPeriods.map(async (monthPeriod) => [
+          monthPeriod,
+          await fetchAllRevenueLines(monthPeriod, true),
+        ] as const),
+      );
+      return Object.fromEntries(entries);
+    },
+    refetchOnWindowFocus: true,
+    refetchInterval: isSelectedCurrentMonth ? 5 * 60 * 1000 : false,
   });
 
   const stats = useMemo(() => {
@@ -495,6 +528,27 @@ export default function RevenueManagementDashboard() {
       pct,
     };
   }, [previousLines, stats.total]);
+
+  const monthlyRevenueChart = useMemo(() => {
+    let previousRevenue = 0;
+    return monthlyPeriods.map((monthPeriod) => {
+      const revenue = sumRevenue(monthlyLinesByPeriod[monthPeriod] || []);
+      const delta = revenue - previousRevenue;
+      const pct = previousRevenue > 0 ? (delta / previousRevenue) * 100 : null;
+      const isCurrentPeriod = monthPeriod === period;
+      const row = {
+        period: monthPeriod,
+        label: shortPeriodLabel(monthPeriod),
+        revenue,
+        previousRevenue,
+        delta,
+        pct,
+        fill: isCurrentPeriod ? MOM_CURRENT_COLOR : MOM_PREVIOUS_COLOR,
+      };
+      previousRevenue = revenue;
+      return row;
+    });
+  }, [monthlyLinesByPeriod, monthlyPeriods, period]);
 
   const forecast = useMemo(() => {
     const periodDays = daysInPeriod(period);
@@ -1249,6 +1303,103 @@ export default function RevenueManagementDashboard() {
           >
             Cần SKU: {stats.dispatchNeedsAllocation}
           </Badge>
+        </CardContent>
+      </Card>
+
+      <Card className="overflow-hidden border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
+        <CardHeader className="border-b border-border/55 bg-muted/35 pb-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-foreground">
+                Doanh thu theo tháng
+              </CardTitle>
+              <CardDescription className="text-muted-foreground">
+                So sánh doanh thu từng tháng trong 6 tháng gần nhất, dùng ledger đã kiểm soát.
+              </CardDescription>
+            </div>
+            <Badge
+              className={`${mom.delta >= 0 ? "border-success/25 bg-success/10 text-success" : "border-destructive/25 bg-destructive/10 text-destructive"}`}
+              variant="outline"
+            >
+              Tháng trước: {mom.pct === null ? "N/A" : `${mom.pct >= 0 ? "+" : ""}${numberFmt(mom.pct)}%`}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="h-[280px] p-3 md:h-[320px] md:p-4">
+          <div
+            className="h-full overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]"
+            aria-label="Cuộn ngang để xem doanh thu theo tháng"
+          >
+            <div className="h-full min-w-[720px] md:min-w-0">
+              <ChartContainer
+                config={{
+                  revenue: { label: "Doanh thu", color: MOM_CURRENT_COLOR },
+                }}
+                className="h-full"
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={monthlyRevenueChart}
+                    margin={{ top: 12, right: 18, bottom: 18, left: 8 }}
+                  >
+                    <CartesianGrid stroke={TREND_GRID_COLOR} vertical={false} />
+                    <XAxis
+                      dataKey="label"
+                      tickLine={false}
+                      axisLine={false}
+                      fontSize={12}
+                      tick={{ fill: "hsl(var(--muted-foreground))" }}
+                    />
+                    <YAxis
+                      tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`}
+                      tickLine={false}
+                      axisLine={false}
+                      width={48}
+                      tick={{ fill: "hsl(var(--muted-foreground))" }}
+                    />
+                    <Tooltip
+                      cursor={{ fill: "hsl(var(--primary) / 0.08)" }}
+                      contentStyle={{
+                        background: "hsl(var(--card))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: "12px",
+                        color: "hsl(var(--foreground))",
+                        boxShadow: "var(--shadow-card)",
+                      }}
+                      formatter={(value) => [vnd(Number(value)), "Doanh thu"]}
+                      labelFormatter={(_, payload) => {
+                        const row = payload?.[0]?.payload as
+                          | (typeof monthlyRevenueChart)[number]
+                          | undefined;
+                        if (!row) return "Doanh thu theo tháng";
+                        const change =
+                          row.pct === null
+                            ? "chưa có tháng trước"
+                            : `${row.delta >= 0 ? "+" : ""}${vnd(row.delta)} (${row.pct >= 0 ? "+" : ""}${numberFmt(row.pct)}%) so với tháng trước`;
+                        return `${periodLabel(row.period)} · ${change}`;
+                      }}
+                      labelStyle={{
+                        color: "hsl(var(--foreground))",
+                        fontWeight: 600,
+                      }}
+                    />
+                    <Legend
+                      wrapperStyle={{
+                        color: "hsl(var(--muted-foreground))",
+                        fontSize: 12,
+                      }}
+                      formatter={() => "Doanh thu"}
+                    />
+                    <Bar dataKey="revenue" radius={[5, 5, 0, 0]}>
+                      {monthlyRevenueChart.map((row) => (
+                        <Cell key={row.period} fill={row.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartContainer>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
