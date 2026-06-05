@@ -26,10 +26,18 @@ required_tokens = [
     'Trang ${safeCurrentPage}/${totalPages}',
     'Trước',
     'Tiếp',
+    'data-bmq-payment-requests-default-vn-day="true"',
+    'getCurrentVietnamDayInputValue',
+    'useState(getCurrentVietnamDayInputValue)',
+    'getVietnamDateKey(new Date(request.created_at))',
+    'Hôm nay',
 ]
 
 missing = [token for token in required_tokens if token not in source]
 assert not missing, f"Missing Stitch mobile payment request markers/classes/copy: {missing}"
+
+assert 'getMonthStartInputValue' not in source, "Duyệt chi must not default to month start; sidebar badge is current VN day"
+assert 'getMonthEndInputValue' not in source, "Duyệt chi must not default to month end; sidebar badge is current VN day"
 
 # Keep the operational desktop table present but hidden on mobile.
 assert '<Card className="hidden overflow-hidden rounded-md' in source, "Desktop table must remain available from lg breakpoint"

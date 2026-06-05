@@ -73,19 +73,12 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { cn } from "@/lib/utils";
+import { getVietnamDateKey } from "@/lib/vietnam-time";
 import { toast } from "sonner";
 
 type CardFilterType = "pending" | "approved" | "rejected" | null;
 
-const getMonthStartInputValue = () => {
-  const today = new Date();
-  return format(new Date(today.getFullYear(), today.getMonth(), 1), "yyyy-MM-dd");
-};
-
-const getMonthEndInputValue = () => {
-  const today = new Date();
-  return format(new Date(today.getFullYear(), today.getMonth() + 1, 0), "yyyy-MM-dd");
-};
+const getCurrentVietnamDayInputValue = () => getVietnamDateKey();
 
 const normalizeSearch = (value: string | null | undefined) =>
   String(value || "")
@@ -125,8 +118,8 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
   const [showDriveInvoiceDialog, setShowDriveInvoiceDialog] = useState(false);
   const [pageSize, setPageSize] = useState("10");
   const [currentPage, setCurrentPage] = useState(1);
-  const [dateFrom, setDateFrom] = useState(getMonthStartInputValue);
-  const [dateTo, setDateTo] = useState(getMonthEndInputValue);
+  const [dateFrom, setDateFrom] = useState(getCurrentVietnamDayInputValue);
+  const [dateTo, setDateTo] = useState(getCurrentVietnamDayInputValue);
   
   const { canEditModule } = useAuth();
   const { language, t } = useLanguage();
@@ -171,7 +164,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
 
   const dateFilteredRequests = useMemo(() => {
     return (requests || []).filter((request) => {
-      const requestDate = format(new Date(request.created_at), "yyyy-MM-dd");
+      const requestDate = getVietnamDateKey(new Date(request.created_at));
       if (dateFrom && requestDate < dateFrom) return false;
       if (dateTo && requestDate > dateTo) return false;
       return true;
@@ -546,9 +539,11 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
             </Button>
           </div>
         </div>
-        <div className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden">
+        <div data-bmq-payment-requests-default-vn-day="true" className="mt-3 flex gap-2 overflow-x-auto pb-1 lg:hidden">
           <button type="button" className="h-9 shrink-0 rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground">
-            {dateFrom ? format(new Date(`${dateFrom}T00:00:00`), "MM/yyyy") : "Tháng này"}
+            {dateFrom === dateTo && dateFrom === getCurrentVietnamDayInputValue()
+              ? language === "vi" ? "Hôm nay" : "Today"
+              : dateFrom ? format(new Date(`${dateFrom}T00:00:00`), "dd/MM/yyyy") : language === "vi" ? "Tất cả ngày" : "All dates"}
           </button>
           <label className="flex h-9 shrink-0 items-center gap-2 rounded-full border border-white/40 bg-card/80 px-3 text-xs font-semibold text-muted-foreground shadow-[0_20px_20px_rgba(143,155,179,0.08)]">
             Từ
