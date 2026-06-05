@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Download, Loader2, Mail, PencilLine, RefreshCw, Search } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +15,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 
 const DEFAULT_NPP_NAME = "Đại lý cấp 1 - Anh Thanh";
+const REVENUE_ROWS_PAGE_SIZE = 20;
 
 const formatVnd = (value: number) =>
   new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(Number(value || 0));
@@ -258,6 +259,8 @@ export default function NppDebtManagement() {
   const [exportStatus, setExportStatus] = useState<ExportStatus>({ kind: "idle", title: "" });
   const [pendingOverwrite, setPendingOverwrite] = useState<PendingOverwrite | null>(null);
   const [editingLine, setEditingLine] = useState<LedgerLine | null>(null);
+  const [directRevenuePage, setDirectRevenuePage] = useState(1);
+  const [expandedAgencyRevenuePage, setExpandedAgencyRevenuePage] = useState(1);
   const [editForm, setEditForm] = useState<RevenueEditForm | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
 
@@ -410,6 +413,38 @@ export default function NppDebtManagement() {
     () => isSelectedNpp ? [] : ledgerLines.filter((line) => lineBelongsToCustomer(line, selectedCustomer)),
     [isSelectedNpp, ledgerLines, selectedCustomer]
   );
+  const expandedAgencyLines = useMemo(
+    () => summaries.find((row) => row.id === expandedAgencyId)?.lines || [],
+    [expandedAgencyId, summaries]
+  );
+  const directRevenueTotalPages = Math.max(1, Math.ceil(directLines.length / REVENUE_ROWS_PAGE_SIZE));
+  const directRevenuePageSafe = Math.min(directRevenuePage, directRevenueTotalPages);
+  const paginatedDirectLines = directLines.slice(
+    (directRevenuePageSafe - 1) * REVENUE_ROWS_PAGE_SIZE,
+    directRevenuePageSafe * REVENUE_ROWS_PAGE_SIZE
+  );
+  const expandedAgencyRevenueTotalPages = Math.max(1, Math.ceil(expandedAgencyLines.length / REVENUE_ROWS_PAGE_SIZE));
+  const expandedAgencyRevenuePageSafe = Math.min(expandedAgencyRevenuePage, expandedAgencyRevenueTotalPages);
+  const paginatedExpandedAgencyLines = expandedAgencyLines.slice(
+    (expandedAgencyRevenuePageSafe - 1) * REVENUE_ROWS_PAGE_SIZE,
+    expandedAgencyRevenuePageSafe * REVENUE_ROWS_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    setDirectRevenuePage(1);
+  }, [effectiveCustomerId, dateFrom, dateTo, isSelectedNpp]);
+
+  useEffect(() => {
+    setExpandedAgencyRevenuePage(1);
+  }, [expandedAgencyId]);
+
+  useEffect(() => {
+    if (directRevenuePage > directRevenueTotalPages) setDirectRevenuePage(directRevenueTotalPages);
+  }, [directRevenuePage, directRevenueTotalPages]);
+
+  useEffect(() => {
+    if (expandedAgencyRevenuePage > expandedAgencyRevenueTotalPages) setExpandedAgencyRevenuePage(expandedAgencyRevenueTotalPages);
+  }, [expandedAgencyRevenuePage, expandedAgencyRevenueTotalPages]);
 
   const totals = useMemo(() => {
     if (!isSelectedNpp) {
@@ -589,7 +624,7 @@ export default function NppDebtManagement() {
     }
   };
 
-  const renderEditButton = (line: LedgerLine, className?: string) => {
+  const renderEditButton = (line: LedgerLine, className = "") => {
     if (!canEditRevenue) return null;
     return (
       <Button
@@ -607,6 +642,21 @@ export default function NppDebtManagement() {
       </Button>
     );
   };
+
+  const renderRevenuePagination = (totalRows: number, currentPage: number, totalPages: number, setPage: (updater: (page: number) => number) => void) => (
+    <div className="mt-4 flex flex-col gap-2 text-xs text-muted-foreground md:flex-row md:items-center md:justify-between">
+      <span>Mỗi trang tối đa 20 dòng doanh thu • {totalRows} dòng</span>
+      <div className="flex items-center justify-between gap-2 md:justify-end">
+        <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setPage((page) => Math.max(1, page - 1))} disabled={currentPage <= 1}>
+          Trang trước
+        </Button>
+        <span className="min-w-[104px] text-center font-medium text-foreground">Trang doanh thu {currentPage}/{totalPages}</span>
+        <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setPage((page) => Math.min(totalPages, page + 1))} disabled={currentPage >= totalPages}>
+          Trang sau
+        </Button>
+      </div>
+    </div>
+  );
 
   const isLoading = customersLoading || (hasViewedDebt && linesLoading);
   const canViewDebt = Boolean(selectedCustomerId && dateFrom && dateTo);
@@ -824,7 +874,7 @@ export default function NppDebtManagement() {
                     </div>
                     {expandedAgencyId === row.id && (
                       <div className="mt-4 space-y-2 border-t border-border/70 pt-3">
-                        {row.lines.map((line) => (
+                        {paginatedExpandedAgencyLines.map((line) => (
                           <div key={line.id} className="rounded-lg bg-muted/30 p-3 text-sm">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
@@ -840,6 +890,7 @@ export default function NppDebtManagement() {
                           </div>
                         ))}
                         {row.lines.length === 0 && <div className="py-3 text-center text-sm text-muted-foreground">Chưa có dòng trong kỳ này.</div>}
+                        {row.lines.length > 0 && renderRevenuePagination(row.lines.length, expandedAgencyRevenuePageSafe, expandedAgencyRevenueTotalPages, setExpandedAgencyRevenuePage)}
                       </div>
                     )}
                   </div>
@@ -889,7 +940,7 @@ export default function NppDebtManagement() {
                                     </TableRow>
                                   </TableHeader>
                                   <TableBody>
-                                    {row.lines.map((line) => (
+                                    {paginatedExpandedAgencyLines.map((line) => (
                                       <TableRow key={line.id}>
                                         <TableCell>{line.revenue_date}</TableCell>
                                         <TableCell>{line.product_name || line.customer_name || "Bánh mì"}</TableCell>
@@ -903,6 +954,7 @@ export default function NppDebtManagement() {
                                     {row.lines.length === 0 && <TableRow><TableCell colSpan={7} className="py-4 text-center text-muted-foreground">Chưa có dòng trong kỳ này.</TableCell></TableRow>}
                                   </TableBody>
                                 </Table>
+                                {row.lines.length > 0 && renderRevenuePagination(row.lines.length, expandedAgencyRevenuePageSafe, expandedAgencyRevenueTotalPages, setExpandedAgencyRevenuePage)}
                               </div>
                             </TableCell>
                           </TableRow>
@@ -919,7 +971,7 @@ export default function NppDebtManagement() {
           ) : (
             <>
               <div className="space-y-3 md:hidden">
-                {directLines.map((line) => (
+                {paginatedDirectLines.map((line) => (
                   <div key={line.id} className="rounded-xl border border-border/70 bg-card/70 p-4 shadow-sm">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -936,6 +988,7 @@ export default function NppDebtManagement() {
                   </div>
                 ))}
                 {directLines.length === 0 && <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Chưa có dữ liệu công nợ cho khách hàng này.</div>}
+                {directLines.length > 0 && renderRevenuePagination(directLines.length, directRevenuePageSafe, directRevenueTotalPages, setDirectRevenuePage)}
               </div>
 
               <div className="hidden overflow-x-auto md:block">
@@ -953,7 +1006,7 @@ export default function NppDebtManagement() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {directLines.map((line) => (
+                    {paginatedDirectLines.map((line) => (
                       <TableRow key={line.id}>
                         <TableCell>{line.revenue_date}</TableCell>
                         <TableCell>{line.channel || "-"}</TableCell>
@@ -970,6 +1023,7 @@ export default function NppDebtManagement() {
                     )}
                   </TableBody>
                 </Table>
+                {directLines.length > 0 && renderRevenuePagination(directLines.length, directRevenuePageSafe, directRevenueTotalPages, setDirectRevenuePage)}
               </div>
             </>
           )}

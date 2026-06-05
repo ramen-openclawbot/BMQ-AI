@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Database, FileSpreadsheet, Filter, Loader2, PencilLine, Plus, Search } from "lucide-react";
@@ -18,6 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 const vnd = (v: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(v || 0);
 const numberFmt = (v: number) => new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(v || 0);
 const CONTROLLED_APRIL_PERIOD = "2026-04";
+const REVENUE_ROWS_PAGE_SIZE = 20;
 const MANUAL_REVENUE_CHANNELS = ["ĐẠI LÝ", "BÁNH NGỌT", "B2B BMQ", "Retail Kiosk"] as const;
 
 type RevenueLine = {
@@ -389,6 +390,7 @@ export default function RevenueSourceDetail() {
   const [exportingSheet, setExportingSheet] = useState(false);
   const [sheetExportResult, setSheetExportResult] = useState<DailyRevenueSheetExportResponse | null>(null);
   const [sheetExportMessage, setSheetExportMessage] = useState<string | null>(null);
+  const [ledgerRowsPage, setLedgerRowsPage] = useState(1);
 
   const { data: lines = [], isLoading, error, refetch } = useQuery<RevenueLine[]>({
     queryKey: ["revenue-source-detail", period, channel, customerKey, review, scope, focus, sourceDocumentId, revenueDate, dateFrom, dateTo],
@@ -443,6 +445,20 @@ export default function RevenueSourceDetail() {
     revenue: filtered.reduce((s, r) => s + Number(r.gross_revenue || 0), 0),
     review: filtered.filter((r) => r.review_status === "needs_manual_review" || r.audit_status === "needs_review").length,
   }), [filtered]);
+  const ledgerRowsTotalPages = Math.max(1, Math.ceil(filtered.length / REVENUE_ROWS_PAGE_SIZE));
+  const ledgerRowsPageSafe = Math.min(ledgerRowsPage, ledgerRowsTotalPages);
+  const paginatedLedgerRows = filtered.slice(
+    (ledgerRowsPageSafe - 1) * REVENUE_ROWS_PAGE_SIZE,
+    ledgerRowsPageSafe * REVENUE_ROWS_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    setLedgerRowsPage(1);
+  }, [period, channel, customerKey, review, scope, focus, sourceDocumentId, revenueDate, dateFrom, dateTo, q]);
+
+  useEffect(() => {
+    if (ledgerRowsPage > ledgerRowsTotalPages) setLedgerRowsPage(ledgerRowsTotalPages);
+  }, [ledgerRowsPage, ledgerRowsTotalPages]);
 
   const manualNumbers = useMemo(() => {
     const quantity = (() => { try { return toNumber(manualForm.quantity); } catch { return NaN; } })();
@@ -924,7 +940,7 @@ export default function RevenueSourceDetail() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map((row) => {
+                  {paginatedLedgerRows.map((row) => {
                     const raw = asRecord(row.raw_payload);
                     return (
                       <TableRow key={row.id}>
@@ -958,6 +974,18 @@ export default function RevenueSourceDetail() {
                   })}
                 </TableBody>
               </Table>
+              <div className="mt-4 flex flex-col gap-2 text-xs text-muted-foreground md:flex-row md:items-center md:justify-between">
+                <span>Mỗi trang tối đa 20 dòng doanh thu • {filtered.length} dòng</span>
+                <div className="flex items-center justify-between gap-2 md:justify-end">
+                  <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setLedgerRowsPage((page) => Math.max(1, page - 1))} disabled={ledgerRowsPageSafe <= 1}>
+                    Trang trước
+                  </Button>
+                  <span className="min-w-[104px] text-center font-medium text-foreground">Trang doanh thu {ledgerRowsPageSafe}/{ledgerRowsTotalPages}</span>
+                  <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setLedgerRowsPage((page) => Math.min(ledgerRowsTotalPages, page + 1))} disabled={ledgerRowsPageSafe >= ledgerRowsTotalPages}>
+                    Trang sau
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
         </CardContent>

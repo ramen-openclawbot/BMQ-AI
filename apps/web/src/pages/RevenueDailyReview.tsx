@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ExternalLink, Loader2, Save, TriangleAlert } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 
 const vnd = (v: number) =>
   new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(v || 0);
+const REVENUE_ROWS_PAGE_SIZE = 20;
 
 const todayLocal = () => {
   const d = new Date();
@@ -82,6 +83,7 @@ export default function RevenueDailyReview() {
   const [customer, setCustomer] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [status, setStatus] = useState("pending");
+  const [reviewRowsPage, setReviewRowsPage] = useState(1);
   const [edits, setEdits] = useState<DraftEditState>({});
 
   const { data: drafts = [], isLoading, error } = useQuery<RevenueDraft[]>({
@@ -122,6 +124,20 @@ export default function RevenueDailyReview() {
     amount: filteredDrafts.reduce((sum, draft) => sum + Number(draft.total_amount || 0), 0),
     exceptions: filteredDrafts.filter((draft) => draft.status === "exception").length,
   }), [filteredDrafts]);
+  const reviewRowsTotalPages = Math.max(1, Math.ceil(filteredDrafts.length / REVENUE_ROWS_PAGE_SIZE));
+  const reviewRowsPageSafe = Math.min(reviewRowsPage, reviewRowsTotalPages);
+  const paginatedDrafts = filteredDrafts.slice(
+    (reviewRowsPageSafe - 1) * REVENUE_ROWS_PAGE_SIZE,
+    reviewRowsPageSafe * REVENUE_ROWS_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    setReviewRowsPage(1);
+  }, [customer, date, sourceFilter, status]);
+
+  useEffect(() => {
+    if (reviewRowsPage > reviewRowsTotalPages) setReviewRowsPage(reviewRowsTotalPages);
+  }, [reviewRowsPage, reviewRowsTotalPages]);
 
   const editFor = (draft: RevenueDraft) => edits[draft.id] || { amount: String(draft.total_amount ?? 0), note: "" };
 
@@ -259,7 +275,7 @@ export default function RevenueDailyReview() {
           ) : (
             <>
               <div className="space-y-3 lg:hidden">
-                {filteredDrafts.map((draft) => {
+                {paginatedDrafts.map((draft) => {
                   const edit = editFor(draft);
                   return (
                     <div key={draft.id} className="rounded-xl border p-3">
@@ -291,6 +307,14 @@ export default function RevenueDailyReview() {
                     </div>
                   );
                 })}
+                <div className="flex flex-col gap-2 text-xs text-muted-foreground md:flex-row md:items-center md:justify-between">
+                  <span>Mỗi trang tối đa 20 dòng doanh thu • {filteredDrafts.length} dòng</span>
+                  <div className="flex items-center justify-between gap-2 md:justify-end">
+                    <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setReviewRowsPage((page) => Math.max(1, page - 1))} disabled={reviewRowsPageSafe <= 1}>Trang trước</Button>
+                    <span className="min-w-[104px] text-center font-medium text-foreground">Trang doanh thu {reviewRowsPageSafe}/{reviewRowsTotalPages}</span>
+                    <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setReviewRowsPage((page) => Math.min(reviewRowsTotalPages, page + 1))} disabled={reviewRowsPageSafe >= reviewRowsTotalPages}>Trang sau</Button>
+                  </div>
+                </div>
               </div>
 
               <div className="hidden overflow-x-auto lg:block">
@@ -307,7 +331,7 @@ export default function RevenueDailyReview() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredDrafts.map((draft) => {
+                    {paginatedDrafts.map((draft) => {
                       const edit = editFor(draft);
                       return (
                         <TableRow key={draft.id}>
@@ -338,6 +362,14 @@ export default function RevenueDailyReview() {
                     })}
                   </TableBody>
                 </Table>
+                <div className="mt-4 flex flex-col gap-2 text-xs text-muted-foreground md:flex-row md:items-center md:justify-between">
+                  <span>Mỗi trang tối đa 20 dòng doanh thu • {filteredDrafts.length} dòng</span>
+                  <div className="flex items-center justify-between gap-2 md:justify-end">
+                    <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setReviewRowsPage((page) => Math.max(1, page - 1))} disabled={reviewRowsPageSafe <= 1}>Trang trước</Button>
+                    <span className="min-w-[104px] text-center font-medium text-foreground">Trang doanh thu {reviewRowsPageSafe}/{reviewRowsTotalPages}</span>
+                    <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setReviewRowsPage((page) => Math.min(reviewRowsTotalPages, page + 1))} disabled={reviewRowsPageSafe >= reviewRowsTotalPages}>Trang sau</Button>
+                  </div>
+                </div>
               </div>
             </>
           )}
