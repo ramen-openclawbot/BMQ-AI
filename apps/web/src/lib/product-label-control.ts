@@ -37,6 +37,9 @@ export interface ExtractedProductLabelData {
   barcode_bbox?: BarcodeBoundingBox | null;
   barcode_crop_confidence?: number | null;
   barcode_crop_image_url?: string | null;
+  barcode_visual_match?: boolean | null;
+  barcode_visual_match_confidence?: number | null;
+  barcode_visual_match_reason?: string | null;
   raw_text?: string | null;
 }
 
@@ -119,8 +122,13 @@ export const evaluateLabelScan = ({
     extracted?.net_weight_value == null ||
     Math.abs(Number(extracted.net_weight_value) - Number(spec.net_weight_value)) <= 1;
 
+  const hasBarcodeReferenceImage = Boolean(spec.barcode_crop_image_url);
   if (!valuesMatch(spec.product_name, extracted?.product_name)) return { passed: false, reason: "Sai tên sản phẩm trên tem." };
-  if (!valuesMatch(spec.barcode_value, extracted?.barcode)) return { passed: false, reason: "Sai mã vạch so với cấu hình sản phẩm." };
+  if (hasBarcodeReferenceImage) {
+    if (extracted?.barcode_visual_match !== true) {
+      return { passed: false, reason: extracted?.barcode_visual_match_reason || "Sai barcode so với ảnh barcode mẫu." };
+    }
+  } else if (!valuesMatch(spec.barcode_value, extracted?.barcode)) return { passed: false, reason: "Sai mã vạch so với cấu hình sản phẩm." };
   if (!valuesMatch(spec.partner_product_code, extractedPartnerCode)) return { passed: false, reason: "Sai mã SP đối tác so với cấu hình sản phẩm." };
   if (nsx !== expectedNsx) return { passed: false, reason: `NSX phải là ${formatDateKeyVi(expectedNsx)}.` };
   if (hsd !== expectedHsd) return { passed: false, reason: `HSD phải là ${formatDateKeyVi(expectedHsd)}.` };

@@ -467,7 +467,15 @@ export default function QAInspection() {
       if (uploadError) throw uploadError;
       const imageUrl = (db).storage.from(QA_PHOTO_BUCKET).getPublicUrl(path).data?.publicUrl;
       const { data, error } = await (supabase as unknown as { functions: { invoke<T>(name: string, options: { body: unknown }): Promise<{ data: T | null; error: Error | null }> } }).functions.invoke<{ data: ExtractedProductLabelData }>("scan-product-label", {
-        body: { image_url: imageUrl, sku_code: spec?.sku_code, product_name: item.product_name, barcode_value: spec?.barcode_value, partner_product_code: spec?.partner_product_code, detect_barcode_bbox: true },
+        body: {
+          image_url: imageUrl,
+          sku_code: spec?.sku_code,
+          product_name: item.product_name,
+          barcode_value: spec?.barcode_value,
+          partner_product_code: spec?.partner_product_code,
+          detect_barcode_bbox: true,
+          expected_barcode_image_url: spec?.barcode_crop_image_url || undefined,
+        },
       });
       if (error) throw error;
       const extracted = data?.data || null;
@@ -949,6 +957,11 @@ export default function QAInspection() {
                                 {labelOk ? "Tem đạt" : check?.status === "failed" ? "Tem lỗi" : "Chưa quét"}
                               </Badge>
                               <span className="text-[11px] font-bold text-muted-foreground">{check?.reason || (spec ? "Phải quét trước khi nhập kho." : "SKU chưa có cấu hình tem nhãn.")}</span>
+                              {spec?.barcode_crop_image_url && check?.extracted?.barcode_visual_match != null ? (
+                                <Badge className={check.extracted.barcode_visual_match ? "bg-success/15 text-success hover:bg-success/15" : "bg-destructive/15 text-destructive hover:bg-destructive/15"}>
+                                  Barcode {check.extracted.barcode_visual_match ? "khớp mẫu" : "không khớp"}
+                                </Badge>
+                              ) : null}
                             </div>
                             {(spec?.barcode_crop_image_url || check?.extracted_barcode_crop_image_url) && (
                               <div className="mt-3 grid gap-2 sm:grid-cols-2" data-qa-barcode-crop-compare="template-vs-scan">

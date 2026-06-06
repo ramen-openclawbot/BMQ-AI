@@ -205,9 +205,11 @@ export default function ProductionProducts() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const templateFileInputRef = useRef<HTMLInputElement | null>(null);
+  const barcodeFileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedSkuId, setSelectedSkuId] = useState("");
   const [draft, setDraft] = useState<LabelDraft>(defaultDraft);
   const [analyzingTemplate, setAnalyzingTemplate] = useState(false);
+  const [uploadingBarcodeSample, setUploadingBarcodeSample] = useState(false);
   const [saveSuccessAt, setSaveSuccessAt] = useState<Date | null>(null);
   const [templateReplaceConfirmOpen, setTemplateReplaceConfirmOpen] = useState(false);
 
@@ -303,7 +305,7 @@ export default function ProductionProducts() {
       const cropUrl = withStorageCacheBust(await uploadImageBlob(cropPath, cropBlob, "image/jpeg"));
       setDraft((current) => ({
         ...current,
-        barcode_value: extracted?.barcode || "",
+        barcode_value: extracted?.barcode || current.barcode_value,
         partner_product_code: extracted?.partner_product_code || extracted?.product_code || "",
         label_template_image_url: templateUrl,
         label_template_image_path: templatePath,
@@ -312,11 +314,59 @@ export default function ProductionProducts() {
         barcode_crop_bbox: barcodeBox,
         barcode_crop_confidence: browserBarcodeBox ? null : extracted?.barcode_crop_confidence ?? null,
       }));
-      toast({ title: "Đã cắt mã vạch từ tem mẫu", description: `AI đã tự lấy mã vạch và mã SP trên tem mẫu; ảnh barcode mẫu cắt bằng ${barcode_crop_source === "browser_barcode_detector" ? "bộ dò barcode của trình duyệt" : "tọa độ AI"}. Kiểm tra rồi bấm lưu.` });
+      toast({ title: "Đã cắt mã vạch từ tem mẫu", description: `AI đã tự lấy mã SP trên tem và cắt ảnh barcode bằng ${barcode_crop_source === "browser_barcode_detector" ? "bộ dò barcode của trình duyệt" : "tọa độ AI"}. Nếu crop chưa đúng, dùng nút Upload barcode mẫu riêng bên dưới.` });
     } catch (error) {
       toast({ title: "Không thể xử lý tem mẫu", description: error instanceof Error ? error.message : String(error), variant: "destructive" });
     } finally {
       setAnalyzingTemplate(false);
+    }
+  };
+
+  const handleBarcodeSampleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    const sku = skus.find((item) => item.id === selectedSkuId);
+    if (!sku) {
+      toast({ title: "Chọn SKU trước", description: "Cần chọn SKU thành phẩm rồi mới upload barcode mẫu.", variant: "destructive" });
+      return;
+    }
+    setUploadingBarcodeSample(true);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+      const basePath = `${slugPart(sku.sku_code || sku.product_name || sku.id)}/${Date.now()}`;
+      const existingCropPath = draft.barcode_crop_image_path || storagePathFromPublicUrl(draft.barcode_crop_image_url);
+      const barcodePath = existingCropPath || `${basePath}/barcode-sample.${ext}`;
+      const barcodeUrl = withStorageCacheBust(await uploadImageBlob(barcodePath, file, file.type || "image/jpeg"));
+      let detectedBarcode = "";
+      try {
+        const imageBase64 = await fileToBase64(file);
+        const { data } = await db.functions.invoke<{ data: ExtractedProductLabelData }>("scan-product-label", {
+          body: {
+            image_base64: imageBase64,
+            image_mime_type: file.type,
+            sku_code: sku.sku_code,
+            product_name: sku.product_name,
+            detect_barcode_bbox: false,
+          },
+        });
+        detectedBarcode = data?.data?.barcode || "";
+      } catch (scanError) {
+        console.warn("scan barcode sample failed", scanError);
+      }
+      setDraft((current) => ({
+        ...current,
+        barcode_value: detectedBarcode || current.barcode_value,
+        barcode_crop_image_url: barcodeUrl,
+        barcode_crop_image_path: barcodePath,
+        barcode_crop_bbox: null,
+        barcode_crop_confidence: null,
+      }));
+      toast({ title: "Đã upload barcode mẫu", description: detectedBarcode ? `QA sẽ so sánh ảnh scan với barcode mẫu này. Mã đọc được: ${detectedBarcode}.` : "QA sẽ so sánh ảnh scan với barcode mẫu này; không phụ thuộc vùng crop AI từ tem mẫu." });
+    } catch (error) {
+      toast({ title: "Không thể upload barcode mẫu", description: error instanceof Error ? error.message : String(error), variant: "destructive" });
+    } finally {
+      setUploadingBarcodeSample(false);
     }
   };
 
@@ -360,13 +410,18 @@ export default function ProductionProducts() {
   const existingTemplatePath = draft.label_template_image_path || storagePathFromPublicUrl(draft.label_template_image_url);
   const existingCropPath = draft.barcode_crop_image_path || storagePathFromPublicUrl(draft.barcode_crop_image_url);
   const hasExistingTemplate = Boolean(existingTemplatePath || existingCropPath);
+  const hasBarcodeSample = Boolean(existingCropPath);
   const openTemplateFilePicker = () => {
-    if (!selectedSkuId || analyzingTemplate) return;
+    if (!selectedSkuId || analyzingTemplate || uploadingBarcodeSample) return;
     if (hasExistingTemplate) {
       setTemplateReplaceConfirmOpen(true);
       return;
     }
     templateFileInputRef.current?.click();
+  };
+  const openBarcodeFilePicker = () => {
+    if (!selectedSkuId || analyzingTemplate || uploadingBarcodeSample) return;
+    barcodeFileInputRef.current?.click();
   };
   const confirmReplaceTemplate = () => {
     setTemplateReplaceConfirmOpen(false);
@@ -479,18 +534,19 @@ export default function ProductionProducts() {
                   <p className="mt-1 text-[11px] font-semibold text-muted-foreground">Tự lấy từ tem mẫu sau khi upload/quét tem.</p>
                 </div>
               </div>
-              <div className="rounded-3xl border border-dashed border-primary/35 bg-primary/10 p-3" data-product-label-template-upload="barcode-crop-reference">
+              <div className="rounded-3xl border border-dashed border-primary/35 bg-primary/10 p-3" data-product-label-template-upload="barcode-reference-separate">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <Label>Tem mẫu + ảnh mã vạch</Label>
-                    <p className="mt-1 text-xs font-semibold text-muted-foreground">Upload tem mẫu: AI tự đọc mã vạch + mã SP trên tem, xác định vùng barcode và hệ thống cắt ảnh barcode để lưu đối chiếu khi QA quét.</p>
+                    <Label>Tem mẫu</Label>
+                    <p className="mt-1 text-xs font-semibold text-muted-foreground">Upload tem mẫu để AI đọc mã SP, NSX/HSD/khối lượng và thử tự cắt barcode. Nếu vùng barcode bị sai, upload ảnh barcode mẫu riêng ở nút bên dưới.</p>
                   </div>
-                  <Button type="button" variant="outline" className="shrink-0 rounded-2xl bg-background" disabled={!selectedSkuId || analyzingTemplate} onClick={openTemplateFilePicker}>
+                  <Button type="button" variant="outline" className="shrink-0 rounded-2xl bg-background" disabled={!selectedSkuId || analyzingTemplate || uploadingBarcodeSample} onClick={openTemplateFilePicker}>
                     {analyzingTemplate ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
                     {hasExistingTemplate ? "Thay tem mẫu" : "Upload tem mẫu"}
                   </Button>
                 </div>
                 <input ref={templateFileInputRef} type="file" accept="image/*" className="hidden" onChange={handleTemplateFileChange} />
+                <input ref={barcodeFileInputRef} type="file" accept="image/*" className="hidden" onChange={handleBarcodeSampleFileChange} />
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <div className="overflow-hidden rounded-2xl border border-border bg-card">
                     <div className="flex h-28 items-center justify-center bg-muted/60">
@@ -502,9 +558,16 @@ export default function ProductionProducts() {
                     <div className="flex h-28 items-center justify-center bg-muted/60">
                       {draft.barcode_crop_image_url ? <img src={draft.barcode_crop_image_url} alt="Ảnh barcode mẫu" className="h-full w-full object-contain" /> : <ImageIcon className="h-7 w-7 text-muted-foreground" />}
                     </div>
-                    <p className="px-3 py-2 text-xs font-bold text-muted-foreground">Ảnh barcode mẫu{draft.barcode_crop_confidence != null ? ` · AI ${Math.round(Number(draft.barcode_crop_confidence) * 100)}%` : ""}</p>
+                    <div className="flex items-center justify-between gap-2 px-3 py-2">
+                      <p className="text-xs font-bold text-muted-foreground">Ảnh barcode mẫu{draft.barcode_crop_confidence != null ? ` · AI ${Math.round(Number(draft.barcode_crop_confidence) * 100)}%` : ""}</p>
+                      <Button type="button" size="sm" variant="secondary" className="h-8 shrink-0 rounded-xl px-2 text-[11px] font-black" disabled={!selectedSkuId || analyzingTemplate || uploadingBarcodeSample} onClick={openBarcodeFilePicker}>
+                        {uploadingBarcodeSample ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <UploadCloud className="mr-1 h-3.5 w-3.5" />}
+                        {hasBarcodeSample ? "Thay barcode" : "Upload barcode"}
+                      </Button>
+                    </div>
                   </div>
                 </div>
+                <p className="mt-2 text-[11px] font-semibold text-muted-foreground">QA sẽ ưu tiên so sánh barcode trên tem scan với ảnh barcode mẫu này; không pass nếu AI báo barcode không khớp.</p>
               </div>
               <div>
                 <Label>Link Google Sheet truy xuất</Label>
