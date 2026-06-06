@@ -44,6 +44,7 @@ const SkuCostsManagement = lazy(() => import("@/pages/SkuCostsManagement"));
 const SkuCostsAnalysis = lazy(() => import("@/pages/SkuCostsAnalysis"));
 const SkuCostsDjango = lazy(() => import("@/pages/SkuCostsDjango"));
 const ProductionPlanning = lazy(() => import("@/pages/ProductionPlanning"));
+const ProductionProducts = lazy(() => import("@/pages/ProductionProducts"));
 const ProductionShifts = lazy(() => import("@/pages/ProductionShifts"));
 const QAInspection = lazy(() => import("@/pages/QAInspection"));
 const WarehouseDispatch = lazy(() => import("@/pages/WarehouseDispatch"));
@@ -129,6 +130,7 @@ function ModuleRoute({ moduleKey, children }: { moduleKey: string; children: Rea
     finance_cost: "Kiểm soát chi phí",
     finance_revenue: "Doanh thu",
     production_q7: "Kế hoạch SX - Xưởng Q7",
+    production_products: "Quản lý sản phẩm",
     production_shifts: "Ca sản xuất",
     production_qa: "QA & Nhập kho TP",
     goods_receipts: "Phiếu nhập kho",
@@ -235,6 +237,7 @@ export function AppRoutes() {
         {/* Production routes */}
         <Route path="/production/planning" element={<Navigate to="/production/planning/q7" replace />} />
         <Route path="/production/planning/q7" element={<ModuleRoute moduleKey="production_q7"><Suspense fallback={<AppLoadingFallback />}><ProductionPlanning /></Suspense></ModuleRoute>} />
+        <Route path="/production/products" element={<ModuleRoute moduleKey="production_q7"><Suspense fallback={<AppLoadingFallback />}><ProductionProducts /></Suspense></ModuleRoute>} />
         <Route path="/production/shifts" element={<ModuleRoute moduleKey="production_shifts"><Suspense fallback={<AppLoadingFallback />}><ProductionShifts /></Suspense></ModuleRoute>} />
         <Route path="/production/qa" element={<ModuleRoute moduleKey="production_qa"><Suspense fallback={<AppLoadingFallback />}><QAInspection /></Suspense></ModuleRoute>} />
         <Route path="/attendance" element={<Suspense fallback={<AppLoadingFallback />}><AttendanceManagement /></Suspense>} />

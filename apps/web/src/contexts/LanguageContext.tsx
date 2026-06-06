@@ -43,6 +43,7 @@ interface Translations {
   systemManagement: string;
   productionPlanning: string;
   productionQ7: string;
+  productionProducts: string;
   productionShifts: string;
   qaInspection: string;
   attendance: string;
@@ -236,6 +237,7 @@ const translations: Record<Language, Translations> = {
     systemManagement: "System Management",
     productionPlanning: "Production Planning",
     productionQ7: "Q7 Workshop",
+    productionProducts: "Product Management",
     productionShifts: "Production Shifts",
     qaInspection: "QA Inspection",
     attendance: "Attendance",
@@ -426,6 +428,7 @@ const translations: Record<Language, Translations> = {
     userManagement: "Quản lý người dùng",
     productionPlanning: "Kế hoạch SX",
     productionQ7: "Xưởng Q7",
+    productionProducts: "Quản lý sản phẩm",
     productionShifts: "Ca sản xuất",
     qaInspection: "QA & Nhập kho TP",
     attendance: "Chấm công",

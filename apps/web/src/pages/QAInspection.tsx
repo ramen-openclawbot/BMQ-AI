@@ -28,6 +28,7 @@ import {
 import { format } from "date-fns";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { evaluateLabelScan, expectedLabelDates, formatDateKeyVi, ProductLabelSpec, ExtractedProductLabelData } from "@/lib/product-label-control";
 
 const QA_PHOTO_BUCKET = "sku-images";
 
@@ -129,6 +130,13 @@ interface QaFormItem {
   approved_qty: number;
 }
 
+interface LabelCheckState {
+  status: "pending" | "passed" | "failed";
+  reason: string;
+  image_url?: string | null;
+  extracted?: ExtractedProductLabelData | null;
+}
+
 const vnTodayIso = () => {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Ho_Chi_Minh",
@@ -224,6 +232,7 @@ export default function QAInspection() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const labelFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [selectedDate, setSelectedDate] = useState(vnTodayIso());
   const [selectedOrderId, setSelectedOrderId] = useState("");
@@ -236,6 +245,9 @@ export default function QAInspection() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedInspection, setSelectedInspection] = useState<QAInspection | null>(null);
   const [selectedItems, setSelectedItems] = useState<QAInspectionItem[]>([]);
+  const [labelChecks, setLabelChecks] = useState<Record<string, LabelCheckState>>({});
+  const [pendingLabelIndex, setPendingLabelIndex] = useState<number | null>(null);
+  const [scanningLabel, setScanningLabel] = useState(false);
 
   const loggedInInspectorName = useMemo(() => {
     const fullName = profile?.full_name?.trim();
@@ -284,6 +296,19 @@ export default function QAInspection() {
       return data || [];
     },
   });
+
+  const { data: labelSpecs = [] } = useQuery<ProductLabelSpec[]>({
+    queryKey: ["qa_product_label_specs"],
+    queryFn: async () => {
+      const { data, error } = await db
+        .from<ProductLabelSpec[]>("product_label_specs")
+        .select("id,sku_id,sku_code,product_name,shelf_life_days,net_weight_value,net_weight_unit,traceability_sheet_url,is_label_scan_required");
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const labelSpecBySku = useMemo(() => new Map(labelSpecs.map((spec) => [spec.sku_id, spec])), [labelSpecs]);
 
   const { data: inspections = [], isLoading: inspectionsLoading } = useQuery<QAInspection[]>({
     queryKey: ["qa_inspections_by_day", selectedDate],
@@ -350,6 +375,15 @@ export default function QAInspection() {
     return { passed, photos, items };
   }, [formItems, inspections]);
 
+  const allLabelChecksPassed = useMemo(() => {
+    return formItems.every((item, index) => {
+      const spec = item.sku_id ? labelSpecBySku.get(item.sku_id) : null;
+      if (spec?.is_label_scan_required === false) return true;
+      const key = item.id || String(index);
+      return labelChecks[key]?.status === "passed";
+    });
+  }, [formItems, labelChecks, labelSpecBySku]);
+
   const handleSelectOrder = (orderId: string) => {
     setSelectedOrderId(orderId);
     setInspectedBy(loggedInInspectorName);
@@ -370,6 +404,7 @@ export default function QAInspection() {
       };
     });
     setFormItems(items);
+    setLabelChecks({});
     setQaDialogOpen(true);
   };
 
@@ -378,6 +413,50 @@ export default function QAInspection() {
     if (files.length === 0) return;
     setQaFiles((current) => [...current, ...files].slice(0, 12));
     event.target.value = "";
+  };
+
+  const openLabelScanner = (index: number) => {
+    setPendingLabelIndex(index);
+    labelFileInputRef.current?.click();
+  };
+
+  const handleLabelFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || pendingLabelIndex == null) return;
+    const item = formItems[pendingLabelIndex];
+    if (!item) return;
+    const itemKey = item.id || String(pendingLabelIndex);
+    const spec = item.sku_id ? labelSpecBySku.get(item.sku_id) : null;
+    setScanningLabel(true);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+      const path = `qa-labels/${selectedDate}/${slugPart(item.product_name)}-${Date.now()}.${ext}`;
+      const { error: uploadError } = await (db).storage.from(QA_PHOTO_BUCKET).upload(path, file, {
+        upsert: false,
+        contentType: file.type || "image/jpeg",
+      });
+      if (uploadError) throw uploadError;
+      const imageUrl = (db).storage.from(QA_PHOTO_BUCKET).getPublicUrl(path).data?.publicUrl;
+      const { data, error } = await (supabase as unknown as { functions: { invoke<T>(name: string, options: { body: unknown }): Promise<{ data: T | null; error: Error | null }> } }).functions.invoke<{ data: ExtractedProductLabelData }>("scan-product-label", {
+        body: { image_url: imageUrl, sku_code: spec?.sku_code, product_name: item.product_name },
+      });
+      if (error) throw error;
+      const extracted = data?.data || null;
+      const result = evaluateLabelScan({ spec, productionDateKey: selectedDate, extracted });
+      setLabelChecks((current) => ({
+        ...current,
+        [itemKey]: { status: result.passed ? "passed" : "failed", reason: result.reason, image_url: imageUrl, extracted },
+      }));
+    } catch (error) {
+      setLabelChecks((current) => ({
+        ...current,
+        [itemKey]: { status: "failed", reason: getErrorMessage(error), image_url: null, extracted: null },
+      }));
+    } finally {
+      setScanningLabel(false);
+      setPendingLabelIndex(null);
+    }
   };
 
   const updateFormItem = (index: number, key: "inspected_qty" | "approved_qty", value: string) => {
@@ -427,6 +506,15 @@ export default function QAInspection() {
       }
       if (qaFiles.length === 0) throw new Error(isVi ? "Cần upload ít nhất 1 ảnh QA." : "Upload at least one QA photo.");
       if (formItems.length === 0) throw new Error(isVi ? "Lệnh SX chưa có dòng sản phẩm để QA." : "The order has no items to inspect.");
+      const requiredLabelFailures = formItems.filter((item, index) => {
+        const spec = item.sku_id ? labelSpecBySku.get(item.sku_id) : null;
+        if (spec?.is_label_scan_required === false) return false;
+        const key = item.id || String(index);
+        return labelChecks[key]?.status !== "passed";
+      });
+      if (requiredLabelFailures.length > 0) {
+        throw new Error(isVi ? "Không cho nhập kho: cần quét và pass tem nhãn cho mọi SKU." : "Receiving blocked: every SKU label must be scanned and passed.");
+      }
 
       const inspectionNumber = await generateInspectionNumber();
       const photoUrls = await uploadQaPhotos(inspectionNumber);
@@ -460,6 +548,35 @@ export default function QAInspection() {
       }));
       const { error: itemsError } = await (db).from("qa_inspection_items").insert(itemsToInsert);
       if (itemsError) throw itemsError;
+
+      const labelRows = formItems.map((item, index) => {
+        const key = item.id || String(index);
+        const check = labelChecks[key];
+        const spec = item.sku_id ? labelSpecBySku.get(item.sku_id) : null;
+        const dates = expectedLabelDates(selectedDate, spec?.shelf_life_days || 1);
+        return {
+          qa_inspection_id: inspection.id,
+          production_order_id: selectedOrder.id,
+          production_order_item_id: item.id || null,
+          sku_id: item.sku_id || null,
+          product_label_spec_id: spec?.id || null,
+          expected_manufacturing_date: dates.expectedNsx,
+          expected_expiry_date: dates.expectedHsd,
+          extracted_manufacturing_date: check?.extracted?.manufacturing_date || null,
+          extracted_expiry_date: check?.extracted?.expiry_date || null,
+          extracted_product_code: check?.extracted?.product_code || null,
+          extracted_product_name: check?.extracted?.product_name || null,
+          extracted_net_weight_value: check?.extracted?.net_weight_value ?? null,
+          extracted_net_weight_unit: check?.extracted?.net_weight_unit || null,
+          raw_ocr_text: check?.extracted?.raw_text || null,
+          image_url: check?.image_url || null,
+          status: check?.status || "pending",
+          failure_reason: check?.status === "passed" ? null : check?.reason || "Chưa quét tem nhãn",
+          checked_by: user?.id || null,
+        };
+      });
+      const { error: labelError } = await (db).from("qa_label_checks").insert(labelRows);
+      if (labelError) throw labelError;
 
       for (const item of formItems) {
         if (item.approved_qty <= 0) continue;
@@ -522,6 +639,7 @@ export default function QAInspection() {
       setNotes("");
       setChecklist({ quality: true, sensory: true, packaging: true });
       setQaFiles([]);
+      setLabelChecks({});
       setFormItems([]);
       setQaDialogOpen(false);
       queryClient.invalidateQueries({ queryKey: ["qa_inspections_by_day"] });
@@ -727,6 +845,7 @@ export default function QAInspection() {
                     </Button>
                   </div>
                   <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFilesChange} />
+                  <input ref={labelFileInputRef} type="file" accept="image/*" className="hidden" onChange={handleLabelFileChange} />
                   {qaFiles.length > 0 && (
                     <div className="mt-3 grid grid-cols-3 gap-2">
                       {qaFiles.map((file, index) => (
@@ -751,14 +870,38 @@ export default function QAInspection() {
                     <div className="rounded-2xl bg-muted p-4 text-sm font-semibold text-muted-foreground">{isVi ? "Chọn lệnh SX để tự điền danh sách sản phẩm." : "Select an order to auto-fill items."}</div>
                   ) : (
                     <div className="space-y-2">
-                      {formItems.map((item, index) => (
-                        <div key={item.id || index} className="rounded-2xl border border-border bg-muted/50 p-3">
+                      {formItems.map((item, index) => {
+                        const labelKey = item.id || String(index);
+                        const spec = item.sku_id ? labelSpecBySku.get(item.sku_id) : null;
+                        const check = labelChecks[labelKey];
+                        const expected = expectedLabelDates(selectedDate, spec?.shelf_life_days || 1);
+                        const labelOk = check?.status === "passed";
+                        return (
+                        <div key={item.id || index} className="rounded-2xl border border-border bg-muted/50 p-3" data-label-control="per-sku-label-scan">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <p className="line-clamp-2 text-sm font-black text-foreground">{item.product_name}</p>
                               <p className="text-xs font-bold text-muted-foreground">Plan {item.planned_qty.toLocaleString("vi-VN")} {item.unit}</p>
                             </div>
                             <Badge className="bg-warning text-warning-foreground hover:bg-warning">{item.unit}</Badge>
+                          </div>
+                          <div className="mt-3 rounded-2xl border border-dashed border-primary/30 bg-background p-3">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <div>
+                                <p className="text-xs font-black text-foreground">Tem nhãn SKU</p>
+                                <p className="text-[11px] font-bold text-muted-foreground">Kỳ vọng NSX {formatDateKeyVi(expected.expectedNsx)} · HSD {formatDateKeyVi(expected.expectedHsd)}{spec?.net_weight_value ? ` · ${spec.net_weight_value}${spec.net_weight_unit || ""}` : ""}</p>
+                              </div>
+                              <Button type="button" variant={labelOk ? "outline" : "default"} size="sm" className="rounded-xl" disabled={scanningLabel} onClick={() => openLabelScanner(index)}>
+                                {scanningLabel && pendingLabelIndex === index ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
+                                Quét tem
+                              </Button>
+                            </div>
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              <Badge className={labelOk ? "bg-success/15 text-success hover:bg-success/15" : check?.status === "failed" ? "bg-destructive/15 text-destructive hover:bg-destructive/15" : "bg-warning text-warning-foreground hover:bg-warning"}>
+                                {labelOk ? "Tem đạt" : check?.status === "failed" ? "Tem lỗi" : "Chưa quét"}
+                              </Badge>
+                              <span className="text-[11px] font-bold text-muted-foreground">{check?.reason || (spec ? "Phải quét trước khi nhập kho." : "SKU chưa có cấu hình tem nhãn.")}</span>
+                            </div>
                           </div>
                           <div className="mt-3 grid grid-cols-2 gap-2">
                             <div>
@@ -771,7 +914,8 @@ export default function QAInspection() {
                             </div>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -781,7 +925,7 @@ export default function QAInspection() {
                   <Textarea className="mt-1 rounded-2xl bg-background" rows={3} placeholder={isVi ? "Ví dụ: PO 687, giao đủ 687; bao bì mới OK..." : "Notes for audit"} value={notes} onChange={(event) => setNotes(event.target.value)} />
                 </div>
 
-                <Button className="h-12 w-full rounded-2xl bg-success text-base font-black text-success-foreground hover:bg-success/90" disabled={qaPassMutation.isPending || !selectedOrderId} onClick={() => qaPassMutation.mutate()}>
+                <Button className="h-12 w-full rounded-2xl bg-success text-base font-black text-success-foreground hover:bg-success/90" disabled={qaPassMutation.isPending || !selectedOrderId || !allLabelChecksPassed} onClick={() => qaPassMutation.mutate()}>
                   {qaPassMutation.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CheckCircle2 className="mr-2 h-5 w-5" />}
                   {copy.qaPass}
                 </Button>
