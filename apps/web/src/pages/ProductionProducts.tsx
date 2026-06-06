@@ -29,12 +29,14 @@ interface ProductSku {
   sku_type: string | null;
 }
 
-type LabelDraft = Pick<ProductLabelSpec, "shelf_life_days" | "net_weight_value" | "net_weight_unit" | "traceability_sheet_url" | "is_label_scan_required">;
+type LabelDraft = Pick<ProductLabelSpec, "shelf_life_days" | "net_weight_value" | "net_weight_unit" | "barcode_value" | "partner_product_code" | "traceability_sheet_url" | "is_label_scan_required">;
 
 const defaultDraft: LabelDraft = {
   shelf_life_days: 3,
   net_weight_value: null,
   net_weight_unit: "g",
+  barcode_value: "",
+  partner_product_code: "",
   traceability_sheet_url: "",
   is_label_scan_required: true,
 };
@@ -67,7 +69,7 @@ export default function ProductionProducts() {
     queryFn: async () => {
       const { data, error } = await db
         .from<ProductLabelSpec[]>("product_label_specs")
-        .select("id,sku_id,sku_code,product_name,shelf_life_days,net_weight_value,net_weight_unit,traceability_sheet_url,is_label_scan_required")
+        .select("id,sku_id,sku_code,product_name,barcode_value,partner_product_code,shelf_life_days,net_weight_value,net_weight_unit,traceability_sheet_url,is_label_scan_required")
         .order("product_name", { ascending: true });
       if (error) throw error;
       return data || [];
@@ -83,6 +85,8 @@ export default function ProductionProducts() {
       shelf_life_days: existing?.shelf_life_days || 3,
       net_weight_value: existing?.net_weight_value ?? null,
       net_weight_unit: existing?.net_weight_unit || "g",
+      barcode_value: existing?.barcode_value || "",
+      partner_product_code: existing?.partner_product_code || "",
       traceability_sheet_url: existing?.traceability_sheet_url || "",
       is_label_scan_required: existing?.is_label_scan_required ?? true,
     });
@@ -105,6 +109,8 @@ export default function ProductionProducts() {
           shelf_life_days: Math.max(1, Number(draft.shelf_life_days || 1)),
           net_weight_value: draft.net_weight_value == null || Number.isNaN(Number(draft.net_weight_value)) ? null : Number(draft.net_weight_value),
           net_weight_unit: draft.net_weight_unit || "g",
+          barcode_value: draft.barcode_value?.trim() || null,
+          partner_product_code: draft.partner_product_code?.trim() || null,
           traceability_sheet_url: draft.traceability_sheet_url || null,
           is_label_scan_required: draft.is_label_scan_required ?? true,
           updated_at: new Date().toISOString(),
@@ -130,7 +136,7 @@ export default function ProductionProducts() {
           <Badge className="mb-3 rounded-full bg-primary/10 text-primary hover:bg-primary/10">Quản lý sản phẩm · tem nhãn QA</Badge>
           <h1 className="text-2xl font-black tracking-tight md:text-4xl">Quản lý sản phẩm</h1>
           <p className="mt-2 max-w-3xl text-sm font-semibold text-muted-foreground md:text-base">
-            Cấu hình hạn sử dụng, khối lượng và link sheet truy xuất theo SKU thành phẩm. QA phải quét/đối chiếu tem đạt trước khi nhập kho TP.
+            Cấu hình HSD, khối lượng, mã vạch, mã SP đối tác và link sheet truy xuất theo SKU thành phẩm. QA phải quét/đối chiếu tem đạt trước khi nhập kho TP.
           </p>
         </header>
 
@@ -179,7 +185,7 @@ export default function ProductionProducts() {
                       </div>
                       {(() => {
                         const spec = specBySku.get(selectedSku.id);
-                        return spec ? <p className="mt-3 text-sm font-bold text-muted-foreground">HSD {spec.shelf_life_days} ngày · {spec.net_weight_value || "-"}{spec.net_weight_unit || ""}</p> : <p className="mt-3 text-sm font-bold text-muted-foreground">SKU này chưa có thông số tem, nhập bên phải rồi lưu.</p>;
+                        return spec ? <p className="mt-3 text-sm font-bold text-muted-foreground">HSD {spec.shelf_life_days} ngày · {spec.net_weight_value || "-"}{spec.net_weight_unit || ""}{spec.barcode_value ? ` · Mã vạch ${spec.barcode_value}` : ""}{spec.partner_product_code ? ` · Mã SP ${spec.partner_product_code}` : ""}</p> : <p className="mt-3 text-sm font-bold text-muted-foreground">SKU này chưa có thông số tem, nhập bên phải rồi lưu.</p>;
                       })()}
                     </div>
                   ) : (
@@ -209,6 +215,16 @@ export default function ProductionProducts() {
               <div>
                 <Label>Đơn vị khối lượng</Label>
                 <Input className="mt-1 rounded-2xl" value={draft.net_weight_unit || ""} onChange={(event) => setDraft((cur) => ({ ...cur, net_weight_unit: event.target.value }))} />
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <Label>Mã vạch</Label>
+                  <Input className="mt-1 rounded-2xl font-mono" placeholder="Ví dụ: 893..." value={draft.barcode_value || ""} onChange={(event) => setDraft((cur) => ({ ...cur, barcode_value: event.target.value }))} />
+                </div>
+                <div>
+                  <Label>Mã SP theo đối tác</Label>
+                  <Input className="mt-1 rounded-2xl font-mono" placeholder="Ví dụ: SP001986" value={draft.partner_product_code || ""} onChange={(event) => setDraft((cur) => ({ ...cur, partner_product_code: event.target.value }))} />
+                </div>
               </div>
               <div>
                 <Label>Link Google Sheet truy xuất</Label>

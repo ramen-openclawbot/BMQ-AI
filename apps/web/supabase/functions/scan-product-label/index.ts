@@ -14,6 +14,8 @@ interface ExtractProductLabelDataRequest {
   image_base64?: string;
   sku_code?: string;
   product_name?: string;
+  barcode_value?: string;
+  partner_product_code?: string;
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -56,14 +58,14 @@ async function extract_product_label_data(payload: ExtractProductLabelDataReques
         {
           role: "system",
           content:
-            "Extract Vietnamese bakery product label data. Return JSON only with keys: product_code, product_name, manufacturing_date, expiry_date, net_weight_value, net_weight_unit, raw_text. Dates must be YYYY-MM-DD when possible.",
+            "Extract Vietnamese bakery product label data. Return JSON only with keys: product_code, barcode, partner_product_code, product_name, manufacturing_date, expiry_date, net_weight_value, net_weight_unit, raw_text. product_code is the visible product/SKU code on the label if present; barcode is the printed barcode digits/value; partner_product_code is the partner-regulated product code printed below the barcode or near the barcode. Dates must be YYYY-MM-DD when possible.",
         },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: `SKU: ${payload.sku_code || ""}\nProduct: ${payload.product_name || ""}\nRead NSX, HSD, weight, code, product name from this label.`,
+              text: `SKU: ${payload.sku_code || ""}\nProduct: ${payload.product_name || ""}\nExpected barcode: ${payload.barcode_value || ""}\nExpected partner product code: ${payload.partner_product_code || ""}\nRead NSX, HSD, weight, barcode, partner product code, product code, and product name from this label.`,
             },
             { type: "image_url", image_url: { url: imageUrl } },
           ],
@@ -78,7 +80,9 @@ async function extract_product_label_data(payload: ExtractProductLabelDataReques
   const body = await response.json();
   const parsed = JSON.parse(body.choices?.[0]?.message?.content || "{}");
   return {
-    product_code: parsed.product_code || null,
+    product_code: parsed.product_code || parsed.partner_product_code || null,
+    barcode: parsed.barcode || null,
+    partner_product_code: parsed.partner_product_code || parsed.product_code || null,
     product_name: parsed.product_name || null,
     manufacturing_date: normalizeDate(parsed.manufacturing_date),
     expiry_date: normalizeDate(parsed.expiry_date),

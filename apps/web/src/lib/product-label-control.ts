@@ -3,6 +3,8 @@ export interface ProductLabelSpec {
   sku_id: string;
   sku_code?: string | null;
   product_name?: string | null;
+  barcode_value?: string | null;
+  partner_product_code?: string | null;
   shelf_life_days: number;
   net_weight_value?: number | null;
   net_weight_unit?: string | null;
@@ -12,6 +14,8 @@ export interface ProductLabelSpec {
 
 export interface ExtractedProductLabelData {
   product_code?: string | null;
+  barcode?: string | null;
+  partner_product_code?: string | null;
   product_name?: string | null;
   manufacturing_date?: string | null;
   expiry_date?: string | null;
@@ -61,6 +65,23 @@ export const formatDateKeyVi = (value?: string | null) => {
   return match ? `${match[3]}/${match[2]}/${match[1]}` : "-";
 };
 
+export const normalizeLabelIdentity = (value?: string | null) => {
+  if (!value) return "";
+  return String(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+};
+
+const valuesMatch = (expected?: string | null, actual?: string | null) => {
+  const expectedValue = normalizeLabelIdentity(expected);
+  if (!expectedValue) return true;
+  return expectedValue === normalizeLabelIdentity(actual);
+};
+
 export const evaluateLabelScan = ({
   spec,
   productionDateKey,
@@ -76,11 +97,15 @@ export const evaluateLabelScan = ({
   const { expectedNsx, expectedHsd } = expectedLabelDates(productionDateKey, spec.shelf_life_days || 1);
   const nsx = normalizeLabelDate(extracted?.manufacturing_date);
   const hsd = normalizeLabelDate(extracted?.expiry_date);
+  const extractedPartnerCode = extracted?.partner_product_code || extracted?.product_code;
   const weightOk =
     spec.net_weight_value == null ||
     extracted?.net_weight_value == null ||
     Math.abs(Number(extracted.net_weight_value) - Number(spec.net_weight_value)) <= 1;
 
+  if (!valuesMatch(spec.product_name, extracted?.product_name)) return { passed: false, reason: "Sai tên sản phẩm trên tem." };
+  if (!valuesMatch(spec.barcode_value, extracted?.barcode)) return { passed: false, reason: "Sai mã vạch so với cấu hình sản phẩm." };
+  if (!valuesMatch(spec.partner_product_code, extractedPartnerCode)) return { passed: false, reason: "Sai mã SP đối tác so với cấu hình sản phẩm." };
   if (nsx !== expectedNsx) return { passed: false, reason: `NSX phải là ${formatDateKeyVi(expectedNsx)}.` };
   if (hsd !== expectedHsd) return { passed: false, reason: `HSD phải là ${formatDateKeyVi(expectedHsd)}.` };
   if (!weightOk) return { passed: false, reason: "Khối lượng trên tem lệch cấu hình SKU." };

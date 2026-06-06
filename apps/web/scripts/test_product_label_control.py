@@ -14,6 +14,11 @@ def test_product_label_schema_and_scan_function_exist():
     assert "shelf_life_days" in migrations
     assert "net_weight_value" in migrations
     assert "traceability_sheet_url" in migrations
+    assert "barcode_value" in migrations
+    assert "partner_product_code" in migrations
+    assert "expected_barcode" in migrations
+    assert "expected_partner_product_code" in migrations
+    assert "extracted_barcode" in migrations
     fn = ROOT / "supabase/functions/scan-product-label/index.ts"
     assert fn.exists()
     text = fn.read_text(encoding="utf-8")
@@ -21,6 +26,8 @@ def test_product_label_schema_and_scan_function_exist():
     assert "manufacturing_date" in text
     assert "expiry_date" in text
     assert "net_weight_value" in text
+    assert "barcode" in text
+    assert "partner_product_code" in text
 
 
 def test_production_product_management_route_and_sidebar_exist():
@@ -59,6 +66,24 @@ def test_production_product_management_uses_sku_dropdown():
     assert "SelectContent" in page
     assert "handleSelectSkuId" in page
     assert "grid gap-3 md:grid-cols-2 xl:grid-cols-3" not in page
+
+
+def test_product_label_fixed_partner_codes_are_managed_and_enforced():
+    helper = read("src/lib/product-label-control.ts")
+    page = read("src/pages/ProductionProducts.tsx")
+    qa = read("src/pages/QAInspection.tsx")
+    assert "barcode_value" in helper
+    assert "partner_product_code" in helper
+    assert "normalizeLabelIdentity" in helper
+    assert "Mã vạch" in page
+    assert "Mã SP theo đối tác" in page
+    assert "barcode_value,partner_product_code" in page
+    assert "barcode_value" in qa
+    assert "partner_product_code" in qa
+    assert "expected_barcode" in qa
+    assert "expected_partner_product_code" in qa
+    assert "Sai mã vạch" in helper
+    assert "Sai mã SP đối tác" in helper
 
 
 def test_label_date_math_and_qa_block_markers():

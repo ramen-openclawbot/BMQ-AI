@@ -302,7 +302,7 @@ export default function QAInspection() {
     queryFn: async () => {
       const { data, error } = await db
         .from<ProductLabelSpec[]>("product_label_specs")
-        .select("id,sku_id,sku_code,product_name,shelf_life_days,net_weight_value,net_weight_unit,traceability_sheet_url,is_label_scan_required");
+        .select("id,sku_id,sku_code,product_name,barcode_value,partner_product_code,shelf_life_days,net_weight_value,net_weight_unit,traceability_sheet_url,is_label_scan_required");
       if (error) throw error;
       return data || [];
     },
@@ -439,7 +439,7 @@ export default function QAInspection() {
       if (uploadError) throw uploadError;
       const imageUrl = (db).storage.from(QA_PHOTO_BUCKET).getPublicUrl(path).data?.publicUrl;
       const { data, error } = await (supabase as unknown as { functions: { invoke<T>(name: string, options: { body: unknown }): Promise<{ data: T | null; error: Error | null }> } }).functions.invoke<{ data: ExtractedProductLabelData }>("scan-product-label", {
-        body: { image_url: imageUrl, sku_code: spec?.sku_code, product_name: item.product_name },
+        body: { image_url: imageUrl, sku_code: spec?.sku_code, product_name: item.product_name, barcode_value: spec?.barcode_value, partner_product_code: spec?.partner_product_code },
       });
       if (error) throw error;
       const extracted = data?.data || null;
@@ -560,8 +560,12 @@ export default function QAInspection() {
           production_order_item_id: item.id || null,
           sku_id: item.sku_id || null,
           product_label_spec_id: spec?.id || null,
+          expected_barcode: spec?.barcode_value || null,
+          expected_partner_product_code: spec?.partner_product_code || null,
           expected_manufacturing_date: dates.expectedNsx,
           expected_expiry_date: dates.expectedHsd,
+          extracted_barcode: check?.extracted?.barcode || null,
+          extracted_partner_product_code: check?.extracted?.partner_product_code || check?.extracted?.product_code || null,
           extracted_manufacturing_date: check?.extracted?.manufacturing_date || null,
           extracted_expiry_date: check?.extracted?.expiry_date || null,
           extracted_product_code: check?.extracted?.product_code || null,
@@ -889,7 +893,7 @@ export default function QAInspection() {
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                               <div>
                                 <p className="text-xs font-black text-foreground">Tem nhãn SKU</p>
-                                <p className="text-[11px] font-bold text-muted-foreground">Kỳ vọng NSX {formatDateKeyVi(expected.expectedNsx)} · HSD {formatDateKeyVi(expected.expectedHsd)}{spec?.net_weight_value ? ` · ${spec.net_weight_value}${spec.net_weight_unit || ""}` : ""}</p>
+                                <p className="text-[11px] font-bold text-muted-foreground">Kỳ vọng NSX {formatDateKeyVi(expected.expectedNsx)} · HSD {formatDateKeyVi(expected.expectedHsd)}{spec?.net_weight_value ? ` · ${spec.net_weight_value}${spec.net_weight_unit || ""}` : ""}{spec?.barcode_value ? ` · Mã vạch ${spec.barcode_value}` : ""}{spec?.partner_product_code ? ` · Mã SP ${spec.partner_product_code}` : ""}</p>
                               </div>
                               <Button type="button" variant={labelOk ? "outline" : "default"} size="sm" className="rounded-xl" disabled={scanningLabel} onClick={() => openLabelScanner(index)}>
                                 {scanningLabel && pendingLabelIndex === index ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
