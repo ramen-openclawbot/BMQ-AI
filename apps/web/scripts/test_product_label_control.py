@@ -188,6 +188,20 @@ def test_template_reupload_replaces_old_template_after_confirmation():
     assert "withStorageCacheBust(await uploadImageBlob" in page
 
 
+def test_template_upload_rejects_bad_barcode_crop_before_storage_upload():
+    page = read("src/pages/ProductionProducts.tsx")
+    assert "validateBarcodeCropCandidate" in page
+    assert "Ảnh mã vạch crop chưa đạt" in page
+    assert "Không lưu tem mẫu khi chưa xác định đúng vùng mã vạch" in page
+    assert "confidence < 0.75" in page
+    assert "aspectRatio < 2" in page
+    assert "detectBarcodeBoxFromBlob" in page
+    assert "image_base64: imageBase64" in page
+    assert "image_mime_type: file.type" in page
+    assert page.index("validateBarcodeCropCandidate") < page.index("await uploadImageBlob(templatePath")
+    assert page.index("const cropBlob = await cropImageByBox") < page.index("await uploadImageBlob(cropPath")
+
+
 def test_scan_product_label_prompt_avoids_text_box_as_barcode_crop():
     fn = read("supabase/functions/scan-product-label/index.ts")
     assert "printed 1D barcode bars only" in fn

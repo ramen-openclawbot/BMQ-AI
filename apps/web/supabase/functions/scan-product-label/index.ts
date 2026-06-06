@@ -19,6 +19,7 @@ interface BarcodeBoundingBox {
 interface ExtractProductLabelDataRequest {
   image_url?: string;
   image_base64?: string;
+  image_mime_type?: string;
   sku_code?: string;
   product_name?: string;
   barcode_value?: string;
@@ -66,7 +67,9 @@ async function extract_product_label_data(payload: ExtractProductLabelDataReques
   const apiKey = Deno.env.get("OPENAI_API_KEY");
   if (!apiKey) throw new Error("Missing OPENAI_API_KEY");
 
-  const imageUrl = payload.image_url || (payload.image_base64 ? `data:image/jpeg;base64,${payload.image_base64}` : null);
+  const allowedImageMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+  const imageMimeType = payload.image_mime_type && allowedImageMimeTypes.has(payload.image_mime_type) ? payload.image_mime_type : "image/jpeg";
+  const imageUrl = payload.image_url || (payload.image_base64 ? `data:${imageMimeType};base64,${payload.image_base64}` : null);
   if (!imageUrl) throw new Error("Missing image_url or image_base64");
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {

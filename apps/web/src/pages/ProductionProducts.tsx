@@ -104,10 +104,12 @@ const cropImageByBox = async (file: File, box?: BarcodeBoundingBox | null) => {
   }
 };
 
-const detectBarcodeBoxFromFile = async (file: File): Promise<BarcodeBoundingBox | null> => {
+const isBrowserBarcodeDetectorSupported = () => Boolean((window as typeof window & { BarcodeDetector?: BrowserBarcodeDetectorCtor }).BarcodeDetector && typeof createImageBitmap === "function");
+
+const detectBarcodeBoxFromBlob = async (blob: Blob): Promise<BarcodeBoundingBox | null> => {
   const detectorCtor = (window as typeof window & { BarcodeDetector?: BrowserBarcodeDetectorCtor }).BarcodeDetector;
   if (!detectorCtor || typeof createImageBitmap !== "function") return null;
-  const bitmap = await createImageBitmap(file);
+  const bitmap = await createImageBitmap(blob);
   try {
     const detector = new detectorCtor({ formats: ["code_128", "ean_13", "ean_8", "upc_a", "upc_e"] });
     const [barcode] = await detector.detect(bitmap);
@@ -125,6 +127,49 @@ const detectBarcodeBoxFromFile = async (file: File): Promise<BarcodeBoundingBox 
     bitmap.close();
   }
 };
+
+const detectBarcodeBoxFromFile = async (file: File): Promise<BarcodeBoundingBox | null> => detectBarcodeBoxFromBlob(file);
+
+type BarcodeCropSource = "browser_barcode_detector" | "ai_bbox";
+
+const validateBarcodeCropCandidate = async (box: BarcodeBoundingBox | null, cropBlob: Blob, source: BarcodeCropSource, confidence?: number | null) => {
+  if (!box) throw new Error("Ảnh mã vạch crop chưa đạt: chưa xác định được vùng mã vạch 1D trên tem. Không lưu tem mẫu khi chưa xác định đúng vùng mã vạch.");
+  if (source === "ai_bbox" && confidence != null && confidence < 0.75) {
+    throw new Error("Ảnh mã vạch crop chưa đạt: AI chưa đủ chắc chắn vùng mã vạch (<75%). Không lưu tem mẫu khi chưa xác định đúng vùng mã vạch.");
+  }
+  if (box.width > 0.9 || box.height > 0.45 || box.width * box.height > 0.25) {
+    throw new Error("Ảnh mã vạch crop chưa đạt: vùng crop quá lớn, có thể đang lấy cả tem hoặc ô thông tin thay vì mã vạch. Không lưu tem mẫu khi chưa xác định đúng vùng mã vạch.");
+  }
+  let aspectRatio = box.width / Math.max(0.001, box.height);
+  if (typeof createImageBitmap === "function") {
+    const bitmap = await createImageBitmap(cropBlob);
+    try {
+      aspectRatio = bitmap.width / Math.max(1, bitmap.height);
+      if (bitmap.width < 80 || bitmap.height < 20) {
+        throw new Error("Ảnh mã vạch crop chưa đạt: ảnh crop quá nhỏ để đối chiếu QA. Không lưu tem mẫu khi chưa xác định đúng vùng mã vạch.");
+      }
+    } finally {
+      bitmap.close();
+    }
+  }
+  if (aspectRatio < 2 || aspectRatio > 18) {
+    throw new Error("Ảnh mã vạch crop chưa đạt: tỷ lệ ảnh không giống mã vạch 1D. Không lưu tem mẫu khi chưa xác định đúng vùng mã vạch.");
+  }
+  if (source === "ai_bbox" && isBrowserBarcodeDetectorSupported()) {
+    const detectedInsideCrop = await detectBarcodeBoxFromBlob(cropBlob).catch(() => null);
+    if (!detectedInsideCrop) {
+      throw new Error("Ảnh mã vạch crop chưa đạt: trình duyệt không đọc được barcode trong vùng crop. Không lưu tem mẫu khi chưa xác định đúng vùng mã vạch.");
+    }
+  }
+};
+
+const fileToBase64 = async (file: File) =>
+  await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || "").split(",")[1] || "");
+    reader.onerror = () => reject(new Error("Không thể đọc ảnh tem mẫu."));
+    reader.readAsDataURL(file);
+  });
 
 const uploadImageBlob = async (path: string, file: Blob | File, contentType: string) => {
   const { error } = await db.storage.from(LABEL_TEMPLATE_BUCKET).upload(path, file, { upsert: true, contentType });
@@ -233,10 +278,11 @@ export default function ProductionProducts() {
       const basePath = `${slugPart(sku.sku_code || sku.product_name || sku.id)}/${Date.now()}`;
       const existingTemplatePath = draft.label_template_image_path || storagePathFromPublicUrl(draft.label_template_image_url);
       const templatePath = existingTemplatePath || `${basePath}/template.${ext}`;
-      const templateUrl = withStorageCacheBust(await uploadImageBlob(templatePath, file, file.type || "image/jpeg"));
+      const imageBase64 = await fileToBase64(file);
       const { data, error } = await db.functions.invoke<{ data: ExtractedProductLabelData }>("scan-product-label", {
         body: {
-          image_url: templateUrl,
+          image_base64: imageBase64,
+          image_mime_type: file.type,
           sku_code: sku.sku_code,
           product_name: sku.product_name,
           barcode_value: undefined,
@@ -248,8 +294,10 @@ export default function ProductionProducts() {
       const extracted = data?.data;
       const browserBarcodeBox = await detectBarcodeBoxFromFile(file).catch(() => null);
       const barcodeBox = browserBarcodeBox || extracted?.barcode_bbox || null;
-      const barcode_crop_source = browserBarcodeBox ? "browser_barcode_detector" : "ai_bbox";
+      const barcode_crop_source: BarcodeCropSource = browserBarcodeBox ? "browser_barcode_detector" : "ai_bbox";
       const cropBlob = await cropImageByBox(file, barcodeBox);
+      await validateBarcodeCropCandidate(barcodeBox, cropBlob, barcode_crop_source, browserBarcodeBox ? null : extracted?.barcode_crop_confidence ?? null);
+      const templateUrl = withStorageCacheBust(await uploadImageBlob(templatePath, file, file.type || "image/jpeg"));
       const existingCropPath = draft.barcode_crop_image_path || storagePathFromPublicUrl(draft.barcode_crop_image_url);
       const cropPath = existingCropPath || `${basePath}/barcode-crop.jpg`;
       const cropUrl = withStorageCacheBust(await uploadImageBlob(cropPath, cropBlob, "image/jpeg"));
