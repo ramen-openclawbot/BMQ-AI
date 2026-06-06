@@ -5,7 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -874,18 +874,26 @@ export default function QAInspection() {
 
 
       <Dialog open={qaDialogOpen} onOpenChange={setQaDialogOpen}>
-        <DialogContent className="max-h-[92vh] w-[calc(100vw-1rem)] max-w-3xl overflow-y-auto rounded-3xl border-border bg-card text-card-foreground" data-qa-pass-modal="production-order-click">
-          <DialogHeader>
+        <DialogContent
+          className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-3xl flex-col overflow-hidden rounded-3xl border-border bg-card p-0 text-card-foreground sm:max-h-[92vh]"
+          data-qa-pass-modal="production-order-click"
+          data-qa-pass-modal-scroll="body-only"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+        >
+          <DialogHeader className="shrink-0 border-b border-border px-4 py-4 pr-12 text-left sm:px-6">
             <DialogTitle className="flex items-center gap-2 text-xl font-black">
               <PackageCheck className="h-5 w-5 text-success" />
               {copy.qaPass}
             </DialogTitle>
             <CardDescription>{selectedOrder ? selectedOrder.production_number : isVi ? "Chọn một lệnh SX bên dưới để QA." : "Select a production order to QA."}</CardDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6" data-qa-pass-modal-scroll-body="true">
                 <div>
                   <label className="text-sm font-bold text-foreground">{isVi ? "Người QA" : "Inspector"}</label>
-                  <Input data-qa-inspector-autofill="logged-in-user" className="mt-1 h-11 rounded-2xl bg-background" placeholder={loggedInInspectorName || (isVi ? "Ví dụ: Vũ Phương Nhi" : "Inspector name")} value={inspectedBy} onChange={(event) => setInspectedBy(event.target.value)} />
+                  <div data-qa-inspector-autofill="logged-in-user-readonly" aria-readonly="true" className="mt-1 min-h-11 rounded-2xl border border-border bg-muted/60 px-3 py-2.5 text-sm font-black text-foreground">
+                    {inspectedBy || loggedInInspectorName || (isVi ? "Tài khoản đang đăng nhập" : "Current signed-in user")}
+                  </div>
+                  <p className="mt-1 text-[11px] font-semibold text-muted-foreground">{isVi ? "Tên QA lấy từ tài khoản đăng nhập, không chỉnh sửa tại cửa sổ này." : "Inspector name comes from the signed-in account and cannot be edited here."}</p>
                 </div>
 
 
@@ -1001,11 +1009,19 @@ export default function QAInspection() {
                   <label className="text-sm font-bold text-foreground">{isVi ? "Ghi chú audit" : "Audit notes"}</label>
                   <Textarea className="mt-1 rounded-2xl bg-background" rows={3} placeholder={isVi ? "Ví dụ: PO 687, giao đủ 687; bao bì mới OK..." : "Notes for audit"} value={notes} onChange={(event) => setNotes(event.target.value)} />
                 </div>
-
-                <Button className="h-12 w-full rounded-2xl bg-success text-base font-black text-success-foreground hover:bg-success/90" disabled={qaPassMutation.isPending || !selectedOrderId || !allLabelChecksPassed} onClick={() => qaPassMutation.mutate()}>
-                  {qaPassMutation.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CheckCircle2 className="mr-2 h-5 w-5" />}
-                  {copy.qaPass}
+          </div>
+          <div className="shrink-0 border-t border-border bg-card px-4 py-3 sm:px-6" data-qa-pass-modal-sticky-actions="true">
+            <div className="grid grid-cols-2 gap-2">
+              <DialogClose asChild>
+                <Button type="button" variant="outline" className="h-12 rounded-2xl text-base font-black">
+                  {isVi ? "Đóng" : "Close"}
                 </Button>
+              </DialogClose>
+              <Button className="h-12 rounded-2xl bg-success text-base font-black text-success-foreground hover:bg-success/90" disabled={qaPassMutation.isPending || !selectedOrderId || !allLabelChecksPassed} onClick={() => qaPassMutation.mutate()}>
+                {qaPassMutation.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CheckCircle2 className="mr-2 h-5 w-5" />}
+                {copy.qaPass}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
