@@ -1,3 +1,10 @@
+export interface BarcodeBoundingBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface ProductLabelSpec {
   id?: string;
   sku_id: string;
@@ -5,6 +12,12 @@ export interface ProductLabelSpec {
   product_name?: string | null;
   barcode_value?: string | null;
   partner_product_code?: string | null;
+  label_template_image_url?: string | null;
+  label_template_image_path?: string | null;
+  barcode_crop_image_url?: string | null;
+  barcode_crop_image_path?: string | null;
+  barcode_crop_bbox?: BarcodeBoundingBox | null;
+  barcode_crop_confidence?: number | null;
   shelf_life_days: number;
   net_weight_value?: number | null;
   net_weight_unit?: string | null;
@@ -21,6 +34,9 @@ export interface ExtractedProductLabelData {
   expiry_date?: string | null;
   net_weight_value?: number | null;
   net_weight_unit?: string | null;
+  barcode_bbox?: BarcodeBoundingBox | null;
+  barcode_crop_confidence?: number | null;
+  barcode_crop_image_url?: string | null;
   raw_text?: string | null;
 }
 

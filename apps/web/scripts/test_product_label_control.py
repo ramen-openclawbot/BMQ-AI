@@ -95,6 +95,32 @@ def test_production_product_management_shows_selected_sku_image():
     assert "Chưa có ảnh" in page
 
 
+def test_product_label_template_upload_and_barcode_crop_reference():
+    migrations = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "supabase/migrations").glob("*.sql"))
+    page = read("src/pages/ProductionProducts.tsx")
+    qa = read("src/pages/QAInspection.tsx")
+    fn = read("supabase/functions/scan-product-label/index.ts")
+    helper = read("src/lib/product-label-control.ts")
+    assert "label-template-images" in migrations
+    assert "label_template_image_url" in migrations
+    assert "barcode_crop_image_url" in migrations
+    assert "barcode_crop_bbox" in migrations
+    assert "expected_barcode_crop_image_url" in migrations
+    assert "extracted_barcode_crop_image_url" in migrations
+    assert "data-product-label-template-upload" in page
+    assert "handleTemplateFileChange" in page
+    assert "barcode_crop_image_url" in page
+    assert "barcode_crop_bbox" in page
+    assert "cropImageByBox" in page
+    assert "barcode_bbox" in fn
+    assert "barcode_crop_confidence" in fn
+    assert "detect the barcode bounding box" in fn
+    assert "barcode_crop_image_url" in helper
+    assert "extracted_barcode_crop_image_url" in qa
+    assert "Ảnh barcode mẫu" in qa
+    assert "Ảnh barcode vừa quét" in qa
+
+
 def test_label_date_math_and_qa_block_markers():
     helper = read("src/lib/product-label-control.ts")
     qa = read("src/pages/QAInspection.tsx")

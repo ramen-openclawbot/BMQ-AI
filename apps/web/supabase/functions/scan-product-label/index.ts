@@ -9,6 +9,13 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+interface BarcodeBoundingBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface ExtractProductLabelDataRequest {
   image_url?: string;
   image_base64?: string;
@@ -16,6 +23,23 @@ interface ExtractProductLabelDataRequest {
   product_name?: string;
   barcode_value?: string;
   partner_product_code?: string;
+  detect_barcode_bbox?: boolean;
+}
+
+function normalizeBox(value: unknown): BarcodeBoundingBox | null {
+  const raw = value as Partial<BarcodeBoundingBox> | null | undefined;
+  if (!raw) return null;
+  const x = Number(raw.x);
+  const y = Number(raw.y);
+  const width = Number(raw.width);
+  const height = Number(raw.height);
+  if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return null;
+  return {
+    x: Math.max(0, Math.min(1, x)),
+    y: Math.max(0, Math.min(1, y)),
+    width: Math.max(0.01, Math.min(1, width)),
+    height: Math.max(0.01, Math.min(1, height)),
+  };
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -58,14 +82,14 @@ async function extract_product_label_data(payload: ExtractProductLabelDataReques
         {
           role: "system",
           content:
-            "Extract Vietnamese bakery product label data. Return JSON only with keys: product_code, barcode, partner_product_code, product_name, manufacturing_date, expiry_date, net_weight_value, net_weight_unit, raw_text. product_code is the visible product/SKU code on the label if present; barcode is the printed barcode digits/value; partner_product_code is the partner-regulated product code printed below the barcode or near the barcode. Dates must be YYYY-MM-DD when possible.",
+            "Extract Vietnamese bakery product label data. Return JSON only with keys: product_code, barcode, partner_product_code, product_name, manufacturing_date, expiry_date, net_weight_value, net_weight_unit, barcode_bbox, barcode_crop_confidence, raw_text. product_code is the visible product/SKU code on the label if present; barcode is the printed barcode digits/value; partner_product_code is the partner-regulated product code printed below the barcode or near the barcode. Dates must be YYYY-MM-DD when possible. If requested, detect the barcode bounding box as normalized image coordinates: barcode_bbox={x,y,width,height} with values from 0 to 1, tightly around the printed barcode region.",
         },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: `SKU: ${payload.sku_code || ""}\nProduct: ${payload.product_name || ""}\nExpected barcode: ${payload.barcode_value || ""}\nExpected partner product code: ${payload.partner_product_code || ""}\nRead NSX, HSD, weight, barcode, partner product code, product code, and product name from this label.`,
+              text: `SKU: ${payload.sku_code || ""}\nProduct: ${payload.product_name || ""}\nExpected barcode: ${payload.barcode_value || ""}\nExpected partner product code: ${payload.partner_product_code || ""}\nBarcode box requested: ${payload.detect_barcode_bbox ? "yes" : "no"}\nRead NSX, HSD, weight, barcode, partner product code, product code, and product name from this label. If Barcode box requested is yes, detect the barcode bounding box for cropping.`,
             },
             { type: "image_url", image_url: { url: imageUrl } },
           ],
@@ -88,6 +112,8 @@ async function extract_product_label_data(payload: ExtractProductLabelDataReques
     expiry_date: normalizeDate(parsed.expiry_date),
     net_weight_value: parsed.net_weight_value == null ? null : Number(parsed.net_weight_value),
     net_weight_unit: parsed.net_weight_unit || null,
+    barcode_bbox: normalizeBox(parsed.barcode_bbox),
+    barcode_crop_confidence: parsed.barcode_crop_confidence == null ? null : Number(parsed.barcode_crop_confidence),
     raw_text: parsed.raw_text || null,
   };
 }

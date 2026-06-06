@@ -28,7 +28,7 @@ import {
 import { format } from "date-fns";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { evaluateLabelScan, expectedLabelDates, formatDateKeyVi, ProductLabelSpec, ExtractedProductLabelData } from "@/lib/product-label-control";
+import { evaluateLabelScan, expectedLabelDates, formatDateKeyVi, ProductLabelSpec, ExtractedProductLabelData, BarcodeBoundingBox } from "@/lib/product-label-control";
 
 const QA_PHOTO_BUCKET = "sku-images";
 
@@ -55,7 +55,7 @@ type SupabaseLoose = {
   rpc<T = unknown>(fn: string, args?: MutationPayload): PromiseLike<QueryResult<T>>;
   storage: {
     from(bucket: string): {
-      upload(path: string, file: File, options?: Record<string, unknown>): PromiseLike<QueryResult<unknown>>;
+      upload(path: string, file: Blob | File, options?: Record<string, unknown>): PromiseLike<QueryResult<unknown>>;
       getPublicUrl(path: string): { data: { publicUrl: string } };
     };
   };
@@ -134,6 +134,8 @@ interface LabelCheckState {
   status: "pending" | "passed" | "failed";
   reason: string;
   image_url?: string | null;
+  extracted_barcode_crop_image_url?: string | null;
+  extracted_barcode_bbox?: BarcodeBoundingBox | null;
   extracted?: ExtractedProductLabelData | null;
 }
 
@@ -206,6 +208,32 @@ const slugPart = (value: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "qa";
+
+const cropImageByBox = async (file: File, box?: BarcodeBoundingBox | null) => {
+  if (!box) return null;
+  const imageUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = imageUrl;
+    });
+    const canvas = document.createElement("canvas");
+    const sourceX = Math.max(0, Math.round(box.x * image.naturalWidth));
+    const sourceY = Math.max(0, Math.round(box.y * image.naturalHeight));
+    const sourceWidth = Math.min(image.naturalWidth - sourceX, Math.round(box.width * image.naturalWidth));
+    const sourceHeight = Math.min(image.naturalHeight - sourceY, Math.round(box.height * image.naturalHeight));
+    canvas.width = Math.max(1, sourceWidth);
+    canvas.height = Math.max(1, sourceHeight);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height);
+    return await new Promise<Blob | null>((resolve) => canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.92));
+  } finally {
+    URL.revokeObjectURL(imageUrl);
+  }
+};
 
 const buildAuditNotes = (formNotes: string, checklist: Record<"quality" | "sensory" | "packaging", boolean>) => {
   const lines = [
@@ -302,7 +330,7 @@ export default function QAInspection() {
     queryFn: async () => {
       const { data, error } = await db
         .from<ProductLabelSpec[]>("product_label_specs")
-        .select("id,sku_id,sku_code,product_name,barcode_value,partner_product_code,shelf_life_days,net_weight_value,net_weight_unit,traceability_sheet_url,is_label_scan_required");
+        .select("id,sku_id,sku_code,product_name,barcode_value,partner_product_code,label_template_image_url,barcode_crop_image_url,barcode_crop_bbox,barcode_crop_confidence,shelf_life_days,net_weight_value,net_weight_unit,traceability_sheet_url,is_label_scan_required");
       if (error) throw error;
       return data || [];
     },
@@ -439,14 +467,27 @@ export default function QAInspection() {
       if (uploadError) throw uploadError;
       const imageUrl = (db).storage.from(QA_PHOTO_BUCKET).getPublicUrl(path).data?.publicUrl;
       const { data, error } = await (supabase as unknown as { functions: { invoke<T>(name: string, options: { body: unknown }): Promise<{ data: T | null; error: Error | null }> } }).functions.invoke<{ data: ExtractedProductLabelData }>("scan-product-label", {
-        body: { image_url: imageUrl, sku_code: spec?.sku_code, product_name: item.product_name, barcode_value: spec?.barcode_value, partner_product_code: spec?.partner_product_code },
+        body: { image_url: imageUrl, sku_code: spec?.sku_code, product_name: item.product_name, barcode_value: spec?.barcode_value, partner_product_code: spec?.partner_product_code, detect_barcode_bbox: true },
       });
       if (error) throw error;
       const extracted = data?.data || null;
+      let extractedBarcodeCropUrl: string | null = null;
+      const extractedBarcodeBlob = await cropImageByBox(file, extracted?.barcode_bbox || null);
+      if (extractedBarcodeBlob) {
+        const cropPath = `qa-labels/${selectedDate}/${slugPart(item.product_name)}-${Date.now()}-barcode-crop.jpg`;
+        const { error: cropUploadError } = await (db).storage.from(QA_PHOTO_BUCKET).upload(cropPath, extractedBarcodeBlob, {
+          upsert: false,
+          contentType: "image/jpeg",
+        });
+        if (!cropUploadError) {
+          extractedBarcodeCropUrl = (db).storage.from(QA_PHOTO_BUCKET).getPublicUrl(cropPath).data?.publicUrl || null;
+        }
+      }
+      if (extracted) extracted.barcode_crop_image_url = extractedBarcodeCropUrl;
       const result = evaluateLabelScan({ spec, productionDateKey: selectedDate, extracted });
       setLabelChecks((current) => ({
         ...current,
-        [itemKey]: { status: result.passed ? "passed" : "failed", reason: result.reason, image_url: imageUrl, extracted },
+        [itemKey]: { status: result.passed ? "passed" : "failed", reason: result.reason, image_url: imageUrl, extracted_barcode_crop_image_url: extractedBarcodeCropUrl, extracted_barcode_bbox: extracted?.barcode_bbox || null, extracted },
       }));
     } catch (error) {
       setLabelChecks((current) => ({
@@ -574,6 +615,9 @@ export default function QAInspection() {
           extracted_net_weight_unit: check?.extracted?.net_weight_unit || null,
           raw_ocr_text: check?.extracted?.raw_text || null,
           image_url: check?.image_url || null,
+          expected_barcode_crop_image_url: spec?.barcode_crop_image_url || null,
+          extracted_barcode_crop_image_url: check?.extracted_barcode_crop_image_url || check?.extracted?.barcode_crop_image_url || null,
+          extracted_barcode_bbox: check?.extracted_barcode_bbox || check?.extracted?.barcode_bbox || null,
           status: check?.status || "pending",
           failure_reason: check?.status === "passed" ? null : check?.reason || "Chưa quét tem nhãn",
           checked_by: user?.id || null,
@@ -906,6 +950,22 @@ export default function QAInspection() {
                               </Badge>
                               <span className="text-[11px] font-bold text-muted-foreground">{check?.reason || (spec ? "Phải quét trước khi nhập kho." : "SKU chưa có cấu hình tem nhãn.")}</span>
                             </div>
+                            {(spec?.barcode_crop_image_url || check?.extracted_barcode_crop_image_url) && (
+                              <div className="mt-3 grid gap-2 sm:grid-cols-2" data-qa-barcode-crop-compare="template-vs-scan">
+                                <div className="overflow-hidden rounded-2xl border border-border bg-card">
+                                  <div className="flex h-24 items-center justify-center bg-muted/70">
+                                    {spec?.barcode_crop_image_url ? <img src={spec.barcode_crop_image_url} alt="Ảnh barcode mẫu" className="h-full w-full object-contain" /> : <ImageIcon className="h-6 w-6 text-muted-foreground" />}
+                                  </div>
+                                  <p className="px-2 py-1 text-[11px] font-bold text-muted-foreground">Ảnh barcode mẫu</p>
+                                </div>
+                                <div className="overflow-hidden rounded-2xl border border-border bg-card">
+                                  <div className="flex h-24 items-center justify-center bg-muted/70">
+                                    {check?.extracted_barcode_crop_image_url ? <img src={check.extracted_barcode_crop_image_url} alt="Ảnh barcode vừa quét" className="h-full w-full object-contain" /> : <ImageIcon className="h-6 w-6 text-muted-foreground" />}
+                                  </div>
+                                  <p className="px-2 py-1 text-[11px] font-bold text-muted-foreground">Ảnh barcode vừa quét</p>
+                                </div>
+                              </div>
+                            )}
                           </div>
                           <div className="mt-3 grid grid-cols-2 gap-2">
                             <div>
