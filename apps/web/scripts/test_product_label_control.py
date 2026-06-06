@@ -174,6 +174,20 @@ def test_template_barcode_crop_prefers_browser_detected_barcode_box():
     assert "AI đã tự lấy mã vạch" in page
 
 
+def test_template_reupload_replaces_old_template_after_confirmation():
+    page = read("src/pages/ProductionProducts.tsx")
+    assert "data-product-label-template-replace-confirm" in page
+    assert "Thay tem mẫu đang dùng?" in page
+    assert "File mới sẽ ghi đè ảnh cũ ngay sau khi chọn" in page
+    assert "openTemplateFilePicker" in page
+    assert "hasExistingTemplate" in page
+    assert "setTemplateReplaceConfirmOpen(true)" in page
+    assert "storagePathFromPublicUrl" in page
+    assert "const templatePath = existingTemplatePath || `${basePath}/template.${ext}`" in page
+    assert "const cropPath = existingCropPath || `${basePath}/barcode-crop.jpg`" in page
+    assert "withStorageCacheBust(await uploadImageBlob" in page
+
+
 def test_scan_product_label_prompt_avoids_text_box_as_barcode_crop():
     fn = read("supabase/functions/scan-product-label/index.ts")
     assert "printed 1D barcode bars only" in fn

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { formatDateKeyVi, expectedLabelDates, ProductLabelSpec, ExtractedProductLabelData, BarcodeBoundingBox } from "@/lib/product-label-control";
@@ -131,6 +132,30 @@ const uploadImageBlob = async (path: string, file: Blob | File, contentType: str
   return db.storage.from(LABEL_TEMPLATE_BUCKET).getPublicUrl(path).data.publicUrl;
 };
 
+const withStorageCacheBust = (url: string) => `${url}${url.includes("?") ? "&" : "?"}v=${Date.now()}`;
+
+const safeDecodeStoragePath = (value: string) => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return "";
+  }
+};
+
+const storagePathFromPublicUrl = (url?: string | null) => {
+  if (!url) return "";
+  const marker = `/storage/v1/object/public/${LABEL_TEMPLATE_BUCKET}/`;
+  const cleanUrl = url.split("?")[0];
+  try {
+    const parsed = new URL(cleanUrl);
+    const markerIndex = parsed.pathname.indexOf(marker);
+    return markerIndex >= 0 ? safeDecodeStoragePath(parsed.pathname.slice(markerIndex + marker.length)) : "";
+  } catch {
+    const markerIndex = cleanUrl.indexOf(marker);
+    return markerIndex >= 0 ? safeDecodeStoragePath(cleanUrl.slice(markerIndex + marker.length)) : "";
+  }
+};
+
 export default function ProductionProducts() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -139,6 +164,7 @@ export default function ProductionProducts() {
   const [draft, setDraft] = useState<LabelDraft>(defaultDraft);
   const [analyzingTemplate, setAnalyzingTemplate] = useState(false);
   const [saveSuccessAt, setSaveSuccessAt] = useState<Date | null>(null);
+  const [templateReplaceConfirmOpen, setTemplateReplaceConfirmOpen] = useState(false);
 
   const { data: skus = [], isLoading: skusLoading } = useQuery<ProductSku[]>({
     queryKey: ["production-products-finished-skus"],
@@ -205,8 +231,9 @@ export default function ProductionProducts() {
     try {
       const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
       const basePath = `${slugPart(sku.sku_code || sku.product_name || sku.id)}/${Date.now()}`;
-      const templatePath = `${basePath}/template.${ext}`;
-      const templateUrl = await uploadImageBlob(templatePath, file, file.type || "image/jpeg");
+      const existingTemplatePath = draft.label_template_image_path || storagePathFromPublicUrl(draft.label_template_image_url);
+      const templatePath = existingTemplatePath || `${basePath}/template.${ext}`;
+      const templateUrl = withStorageCacheBust(await uploadImageBlob(templatePath, file, file.type || "image/jpeg"));
       const { data, error } = await db.functions.invoke<{ data: ExtractedProductLabelData }>("scan-product-label", {
         body: {
           image_url: templateUrl,
@@ -223,8 +250,9 @@ export default function ProductionProducts() {
       const barcodeBox = browserBarcodeBox || extracted?.barcode_bbox || null;
       const barcode_crop_source = browserBarcodeBox ? "browser_barcode_detector" : "ai_bbox";
       const cropBlob = await cropImageByBox(file, barcodeBox);
-      const cropPath = `${basePath}/barcode-crop.jpg`;
-      const cropUrl = await uploadImageBlob(cropPath, cropBlob, "image/jpeg");
+      const existingCropPath = draft.barcode_crop_image_path || storagePathFromPublicUrl(draft.barcode_crop_image_url);
+      const cropPath = existingCropPath || `${basePath}/barcode-crop.jpg`;
+      const cropUrl = withStorageCacheBust(await uploadImageBlob(cropPath, cropBlob, "image/jpeg"));
       setDraft((current) => ({
         ...current,
         barcode_value: extracted?.barcode || "",
@@ -281,6 +309,21 @@ export default function ProductionProducts() {
   });
 
   const selectedSku = skus.find((sku) => sku.id === selectedSkuId) || null;
+  const existingTemplatePath = draft.label_template_image_path || storagePathFromPublicUrl(draft.label_template_image_url);
+  const existingCropPath = draft.barcode_crop_image_path || storagePathFromPublicUrl(draft.barcode_crop_image_url);
+  const hasExistingTemplate = Boolean(existingTemplatePath || existingCropPath);
+  const openTemplateFilePicker = () => {
+    if (!selectedSkuId || analyzingTemplate) return;
+    if (hasExistingTemplate) {
+      setTemplateReplaceConfirmOpen(true);
+      return;
+    }
+    templateFileInputRef.current?.click();
+  };
+  const confirmReplaceTemplate = () => {
+    setTemplateReplaceConfirmOpen(false);
+    templateFileInputRef.current?.click();
+  };
   const demoDates = expectedLabelDates("2026-06-06", Number(draft.shelf_life_days || 1));
 
   return (
@@ -394,9 +437,9 @@ export default function ProductionProducts() {
                     <Label>Tem mẫu + ảnh mã vạch</Label>
                     <p className="mt-1 text-xs font-semibold text-muted-foreground">Upload tem mẫu: AI tự đọc mã vạch + mã SP trên tem, xác định vùng barcode và hệ thống cắt ảnh barcode để lưu đối chiếu khi QA quét.</p>
                   </div>
-                  <Button type="button" variant="outline" className="shrink-0 rounded-2xl bg-background" disabled={!selectedSkuId || analyzingTemplate} onClick={() => templateFileInputRef.current?.click()}>
+                  <Button type="button" variant="outline" className="shrink-0 rounded-2xl bg-background" disabled={!selectedSkuId || analyzingTemplate} onClick={openTemplateFilePicker}>
                     {analyzingTemplate ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
-                    Upload tem mẫu
+                    {hasExistingTemplate ? "Thay tem mẫu" : "Upload tem mẫu"}
                   </Button>
                 </div>
                 <input ref={templateFileInputRef} type="file" accept="image/*" className="hidden" onChange={handleTemplateFileChange} />
@@ -435,6 +478,22 @@ export default function ProductionProducts() {
             </CardContent>
           </Card>
         </div>
+        <AlertDialog open={templateReplaceConfirmOpen} onOpenChange={setTemplateReplaceConfirmOpen}>
+          <AlertDialogContent data-product-label-template-replace-confirm="dialog">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Thay tem mẫu đang dùng?</AlertDialogTitle>
+              <AlertDialogDescription>
+                SKU này đã có tem mẫu/barcode mẫu. File mới sẽ ghi đè ảnh cũ ngay sau khi chọn; anh vẫn cần bấm lưu thông số tem để cập nhật mã vạch, mã SP và vùng crop mới cho QA.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Hủy</AlertDialogCancel>
+              <AlertDialogAction onClick={confirmReplaceTemplate} className="bg-warning text-warning-foreground hover:bg-warning/90">
+                Xác nhận thay mẫu
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );
