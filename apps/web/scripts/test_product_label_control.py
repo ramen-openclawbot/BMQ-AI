@@ -75,7 +75,6 @@ def test_product_label_fixed_partner_codes_are_managed_and_enforced():
     assert "barcode_value" in helper
     assert "partner_product_code" in helper
     assert "normalizeLabelIdentity" in helper
-    assert "Mã vạch" in page
     assert "Mã SP theo đối tác" in page
     assert "data-product-label-ai-identity-fields" in page
     assert "data-product-label-save-button" in page
@@ -90,6 +89,15 @@ def test_product_label_fixed_partner_codes_are_managed_and_enforced():
     assert "expected_partner_product_code" in qa
     assert "Sai mã vạch" in helper
     assert "Sai mã SP đối tác" in helper
+
+
+def test_product_label_setup_does_not_render_standalone_barcode_value_box():
+    page = read("src/pages/ProductionProducts.tsx")
+    assert "Ảnh barcode mẫu" in page
+    assert "data-product-label-template-upload" in page
+    assert "data-product-label-barcode-value-box" not in page
+    assert "<Label>Mã vạch</Label>" not in page
+    assert "{draft.barcode_value || \"Chưa có\"}" not in page
 
 
 def test_product_label_save_button_is_not_covered_by_mobile_agent_chat():

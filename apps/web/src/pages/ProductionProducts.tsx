@@ -317,7 +317,7 @@ export default function ProductionProducts() {
                           </div>
                           {(() => {
                             const spec = specBySku.get(selectedSku.id);
-                            return spec ? <p className="mt-3 text-sm font-bold text-muted-foreground">HSD {spec.shelf_life_days} ngày · {spec.net_weight_value || "-"}{spec.net_weight_unit || ""}{spec.barcode_value ? ` · Mã vạch ${spec.barcode_value}` : ""}{spec.partner_product_code ? ` · Mã SP ${spec.partner_product_code}` : ""}</p> : <p className="mt-3 text-sm font-bold text-muted-foreground">SKU này chưa có thông số tem, nhập bên phải rồi lưu.</p>;
+                            return spec ? <p className="mt-3 text-sm font-bold text-muted-foreground">HSD {spec.shelf_life_days} ngày · {spec.net_weight_value || "-"}{spec.net_weight_unit || ""}{spec.partner_product_code ? ` · Mã SP ${spec.partner_product_code}` : ""}</p> : <p className="mt-3 text-sm font-bold text-muted-foreground">SKU này chưa có thông số tem, nhập bên phải rồi lưu.</p>;
                           })()}
                         </div>
                       </div>
@@ -350,12 +350,7 @@ export default function ProductionProducts() {
                 <Label>Đơn vị khối lượng</Label>
                 <Input className="mt-1 rounded-2xl" value={draft.net_weight_unit || ""} onChange={(event) => setDraft((cur) => ({ ...cur, net_weight_unit: event.target.value }))} />
               </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" data-product-label-ai-identity-fields="auto-from-template">
-                <div className="rounded-2xl border border-border bg-muted/50 p-3">
-                  <Label>Mã vạch</Label>
-                  <p className="mt-2 min-h-6 break-all font-mono text-sm font-black text-foreground">{draft.barcode_value || "Chưa có"}</p>
-                  <p className="mt-1 text-[11px] font-semibold text-muted-foreground">Tự lấy từ tem mẫu, không nhập manual.</p>
-                </div>
+              <div className="grid grid-cols-1 gap-3" data-product-label-ai-identity-fields="auto-from-template">
                 <div className="rounded-2xl border border-border bg-muted/50 p-3">
                   <Label>Mã SP theo đối tác</Label>
                   <p className="mt-2 min-h-6 break-all font-mono text-sm font-black text-foreground">{draft.partner_product_code || "Chưa có"}</p>
