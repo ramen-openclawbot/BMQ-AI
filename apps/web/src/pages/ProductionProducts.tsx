@@ -25,6 +25,7 @@ interface ProductSku {
   sku_code: string | null;
   product_name: string | null;
   unit: string | null;
+  image_url?: string | null;
   category: string | null;
   sku_type: string | null;
 }
@@ -57,7 +58,7 @@ export default function ProductionProducts() {
     queryFn: async () => {
       const { data, error } = await db
         .from<ProductSku[]>("product_skus")
-        .select("id,sku_code,product_name,unit,category,sku_type")
+        .select("id,sku_code,product_name,unit,category,sku_type,image_url")
         .order("product_name", { ascending: true });
       if (error) throw error;
       return (data || []).filter(isFinishedSku);
@@ -173,20 +174,31 @@ export default function ProductionProducts() {
 
                   {selectedSku ? (
                     <div className="rounded-3xl border border-primary/20 bg-primary/5 p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="line-clamp-2 text-base font-black text-foreground">{selectedSku.product_name || selectedSku.sku_code}</p>
-                          <p className="mt-1 truncate font-mono text-xs font-bold text-muted-foreground">{selectedSku.sku_code || "-"}</p>
+                      <div className="grid gap-3 sm:grid-cols-[96px_minmax(0,1fr)]">
+                        <div className="h-24 w-full overflow-hidden rounded-2xl border border-border bg-muted shadow-inner sm:w-24" data-production-products-sku-image="selected-sku">
+                          {selectedSku.image_url ? (
+                            <img src={selectedSku.image_url} alt={selectedSku.product_name || selectedSku.sku_code || "Ảnh sản phẩm"} className="h-full w-full object-cover object-center" loading="lazy" />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/15 to-warning/20 px-2 text-center text-[11px] font-black text-muted-foreground">Chưa có ảnh</div>
+                          )}
                         </div>
-                        {(() => {
-                          const spec = specBySku.get(selectedSku.id);
-                          return <Badge className={spec ? "bg-success/15 text-success hover:bg-success/15" : "bg-warning text-warning-foreground hover:bg-warning"}>{spec ? "Đã cấu hình" : "Thiếu tem"}</Badge>;
-                        })()}
+                        <div className="min-w-0">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="line-clamp-2 text-base font-black text-foreground">{selectedSku.product_name || selectedSku.sku_code}</p>
+                              <p className="mt-1 truncate font-mono text-xs font-bold text-muted-foreground">{selectedSku.sku_code || "-"}</p>
+                            </div>
+                            {(() => {
+                              const spec = specBySku.get(selectedSku.id);
+                              return <Badge className={spec ? "bg-success/15 text-success hover:bg-success/15" : "bg-warning text-warning-foreground hover:bg-warning"}>{spec ? "Đã cấu hình" : "Thiếu tem"}</Badge>;
+                            })()}
+                          </div>
+                          {(() => {
+                            const spec = specBySku.get(selectedSku.id);
+                            return spec ? <p className="mt-3 text-sm font-bold text-muted-foreground">HSD {spec.shelf_life_days} ngày · {spec.net_weight_value || "-"}{spec.net_weight_unit || ""}{spec.barcode_value ? ` · Mã vạch ${spec.barcode_value}` : ""}{spec.partner_product_code ? ` · Mã SP ${spec.partner_product_code}` : ""}</p> : <p className="mt-3 text-sm font-bold text-muted-foreground">SKU này chưa có thông số tem, nhập bên phải rồi lưu.</p>;
+                          })()}
+                        </div>
                       </div>
-                      {(() => {
-                        const spec = specBySku.get(selectedSku.id);
-                        return spec ? <p className="mt-3 text-sm font-bold text-muted-foreground">HSD {spec.shelf_life_days} ngày · {spec.net_weight_value || "-"}{spec.net_weight_unit || ""}{spec.barcode_value ? ` · Mã vạch ${spec.barcode_value}` : ""}{spec.partner_product_code ? ` · Mã SP ${spec.partner_product_code}` : ""}</p> : <p className="mt-3 text-sm font-bold text-muted-foreground">SKU này chưa có thông số tem, nhập bên phải rồi lưu.</p>;
-                      })()}
                     </div>
                   ) : (
                     <div className="rounded-3xl border border-dashed border-border bg-muted/40 p-4 text-sm font-bold text-muted-foreground">Chưa chọn SKU.</div>

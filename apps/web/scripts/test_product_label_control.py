@@ -86,6 +86,15 @@ def test_product_label_fixed_partner_codes_are_managed_and_enforced():
     assert "Sai mã SP đối tác" in helper
 
 
+def test_production_product_management_shows_selected_sku_image():
+    page = read("src/pages/ProductionProducts.tsx")
+    assert "image_url" in page
+    assert 'select("id,sku_code,product_name,unit,category,sku_type,image_url")' in page
+    assert 'data-production-products-sku-image="selected-sku"' in page
+    assert "selectedSku.image_url" in page
+    assert "Chưa có ảnh" in page
+
+
 def test_label_date_math_and_qa_block_markers():
     helper = read("src/lib/product-label-control.ts")
     qa = read("src/pages/QAInspection.tsx")
