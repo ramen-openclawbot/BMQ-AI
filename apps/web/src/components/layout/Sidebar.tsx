@@ -93,7 +93,7 @@ const navItems: NavItem[] = [
     moduleKey: "production_q7",
     children: [
       { icon: Factory, labelKey: "productionQ7", path: "/production/planning/q7", section: "production", moduleKey: "production_q7" },
-      { icon: Tags, labelKey: "productionProducts", path: "/production/products", section: "production", moduleKey: "production_q7" },
+      { icon: Tags, labelKey: "productionProducts", path: "/production/products", section: "production", moduleKey: "production_products" },
     ],
   },
   { icon: CalendarClock, labelKey: "productionShifts", path: "/production/shifts", section: "production", moduleKey: "production_shifts" },

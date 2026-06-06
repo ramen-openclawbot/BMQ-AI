@@ -36,6 +36,22 @@ def test_production_product_management_route_and_sidebar_exist():
     assert "productionProducts" in lang
 
 
+def test_production_product_management_has_dedicated_permission_key():
+    routes = read("src/components/AppRoutes.tsx")
+    sidebar = read("src/components/layout/Sidebar.tsx")
+    user_management = read("src/hooks/useUserManagement.ts")
+    auth_context = read("src/contexts/AuthContext.tsx")
+    migrations = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "supabase/migrations").glob("*.sql"))
+    assert 'production_products: "Quản lý sản phẩm"' in routes
+    assert 'path="/production/products" element={<ModuleRoute moduleKey="production_products"' in routes
+    assert 'path: "/production/products", section: "production", moduleKey: "production_products"' in sidebar
+    assert '{ key: "production_products", labelEn: "Product Management", labelVi: "Quản lý sản phẩm" }' in user_management
+    assert '"production_q7","production_products","production_shifts"' in user_management
+    assert '"production_q7", "production_products", "production_shifts"' in auth_context
+    assert "module_key = 'production_products'" in migrations
+    assert "module_key = 'production_q7'" in migrations
+
+
 def test_production_product_management_uses_sku_dropdown():
     page = read("src/pages/ProductionProducts.tsx")
     assert "data-production-products-sku-dropdown" in page

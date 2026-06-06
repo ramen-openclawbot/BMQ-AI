@@ -87,7 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const viewerRows = [
           "dashboard", "finance_cost", "finance_revenue", "crm",
-          "sales_po_inbox", "purchase_orders", "production_q7", "production_shifts", "production_qa", "inventory", "goods_receipts", "sku_costs",
+          "sales_po_inbox", "purchase_orders", "production_q7", "production_products", "production_shifts", "production_qa", "inventory", "goods_receipts", "sku_costs",
           "suppliers", "invoices", "payment_requests", "low_stock", "settings",
         ].map((moduleKey) => ({
           user_id: userId,

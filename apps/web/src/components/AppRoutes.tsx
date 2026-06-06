@@ -237,7 +237,7 @@ export function AppRoutes() {
         {/* Production routes */}
         <Route path="/production/planning" element={<Navigate to="/production/planning/q7" replace />} />
         <Route path="/production/planning/q7" element={<ModuleRoute moduleKey="production_q7"><Suspense fallback={<AppLoadingFallback />}><ProductionPlanning /></Suspense></ModuleRoute>} />
-        <Route path="/production/products" element={<ModuleRoute moduleKey="production_q7"><Suspense fallback={<AppLoadingFallback />}><ProductionProducts /></Suspense></ModuleRoute>} />
+        <Route path="/production/products" element={<ModuleRoute moduleKey="production_products"><Suspense fallback={<AppLoadingFallback />}><ProductionProducts /></Suspense></ModuleRoute>} />
         <Route path="/production/shifts" element={<ModuleRoute moduleKey="production_shifts"><Suspense fallback={<AppLoadingFallback />}><ProductionShifts /></Suspense></ModuleRoute>} />
         <Route path="/production/qa" element={<ModuleRoute moduleKey="production_qa"><Suspense fallback={<AppLoadingFallback />}><QAInspection /></Suspense></ModuleRoute>} />
         <Route path="/attendance" element={<Suspense fallback={<AppLoadingFallback />}><AttendanceManagement /></Suspense>} />
