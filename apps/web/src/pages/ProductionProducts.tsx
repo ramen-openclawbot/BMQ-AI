@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { formatDateKeyVi, expectedLabelDates, ProductLabelSpec, ExtractedProductLabelData, BarcodeBoundingBox } from "@/lib/product-label-control";
-import { Image as ImageIcon, Loader2, PackageSearch, Save, ShieldCheck, UploadCloud } from "lucide-react";
+import { CheckCircle2, Image as ImageIcon, Loader2, PackageSearch, Save, ShieldCheck, UploadCloud } from "lucide-react";
 
 type QueryResult<T = unknown> = { data: T | null; error: { message?: string } | null };
 type SupabaseQueryBuilder<T = unknown> = PromiseLike<QueryResult<T>> & {
@@ -112,6 +112,7 @@ export default function ProductionProducts() {
   const [selectedSkuId, setSelectedSkuId] = useState("");
   const [draft, setDraft] = useState<LabelDraft>(defaultDraft);
   const [analyzingTemplate, setAnalyzingTemplate] = useState(false);
+  const [saveSuccessAt, setSaveSuccessAt] = useState<Date | null>(null);
 
   const { data: skus = [], isLoading: skusLoading } = useQuery<ProductSku[]>({
     queryKey: ["production-products-finished-skus"],
@@ -142,6 +143,7 @@ export default function ProductionProducts() {
   const selectSku = (sku: ProductSku) => {
     const existing = specBySku.get(sku.id);
     setSelectedSkuId(sku.id);
+    setSaveSuccessAt(null);
     setDraft({
       shelf_life_days: existing?.shelf_life_days || 3,
       net_weight_value: existing?.net_weight_value ?? null,
@@ -243,6 +245,7 @@ export default function ProductionProducts() {
       if (error) throw error;
     },
     onSuccess: () => {
+      setSaveSuccessAt(new Date());
       toast({ title: "Đã lưu cấu hình tem", description: "QA sẽ dùng thông số này để đối chiếu tem nhãn." });
       queryClient.invalidateQueries({ queryKey: ["production-product-label-specs"] });
     },
@@ -395,6 +398,12 @@ export default function ProductionProducts() {
                 {saveMutation.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Save className="mr-2 h-5 w-5" />}
                 Lưu thông số tem
               </Button>
+              {saveSuccessAt ? (
+                <div className="flex items-center gap-2 rounded-2xl border border-success/30 bg-success/10 p-3 text-sm font-black text-success" data-product-label-save-success="inline">
+                  <CheckCircle2 className="h-5 w-5 shrink-0" />
+                  <span>Đã lưu thành công · QA sẽ dùng thông số tem mới.</span>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         </div>

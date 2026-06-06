@@ -110,6 +110,15 @@ def test_product_label_save_button_is_not_covered_by_mobile_agent_chat():
     assert "shouldLiftMobileChatButton = isRevenueMobileContext || isSkuCostsMobileContext || isPurchaseOrdersMobileContext || isProductionProductsMobileContext" in agent
 
 
+def test_product_label_save_shows_inline_success_confirmation():
+    page = read("src/pages/ProductionProducts.tsx")
+    assert "saveSuccessAt" in page
+    assert "data-product-label-save-success" in page
+    assert "Đã lưu thành công" in page
+    assert "setSaveSuccessAt(new Date())" in page
+    assert "setSaveSuccessAt(null)" in page
+
+
 def test_template_scan_overwrites_identity_from_ai_without_manual_expected_values():
     page = read("src/pages/ProductionProducts.tsx")
     assert "barcode_value: undefined" in page
