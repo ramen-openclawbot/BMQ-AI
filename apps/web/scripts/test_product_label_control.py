@@ -36,6 +36,15 @@ def test_production_product_management_route_and_sidebar_exist():
     assert "productionProducts" in lang
 
 
+def test_production_product_management_uses_sku_dropdown():
+    page = read("src/pages/ProductionProducts.tsx")
+    assert "data-production-products-sku-dropdown" in page
+    assert "SelectTrigger" in page
+    assert "SelectContent" in page
+    assert "handleSelectSkuId" in page
+    assert "grid gap-3 md:grid-cols-2 xl:grid-cols-3" not in page
+
+
 def test_label_date_math_and_qa_block_markers():
     helper = read("src/lib/product-label-control.ts")
     qa = read("src/pages/QAInspection.tsx")

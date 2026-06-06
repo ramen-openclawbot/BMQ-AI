@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { formatDateKeyVi, expectedLabelDates, ProductLabelSpec } from "@/lib/product-label-control";
@@ -87,6 +88,11 @@ export default function ProductionProducts() {
     });
   };
 
+  const handleSelectSkuId = (skuId: string) => {
+    const sku = skus.find((item) => item.id === skuId);
+    if (sku) selectSku(sku);
+  };
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       const sku = skus.find((item) => item.id === selectedSkuId);
@@ -138,23 +144,47 @@ export default function ProductionProducts() {
               {skusLoading || specsLoading ? (
                 <div className="flex min-h-40 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>
               ) : (
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {skus.map((sku) => {
-                    const spec = specBySku.get(sku.id);
-                    const active = sku.id === selectedSkuId;
-                    return (
-                      <button key={sku.id} type="button" onClick={() => selectSku(sku)} className={`rounded-3xl border p-3 text-left transition ${active ? "border-primary bg-primary/10" : "border-border bg-card/70 hover:border-primary/40"}`}>
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="line-clamp-2 text-sm font-black">{sku.product_name || sku.sku_code}</p>
-                            <p className="mt-1 truncate font-mono text-[11px] font-bold text-muted-foreground">{sku.sku_code || "-"}</p>
-                          </div>
-                          <Badge className={spec ? "bg-success/15 text-success hover:bg-success/15" : "bg-warning text-warning-foreground hover:bg-warning"}>{spec ? "Đã cấu hình" : "Thiếu tem"}</Badge>
+                <div className="space-y-4" data-production-products-sku-dropdown="compact-select">
+                  <div className="space-y-2">
+                    <Label>Chọn SKU thành phẩm</Label>
+                    <Select value={selectedSkuId} onValueChange={handleSelectSkuId}>
+                      <SelectTrigger className="h-12 rounded-2xl bg-background text-left font-bold">
+                        <SelectValue placeholder="Chọn SKU để cấu hình tem nhãn..." />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-80 rounded-2xl">
+                        {skus.map((sku) => {
+                          const spec = specBySku.get(sku.id);
+                          return (
+                            <SelectItem key={sku.id} value={sku.id} className="rounded-xl py-2">
+                              {(sku.product_name || sku.sku_code || "SKU chưa đặt tên") + (sku.sku_code ? ` · ${sku.sku_code}` : "") + (spec ? " · Đã cấu hình" : " · Thiếu tem")}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs font-semibold text-muted-foreground">Danh sách SKU được thu gọn vào dropdown để tránh kéo dài màn hình.</p>
+                  </div>
+
+                  {selectedSku ? (
+                    <div className="rounded-3xl border border-primary/20 bg-primary/5 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="line-clamp-2 text-base font-black text-foreground">{selectedSku.product_name || selectedSku.sku_code}</p>
+                          <p className="mt-1 truncate font-mono text-xs font-bold text-muted-foreground">{selectedSku.sku_code || "-"}</p>
                         </div>
-                        {spec && <p className="mt-2 text-xs font-bold text-muted-foreground">HSD {spec.shelf_life_days} ngày · {spec.net_weight_value || "-"}{spec.net_weight_unit || ""}</p>}
-                      </button>
-                    );
-                  })}
+                        {(() => {
+                          const spec = specBySku.get(selectedSku.id);
+                          return <Badge className={spec ? "bg-success/15 text-success hover:bg-success/15" : "bg-warning text-warning-foreground hover:bg-warning"}>{spec ? "Đã cấu hình" : "Thiếu tem"}</Badge>;
+                        })()}
+                      </div>
+                      {(() => {
+                        const spec = specBySku.get(selectedSku.id);
+                        return spec ? <p className="mt-3 text-sm font-bold text-muted-foreground">HSD {spec.shelf_life_days} ngày · {spec.net_weight_value || "-"}{spec.net_weight_unit || ""}</p> : <p className="mt-3 text-sm font-bold text-muted-foreground">SKU này chưa có thông số tem, nhập bên phải rồi lưu.</p>;
+                      })()}
+                    </div>
+                  ) : (
+                    <div className="rounded-3xl border border-dashed border-border bg-muted/40 p-4 text-sm font-bold text-muted-foreground">Chưa chọn SKU.</div>
+                  )}
                 </div>
               )}
             </CardContent>
