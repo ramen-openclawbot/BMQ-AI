@@ -77,6 +77,10 @@ def test_product_label_fixed_partner_codes_are_managed_and_enforced():
     assert "normalizeLabelIdentity" in helper
     assert "Mã vạch" in page
     assert "Mã SP theo đối tác" in page
+    assert "data-product-label-ai-identity-fields" in page
+    assert "Tự lấy từ tem mẫu" in page
+    assert "placeholder=\"Ví dụ: 893...\"" not in page
+    assert "placeholder=\"Ví dụ: SP001986\"" not in page
     assert "barcode_value,partner_product_code" in page
     assert "barcode_value" in qa
     assert "partner_product_code" in qa
@@ -84,6 +88,16 @@ def test_product_label_fixed_partner_codes_are_managed_and_enforced():
     assert "expected_partner_product_code" in qa
     assert "Sai mã vạch" in helper
     assert "Sai mã SP đối tác" in helper
+
+
+def test_template_scan_overwrites_identity_from_ai_without_manual_expected_values():
+    page = read("src/pages/ProductionProducts.tsx")
+    assert "barcode_value: undefined" in page
+    assert "partner_product_code: undefined" in page
+    assert "barcode_value: extracted?.barcode || \"\"" in page
+    assert "partner_product_code: extracted?.partner_product_code || extracted?.product_code || \"\"" in page
+    assert "current.barcode_value || extracted?.barcode" not in page
+    assert "current.partner_product_code || extracted?.partner_product_code" not in page
 
 
 def test_production_product_management_shows_selected_sku_image():

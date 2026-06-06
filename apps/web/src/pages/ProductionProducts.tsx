@@ -184,8 +184,8 @@ export default function ProductionProducts() {
           image_url: templateUrl,
           sku_code: sku.sku_code,
           product_name: sku.product_name,
-          barcode_value: draft.barcode_value,
-          partner_product_code: draft.partner_product_code,
+          barcode_value: undefined,
+          partner_product_code: undefined,
           detect_barcode_bbox: true,
         },
       });
@@ -197,8 +197,8 @@ export default function ProductionProducts() {
       const cropUrl = await uploadImageBlob(cropPath, cropBlob, "image/jpeg");
       setDraft((current) => ({
         ...current,
-        barcode_value: current.barcode_value || extracted?.barcode || "",
-        partner_product_code: current.partner_product_code || extracted?.partner_product_code || extracted?.product_code || "",
+        barcode_value: extracted?.barcode || "",
+        partner_product_code: extracted?.partner_product_code || extracted?.product_code || "",
         label_template_image_url: templateUrl,
         label_template_image_path: templatePath,
         barcode_crop_image_url: cropUrl,
@@ -206,7 +206,7 @@ export default function ProductionProducts() {
         barcode_crop_bbox: barcodeBox,
         barcode_crop_confidence: extracted?.barcode_crop_confidence ?? null,
       }));
-      toast({ title: "Đã cắt mã vạch từ tem mẫu", description: "Kiểm tra ảnh barcode mẫu, mã vạch/mã SP rồi bấm lưu thông số tem." });
+      toast({ title: "Đã cắt mã vạch từ tem mẫu", description: "AI đã tự lấy mã vạch và mã SP trên tem mẫu; kiểm tra ảnh barcode mẫu rồi bấm lưu." });
     } catch (error) {
       toast({ title: "Không thể xử lý tem mẫu", description: error instanceof Error ? error.message : String(error), variant: "destructive" });
     } finally {
@@ -350,21 +350,23 @@ export default function ProductionProducts() {
                 <Label>Đơn vị khối lượng</Label>
                 <Input className="mt-1 rounded-2xl" value={draft.net_weight_unit || ""} onChange={(event) => setDraft((cur) => ({ ...cur, net_weight_unit: event.target.value }))} />
               </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" data-product-label-ai-identity-fields="auto-from-template">
+                <div className="rounded-2xl border border-border bg-muted/50 p-3">
                   <Label>Mã vạch</Label>
-                  <Input className="mt-1 rounded-2xl font-mono" placeholder="Ví dụ: 893..." value={draft.barcode_value || ""} onChange={(event) => setDraft((cur) => ({ ...cur, barcode_value: event.target.value }))} />
+                  <p className="mt-2 min-h-6 break-all font-mono text-sm font-black text-foreground">{draft.barcode_value || "Chưa có"}</p>
+                  <p className="mt-1 text-[11px] font-semibold text-muted-foreground">Tự lấy từ tem mẫu, không nhập manual.</p>
                 </div>
-                <div>
+                <div className="rounded-2xl border border-border bg-muted/50 p-3">
                   <Label>Mã SP theo đối tác</Label>
-                  <Input className="mt-1 rounded-2xl font-mono" placeholder="Ví dụ: SP001986" value={draft.partner_product_code || ""} onChange={(event) => setDraft((cur) => ({ ...cur, partner_product_code: event.target.value }))} />
+                  <p className="mt-2 min-h-6 break-all font-mono text-sm font-black text-foreground">{draft.partner_product_code || "Chưa có"}</p>
+                  <p className="mt-1 text-[11px] font-semibold text-muted-foreground">Tự lấy từ tem mẫu sau khi upload/quét tem.</p>
                 </div>
               </div>
               <div className="rounded-3xl border border-dashed border-primary/35 bg-primary/10 p-3" data-product-label-template-upload="barcode-crop-reference">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <Label>Tem mẫu + ảnh mã vạch</Label>
-                    <p className="mt-1 text-xs font-semibold text-muted-foreground">Upload tem mẫu: AI đọc mã vạch, xác định vùng barcode và hệ thống cắt ảnh barcode để lưu đối chiếu khi QA quét.</p>
+                    <p className="mt-1 text-xs font-semibold text-muted-foreground">Upload tem mẫu: AI tự đọc mã vạch + mã SP trên tem, xác định vùng barcode và hệ thống cắt ảnh barcode để lưu đối chiếu khi QA quét.</p>
                   </div>
                   <Button type="button" variant="outline" className="shrink-0 rounded-2xl bg-background" disabled={!selectedSkuId || analyzingTemplate} onClick={() => templateFileInputRef.current?.click()}>
                     {analyzingTemplate ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
