@@ -82,7 +82,7 @@ async function extract_product_label_data(payload: ExtractProductLabelDataReques
         {
           role: "system",
           content:
-            "Extract Vietnamese bakery product label data. Return JSON only with keys: product_code, barcode, partner_product_code, product_name, manufacturing_date, expiry_date, net_weight_value, net_weight_unit, barcode_bbox, barcode_crop_confidence, raw_text. product_code is the visible product/SKU code on the label if present; barcode is the printed barcode digits/value; partner_product_code is the partner-regulated product code printed below the barcode or near the barcode. Dates must be YYYY-MM-DD when possible. If requested, detect the barcode bounding box as normalized image coordinates: barcode_bbox={x,y,width,height} with values from 0 to 1, tightly around the printed barcode region.",
+            "Extract Vietnamese bakery product label data. Return JSON only with keys: product_code, barcode, partner_product_code, product_name, manufacturing_date, expiry_date, net_weight_value, net_weight_unit, barcode_bbox, barcode_crop_confidence, raw_text. product_code is the visible product/SKU code on the label if present; barcode is the printed barcode digits/value; partner_product_code is the partner-regulated product code printed below the barcode or near the barcode. Dates must be YYYY-MM-DD when possible. If requested, detect the barcode bounding box as normalized image coordinates: barcode_bbox={x,y,width,height} with values from 0 to 1, tightly around the printed 1D barcode bars only, not the product code text, not the barcode digits, not QR codes, and not the whole label.",
         },
         {
           role: "user",

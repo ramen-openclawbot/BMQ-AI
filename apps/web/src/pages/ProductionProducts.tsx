@@ -42,6 +42,10 @@ interface ProductSku {
   sku_type: string | null;
 }
 
+type BrowserBarcodeDetectorCtor = new (options?: { formats?: string[] }) => {
+  detect(image: ImageBitmapSource): Promise<Array<{ boundingBox?: DOMRectReadOnly }>>;
+};
+
 type LabelDraft = Pick<ProductLabelSpec, "shelf_life_days" | "net_weight_value" | "net_weight_unit" | "barcode_value" | "partner_product_code" | "label_template_image_url" | "label_template_image_path" | "barcode_crop_image_url" | "barcode_crop_image_path" | "barcode_crop_bbox" | "barcode_crop_confidence" | "traceability_sheet_url" | "is_label_scan_required">;
 
 const defaultDraft: LabelDraft = {
@@ -96,6 +100,28 @@ const cropImageByBox = async (file: File, box?: BarcodeBoundingBox | null) => {
     return await new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("Không thể xuất ảnh mã vạch đã cắt."))), "image/jpeg", 0.92));
   } finally {
     URL.revokeObjectURL(imageUrl);
+  }
+};
+
+const detectBarcodeBoxFromFile = async (file: File): Promise<BarcodeBoundingBox | null> => {
+  const detectorCtor = (window as typeof window & { BarcodeDetector?: BrowserBarcodeDetectorCtor }).BarcodeDetector;
+  if (!detectorCtor || typeof createImageBitmap !== "function") return null;
+  const bitmap = await createImageBitmap(file);
+  try {
+    const detector = new detectorCtor({ formats: ["code_128", "ean_13", "ean_8", "upc_a", "upc_e"] });
+    const [barcode] = await detector.detect(bitmap);
+    const rect = barcode?.boundingBox;
+    if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+    const x = Math.max(0, Math.min(1, rect.x / bitmap.width));
+    const y = Math.max(0, Math.min(1, rect.y / bitmap.height));
+    return {
+      x,
+      y,
+      width: Math.max(0.01, Math.min(1 - x, rect.width / bitmap.width)),
+      height: Math.max(0.01, Math.min(1 - y, rect.height / bitmap.height)),
+    };
+  } finally {
+    bitmap.close();
   }
 };
 
@@ -193,7 +219,9 @@ export default function ProductionProducts() {
       });
       if (error) throw error;
       const extracted = data?.data;
-      const barcodeBox = extracted?.barcode_bbox || null;
+      const browserBarcodeBox = await detectBarcodeBoxFromFile(file).catch(() => null);
+      const barcodeBox = browserBarcodeBox || extracted?.barcode_bbox || null;
+      const barcode_crop_source = browserBarcodeBox ? "browser_barcode_detector" : "ai_bbox";
       const cropBlob = await cropImageByBox(file, barcodeBox);
       const cropPath = `${basePath}/barcode-crop.jpg`;
       const cropUrl = await uploadImageBlob(cropPath, cropBlob, "image/jpeg");
@@ -206,9 +234,9 @@ export default function ProductionProducts() {
         barcode_crop_image_url: cropUrl,
         barcode_crop_image_path: cropPath,
         barcode_crop_bbox: barcodeBox,
-        barcode_crop_confidence: extracted?.barcode_crop_confidence ?? null,
+        barcode_crop_confidence: browserBarcodeBox ? null : extracted?.barcode_crop_confidence ?? null,
       }));
-      toast({ title: "Đã cắt mã vạch từ tem mẫu", description: "AI đã tự lấy mã vạch và mã SP trên tem mẫu; kiểm tra ảnh barcode mẫu rồi bấm lưu." });
+      toast({ title: "Đã cắt mã vạch từ tem mẫu", description: `AI đã tự lấy mã vạch và mã SP trên tem mẫu; ảnh barcode mẫu cắt bằng ${barcode_crop_source === "browser_barcode_detector" ? "bộ dò barcode của trình duyệt" : "tọa độ AI"}. Kiểm tra rồi bấm lưu.` });
     } catch (error) {
       toast({ title: "Không thể xử lý tem mẫu", description: error instanceof Error ? error.message : String(error), variant: "destructive" });
     } finally {

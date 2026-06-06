@@ -164,6 +164,23 @@ def test_product_label_template_upload_and_barcode_crop_reference():
     assert "Ảnh barcode vừa quét" in qa
 
 
+def test_template_barcode_crop_prefers_browser_detected_barcode_box():
+    page = read("src/pages/ProductionProducts.tsx")
+    assert "detectBarcodeBoxFromFile" in page
+    assert "BarcodeDetector" in page
+    assert "createImageBitmap" in page
+    assert "browserBarcodeBox || extracted?.barcode_bbox" in page
+    assert "barcode_crop_source" in page
+    assert "AI đã tự lấy mã vạch" in page
+
+
+def test_scan_product_label_prompt_avoids_text_box_as_barcode_crop():
+    fn = read("supabase/functions/scan-product-label/index.ts")
+    assert "printed 1D barcode bars only" in fn
+    assert "not the product code text" in fn
+    assert "not the barcode digits" in fn
+
+
 def test_label_date_math_and_qa_block_markers():
     helper = read("src/lib/product-label-control.ts")
     qa = read("src/pages/QAInspection.tsx")
