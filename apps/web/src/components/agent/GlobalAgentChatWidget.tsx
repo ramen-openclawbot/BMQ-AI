@@ -758,7 +758,8 @@ export function GlobalAgentChatWidget() {
   const isRevenueMobileContext = location.pathname.startsWith("/finance-control/revenue");
   const isSkuCostsMobileContext = location.pathname.startsWith("/sku-costs");
   const isPurchaseOrdersMobileContext = location.pathname.startsWith("/purchase-orders");
-  const shouldLiftMobileChatButton = isRevenueMobileContext || isSkuCostsMobileContext || isPurchaseOrdersMobileContext;
+  const isProductionProductsMobileContext = location.pathname.startsWith("/production/products");
+  const shouldLiftMobileChatButton = isRevenueMobileContext || isSkuCostsMobileContext || isPurchaseOrdersMobileContext || isProductionProductsMobileContext;
 
   const pushAgent = (text: string) => setMessages((prev) => [...prev, { role: "agent", text }]);
 

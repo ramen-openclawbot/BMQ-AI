@@ -78,6 +78,8 @@ def test_product_label_fixed_partner_codes_are_managed_and_enforced():
     assert "Mã vạch" in page
     assert "Mã SP theo đối tác" in page
     assert "data-product-label-ai-identity-fields" in page
+    assert "data-product-label-save-button" in page
+    assert "type=\"button\"" in page
     assert "Tự lấy từ tem mẫu" in page
     assert "placeholder=\"Ví dụ: 893...\"" not in page
     assert "placeholder=\"Ví dụ: SP001986\"" not in page
@@ -88,6 +90,16 @@ def test_product_label_fixed_partner_codes_are_managed_and_enforced():
     assert "expected_partner_product_code" in qa
     assert "Sai mã vạch" in helper
     assert "Sai mã SP đối tác" in helper
+
+
+def test_product_label_save_button_is_not_covered_by_mobile_agent_chat():
+    page = read("src/pages/ProductionProducts.tsx")
+    agent = read("src/components/agent/GlobalAgentChatWidget.tsx")
+    assert "data-product-label-save-button" in page
+    assert "type=\"button\"" in page
+    assert "isProductionProductsMobileContext" in agent
+    assert 'location.pathname.startsWith("/production/products")' in agent
+    assert "shouldLiftMobileChatButton = isRevenueMobileContext || isSkuCostsMobileContext || isPurchaseOrdersMobileContext || isProductionProductsMobileContext" in agent
 
 
 def test_template_scan_overwrites_identity_from_ai_without_manual_expected_values():

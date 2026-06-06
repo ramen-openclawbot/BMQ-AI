@@ -396,7 +396,7 @@ export default function ProductionProducts() {
               <div className="rounded-2xl bg-muted/60 p-3 text-sm font-semibold text-muted-foreground">
                 Ví dụ ngày SX 06/06/2026: tem phải in NSX {formatDateKeyVi(demoDates.expectedNsx)} · HSD {formatDateKeyVi(demoDates.expectedHsd)}.
               </div>
-              <Button className="h-12 w-full rounded-2xl font-black" disabled={!selectedSkuId || saveMutation.isPending} onClick={() => saveMutation.mutate()}>
+              <Button type="button" className="h-12 w-full rounded-2xl font-black" data-product-label-save-button="primary" disabled={!selectedSkuId || saveMutation.isPending} onClick={() => saveMutation.mutate()}>
                 {saveMutation.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Save className="mr-2 h-5 w-5" />}
                 Lưu thông số tem
               </Button>
