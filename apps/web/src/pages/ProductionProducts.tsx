@@ -1,4 +1,4 @@
-import { ChangeEvent, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -6,11 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { formatDateKeyVi, expectedLabelDates, ProductLabelSpec, ExtractedProductLabelData, BarcodeBoundingBox } from "@/lib/product-label-control";
-import { CheckCircle2, Image as ImageIcon, Loader2, PackageSearch, Save, ShieldCheck, UploadCloud } from "lucide-react";
+import { formatDateKeyVi, expectedLabelDates, ProductLabelSpec } from "@/lib/product-label-control";
+import { CheckCircle2, Loader2, PackageSearch, Save, ShieldCheck } from "lucide-react";
 
 type QueryResult<T = unknown> = { data: T | null; error: { message?: string } | null };
 type SupabaseQueryBuilder<T = unknown> = PromiseLike<QueryResult<T>> & {
@@ -20,18 +19,8 @@ type SupabaseQueryBuilder<T = unknown> = PromiseLike<QueryResult<T>> & {
 };
 type SupabaseLoose = {
   from<T = unknown>(table: string): SupabaseQueryBuilder<T>;
-  storage: {
-    from(bucket: string): {
-      upload(path: string, file: Blob | File, options?: Record<string, unknown>): PromiseLike<QueryResult<unknown>>;
-      getPublicUrl(path: string): { data: { publicUrl: string } };
-    };
-  };
-  functions: {
-    invoke<T>(name: string, options: { body: unknown }): Promise<{ data: T | null; error: Error | null }>;
-  };
 };
 const db = supabase as unknown as SupabaseLoose;
-const LABEL_TEMPLATE_BUCKET = "label-template-images";
 
 interface ProductSku {
   id: string;
@@ -43,24 +32,12 @@ interface ProductSku {
   sku_type: string | null;
 }
 
-type BrowserBarcodeDetectorCtor = new (options?: { formats?: string[] }) => {
-  detect(image: ImageBitmapSource): Promise<Array<{ boundingBox?: DOMRectReadOnly }>>;
-};
-
-type LabelDraft = Pick<ProductLabelSpec, "shelf_life_days" | "net_weight_value" | "net_weight_unit" | "barcode_value" | "partner_product_code" | "label_template_image_url" | "label_template_image_path" | "barcode_crop_image_url" | "barcode_crop_image_path" | "barcode_crop_bbox" | "barcode_crop_confidence" | "traceability_sheet_url" | "is_label_scan_required">;
+type LabelDraft = Pick<ProductLabelSpec, "shelf_life_days" | "net_weight_value" | "net_weight_unit" | "traceability_sheet_url" | "is_label_scan_required">;
 
 const defaultDraft: LabelDraft = {
   shelf_life_days: 3,
   net_weight_value: null,
   net_weight_unit: "g",
-  barcode_value: "",
-  partner_product_code: "",
-  label_template_image_url: "",
-  label_template_image_path: "",
-  barcode_crop_image_url: "",
-  barcode_crop_image_path: "",
-  barcode_crop_bbox: null,
-  barcode_crop_confidence: null,
   traceability_sheet_url: "",
   is_label_scan_required: true,
 };
@@ -70,148 +47,12 @@ const isFinishedSku = (sku: ProductSku) => {
   return text.includes("finished") || text.includes("thành phẩm") || text.includes("finished_good");
 };
 
-const slugPart = (value: string) =>
-  value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "label";
-
-const cropImageByBox = async (file: File, box?: BarcodeBoundingBox | null) => {
-  if (!box) throw new Error("AI chưa xác định được vùng mã vạch trên tem mẫu.");
-  const imageUrl = URL.createObjectURL(file);
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = reject;
-      img.src = imageUrl;
-    });
-    const canvas = document.createElement("canvas");
-    const sourceX = Math.max(0, Math.round(box.x * image.naturalWidth));
-    const sourceY = Math.max(0, Math.round(box.y * image.naturalHeight));
-    const sourceWidth = Math.min(image.naturalWidth - sourceX, Math.round(box.width * image.naturalWidth));
-    const sourceHeight = Math.min(image.naturalHeight - sourceY, Math.round(box.height * image.naturalHeight));
-    canvas.width = Math.max(1, sourceWidth);
-    canvas.height = Math.max(1, sourceHeight);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Không thể cắt ảnh mã vạch trên trình duyệt này.");
-    ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height);
-    return await new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("Không thể xuất ảnh mã vạch đã cắt."))), "image/jpeg", 0.92));
-  } finally {
-    URL.revokeObjectURL(imageUrl);
-  }
-};
-
-const isBrowserBarcodeDetectorSupported = () => Boolean((window as typeof window & { BarcodeDetector?: BrowserBarcodeDetectorCtor }).BarcodeDetector && typeof createImageBitmap === "function");
-
-const detectBarcodeBoxFromBlob = async (blob: Blob): Promise<BarcodeBoundingBox | null> => {
-  const detectorCtor = (window as typeof window & { BarcodeDetector?: BrowserBarcodeDetectorCtor }).BarcodeDetector;
-  if (!detectorCtor || typeof createImageBitmap !== "function") return null;
-  const bitmap = await createImageBitmap(blob);
-  try {
-    const detector = new detectorCtor({ formats: ["code_128", "ean_13", "ean_8", "upc_a", "upc_e"] });
-    const [barcode] = await detector.detect(bitmap);
-    const rect = barcode?.boundingBox;
-    if (!rect || rect.width <= 0 || rect.height <= 0) return null;
-    const x = Math.max(0, Math.min(1, rect.x / bitmap.width));
-    const y = Math.max(0, Math.min(1, rect.y / bitmap.height));
-    return {
-      x,
-      y,
-      width: Math.max(0.01, Math.min(1 - x, rect.width / bitmap.width)),
-      height: Math.max(0.01, Math.min(1 - y, rect.height / bitmap.height)),
-    };
-  } finally {
-    bitmap.close();
-  }
-};
-
-const detectBarcodeBoxFromFile = async (file: File): Promise<BarcodeBoundingBox | null> => detectBarcodeBoxFromBlob(file);
-
-type BarcodeCropSource = "browser_barcode_detector" | "ai_bbox";
-
-const validateBarcodeCropCandidate = async (box: BarcodeBoundingBox | null, cropBlob: Blob, source: BarcodeCropSource, confidence?: number | null) => {
-  if (!box) throw new Error("Ảnh mã vạch crop chưa đạt: chưa xác định được vùng mã vạch 1D trên tem. Không lưu tem mẫu khi chưa xác định đúng vùng mã vạch.");
-  if (source === "ai_bbox" && confidence != null && confidence < 0.75) {
-    throw new Error("Ảnh mã vạch crop chưa đạt: AI chưa đủ chắc chắn vùng mã vạch (<75%). Không lưu tem mẫu khi chưa xác định đúng vùng mã vạch.");
-  }
-  if (box.width > 0.9 || box.height > 0.45 || box.width * box.height > 0.25) {
-    throw new Error("Ảnh mã vạch crop chưa đạt: vùng crop quá lớn, có thể đang lấy cả tem hoặc ô thông tin thay vì mã vạch. Không lưu tem mẫu khi chưa xác định đúng vùng mã vạch.");
-  }
-  let aspectRatio = box.width / Math.max(0.001, box.height);
-  if (typeof createImageBitmap === "function") {
-    const bitmap = await createImageBitmap(cropBlob);
-    try {
-      aspectRatio = bitmap.width / Math.max(1, bitmap.height);
-      if (bitmap.width < 80 || bitmap.height < 20) {
-        throw new Error("Ảnh mã vạch crop chưa đạt: ảnh crop quá nhỏ để đối chiếu QA. Không lưu tem mẫu khi chưa xác định đúng vùng mã vạch.");
-      }
-    } finally {
-      bitmap.close();
-    }
-  }
-  if (aspectRatio < 2 || aspectRatio > 18) {
-    throw new Error("Ảnh mã vạch crop chưa đạt: tỷ lệ ảnh không giống mã vạch 1D. Không lưu tem mẫu khi chưa xác định đúng vùng mã vạch.");
-  }
-  if (source === "ai_bbox" && isBrowserBarcodeDetectorSupported()) {
-    const detectedInsideCrop = await detectBarcodeBoxFromBlob(cropBlob).catch(() => null);
-    if (!detectedInsideCrop) {
-      throw new Error("Ảnh mã vạch crop chưa đạt: trình duyệt không đọc được barcode trong vùng crop. Không lưu tem mẫu khi chưa xác định đúng vùng mã vạch.");
-    }
-  }
-};
-
-const fileToBase64 = async (file: File) =>
-  await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || "").split(",")[1] || "");
-    reader.onerror = () => reject(new Error("Không thể đọc ảnh tem mẫu."));
-    reader.readAsDataURL(file);
-  });
-
-const uploadImageBlob = async (path: string, file: Blob | File, contentType: string) => {
-  const { error } = await db.storage.from(LABEL_TEMPLATE_BUCKET).upload(path, file, { upsert: true, contentType });
-  if (error) throw error;
-  return db.storage.from(LABEL_TEMPLATE_BUCKET).getPublicUrl(path).data.publicUrl;
-};
-
-const withStorageCacheBust = (url: string) => `${url}${url.includes("?") ? "&" : "?"}v=${Date.now()}`;
-
-const safeDecodeStoragePath = (value: string) => {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return "";
-  }
-};
-
-const storagePathFromPublicUrl = (url?: string | null) => {
-  if (!url) return "";
-  const marker = `/storage/v1/object/public/${LABEL_TEMPLATE_BUCKET}/`;
-  const cleanUrl = url.split("?")[0];
-  try {
-    const parsed = new URL(cleanUrl);
-    const markerIndex = parsed.pathname.indexOf(marker);
-    return markerIndex >= 0 ? safeDecodeStoragePath(parsed.pathname.slice(markerIndex + marker.length)) : "";
-  } catch {
-    const markerIndex = cleanUrl.indexOf(marker);
-    return markerIndex >= 0 ? safeDecodeStoragePath(cleanUrl.slice(markerIndex + marker.length)) : "";
-  }
-};
-
 export default function ProductionProducts() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const templateFileInputRef = useRef<HTMLInputElement | null>(null);
-  const barcodeFileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedSkuId, setSelectedSkuId] = useState("");
   const [draft, setDraft] = useState<LabelDraft>(defaultDraft);
-  const [analyzingTemplate, setAnalyzingTemplate] = useState(false);
-  const [uploadingBarcodeSample, setUploadingBarcodeSample] = useState(false);
   const [saveSuccessAt, setSaveSuccessAt] = useState<Date | null>(null);
-  const [templateReplaceConfirmOpen, setTemplateReplaceConfirmOpen] = useState(false);
 
   const { data: skus = [], isLoading: skusLoading } = useQuery<ProductSku[]>({
     queryKey: ["production-products-finished-skus"],
@@ -230,7 +71,7 @@ export default function ProductionProducts() {
     queryFn: async () => {
       const { data, error } = await db
         .from<ProductLabelSpec[]>("product_label_specs")
-        .select("id,sku_id,sku_code,product_name,barcode_value,partner_product_code,label_template_image_url,label_template_image_path,barcode_crop_image_url,barcode_crop_image_path,barcode_crop_bbox,barcode_crop_confidence,shelf_life_days,net_weight_value,net_weight_unit,traceability_sheet_url,is_label_scan_required")
+        .select("id,sku_id,sku_code,product_name,shelf_life_days,net_weight_value,net_weight_unit,traceability_sheet_url,is_label_scan_required")
         .order("product_name", { ascending: true });
       if (error) throw error;
       return data || [];
@@ -247,14 +88,6 @@ export default function ProductionProducts() {
       shelf_life_days: existing?.shelf_life_days || 3,
       net_weight_value: existing?.net_weight_value ?? null,
       net_weight_unit: existing?.net_weight_unit || "g",
-      barcode_value: existing?.barcode_value || "",
-      partner_product_code: existing?.partner_product_code || "",
-      label_template_image_url: existing?.label_template_image_url || "",
-      label_template_image_path: existing?.label_template_image_path || "",
-      barcode_crop_image_url: existing?.barcode_crop_image_url || "",
-      barcode_crop_image_path: existing?.barcode_crop_image_path || "",
-      barcode_crop_bbox: existing?.barcode_crop_bbox || null,
-      barcode_crop_confidence: existing?.barcode_crop_confidence ?? null,
       traceability_sheet_url: existing?.traceability_sheet_url || "",
       is_label_scan_required: existing?.is_label_scan_required ?? true,
     });
@@ -263,111 +96,6 @@ export default function ProductionProducts() {
   const handleSelectSkuId = (skuId: string) => {
     const sku = skus.find((item) => item.id === skuId);
     if (sku) selectSku(sku);
-  };
-
-  const handleTemplateFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    const sku = skus.find((item) => item.id === selectedSkuId);
-    if (!sku) {
-      toast({ title: "Chọn SKU trước", description: "Cần chọn SKU thành phẩm rồi mới upload tem mẫu.", variant: "destructive" });
-      return;
-    }
-    setAnalyzingTemplate(true);
-    try {
-      const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
-      const basePath = `${slugPart(sku.sku_code || sku.product_name || sku.id)}/${Date.now()}`;
-      const existingTemplatePath = draft.label_template_image_path || storagePathFromPublicUrl(draft.label_template_image_url);
-      const templatePath = existingTemplatePath || `${basePath}/template.${ext}`;
-      const imageBase64 = await fileToBase64(file);
-      const { data, error } = await db.functions.invoke<{ data: ExtractedProductLabelData }>("scan-product-label", {
-        body: {
-          image_base64: imageBase64,
-          image_mime_type: file.type,
-          sku_code: sku.sku_code,
-          product_name: sku.product_name,
-          barcode_value: undefined,
-          partner_product_code: undefined,
-          detect_barcode_bbox: true,
-        },
-      });
-      if (error) throw error;
-      const extracted = data?.data;
-      const browserBarcodeBox = await detectBarcodeBoxFromFile(file).catch(() => null);
-      const barcodeBox = browserBarcodeBox || extracted?.barcode_bbox || null;
-      const barcode_crop_source: BarcodeCropSource = browserBarcodeBox ? "browser_barcode_detector" : "ai_bbox";
-      const cropBlob = await cropImageByBox(file, barcodeBox);
-      await validateBarcodeCropCandidate(barcodeBox, cropBlob, barcode_crop_source, browserBarcodeBox ? null : extracted?.barcode_crop_confidence ?? null);
-      const templateUrl = withStorageCacheBust(await uploadImageBlob(templatePath, file, file.type || "image/jpeg"));
-      const existingCropPath = draft.barcode_crop_image_path || storagePathFromPublicUrl(draft.barcode_crop_image_url);
-      const cropPath = existingCropPath || `${basePath}/barcode-crop.jpg`;
-      const cropUrl = withStorageCacheBust(await uploadImageBlob(cropPath, cropBlob, "image/jpeg"));
-      setDraft((current) => ({
-        ...current,
-        barcode_value: extracted?.barcode || current.barcode_value,
-        partner_product_code: extracted?.partner_product_code || extracted?.product_code || "",
-        label_template_image_url: templateUrl,
-        label_template_image_path: templatePath,
-        barcode_crop_image_url: cropUrl,
-        barcode_crop_image_path: cropPath,
-        barcode_crop_bbox: barcodeBox,
-        barcode_crop_confidence: browserBarcodeBox ? null : extracted?.barcode_crop_confidence ?? null,
-      }));
-      toast({ title: "Đã cắt mã vạch từ tem mẫu", description: `AI đã tự lấy mã SP trên tem và cắt ảnh barcode bằng ${barcode_crop_source === "browser_barcode_detector" ? "bộ dò barcode của trình duyệt" : "tọa độ AI"}. Nếu crop chưa đúng, dùng nút Upload barcode mẫu riêng bên dưới.` });
-    } catch (error) {
-      toast({ title: "Không thể xử lý tem mẫu", description: error instanceof Error ? error.message : String(error), variant: "destructive" });
-    } finally {
-      setAnalyzingTemplate(false);
-    }
-  };
-
-  const handleBarcodeSampleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    const sku = skus.find((item) => item.id === selectedSkuId);
-    if (!sku) {
-      toast({ title: "Chọn SKU trước", description: "Cần chọn SKU thành phẩm rồi mới upload barcode mẫu.", variant: "destructive" });
-      return;
-    }
-    setUploadingBarcodeSample(true);
-    try {
-      const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
-      const basePath = `${slugPart(sku.sku_code || sku.product_name || sku.id)}/${Date.now()}`;
-      const existingCropPath = draft.barcode_crop_image_path || storagePathFromPublicUrl(draft.barcode_crop_image_url);
-      const barcodePath = existingCropPath || `${basePath}/barcode-sample.${ext}`;
-      const barcodeUrl = withStorageCacheBust(await uploadImageBlob(barcodePath, file, file.type || "image/jpeg"));
-      let detectedBarcode = "";
-      try {
-        const imageBase64 = await fileToBase64(file);
-        const { data } = await db.functions.invoke<{ data: ExtractedProductLabelData }>("scan-product-label", {
-          body: {
-            image_base64: imageBase64,
-            image_mime_type: file.type,
-            sku_code: sku.sku_code,
-            product_name: sku.product_name,
-            detect_barcode_bbox: false,
-          },
-        });
-        detectedBarcode = data?.data?.barcode || "";
-      } catch (scanError) {
-        console.warn("scan barcode sample failed", scanError);
-      }
-      setDraft((current) => ({
-        ...current,
-        barcode_value: detectedBarcode || current.barcode_value,
-        barcode_crop_image_url: barcodeUrl,
-        barcode_crop_image_path: barcodePath,
-        barcode_crop_bbox: null,
-        barcode_crop_confidence: null,
-      }));
-      toast({ title: "Đã upload barcode mẫu", description: detectedBarcode ? `QA sẽ so sánh ảnh scan với barcode mẫu này. Mã đọc được: ${detectedBarcode}.` : "QA sẽ so sánh ảnh scan với barcode mẫu này; không phụ thuộc vùng crop AI từ tem mẫu." });
-    } catch (error) {
-      toast({ title: "Không thể upload barcode mẫu", description: error instanceof Error ? error.message : String(error), variant: "destructive" });
-    } finally {
-      setUploadingBarcodeSample(false);
-    }
   };
 
   const saveMutation = useMutation({
@@ -382,14 +110,6 @@ export default function ProductionProducts() {
           shelf_life_days: Math.max(1, Number(draft.shelf_life_days || 1)),
           net_weight_value: draft.net_weight_value == null || Number.isNaN(Number(draft.net_weight_value)) ? null : Number(draft.net_weight_value),
           net_weight_unit: draft.net_weight_unit || "g",
-          barcode_value: draft.barcode_value?.trim() || null,
-          partner_product_code: draft.partner_product_code?.trim() || null,
-          label_template_image_url: draft.label_template_image_url || null,
-          label_template_image_path: draft.label_template_image_path || null,
-          barcode_crop_image_url: draft.barcode_crop_image_url || null,
-          barcode_crop_image_path: draft.barcode_crop_image_path || null,
-          barcode_crop_bbox: draft.barcode_crop_bbox || null,
-          barcode_crop_confidence: draft.barcode_crop_confidence ?? null,
           traceability_sheet_url: draft.traceability_sheet_url || null,
           is_label_scan_required: draft.is_label_scan_required ?? true,
           updated_at: new Date().toISOString(),
@@ -407,26 +127,6 @@ export default function ProductionProducts() {
   });
 
   const selectedSku = skus.find((sku) => sku.id === selectedSkuId) || null;
-  const existingTemplatePath = draft.label_template_image_path || storagePathFromPublicUrl(draft.label_template_image_url);
-  const existingCropPath = draft.barcode_crop_image_path || storagePathFromPublicUrl(draft.barcode_crop_image_url);
-  const hasExistingTemplate = Boolean(existingTemplatePath || existingCropPath);
-  const hasBarcodeSample = Boolean(existingCropPath);
-  const openTemplateFilePicker = () => {
-    if (!selectedSkuId || analyzingTemplate || uploadingBarcodeSample) return;
-    if (hasExistingTemplate) {
-      setTemplateReplaceConfirmOpen(true);
-      return;
-    }
-    templateFileInputRef.current?.click();
-  };
-  const openBarcodeFilePicker = () => {
-    if (!selectedSkuId || analyzingTemplate || uploadingBarcodeSample) return;
-    barcodeFileInputRef.current?.click();
-  };
-  const confirmReplaceTemplate = () => {
-    setTemplateReplaceConfirmOpen(false);
-    templateFileInputRef.current?.click();
-  };
   const demoDates = expectedLabelDates("2026-06-06", Number(draft.shelf_life_days || 1));
 
   return (
@@ -436,7 +136,7 @@ export default function ProductionProducts() {
           <Badge className="mb-3 rounded-full bg-primary/10 text-primary hover:bg-primary/10">Quản lý sản phẩm · tem nhãn QA</Badge>
           <h1 className="text-2xl font-black tracking-tight md:text-4xl">Quản lý sản phẩm</h1>
           <p className="mt-2 max-w-3xl text-sm font-semibold text-muted-foreground md:text-base">
-            Cấu hình HSD, khối lượng, mã vạch, mã SP đối tác và link sheet truy xuất theo SKU thành phẩm. QA phải quét/đối chiếu tem đạt trước khi nhập kho TP.
+            Cấu hình HSD, khối lượng và link sheet truy xuất theo SKU thành phẩm. QA phải quét/đối chiếu NSX, HSD và trọng lượng đạt trước khi nhập kho TP.
           </p>
         </header>
 
@@ -494,7 +194,7 @@ export default function ProductionProducts() {
                           </div>
                           {(() => {
                             const spec = specBySku.get(selectedSku.id);
-                            return spec ? <p className="mt-3 text-sm font-bold text-muted-foreground">HSD {spec.shelf_life_days} ngày · {spec.net_weight_value || "-"}{spec.net_weight_unit || ""}{spec.partner_product_code ? ` · Mã SP ${spec.partner_product_code}` : ""}</p> : <p className="mt-3 text-sm font-bold text-muted-foreground">SKU này chưa có thông số tem, nhập bên phải rồi lưu.</p>;
+                            return spec ? <p className="mt-3 text-sm font-bold text-muted-foreground">HSD {spec.shelf_life_days} ngày · {spec.net_weight_value || "-"}{spec.net_weight_unit || ""}</p> : <p className="mt-3 text-sm font-bold text-muted-foreground">SKU này chưa có thông số tem, nhập bên phải rồi lưu.</p>;
                           })()}
                         </div>
                       </div>
@@ -527,48 +227,6 @@ export default function ProductionProducts() {
                 <Label>Đơn vị khối lượng</Label>
                 <Input className="mt-1 rounded-2xl" value={draft.net_weight_unit || ""} onChange={(event) => setDraft((cur) => ({ ...cur, net_weight_unit: event.target.value }))} />
               </div>
-              <div className="grid grid-cols-1 gap-3" data-product-label-ai-identity-fields="auto-from-template">
-                <div className="rounded-2xl border border-border bg-muted/50 p-3">
-                  <Label>Mã SP theo đối tác</Label>
-                  <p className="mt-2 min-h-6 break-all font-mono text-sm font-black text-foreground">{draft.partner_product_code || "Chưa có"}</p>
-                  <p className="mt-1 text-[11px] font-semibold text-muted-foreground">Tự lấy từ tem mẫu sau khi upload/quét tem.</p>
-                </div>
-              </div>
-              <div className="rounded-3xl border border-dashed border-primary/35 bg-primary/10 p-3" data-product-label-template-upload="barcode-reference-separate">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <Label>Tem mẫu</Label>
-                    <p className="mt-1 text-xs font-semibold text-muted-foreground">Upload tem mẫu để AI đọc mã SP, NSX/HSD/khối lượng và thử tự cắt barcode. Nếu vùng barcode bị sai, upload ảnh barcode mẫu riêng ở nút bên dưới.</p>
-                  </div>
-                  <Button type="button" variant="outline" className="shrink-0 rounded-2xl bg-background" disabled={!selectedSkuId || analyzingTemplate || uploadingBarcodeSample} onClick={openTemplateFilePicker}>
-                    {analyzingTemplate ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
-                    {hasExistingTemplate ? "Thay tem mẫu" : "Upload tem mẫu"}
-                  </Button>
-                </div>
-                <input ref={templateFileInputRef} type="file" accept="image/*" className="hidden" onChange={handleTemplateFileChange} />
-                <input ref={barcodeFileInputRef} type="file" accept="image/*" className="hidden" onChange={handleBarcodeSampleFileChange} />
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <div className="overflow-hidden rounded-2xl border border-border bg-card">
-                    <div className="flex h-28 items-center justify-center bg-muted/60">
-                      {draft.label_template_image_url ? <img src={draft.label_template_image_url} alt="Tem mẫu" className="h-full w-full object-contain" /> : <ImageIcon className="h-7 w-7 text-muted-foreground" />}
-                    </div>
-                    <p className="px-3 py-2 text-xs font-bold text-muted-foreground">Tem mẫu gốc</p>
-                  </div>
-                  <div className="overflow-hidden rounded-2xl border border-border bg-card">
-                    <div className="flex h-28 items-center justify-center bg-muted/60">
-                      {draft.barcode_crop_image_url ? <img src={draft.barcode_crop_image_url} alt="Ảnh barcode mẫu" className="h-full w-full object-contain" /> : <ImageIcon className="h-7 w-7 text-muted-foreground" />}
-                    </div>
-                    <div className="flex items-center justify-between gap-2 px-3 py-2">
-                      <p className="text-xs font-bold text-muted-foreground">Ảnh barcode mẫu{draft.barcode_crop_confidence != null ? ` · AI ${Math.round(Number(draft.barcode_crop_confidence) * 100)}%` : ""}</p>
-                      <Button type="button" size="sm" variant="secondary" className="h-8 shrink-0 rounded-xl px-2 text-[11px] font-black" disabled={!selectedSkuId || analyzingTemplate || uploadingBarcodeSample} onClick={openBarcodeFilePicker}>
-                        {uploadingBarcodeSample ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <UploadCloud className="mr-1 h-3.5 w-3.5" />}
-                        {hasBarcodeSample ? "Thay barcode" : "Upload barcode"}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-                <p className="mt-2 text-[11px] font-semibold text-muted-foreground">QA sẽ ưu tiên so sánh barcode trên tem scan với ảnh barcode mẫu này; không pass nếu AI báo barcode không khớp.</p>
-              </div>
               <div>
                 <Label>Link Google Sheet truy xuất</Label>
                 <Input className="mt-1 rounded-2xl" placeholder="https://docs.google.com/spreadsheets/..." value={draft.traceability_sheet_url || ""} onChange={(event) => setDraft((cur) => ({ ...cur, traceability_sheet_url: event.target.value }))} />
@@ -589,22 +247,6 @@ export default function ProductionProducts() {
             </CardContent>
           </Card>
         </div>
-        <AlertDialog open={templateReplaceConfirmOpen} onOpenChange={setTemplateReplaceConfirmOpen}>
-          <AlertDialogContent data-product-label-template-replace-confirm="dialog">
-            <AlertDialogHeader>
-              <AlertDialogTitle>Thay tem mẫu đang dùng?</AlertDialogTitle>
-              <AlertDialogDescription>
-                SKU này đã có tem mẫu/barcode mẫu. File mới sẽ ghi đè ảnh cũ ngay sau khi chọn; anh vẫn cần bấm lưu thông số tem để cập nhật mã vạch, mã SP và vùng crop mới cho QA.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Hủy</AlertDialogCancel>
-              <AlertDialogAction onClick={confirmReplaceTemplate} className="bg-warning text-warning-foreground hover:bg-warning/90">
-                Xác nhận thay mẫu
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </div>
     </div>
   );
