@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -28,7 +28,7 @@ import {
 import { format } from "date-fns";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { evaluateLabelScan, expectedLabelDates, formatDateKeyVi, ProductLabelSpec, ExtractedProductLabelData, BarcodeBoundingBox } from "@/lib/product-label-control";
+import { evaluateLabelScan, expectedLabelDates, formatDateKeyVi, normalizeLabelIdentity, ProductLabelSpec, ExtractedProductLabelData, BarcodeBoundingBox } from "@/lib/product-label-control";
 
 const QA_PHOTO_BUCKET = "sku-images";
 
@@ -337,6 +337,20 @@ export default function QAInspection() {
   });
 
   const labelSpecBySku = useMemo(() => new Map(labelSpecs.map((spec) => [spec.sku_id, spec])), [labelSpecs]);
+  const labelSpecByProductName = useMemo(() => {
+    const entries = labelSpecs
+      .map((spec) => [normalizeLabelIdentity(spec.product_name), spec] as const)
+      .filter(([key]) => Boolean(key));
+    return new Map(entries);
+  }, [labelSpecs]);
+
+  const getLabelSpecForItem = useCallback((item: Pick<QaFormItem, "sku_id" | "product_name">) => {
+    if (item.sku_id) {
+      const specBySku = labelSpecBySku.get(item.sku_id);
+      if (specBySku) return specBySku;
+    }
+    return labelSpecByProductName.get(normalizeLabelIdentity(item.product_name)) || null;
+  }, [labelSpecByProductName, labelSpecBySku]);
 
   const { data: inspections = [], isLoading: inspectionsLoading } = useQuery<QAInspection[]>({
     queryKey: ["qa_inspections_by_day", selectedDate],
@@ -405,12 +419,12 @@ export default function QAInspection() {
 
   const allLabelChecksPassed = useMemo(() => {
     return formItems.every((item, index) => {
-      const spec = item.sku_id ? labelSpecBySku.get(item.sku_id) : null;
+      const spec = getLabelSpecForItem(item);
       if (spec?.is_label_scan_required === false) return true;
       const key = item.id || String(index);
       return labelChecks[key]?.status === "passed";
     });
-  }, [formItems, labelChecks, labelSpecBySku]);
+  }, [formItems, labelChecks, getLabelSpecForItem]);
 
   const handleSelectOrder = (orderId: string) => {
     setSelectedOrderId(orderId);
@@ -455,7 +469,7 @@ export default function QAInspection() {
     const item = formItems[pendingLabelIndex];
     if (!item) return;
     const itemKey = item.id || String(pendingLabelIndex);
-    const spec = item.sku_id ? labelSpecBySku.get(item.sku_id) : null;
+    const spec = getLabelSpecForItem(item);
     setScanningLabel(true);
     try {
       const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
@@ -556,7 +570,7 @@ export default function QAInspection() {
       if (qaFiles.length === 0) throw new Error(isVi ? "Cần upload ít nhất 1 ảnh QA." : "Upload at least one QA photo.");
       if (formItems.length === 0) throw new Error(isVi ? "Lệnh SX chưa có dòng sản phẩm để QA." : "The order has no items to inspect.");
       const requiredLabelFailures = formItems.filter((item, index) => {
-        const spec = item.sku_id ? labelSpecBySku.get(item.sku_id) : null;
+        const spec = getLabelSpecForItem(item);
         if (spec?.is_label_scan_required === false) return false;
         const key = item.id || String(index);
         return labelChecks[key]?.status !== "passed";
@@ -601,13 +615,13 @@ export default function QAInspection() {
       const labelRows = formItems.map((item, index) => {
         const key = item.id || String(index);
         const check = labelChecks[key];
-        const spec = item.sku_id ? labelSpecBySku.get(item.sku_id) : null;
+        const spec = getLabelSpecForItem(item);
         const dates = expectedLabelDates(selectedDate, spec?.shelf_life_days || 1);
         return {
           qa_inspection_id: inspection.id,
           production_order_id: selectedOrder.id,
           production_order_item_id: item.id || null,
-          sku_id: item.sku_id || null,
+          sku_id: spec?.sku_id || item.sku_id || null,
           product_label_spec_id: spec?.id || null,
           expected_barcode: spec?.barcode_value || null,
           expected_partner_product_code: spec?.partner_product_code || null,
@@ -936,7 +950,7 @@ export default function QAInspection() {
                     <div className="space-y-2">
                       {formItems.map((item, index) => {
                         const labelKey = item.id || String(index);
-                        const spec = item.sku_id ? labelSpecBySku.get(item.sku_id) : null;
+                        const spec = getLabelSpecForItem(item);
                         const check = labelChecks[labelKey];
                         const expected = expectedLabelDates(selectedDate, spec?.shelf_life_days || 1);
                         const labelOk = check?.status === "passed";
@@ -964,7 +978,7 @@ export default function QAInspection() {
                               <Badge className={labelOk ? "bg-success/15 text-success hover:bg-success/15" : check?.status === "failed" ? "bg-destructive/15 text-destructive hover:bg-destructive/15" : "bg-warning text-warning-foreground hover:bg-warning"}>
                                 {labelOk ? "Tem đạt" : check?.status === "failed" ? "Tem lỗi" : "Chưa quét"}
                               </Badge>
-                              <span className="text-[11px] font-bold text-muted-foreground">{check?.reason || (spec ? "Phải quét trước khi nhập kho." : "SKU chưa có cấu hình tem nhãn.")}</span>
+                              <span className="text-[11px] font-bold text-muted-foreground">{check?.reason || (spec ? "Phải quét trước khi nhập kho." : "SKU chưa có cấu hình tem nhãn cho sản phẩm này.")}</span>
                               {spec?.barcode_crop_image_url && check?.extracted?.barcode_visual_match != null ? (
                                 <Badge className={check.extracted.barcode_visual_match ? "bg-success/15 text-success hover:bg-success/15" : "bg-destructive/15 text-destructive hover:bg-destructive/15"}>
                                   Barcode {check.extracted.barcode_visual_match ? "khớp mẫu" : "không khớp"}
