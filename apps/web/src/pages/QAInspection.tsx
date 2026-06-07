@@ -399,6 +399,13 @@ export default function QAInspection() {
   }, [formItems, labelChecks, getLabelSpecForItem]);
 
   const handleSelectOrder = (orderId: string) => {
+    if (orderHasQa(orderId)) {
+      toast({
+        title: isVi ? "Lệnh này đã QA pass" : "This order already passed QA",
+        description: isVi ? "Không tạo thêm phiếu QA trùng cho cùng một lệnh sản xuất." : "Duplicate QA records for the same production order are blocked.",
+      });
+      return;
+    }
     setSelectedOrderId(orderId);
     setInspectedBy(loggedInInspectorName);
     setNotes("");
@@ -533,6 +540,17 @@ export default function QAInspection() {
       });
       if (requiredLabelFailures.length > 0) {
         throw new Error(isVi ? "Không cho nhập kho: cần quét và pass tem nhãn cho mọi SKU." : "Receiving blocked: every SKU label must be scanned and passed.");
+      }
+
+      const existingApproved = await db
+        .from<Array<{ id: string; inspection_number: string | null }>>("qa_inspections")
+        .select("id,inspection_number")
+        .eq("production_order_id", selectedOrder.id)
+        .eq("status", "approved")
+        .limit(1);
+      if (existingApproved.error) throw existingApproved.error;
+      if ((existingApproved.data || []).length > 0) {
+        throw new Error(isVi ? "Lệnh sản xuất này đã có phiếu QA pass, không tạo thêm phiếu trùng." : "This production order already has an approved QA record.");
       }
 
       const inspectionNumber = await generateInspectionNumber();
@@ -806,7 +824,9 @@ export default function QAInspection() {
                           key={order.id}
                           type="button"
                           onClick={() => handleSelectOrder(order.id)}
-                          className={`w-full rounded-3xl border p-3 text-left transition ${selected ? "border-primary bg-primary/10 shadow-inner" : "border-border bg-card/70 hover:border-primary/45 hover:bg-accent/20"}`}
+                          disabled={alreadyPassed}
+                          aria-disabled={alreadyPassed}
+                          className={`w-full rounded-3xl border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${selected ? "border-primary bg-primary/10 shadow-inner" : alreadyPassed ? "border-success/25 bg-success/5" : "border-border bg-card/70 hover:border-primary/45 hover:bg-accent/20"}`}
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
@@ -826,7 +846,7 @@ export default function QAInspection() {
                           </div>
                           <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-bold text-muted-foreground">
                             <span className="rounded-full bg-muted px-2 py-1">SX {displayDateKey(order.planned_start_date || order.planned_end_date || order.created_at)}</span>
-                            <span className="rounded-full bg-muted px-2 py-1">{isVi ? "Bấm để QA pass" : "Click to QA pass"}</span>
+                            <span className="rounded-full bg-muted px-2 py-1">{alreadyPassed ? (isVi ? "Đã QA pass" : "Already QA passed") : (isVi ? "Bấm để QA pass" : "Click to QA pass")}</span>
                           </div>
                         </button>
                       );
