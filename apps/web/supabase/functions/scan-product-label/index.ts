@@ -73,6 +73,14 @@ async function extract_product_label_data(payload: ExtractProductLabelDataReques
   const imageUrl = payload.image_url || (payload.image_base64 ? `data:${imageMimeType};base64,${payload.image_base64}` : null);
   if (!imageUrl) throw new Error("Missing image_url or image_base64");
 
+  const qaScanOnly = !payload.detect_barcode_bbox && !payload.expected_barcode_image_url;
+  const systemPrompt = qaScanOnly
+    ? "Extract Vietnamese bakery product label data for QA pass. Return JSON only with keys: product_code, barcode, partner_product_code, product_name, manufacturing_date, expiry_date, net_weight_value, net_weight_unit, barcode_bbox, barcode_crop_confidence, barcode_visual_match, barcode_visual_match_confidence, barcode_visual_match_reason, raw_text. For QA pass, focus on NSX/manufacturing_date, HSD/expiry_date, and net weight only. Do not compare barcode and leave barcode_bbox, barcode_crop_confidence, barcode_visual_match, barcode_visual_match_confidence, and barcode_visual_match_reason null. Dates must be YYYY-MM-DD when possible."
+    : "Extract Vietnamese bakery product label data. Return JSON only with keys: product_code, barcode, partner_product_code, product_name, manufacturing_date, expiry_date, net_weight_value, net_weight_unit, barcode_bbox, barcode_crop_confidence, barcode_visual_match, barcode_visual_match_confidence, barcode_visual_match_reason, raw_text. product_code is the visible product/SKU code on the label if present; barcode is the printed barcode digits/value; partner_product_code is the partner-regulated product code printed below the barcode or near the barcode. Dates must be YYYY-MM-DD when possible. If requested, detect the barcode bounding box as normalized image coordinates: barcode_bbox={x,y,width,height} with values from 0 to 1, tightly around the printed 1D barcode bars only, not the product code text, not the barcode digits, not QR codes, and not the whole label. If a second image is provided as the expected barcode reference, compare only the 1D barcode on the scanned label against that reference image. Set barcode_visual_match=true only when the scanned barcode bars/digits/encoded value match the reference; set false when different or uncertain, and explain briefly in barcode_visual_match_reason.";
+  const userInstruction = qaScanOnly
+    ? `SKU: ${payload.sku_code || ""}\nProduct: ${payload.product_name || ""}\nRead only NSX, HSD, net weight, and raw OCR text from the scanned label image. Do not test barcode for QA pass.`
+    : `SKU: ${payload.sku_code || ""}\nProduct: ${payload.product_name || ""}\nExpected barcode: ${payload.barcode_value || ""}\nExpected partner product code: ${payload.partner_product_code || ""}\nBarcode box requested: ${payload.detect_barcode_bbox ? "yes" : "no"}\nExpected barcode reference image provided: ${payload.expected_barcode_image_url ? "yes" : "no"}\nRead NSX, HSD, weight, barcode, partner product code, product code, and product name from the scanned label image. If Barcode box requested is yes, detect the barcode bounding box for cropping. If an expected barcode reference image is provided, compare the scanned label barcode with that reference and return barcode_visual_match fields.`;
+
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -85,15 +93,14 @@ async function extract_product_label_data(payload: ExtractProductLabelDataReques
       messages: [
         {
           role: "system",
-          content:
-            "Extract Vietnamese bakery product label data. Return JSON only with keys: product_code, barcode, partner_product_code, product_name, manufacturing_date, expiry_date, net_weight_value, net_weight_unit, barcode_bbox, barcode_crop_confidence, barcode_visual_match, barcode_visual_match_confidence, barcode_visual_match_reason, raw_text. product_code is the visible product/SKU code on the label if present; barcode is the printed barcode digits/value; partner_product_code is the partner-regulated product code printed below the barcode or near the barcode. Dates must be YYYY-MM-DD when possible. If requested, detect the barcode bounding box as normalized image coordinates: barcode_bbox={x,y,width,height} with values from 0 to 1, tightly around the printed 1D barcode bars only, not the product code text, not the barcode digits, not QR codes, and not the whole label. If a second image is provided as the expected barcode reference, compare only the 1D barcode on the scanned label against that reference image. Set barcode_visual_match=true only when the scanned barcode bars/digits/encoded value match the reference; set false when different or uncertain, and explain briefly in barcode_visual_match_reason.",
+          content: systemPrompt,
         },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: `SKU: ${payload.sku_code || ""}\nProduct: ${payload.product_name || ""}\nExpected barcode: ${payload.barcode_value || ""}\nExpected partner product code: ${payload.partner_product_code || ""}\nBarcode box requested: ${payload.detect_barcode_bbox ? "yes" : "no"}\nExpected barcode reference image provided: ${payload.expected_barcode_image_url ? "yes" : "no"}\nRead NSX, HSD, weight, barcode, partner product code, product code, and product name from the scanned label image. If Barcode box requested is yes, detect the barcode bounding box for cropping. If an expected barcode reference image is provided, compare the scanned label barcode with that reference and return barcode_visual_match fields.`,
+              text: userInstruction,
             },
             { type: "image_url", image_url: { url: imageUrl } },
             ...(payload.expected_barcode_image_url

@@ -116,24 +116,15 @@ export const evaluateLabelScan = ({
   const { expectedNsx, expectedHsd } = expectedLabelDates(productionDateKey, spec.shelf_life_days || 1);
   const nsx = normalizeLabelDate(extracted?.manufacturing_date);
   const hsd = normalizeLabelDate(extracted?.expiry_date);
-  const extractedPartnerCode = extracted?.partner_product_code || extracted?.product_code;
   const weightOk =
     spec.net_weight_value == null ||
     extracted?.net_weight_value == null ||
     Math.abs(Number(extracted.net_weight_value) - Number(spec.net_weight_value)) <= 1;
 
-  const hasBarcodeReferenceImage = Boolean(spec.barcode_crop_image_url);
-  if (!valuesMatch(spec.product_name, extracted?.product_name)) return { passed: false, reason: "Sai tên sản phẩm trên tem." };
-  if (hasBarcodeReferenceImage) {
-    if (extracted?.barcode_visual_match !== true) {
-      return { passed: false, reason: extracted?.barcode_visual_match_reason || "Sai barcode so với ảnh barcode mẫu." };
-    }
-  } else if (!valuesMatch(spec.barcode_value, extracted?.barcode)) return { passed: false, reason: "Sai mã vạch so với cấu hình sản phẩm." };
-  if (!valuesMatch(spec.partner_product_code, extractedPartnerCode)) return { passed: false, reason: "Sai mã SP đối tác so với cấu hình sản phẩm." };
   if (nsx !== expectedNsx) return { passed: false, reason: `NSX phải là ${formatDateKeyVi(expectedNsx)}.` };
   if (hsd !== expectedHsd) return { passed: false, reason: `HSD phải là ${formatDateKeyVi(expectedHsd)}.` };
   if (!weightOk) return { passed: false, reason: "Khối lượng trên tem lệch cấu hình SKU." };
-  return { passed: true, reason: "Tem nhãn đạt cấu hình SKU." };
+  return { passed: true, reason: "Tem nhãn đạt NSX, HSD và trọng lượng." };
 };
 
 // Regression example: production day 06/06/2026 with shelf_life_days=3 => NSX 07/06/2026, HSD 09/06/2026.

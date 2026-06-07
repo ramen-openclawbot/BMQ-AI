@@ -28,7 +28,7 @@ import {
 import { format } from "date-fns";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { evaluateLabelScan, expectedLabelDates, formatDateKeyVi, normalizeLabelIdentity, ProductLabelSpec, ExtractedProductLabelData, BarcodeBoundingBox } from "@/lib/product-label-control";
+import { evaluateLabelScan, expectedLabelDates, formatDateKeyVi, normalizeLabelIdentity, ProductLabelSpec, ExtractedProductLabelData } from "@/lib/product-label-control";
 
 const QA_PHOTO_BUCKET = "sku-images";
 
@@ -134,8 +134,6 @@ interface LabelCheckState {
   status: "pending" | "passed" | "failed";
   reason: string;
   image_url?: string | null;
-  extracted_barcode_crop_image_url?: string | null;
-  extracted_barcode_bbox?: BarcodeBoundingBox | null;
   extracted?: ExtractedProductLabelData | null;
 }
 
@@ -208,32 +206,6 @@ const slugPart = (value: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "qa";
-
-const cropImageByBox = async (file: File, box?: BarcodeBoundingBox | null) => {
-  if (!box) return null;
-  const imageUrl = URL.createObjectURL(file);
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = reject;
-      img.src = imageUrl;
-    });
-    const canvas = document.createElement("canvas");
-    const sourceX = Math.max(0, Math.round(box.x * image.naturalWidth));
-    const sourceY = Math.max(0, Math.round(box.y * image.naturalHeight));
-    const sourceWidth = Math.min(image.naturalWidth - sourceX, Math.round(box.width * image.naturalWidth));
-    const sourceHeight = Math.min(image.naturalHeight - sourceY, Math.round(box.height * image.naturalHeight));
-    canvas.width = Math.max(1, sourceWidth);
-    canvas.height = Math.max(1, sourceHeight);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height);
-    return await new Promise<Blob | null>((resolve) => canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.92));
-  } finally {
-    URL.revokeObjectURL(imageUrl);
-  }
-};
 
 const buildAuditNotes = (formNotes: string, checklist: Record<"quality" | "sensory" | "packaging", boolean>) => {
   const lines = [
@@ -485,31 +457,15 @@ export default function QAInspection() {
           image_url: imageUrl,
           sku_code: spec?.sku_code,
           product_name: item.product_name,
-          barcode_value: spec?.barcode_value,
-          partner_product_code: spec?.partner_product_code,
-          detect_barcode_bbox: true,
-          expected_barcode_image_url: spec?.barcode_crop_image_url || undefined,
+          detect_barcode_bbox: false,
         },
       });
       if (error) throw error;
       const extracted = data?.data || null;
-      let extractedBarcodeCropUrl: string | null = null;
-      const extractedBarcodeBlob = await cropImageByBox(file, extracted?.barcode_bbox || null);
-      if (extractedBarcodeBlob) {
-        const cropPath = `qa-labels/${selectedDate}/${slugPart(item.product_name)}-${Date.now()}-barcode-crop.jpg`;
-        const { error: cropUploadError } = await (db).storage.from(QA_PHOTO_BUCKET).upload(cropPath, extractedBarcodeBlob, {
-          upsert: false,
-          contentType: "image/jpeg",
-        });
-        if (!cropUploadError) {
-          extractedBarcodeCropUrl = (db).storage.from(QA_PHOTO_BUCKET).getPublicUrl(cropPath).data?.publicUrl || null;
-        }
-      }
-      if (extracted) extracted.barcode_crop_image_url = extractedBarcodeCropUrl;
       const result = evaluateLabelScan({ spec, productionDateKey: selectedDate, extracted });
       setLabelChecks((current) => ({
         ...current,
-        [itemKey]: { status: result.passed ? "passed" : "failed", reason: result.reason, image_url: imageUrl, extracted_barcode_crop_image_url: extractedBarcodeCropUrl, extracted_barcode_bbox: extracted?.barcode_bbox || null, extracted },
+        [itemKey]: { status: result.passed ? "passed" : "failed", reason: result.reason, image_url: imageUrl, extracted },
       }));
     } catch (error) {
       setLabelChecks((current) => ({
@@ -623,12 +579,12 @@ export default function QAInspection() {
           production_order_item_id: item.id || null,
           sku_id: spec?.sku_id || item.sku_id || null,
           product_label_spec_id: spec?.id || null,
-          expected_barcode: spec?.barcode_value || null,
-          expected_partner_product_code: spec?.partner_product_code || null,
+          expected_barcode: null,
+          expected_partner_product_code: null,
           expected_manufacturing_date: dates.expectedNsx,
           expected_expiry_date: dates.expectedHsd,
-          extracted_barcode: check?.extracted?.barcode || null,
-          extracted_partner_product_code: check?.extracted?.partner_product_code || check?.extracted?.product_code || null,
+          extracted_barcode: null,
+          extracted_partner_product_code: null,
           extracted_manufacturing_date: check?.extracted?.manufacturing_date || null,
           extracted_expiry_date: check?.extracted?.expiry_date || null,
           extracted_product_code: check?.extracted?.product_code || null,
@@ -637,9 +593,9 @@ export default function QAInspection() {
           extracted_net_weight_unit: check?.extracted?.net_weight_unit || null,
           raw_ocr_text: check?.extracted?.raw_text || null,
           image_url: check?.image_url || null,
-          expected_barcode_crop_image_url: spec?.barcode_crop_image_url || null,
-          extracted_barcode_crop_image_url: check?.extracted_barcode_crop_image_url || check?.extracted?.barcode_crop_image_url || null,
-          extracted_barcode_bbox: check?.extracted_barcode_bbox || check?.extracted?.barcode_bbox || null,
+          expected_barcode_crop_image_url: null,
+          extracted_barcode_crop_image_url: null,
+          extracted_barcode_bbox: null,
           status: check?.status || "pending",
           failure_reason: check?.status === "passed" ? null : check?.reason || "Chưa quét tem nhãn",
           checked_by: user?.id || null,
@@ -967,7 +923,7 @@ export default function QAInspection() {
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                               <div>
                                 <p className="text-xs font-black text-foreground">Tem nhãn SKU</p>
-                                <p className="text-[11px] font-bold text-muted-foreground">Kỳ vọng NSX {formatDateKeyVi(expected.expectedNsx)} · HSD {formatDateKeyVi(expected.expectedHsd)}{spec?.net_weight_value ? ` · ${spec.net_weight_value}${spec.net_weight_unit || ""}` : ""}{spec?.barcode_value ? ` · Mã vạch ${spec.barcode_value}` : ""}{spec?.partner_product_code ? ` · Mã SP ${spec.partner_product_code}` : ""}</p>
+                                <p className="text-[11px] font-bold text-muted-foreground">Kỳ vọng NSX {formatDateKeyVi(expected.expectedNsx)} · HSD {formatDateKeyVi(expected.expectedHsd)}{spec?.net_weight_value ? ` · ${spec.net_weight_value}${spec.net_weight_unit || ""}` : ""}</p>
                               </div>
                               <Button type="button" variant={labelOk ? "outline" : "default"} size="sm" className="rounded-xl" disabled={scanningLabel} onClick={() => openLabelScanner(index)}>
                                 {scanningLabel && pendingLabelIndex === index ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
@@ -978,29 +934,8 @@ export default function QAInspection() {
                               <Badge className={labelOk ? "bg-success/15 text-success hover:bg-success/15" : check?.status === "failed" ? "bg-destructive/15 text-destructive hover:bg-destructive/15" : "bg-warning text-warning-foreground hover:bg-warning"}>
                                 {labelOk ? "Tem đạt" : check?.status === "failed" ? "Tem lỗi" : "Chưa quét"}
                               </Badge>
-                              <span className="text-[11px] font-bold text-muted-foreground">{check?.reason || (spec ? "Phải quét trước khi nhập kho." : "SKU chưa có cấu hình tem nhãn cho sản phẩm này.")}</span>
-                              {spec?.barcode_crop_image_url && check?.extracted?.barcode_visual_match != null ? (
-                                <Badge className={check.extracted.barcode_visual_match ? "bg-success/15 text-success hover:bg-success/15" : "bg-destructive/15 text-destructive hover:bg-destructive/15"}>
-                                  Barcode {check.extracted.barcode_visual_match ? "khớp mẫu" : "không khớp"}
-                                </Badge>
-                              ) : null}
+                              <span className="text-[11px] font-bold text-muted-foreground">{check?.reason || (spec ? "Quét NSX, HSD và trọng lượng trước khi nhập kho." : "SKU chưa có cấu hình tem nhãn cho sản phẩm này.")}</span>
                             </div>
-                            {(spec?.barcode_crop_image_url || check?.extracted_barcode_crop_image_url) && (
-                              <div className="mt-3 grid gap-2 sm:grid-cols-2" data-qa-barcode-crop-compare="template-vs-scan">
-                                <div className="overflow-hidden rounded-2xl border border-border bg-card">
-                                  <div className="flex h-24 items-center justify-center bg-muted/70">
-                                    {spec?.barcode_crop_image_url ? <img src={spec.barcode_crop_image_url} alt="Ảnh barcode mẫu" className="h-full w-full object-contain" /> : <ImageIcon className="h-6 w-6 text-muted-foreground" />}
-                                  </div>
-                                  <p className="px-2 py-1 text-[11px] font-bold text-muted-foreground">Ảnh barcode mẫu</p>
-                                </div>
-                                <div className="overflow-hidden rounded-2xl border border-border bg-card">
-                                  <div className="flex h-24 items-center justify-center bg-muted/70">
-                                    {check?.extracted_barcode_crop_image_url ? <img src={check.extracted_barcode_crop_image_url} alt="Ảnh barcode vừa quét" className="h-full w-full object-contain" /> : <ImageIcon className="h-6 w-6 text-muted-foreground" />}
-                                  </div>
-                                  <p className="px-2 py-1 text-[11px] font-bold text-muted-foreground">Ảnh barcode vừa quét</p>
-                                </div>
-                              </div>
-                            )}
                           </div>
                           <div className="mt-3 grid grid-cols-2 gap-2">
                             <div>
