@@ -103,6 +103,44 @@ const normalizeEmailList = (raw: string) =>
       .filter(Boolean)
   ));
 
+const normalizeDealerContactPhone = (raw: string) => {
+  const digits = String(raw || "").replace(/\D/g, "");
+  if (!digits) return "";
+  if (/^84(3|5|7|8|9)\d{8}$/.test(digits)) return digits;
+  if (/^0(3|5|7|8|9)\d{8}$/.test(digits)) return `84${digits.slice(1)}`;
+  if (/^(3|5|7|8|9)\d{8}$/.test(digits)) return `84${digits}`;
+  return digits;
+};
+
+const formatDealerContactPhones = (contacts: any[] = []) =>
+  Array.isArray(contacts) && contacts.length
+    ? contacts
+        .filter((contact: any) => contact?.is_active !== false)
+        .map((contact: any) => {
+          const phone = contact?.phone_raw || contact?.phone_normalized || "";
+          const name = contact?.contact_name ? `${contact.contact_name}: ` : "";
+          const primary = contact?.is_primary ? " (chính)" : "";
+          return `${name}${phone}${primary}`;
+        })
+        .filter(Boolean)
+        .join(", ")
+    : "";
+
+type DealerContactDraft = {
+  id?: string | null;
+  contact_name: string;
+  phone_raw: string;
+  is_primary: boolean;
+  is_active: boolean;
+};
+
+const createEmptyDealerContactDraft = (): DealerContactDraft => ({
+  contact_name: "",
+  phone_raw: "",
+  is_primary: true,
+  is_active: true,
+});
+
 const formatEmailList = (emails: unknown) =>
   Array.isArray(emails) ? emails.map((email) => String(email || "").trim()).filter(Boolean).join(", ") : "";
 
@@ -432,6 +470,7 @@ export default function MiniCrm() {
   const [editEmailsInput, setEditEmailsInput] = useState("");
   const [editDebtEmailsInput, setEditDebtEmailsInput] = useState("");
   const [editOriginalEmailsInput, setEditOriginalEmailsInput] = useState("");
+  const [editDealerContacts, setEditDealerContacts] = useState<DealerContactDraft[]>([createEmptyDealerContactDraft()]);
   const [editFeedback, setEditFeedback] = useState<string>("");
   const [templateFileName, setTemplateFileName] = useState<string>("");
   const [templatePreview, setTemplatePreview] = useState<any | null>(null);
@@ -526,7 +565,7 @@ export default function MiniCrm() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("mini_crm_customers")
-        .select("*, mini_crm_customer_emails(*)")
+        .select("*, mini_crm_customer_emails(*), dealer_customer_contacts(*)")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data || [];
@@ -683,6 +722,21 @@ export default function MiniCrm() {
     setEditEmailsInput(emails);
     setEditDebtEmailsInput(formatEmailList(c.debt_emails) || emails);
     setEditOriginalEmailsInput(emails);
+    const contacts = Array.isArray(c.dealer_customer_contacts) ? c.dealer_customer_contacts : [];
+    setEditDealerContacts(
+      contacts.length
+        ? contacts
+            .slice()
+            .sort((a: any, b: any) => Number(Boolean(b?.is_primary)) - Number(Boolean(a?.is_primary)))
+            .map((contact: any) => ({
+              id: contact?.id || null,
+              contact_name: contact?.contact_name || "",
+              phone_raw: contact?.phone_raw || contact?.phone_normalized || "",
+              is_primary: Boolean(contact?.is_primary),
+              is_active: contact?.is_active !== false,
+            }))
+        : [createEmptyDealerContactDraft()],
+    );
     setTemplateFileName("");
     setTemplatePreview(null);
     setTemplateAiContext("");
@@ -728,6 +782,7 @@ export default function MiniCrm() {
     setEditEmailsInput("");
     setEditDebtEmailsInput("");
     setEditOriginalEmailsInput("");
+    setEditDealerContacts([createEmptyDealerContactDraft()]);
     setTemplateFileName("");
     setTemplatePreview(null);
     setTemplateAiContext("");
@@ -1396,6 +1451,49 @@ export default function MiniCrm() {
             if (insertEmailsError) {
               throw new Error(`Lỗi cập nhật danh sách email (bước thêm email mới): ${insertEmailsError.message}`);
             }
+          }
+        }
+
+        const validDealerContacts = editDealerContacts
+          .map((contact) => ({
+            contact_name: contact.contact_name.trim() || null,
+            phone_raw: contact.phone_raw.trim(),
+            phone_normalized: normalizeDealerContactPhone(contact.phone_raw),
+            is_primary: Boolean(contact.is_primary),
+            is_active: Boolean(contact.is_active),
+          }))
+          .filter((contact) => contact.phone_raw || contact.phone_normalized);
+
+        const uniqueDealerPhones = new Set<string>();
+        for (const contact of validDealerContacts) {
+          if (!/^84(3|5|7|8|9)\d{8}$/.test(contact.phone_normalized)) {
+            throw new Error(`SĐT dealer portal không hợp lệ: ${contact.phone_raw}`);
+          }
+          if (uniqueDealerPhones.has(contact.phone_normalized)) {
+            throw new Error(`SĐT dealer portal bị trùng: ${contact.phone_raw}`);
+          }
+          uniqueDealerPhones.add(contact.phone_normalized);
+        }
+        const activeDealerContacts = validDealerContacts.filter((contact) => contact.is_active);
+        const primaryActiveCount = activeDealerContacts.filter((contact) => contact.is_primary).length;
+        if (activeDealerContacts.length && primaryActiveCount !== 1) {
+          throw new Error("Vui lòng chọn đúng 1 SĐT chính đang hoạt động cho dealer portal");
+        }
+
+        const { error: deleteDealerContactsError } = await (supabase as any)
+          .from("dealer_customer_contacts")
+          .delete()
+          .eq("customer_id", editingCustomerId);
+        if (deleteDealerContactsError) {
+          throw new Error(`Lỗi cập nhật SĐT dealer portal (bước xoá số cũ): ${deleteDealerContactsError.message}`);
+        }
+
+        if (validDealerContacts.length) {
+          const { error: insertDealerContactsError } = await (supabase as any)
+            .from("dealer_customer_contacts")
+            .insert(validDealerContacts.map((contact) => ({ ...contact, customer_id: editingCustomerId })));
+          if (insertDealerContactsError) {
+            throw new Error(`Lỗi cập nhật SĐT dealer portal (bước thêm số mới): ${insertDealerContactsError.message}`);
           }
         }
 
@@ -3755,6 +3853,7 @@ export default function MiniCrm() {
                 <div><b>Trạng thái:</b> {viewCustomer.is_active ? "Active" : "Tạm ngưng"}</div>
                 <div><b>Email nhận diện:</b> {(viewCustomer.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"}</div>
                 <div><b>Email nhận công nợ:</b> {formatEmailList(viewCustomer.debt_emails) || "-"}</div>
+                <div><b>SĐT dealer portal:</b> {formatDealerContactPhones(viewCustomer.dealer_customer_contacts || []) || "Chưa có"}</div>
                 <div><b>Hợp đồng:</b> {(customerContracts.find((x: any) => x.customer_id === viewCustomer.id)?.file_name) || "Chưa có"}</div>
                 <div>
                   <b>Bảng giá:</b>
@@ -3860,6 +3959,83 @@ export default function MiniCrm() {
               <Label>Email nhận công nợ</Label>
               <Input value={editDebtEmailsInput} onChange={(e) => setEditDebtEmailsInput(e.target.value)} placeholder="Để trống sẽ tự copy Email nhận diện" />
               <p className="text-xs text-muted-foreground">Hệ thống gửi mail công nợ theo danh sách này, không phụ thuộc email nhận diện PO.</p>
+            </div>
+            <div className="space-y-3 md:col-span-2 rounded-md border p-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <Label>Liên hệ đại lý / SĐT đăng nhập OTP</Label>
+                  <p className="mt-1 text-xs text-muted-foreground">Các số này được lưu ở dealer_customer_contacts và dùng cho cổng dathang.banhmique.vn.</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditDealerContacts((prev) => [...prev, { ...createEmptyDealerContactDraft(), is_primary: prev.every((contact) => !contact.is_active) }])}
+                >
+                  + Thêm SĐT
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {editDealerContacts.map((contact, idx) => (
+                  <div key={contact.id || idx} className="grid gap-2 rounded-md bg-muted/40 p-2 md:grid-cols-12">
+                    <div className="space-y-1 md:col-span-3">
+                      <Label className="text-xs">Tên liên hệ</Label>
+                      <Input
+                        value={contact.contact_name}
+                        onChange={(e) => setEditDealerContacts((prev) => prev.map((row, rowIdx) => rowIdx === idx ? { ...row, contact_name: e.target.value } : row))}
+                        placeholder="VD: Anh Tâm"
+                      />
+                    </div>
+                    <div className="space-y-1 md:col-span-4">
+                      <Label className="text-xs">SĐT đăng nhập OTP</Label>
+                      <Input
+                        inputMode="tel"
+                        value={contact.phone_raw}
+                        onChange={(e) => setEditDealerContacts((prev) => prev.map((row, rowIdx) => rowIdx === idx ? { ...row, phone_raw: e.target.value } : row))}
+                        placeholder="VD: 0966998999"
+                      />
+                      {contact.phone_raw ? <p className="text-[11px] text-muted-foreground">Chuẩn hoá: {normalizeDealerContactPhone(contact.phone_raw) || "-"}</p> : null}
+                    </div>
+                    <div className="space-y-1 md:col-span-2">
+                      <Label className="text-xs">Số chính</Label>
+                      <select
+                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        value={contact.is_primary ? "yes" : "no"}
+                        onChange={(e) => setEditDealerContacts((prev) => prev.map((row, rowIdx) => ({ ...row, is_primary: rowIdx === idx ? e.target.value === "yes" : false })))}
+                        disabled={!contact.is_active}
+                      >
+                        <option value="no">Không</option>
+                        <option value="yes">Có</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1 md:col-span-2">
+                      <Label className="text-xs">Đang hoạt động</Label>
+                      <select
+                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        value={contact.is_active ? "yes" : "no"}
+                        onChange={(e) => setEditDealerContacts((prev) => prev.map((row, rowIdx) => {
+                          if (rowIdx !== idx) return row;
+                          const isActive = e.target.value === "yes";
+                          return { ...row, is_active: isActive, is_primary: isActive ? row.is_primary : false };
+                        }))}
+                      >
+                        <option value="yes">Có</option>
+                        <option value="no">Không</option>
+                      </select>
+                    </div>
+                    <div className="flex items-end md:col-span-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => setEditDealerContacts((prev) => prev.length > 1 ? prev.filter((_, rowIdx) => rowIdx !== idx) : [createEmptyDealerContactDraft()])}
+                      >
+                        -
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
             <div className="space-y-2 md:col-span-2">
               <Label>Địa chỉ giao hàng</Label>
