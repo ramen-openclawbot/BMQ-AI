@@ -1,0 +1,32 @@
+services:
+  relay:
+    build: ./app
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    expose:
+      - "3000"
+    networks:
+      - otp_relay
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - relay
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - otp_relay
+
+networks:
+  otp_relay:
+
+volumes:
+  caddy_data:
+  caddy_config:

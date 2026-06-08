@@ -67,6 +67,11 @@ def test_vietguys_zbs_mobile_request_shape() -> None:
         ('brand: smsBrand', "SMS brand payload"),
         ('unicode: false', "non-unicode SMS fallback"),
         ('provider: "vietguys_zbs_mobile"', "provider audit label"),
+        ('"DEALER_OTP_RELAY_URL"', "optional OTP relay URL env"),
+        ('"DEALER_OTP_RELAY_SECRET"', "optional OTP relay HMAC secret env"),
+        ('sendVietGuysRequestViaRelay', "OTP relay helper"),
+        ('"X-BMQ-Relay-Signature"', "OTP relay signature header"),
+        ('"X-BMQ-Relay-Timestamp"', "OTP relay timestamp header"),
     ]:
         assert_contains(shared, needle, label)
 

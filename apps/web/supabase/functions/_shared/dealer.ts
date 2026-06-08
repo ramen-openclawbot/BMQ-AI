@@ -234,32 +234,38 @@ export async function sendDealerOtpZns(params: {
     throw new Error("VietGuys ZBS Mobile OTP is not configured");
   }
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Access-Token": accessToken,
-      "Content-Type": "application/json",
+  const providerRequestBody = {
+    username,
+    mobile: params.phoneNormalized,
+    tracking_id: params.challengeId,
+    failover: "sms",
+    zns: {
+      oa_id: oaId,
+      template_id: templateId,
+      template_data: {
+        otp: params.otp,
+        code: params.otp,
+      },
     },
-    body: JSON.stringify({
-      username,
-      mobile: params.phoneNormalized,
-      tracking_id: params.challengeId,
-      failover: "sms",
-      zns: {
-        oa_id: oaId,
-        template_id: templateId,
-        template_data: {
-          otp: params.otp,
-          code: params.otp,
-        },
+    sms: {
+      message: `Ma OTP BMQ cua ban la ${params.otp}`,
+      brand: smsBrand,
+      unicode: false,
+    },
+  };
+
+  const relayUrl = Deno.env.get("DEALER_OTP_RELAY_URL");
+  const relaySecret = Deno.env.get("DEALER_OTP_RELAY_SECRET");
+  const response = relayUrl && relaySecret
+    ? await sendVietGuysRequestViaRelay({ relayUrl, relaySecret, endpoint, accessToken, providerRequestBody })
+    : await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Access-Token": accessToken,
+        "Content-Type": "application/json",
       },
-      sms: {
-        message: `Ma OTP BMQ cua ban la ${params.otp}`,
-        brand: smsBrand,
-        unicode: false,
-      },
-    }),
-  });
+      body: JSON.stringify(providerRequestBody),
+    });
 
   const text = await response.text();
   let payload: unknown = text;
@@ -281,6 +287,46 @@ export async function sendDealerOtpZns(params: {
   }
 
   return { provider: "vietguys_zbs_mobile", skipped: false, response: payload };
+}
+
+async function sendVietGuysRequestViaRelay(params: {
+  relayUrl: string;
+  relaySecret: string;
+  endpoint: string;
+  accessToken: string;
+  providerRequestBody: Record<string, unknown>;
+}): Promise<Response> {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const body = JSON.stringify({
+    endpoint: params.endpoint,
+    accessToken: params.accessToken,
+    payload: params.providerRequestBody,
+  });
+  const signature = await hmacSha256Hex(params.relaySecret, `${timestamp}.${body}`);
+
+  return fetch(params.relayUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-BMQ-Relay-Timestamp": timestamp,
+      "X-BMQ-Relay-Signature": signature,
+    },
+    body,
+  });
+}
+
+async function hmacSha256Hex(secret: string, input: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(input));
+  return Array.from(new Uint8Array(signature))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 async function sha256Hex(input: string): Promise<string> {

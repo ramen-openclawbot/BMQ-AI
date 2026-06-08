@@ -1,0 +1,4 @@
+otp-relay.vnagent.ai {
+  encode gzip
+  reverse_proxy relay:3000
+}
