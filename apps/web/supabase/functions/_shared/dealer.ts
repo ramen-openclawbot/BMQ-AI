@@ -138,7 +138,9 @@ export function extractDealerSessionToken(body: Record<string, unknown>, req: Re
   return token.startsWith("dop_") ? token : null;
 }
 
-export async function resolveDealerSession(supabase: any, token: string): Promise<DealerSessionContext | null> {
+type DealerServiceClient = ReturnType<typeof createServiceClient>;
+
+export async function resolveDealerSession(supabase: DealerServiceClient, token: string): Promise<DealerSessionContext | null> {
   const tokenHash = await hashDealerSessionToken(token);
   const now = new Date().toISOString();
 
@@ -199,11 +201,15 @@ export function assertDealerZnsConfiguredOrDevSkip(): void {
   const allowSkip = Deno.env.get("DEALER_AUTH_DEV_ALLOW_SKIP_ZNS")?.toLowerCase() === "true";
   if (allowSkip) return;
 
-  const token = Deno.env.get("DEALER_ZNS_ACCESS_TOKEN") || Deno.env.get("ZALO_ZNS_ACCESS_TOKEN");
-  const templateId = Deno.env.get("DEALER_ZNS_TEMPLATE_ID") || Deno.env.get("ZALO_ZNS_TEMPLATE_ID");
+  const accessToken = Deno.env.get("DEALER_VIETGUYS_ACCESS_TOKEN");
+  const username = Deno.env.get("DEALER_VIETGUYS_USERNAME");
+  const oaId = Deno.env.get("DEALER_VIETGUYS_OA_ID");
+  const templateId = Deno.env.get("DEALER_VIETGUYS_TEMPLATE_ID");
 
-  if (!token || !templateId) {
-    throw new Error("Zalo ZNS is not configured. Set DEALER_ZNS_ACCESS_TOKEN and DEALER_ZNS_TEMPLATE_ID, or set DEALER_AUTH_DEV_ALLOW_SKIP_ZNS=true for local development.");
+  if (!accessToken || !username || !oaId || !templateId) {
+    throw new Error(
+      "VietGuys ZBS Mobile OTP is not configured. Set DEALER_VIETGUYS_ACCESS_TOKEN, DEALER_VIETGUYS_USERNAME, DEALER_VIETGUYS_OA_ID, and DEALER_VIETGUYS_TEMPLATE_ID, or set DEALER_AUTH_DEV_ALLOW_SKIP_ZNS=true for local development.",
+    );
   }
 }
 
@@ -213,36 +219,45 @@ export async function sendDealerOtpZns(params: {
   challengeId: string;
 }): Promise<{ provider: string; skipped: boolean; response?: unknown }> {
   const allowSkip = Deno.env.get("DEALER_AUTH_DEV_ALLOW_SKIP_ZNS")?.toLowerCase() === "true";
-  const accessToken = Deno.env.get("DEALER_ZNS_ACCESS_TOKEN") || Deno.env.get("ZALO_ZNS_ACCESS_TOKEN");
-  const templateId = Deno.env.get("DEALER_ZNS_TEMPLATE_ID") || Deno.env.get("ZALO_ZNS_TEMPLATE_ID");
-  const endpoint =
-    Deno.env.get("DEALER_ZNS_ENDPOINT") ||
-    Deno.env.get("ZALO_ZNS_ENDPOINT") ||
-    "https://business.openapi.zalo.me/message/template";
+  const accessToken = Deno.env.get("DEALER_VIETGUYS_ACCESS_TOKEN");
+  const username = Deno.env.get("DEALER_VIETGUYS_USERNAME");
+  const oaId = Deno.env.get("DEALER_VIETGUYS_OA_ID");
+  const templateId = Deno.env.get("DEALER_VIETGUYS_TEMPLATE_ID");
+  const smsBrand = Deno.env.get("DEALER_VIETGUYS_SMS_BRAND") || "BMQ";
+  const endpoint = Deno.env.get("DEALER_VIETGUYS_ENDPOINT") || "https://api-v2.vietguys.biz:4438/zalo/v4/send";
 
-  if (!accessToken || !templateId) {
+  if (!accessToken || !username || !oaId || !templateId) {
     if (allowSkip) {
-      console.info(`[dealer-auth] Dev ZNS skip enabled. OTP for ${maskDealerPhone(params.phoneNormalized)} is ${params.otp}`);
+      console.info(`[dealer-auth] Dev VietGuys skip enabled. OTP for ${maskDealerPhone(params.phoneNormalized)} is ${params.otp}`);
       return { provider: "dev_skip", skipped: true };
     }
-    throw new Error("Zalo ZNS is not configured");
+    throw new Error("VietGuys ZBS Mobile OTP is not configured");
   }
 
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
+      "Access-Token": accessToken,
       "Content-Type": "application/json",
-      "access_token": accessToken,
-      "Authorization": `Bearer ${accessToken}`,
     },
     body: JSON.stringify({
-      phone: params.phoneNormalized,
-      template_id: templateId,
-      template_data: {
-        otp: params.otp,
-        code: params.otp,
-      },
+      username,
+      mobile: params.phoneNormalized,
       tracking_id: params.challengeId,
+      failover: "sms",
+      zns: {
+        oa_id: oaId,
+        template_id: templateId,
+        template_data: {
+          otp: params.otp,
+          code: params.otp,
+        },
+      },
+      sms: {
+        message: `Ma OTP BMQ cua ban la ${params.otp}`,
+        brand: smsBrand,
+        unicode: false,
+      },
     }),
   });
 
@@ -259,10 +274,13 @@ export async function sendDealerOtpZns(params: {
     : 0;
 
   if (!response.ok || providerError !== 0) {
-    throw new Error(`Zalo ZNS send failed: ${typeof payload === "string" ? payload : JSON.stringify(payload)}`);
+    const providerCode = typeof payload === "object" && payload !== null && "error_code" in payload
+      ? ` code=${String((payload as { error_code?: unknown }).error_code)}`
+      : "";
+    throw new Error(`VietGuys ZBS Mobile OTP send failed${providerCode}: ${typeof payload === "string" ? payload : JSON.stringify(payload)}`);
   }
 
-  return { provider: "zalo_zns", skipped: false, response: payload };
+  return { provider: "vietguys_zbs_mobile", skipped: false, response: payload };
 }
 
 async function sha256Hex(input: string): Promise<string> {
