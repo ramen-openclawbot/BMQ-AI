@@ -268,11 +268,12 @@ export async function sendDealerOtpZns(params: {
     });
 
   const text = await response.text();
-  let payload: unknown = text;
+  let payload: unknown;
   try {
     payload = JSON.parse(text);
   } catch {
-    // Keep raw response text.
+    const preview = text.slice(0, 80).replace(/\s+/g, " ").trim();
+    throw new Error(`VietGuys ZBS Mobile OTP send failed: provider returned non-JSON response${preview ? ` (${preview})` : ""}`);
   }
 
   const providerError = typeof payload === "object" && payload !== null && "error" in payload
