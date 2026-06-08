@@ -229,3 +229,17 @@ def test_label_expected_date_example_documented():
     assert "06/06/2026" in helper
     assert "07/06/2026" in helper
     assert "09/06/2026" in helper
+
+
+def test_qa_label_scan_sends_expected_date_hints_and_shows_extracted_values():
+    qa = read("src/pages/QAInspection.tsx")
+    fn = read("supabase/functions/scan-product-label/index.ts")
+    assert "expected_manufacturing_date" in qa
+    assert "expected_expiry_date" in qa
+    assert "expected_net_weight_value" in qa
+    assert "data-qa-label-extracted-values" in qa
+    assert "AI đọc" in qa
+    assert "expected_manufacturing_date" in fn
+    assert "expected_expiry_date" in fn
+    assert "date stamp" in fn
+    assert "lower-right" in fn

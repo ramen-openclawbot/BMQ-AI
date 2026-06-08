@@ -459,12 +459,16 @@ export default function QAInspection() {
       });
       if (uploadError) throw uploadError;
       const imageUrl = (db).storage.from(QA_PHOTO_BUCKET).getPublicUrl(path).data?.publicUrl;
+      const expectedDates = expectedLabelDates(selectedDate, spec?.shelf_life_days || 1);
       const { data, error } = await (supabase as unknown as { functions: { invoke<T>(name: string, options: { body: unknown }): Promise<{ data: T | null; error: Error | null }> } }).functions.invoke<{ data: ExtractedProductLabelData }>("scan-product-label", {
         body: {
           image_url: imageUrl,
           sku_code: spec?.sku_code,
           product_name: item.product_name,
           detect_barcode_bbox: false,
+          expected_manufacturing_date: expectedDates.expectedNsx,
+          expected_expiry_date: expectedDates.expectedHsd,
+          expected_net_weight_value: spec?.net_weight_value ?? undefined,
         },
       });
       if (error) throw error;
@@ -956,6 +960,11 @@ export default function QAInspection() {
                               </Badge>
                               <span className="text-[11px] font-bold text-muted-foreground">{check?.reason || (spec ? "Quét NSX, HSD và trọng lượng trước khi nhập kho." : "SKU chưa có cấu hình tem nhãn cho sản phẩm này.")}</span>
                             </div>
+                            {check?.extracted && (
+                              <div className="mt-2 rounded-xl bg-background/80 px-3 py-2 text-[11px] font-bold text-muted-foreground" data-qa-label-extracted-values="true">
+                                AI đọc: NSX {formatDateKeyVi(check.extracted.manufacturing_date)} · HSD {formatDateKeyVi(check.extracted.expiry_date)}{check.extracted.net_weight_value ? ` · ${check.extracted.net_weight_value}${check.extracted.net_weight_unit || ""}` : ""}
+                              </div>
+                            )}
                           </div>
                           <div className="mt-3 grid grid-cols-2 gap-2">
                             <div>
