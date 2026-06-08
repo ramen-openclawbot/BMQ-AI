@@ -11,6 +11,8 @@ services:
 
   caddy:
     image: caddy:2-alpine
+    profiles:
+      - caddy
     restart: unless-stopped
     depends_on:
       - relay

@@ -43,6 +43,32 @@ DEALER_OTP_RELAY_SECRET=<same as RELAY_SECRET>
 
 ## DNS/TLS
 
-`otp-relay.vnagent.ai` must resolve to the static-IP server or to a Cloudflare tunnel that terminates on this server. Caddy obtains the TLS certificate automatically after DNS resolves.
+Preferred production path is Cloudflare Tunnel, because the router currently owns public `80/443`.
+
+Cloudflare Zero Trust setup:
+
+1. Create a tunnel for this server.
+2. Add public hostname:
+   - Hostname: `otp-relay.vnagent.ai`
+   - Service: `http://relay:3000`
+3. Copy the Docker tunnel token.
+4. Add it to `/opt/bmq-otp-relay/.env` as `CLOUDFLARED_TOKEN=...` without printing it.
+5. Start the connector:
+
+```bash
+/opt/bmq-otp-relay/start-tunnel.sh
+```
+
+Then verify:
+
+```bash
+curl https://otp-relay.vnagent.ai/health
+```
+
+Caddy is retained as an optional profile for direct DNS + port-forward deployments only:
+
+```bash
+docker compose --profile caddy up -d caddy
+```
 
 Current intended VietGuys whitelist/public outbound IP: `14.161.32.215`.
