@@ -997,10 +997,10 @@ export default function DealerPortal() {
           }
         }}
       >
-        <DialogContent className="max-w-sm overflow-hidden rounded-3xl border-amber-200 bg-[#fffaf0] p-0 text-[#3f2411] shadow-2xl">
+        <DialogContent className="top-3 max-h-[calc(100dvh-1.5rem)] max-w-sm translate-y-0 overflow-y-auto rounded-3xl border-amber-200 bg-[#fffaf0] p-0 pb-[env(safe-area-inset-bottom)] text-[#3f2411] shadow-2xl sm:top-[50%] sm:translate-y-[-50%]">
           {selectedProduct ? (
             <>
-              <div className="h-48 bg-amber-50">
+              <div className="h-32 bg-amber-50 sm:h-48">
                 {selectedProduct.imageUrl ? (
                   <img src={selectedProduct.imageUrl} alt={selectedProduct.name} className="h-full w-full object-cover" />
                 ) : (
