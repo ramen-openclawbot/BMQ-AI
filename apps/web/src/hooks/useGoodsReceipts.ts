@@ -303,7 +303,7 @@ export function useConfirmGoodsReceipt() {
       const response = await callEdgeFunction<{
         success: boolean;
         receiptId: string;
-        payableId: string;
+        payableId: string | null;
         totalAmount: number;
         vatAmount: number;
         varianceSummary: Record<string, number>;

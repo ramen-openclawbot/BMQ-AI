@@ -204,6 +204,10 @@ def test_finalization_rpc_posts_inventory_and_generates_pending_payable_atomical
     assert "is_receipt_payable_request" in migrations
     assert "eligible receipt payable rows only" in migrations
     assert "Preserve paid/approved PO advance request state" in migrations
+    assert "PO-linked receipt finalization never creates a new Duyệt chi" in migrations
+    assert "PO mua hàng -> Duyệt chi PO -> Phiếu nhập kho -> Nhập kho" in migrations
+    assert "do not create a duplicate" in migrations
+    assert "Tự động tạo từ phiếu nhập kho không liên kết PO" in migrations
     assert "payment_status IN ('paid', 'partial')" in migrations
     assert "status IN ('approved', 'completed')" in migrations
     assert "payment_type = 'old_order'" in migrations
