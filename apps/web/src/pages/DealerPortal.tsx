@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardList,
-  Copy,
   HelpCircle,
   Home,
   ImageIcon,
@@ -18,6 +17,7 @@ import {
   LogOut,
   MapPin,
   MessageCircle,
+  MessageSquareText,
   PackagePlus,
   Phone,
   Send,
@@ -35,6 +35,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
@@ -212,6 +213,8 @@ export default function DealerPortal() {
   const [nppExchangeQuantities, setNppExchangeQuantities] = useState<Record<string, number>>({});
   const [nppMakeupQuantities, setNppMakeupQuantities] = useState<Record<string, number>>({});
   const [nppNotes, setNppNotes] = useState<Record<string, string>>({});
+  const [nppOrderText, setNppOrderText] = useState("");
+  const [nppParseMessage, setNppParseMessage] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [draftQuantity, setDraftQuantity] = useState("");
   const [quantityModalError, setQuantityModalError] = useState("");
@@ -372,6 +375,8 @@ export default function DealerPortal() {
     setNppExchangeQuantities({});
     setNppMakeupQuantities({});
     setNppNotes({});
+    setNppOrderText("");
+    setNppParseMessage("");
     setLoginStep("phone");
     setOtp("");
     setAuthMessage("");
@@ -409,6 +414,8 @@ export default function DealerPortal() {
       setNppExchangeQuantities({});
       setNppMakeupQuantities({});
       setNppNotes({});
+      setNppOrderText("");
+      setNppParseMessage("");
     } catch (error) {
       setOrderError(await getFunctionErrorMessage(error, "Không gửi được đơn hàng."));
     } finally {
@@ -442,6 +449,43 @@ export default function DealerPortal() {
 
     setOrderError("");
     setNppConfirmOpen(true);
+  };
+
+
+  const handleParseNppOrderText = () => {
+    const parsedLines = parseDealerChatOrderText(nppOrderText, dealerRoutes);
+    if (!parsedLines.length) {
+      setNppParseMessage("Chưa nhận diện được điểm bán. Anh có thể nhập theo mẫu: Rạch Giá 200 đổi 10, ĐVC 100 bù 3.");
+      return;
+    }
+
+    const nextQuantities: Record<string, number> = {};
+    const nextExchangeQuantities: Record<string, number> = {};
+    const nextMakeupQuantities: Record<string, number> = {};
+    const nextNotes: Record<string, string> = {};
+    const unmatched: string[] = [];
+
+    parsedLines.forEach((line) => {
+      if (!line.route) {
+        unmatched.push(line.routeText);
+        return;
+      }
+      nextQuantities[line.route.id] = line.orderedQuantity;
+      nextExchangeQuantities[line.route.id] = line.exchangeQuantity;
+      nextMakeupQuantities[line.route.id] = line.makeupQuantity;
+      nextNotes[line.route.id] = line.note;
+    });
+
+    setNppQuantities(nextQuantities);
+    setNppExchangeQuantities(nextExchangeQuantities);
+    setNppMakeupQuantities(nextMakeupQuantities);
+    setNppNotes(nextNotes);
+    setOrderError("");
+    setNppParseMessage(
+      unmatched.length
+        ? `Đã parse ${parsedLines.length - unmatched.length} dòng. Chưa khớp: ${unmatched.slice(0, 3).join(", ")}.`
+        : `Đã parse ${parsedLines.length} dòng. Anh kiểm tra lại rồi gửi đơn.`,
+    );
   };
 
   const confirmSubmitNppOrder = async () => {
@@ -848,8 +892,15 @@ export default function DealerPortal() {
                 setExchangeQuantities={setNppExchangeQuantities}
                 setMakeupQuantities={setNppMakeupQuantities}
                 setNotes={setNppNotes}
+                orderText={nppOrderText}
+                setOrderText={setNppOrderText}
+                parseMessage={nppParseMessage}
+                onParse={handleParseNppOrderText}
                 totalItems={totalItems}
                 cartTotal={cartTotal}
+                canSubmit={Boolean(sessionToken) && catalogStatus === "live" && nppSelectedLines.length > 0}
+                submitting={orderSubmitting}
+                onSubmit={handleSubmitNppOrder}
               />
             ) : null}
 
@@ -1279,8 +1330,15 @@ function NppQuickOrderPanel({
   setExchangeQuantities,
   setMakeupQuantities,
   setNotes,
+  orderText,
+  setOrderText,
+  parseMessage,
+  onParse,
   totalItems,
   cartTotal,
+  canSubmit,
+  submitting,
+  onSubmit,
 }: {
   routes: DealerRoute[];
   product: Product | null;
@@ -1292,14 +1350,23 @@ function NppQuickOrderPanel({
   setExchangeQuantities: Dispatch<SetStateAction<Record<string, number>>>;
   setMakeupQuantities: Dispatch<SetStateAction<Record<string, number>>>;
   setNotes: Dispatch<SetStateAction<Record<string, string>>>;
+  orderText: string;
+  setOrderText: Dispatch<SetStateAction<string>>;
+  parseMessage: string;
+  onParse: () => void;
   totalItems: number;
   cartTotal: number;
+  canSubmit: boolean;
+  submitting: boolean;
+  onSubmit: () => void;
 }) {
   const unitLabel = product?.unit || "que";
-  const copyQuickTemplate = async () => {
-    const text = routes.map((route) => `${route.name} `).join("\n");
-    await navigator.clipboard?.writeText(text);
-  };
+  const selectedRouteCount = routes.filter((route) => {
+    const ordered = quantities[route.id] || 0;
+    const exchange = exchangeQuantities[route.id] || 0;
+    const makeup = makeupQuantities[route.id] || 0;
+    return ordered + exchange + makeup > 0;
+  }).length;
 
   if (!product) {
     return (
@@ -1310,82 +1377,117 @@ function NppQuickOrderPanel({
   }
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-3xl border border-amber-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Chế độ NPP</div>
-            <h3 className="mt-1 text-xl font-display font-extrabold text-[#3f2411]">Nhập số lượng theo từng điểm bán</h3>
+    <div className="space-y-4" data-stitch-dealer-chat-agent="approved">
+      <div className="rounded-3xl border border-amber-100 bg-white p-4 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-100 text-amber-800">
+              <MessageSquareText className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">BMQ Agent</div>
+              <h3 className="text-xl font-display font-extrabold text-[#3f2411]">Nhập đơn bằng tin nhắn</h3>
+            </div>
           </div>
-          <Button type="button" variant="outline" className="rounded-2xl border-amber-200" onClick={copyQuickTemplate}>
-            <Copy className="h-4 w-4" />
-            Copy mẫu nhập nhanh
-          </Button>
+          <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 text-emerald-700">
+            Đơn sẽ được BMQ xác nhận
+          </Badge>
         </div>
-        <div className="mt-4 grid gap-3 rounded-2xl border border-amber-100 bg-amber-50/60 p-3 sm:grid-cols-3">
-          <div>
-            <div className="text-xs text-[#8a6a4a]">Sản phẩm</div>
-            <div className="font-bold text-[#3f2411]">{product.name}</div>
+
+        <div className="mt-4 space-y-3 rounded-3xl bg-[#fff8e8] p-3">
+          <div className="flex items-start gap-2">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-amber-700 shadow-sm">
+              <Sparkles className="h-4 w-4" />
+            </div>
+            <div className="max-w-[82%] rounded-2xl rounded-tl-md bg-white px-3 py-2 text-sm leading-6 text-[#5f3b1d] shadow-sm">
+              Chào anh, anh nhập đơn giống email hằng ngày. Em sẽ tách điểm bán, số đặt, đổi và bù để anh kiểm tra trước khi gửi.
+            </div>
           </div>
-          <div>
-            <div className="text-xs text-[#8a6a4a]">Giá</div>
-            <div className="font-bold text-[#3f2411]">{formatVnd(product.price)} / {unitLabel}</div>
+          <div className="flex justify-end">
+            <div className="max-w-[92%] rounded-2xl rounded-tr-md bg-amber-500 px-3 py-2 text-sm font-medium leading-6 text-[#2b1708] shadow-sm">
+              Rạch Giá 200 đổi 10, ĐVC 100 đổi 19 bù 3, Topsmarket Âu Cơ 80, Quang Trung 160 đổi 11
+            </div>
           </div>
-          <div>
-            <div className="text-xs text-[#8a6a4a]">Tổng đang nhập</div>
-            <div className="font-bold text-[#3f2411]">Giao {totalItems} {unitLabel} • {formatVnd(cartTotal)}</div>
+          <Textarea
+            value={orderText}
+            onChange={(event) => setOrderText(event.target.value)}
+            placeholder="Dán nội dung đơn ở đây..."
+            className="min-h-32 rounded-3xl border-amber-200 bg-white text-base leading-7 text-[#3f2411] placeholder:text-[#a7835d] focus-visible:ring-amber-400"
+          />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <Button type="button" className="h-12 rounded-2xl bg-amber-500 font-bold text-[#2b1708] hover:bg-amber-400" onClick={onParse}>
+              <Sparkles className="h-4 w-4" />
+              Parse đơn hàng
+            </Button>
+            {parseMessage ? <div className="text-sm font-medium text-[#765333]">{parseMessage}</div> : null}
           </div>
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-3xl border border-amber-100 bg-white shadow-sm">
-        <div className="grid grid-cols-[minmax(0,1fr)_92px_92px_92px] gap-2 border-b border-amber-100 bg-amber-50/80 px-3 py-2 text-xs font-bold uppercase tracking-wide text-[#765333] lg:grid-cols-[minmax(0,1fr)_96px_96px_96px_minmax(160px,0.7fr)]">
-          <div>Điểm bán nhận hàng</div>
-          <div className="text-right">Đặt</div>
-          <div className="text-right">Đổi</div>
-          <div className="text-right">Bù</div>
-          <div className="hidden lg:block">Ghi chú</div>
-        </div>
-        <div className="divide-y divide-amber-100">
-          {routes.map((route) => {
-            const quantity = quantities[route.id] || "";
-            const exchangeQuantity = exchangeQuantities[route.id] || "";
-            const makeupQuantity = makeupQuantities[route.id] || "";
-            return (
-              <div key={route.id} className="grid grid-cols-[minmax(0,1fr)_92px_92px_92px] gap-2 px-3 py-3 lg:grid-cols-[minmax(0,1fr)_96px_96px_96px_minmax(160px,0.7fr)] lg:items-center">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-bold text-[#3f2411]">{route.name}</div>
-                  {route.address ? <div className="mt-0.5 line-clamp-1 text-xs text-[#8a6a4a]">{route.address}</div> : null}
+      {selectedRouteCount > 0 ? (
+        <div className="rounded-3xl border border-amber-100 bg-white p-4 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Kiểm tra trước khi gửi</div>
+              <h3 className="mt-1 text-xl font-display font-extrabold text-[#3f2411]">Xác nhận đơn hàng</h3>
+            </div>
+            <div className="rounded-2xl bg-emerald-50 px-3 py-2 text-right text-xs font-bold text-emerald-700">
+              Giao {totalItems} {unitLabel}
+              <div className="text-[#3f2411]">{formatVnd(cartTotal)}</div>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {routes.map((route) => {
+              const ordered = quantities[route.id] || 0;
+              const exchange = exchangeQuantities[route.id] || 0;
+              const makeup = makeupQuantities[route.id] || 0;
+              const physical = ordered + exchange + makeup;
+              if (physical <= 0) return null;
+              return (
+                <div key={route.id} className="rounded-3xl border border-amber-100 bg-[#fffaf0] p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-extrabold text-[#3f2411]">{route.name}</div>
+                      <div className="mt-1 text-xs font-medium text-[#8a6a4a]">
+                        Giao {physical} {unitLabel} • Tính tiền {ordered} {unitLabel}
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right text-sm font-extrabold text-[#3f2411]">
+                      {formatVnd(ordered * product.price)}
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-4 gap-2">
+                    <MiniQuantityField label="Đặt" value={ordered} step={DEALER_ORDER_STEP} onChange={(value) => setQuantities((current) => ({ ...current, [route.id]: value }))} />
+                    <MiniQuantityField label="Đổi" value={exchange} step={1} onChange={(value) => setExchangeQuantities((current) => ({ ...current, [route.id]: value }))} />
+                    <MiniQuantityField label="Bù" value={makeup} step={1} onChange={(value) => setMakeupQuantities((current) => ({ ...current, [route.id]: value }))} />
+                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-2 py-2 text-center">
+                      <div className="text-[11px] font-bold uppercase text-emerald-700">Giao</div>
+                      <div className="mt-1 text-base font-extrabold text-[#3f2411]">{physical}</div>
+                    </div>
+                  </div>
+                  <Input
+                    value={notes[route.id] || ""}
+                    placeholder="Ghi chú"
+                    className="mt-2 h-10 rounded-2xl border-amber-100 bg-white text-sm"
+                    onChange={(event) => setNotes((current) => ({ ...current, [route.id]: event.target.value.slice(0, 160) }))}
+                  />
                 </div>
-                <QuantityCell
-                  value={quantity}
-                  step={DEALER_ORDER_STEP}
-                  placeholder="0"
-                  onChange={(value) => setQuantities((current) => ({ ...current, [route.id]: value }))}
-                />
-                <QuantityCell
-                  value={exchangeQuantity}
-                  step={1}
-                  placeholder="0"
-                  onChange={(value) => setExchangeQuantities((current) => ({ ...current, [route.id]: value }))}
-                />
-                <QuantityCell
-                  value={makeupQuantity}
-                  step={1}
-                  placeholder="0"
-                  onChange={(value) => setMakeupQuantities((current) => ({ ...current, [route.id]: value }))}
-                />
-                <Input
-                  value={notes[route.id] || ""}
-                  placeholder="Ghi chú"
-                  className="col-span-4 h-10 rounded-2xl border-amber-100 bg-white text-sm lg:col-span-1"
-                  onChange={(event) => setNotes((current) => ({ ...current, [route.id]: event.target.value.slice(0, 160) }))}
-                />
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <Button type="button" variant="outline" className="h-12 rounded-2xl border-amber-200" onClick={() => setOrderText(orderText)}>
+              Sửa nội dung
+            </Button>
+            <Button type="button" className="h-12 rounded-2xl bg-amber-500 font-bold text-[#2b1708] hover:bg-amber-400" disabled={!canSubmit || submitting} onClick={onSubmit}>
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Gửi đơn
+            </Button>
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
@@ -1417,6 +1519,115 @@ function QuantityCell({
       }}
     />
   );
+}
+
+
+function MiniQuantityField({
+  label,
+  value,
+  step,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  step: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="rounded-2xl border border-amber-100 bg-white px-2 py-2 text-center">
+      <span className="text-[11px] font-bold uppercase text-[#8a6a4a]">{label}</span>
+      <Input
+        type="number"
+        inputMode="numeric"
+        min={0}
+        step={step}
+        value={value || ""}
+        placeholder="0"
+        className="mt-1 h-9 border-0 bg-transparent p-0 text-center text-base font-extrabold text-[#3f2411] shadow-none focus-visible:ring-0"
+        onChange={(event) => {
+          const nextValue = Number(event.target.value.replace(/[^0-9]/g, ""));
+          onChange(Number.isFinite(nextValue) ? nextValue : 0);
+        }}
+      />
+    </label>
+  );
+}
+
+type ParsedDealerChatLine = {
+  route: DealerRoute | null;
+  routeText: string;
+  orderedQuantity: number;
+  exchangeQuantity: number;
+  makeupQuantity: number;
+  note: string;
+};
+
+const DEALER_CHAT_ROUTE_ALIASES: Array<{ canonicalIncludes: string; aliases: string[] }> = [
+  { canonicalIncludes: "rach gia", aliases: ["rach gia", "rạch giá"] },
+  { canonicalIncludes: "dong van cong", aliases: ["dvc", "đvc", "dong van cong", "đồng văn cống"] },
+  { canonicalIncludes: "topsmarket au co", aliases: ["topsmarket au co", "topsmarket âu cơ", "au co", "âu cơ"] },
+  { canonicalIncludes: "coopmart nat", aliases: ["coopmart nat", "nat", "hoc mon", "hóc môn"] },
+  { canonicalIncludes: "satra cu chi", aliases: ["satra cu chi", "củ chi", "cu chi"] },
+  { canonicalIncludes: "quang trung", aliases: ["quang trung"] },
+  { canonicalIncludes: "linh trung", aliases: ["linh trung", "xtra linh trung"] },
+  { canonicalIncludes: "di an", aliases: ["di an", "dĩ an"] },
+  { canonicalIncludes: "my tho", aliases: ["my tho", "mỹ tho"] },
+  { canonicalIncludes: "phan thiet", aliases: ["phan thiet", "phan thiết"] },
+];
+
+const normalizeDealerChatText = (value: string) =>
+  String(value || "")
+    .toLocaleLowerCase("vi-VN")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/đ/g, "d")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const splitDealerChatOrderLines = (text: string) =>
+  String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/,\s*(?=[^,\n]+\s+\d)/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+const numberFromDealerChatText = (value: string | undefined) => Number(String(value || "0").replace(",", "."));
+
+function findDealerChatRoute(routeText: string, routes: DealerRoute[]) {
+  const routeKey = normalizeDealerChatText(routeText.replace(/^đại\s+lý\s+/i, ""));
+  const direct = routes.find((route) => {
+    const nameKey = normalizeDealerChatText(route.name.replace(/^đại\s+lý\s+/i, ""));
+    return nameKey === routeKey || nameKey.includes(routeKey) || routeKey.includes(nameKey);
+  });
+  if (direct) return direct;
+
+  const alias = DEALER_CHAT_ROUTE_ALIASES.find((entry) => entry.aliases.some((value) => normalizeDealerChatText(value) === routeKey));
+  if (!alias) return null;
+  return routes.find((route) => normalizeDealerChatText(route.name).includes(alias.canonicalIncludes)) || null;
+}
+
+function parseDealerChatOrderText(text: string, routes: DealerRoute[]): ParsedDealerChatLine[] {
+  return splitDealerChatOrderLines(text).map((rawLine) => {
+    const match = rawLine.match(/^\s*(?:\d+[.)]\s*)?(.+?)\s+(\d+(?:[.,]\d+)?)\b(.*)$/i);
+    if (!match) return null;
+    const routeText = match[1].trim();
+    const orderedQuantity = numberFromDealerChatText(match[2]);
+    const tail = String(match[3] || "");
+    const exchangeQuantity = numberFromDealerChatText(tail.match(/(?:^|\s)(?:đổi|doi)\s+(\d+(?:[.,]\d+)?)/i)?.[1]);
+    const makeupQuantity = numberFromDealerChatText(tail.match(/(?:^|\s)(?:bù|bu)\s+(\d+(?:[.,]\d+)?)/i)?.[1]);
+    if (!routeText || !Number.isFinite(orderedQuantity) || orderedQuantity < 0) return null;
+    return {
+      route: findDealerChatRoute(routeText, routes),
+      routeText,
+      orderedQuantity,
+      exchangeQuantity: Number.isFinite(exchangeQuantity) ? exchangeQuantity : 0,
+      makeupQuantity: Number.isFinite(makeupQuantity) ? makeupQuantity : 0,
+      note: tail.trim(),
+    };
+  }).filter((line): line is ParsedDealerChatLine => Boolean(line));
 }
 
 function PublicLandingSupport() {
