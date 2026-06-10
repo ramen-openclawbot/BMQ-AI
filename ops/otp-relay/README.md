@@ -18,7 +18,7 @@ Required `.env` values, never commit actual secrets:
 
 ```env
 RELAY_SECRET=<same value as Supabase DEALER_OTP_RELAY_SECRET>
-ALLOWED_ENDPOINT_HOSTS=api-v2.vietguys.biz
+ALLOWED_ENDPOINT_HOSTS=api-v2.vietguys.biz,api.vietguys.biz,cloud.vietguys.biz
 PROVIDER_TIMEOUT_MS=15000
 ```
 

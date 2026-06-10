@@ -7,11 +7,15 @@ DEALER_SHARED = ROOT / "supabase/functions/_shared/dealer.ts"
 AUTH_START = ROOT / "supabase/functions/dealer-auth-start/index.ts"
 PORTAL = ROOT / "src/pages/DealerPortal.tsx"
 ROUTES = ROOT / "src/components/AppRoutes.tsx"
+RELAY = ROOT.parents[1] / "ops/otp-relay/app/server.mjs"
+STATUS_DEBUG = ROOT / "supabase/functions/dealer-otp-status-debug/index.ts"
 
 shared = DEALER_SHARED.read_text(encoding="utf-8")
 auth_start = AUTH_START.read_text(encoding="utf-8")
 portal = PORTAL.read_text(encoding="utf-8")
 routes = ROUTES.read_text(encoding="utf-8")
+relay = RELAY.read_text(encoding="utf-8")
+status_debug = STATUS_DEBUG.read_text(encoding="utf-8")
 
 
 def assert_contains(text: str, needle: str, label: str) -> None:
@@ -81,6 +85,27 @@ def test_dealer_otp_no_longer_defaults_to_zalo_direct_api() -> None:
     assert_not_contains(shared, '"access_token": accessToken', "direct Zalo access_token header")
     assert_not_contains(shared, '"Authorization": `Bearer ${accessToken}`', "direct Zalo bearer header")
     assert_not_contains(shared, "provider: \"zalo_zns\"", "legacy Zalo provider label")
+
+
+def test_relay_and_debug_function_support_delivery_status_checks() -> None:
+    for needle, label in [
+        ('req.url === "/status"', "relay status route"),
+        ("https://api.vietguys.biz:4438/zalo/v1/status", "VietGuys status endpoint"),
+        ("provider status response", "status log label"),
+        ("sanitizeProviderPreview", "redacted provider response logging"),
+        ("response_preview", "safe status/send preview logging"),
+    ]:
+        assert_contains(relay, needle, label)
+
+    for needle, label in [
+        ("DEALER_OTP_STATUS_DEBUG_SECRET", "debug shared secret gate"),
+        ("DEALER_OTP_RELAY_URL", "debug relay URL env"),
+        ("DEALER_OTP_RELAY_SECRET", "debug relay HMAC env"),
+        ("transaction_ids", "debug transaction id input"),
+        ("/status", "debug calls relay status route"),
+        ("safePreview", "debug redacts provider response"),
+    ]:
+        assert_contains(status_debug, needle, label)
 
 
 if __name__ == "__main__":
