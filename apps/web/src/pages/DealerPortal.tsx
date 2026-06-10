@@ -409,7 +409,7 @@ export default function DealerPortal() {
   const activePromotionPath = window.location.hostname === "dathang.banhmique.vn"
     ? `/promotion/${activeLandingBanner?.id || "event-1"}`
     : `/dealer/promotion/${activeLandingBanner?.id || "event-1"}`;
-  const categoryChips = ["Tất cả", "Bánh mì", "Bánh ngọt", "Combo", "Bán chạy"];
+  const categoryChips = ["Tất cả", "Bánh mì", "Bánh ngọt"];
   const featuredProducts = catalogProducts.slice(0, 3);
   const filteredProducts = catalogProducts.filter((product) => {
     if (activeCategory === "Tất cả") return true;
@@ -741,7 +741,7 @@ export default function DealerPortal() {
 
             <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none]">
               {[
-                ["Combo sáng mai", "bg-amber-50 text-amber-800 border-amber-200"],
+                ["Combo", "bg-amber-50 text-amber-800 border-amber-200"],
                 ["Bán chạy", "bg-emerald-50 text-emerald-700 border-emerald-200"],
                 ["Sản phẩm mới", "bg-orange-50 text-orange-700 border-orange-200"],
               ].map(([title, tone]) => (
@@ -752,7 +752,7 @@ export default function DealerPortal() {
                     "h-10 shrink-0 rounded-full border px-4 text-sm font-semibold shadow-sm transition hover:-translate-y-0.5 hover:shadow-md",
                     tone,
                   )}
-                  onClick={() => setActiveCategory(title === "Bán chạy" ? "Bán chạy" : title === "Combo sáng mai" ? "Combo" : "Tất cả")}
+                  onClick={() => setActiveCategory(title === "Bán chạy" ? "Bán chạy" : title === "Combo" ? "Combo" : "Tất cả")}
                 >
                   {title}
                 </button>
