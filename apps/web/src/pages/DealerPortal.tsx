@@ -739,22 +739,22 @@ export default function DealerPortal() {
               </div>
             ) : null}
 
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none]">
               {[
-                ["Combo sáng mai", "bg-amber-500/15 text-amber-800"],
-                ["Bán chạy", "bg-emerald-500/12 text-emerald-700"],
-                ["Sản phẩm mới", "bg-orange-500/12 text-orange-700"],
+                ["Combo sáng mai", "bg-amber-50 text-amber-800 border-amber-200"],
+                ["Bán chạy", "bg-emerald-50 text-emerald-700 border-emerald-200"],
+                ["Sản phẩm mới", "bg-orange-50 text-orange-700 border-orange-200"],
               ].map(([title, tone]) => (
                 <button
                   key={title}
                   type="button"
-                  className="group rounded-2xl border border-amber-100 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md"
+                  className={cn(
+                    "h-10 shrink-0 rounded-full border px-4 text-sm font-semibold shadow-sm transition hover:-translate-y-0.5 hover:shadow-md",
+                    tone,
+                  )}
                   onClick={() => setActiveCategory(title === "Bán chạy" ? "Bán chạy" : title === "Combo sáng mai" ? "Combo" : "Tất cả")}
                 >
-                  <div className={cn("mb-3 inline-flex h-10 w-10 items-center justify-center rounded-2xl", tone)}>
-                    <BadgePercent className="h-5 w-5" />
-                  </div>
-                  <div className="font-bold text-[#3f2411]">{title}</div>
+                  {title}
                 </button>
               ))}
             </div>
