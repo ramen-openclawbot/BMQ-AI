@@ -108,6 +108,7 @@ type DealerPublicConfigResponse = {
 };
 
 const DEALER_SESSION_STORAGE_KEY = "bmq_dealer_session_token";
+const DEALER_ORDER_STEP = 10;
 
 const navItems = [
   { id: "home", label: "Trang chủ", icon: Home, target: "dealer-top" },
@@ -332,6 +333,12 @@ export default function DealerPortal() {
   const handleSubmitOrder = async () => {
     if (!sessionToken || selectedLines.length === 0) return;
 
+    const invalidQuantityLine = selectedLines.find((line) => line.quantity % DEALER_ORDER_STEP !== 0);
+    if (invalidQuantityLine) {
+      setOrderError(`Số lượng ${invalidQuantityLine.name} phải là bội số ${DEALER_ORDER_STEP}.`);
+      return;
+    }
+
     setOrderSubmitting(true);
     setOrderMessage("");
     setOrderError("");
@@ -377,6 +384,7 @@ export default function DealerPortal() {
   const totalItems = selectedLines.reduce((sum, product) => sum + product.quantity, 0);
   const cartTotal = selectedLines.reduce((sum, product) => sum + product.lineTotal, 0);
   const isCatalogUnlocked = loginStep === "catalog" && Boolean(sessionToken);
+  const dealerDisplayName = dealerCustomer?.name || dealerCustomer?.code || "Đại lý BMQ";
   const activeLandingBanner = landingBanners[activeLandingBannerIndex] || landingBanners[0];
   const activeLandingBannerUrl = activeLandingBanner?.url || landingBannerUrl;
   const activePromotionPath = window.location.hostname === "dathang.banhmique.vn"
@@ -395,10 +403,14 @@ export default function DealerPortal() {
   });
 
   const updateQuantity = (productId: string, delta: number) => {
-    setQuantities((current) => ({
-      ...current,
-      [productId]: Math.max(0, (current[productId] || 0) + delta),
-    }));
+    setQuantities((current) => {
+      const normalizedCurrent = Math.round((current[productId] || 0) / DEALER_ORDER_STEP) * DEALER_ORDER_STEP;
+
+      return {
+        ...current,
+        [productId]: Math.max(0, normalizedCurrent + delta * DEALER_ORDER_STEP),
+      };
+    });
   };
 
   const handleNav = (item: (typeof navItems)[number]) => {
@@ -417,10 +429,17 @@ export default function DealerPortal() {
               <div className="truncate text-xs text-muted-foreground">Portal đặt hàng đại lý</div>
             </div>
           </div>
-          <Button variant="outline" size="sm" className="h-9 px-3" onClick={() => handleNav(navItems[3])}>
-            <MessageCircle className="h-4 w-4" />
-            Zalo OA
-          </Button>
+          {isCatalogUnlocked ? (
+            <div className="flex min-w-0 max-w-[52vw] items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-[#3f2411] shadow-sm">
+              <Building2 className="h-4 w-4 shrink-0 text-amber-700" />
+              <span className="truncate text-sm font-semibold">{dealerDisplayName}</span>
+            </div>
+          ) : (
+            <Button variant="outline" size="sm" className="h-9 px-3" onClick={() => handleNav(navItems[3])}>
+              <MessageCircle className="h-4 w-4" />
+              Zalo OA
+            </Button>
+          )}
         </div>
       </header>
 
@@ -476,12 +495,7 @@ export default function DealerPortal() {
                   ) : (
                     <div className="h-full w-full bg-[radial-gradient(circle_at_70%_25%,rgba(245,158,11,0.55),transparent_28%),linear-gradient(135deg,#7c2d12,#f59e0b_55%,#fff7ed)]" />
                   )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-black/10 to-transparent" />
-                  <div className="absolute bottom-4 left-4 right-4 rounded-2xl border border-white/25 bg-white/88 p-3 text-[#3f2411] shadow-lg backdrop-blur">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Gợi ý hôm nay</div>
-                    <div className="mt-1 text-base font-bold">Combo sáng mai + sản phẩm đặt kèm</div>
-                    <div className="mt-1 text-xs text-[#765333]">Giúp đại lý nhìn thêm món để chốt đơn nhanh hơn.</div>
-                  </div>
+
                 </div>
               </div>
             </div>
@@ -666,7 +680,7 @@ export default function DealerPortal() {
               <div>
                 <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Đặt hàng đại lý</div>
                 <h2 className="text-2xl font-display font-extrabold text-[#3f2411]">Sản phẩm & gợi ý bán kèm</h2>
-                <p className="mt-1 text-sm text-[#765333]">{catalogMessage}</p>
+                <p className="mt-1 text-sm text-[#765333]">{catalogMessage} Số lượng đặt theo bội số 10 bánh.</p>
               </div>
               <Badge variant="outline" className="rounded-full border-amber-300 bg-white text-amber-800">
                 {catalogStatus === "loading" ? "Đang tải" : `${catalogProducts.length} sản phẩm`}
@@ -766,7 +780,7 @@ export default function DealerPortal() {
                           <div className="text-sm font-extrabold text-[#3f2411]">{formatVnd(product.price)}</div>
                           <div className="text-xs text-[#8a6a4a]">/{product.unit}</div>
                         </div>
-                        <div className="grid h-11 w-28 shrink-0 grid-cols-[36px_1fr_36px] overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/70">
+                        <div className="grid h-11 w-32 shrink-0 grid-cols-[38px_1fr_38px] overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/70">
                           <Button
                             type="button"
                             variant="ghost"
@@ -777,7 +791,10 @@ export default function DealerPortal() {
                           >
                             <Minus className="h-4 w-4" />
                           </Button>
-                          <div className="flex items-center justify-center border-x border-amber-200 text-sm font-bold text-[#3f2411]">{quantity}</div>
+                          <div className="flex flex-col items-center justify-center border-x border-amber-200 leading-none text-[#3f2411]">
+                            <span className="text-sm font-bold">{quantity}</span>
+                            <span className="mt-0.5 text-[9px] font-semibold uppercase text-[#8a6a4a]">bước 10</span>
+                          </div>
                           <Button
                             type="button"
                             variant="ghost"
@@ -1073,7 +1090,7 @@ function CartSummary({
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold">
             <ShoppingCart className="h-4 w-4 text-primary" />
-            {totalItems} dòng hàng
+            {selectedLines.length} dòng • {totalItems} bánh
           </div>
           <div className="truncate text-xs text-muted-foreground">Tạm tính {formatVnd(cartTotal)}</div>
         </div>
@@ -1117,7 +1134,7 @@ function CartSummary({
 
         <div className="border-t pt-4">
           <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <span>Tổng số lượng</span>
+            <span>Tổng số bánh</span>
             <span>{totalItems}</span>
           </div>
           <div className="mt-2 flex items-center justify-between text-base font-semibold">
