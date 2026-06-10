@@ -104,6 +104,9 @@ type DealerOrderRow = {
     product_name?: string | null;
     unit?: string | null;
     quantity?: number | string | null;
+    route_customer_id?: string | null;
+    route_customer_name?: string | null;
+    route_note?: string | null;
     unit_price_vnd?: number | string | null;
     line_total_vnd?: number | string | null;
     price_source?: string | null;
@@ -870,6 +873,9 @@ const buildDealerPortalPreviewLines = (
       const gross = Number(item.line_total_vnd || 0);
       const unitPrice = Number(item.unit_price_vnd || (quantity > 0 ? gross / quantity : 0));
       if (quantity <= 0 && gross <= 0) continue;
+      const routeCustomerId = stringValue(item.route_customer_id);
+      const routeCustomerName = stringValue(item.route_customer_name);
+      const lineCustomerName = routeCustomerName || customerName;
       lines.push({
         run_id: runId,
         source_row_number: sourceRowNumber,
@@ -880,13 +886,13 @@ const buildDealerPortalPreviewLines = (
         source_tab: sourceTab,
         branch: null,
         invoice_no: order.order_number,
-        customer_id: order.customer_id,
-        parent_customer_id: stringValue(order.mini_crm_customers?.supplied_by_npp_customer_id),
-        customer_code: stringValue(order.mini_crm_customers?.customer_code, customerSnapshot.code, customerSnapshot.customer_code),
-        customer_name: customerName,
+        customer_id: routeCustomerId || order.customer_id,
+        parent_customer_id: routeCustomerId ? order.customer_id : stringValue(order.mini_crm_customers?.supplied_by_npp_customer_id),
+        customer_code: routeCustomerId ? null : stringValue(order.mini_crm_customers?.customer_code, customerSnapshot.code, customerSnapshot.customer_code),
+        customer_name: lineCustomerName,
         product_code: stringValue(item.sku_code, item.sku_id),
         product_name: stringValue(item.product_name) || "Đơn dathang.banhmique.vn",
-        item_note: stringValue(order.delivery_note, order.customer_note),
+        item_note: stringValue(item.route_note, order.delivery_note, order.customer_note),
         quantity,
         unit_price: unitPrice,
         gross_revenue: gross,
@@ -898,6 +904,10 @@ const buildDealerPortalPreviewLines = (
         raw_payload: {
           dealer_order_id: order.id,
           dealer_order_item_id: item.id,
+          route_customer_id: routeCustomerId || null,
+          route_customer_name: routeCustomerName || null,
+          npp_customer_id: routeCustomerId ? order.customer_id : null,
+          npp_customer_name: routeCustomerId ? customerName : null,
           source: "dealer_portal_order",
           source_url: "https://dathang.banhmique.vn",
           order_number: order.order_number,

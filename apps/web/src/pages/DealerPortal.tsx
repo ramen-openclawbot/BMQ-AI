@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
+import { useCallback, useEffect, useMemo, useState, type ComponentType, type Dispatch, type SetStateAction } from "react";
 import {
   AlertCircle,
   BadgePercent,
@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardList,
+  Copy,
   HelpCircle,
   Home,
   ImageIcon,
@@ -63,6 +64,21 @@ type DealerCustomer = {
   address?: string | null;
 };
 
+type DealerRoute = {
+  id: string;
+  name: string;
+  code?: string | null;
+  address?: string | null;
+};
+
+type NppOrderLine = {
+  route: DealerRoute;
+  product: Product;
+  quantity: number;
+  note: string;
+  lineTotal: number;
+};
+
 type CatalogProductResponse = {
   id: string;
   sku_code?: string | null;
@@ -81,6 +97,7 @@ type CatalogResponse = {
   products?: CatalogProductResponse[];
   announcements?: Array<{ id: string; title: string; body: string; severity?: string }>;
   customer?: DealerCustomer | null;
+  dealer_routes?: DealerRoute[];
 };
 
 type DealerLandingBanner = {
@@ -177,6 +194,7 @@ export default function DealerPortal() {
   const [activeLandingBannerIndex, setActiveLandingBannerIndex] = useState(0);
   const [announcements, setAnnouncements] = useState<CatalogResponse["announcements"]>([]);
   const [dealerCustomer, setDealerCustomer] = useState<DealerCustomer | null>(null);
+  const [dealerRoutes, setDealerRoutes] = useState<DealerRoute[]>([]);
   const [authLoading, setAuthLoading] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
   const [authError, setAuthError] = useState("");
@@ -185,7 +203,10 @@ export default function DealerPortal() {
   const [orderError, setOrderError] = useState("");
   const [orderSuccessOpen, setOrderSuccessOpen] = useState(false);
   const [orderSuccessNumber, setOrderSuccessNumber] = useState("");
+  const [nppConfirmOpen, setNppConfirmOpen] = useState(false);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [nppQuantities, setNppQuantities] = useState<Record<string, number>>({});
+  const [nppNotes, setNppNotes] = useState<Record<string, string>>({});
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [draftQuantity, setDraftQuantity] = useState("");
   const [quantityModalError, setQuantityModalError] = useState("");
@@ -230,6 +251,7 @@ export default function DealerPortal() {
       setCatalogProducts([]);
       setAnnouncements([]);
       setDealerCustomer(null);
+      setDealerRoutes([]);
       setCatalogStatus("idle");
       return;
     }
@@ -247,11 +269,13 @@ export default function DealerPortal() {
       setCatalogProducts(nextProducts);
       setAnnouncements(data?.announcements || []);
       setDealerCustomer(data?.customer || null);
+      setDealerRoutes(Array.isArray(data?.dealer_routes) ? data.dealer_routes : []);
       setCatalogStatus("live");
     } catch (error) {
       const message = await getFunctionErrorMessage(error, "Không tải được danh sách sản phẩm.");
       setCatalogProducts([]);
       setAnnouncements([]);
+      setDealerRoutes([]);
       setCatalogStatus("error");
       console.warn("Không tải được danh sách sản phẩm đại lý", message || error);
     }
@@ -338,6 +362,9 @@ export default function DealerPortal() {
     localStorage.removeItem(DEALER_SESSION_STORAGE_KEY);
     setSessionToken("");
     setDealerCustomer(null);
+    setDealerRoutes([]);
+    setNppQuantities({});
+    setNppNotes({});
     setLoginStep("phone");
     setOtp("");
     setAuthMessage("");
@@ -346,15 +373,7 @@ export default function DealerPortal() {
     setOrderError("");
   };
 
-  const handleSubmitOrder = async () => {
-    if (!sessionToken || selectedLines.length === 0) return;
-
-    const invalidQuantityLine = selectedLines.find((line) => line.quantity % DEALER_ORDER_STEP !== 0);
-    if (invalidQuantityLine) {
-      setOrderError(`Số lượng ${invalidQuantityLine.name} phải là bội số ${DEALER_ORDER_STEP}.`);
-      return;
-    }
-
+  const submitOrderPayload = async (items: Array<Record<string, unknown>>) => {
     setOrderSubmitting(true);
     setOrderMessage("");
     setOrderError("");
@@ -367,10 +386,7 @@ export default function DealerPortal() {
       }>("dealer-order-submit", {
         body: {
           dealer_token: sessionToken,
-          items: selectedLines.map((line) => ({
-            sku_id: line.id,
-            quantity: line.quantity,
-          })),
+          items,
         },
       });
 
@@ -379,13 +395,55 @@ export default function DealerPortal() {
       const nextOrderNumber = data?.order_number || "";
       setOrderSuccessNumber(nextOrderNumber);
       setOrderSuccessOpen(true);
+      setNppConfirmOpen(false);
       setOrderMessage(`Đã gửi đơn ${nextOrderNumber}. Xin cảm ơn quý khách đã chọn lựa Bánh Mì Que Pháp BMQ.`);
       setQuantities({});
+      setNppQuantities({});
+      setNppNotes({});
     } catch (error) {
       setOrderError(await getFunctionErrorMessage(error, "Không gửi được đơn hàng."));
     } finally {
       setOrderSubmitting(false);
     }
+  };
+
+  const handleSubmitOrder = async () => {
+    if (!sessionToken || selectedLines.length === 0) return;
+
+    const invalidQuantityLine = selectedLines.find((line) => line.quantity % DEALER_ORDER_STEP !== 0);
+    if (invalidQuantityLine) {
+      setOrderError(`Số lượng ${invalidQuantityLine.name} phải là bội số ${DEALER_ORDER_STEP} ${invalidQuantityLine.unit || "đơn vị"}.`);
+      return;
+    }
+
+    await submitOrderPayload(selectedLines.map((line) => ({
+      sku_id: line.id,
+      quantity: line.quantity,
+    })));
+  };
+
+  const handleSubmitNppOrder = () => {
+    if (!sessionToken || nppSelectedLines.length === 0) return;
+
+    const invalidQuantityLine = nppSelectedLines.find((line) => line.quantity % DEALER_ORDER_STEP !== 0);
+    if (invalidQuantityLine) {
+      setOrderError(`Số lượng ${invalidQuantityLine.route.name} phải là bội số ${DEALER_ORDER_STEP} ${invalidQuantityLine.product.unit || "que"}.`);
+      return;
+    }
+
+    setOrderError("");
+    setNppConfirmOpen(true);
+  };
+
+  const confirmSubmitNppOrder = async () => {
+    if (!sessionToken || nppSelectedLines.length === 0) return;
+    await submitOrderPayload(nppSelectedLines.map((line) => ({
+      sku_id: line.product.id,
+      quantity: line.quantity,
+      route_customer_id: line.route.id,
+      route_customer_name: line.route.name,
+      route_note: line.note,
+    })));
   };
 
   const selectedLines = useMemo(
@@ -400,8 +458,28 @@ export default function DealerPortal() {
     [catalogProducts, quantities],
   );
 
-  const totalItems = selectedLines.reduce((sum, product) => sum + product.quantity, 0);
-  const cartTotal = selectedLines.reduce((sum, product) => sum + product.lineTotal, 0);
+  const isNppMode = dealerRoutes.length > 0;
+  const nppProduct = useMemo(
+    () => catalogProducts.find((product) => `${product.name} ${product.skuCode || ""}`.toLocaleLowerCase("vi-VN").includes("que")) || catalogProducts[0] || null,
+    [catalogProducts],
+  );
+  const nppSelectedLines = useMemo<NppOrderLine[]>(
+    () => !nppProduct ? [] : dealerRoutes
+      .map((route) => {
+        const quantity = nppQuantities[route.id] || 0;
+        return {
+          route,
+          product: nppProduct,
+          quantity,
+          note: nppNotes[route.id] || "",
+          lineTotal: quantity * nppProduct.price,
+        };
+      })
+      .filter((line) => line.quantity > 0),
+    [dealerRoutes, nppNotes, nppProduct, nppQuantities],
+  );
+  const totalItems = isNppMode ? nppSelectedLines.reduce((sum, line) => sum + line.quantity, 0) : selectedLines.reduce((sum, product) => sum + product.quantity, 0);
+  const cartTotal = isNppMode ? nppSelectedLines.reduce((sum, line) => sum + line.lineTotal, 0) : selectedLines.reduce((sum, product) => sum + product.lineTotal, 0);
   const isCatalogUnlocked = loginStep === "catalog" && Boolean(sessionToken);
   const dealerDisplayName = toDisplayName(dealerCustomer?.name) || dealerCustomer?.code || "Đại lý BMQ";
   const activeLandingBanner = landingBanners[activeLandingBannerIndex] || landingBanners[0];
@@ -436,7 +514,7 @@ export default function DealerPortal() {
       return;
     }
     if (nextQuantity % DEALER_ORDER_STEP !== 0) {
-      setQuantityModalError(`Số lượng phải là bội số ${DEALER_ORDER_STEP} bánh.`);
+      setQuantityModalError(`Số lượng phải là bội số ${DEALER_ORDER_STEP} ${selectedProduct.unit || "đơn vị"}.`);
       return;
     }
 
@@ -503,10 +581,10 @@ export default function DealerPortal() {
                   </div>
                   <div>
                     <h1 className="text-3xl font-display font-extrabold leading-[1.05] tracking-tight sm:text-4xl">
-                      Tăng đơn dễ hơn với combo bán chạy
+                      {isNppMode ? "Đặt hàng cho nhiều điểm bán" : "Tăng đơn dễ hơn với combo bán chạy"}
                     </h1>
                     <p className="mt-3 max-w-xl text-sm leading-6 text-[#765333] sm:text-base">
-                      Xem nhanh chương trình khuyến mãi, thêm sản phẩm bán kèm và gửi đơn đại lý chỉ trong vài thao tác.
+                      {isNppMode ? "Nhập số lượng theo từng điểm bán con, kiểm tra tổng đơn rồi gửi 1 lần cho BMQ." : "Xem nhanh chương trình khuyến mãi, thêm sản phẩm bán kèm và gửi đơn đại lý chỉ trong vài thao tác."}
                     </p>
                   </div>
                   <div className="flex flex-col gap-2 sm:flex-row">
@@ -515,7 +593,7 @@ export default function DealerPortal() {
                       onClick={() => document.getElementById("quick-order")?.scrollIntoView({ behavior: "smooth", block: "start" })}
                     >
                       <PackagePlus className="h-4 w-4" />
-                      Thêm combo
+                      {isNppMode ? "Nhập số lượng" : "Thêm combo"}
                     </Button>
                     <Button
                       asChild
@@ -719,7 +797,7 @@ export default function DealerPortal() {
             <div className="flex items-end justify-between gap-3">
               <div>
                 <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Đặt hàng đại lý</div>
-                <h2 className="text-2xl font-display font-extrabold text-[#3f2411]">Sản phẩm & gợi ý bán kèm</h2>
+                <h2 className="text-2xl font-display font-extrabold text-[#3f2411]">{isNppMode ? "Đặt hàng cho điểm bán" : "Sản phẩm & gợi ý bán kèm"}</h2>
               </div>
               <Badge variant="outline" className="rounded-full border-amber-300 bg-white text-amber-800">
                 {catalogStatus === "loading" ? "Đang tải" : `${catalogProducts.length} sản phẩm`}
@@ -739,6 +817,21 @@ export default function DealerPortal() {
               </div>
             ) : null}
 
+            {isNppMode ? (
+              <NppQuickOrderPanel
+                routes={dealerRoutes}
+                product={nppProduct}
+                quantities={nppQuantities}
+                notes={nppNotes}
+                setQuantities={setNppQuantities}
+                setNotes={setNppNotes}
+                totalItems={totalItems}
+                cartTotal={cartTotal}
+              />
+            ) : null}
+
+            {!isNppMode ? (
+            <>
             <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none]">
               {[
                 ["Combo", "bg-amber-50 text-amber-800 border-amber-200"],
@@ -820,7 +913,7 @@ export default function DealerPortal() {
                           <div className="text-xs text-[#8a6a4a]">/{product.unit}</div>
                         </div>
                         <div className={cn("rounded-full px-3 py-1 text-xs font-bold", quantity > 0 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800")}>
-                          {quantity > 0 ? `${quantity} bánh` : "Chọn"}
+                          {quantity > 0 ? `${quantity} ${product.unit}` : "Chọn"}
                         </div>
                       </div>
                     </button>
@@ -855,6 +948,8 @@ export default function DealerPortal() {
                   ))}
                 </div>
               </div>
+            ) : null}
+            </>
             ) : null}
           </section>
 
@@ -916,11 +1011,13 @@ export default function DealerPortal() {
             <div className="sticky top-20">
               <CartSummary
                 selectedLines={selectedLines}
+                nppLines={nppSelectedLines}
                 totalItems={totalItems}
                 cartTotal={cartTotal}
-                canSubmit={Boolean(sessionToken) && catalogStatus === "live" && selectedLines.length > 0}
+                isNppMode={isNppMode}
+                canSubmit={Boolean(sessionToken) && catalogStatus === "live" && (isNppMode ? nppSelectedLines.length > 0 : selectedLines.length > 0)}
                 submitting={orderSubmitting}
-                onSubmit={handleSubmitOrder}
+                onSubmit={isNppMode ? handleSubmitNppOrder : handleSubmitOrder}
               />
             </div>
           </aside>
@@ -932,12 +1029,14 @@ export default function DealerPortal() {
           <div className="mx-auto max-w-6xl">
             <CartSummary
               selectedLines={selectedLines}
+              nppLines={nppSelectedLines}
               totalItems={totalItems}
               cartTotal={cartTotal}
               compact
-              canSubmit={Boolean(sessionToken) && catalogStatus === "live" && selectedLines.length > 0}
+              isNppMode={isNppMode}
+              canSubmit={Boolean(sessionToken) && catalogStatus === "live" && (isNppMode ? nppSelectedLines.length > 0 : selectedLines.length > 0)}
               submitting={orderSubmitting}
-              onSubmit={handleSubmitOrder}
+              onSubmit={isNppMode ? handleSubmitNppOrder : handleSubmitOrder}
             />
           </div>
         </div>
@@ -1045,7 +1144,7 @@ export default function DealerPortal() {
                 <DialogHeader>
                   <DialogTitle className="text-xl font-display font-extrabold leading-tight">{selectedProduct.name}</DialogTitle>
                   <DialogDescription className="text-sm leading-6 text-[#765333]">
-                    {formatVnd(selectedProduct.price)} / {selectedProduct.unit}. Nhập số lượng theo bội số 10 bánh.
+                    {formatVnd(selectedProduct.price)} / {selectedProduct.unit}. Nhập số lượng theo bội số 10 {selectedProduct.unit || "đơn vị"}.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-2">
@@ -1081,6 +1180,44 @@ export default function DealerPortal() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={nppConfirmOpen} onOpenChange={setNppConfirmOpen}>
+        <DialogContent className="max-w-lg rounded-3xl border-amber-200 bg-[#fffaf0] text-[#3f2411] shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-display font-extrabold">Xác nhận đơn NPP</DialogTitle>
+            <DialogDescription className="text-sm leading-6 text-[#765333]">
+              {dealerDisplayName} đặt {totalItems} {nppProduct?.unit || "que"} cho {nppSelectedLines.length} điểm bán. Vui lòng kiểm tra trước khi gửi.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[45vh] space-y-2 overflow-y-auto rounded-2xl border bg-white/70 p-3">
+            {nppSelectedLines.map((line) => (
+              <div key={line.route.id} className="flex items-start justify-between gap-3 text-sm">
+                <div className="min-w-0">
+                  <div className="font-semibold">{line.route.name}</div>
+                  {line.note ? <div className="text-xs text-[#765333]">Ghi chú: {line.note}</div> : null}
+                </div>
+                <div className="shrink-0 text-right font-bold">
+                  {line.quantity} {line.product.unit}
+                  <div className="text-xs font-medium text-[#765333]">{formatVnd(line.lineTotal)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold">
+            <span>Tạm tính</span>
+            <span>{formatVnd(cartTotal)}</span>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" className="h-11 rounded-2xl" onClick={() => setNppConfirmOpen(false)} disabled={orderSubmitting}>
+              Quay lại sửa
+            </Button>
+            <Button className="h-11 rounded-2xl bg-amber-500 font-bold text-[#2b1708] hover:bg-amber-400" onClick={confirmSubmitNppOrder} disabled={orderSubmitting}>
+              {orderSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Xác nhận gửi đơn
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={orderSuccessOpen} onOpenChange={setOrderSuccessOpen}>
         <DialogContent className="max-w-sm rounded-3xl border-amber-200 bg-[#fffaf0] text-[#3f2411] shadow-2xl">
           <DialogHeader className="items-center text-center">
@@ -1100,6 +1237,115 @@ export default function DealerPortal() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+
+function NppQuickOrderPanel({
+  routes,
+  product,
+  quantities,
+  notes,
+  setQuantities,
+  setNotes,
+  totalItems,
+  cartTotal,
+}: {
+  routes: DealerRoute[];
+  product: Product | null;
+  quantities: Record<string, number>;
+  notes: Record<string, string>;
+  setQuantities: Dispatch<SetStateAction<Record<string, number>>>;
+  setNotes: Dispatch<SetStateAction<Record<string, string>>>;
+  totalItems: number;
+  cartTotal: number;
+}) {
+  const unitLabel = product?.unit || "que";
+  const copyQuickTemplate = async () => {
+    const text = routes.map((route) => `${route.name} `).join("\n");
+    await navigator.clipboard?.writeText(text);
+  };
+
+  if (!product) {
+    return (
+      <div className="rounded-3xl border border-dashed border-amber-200 bg-white p-5 text-sm text-[#765333]">
+        Chưa có sản phẩm bánh mì que đang mở bán cho account NPP này. Vui lòng liên hệ BMQ để kiểm tra giá.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-3xl border border-amber-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Chế độ NPP</div>
+            <h3 className="mt-1 text-xl font-display font-extrabold text-[#3f2411]">Nhập số lượng theo từng điểm bán</h3>
+            <p className="mt-1 text-sm leading-6 text-[#765333]">
+              Đơn sẽ ghi về NPP, còn từng dòng giữ điểm bán con để giao hàng/đối soát. Đơn vị bánh mì que là <strong>que</strong>.
+            </p>
+          </div>
+          <Button type="button" variant="outline" className="rounded-2xl border-amber-200" onClick={copyQuickTemplate}>
+            <Copy className="h-4 w-4" />
+            Copy mẫu nhập nhanh
+          </Button>
+        </div>
+        <div className="mt-4 grid gap-3 rounded-2xl border border-amber-100 bg-amber-50/60 p-3 sm:grid-cols-3">
+          <div>
+            <div className="text-xs text-[#8a6a4a]">Sản phẩm</div>
+            <div className="font-bold text-[#3f2411]">{product.name}</div>
+          </div>
+          <div>
+            <div className="text-xs text-[#8a6a4a]">Giá</div>
+            <div className="font-bold text-[#3f2411]">{formatVnd(product.price)} / {unitLabel}</div>
+          </div>
+          <div>
+            <div className="text-xs text-[#8a6a4a]">Tổng đang nhập</div>
+            <div className="font-bold text-[#3f2411]">{totalItems} {unitLabel} • {formatVnd(cartTotal)}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-3xl border border-amber-100 bg-white shadow-sm">
+        <div className="grid grid-cols-[minmax(0,1fr)_112px] gap-2 border-b border-amber-100 bg-amber-50/80 px-3 py-2 text-xs font-bold uppercase tracking-wide text-[#765333] sm:grid-cols-[minmax(0,1fr)_140px_minmax(160px,0.7fr)]">
+          <div>Điểm bán nhận hàng</div>
+          <div className="text-right">SL ({unitLabel})</div>
+          <div className="hidden sm:block">Ghi chú</div>
+        </div>
+        <div className="divide-y divide-amber-100">
+          {routes.map((route) => {
+            const quantity = quantities[route.id] || "";
+            return (
+              <div key={route.id} className="grid grid-cols-[minmax(0,1fr)_112px] gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_140px_minmax(160px,0.7fr)] sm:items-center">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-bold text-[#3f2411]">{route.name}</div>
+                  {route.address ? <div className="mt-0.5 line-clamp-1 text-xs text-[#8a6a4a]">{route.address}</div> : null}
+                </div>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  step={DEALER_ORDER_STEP}
+                  value={quantity}
+                  placeholder="0"
+                  className="h-11 rounded-2xl border-amber-200 bg-amber-50/70 text-right text-base font-extrabold text-[#3f2411] focus-visible:ring-amber-400"
+                  onChange={(event) => {
+                    const value = Number(event.target.value.replace(/[^0-9]/g, ""));
+                    setQuantities((current) => ({ ...current, [route.id]: Number.isFinite(value) ? value : 0 }));
+                  }}
+                />
+                <Input
+                  value={notes[route.id] || ""}
+                  placeholder="Ghi chú giao hàng"
+                  className="col-span-2 h-10 rounded-2xl border-amber-100 bg-white text-sm sm:col-span-1"
+                  onChange={(event) => setNotes((current) => ({ ...current, [route.id]: event.target.value.slice(0, 160) }))}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1197,17 +1443,21 @@ function StatusTile({
 
 function CartSummary({
   selectedLines,
+  nppLines = [],
   totalItems,
   cartTotal,
   compact = false,
+  isNppMode = false,
   canSubmit,
   submitting,
   onSubmit,
 }: {
   selectedLines: Array<Product & { quantity: number; lineTotal: number }>;
+  nppLines?: NppOrderLine[];
   totalItems: number;
   cartTotal: number;
   compact?: boolean;
+  isNppMode?: boolean;
   canSubmit: boolean;
   submitting: boolean;
   onSubmit: () => void;
@@ -1218,7 +1468,7 @@ function CartSummary({
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold">
             <ShoppingCart className="h-4 w-4 text-primary" />
-            {selectedLines.length} dòng • {totalItems} bánh
+            {isNppMode ? nppLines.length : selectedLines.length} dòng • {totalItems} {isNppMode ? (nppLines[0]?.product.unit || "que") : "đơn vị"}
           </div>
           <div className="truncate text-xs text-muted-foreground">Tạm tính {formatVnd(cartTotal)}</div>
         </div>
@@ -1235,23 +1485,35 @@ function CartSummary({
       <CardHeader className="p-4 pb-3">
         <CardTitle className="flex items-center gap-2 text-lg">
           <ShoppingCart className="h-5 w-5 text-primary" />
-          Giỏ hàng
+          {isNppMode ? "Đơn NPP" : "Giỏ hàng"}
         </CardTitle>
-        <CardDescription>Đơn sẽ được gửi cho BMQ sau khi đại lý xác thực OTP.</CardDescription>
+        <CardDescription>{isNppMode ? "Một đơn NPP gồm nhiều điểm bán con." : "Đơn sẽ được gửi cho BMQ sau khi đại lý xác thực OTP."}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 p-4 pt-0">
         <div className="space-y-3">
-          {selectedLines.length === 0 ? (
+          {(isNppMode ? nppLines.length : selectedLines.length) === 0 ? (
             <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
-              Chưa chọn sản phẩm.
+              {isNppMode ? "Chưa nhập số lượng cho điểm bán." : "Chưa chọn sản phẩm."}
             </div>
+          ) : isNppMode ? (
+            nppLines.map((line) => (
+              <div key={line.route.id} className="flex items-start justify-between gap-3 text-sm">
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{line.route.name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {line.quantity} {line.product.unit}
+                  </div>
+                </div>
+                <div className="shrink-0 font-medium">{formatVnd(line.lineTotal)}</div>
+              </div>
+            ))
           ) : (
             selectedLines.map((line) => (
               <div key={line.id} className="flex items-start justify-between gap-3 text-sm">
                 <div className="min-w-0">
                   <div className="truncate font-medium">{line.name}</div>
                   <div className="text-xs text-muted-foreground">
-                    {line.quantity} x {line.unit}
+                    {line.quantity} {line.unit}
                   </div>
                 </div>
                 <div className="shrink-0 font-medium">{formatVnd(line.lineTotal)}</div>
@@ -1262,7 +1524,7 @@ function CartSummary({
 
         <div className="border-t pt-4">
           <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <span>Tổng số bánh</span>
+            <span>{isNppMode ? "Tổng số lượng" : "Tổng số lượng"}</span>
             <span>{totalItems}</span>
           </div>
           <div className="mt-2 flex items-center justify-between text-base font-semibold">
@@ -1276,7 +1538,7 @@ function CartSummary({
           Gửi đơn
         </Button>
         <p className="text-xs leading-5 text-muted-foreground">
-          Cần OTP hợp lệ và danh sách sản phẩm đang mở bán trước khi gửi đơn.
+          {isNppMode ? "Bấm gửi sẽ mở màn hình xác nhận các điểm bán trước khi ghi đơn." : "Cần OTP hợp lệ và danh sách sản phẩm đang mở bán trước khi gửi đơn."}
         </p>
       </CardContent>
     </Card>

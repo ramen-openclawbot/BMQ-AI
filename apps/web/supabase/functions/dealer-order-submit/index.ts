@@ -13,6 +13,22 @@ import {
 type SubmitItemInput = {
   sku_id?: unknown;
   quantity?: unknown;
+  route_customer_id?: unknown;
+  route_customer_name?: unknown;
+  route_note?: unknown;
+};
+
+type NormalizedSubmitItem = {
+  sku_id: string;
+  quantity: number;
+  route_customer_id: string | null;
+  route_customer_name: string | null;
+  route_note: string | null;
+};
+
+type RouteCustomer = {
+  id: string;
+  customer_name: string | null;
 };
 
 type ProductSku = {
@@ -45,6 +61,9 @@ const numberFromCostValues = (costValues: ProductSku["cost_values"], key: string
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : 0;
 };
+
+const dealerDisplayUnit = (sku: ProductSku) =>
+  normalizeSkuText(`${sku.sku_code} ${sku.product_name}`).includes("banh mi que") ? "que" : (sku.unit || "đơn vị");
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -82,7 +101,7 @@ serve(async (req) => {
       return errorResponse(req, "Vui lòng chọn ít nhất một SKU.", 400, "empty_order");
     }
 
-    const skuIds = items.map((item) => item.sku_id);
+    const skuIds = Array.from(new Set(items.map((item) => item.sku_id)));
     const { data: skus, error: skuError } = await supabase
       .from("product_skus")
       .select("id, sku_code, product_name, category, sku_type, unit, unit_price, cost_values, hide_from_dealer_portal")
@@ -111,6 +130,21 @@ serve(async (req) => {
       priceOverrides.set(row.sku_id, Number(row.price_vnd_per_unit || 0));
     });
 
+    const requestedRouteIds = Array.from(new Set(items.map((item) => item.route_customer_id).filter(Boolean))) as string[];
+    const routeMap = new Map<string, RouteCustomer>();
+    if (requestedRouteIds.length > 0) {
+      const { data: routeRows, error: routeError } = await supabase
+        .from("mini_crm_customers")
+        .select("id, customer_name")
+        .eq("supplied_by_npp_customer_id", sessionContext.customer.id)
+        .in("id", requestedRouteIds);
+      if (routeError) throw routeError;
+      ((routeRows || []) as RouteCustomer[]).forEach((route) => routeMap.set(route.id, route));
+      if (routeMap.size !== requestedRouteIds.length) {
+        return errorResponse(req, "Một hoặc nhiều điểm bán con không thuộc NPP đang đăng nhập.", 400, "invalid_dealer_route");
+      }
+    }
+
     const lines = items.map((item) => {
       const sku = skuMap.get(item.sku_id)!;
       const override = priceOverrides.get(item.sku_id);
@@ -123,12 +157,17 @@ serve(async (req) => {
 
       const lineTotal = roundMoney(item.quantity * unitPrice);
 
+      const route = item.route_customer_id ? routeMap.get(item.route_customer_id) : null;
+
       return {
         sku,
         quantity: item.quantity,
         unitPrice: roundMoney(unitPrice),
         lineTotal,
         priceSource,
+        routeCustomerId: item.route_customer_id,
+        routeCustomerName: route?.customer_name || item.route_customer_name,
+        routeNote: item.route_note,
       };
     });
 
@@ -158,11 +197,14 @@ serve(async (req) => {
           sku_id: line.sku.id,
           sku_code: line.sku.sku_code,
           product_name: line.sku.product_name,
-          unit: line.sku.unit,
+          unit: dealerDisplayUnit(line.sku),
           quantity: line.quantity,
           unit_price_vnd: line.unitPrice,
           line_total_vnd: line.lineTotal,
           price_source: line.priceSource,
+          route_customer_id: line.routeCustomerId,
+          route_customer_name: line.routeCustomerName,
+          route_note: line.routeNote,
         })),
       );
 
@@ -185,21 +227,33 @@ serve(async (req) => {
   }
 });
 
-function normalizeItems(items: SubmitItemInput[] | undefined) {
+function normalizeItems(items: SubmitItemInput[] | undefined): NormalizedSubmitItem[] {
   if (!Array.isArray(items)) return [];
 
-  const quantitiesBySku = new Map<string, number>();
+  const quantitiesByLine = new Map<string, NormalizedSubmitItem>();
   items.forEach((item) => {
     const skuId = typeof item.sku_id === "string" ? item.sku_id.trim() : "";
     const quantity = Number(item.quantity);
+    const routeCustomerId = typeof item.route_customer_id === "string" && item.route_customer_id.trim()
+      ? item.route_customer_id.trim()
+      : null;
+    const routeCustomerName = normalizeNullableText(item.route_customer_name, 160);
+    const routeNote = normalizeNullableText(item.route_note, 180);
 
     if (!skuId || !Number.isFinite(quantity) || quantity <= 0) return;
-    quantitiesBySku.set(skuId, roundQuantity((quantitiesBySku.get(skuId) || 0) + quantity));
+    const key = `${skuId}::${routeCustomerId || "direct"}`;
+    const current = quantitiesByLine.get(key);
+    quantitiesByLine.set(key, {
+      sku_id: skuId,
+      quantity: roundQuantity((current?.quantity || 0) + quantity),
+      route_customer_id: routeCustomerId,
+      route_customer_name: current?.route_customer_name || routeCustomerName,
+      route_note: current?.route_note || routeNote,
+    });
   });
 
-  return Array.from(quantitiesBySku.entries())
-    .slice(0, 50)
-    .map(([sku_id, quantity]) => ({ sku_id, quantity }))
+  return Array.from(quantitiesByLine.values())
+    .slice(0, 200)
     .filter((item) => item.quantity > 0 && item.quantity <= 10000);
 }
 

@@ -10,6 +10,13 @@ import {
   resolveDealerSession,
 } from "../_shared/dealer.ts";
 
+type DealerRouteCustomer = {
+  id: string;
+  customer_name: string | null;
+  customer_code: string | null;
+  address: string | null;
+};
+
 type ProductSku = {
   id: string;
   sku_code: string;
@@ -61,6 +68,8 @@ const dealerProductNames: Record<string, string> = {
 };
 
 const dealerDisplayName = (sku: ProductSku) => dealerProductNames[sku.sku_code] || sku.product_name;
+const dealerDisplayUnit = (sku: ProductSku) =>
+  normalizeSkuText(`${sku.sku_code} ${dealerDisplayName(sku)}`).includes("banh mi que") ? "que" : (sku.unit || "đơn vị");
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -103,6 +112,23 @@ serve(async (req) => {
       });
     }
 
+    const { data: routeCustomers, error: routeError } = await supabase
+      .from("mini_crm_customers")
+      .select("id, customer_name, customer_code, address")
+      .eq("supplied_by_npp_customer_id", sessionContext.customer.id)
+      .order("customer_name", { ascending: true });
+
+    if (routeError) throw routeError;
+
+    const dealerRoutes = ((routeCustomers || []) as DealerRouteCustomer[])
+      .filter((route) => route.id && route.customer_name)
+      .map((route) => ({
+        id: route.id,
+        name: route.customer_name || "Điểm bán",
+        code: route.customer_code,
+        address: route.address,
+      }));
+
     const products = ((skus || []) as ProductSku[]).flatMap((sku) => {
       if (!isFinishedSku(sku) || sku.hide_from_dealer_portal) return [];
 
@@ -117,7 +143,7 @@ serve(async (req) => {
         sku_code: sku.sku_code,
         product_name: dealerDisplayName(sku),
         category: sku.category,
-        unit: sku.unit,
+        unit: dealerDisplayUnit(sku),
         unit_price: skuSellingPrice,
         price_vnd: price,
         price_source: override === undefined ? "cost_values_selling_price" : "customer_override",
@@ -144,6 +170,7 @@ serve(async (req) => {
       products,
       announcements: announcements || [],
       customer: sessionContext ? publicCustomerProfile(sessionContext.customer) : null,
+      dealer_routes: dealerRoutes,
     });
   } catch (error) {
     console.error("[dealer-catalog] Unexpected error", error);
