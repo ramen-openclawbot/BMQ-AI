@@ -181,6 +181,9 @@ export default function DealerPortal() {
   const [orderSuccessOpen, setOrderSuccessOpen] = useState(false);
   const [orderSuccessNumber, setOrderSuccessNumber] = useState("");
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [draftQuantity, setDraftQuantity] = useState("");
+  const [quantityModalError, setQuantityModalError] = useState("");
   const [activeCategory, setActiveCategory] = useState("Tất cả");
 
   const loadLandingConfig = useCallback(async () => {
@@ -406,25 +409,32 @@ export default function DealerPortal() {
     return true;
   });
 
-  const updateQuantity = (productId: string, delta: number) => {
-    setQuantities((current) => {
-      const normalizedCurrent = Math.round((current[productId] || 0) / DEALER_ORDER_STEP) * DEALER_ORDER_STEP;
-
-      return {
-        ...current,
-        [productId]: Math.max(0, normalizedCurrent + delta * DEALER_ORDER_STEP),
-      };
-    });
+  const openProductDialog = (product: Product) => {
+    setSelectedProduct(product);
+    setDraftQuantity(quantities[product.id] ? String(quantities[product.id]) : "");
+    setQuantityModalError("");
   };
 
-  const updateQuantityInput = (productId: string, rawValue: string) => {
-    const sanitizedValue = rawValue.replace(/[^0-9]/g, "");
-    const nextQuantity = sanitizedValue ? Number(sanitizedValue) : 0;
+  const handleProductQuantitySubmit = () => {
+    if (!selectedProduct) return;
+
+    const nextQuantity = draftQuantity ? Number(draftQuantity) : 0;
+    if (!Number.isFinite(nextQuantity) || nextQuantity < 0) {
+      setQuantityModalError("Vui lòng nhập số lượng hợp lệ.");
+      return;
+    }
+    if (nextQuantity % DEALER_ORDER_STEP !== 0) {
+      setQuantityModalError(`Số lượng phải là bội số ${DEALER_ORDER_STEP} bánh.`);
+      return;
+    }
 
     setQuantities((current) => ({
       ...current,
-      [productId]: Number.isFinite(nextQuantity) ? Math.max(0, nextQuantity) : 0,
+      [selectedProduct.id]: nextQuantity,
     }));
+    setSelectedProduct(null);
+    setDraftQuantity("");
+    setQuantityModalError("");
   };
 
   const handleNav = (item: (typeof navItems)[number]) => {
@@ -766,7 +776,11 @@ export default function DealerPortal() {
 
                 return (
                   <Card key={product.id} className="overflow-hidden rounded-3xl border-amber-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md">
-                    <CardContent className="flex h-full flex-col gap-3 p-3">
+                    <button
+                      type="button"
+                      className="flex h-full w-full flex-col gap-3 p-3 text-left"
+                      onClick={() => openProductDialog(product)}
+                    >
                       <div className="relative overflow-hidden rounded-2xl border border-amber-100 bg-amber-50">
                         {product.imageUrl ? (
                           <img
@@ -791,22 +805,11 @@ export default function DealerPortal() {
                           <div className="text-sm font-extrabold text-[#3f2411]">{formatVnd(product.price)}</div>
                           <div className="text-xs text-[#8a6a4a]">/{product.unit}</div>
                         </div>
-                        <div className="w-32 shrink-0">
-                          <Input
-                            type="number"
-                            inputMode="numeric"
-                            min={0}
-                            step={DEALER_ORDER_STEP}
-                            value={quantity || ""}
-                            placeholder="0"
-                            aria-label={`Nhập số lượng ${product.name}`}
-                            onChange={(event) => updateQuantityInput(product.id, event.target.value)}
-                            className="h-11 rounded-2xl border-amber-200 bg-amber-50/70 text-center text-base font-extrabold text-[#3f2411] placeholder:text-[#b99570] focus-visible:ring-amber-400"
-                          />
-                          <div className="mt-1 text-center text-[10px] font-semibold uppercase text-[#8a6a4a]">bội số 10</div>
+                        <div className={cn("rounded-full px-3 py-1 text-xs font-bold", quantity > 0 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800")}>
+                          {quantity > 0 ? `${quantity} bánh` : "Chọn"}
                         </div>
                       </div>
-                    </CardContent>
+                    </button>
                   </Card>
                 );
               })}
@@ -831,8 +834,8 @@ export default function DealerPortal() {
                         <div className="truncate text-sm font-bold text-[#3f2411]">{product.name}</div>
                         <div className="text-xs text-[#765333]">{formatVnd(product.price)} / {product.unit}</div>
                       </div>
-                      <Button type="button" size="sm" className="h-10 rounded-2xl bg-[#3f2411] px-3 text-amber-50 hover:bg-[#5b3418]" onClick={() => updateQuantity(product.id, 1)}>
-                        Thêm
+                      <Button type="button" size="sm" className="h-10 rounded-2xl bg-[#3f2411] px-3 text-amber-50 hover:bg-[#5b3418]" onClick={() => openProductDialog(product)}>
+                        Chọn
                       </Button>
                     </div>
                   ))}
@@ -971,6 +974,69 @@ export default function DealerPortal() {
         </div>
       </nav>
       ) : null}
+
+      <Dialog
+        open={Boolean(selectedProduct)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedProduct(null);
+            setDraftQuantity("");
+            setQuantityModalError("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-sm overflow-hidden rounded-3xl border-amber-200 bg-[#fffaf0] p-0 text-[#3f2411] shadow-2xl">
+          {selectedProduct ? (
+            <>
+              <div className="h-48 bg-amber-50">
+                {selectedProduct.imageUrl ? (
+                  <img src={selectedProduct.imageUrl} alt={selectedProduct.name} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-[radial-gradient(circle_at_70%_20%,rgba(245,158,11,0.28),transparent_30%),linear-gradient(135deg,#fff7ed,#fef3c7)] text-amber-800">
+                    <ImageIcon className="h-8 w-8" />
+                    <span className="text-sm font-medium">Ảnh sản phẩm</span>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-4 p-5">
+                <DialogHeader>
+                  <DialogTitle className="text-xl font-display font-extrabold leading-tight">{selectedProduct.name}</DialogTitle>
+                  <DialogDescription className="text-sm leading-6 text-[#765333]">
+                    {formatVnd(selectedProduct.price)} / {selectedProduct.unit}. Nhập số lượng theo bội số 10 bánh.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-2">
+                  <Label htmlFor="dealer-product-quantity">Số lượng đặt</Label>
+                  <Input
+                    id="dealer-product-quantity"
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    step={DEALER_ORDER_STEP}
+                    value={draftQuantity}
+                    placeholder="VD: 100"
+                    onChange={(event) => {
+                      setDraftQuantity(event.target.value.replace(/[^0-9]/g, ""));
+                      setQuantityModalError("");
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") handleProductQuantitySubmit();
+                    }}
+                    className="h-12 rounded-2xl border-amber-200 bg-white text-center text-lg font-extrabold text-[#3f2411] focus-visible:ring-amber-400"
+                  />
+                  <div className="text-xs text-[#8a6a4a]">Nhập 0 để bỏ sản phẩm khỏi đơn.</div>
+                  {quantityModalError ? <div className="text-sm font-medium text-destructive">{quantityModalError}</div> : null}
+                </div>
+                <DialogFooter>
+                  <Button className="h-12 w-full rounded-2xl bg-amber-500 text-base font-bold text-[#2b1708] hover:bg-amber-400" onClick={handleProductQuantitySubmit}>
+                    Gửi
+                  </Button>
+                </DialogFooter>
+              </div>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={orderSuccessOpen} onOpenChange={setOrderSuccessOpen}>
         <DialogContent className="max-w-sm rounded-3xl border-amber-200 bg-[#fffaf0] text-[#3f2411] shadow-2xl">
