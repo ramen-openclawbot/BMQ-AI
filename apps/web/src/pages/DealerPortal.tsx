@@ -737,10 +737,10 @@ export default function DealerPortal() {
 
             <div className="grid gap-3 sm:grid-cols-3">
               {[
-                ["Combo sáng mai", "Thêm nhóm món dễ bán cho ca sáng", "bg-amber-500/15 text-amber-800"],
-                ["Bán chạy", "Ưu tiên các món đại lý hay đặt", "bg-emerald-500/12 text-emerald-700"],
-                ["Sản phẩm mới", "Gợi ý để đại lý thử bán thêm", "bg-orange-500/12 text-orange-700"],
-              ].map(([title, desc, tone]) => (
+                ["Combo sáng mai", "bg-amber-500/15 text-amber-800"],
+                ["Bán chạy", "bg-emerald-500/12 text-emerald-700"],
+                ["Sản phẩm mới", "bg-orange-500/12 text-orange-700"],
+              ].map(([title, tone]) => (
                 <button
                   key={title}
                   type="button"
@@ -751,7 +751,6 @@ export default function DealerPortal() {
                     <BadgePercent className="h-5 w-5" />
                   </div>
                   <div className="font-bold text-[#3f2411]">{title}</div>
-                  <div className="mt-1 text-sm leading-5 text-[#765333]">{desc}</div>
                 </button>
               ))}
             </div>
