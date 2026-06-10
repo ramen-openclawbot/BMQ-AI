@@ -126,12 +126,26 @@ export default function GoodsReceipts() {
     });
   }, [receipts, selectedMonthValue, selectedWeekValue, selectedYearValue, supplierSearchTerm, timeFilterMode]);
 
+  const includeSelectedReceiptInFilteredResults = useMemo(() => {
+    if (!selectedReceiptId) return null;
+    return receipts.find((receipt) => receipt.id === selectedReceiptId) || null;
+  }, [receipts, selectedReceiptId]);
+
   const filteredReceipts = useMemo(() => {
-    return periodAndSupplierFilteredReceipts.filter((r) => {
+    const rows = periodAndSupplierFilteredReceipts.filter((r) => {
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
       return true;
     });
-  }, [periodAndSupplierFilteredReceipts, statusFilter]);
+
+    if (
+      includeSelectedReceiptInFilteredResults &&
+      !rows.some((receipt) => receipt.id === includeSelectedReceiptInFilteredResults.id)
+    ) {
+      return [includeSelectedReceiptInFilteredResults, ...rows];
+    }
+
+    return rows;
+  }, [includeSelectedReceiptInFilteredResults, periodAndSupplierFilteredReceipts, statusFilter]);
 
   useEffect(() => {
     if (weekOptions.length > 0 && !weekOptions.some((week) => week.value === selectedWeekValue)) {
@@ -198,7 +212,15 @@ export default function GoodsReceipts() {
 
   const getReceiptActionLabel = (receipt: (typeof receipts)[number]) => {
     if (receipt.payable_status === "generated") return isVi ? "Đã tạo công nợ" : "Payable created";
-    return isVi ? "Nhập kho + Tạo công nợ" : "Receive + Create payable";
+    const paymentStatus = receipt.payment_requests?.payment_status;
+    const requestStatus = receipt.payment_requests?.status;
+    if (paymentStatus === "paid" || paymentStatus === "partial") {
+      return isVi ? "Nhập kho + Đối soát thanh toán" : "Receive + Reconcile payment";
+    }
+    if (requestStatus === "approved" || requestStatus === "completed" || receipt.payment_requests?.request_number) {
+      return isVi ? "Nhập kho + Đối soát công nợ" : "Receive + Reconcile payable";
+    }
+    return isVi ? "Nhập kho + Ghi nhận công nợ" : "Receive + Record payable";
   };
 
   const handleDelete = async () => {
@@ -215,6 +237,13 @@ export default function GoodsReceipts() {
   const handleConfirmReceipt = async (id: string) => {
     try {
       await confirmReceipt.mutateAsync(id);
+      const finalizedReceipt = receipts.find((receipt) => receipt.id === id);
+      const finalizedDate = parseReceiptDate(finalizedReceipt?.receipt_date || null) || new Date();
+      setSelectedReceiptId(id);
+      setStatusFilter("received");
+      setTimeFilterMode("month");
+      setSelectedMonthValue(toMonthValue(finalizedDate));
+      setSelectedYearValue(toYearValue(finalizedDate));
       toast.success("Đã nhập hàng vào kho thành công");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Không thể nhập hàng vào kho";
@@ -276,7 +305,7 @@ export default function GoodsReceipts() {
   ];
 
   return (
-    <div className="-m-4 min-h-screen bg-background text-foreground md:-m-6" data-bmq-goods-receipts-mobile-optimized>
+    <div className="-m-4 min-h-screen bg-background text-foreground md:-m-6" data-bmq-goods-receipts-mobile-optimized data-bmq-goods-receipts-finalized-visible-after-confirm>
       <div className="space-y-4 p-4 pb-8 md:p-6">
         <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
           <div className="flex items-start justify-between gap-3">

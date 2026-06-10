@@ -201,6 +201,15 @@ def test_finalization_rpc_posts_inventory_and_generates_pending_payable_atomical
     assert "GRANT EXECUTE ON FUNCTION public.finalize_goods_receipt(uuid, uuid) TO authenticated" in migrations
     assert "GRANT EXECUTE ON FUNCTION public.finalize_goods_receipt(uuid, uuid) TO service_role" in migrations
 
+    assert "is_receipt_payable_request" in migrations
+    assert "eligible receipt payable rows only" in migrations
+    assert "Preserve paid/approved PO advance request state" in migrations
+    assert "payment_status IN ('paid', 'partial')" in migrations
+    assert "status IN ('approved', 'completed')" in migrations
+    assert "payment_type = 'old_order'" in migrations
+    assert "goods_receipt_id = p_receipt_id" in migrations
+    assert "delivery_status = 'delivered'" in migrations
+
     assert 'rpc("finalize_goods_receipt"' in edge
     assert "p_receipt_id" in edge
     assert "p_user_id" in edge
@@ -252,9 +261,17 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "receipt.payable_status === \"generated\"" in page
     assert "receipt.payment_requests?.request_number" in page
     assert "receipt.purchase_orders?.po_number" in page
-    assert "Tạo công nợ" in page
+    assert "Nhập kho + Ghi nhận công nợ" in page
+    assert "Nhập kho + Đối soát công nợ" in page
+    assert "Nhập kho + Đối soát thanh toán" in page
+    assert "data-bmq-goods-receipts-finalized-visible-after-confirm" in page
+    assert "includeSelectedReceiptInFilteredResults" in page
+    assert "setStatusFilter(\"received\")" in page
+    assert "setTimeFilterMode(\"month\")" in page
+    assert "setSelectedMonthValue(toMonthValue(finalizedDate))" in page
     assert "data-bmq-goods-receipts-mobile-optimized" in page
     assert "data-bmq-goods-receipts-mobile-card-list" in page
+
     assert "data-bmq-goods-receipt-row-click-detail" in page
     assert "data-bmq-goods-receipts-pagination" in page
     assert "data-bmq-goods-receipts-per-page={RECEIPTS_PER_PAGE}" in page
@@ -629,7 +646,7 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert "fixed bottom-4 right-4 z-40" in page
     assert "data-bmq-mobile-po-create-fab" in page
     assert 'const isPurchaseOrdersMobileContext = location.pathname.startsWith("/purchase-orders");' in chat_widget
-    assert "const shouldLiftMobileChatButton = isRevenueMobileContext || isSkuCostsMobileContext || isPurchaseOrdersMobileContext;" in chat_widget
+    assert "const shouldLiftMobileChatButton = isRevenueMobileContext || isSkuCostsMobileContext || isPurchaseOrdersMobileContext" in chat_widget
     assert "shouldLiftMobileChatButton" in chat_widget
     assert "bottom-[calc(5rem+env(safe-area-inset-bottom))] right-3 h-11 w-11" in chat_widget
     assert "fixed bottom-0" not in mobile_section
