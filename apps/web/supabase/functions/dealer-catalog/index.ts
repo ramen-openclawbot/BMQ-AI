@@ -103,12 +103,16 @@ serve(async (req) => {
       });
     }
 
-    const products = ((skus || []) as ProductSku[]).filter((sku) => isFinishedSku(sku) && !sku.hide_from_dealer_portal).map((sku) => {
+    const products = ((skus || []) as ProductSku[]).flatMap((sku) => {
+      if (!isFinishedSku(sku) || sku.hide_from_dealer_portal) return [];
+
       const override = priceOverrides.get(sku.id);
       const skuSellingPrice = numberFromCostValues(sku.cost_values, "selling_price");
       const price = override ?? skuSellingPrice;
 
-      return {
+      if (!Number.isFinite(price) || price <= 0) return [];
+
+      return [{
         id: sku.id,
         sku_code: sku.sku_code,
         product_name: dealerDisplayName(sku),
@@ -121,7 +125,7 @@ serve(async (req) => {
         image_url: sku.image_url ?? null,
         image_path: sku.image_path ?? null,
         image_updated_at: sku.image_updated_at ?? null,
-      };
+      }];
     });
 
     const now = new Date().toISOString();
