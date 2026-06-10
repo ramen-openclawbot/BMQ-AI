@@ -17,10 +17,8 @@ import {
   LogOut,
   MapPin,
   MessageCircle,
-  Minus,
   PackagePlus,
   Phone,
-  Plus,
   Send,
   ShieldCheck,
   ShoppingCart,
@@ -34,6 +32,7 @@ import bmqLogo from "@/assets/bmq-logo.png";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { Label } from "@/components/ui/label";
@@ -179,6 +178,8 @@ export default function DealerPortal() {
   const [orderSubmitting, setOrderSubmitting] = useState(false);
   const [orderMessage, setOrderMessage] = useState("");
   const [orderError, setOrderError] = useState("");
+  const [orderSuccessOpen, setOrderSuccessOpen] = useState(false);
+  const [orderSuccessNumber, setOrderSuccessNumber] = useState("");
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [activeCategory, setActiveCategory] = useState("Tất cả");
 
@@ -360,7 +361,10 @@ export default function DealerPortal() {
 
       if (error) throw error;
 
-      setOrderMessage(`Đã gửi đơn ${data?.order_number || ""}. BMQ sẽ xác nhận lại theo lịch giao hàng.`);
+      const nextOrderNumber = data?.order_number || "";
+      setOrderSuccessNumber(nextOrderNumber);
+      setOrderSuccessOpen(true);
+      setOrderMessage(`Đã gửi đơn ${nextOrderNumber}. Xin cảm ơn quý khách đã chọn lựa Bánh Mì Que Pháp BMQ.`);
       setQuantities({});
     } catch (error) {
       setOrderError(await getFunctionErrorMessage(error, "Không gửi được đơn hàng."));
@@ -411,6 +415,16 @@ export default function DealerPortal() {
         [productId]: Math.max(0, normalizedCurrent + delta * DEALER_ORDER_STEP),
       };
     });
+  };
+
+  const updateQuantityInput = (productId: string, rawValue: string) => {
+    const sanitizedValue = rawValue.replace(/[^0-9]/g, "");
+    const nextQuantity = sanitizedValue ? Number(sanitizedValue) : 0;
+
+    setQuantities((current) => ({
+      ...current,
+      [productId]: Number.isFinite(nextQuantity) ? Math.max(0, nextQuantity) : 0,
+    }));
   };
 
   const handleNav = (item: (typeof navItems)[number]) => {
@@ -767,9 +781,6 @@ export default function DealerPortal() {
                             <span className="text-xs font-medium">Ảnh sản phẩm</span>
                           </div>
                         )}
-                        <Badge className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[11px] font-semibold text-amber-800 hover:bg-white">
-                          {product.tag}
-                        </Badge>
                       </div>
                       <div className="min-w-0 flex-1">
                         <h3 className="line-clamp-2 text-sm font-extrabold leading-snug text-[#3f2411] sm:text-base">{product.name}</h3>
@@ -780,31 +791,19 @@ export default function DealerPortal() {
                           <div className="text-sm font-extrabold text-[#3f2411]">{formatVnd(product.price)}</div>
                           <div className="text-xs text-[#8a6a4a]">/{product.unit}</div>
                         </div>
-                        <div className="grid h-11 w-32 shrink-0 grid-cols-[38px_1fr_38px] overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/70">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-11 rounded-none text-[#5b3418]"
-                            aria-label={`Giảm ${product.name}`}
-                            onClick={() => updateQuantity(product.id, -1)}
-                          >
-                            <Minus className="h-4 w-4" />
-                          </Button>
-                          <div className="flex flex-col items-center justify-center border-x border-amber-200 leading-none text-[#3f2411]">
-                            <span className="text-sm font-bold">{quantity}</span>
-                            <span className="mt-0.5 text-[9px] font-semibold uppercase text-[#8a6a4a]">bước 10</span>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-11 rounded-none bg-amber-500/95 text-[#2b1708] hover:bg-amber-400"
-                            aria-label={`Tăng ${product.name}`}
-                            onClick={() => updateQuantity(product.id, 1)}
-                          >
-                            <Plus className="h-4 w-4" />
-                          </Button>
+                        <div className="w-32 shrink-0">
+                          <Input
+                            type="number"
+                            inputMode="numeric"
+                            min={0}
+                            step={DEALER_ORDER_STEP}
+                            value={quantity || ""}
+                            placeholder="0"
+                            aria-label={`Nhập số lượng ${product.name}`}
+                            onChange={(event) => updateQuantityInput(product.id, event.target.value)}
+                            className="h-11 rounded-2xl border-amber-200 bg-amber-50/70 text-center text-base font-extrabold text-[#3f2411] placeholder:text-[#b99570] focus-visible:ring-amber-400"
+                          />
+                          <div className="mt-1 text-center text-[10px] font-semibold uppercase text-[#8a6a4a]">bội số 10</div>
                         </div>
                       </div>
                     </CardContent>
@@ -972,6 +971,26 @@ export default function DealerPortal() {
         </div>
       </nav>
       ) : null}
+
+      <Dialog open={orderSuccessOpen} onOpenChange={setOrderSuccessOpen}>
+        <DialogContent className="max-w-sm rounded-3xl border-amber-200 bg-[#fffaf0] text-[#3f2411] shadow-2xl">
+          <DialogHeader className="items-center text-center">
+            <div className="mb-2 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+              <CheckCircle2 className="h-7 w-7" />
+            </div>
+            <DialogTitle className="text-2xl font-display font-extrabold">Đặt hàng thành công</DialogTitle>
+            <DialogDescription className="text-center text-sm leading-6 text-[#765333]">
+              {orderSuccessNumber ? `Đơn ${orderSuccessNumber} đã được ghi nhận. ` : "Đơn hàng đã được ghi nhận. "}
+              Xin cảm ơn quý khách đã chọn lựa Bánh Mì Que Pháp BMQ.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button className="h-11 w-full rounded-2xl bg-amber-500 font-bold text-[#2b1708] hover:bg-amber-400" onClick={() => setOrderSuccessOpen(false)}>
+              Đã hiểu
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
