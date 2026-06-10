@@ -156,6 +156,12 @@ const getFunctionErrorMessage = async (error: unknown, fallback: string) => {
   return error instanceof Error ? error.message : fallback;
 };
 
+const toDisplayName = (value?: string | null) =>
+  (value || "")
+    .trim()
+    .toLocaleLowerCase("vi-VN")
+    .replace(/(^|[\s'’.-])([\p{L}])/gu, (_, prefix: string, letter: string) => `${prefix}${letter.toLocaleUpperCase("vi-VN")}`);
+
 export default function DealerPortal() {
   const [sessionToken, setSessionToken] = useState(() => localStorage.getItem(DEALER_SESSION_STORAGE_KEY) || "");
   const [loginStep, setLoginStep] = useState<LoginStep>(() =>
@@ -166,7 +172,6 @@ export default function DealerPortal() {
   const [activeNav, setActiveNav] = useState("order");
   const [catalogProducts, setCatalogProducts] = useState<Product[]>([]);
   const [catalogStatus, setCatalogStatus] = useState<"idle" | "loading" | "live" | "error">("idle");
-  const [catalogMessage, setCatalogMessage] = useState("Đăng nhập để xem sản phẩm và giá bán dành cho đại lý.");
   const [landingBannerUrl, setLandingBannerUrl] = useState("");
   const [landingBanners, setLandingBanners] = useState<DealerLandingBanner[]>([]);
   const [activeLandingBannerIndex, setActiveLandingBannerIndex] = useState(0);
@@ -185,6 +190,7 @@ export default function DealerPortal() {
   const [draftQuantity, setDraftQuantity] = useState("");
   const [quantityModalError, setQuantityModalError] = useState("");
   const [activeCategory, setActiveCategory] = useState("Tất cả");
+  const [dealerProfileOpen, setDealerProfileOpen] = useState(false);
 
   const loadLandingConfig = useCallback(async () => {
     try {
@@ -225,7 +231,6 @@ export default function DealerPortal() {
       setAnnouncements([]);
       setDealerCustomer(null);
       setCatalogStatus("idle");
-      setCatalogMessage("Đăng nhập để xem sản phẩm và giá bán dành cho đại lý.");
       return;
     }
 
@@ -243,17 +248,12 @@ export default function DealerPortal() {
       setAnnouncements(data?.announcements || []);
       setDealerCustomer(data?.customer || null);
       setCatalogStatus("live");
-      setCatalogMessage(
-        nextProducts.length
-          ? "Sản phẩm và giá bán đã sẵn sàng để đặt hàng."
-          : "Chưa có sản phẩm đang mở bán trên trang đặt hàng.",
-      );
     } catch (error) {
       const message = await getFunctionErrorMessage(error, "Không tải được danh sách sản phẩm.");
       setCatalogProducts([]);
       setAnnouncements([]);
       setCatalogStatus("error");
-      setCatalogMessage(message || "Không tải được danh sách sản phẩm.");
+      console.warn("Không tải được danh sách sản phẩm đại lý", message || error);
     }
   }, []);
 
@@ -403,7 +403,7 @@ export default function DealerPortal() {
   const totalItems = selectedLines.reduce((sum, product) => sum + product.quantity, 0);
   const cartTotal = selectedLines.reduce((sum, product) => sum + product.lineTotal, 0);
   const isCatalogUnlocked = loginStep === "catalog" && Boolean(sessionToken);
-  const dealerDisplayName = dealerCustomer?.name || dealerCustomer?.code || "Đại lý BMQ";
+  const dealerDisplayName = toDisplayName(dealerCustomer?.name) || dealerCustomer?.code || "Đại lý BMQ";
   const activeLandingBanner = landingBanners[activeLandingBannerIndex] || landingBanners[0];
   const activeLandingBannerUrl = activeLandingBanner?.url || landingBannerUrl;
   const activePromotionPath = window.location.hostname === "dathang.banhmique.vn"
@@ -466,10 +466,14 @@ export default function DealerPortal() {
             </div>
           </div>
           {isCatalogUnlocked ? (
-            <div className="flex min-w-0 max-w-[52vw] items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-[#3f2411] shadow-sm">
+            <button
+              type="button"
+              className="flex min-w-0 max-w-[52vw] items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-[#3f2411] shadow-sm transition hover:border-amber-300 hover:bg-amber-100"
+              onClick={() => setDealerProfileOpen(true)}
+            >
               <Building2 className="h-4 w-4 shrink-0 text-amber-700" />
               <span className="truncate text-sm font-semibold">{dealerDisplayName}</span>
-            </div>
+            </button>
           ) : (
             <Button variant="outline" size="sm" className="h-9 px-3" onClick={() => handleNav(navItems[3])}>
               <MessageCircle className="h-4 w-4" />
@@ -606,7 +610,7 @@ export default function DealerPortal() {
 
       <main className={cn("mx-auto grid max-w-6xl gap-4 px-4 pt-4", isCatalogUnlocked ? "bg-[#fffaf0] pb-40 lg:grid-cols-[minmax(0,1fr)_340px] lg:pb-12" : "pb-28")}>
         <div className="space-y-4">
-          <Card id="dealer-login" className="scroll-mt-24 rounded-md">
+          <Card id="dealer-login" className={cn("scroll-mt-24 rounded-md", isCatalogUnlocked && "hidden")}>
             <CardHeader className="p-4 pb-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -983,6 +987,35 @@ export default function DealerPortal() {
           })}
         </div>
       </nav>
+      ) : null}
+
+      {isCatalogUnlocked ? (
+        <Dialog open={dealerProfileOpen} onOpenChange={setDealerProfileOpen}>
+          <DialogContent className="max-w-sm rounded-3xl border-amber-200 bg-[#fffaf0] text-[#3f2411] shadow-2xl">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-display font-extrabold">Đăng nhập đại lý</DialogTitle>
+              <DialogDescription className="text-sm leading-6 text-[#765333]">
+                Xác thực số điện thoại bằng OTP Zalo trước khi đặt hàng.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3 rounded-2xl border bg-white/70 p-3 text-sm">
+                <span className="truncate text-[#765333]">Phiên đại lý đang hoạt động.</span>
+                <Button variant="ghost" size="sm" onClick={handleLogoutDealer}>
+                  <LogOut className="h-4 w-4" />
+                  Đăng xuất
+                </Button>
+              </div>
+              <div className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <div className="font-semibold">{dealerDisplayName}</div>
+                  <div className="mt-1 text-emerald-800/80">Phiên OTP hợp lệ. Đơn gửi sẽ được BMQ tiếp nhận và xác nhận.</div>
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       ) : null}
 
       <Dialog
