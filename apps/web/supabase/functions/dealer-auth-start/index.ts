@@ -17,6 +17,8 @@ import {
 
 const GENERIC_AUTH_START_MESSAGE =
   "Nếu số điện thoại thuộc hồ sơ đại lý đang hoạt động, mã OTP sẽ được gửi qua Zalo ZNS.";
+const CONTACT_SUPPORT_MESSAGE =
+  "Số điện thoại này chưa có trong hệ thống đại lý BMQ hoặc chưa được kích hoạt. Vui lòng liên hệ CSKH BMQ để được hỗ trợ thêm số điện thoại.";
 const OTP_RESEND_COOLDOWN_SECONDS = 60;
 
 serve(async (req) => {
@@ -59,7 +61,9 @@ serve(async (req) => {
     if (!contacts?.length) {
       return jsonResponse(req, {
         success: true,
-        message: GENERIC_AUTH_START_MESSAGE,
+        otp_required: false,
+        reason: "dealer_phone_not_registered",
+        message: CONTACT_SUPPORT_MESSAGE,
       });
     }
 
@@ -67,7 +71,9 @@ serve(async (req) => {
       console.warn(`[dealer-auth-start] Duplicate active contacts for ${maskDealerPhone(phoneNormalized)}`);
       return jsonResponse(req, {
         success: true,
-        message: GENERIC_AUTH_START_MESSAGE,
+        otp_required: false,
+        reason: "dealer_phone_needs_support",
+        message: CONTACT_SUPPORT_MESSAGE,
       });
     }
 
@@ -86,6 +92,7 @@ serve(async (req) => {
       return jsonResponse(req, {
         success: true,
         message: GENERIC_AUTH_START_MESSAGE,
+        otp_required: true,
         retry_after_seconds: OTP_RESEND_COOLDOWN_SECONDS,
       });
     }
@@ -140,6 +147,7 @@ serve(async (req) => {
       return jsonResponse(req, {
         success: true,
         message: GENERIC_AUTH_START_MESSAGE,
+        otp_required: true,
         expires_in_seconds: 300,
         dev_otp: sendResult.skipped ? otp : undefined,
       });

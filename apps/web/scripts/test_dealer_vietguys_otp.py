@@ -41,15 +41,19 @@ def test_portal_uses_existing_dealer_auth_functions() -> None:
         assert_contains(portal, needle, label)
 
 
-def test_auth_start_keeps_crm_contact_lookup_and_generic_message() -> None:
+def test_auth_start_keeps_crm_contact_lookup_and_support_message() -> None:
     for needle, label in [
         ('from("dealer_customer_contacts")', "CRM dealer contact lookup"),
         ('mini_crm_customers!inner', "active Mini CRM customer join"),
         ('eq("phone_normalized", phoneNormalized)', "normalized phone lookup"),
-        ('GENERIC_AUTH_START_MESSAGE', "generic non-enumerating auth message"),
+        ('CONTACT_SUPPORT_MESSAGE', "CRM support message for unregistered phones"),
+        ('otp_required: false', "unregistered phones stay on phone step"),
         ('OTP_RESEND_COOLDOWN_SECONDS = 60', "resend cooldown"),
     ]:
         assert_contains(auth_start, needle, label)
+
+    assert_contains(portal, 'data?.otp_required === false', "portal handles unregistered phone without OTP step")
+    assert_contains(portal, "Số điện thoại này chưa có trong hệ thống đại lý BMQ", "portal CRM support copy")
 
 
 def test_vietguys_zbs_mobile_request_shape() -> None:

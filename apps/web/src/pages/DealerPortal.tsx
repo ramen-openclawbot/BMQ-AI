@@ -272,12 +272,24 @@ export default function DealerPortal() {
       const { data, error } = await supabase.functions.invoke<{
         success?: boolean;
         message?: string;
+        otp_required?: boolean;
+        reason?: string;
         dev_otp?: string;
       }>("dealer-auth-start", {
         body: { phone },
       });
 
       if (error) throw error;
+
+      if (data?.otp_required === false) {
+        setLoginStep("phone");
+        setOtp("");
+        setAuthError(
+          data.message ||
+            "Số điện thoại này chưa có trong hệ thống đại lý BMQ hoặc chưa được kích hoạt. Vui lòng liên hệ CSKH BMQ để được hỗ trợ thêm số điện thoại.",
+        );
+        return;
+      }
 
       setLoginStep("otp");
       setAuthMessage(
@@ -647,7 +659,7 @@ export default function DealerPortal() {
                     </div>
                   </div>
                   <div className="rounded-md border border-dashed bg-muted/50 p-3 text-sm text-muted-foreground">
-                    Hệ thống sẽ kiểm tra số điện thoại đã đăng ký và gửi OTP qua Zalo nếu hợp lệ.
+                    Nếu số điện thoại chưa có trong CRM đại lý BMQ, vui lòng liên hệ CSKH BMQ để thêm số điện thoại của bạn.
                   </div>
                   <Button className="h-11 w-full btn-gradient" onClick={handleStartAuth} disabled={authLoading}>
                     {authLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronRight className="h-4 w-4" />}
