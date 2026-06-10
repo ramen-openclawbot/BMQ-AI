@@ -5,12 +5,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 
 const TIME_ZONE = "Asia/Ho_Chi_Minh";
+const DEALER_PARSE_SOURCE_SETTING_KEY = "dealer_parse_source";
+type DealerParseSource = "email_po" | "dealer_portal";
 
 const vnd = (v: number) =>
   new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(v || 0);
@@ -296,6 +299,46 @@ export default function FinanceRevenueControl() {
       return data || null;
     },
   });
+
+  const { data: dealerParseSource = "email_po", isLoading: dealerParseSourceLoading } = useQuery<DealerParseSource>({
+    queryKey: ["dealer-parse-source-setting"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("app_settings")
+        .select("value")
+        .eq("key", DEALER_PARSE_SOURCE_SETTING_KEY)
+        .maybeSingle();
+      if (error) throw error;
+      return data?.value === "dealer_portal" ? "dealer_portal" : "email_po";
+    },
+  });
+
+  const updateDealerParseSource = async (checked: boolean) => {
+    if (!canRunAutomation) {
+      toast({
+        title: isVi ? "Không đủ quyền" : "No permission",
+        description: isVi ? "Chỉ owner được đổi nguồn parse kênh đại lý." : "Only owners can change the dealer parse source.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const nextSource: DealerParseSource = checked ? "dealer_portal" : "email_po";
+    const { error } = await supabase
+      .from("app_settings")
+      .upsert({ key: DEALER_PARSE_SOURCE_SETTING_KEY, value: nextSource, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    if (error) {
+      toast({ title: isVi ? "Không lưu được thiết lập" : "Could not save setting", description: getReadableError(error), variant: "destructive" });
+      return;
+    }
+    await queryClient.invalidateQueries({ queryKey: ["dealer-parse-source-setting"] });
+    toast({
+      title: isVi ? "Đã đổi nguồn parse đại lý" : "Dealer parse source updated",
+      description: checked
+        ? "Kênh đại lý sẽ lấy đơn từ link dathang.banhmique.vn khi parse."
+        : "Kênh đại lý sẽ lấy lại từ email PO.",
+    });
+  };
 
   const { data: autoDailyLogs = [], isLoading: logsLoading } = useQuery<AutoDailyParseLogRow[]>({
     queryKey: ["revenue-auto-daily-parse-logs"],
@@ -622,6 +665,29 @@ export default function FinanceRevenueControl() {
               </div>
               <div className="mt-2 text-xl font-semibold text-foreground">
                 {formatDate(parseWindow.poReceivedFrom)}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-primary/20 bg-primary/5 p-4" data-bmq-dealer-parse-source-toggle>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                <div className="text-sm font-semibold text-foreground">Nguồn parse kênh đại lý</div>
+                <div className="text-xs text-muted-foreground">
+                  {dealerParseSource === "dealer_portal"
+                    ? "Đang dùng đơn từ link dathang.banhmique.vn, thay cho email PO đại lý khi parse."
+                    : "Đang dùng email PO gửi về po@bmq.vn cho kênh đại lý."}
+                </div>
+              </div>
+              <div className="flex items-center gap-3 rounded-full border border-border bg-card/80 px-3 py-2">
+                <span className={dealerParseSource === "email_po" ? "text-xs font-semibold text-primary" : "text-xs font-medium text-muted-foreground"}>Email PO</span>
+                <Switch
+                  checked={dealerParseSource === "dealer_portal"}
+                  disabled={!canRunAutomation || actionBusy || dealerParseSourceLoading}
+                  onCheckedChange={(checked) => void updateDealerParseSource(checked)}
+                  aria-label="Chuyển nguồn parse đại lý giữa email PO và link dathang.banhmique.vn"
+                />
+                <span className={dealerParseSource === "dealer_portal" ? "text-xs font-semibold text-primary" : "text-xs font-medium text-muted-foreground"}>Link đặt hàng</span>
               </div>
             </div>
           </div>

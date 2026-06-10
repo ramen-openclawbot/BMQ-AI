@@ -75,6 +75,43 @@ type PreviewOptions = {
   linePayloadMetadata?: JsonRecord;
 };
 
+type DealerParseSource = "email_po" | "dealer_portal";
+
+type DealerOrderRow = {
+  id: string;
+  order_number: string | null;
+  customer_id: string | null;
+  status: string | null;
+  subtotal_amount_vnd: number | string | null;
+  total_amount_vnd: number | string | null;
+  requested_delivery_date: string | null;
+  delivery_note: string | null;
+  customer_note: string | null;
+  customer_snapshot: JsonRecord | null;
+  submitted_at: string | null;
+  created_at: string | null;
+  mini_crm_customers?: {
+    id?: string | null;
+    customer_name?: string | null;
+    customer_code?: string | null;
+    product_group?: string | null;
+    supplied_by_npp_customer_id?: string | null;
+  } | null;
+  dealer_order_items?: Array<{
+    id: string;
+    sku_id?: string | null;
+    sku_code?: string | null;
+    product_name?: string | null;
+    unit?: string | null;
+    quantity?: number | string | null;
+    unit_price_vnd?: number | string | null;
+    line_total_vnd?: number | string | null;
+    price_source?: string | null;
+  }> | null;
+};
+
+const DEALER_PARSE_SOURCE_SETTING_KEY = "dealer_parse_source";
+
 type DailyCancellationResolution = {
   enabled: boolean;
   hasCancellationSignal: boolean;
@@ -717,6 +754,185 @@ async function fetchInboxRows(supabaseAdmin: ReturnType<typeof createClient>, re
   return Array.from(rowsById.values());
 }
 
+async function getDealerParseSource(supabaseAdmin: ReturnType<typeof createClient>): Promise<DealerParseSource> {
+  const { data, error } = await supabaseAdmin
+    .from("app_settings")
+    .select("value")
+    .eq("key", DEALER_PARSE_SOURCE_SETTING_KEY)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.value === "dealer_portal" ? "dealer_portal" : "email_po";
+}
+
+const isDealerInboxRow = (row: InboxRow) => {
+  const raw = asRecord(row.raw_payload);
+  const poAutomation = asRecord(raw.po_automation);
+  const customerName = stringValue(row.mini_crm_customers?.customer_name, raw.customer_name, row.email_subject);
+  const signal = normalizeText(
+    row.revenue_channel,
+    raw.revenue_channel,
+    row.mini_crm_customers?.product_group,
+    poAutomation.rule,
+    poAutomation.channel_scope,
+    row.from_email,
+    customerName,
+  );
+
+  return (
+    row.from_email === THUY_DIRECT_DEALER_SENDER ||
+    signal.includes("thuy") ||
+    signal.includes("tony") ||
+    signal.includes("anh thanh") ||
+    signal.includes("direct_company_dealer") ||
+    signal.includes("direct dealer") ||
+    signal.includes("direct_dealer") ||
+    signal.includes("banhmi_agency") ||
+    signal.includes("agency") ||
+    signal.includes("dai ly")
+  );
+};
+
+const dealerOrderRevenueDate = (order: DealerOrderRow) => {
+  if (order.requested_delivery_date) return order.requested_delivery_date;
+  const submittedLocalDate = localDateFromTimestamp(order.submitted_at || order.created_at || "");
+  return submittedLocalDate ? shiftLocalDate(submittedLocalDate, 1) : null;
+};
+
+async function fetchDealerPortalOrders(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  window: ParseWindow,
+  receivedFrom: string,
+  receivedTo: string,
+) {
+  const rowsById = new Map<string, DealerOrderRow>();
+  const selectColumns = "*, mini_crm_customers(id, customer_name, customer_code, product_group, supplied_by_npp_customer_id), dealer_order_items(*)";
+  const addRows = (rows: DealerOrderRow[] | null) => {
+    for (const row of rows || []) {
+      if (!row?.id || row.status === "cancelled") continue;
+      rowsById.set(row.id, row);
+    }
+  };
+
+  const { data: bySubmit, error: submitError } = await supabaseAdmin
+    .from("dealer_orders")
+    .select(selectColumns)
+    .gte("submitted_at", receivedFrom)
+    .lte("submitted_at", receivedTo)
+    .order("submitted_at", { ascending: false });
+  if (submitError) throw submitError;
+  addRows(bySubmit as DealerOrderRow[] | null);
+
+  const { data: byDelivery, error: deliveryError } = await supabaseAdmin
+    .from("dealer_orders")
+    .select(selectColumns)
+    .gte("requested_delivery_date", window.revenueDateFrom)
+    .lte("requested_delivery_date", window.revenueDateTo)
+    .order("submitted_at", { ascending: false });
+  if (deliveryError) throw deliveryError;
+  addRows(byDelivery as DealerOrderRow[] | null);
+
+  return Array.from(rowsById.values());
+}
+
+const buildDealerPortalPreviewLines = (
+  runId: string,
+  period: string,
+  revenueFrom: string,
+  revenueTo: string,
+  orders: DealerOrderRow[],
+  emit?: ProgressEmitter,
+  options: Pick<PreviewOptions, "monthlyParseKind" | "sourceTab" | "linePayloadMetadata"> = {},
+) => {
+  const lines: PreviewLine[] = [];
+  const monthlyParseKind = options.monthlyParseKind || "manual_current_month_to_yesterday";
+  const sourceTab = options.sourceTab || "Link dathang.banhmique.vn";
+  const linePayloadMetadata = options.linePayloadMetadata || {};
+  let sourceRowNumber = 1;
+
+  for (const order of orders) {
+    const revenueDate = dealerOrderRevenueDate(order);
+    if (!revenueDate || revenueDate < revenueFrom || revenueDate > revenueTo) continue;
+    const poReceivedDate = localDateFromTimestamp(order.submitted_at || order.created_at || "");
+    const customerSnapshot = asRecord(order.customer_snapshot);
+    const customerName = stringValue(order.mini_crm_customers?.customer_name, customerSnapshot.name, customerSnapshot.customer_name) || "Đại lý BMQ";
+    const items = Array.isArray(order.dealer_order_items) && order.dealer_order_items.length > 0
+      ? order.dealer_order_items
+      : [{
+          id: `${order.id}-total`,
+          product_name: "Đơn dathang.banhmique.vn",
+          quantity: 1,
+          unit_price_vnd: order.total_amount_vnd,
+          line_total_vnd: order.total_amount_vnd,
+        }];
+
+    for (const item of items) {
+      const quantity = Number(item.quantity || 0);
+      const gross = Number(item.line_total_vnd || 0);
+      const unitPrice = Number(item.unit_price_vnd || (quantity > 0 ? gross / quantity : 0));
+      if (quantity <= 0 && gross <= 0) continue;
+      lines.push({
+        run_id: runId,
+        source_row_number: sourceRowNumber,
+        revenue_date: revenueDate,
+        po_received_date: poReceivedDate,
+        period,
+        channel: "ĐẠI LÝ",
+        source_tab: sourceTab,
+        branch: null,
+        invoice_no: order.order_number,
+        customer_id: order.customer_id,
+        parent_customer_id: stringValue(order.mini_crm_customers?.supplied_by_npp_customer_id),
+        customer_code: stringValue(order.mini_crm_customers?.customer_code, customerSnapshot.code, customerSnapshot.customer_code),
+        customer_name: customerName,
+        product_code: stringValue(item.sku_code, item.sku_id),
+        product_name: stringValue(item.product_name) || "Đơn dathang.banhmique.vn",
+        item_note: stringValue(order.delivery_note, order.customer_note),
+        quantity,
+        unit_price: unitPrice,
+        gross_revenue: gross,
+        source_type: "po_email_parse",
+        source_ref: order.id,
+        confidence_status: "matched",
+        reconciliation_status: "not_reconciled",
+        review_status: "not_required",
+        raw_payload: {
+          dealer_order_id: order.id,
+          dealer_order_item_id: item.id,
+          source: "dealer_portal_order",
+          source_url: "https://dathang.banhmique.vn",
+          order_number: order.order_number,
+          submitted_at: order.submitted_at || order.created_at || null,
+          requested_delivery_date: order.requested_delivery_date,
+          revenue_date: revenueDate,
+          date_mapping: order.requested_delivery_date ? "dealer_requested_delivery_date" : "dealer_submitted_local_date_plus_1_day_fallback",
+          monthly_parse_kind: monthlyParseKind,
+          dashboard_channel: "ĐẠI LÝ",
+          raw_parse_channel: "dealer_portal",
+          trust_semantics: "dealer_portal_replaces_agency_email_po_when_enabled",
+          ...linePayloadMetadata,
+        },
+      });
+      sourceRowNumber += 1;
+    }
+
+    emit?.({
+      type: "progress",
+      stage: "parse_channel",
+      channel: "ĐẠI LÝ",
+      mailCount: orders.length,
+      lineCount: lines.length,
+      currentMailLines: items.length,
+      receivedDate: poReceivedDate,
+      subject: order.order_number || null,
+      totalParsedMails: orders.length,
+      totalParsedLines: lines.length,
+      message: `ĐẠI LÝ: đã parse ${orders.length} đơn từ dathang.banhmique.vn / ${lines.length} dòng`,
+    });
+  }
+
+  return lines.map((line, index) => ({ ...line, source_row_number: index + 1 }));
+};
+
 const inboxRowPoNumber = (row: InboxRow) =>
   stringValue(row.po_number, extractPoNumberFromSubject(row.email_subject))?.toUpperCase() || null;
 
@@ -972,7 +1188,7 @@ const isThuyDealerDateHeaderItem = (row: InboxRow, item: JsonRecord) => {
   return (
     fromEmail.includes("mi@bmq.vn") &&
     automationRule.includes("thuy") &&
-    rawLine.match(/^dat banh\s+\d{1,2}(?:[.,\/]\d{1,2})?$/) !== null &&
+    rawLine.match(/^dat banh\s+\d{1,2}(?:[.,/]\d{1,2})?$/) !== null &&
     route === "dat banh" &&
     subject.includes(rawLine)
   );
@@ -1282,11 +1498,25 @@ async function runCurrentMonthPreview(
   emit?.({ type: "progress", stage: "preview_run_created", runId: run.id, period: window.period, message: "Đã tạo staging run, bắt đầu parse" });
 
   try {
+    const dealerParseSource = await getDealerParseSource(supabaseAdmin);
     const syncResults = options.syncGmail === false ? [] : await syncGmailInboxForPreview(req, window, emit);
     emit?.({ type: "progress", stage: "inbox_fetch_start", channel: "Mailbox", message: "Đang đọc inbox đã sync để chia theo channel" });
     const rows = await fetchInboxRows(supabaseAdmin, receivedFrom, receivedTo);
-    emit?.({ type: "progress", stage: "inbox_fetch_done", channel: "Mailbox", inboxRows: rows.length, message: `Đã lấy ${rows.length} mail trong inbox, bắt đầu parse theo kênh` });
-    const { rows: rowsAfterCancellationResolution, resolution: dailyCancellationResolution } = resolveDailyCancellationReplacements(rows, window);
+    const dealerPortalOrders = dealerParseSource === "dealer_portal"
+      ? await fetchDealerPortalOrders(supabaseAdmin, window, receivedFrom, receivedTo)
+      : [];
+    const sourceRows = dealerParseSource === "dealer_portal" ? rows.filter((row) => !isDealerInboxRow(row)) : rows;
+    emit?.({
+      type: "progress",
+      stage: "inbox_fetch_done",
+      channel: dealerParseSource === "dealer_portal" ? "Mailbox + Link đại lý" : "Mailbox",
+      inboxRows: sourceRows.length,
+      dealerPortalOrders: dealerPortalOrders.length,
+      message: dealerParseSource === "dealer_portal"
+        ? `Đã lấy ${sourceRows.length} mail non-đại-lý và ${dealerPortalOrders.length} đơn từ dathang.banhmique.vn`
+        : `Đã lấy ${rows.length} mail trong inbox, bắt đầu parse theo kênh`,
+    });
+    const { rows: rowsAfterCancellationResolution, resolution: dailyCancellationResolution } = resolveDailyCancellationReplacements(sourceRows, window);
     if (dailyCancellationResolution.hasCancellationSignal) {
       emit?.({
         type: "progress",
@@ -1312,16 +1542,31 @@ async function runCurrentMonthPreview(
     }
     const dispatchConfirmations = await fetchDispatchRevenueConfirmations(supabaseAdmin, rowsAfterDailyLatestBakery.map((row) => row.id));
     emit?.({ type: "progress", stage: "dispatch_confirmation_fetch_done", rows: dispatchConfirmations.size, message: `Đã lấy ${dispatchConfirmations.size} xác nhận xuất kho/doanh thu` });
-    const lines = buildPreviewLines(String(run.id), window.period, window.revenueDateFrom, window.revenueDateTo, rowsAfterDailyLatestBakery, dispatchConfirmations, emit, {
+    const emailLines = buildPreviewLines(String(run.id), window.period, window.revenueDateFrom, window.revenueDateTo, rowsAfterDailyLatestBakery, dispatchConfirmations, emit, {
       monthlyParseKind: options.monthlyParseKind,
       sourceTab: options.sourceTab,
       linePayloadMetadata: options.linePayloadMetadata,
     });
+    const dealerPortalLines = dealerParseSource === "dealer_portal"
+      ? buildDealerPortalPreviewLines(String(run.id), window.period, window.revenueDateFrom, window.revenueDateTo, dealerPortalOrders, emit, {
+          monthlyParseKind: options.monthlyParseKind,
+          sourceTab: "Link dathang.banhmique.vn",
+          linePayloadMetadata: {
+            ...(options.linePayloadMetadata || {}),
+            dealer_parse_source: dealerParseSource,
+          },
+        })
+      : [];
+    const lines = [...emailLines, ...dealerPortalLines].map((line, index) => ({ ...line, source_row_number: index + 1 }));
     const summary = {
       ...summarizeLines(lines, window),
       monthly_parse_kind: options.monthlyParseKind || "manual_current_month_to_yesterday",
       dailyCancellationResolution,
       dailyLatestBakeryResolution,
+      dealerParseSource,
+      dealerPortalOrders: dealerPortalOrders.length,
+      dealerPortalLines: dealerPortalLines.length,
+      excludedDealerEmailRows: dealerParseSource === "dealer_portal" ? rows.length - sourceRows.length : 0,
       daily_latest_bakery_excluded_row_count: dailyLatestBakeryResolution.excludedRows.length,
       daily_cancellation_replacement_confirmation_required: dailyCancellationResolution.requiresConfirmation,
       ...(options.runSummary || {}),
