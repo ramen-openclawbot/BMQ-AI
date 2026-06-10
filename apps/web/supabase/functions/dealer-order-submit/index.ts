@@ -13,6 +13,10 @@ import {
 type SubmitItemInput = {
   sku_id?: unknown;
   quantity?: unknown;
+  ordered_quantity?: unknown;
+  exchange_quantity?: unknown;
+  makeup_quantity?: unknown;
+  physical_quantity?: unknown;
   route_customer_id?: unknown;
   route_customer_name?: unknown;
   route_note?: unknown;
@@ -21,6 +25,9 @@ type SubmitItemInput = {
 type NormalizedSubmitItem = {
   sku_id: string;
   quantity: number;
+  exchange_quantity: number;
+  makeup_quantity: number;
+  physical_quantity: number;
   route_customer_id: string | null;
   route_customer_name: string | null;
   route_note: string | null;
@@ -162,6 +169,9 @@ serve(async (req) => {
       return {
         sku,
         quantity: item.quantity,
+        exchangeQuantity: item.exchange_quantity,
+        makeupQuantity: item.makeup_quantity,
+        physicalQuantity: item.physical_quantity,
         unitPrice: roundMoney(unitPrice),
         lineTotal,
         priceSource,
@@ -199,6 +209,10 @@ serve(async (req) => {
           product_name: line.sku.product_name,
           unit: dealerDisplayUnit(line.sku),
           quantity: line.quantity,
+          ordered_quantity: line.quantity,
+          exchange_quantity: line.exchangeQuantity,
+          makeup_quantity: line.makeupQuantity,
+          physical_quantity: line.physicalQuantity,
           unit_price_vnd: line.unitPrice,
           line_total_vnd: line.lineTotal,
           price_source: line.priceSource,
@@ -233,19 +247,29 @@ function normalizeItems(items: SubmitItemInput[] | undefined): NormalizedSubmitI
   const quantitiesByLine = new Map<string, NormalizedSubmitItem>();
   items.forEach((item) => {
     const skuId = typeof item.sku_id === "string" ? item.sku_id.trim() : "";
-    const quantity = Number(item.quantity);
+    const quantity = Number(item.ordered_quantity ?? item.quantity);
+    const exchangeQuantity = Math.max(0, Number(item.exchange_quantity || 0));
+    const makeupQuantity = Math.max(0, Number(item.makeup_quantity || 0));
+    const physicalQuantityInput = Number(item.physical_quantity);
+    const physicalQuantity = Number.isFinite(physicalQuantityInput) && physicalQuantityInput > 0
+      ? physicalQuantityInput
+      : quantity + exchangeQuantity + makeupQuantity;
     const routeCustomerId = typeof item.route_customer_id === "string" && item.route_customer_id.trim()
       ? item.route_customer_id.trim()
       : null;
     const routeCustomerName = normalizeNullableText(item.route_customer_name, 160);
     const routeNote = normalizeNullableText(item.route_note, 180);
 
-    if (!skuId || !Number.isFinite(quantity) || quantity <= 0) return;
+    if (!skuId || !Number.isFinite(quantity) || quantity < 0) return;
+    if (!Number.isFinite(exchangeQuantity) || !Number.isFinite(makeupQuantity) || !Number.isFinite(physicalQuantity) || physicalQuantity <= 0) return;
     const key = `${skuId}::${routeCustomerId || "direct"}`;
     const current = quantitiesByLine.get(key);
     quantitiesByLine.set(key, {
       sku_id: skuId,
       quantity: roundQuantity((current?.quantity || 0) + quantity),
+      exchange_quantity: roundQuantity((current?.exchange_quantity || 0) + exchangeQuantity),
+      makeup_quantity: roundQuantity((current?.makeup_quantity || 0) + makeupQuantity),
+      physical_quantity: roundQuantity((current?.physical_quantity || 0) + physicalQuantity),
       route_customer_id: routeCustomerId,
       route_customer_name: current?.route_customer_name || routeCustomerName,
       route_note: current?.route_note || routeNote,
@@ -254,7 +278,7 @@ function normalizeItems(items: SubmitItemInput[] | undefined): NormalizedSubmitI
 
   return Array.from(quantitiesByLine.values())
     .slice(0, 200)
-    .filter((item) => item.quantity > 0 && item.quantity <= 10000);
+    .filter((item) => item.physical_quantity > 0 && item.physical_quantity <= 10000 && item.quantity <= 10000);
 }
 
 function normalizeDeliveryDate(value: unknown): string | null {
@@ -275,7 +299,7 @@ function roundQuantity(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
 
-async function insertOrderWithRetry(supabase: any, payload: Record<string, unknown>) {
+async function insertOrderWithRetry(supabase: ReturnType<typeof createServiceClient>, payload: Record<string, unknown>) {
   let lastError: unknown;
 
   for (let attempt = 0; attempt < 3; attempt += 1) {

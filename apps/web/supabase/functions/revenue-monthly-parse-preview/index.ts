@@ -104,6 +104,10 @@ type DealerOrderRow = {
     product_name?: string | null;
     unit?: string | null;
     quantity?: number | string | null;
+    ordered_quantity?: number | string | null;
+    exchange_quantity?: number | string | null;
+    makeup_quantity?: number | string | null;
+    physical_quantity?: number | string | null;
     route_customer_id?: string | null;
     route_customer_name?: string | null;
     route_note?: string | null;
@@ -869,7 +873,10 @@ const buildDealerPortalPreviewLines = (
         }];
 
     for (const item of items) {
-      const quantity = Number(item.quantity || 0);
+      const quantity = Number(item.ordered_quantity ?? item.quantity ?? 0);
+      const exchangeQuantity = Number(item.exchange_quantity || 0);
+      const makeupQuantity = Number(item.makeup_quantity || 0);
+      const physicalQuantity = Number(item.physical_quantity || (quantity + exchangeQuantity + makeupQuantity));
       const gross = Number(item.line_total_vnd || 0);
       const unitPrice = Number(item.unit_price_vnd || (quantity > 0 ? gross / quantity : 0));
       if (quantity <= 0 && gross <= 0) continue;
@@ -892,7 +899,12 @@ const buildDealerPortalPreviewLines = (
         customer_name: lineCustomerName,
         product_code: stringValue(item.sku_code, item.sku_id),
         product_name: stringValue(item.product_name) || "Đơn dathang.banhmique.vn",
-        item_note: stringValue(item.route_note, order.delivery_note, order.customer_note),
+        item_note: [
+          stringValue(item.route_note, order.delivery_note, order.customer_note),
+          exchangeQuantity > 0 || makeupQuantity > 0
+            ? `Đổi/bù: đặt ${quantity}, đổi ${exchangeQuantity}, bù ${makeupQuantity}, giao ${physicalQuantity}`
+            : null,
+        ].filter(Boolean).join("; ") || null,
         quantity,
         unit_price: unitPrice,
         gross_revenue: gross,
@@ -906,6 +918,10 @@ const buildDealerPortalPreviewLines = (
           dealer_order_item_id: item.id,
           route_customer_id: routeCustomerId || null,
           route_customer_name: routeCustomerName || null,
+          ordered_quantity: quantity,
+          exchange_quantity: exchangeQuantity,
+          makeup_quantity: makeupQuantity,
+          physical_quantity: physicalQuantity,
           npp_customer_id: routeCustomerId ? order.customer_id : null,
           npp_customer_name: routeCustomerId ? customerName : null,
           source: "dealer_portal_order",

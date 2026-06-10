@@ -75,6 +75,9 @@ type NppOrderLine = {
   route: DealerRoute;
   product: Product;
   quantity: number;
+  exchangeQuantity: number;
+  makeupQuantity: number;
+  physicalQuantity: number;
   note: string;
   lineTotal: number;
 };
@@ -206,6 +209,8 @@ export default function DealerPortal() {
   const [nppConfirmOpen, setNppConfirmOpen] = useState(false);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [nppQuantities, setNppQuantities] = useState<Record<string, number>>({});
+  const [nppExchangeQuantities, setNppExchangeQuantities] = useState<Record<string, number>>({});
+  const [nppMakeupQuantities, setNppMakeupQuantities] = useState<Record<string, number>>({});
   const [nppNotes, setNppNotes] = useState<Record<string, string>>({});
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [draftQuantity, setDraftQuantity] = useState("");
@@ -364,6 +369,8 @@ export default function DealerPortal() {
     setDealerCustomer(null);
     setDealerRoutes([]);
     setNppQuantities({});
+    setNppExchangeQuantities({});
+    setNppMakeupQuantities({});
     setNppNotes({});
     setLoginStep("phone");
     setOtp("");
@@ -399,6 +406,8 @@ export default function DealerPortal() {
       setOrderMessage(`Đã gửi đơn ${nextOrderNumber}. Xin cảm ơn quý khách đã chọn lựa Bánh Mì Que Pháp BMQ.`);
       setQuantities({});
       setNppQuantities({});
+      setNppExchangeQuantities({});
+      setNppMakeupQuantities({});
       setNppNotes({});
     } catch (error) {
       setOrderError(await getFunctionErrorMessage(error, "Không gửi được đơn hàng."));
@@ -440,6 +449,10 @@ export default function DealerPortal() {
     await submitOrderPayload(nppSelectedLines.map((line) => ({
       sku_id: line.product.id,
       quantity: line.quantity,
+      ordered_quantity: line.quantity,
+      exchange_quantity: line.exchangeQuantity,
+      makeup_quantity: line.makeupQuantity,
+      physical_quantity: line.physicalQuantity,
       route_customer_id: line.route.id,
       route_customer_name: line.route.name,
       route_note: line.note,
@@ -467,18 +480,24 @@ export default function DealerPortal() {
     () => !nppProduct ? [] : dealerRoutes
       .map((route) => {
         const quantity = nppQuantities[route.id] || 0;
+        const exchangeQuantity = nppExchangeQuantities[route.id] || 0;
+        const makeupQuantity = nppMakeupQuantities[route.id] || 0;
+        const physicalQuantity = quantity + exchangeQuantity + makeupQuantity;
         return {
           route,
           product: nppProduct,
           quantity,
+          exchangeQuantity,
+          makeupQuantity,
+          physicalQuantity,
           note: nppNotes[route.id] || "",
           lineTotal: quantity * nppProduct.price,
         };
       })
-      .filter((line) => line.quantity > 0),
-    [dealerRoutes, nppNotes, nppProduct, nppQuantities],
+      .filter((line) => line.physicalQuantity > 0),
+    [dealerRoutes, nppExchangeQuantities, nppMakeupQuantities, nppNotes, nppProduct, nppQuantities],
   );
-  const totalItems = isNppMode ? nppSelectedLines.reduce((sum, line) => sum + line.quantity, 0) : selectedLines.reduce((sum, product) => sum + product.quantity, 0);
+  const totalItems = isNppMode ? nppSelectedLines.reduce((sum, line) => sum + line.physicalQuantity, 0) : selectedLines.reduce((sum, product) => sum + product.quantity, 0);
   const cartTotal = isNppMode ? nppSelectedLines.reduce((sum, line) => sum + line.lineTotal, 0) : selectedLines.reduce((sum, product) => sum + product.lineTotal, 0);
   const isCatalogUnlocked = loginStep === "catalog" && Boolean(sessionToken);
   const dealerDisplayName = toDisplayName(dealerCustomer?.name) || dealerCustomer?.code || "Đại lý BMQ";
@@ -823,7 +842,11 @@ export default function DealerPortal() {
                 product={nppProduct}
                 quantities={nppQuantities}
                 notes={nppNotes}
+                exchangeQuantities={nppExchangeQuantities}
+                makeupQuantities={nppMakeupQuantities}
                 setQuantities={setNppQuantities}
+                setExchangeQuantities={setNppExchangeQuantities}
+                setMakeupQuantities={setNppMakeupQuantities}
                 setNotes={setNppNotes}
                 totalItems={totalItems}
                 cartTotal={cartTotal}
@@ -905,7 +928,6 @@ export default function DealerPortal() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <h3 className="line-clamp-2 text-sm font-extrabold leading-snug text-[#3f2411] sm:text-base">{product.name}</h3>
-                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#765333]">{product.note}</p>
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
@@ -927,7 +949,6 @@ export default function DealerPortal() {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h3 className="text-lg font-display font-extrabold text-[#3f2411]">Đại lý thường đặt kèm</h3>
-                    <p className="mt-1 text-sm text-[#765333]">Gợi ý cross-sale để tăng giá trị đơn hàng.</p>
                   </div>
                   <ShoppingCart className="h-5 w-5 text-amber-600" />
                 </div>
@@ -1193,11 +1214,16 @@ export default function DealerPortal() {
               <div key={line.route.id} className="flex items-start justify-between gap-3 text-sm">
                 <div className="min-w-0">
                   <div className="font-semibold">{line.route.name}</div>
+                  {line.exchangeQuantity || line.makeupQuantity ? (
+                    <div className="text-xs text-[#765333]">
+                      Đặt {line.quantity} • đổi {line.exchangeQuantity} • bù {line.makeupQuantity} • giao {line.physicalQuantity}
+                    </div>
+                  ) : null}
                   {line.note ? <div className="text-xs text-[#765333]">Ghi chú: {line.note}</div> : null}
                 </div>
                 <div className="shrink-0 text-right font-bold">
-                  {line.quantity} {line.product.unit}
-                  <div className="text-xs font-medium text-[#765333]">{formatVnd(line.lineTotal)}</div>
+                  {line.physicalQuantity} {line.product.unit}
+                  <div className="text-xs font-medium text-[#765333]">Tính tiền {line.quantity}: {formatVnd(line.lineTotal)}</div>
                 </div>
               </div>
             ))}
@@ -1247,7 +1273,11 @@ function NppQuickOrderPanel({
   product,
   quantities,
   notes,
+  exchangeQuantities,
+  makeupQuantities,
   setQuantities,
+  setExchangeQuantities,
+  setMakeupQuantities,
   setNotes,
   totalItems,
   cartTotal,
@@ -1256,7 +1286,11 @@ function NppQuickOrderPanel({
   product: Product | null;
   quantities: Record<string, number>;
   notes: Record<string, string>;
+  exchangeQuantities: Record<string, number>;
+  makeupQuantities: Record<string, number>;
   setQuantities: Dispatch<SetStateAction<Record<string, number>>>;
+  setExchangeQuantities: Dispatch<SetStateAction<Record<string, number>>>;
+  setMakeupQuantities: Dispatch<SetStateAction<Record<string, number>>>;
   setNotes: Dispatch<SetStateAction<Record<string, string>>>;
   totalItems: number;
   cartTotal: number;
@@ -1282,9 +1316,6 @@ function NppQuickOrderPanel({
           <div>
             <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Chế độ NPP</div>
             <h3 className="mt-1 text-xl font-display font-extrabold text-[#3f2411]">Nhập số lượng theo từng điểm bán</h3>
-            <p className="mt-1 text-sm leading-6 text-[#765333]">
-              Đơn sẽ ghi về NPP, còn từng dòng giữ điểm bán con để giao hàng/đối soát. Đơn vị bánh mì que là <strong>que</strong>.
-            </p>
           </div>
           <Button type="button" variant="outline" className="rounded-2xl border-amber-200" onClick={copyQuickTemplate}>
             <Copy className="h-4 w-4" />
@@ -1302,43 +1333,52 @@ function NppQuickOrderPanel({
           </div>
           <div>
             <div className="text-xs text-[#8a6a4a]">Tổng đang nhập</div>
-            <div className="font-bold text-[#3f2411]">{totalItems} {unitLabel} • {formatVnd(cartTotal)}</div>
+            <div className="font-bold text-[#3f2411]">Giao {totalItems} {unitLabel} • {formatVnd(cartTotal)}</div>
           </div>
         </div>
       </div>
 
       <div className="overflow-hidden rounded-3xl border border-amber-100 bg-white shadow-sm">
-        <div className="grid grid-cols-[minmax(0,1fr)_112px] gap-2 border-b border-amber-100 bg-amber-50/80 px-3 py-2 text-xs font-bold uppercase tracking-wide text-[#765333] sm:grid-cols-[minmax(0,1fr)_140px_minmax(160px,0.7fr)]">
+        <div className="grid grid-cols-[minmax(0,1fr)_92px_92px_92px] gap-2 border-b border-amber-100 bg-amber-50/80 px-3 py-2 text-xs font-bold uppercase tracking-wide text-[#765333] lg:grid-cols-[minmax(0,1fr)_96px_96px_96px_minmax(160px,0.7fr)]">
           <div>Điểm bán nhận hàng</div>
-          <div className="text-right">SL ({unitLabel})</div>
-          <div className="hidden sm:block">Ghi chú</div>
+          <div className="text-right">Đặt</div>
+          <div className="text-right">Đổi</div>
+          <div className="text-right">Bù</div>
+          <div className="hidden lg:block">Ghi chú</div>
         </div>
         <div className="divide-y divide-amber-100">
           {routes.map((route) => {
             const quantity = quantities[route.id] || "";
+            const exchangeQuantity = exchangeQuantities[route.id] || "";
+            const makeupQuantity = makeupQuantities[route.id] || "";
             return (
-              <div key={route.id} className="grid grid-cols-[minmax(0,1fr)_112px] gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_140px_minmax(160px,0.7fr)] sm:items-center">
+              <div key={route.id} className="grid grid-cols-[minmax(0,1fr)_92px_92px_92px] gap-2 px-3 py-3 lg:grid-cols-[minmax(0,1fr)_96px_96px_96px_minmax(160px,0.7fr)] lg:items-center">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-bold text-[#3f2411]">{route.name}</div>
                   {route.address ? <div className="mt-0.5 line-clamp-1 text-xs text-[#8a6a4a]">{route.address}</div> : null}
                 </div>
-                <Input
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  step={DEALER_ORDER_STEP}
+                <QuantityCell
                   value={quantity}
+                  step={DEALER_ORDER_STEP}
                   placeholder="0"
-                  className="h-11 rounded-2xl border-amber-200 bg-amber-50/70 text-right text-base font-extrabold text-[#3f2411] focus-visible:ring-amber-400"
-                  onChange={(event) => {
-                    const value = Number(event.target.value.replace(/[^0-9]/g, ""));
-                    setQuantities((current) => ({ ...current, [route.id]: Number.isFinite(value) ? value : 0 }));
-                  }}
+                  onChange={(value) => setQuantities((current) => ({ ...current, [route.id]: value }))}
+                />
+                <QuantityCell
+                  value={exchangeQuantity}
+                  step={1}
+                  placeholder="0"
+                  onChange={(value) => setExchangeQuantities((current) => ({ ...current, [route.id]: value }))}
+                />
+                <QuantityCell
+                  value={makeupQuantity}
+                  step={1}
+                  placeholder="0"
+                  onChange={(value) => setMakeupQuantities((current) => ({ ...current, [route.id]: value }))}
                 />
                 <Input
                   value={notes[route.id] || ""}
-                  placeholder="Ghi chú giao hàng"
-                  className="col-span-2 h-10 rounded-2xl border-amber-100 bg-white text-sm sm:col-span-1"
+                  placeholder="Ghi chú"
+                  className="col-span-4 h-10 rounded-2xl border-amber-100 bg-white text-sm lg:col-span-1"
                   onChange={(event) => setNotes((current) => ({ ...current, [route.id]: event.target.value.slice(0, 160) }))}
                 />
               </div>
@@ -1347,6 +1387,35 @@ function NppQuickOrderPanel({
         </div>
       </div>
     </div>
+  );
+}
+
+
+function QuantityCell({
+  value,
+  step,
+  placeholder,
+  onChange,
+}: {
+  value: number | string;
+  step: number;
+  placeholder: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <Input
+      type="number"
+      inputMode="numeric"
+      min={0}
+      step={step}
+      value={value}
+      placeholder={placeholder}
+      className="h-11 rounded-2xl border-amber-200 bg-amber-50/70 text-right text-base font-extrabold text-[#3f2411] focus-visible:ring-amber-400"
+      onChange={(event) => {
+        const nextValue = Number(event.target.value.replace(/[^0-9]/g, ""));
+        onChange(Number.isFinite(nextValue) ? nextValue : 0);
+      }}
+    />
   );
 }
 
@@ -1501,7 +1570,7 @@ function CartSummary({
                 <div className="min-w-0">
                   <div className="truncate font-medium">{line.route.name}</div>
                   <div className="text-xs text-muted-foreground">
-                    {line.quantity} {line.product.unit}
+                    Giao {line.physicalQuantity} {line.product.unit} • tính tiền {line.quantity}
                   </div>
                 </div>
                 <div className="shrink-0 font-medium">{formatVnd(line.lineTotal)}</div>
