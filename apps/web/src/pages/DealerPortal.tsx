@@ -716,7 +716,6 @@ export default function DealerPortal() {
               <div>
                 <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Đặt hàng đại lý</div>
                 <h2 className="text-2xl font-display font-extrabold text-[#3f2411]">Sản phẩm & gợi ý bán kèm</h2>
-                <p className="mt-1 text-sm text-[#765333]">{catalogMessage} Số lượng đặt theo bội số 10 bánh.</p>
               </div>
               <Badge variant="outline" className="rounded-full border-amber-300 bg-white text-amber-800">
                 {catalogStatus === "loading" ? "Đang tải" : `${catalogProducts.length} sản phẩm`}
