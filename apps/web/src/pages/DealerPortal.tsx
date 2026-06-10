@@ -179,6 +179,7 @@ export default function DealerPortal() {
   const [orderMessage, setOrderMessage] = useState("");
   const [orderError, setOrderError] = useState("");
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [activeCategory, setActiveCategory] = useState("Tất cả");
 
   const loadLandingConfig = useCallback(async () => {
     try {
@@ -381,6 +382,17 @@ export default function DealerPortal() {
   const activePromotionPath = window.location.hostname === "dathang.banhmique.vn"
     ? `/promotion/${activeLandingBanner?.id || "event-1"}`
     : `/dealer/promotion/${activeLandingBanner?.id || "event-1"}`;
+  const categoryChips = ["Tất cả", "Bánh mì", "Bánh ngọt", "Combo", "Bán chạy"];
+  const featuredProducts = catalogProducts.slice(0, 3);
+  const filteredProducts = catalogProducts.filter((product) => {
+    if (activeCategory === "Tất cả") return true;
+    const haystack = `${product.name} ${product.tag}`.toLowerCase();
+    if (activeCategory === "Bánh mì") return haystack.includes("bánh mì") || haystack.includes("que") || haystack.includes("pate");
+    if (activeCategory === "Bánh ngọt") return haystack.includes("ngọt") || haystack.includes("bánh bao") || haystack.includes("cake");
+    if (activeCategory === "Combo") return haystack.includes("combo") || haystack.includes("set");
+    if (activeCategory === "Bán chạy") return featuredProducts.some((item) => item.id === product.id);
+    return true;
+  });
 
   const updateQuantity = (productId: string, delta: number) => {
     setQuantities((current) => ({
@@ -413,58 +425,64 @@ export default function DealerPortal() {
       </header>
 
       {isCatalogUnlocked ? (
-        <section
-          id="dealer-top"
-          className="border-b bg-gradient-to-br from-primary/15 via-background to-emerald-50/80 dark:to-emerald-950/20"
-        >
-          <div className="mx-auto grid max-w-6xl gap-4 px-4 py-5 md:grid-cols-[1.2fr_0.8fr] md:py-7">
-            <div className="space-y-3">
-              <Badge variant="secondary" className="rounded-md">
-                Cổng đặt hàng đại lý
-              </Badge>
-              <div>
-                <h1 className="text-2xl font-display font-bold leading-tight text-foreground md:text-4xl">
-                  Đặt bánh nhanh cho đại lý BMQ
-                </h1>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground md:text-base">
-                  Chốt đơn theo ngày, xem nhanh khung giao, tổng tiền tạm tính và trạng thái xác thực trước khi gửi đơn thật.
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-xs md:max-w-xl md:grid-cols-4">
-                <div className="rounded-md border bg-card/80 p-3">
-                  <div className="font-semibold">20:00</div>
-                  <div className="text-muted-foreground">Cutoff hôm nay</div>
+        <section id="dealer-top" className="bg-[#fffaf0] text-[#3f2411]">
+          <div className="mx-auto max-w-6xl px-4 pb-3 pt-4 md:pb-5 md:pt-6">
+            <div className="overflow-hidden rounded-[28px] border border-amber-200 bg-gradient-to-br from-[#fff7df] via-[#fffaf0] to-[#eefbea] shadow-xl shadow-amber-900/10">
+              <div className="grid gap-0 md:grid-cols-[1.05fr_0.95fr]">
+                <div className="space-y-4 p-5 sm:p-6 md:p-7">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className="rounded-full bg-amber-500 text-[#2b1708] hover:bg-amber-500">
+                      <Sparkles className="h-3.5 w-3.5" />
+                      Ưu đãi hôm nay
+                    </Badge>
+                    <Badge variant="outline" className="rounded-full border-amber-300 bg-white/70 text-amber-800">
+                      Mua 10 tặng 1
+                    </Badge>
+                    <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 text-emerald-700">
+                      Freeship từ 500k
+                    </Badge>
+                  </div>
+                  <div>
+                    <h1 className="text-3xl font-display font-extrabold leading-[1.05] tracking-tight sm:text-4xl">
+                      Tăng đơn dễ hơn với combo bán chạy
+                    </h1>
+                    <p className="mt-3 max-w-xl text-sm leading-6 text-[#765333] sm:text-base">
+                      Xem nhanh chương trình khuyến mãi, thêm sản phẩm bán kèm và gửi đơn đại lý chỉ trong vài thao tác.
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button
+                      className="h-12 rounded-2xl bg-amber-500 px-5 text-base font-bold text-[#2b1708] shadow-lg shadow-amber-900/20 hover:bg-amber-400"
+                      onClick={() => document.getElementById("quick-order")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                    >
+                      <PackagePlus className="h-4 w-4" />
+                      Thêm combo
+                    </Button>
+                    <Button
+                      asChild
+                      variant="outline"
+                      className="h-12 rounded-2xl border-amber-300 bg-white/80 px-5 text-[#5b3418] hover:bg-amber-50"
+                    >
+                      <a href={activePromotionPath}>
+                        Xem chương trình
+                        <ChevronRight className="h-4 w-4" />
+                      </a>
+                    </Button>
+                  </div>
                 </div>
-                <div className="rounded-md border bg-card/80 p-3">
-                  <div className="font-semibold">Sáng mai</div>
-                  <div className="text-muted-foreground">Khung giao chính</div>
+                <div className="relative min-h-[220px] overflow-hidden bg-[#2b1708] md:min-h-full">
+                  {activeLandingBannerUrl ? (
+                    <img src={activeLandingBannerUrl} alt={activeLandingBanner?.eventLabel || "Ưu đãi đại lý BMQ"} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="h-full w-full bg-[radial-gradient(circle_at_70%_25%,rgba(245,158,11,0.55),transparent_28%),linear-gradient(135deg,#7c2d12,#f59e0b_55%,#fff7ed)]" />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-black/10 to-transparent" />
+                  <div className="absolute bottom-4 left-4 right-4 rounded-2xl border border-white/25 bg-white/88 p-3 text-[#3f2411] shadow-lg backdrop-blur">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Gợi ý hôm nay</div>
+                    <div className="mt-1 text-base font-bold">Combo sáng mai + sản phẩm đặt kèm</div>
+                    <div className="mt-1 text-xs text-[#765333]">Giúp đại lý nhìn thêm món để chốt đơn nhanh hơn.</div>
+                  </div>
                 </div>
-                <div className="rounded-md border bg-card/80 p-3">
-                  <div className="font-semibold">OTP Zalo</div>
-                  <div className="text-muted-foreground">Xác thực số điện thoại</div>
-                </div>
-                <div className="rounded-md border bg-card/80 p-3">
-                  <div className="font-semibold">COD / công nợ</div>
-                  <div className="text-muted-foreground">Theo hồ sơ đại lý</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-md border bg-card/85 p-4 shadow-sm">
-              <div className="flex items-start gap-3">
-                <div className="rounded-md bg-primary/10 p-2 text-primary">
-                  <Building2 className="h-5 w-5" />
-                </div>
-                <div>
-                  <div className="font-semibold">BMQ Company Ordering</div>
-                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                    Đăng nhập bằng số điện thoại đại lý đã đăng ký, xác thực OTP Zalo và gửi đơn trực tiếp cho BMQ.
-                  </p>
-                </div>
-              </div>
-              <div className="mt-4 flex items-center gap-2 rounded-md border border-dashed bg-background/70 p-3 text-sm">
-                <ShieldCheck className="h-4 w-4 shrink-0 text-success" />
-                <span className="text-muted-foreground">Đơn chỉ gửi khi phiên đại lý đã xác thực OTP và catalog thật tải thành công.</span>
               </div>
             </div>
           </div>
@@ -536,7 +554,7 @@ export default function DealerPortal() {
         </section>
       )}
 
-      <main className={cn("mx-auto grid max-w-6xl gap-4 px-4 pt-4", isCatalogUnlocked ? "pb-40 lg:grid-cols-[minmax(0,1fr)_340px] lg:pb-12" : "pb-28")}>
+      <main className={cn("mx-auto grid max-w-6xl gap-4 px-4 pt-4", isCatalogUnlocked ? "bg-[#fffaf0] pb-40 lg:grid-cols-[minmax(0,1fr)_340px] lg:pb-12" : "pb-28")}>
         <div className="space-y-4">
           <Card id="dealer-login" className="scroll-mt-24 rounded-md">
             <CardHeader className="p-4 pb-3">
@@ -643,45 +661,85 @@ export default function DealerPortal() {
 
           {isCatalogUnlocked ? (
             <div className="contents">
-          <section id="quick-order" className="scroll-mt-24 space-y-3">
+          <section id="quick-order" className="scroll-mt-24 space-y-4">
             <div className="flex items-end justify-between gap-3">
               <div>
-                <h2 className="text-xl font-display font-bold">Đặt nhanh</h2>
-                <p className="mt-1 text-sm text-muted-foreground">{catalogMessage}</p>
+                <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Đặt hàng đại lý</div>
+                <h2 className="text-2xl font-display font-extrabold text-[#3f2411]">Sản phẩm & gợi ý bán kèm</h2>
+                <p className="mt-1 text-sm text-[#765333]">{catalogMessage}</p>
               </div>
-              <Badge variant="outline" className="rounded-md">
+              <Badge variant="outline" className="rounded-full border-amber-300 bg-white text-amber-800">
                 {catalogStatus === "loading" ? "Đang tải" : `${catalogProducts.length} sản phẩm`}
               </Badge>
             </div>
 
             {orderMessage ? (
-              <div className="flex items-start gap-2 rounded-md border bg-success/10 p-3 text-sm text-success">
+              <div className="flex items-start gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{orderMessage}</span>
               </div>
             ) : null}
             {orderError ? (
-              <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              <div className="flex items-start gap-2 rounded-2xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{orderError}</span>
               </div>
             ) : null}
 
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-3">
+              {[
+                ["Combo sáng mai", "Thêm nhóm món dễ bán cho ca sáng", "bg-amber-500/15 text-amber-800"],
+                ["Bán chạy", "Ưu tiên các món đại lý hay đặt", "bg-emerald-500/12 text-emerald-700"],
+                ["Sản phẩm mới", "Gợi ý để đại lý thử bán thêm", "bg-orange-500/12 text-orange-700"],
+              ].map(([title, desc, tone]) => (
+                <button
+                  key={title}
+                  type="button"
+                  className="group rounded-2xl border border-amber-100 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md"
+                  onClick={() => setActiveCategory(title === "Bán chạy" ? "Bán chạy" : title === "Combo sáng mai" ? "Combo" : "Tất cả")}
+                >
+                  <div className={cn("mb-3 inline-flex h-10 w-10 items-center justify-center rounded-2xl", tone)}>
+                    <BadgePercent className="h-5 w-5" />
+                  </div>
+                  <div className="font-bold text-[#3f2411]">{title}</div>
+                  <div className="mt-1 text-sm leading-5 text-[#765333]">{desc}</div>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none]">
+              {categoryChips.map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  className={cn(
+                    "h-10 shrink-0 rounded-full border px-4 text-sm font-semibold transition",
+                    activeCategory === chip
+                      ? "border-amber-500 bg-amber-500 text-[#2b1708] shadow-sm"
+                      : "border-amber-200 bg-white text-[#765333] hover:border-amber-400 hover:bg-amber-50",
+                  )}
+                  onClick={() => setActiveCategory(chip)}
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               {catalogProducts.length === 0 ? (
-                <div className="rounded-md border border-dashed bg-card p-5 text-sm text-muted-foreground md:col-span-2">
+                <div className="col-span-2 rounded-2xl border border-dashed border-amber-200 bg-white p-5 text-sm text-[#765333] md:col-span-3">
                   {catalogStatus === "loading"
                     ? "Đang tải sản phẩm..."
-                    : "Chưa có sản phẩm để đặt. Vui lòng đăng nhập hoặc liên hệ BMQ để được hỗ trợ."}
+                    : "Chưa có sản phẩm để đặt. Vui lòng liên hệ BMQ để được hỗ trợ."}
                 </div>
               ) : null}
-              {catalogProducts.map((product) => {
+              {filteredProducts.map((product) => {
                 const quantity = quantities[product.id] || 0;
 
                 return (
-                  <Card key={product.id} className="rounded-md">
-                    <CardContent className="flex h-full flex-col gap-4 p-4">
-                      <div className="overflow-hidden rounded-md border bg-muted/40">
+                  <Card key={product.id} className="overflow-hidden rounded-3xl border-amber-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md">
+                    <CardContent className="flex h-full flex-col gap-3 p-3">
+                      <div className="relative overflow-hidden rounded-2xl border border-amber-100 bg-amber-50">
                         {product.imageUrl ? (
                           <img
                             src={product.imageUrl}
@@ -690,54 +748,41 @@ export default function DealerPortal() {
                             className="h-32 w-full object-cover sm:h-36"
                           />
                         ) : (
-                          <div className="flex h-32 w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-primary/10 via-background to-muted text-muted-foreground sm:h-36">
+                          <div className="flex h-32 w-full flex-col items-center justify-center gap-2 bg-[radial-gradient(circle_at_70%_20%,rgba(245,158,11,0.28),transparent_30%),linear-gradient(135deg,#fff7ed,#fef3c7)] text-amber-800 sm:h-36">
                             <ImageIcon className="h-6 w-6" />
-                            <span className="text-xs">Chưa có ảnh sản phẩm</span>
+                            <span className="text-xs font-medium">Ảnh sản phẩm</span>
                           </div>
                         )}
+                        <Badge className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[11px] font-semibold text-amber-800 hover:bg-white">
+                          {product.tag}
+                        </Badge>
                       </div>
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="line-clamp-2 text-sm font-extrabold leading-snug text-[#3f2411] sm:text-base">{product.name}</h3>
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#765333]">{product.note}</p>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
-                          <Badge variant="secondary" className="mb-2 rounded-md">
-                            {product.tag}
-                          </Badge>
-                          <h3 className="text-base font-semibold leading-snug">{product.name}</h3>
-                          <p className="mt-1 text-sm leading-5 text-muted-foreground">{product.note}</p>
+                          <div className="text-sm font-extrabold text-[#3f2411]">{formatVnd(product.price)}</div>
+                          <div className="text-xs text-[#8a6a4a]">/{product.unit}</div>
                         </div>
-                        <div className="shrink-0 text-right">
-                          <div className="font-semibold">{formatVnd(product.price)}</div>
-                          <div className="text-xs text-muted-foreground">{product.unit}</div>
-                        </div>
-                      </div>
-
-                      <div className="mt-auto flex items-center justify-between gap-3">
-                        <div className="space-y-1 text-xs text-muted-foreground">
-                          <div className="flex items-center gap-1.5">
-                            <PackagePlus className="h-3.5 w-3.5" />
-                            {product.packSize}
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <BellRing className="h-3.5 w-3.5" />
-                            {product.cutoff}
-                          </div>
-                        </div>
-                        <div className="grid h-10 w-32 grid-cols-[40px_1fr_40px] overflow-hidden rounded-md border">
+                        <div className="grid h-11 w-28 shrink-0 grid-cols-[36px_1fr_36px] overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/70">
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="h-10 rounded-none"
+                            className="h-11 rounded-none text-[#5b3418]"
                             aria-label={`Giảm ${product.name}`}
                             onClick={() => updateQuantity(product.id, -1)}
                           >
                             <Minus className="h-4 w-4" />
                           </Button>
-                          <div className="flex items-center justify-center border-x text-sm font-semibold">{quantity}</div>
+                          <div className="flex items-center justify-center border-x border-amber-200 text-sm font-bold text-[#3f2411]">{quantity}</div>
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="h-10 rounded-none"
+                            className="h-11 rounded-none bg-amber-500/95 text-[#2b1708] hover:bg-amber-400"
                             aria-label={`Tăng ${product.name}`}
                             onClick={() => updateQuantity(product.id, 1)}
                           >
@@ -750,6 +795,34 @@ export default function DealerPortal() {
                 );
               })}
             </div>
+
+            {featuredProducts.length ? (
+              <div className="rounded-3xl border border-amber-100 bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-display font-extrabold text-[#3f2411]">Đại lý thường đặt kèm</h3>
+                    <p className="mt-1 text-sm text-[#765333]">Gợi ý cross-sale để tăng giá trị đơn hàng.</p>
+                  </div>
+                  <ShoppingCart className="h-5 w-5 text-amber-600" />
+                </div>
+                <div className="mt-3 space-y-2">
+                  {featuredProducts.map((product) => (
+                    <div key={product.id} className="flex items-center gap-3 rounded-2xl border border-amber-100 bg-amber-50/60 p-3">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white text-amber-700">
+                        {product.imageUrl ? <img src={product.imageUrl} alt={product.name} className="h-full w-full object-cover" /> : <PackagePlus className="h-5 w-5" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-bold text-[#3f2411]">{product.name}</div>
+                        <div className="text-xs text-[#765333]">{formatVnd(product.price)} / {product.unit}</div>
+                      </div>
+                      <Button type="button" size="sm" className="h-10 rounded-2xl bg-[#3f2411] px-3 text-amber-50 hover:bg-[#5b3418]" onClick={() => updateQuantity(product.id, 1)}>
+                        Thêm
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </section>
 
           <section id="delivery-plan" className="scroll-mt-24 space-y-3">
