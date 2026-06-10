@@ -45,6 +45,23 @@ const numberFromCostValues = (costValues: ProductSku["cost_values"], key: string
   return Number.isFinite(numberValue) ? numberValue : 0;
 };
 
+const dealerProductNames: Record<string, string> = {
+  "bmcb-2026-v2": "Bánh Mì Chà Bông",
+  "BMD-2026": "Bánh Mì Dark Rye",
+  "BMQ-001": "Bánh Mì Que Pate",
+  "cbc-2026-v2": "Bánh Mì Chà Bông Cay",
+  "cpm-2026-v3": "Bánh Cua Phô Mai",
+  "Croi-2026-v4": "Bánh Croissant 50g",
+  "KF-CROFFLE-40G-T0526": "Croffle 40g",
+  "KF-CROISSANT-40G-T0526": "Bánh Croissant 160g (40g x 4 cái)",
+  "KF-XUCXICH-PHOMAI-40G-T0526": "Bánh Xúc Xích Phô Mai 40g",
+  "rbn-2026-v5": "Bánh Cross Bun Nho",
+  "rbso-2026-v6": "Bánh Cross Bun Socola",
+  "SWD-2026": "Dark Rye Sandwich",
+};
+
+const dealerDisplayName = (sku: ProductSku) => dealerProductNames[sku.sku_code] || sku.product_name;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return corsPreflightResponse(req);
@@ -94,13 +111,13 @@ serve(async (req) => {
       return {
         id: sku.id,
         sku_code: sku.sku_code,
-        product_name: sku.product_name,
+        product_name: dealerDisplayName(sku),
         category: sku.category,
         unit: sku.unit,
         unit_price: skuSellingPrice,
         price_vnd: price,
         price_source: override === undefined ? "cost_values_selling_price" : "customer_override",
-        notes: sku.notes,
+        notes: "Sản phẩm thành phẩm BMQ.",
         image_url: sku.image_url ?? null,
         image_path: sku.image_path ?? null,
         image_updated_at: sku.image_updated_at ?? null,

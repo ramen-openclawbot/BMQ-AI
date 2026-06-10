@@ -130,12 +130,12 @@ const mapCatalogProduct = (product: CatalogProductResponse): Product => {
   return {
     id: product.id,
     skuCode: product.sku_code || undefined,
-    name: product.product_name || product.sku_code || "SKU đại lý",
+    name: product.product_name || product.sku_code || "Sản phẩm BMQ",
     unit: product.unit || "đơn vị",
     packSize: "Theo đơn vị bán",
     price,
     tag: priceSource === "customer_override" ? "Giá riêng" : product.category || "Thành phẩm",
-    note: product.notes || "Sản phẩm thành phẩm BMQ.",
+    note: "Sản phẩm thành phẩm BMQ.",
     cutoff: "Chốt trước 20:00",
     imageUrl: product.image_url || null,
     priceSource,
@@ -166,7 +166,7 @@ export default function DealerPortal() {
   const [activeNav, setActiveNav] = useState("order");
   const [catalogProducts, setCatalogProducts] = useState<Product[]>([]);
   const [catalogStatus, setCatalogStatus] = useState<"idle" | "loading" | "live" | "error">("idle");
-  const [catalogMessage, setCatalogMessage] = useState("Đăng nhập để tải sản phẩm, giá bán và ảnh từ Tổng quan giá vốn.");
+  const [catalogMessage, setCatalogMessage] = useState("Đăng nhập để xem sản phẩm và giá bán dành cho đại lý.");
   const [landingBannerUrl, setLandingBannerUrl] = useState("");
   const [landingBanners, setLandingBanners] = useState<DealerLandingBanner[]>([]);
   const [activeLandingBannerIndex, setActiveLandingBannerIndex] = useState(0);
@@ -219,7 +219,7 @@ export default function DealerPortal() {
       setAnnouncements([]);
       setDealerCustomer(null);
       setCatalogStatus("idle");
-      setCatalogMessage("Đăng nhập để tải sản phẩm, giá bán và ảnh từ Tổng quan giá vốn.");
+      setCatalogMessage("Đăng nhập để xem sản phẩm và giá bán dành cho đại lý.");
       return;
     }
 
@@ -239,15 +239,15 @@ export default function DealerPortal() {
       setCatalogStatus("live");
       setCatalogMessage(
         nextProducts.length
-          ? "Sản phẩm, giá bán và ảnh đã đồng bộ từ Tổng quan giá vốn."
-          : "Chưa có SKU thành phẩm đang bật cho trang đặt hàng.",
+          ? "Sản phẩm và giá bán đã sẵn sàng để đặt hàng."
+          : "Chưa có sản phẩm đang mở bán trên trang đặt hàng.",
       );
     } catch (error) {
-      const message = await getFunctionErrorMessage(error, "Không tải được danh sách sản phẩm từ Tổng quan giá vốn.");
+      const message = await getFunctionErrorMessage(error, "Không tải được danh sách sản phẩm.");
       setCatalogProducts([]);
       setAnnouncements([]);
       setCatalogStatus("error");
-      setCatalogMessage(message || "Không tải được danh sách sản phẩm từ Tổng quan giá vốn.");
+      setCatalogMessage(message || "Không tải được danh sách sản phẩm.");
     }
   }, []);
 
@@ -277,7 +277,7 @@ export default function DealerPortal() {
       setAuthMessage(
         data?.dev_otp
           ? `${data.message || "Đã tạo OTP."} Dev OTP: ${data.dev_otp}`
-          : data?.message || "Nếu số điện thoại hợp lệ, mã OTP sẽ được gửi qua Zalo ZNS.",
+          : data?.message || "Nếu số điện thoại hợp lệ, mã OTP sẽ được gửi qua Zalo.",
       );
     } catch (error) {
       setAuthError(await getFunctionErrorMessage(error, "Không gửi được mã OTP."));
@@ -352,7 +352,7 @@ export default function DealerPortal() {
 
       if (error) throw error;
 
-      setOrderMessage(`Đã gửi đơn ${data?.order_number || ""}. BMQ sẽ xác nhận lại theo lịch vận hành.`);
+      setOrderMessage(`Đã gửi đơn ${data?.order_number || ""}. BMQ sẽ xác nhận lại theo lịch giao hàng.`);
       setQuantities({});
     } catch (error) {
       setOrderError(await getFunctionErrorMessage(error, "Không gửi được đơn hàng."));
@@ -440,7 +440,7 @@ export default function DealerPortal() {
                   <div className="text-muted-foreground">Khung giao chính</div>
                 </div>
                 <div className="rounded-md border bg-card/80 p-3">
-                  <div className="font-semibold">ZNS OTP</div>
+                  <div className="font-semibold">OTP Zalo</div>
                   <div className="text-muted-foreground">Xác thực số điện thoại</div>
                 </div>
                 <div className="rounded-md border bg-card/80 p-3">
@@ -458,7 +458,7 @@ export default function DealerPortal() {
                 <div>
                   <div className="font-semibold">BMQ Company Ordering</div>
                   <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                    Đăng nhập bằng số điện thoại đã đăng ký trong CRM, xác thực Zalo ZNS OTP và gửi đơn trực tiếp cho vận hành BMQ.
+                    Đăng nhập bằng số điện thoại đại lý đã đăng ký, xác thực OTP Zalo và gửi đơn trực tiếp cho BMQ.
                   </p>
                 </div>
               </div>
@@ -515,7 +515,7 @@ export default function DealerPortal() {
                       Ưu đãi đơn sỉ cho đại lý BMQ
                     </h1>
                     <p className="max-w-xl text-sm leading-6 text-amber-50/82 sm:text-base">
-                      Đăng nhập để xem giá riêng, chương trình đang áp dụng và gửi đơn xác nhận cho vận hành BMQ.
+                      Đăng nhập để xem giá riêng, chương trình đang áp dụng và gửi đơn xác nhận cho BMQ.
                     </p>
                   </div>
                 </div>
@@ -544,7 +544,7 @@ export default function DealerPortal() {
                 <div>
                   <CardTitle className="text-lg">Đăng nhập đại lý</CardTitle>
                   <CardDescription className="mt-1">
-                    Xác thực số điện thoại bằng Zalo ZNS OTP trước khi nhận đơn production.
+                    Xác thực số điện thoại bằng OTP Zalo trước khi đặt hàng.
                   </CardDescription>
                 </div>
                 <Badge variant={loginStep === "catalog" ? "default" : "outline"} className="shrink-0 rounded-md">
@@ -591,11 +591,11 @@ export default function DealerPortal() {
                     </div>
                   </div>
                   <div className="rounded-md border border-dashed bg-muted/50 p-3 text-sm text-muted-foreground">
-                    Hệ thống sẽ kiểm tra số này trong CRM đại lý và gửi OTP qua Zalo ZNS nếu hợp lệ.
+                    Hệ thống sẽ kiểm tra số điện thoại đã đăng ký và gửi OTP qua Zalo nếu hợp lệ.
                   </div>
                   <Button className="h-11 w-full btn-gradient" onClick={handleStartAuth} disabled={authLoading}>
                     {authLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronRight className="h-4 w-4" />}
-                    Gửi mã OTP Zalo ZNS
+                    Gửi mã OTP Zalo
                   </Button>
                 </div>
               ) : null}
@@ -603,9 +603,9 @@ export default function DealerPortal() {
               {loginStep === "otp" ? (
                 <div className="space-y-4">
                   <div className="rounded-md bg-muted/60 p-3 text-sm">
-                    <div className="font-medium">Zalo ZNS OTP</div>
+                    <div className="font-medium">OTP Zalo</div>
                     <div className="mt-1 text-muted-foreground">
-                      Nhập mã OTP đã gửi qua Zalo ZNS cho {phone.trim() || "số điện thoại đại lý"}.
+                      Nhập mã OTP đã gửi qua Zalo cho {phone.trim() || "số điện thoại đại lý"}.
                     </div>
                   </div>
                   <InputOTP maxLength={6} value={otp} onChange={setOtp}>
@@ -633,7 +633,7 @@ export default function DealerPortal() {
                   <div>
                     <div className="font-medium">{dealerCustomer?.name || "Đại lý đã xác thực"}</div>
                     <div className="mt-1 text-muted-foreground">
-                      Phiên OTP hợp lệ. Đơn gửi sẽ được ghi vào dealer_orders để vận hành xác nhận.
+                      Phiên OTP hợp lệ. Đơn gửi sẽ được BMQ tiếp nhận và xác nhận.
                     </div>
                   </div>
                 </div>
@@ -650,7 +650,7 @@ export default function DealerPortal() {
                 <p className="mt-1 text-sm text-muted-foreground">{catalogMessage}</p>
               </div>
               <Badge variant="outline" className="rounded-md">
-                {catalogStatus === "loading" ? "Đang tải" : `${catalogProducts.length} SKU`}
+                {catalogStatus === "loading" ? "Đang tải" : `${catalogProducts.length} sản phẩm`}
               </Badge>
             </div>
 
@@ -671,8 +671,8 @@ export default function DealerPortal() {
               {catalogProducts.length === 0 ? (
                 <div className="rounded-md border border-dashed bg-card p-5 text-sm text-muted-foreground md:col-span-2">
                   {catalogStatus === "loading"
-                    ? "Đang tải sản phẩm từ Tổng quan giá vốn..."
-                    : "Chưa có sản phẩm để đặt. Vui lòng đăng nhập hoặc kiểm tra SKU thành phẩm chưa bị ẩn khỏi trang đặt hàng."}
+                    ? "Đang tải sản phẩm..."
+                    : "Chưa có sản phẩm để đặt. Vui lòng đăng nhập hoặc liên hệ BMQ để được hỗ trợ."}
                 </div>
               ) : null}
               {catalogProducts.map((product) => {
@@ -692,7 +692,7 @@ export default function DealerPortal() {
                         ) : (
                           <div className="flex h-32 w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-primary/10 via-background to-muted text-muted-foreground sm:h-36">
                             <ImageIcon className="h-6 w-6" />
-                            <span className="text-xs">Chưa có ảnh SKU</span>
+                            <span className="text-xs">Chưa có ảnh sản phẩm</span>
                           </div>
                         )}
                       </div>
@@ -758,12 +758,12 @@ export default function DealerPortal() {
               <StatusTile
                 icon={CalendarDays}
                 title="Lịch giao"
-                description="Khung chính: sáng hôm sau; tuyến giao sẽ lấy theo hồ sơ CRM khi vận hành xác nhận."
+                description="Khung chính: sáng hôm sau; tuyến giao sẽ được BMQ xác nhận theo địa chỉ đã đăng ký."
               />
               <StatusTile
                 icon={MapPin}
                 title="Điểm nhận"
-                description="Địa chỉ sẽ lấy từ CRM sau khi OTP xác thực số điện thoại."
+                description="Địa chỉ giao hàng sẽ được xác nhận theo thông tin đại lý đã đăng ký."
               />
               <StatusTile
                 icon={WalletCards}
@@ -889,8 +889,8 @@ export default function DealerPortal() {
 function PublicLandingSupport() {
   const benefits = [
     { icon: BadgePercent, title: "Giá đại lý riêng", description: "Giá bán và chương trình chỉ mở sau khi xác thực đúng hồ sơ đại lý." },
-    { icon: Timer, title: "Chốt đơn nhanh", description: "Gửi đơn theo khung vận hành BMQ, hạn chế gọi lại thủ công." },
-    { icon: ShieldCheck, title: "Theo dõi xác nhận", description: "Đơn được ghi nhận để đội vận hành kiểm tra và xác nhận." },
+    { icon: Timer, title: "Chốt đơn nhanh", description: "Gửi đơn theo khung BMQ, hạn chế gọi lại thủ công." },
+    { icon: ShieldCheck, title: "Theo dõi xác nhận", description: "Đơn được ghi nhận để đội BMQ kiểm tra và xác nhận." },
   ];
 
   return (
@@ -937,8 +937,8 @@ function PublicLandingSupport() {
         <h2 className="text-xl font-display font-bold">Cách đặt hàng</h2>
         <div className="grid gap-3 md:grid-cols-3">
           {[
-            ["1", "Nhập SĐT", "Dùng số điện thoại đại lý đã đăng ký trong CRM."],
-            ["2", "Xác thực OTP", "Nhận và nhập mã OTP qua Zalo ZNS."],
+            ["1", "Nhập SĐT", "Dùng số điện thoại đại lý đã đăng ký."],
+            ["2", "Xác thực OTP", "Nhận và nhập mã OTP qua Zalo."],
             ["3", "Đặt hàng", "Xem catalog, chọn số lượng và gửi đơn xác nhận."],
           ].map(([step, title, description]) => (
             <div key={step} className="rounded-2xl border bg-card p-4">
@@ -1019,7 +1019,7 @@ function CartSummary({
           <ShoppingCart className="h-5 w-5 text-primary" />
           Giỏ hàng
         </CardTitle>
-        <CardDescription>Đơn sẽ được ghi vào dealer_orders sau khi đại lý xác thực OTP.</CardDescription>
+        <CardDescription>Đơn sẽ được gửi cho BMQ sau khi đại lý xác thực OTP.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 p-4 pt-0">
         <div className="space-y-3">
@@ -1058,7 +1058,7 @@ function CartSummary({
           Gửi đơn
         </Button>
         <p className="text-xs leading-5 text-muted-foreground">
-          Cần OTP hợp lệ và catalog thật từ hệ thống BMQ trước khi gửi đơn production.
+          Cần OTP hợp lệ và danh sách sản phẩm đang mở bán trước khi gửi đơn.
         </p>
       </CardContent>
     </Card>

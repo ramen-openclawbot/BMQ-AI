@@ -213,6 +213,19 @@ export function assertDealerZnsConfiguredOrDevSkip(): void {
   }
 }
 
+function formatVietnamOtpTime(): string {
+  return new Intl.DateTimeFormat("vi-VN", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(new Date());
+}
+
 export async function sendDealerOtpZns(params: {
   phoneNormalized: string;
   otp: string;
@@ -245,6 +258,8 @@ export async function sendDealerOtpZns(params: {
       template_data: {
         otp: params.otp,
         code: params.otp,
+        time: formatVietnamOtpTime(),
+        thoi_gian: formatVietnamOtpTime(),
       },
     },
     sms: {
@@ -278,11 +293,15 @@ export async function sendDealerOtpZns(params: {
 
   const providerError = typeof payload === "object" && payload !== null && "error" in payload
     ? Number((payload as { error?: unknown }).error)
+    : typeof payload === "object" && payload !== null && "resultCode" in payload
+    ? Number((payload as { resultCode?: unknown }).resultCode)
     : 0;
 
   if (!response.ok || providerError !== 0) {
     const providerCode = typeof payload === "object" && payload !== null && "error_code" in payload
       ? ` code=${String((payload as { error_code?: unknown }).error_code)}`
+      : typeof payload === "object" && payload !== null && "resultCode" in payload
+      ? ` code=${String((payload as { resultCode?: unknown }).resultCode)}`
       : "";
     throw new Error(`VietGuys ZBS Mobile OTP send failed${providerCode}: ${typeof payload === "string" ? payload : JSON.stringify(payload)}`);
   }
