@@ -685,7 +685,44 @@ export default function DealerPortal() {
             </div>
           </div>
         </section>
-      ) : isCatalogUnlocked ? null : (
+      ) : isCatalogUnlocked ? (
+        <section id="dealer-top" className="bg-[#fffaf0] text-[#3f2411]">
+          <div className="mx-auto max-w-6xl px-4 pb-3 pt-4 md:pb-5 md:pt-6">
+            <div className="overflow-hidden rounded-[28px] border border-amber-200 bg-white shadow-xl shadow-amber-900/10">
+              <div className="relative h-[190px] overflow-hidden bg-[#24150d] sm:h-[230px] md:h-[280px]">
+                {activeLandingBannerUrl ? (
+                  <img src={activeLandingBannerUrl} alt={activeLandingBanner?.eventLabel || "Banner khuyến mãi BMQ"} className="h-full w-full object-contain" />
+                ) : (
+                  <div className="h-full w-full bg-[radial-gradient(circle_at_78%_18%,rgba(245,178,65,0.42),transparent_28%),linear-gradient(135deg,rgba(197,121,19,0.36),transparent_48%)]" />
+                )}
+                <Button
+                  asChild
+                  size="sm"
+                  className="absolute bottom-3 right-3 h-9 rounded-full bg-amber-500/95 px-4 text-sm font-semibold text-[#1b1208] shadow-lg shadow-black/25 hover:bg-amber-400"
+                >
+                  <a href={activePromotionPath}>
+                    Xem chương trình
+                    <ChevronRight className="h-4 w-4" />
+                  </a>
+                </Button>
+                {landingBanners.length > 1 ? (
+                  <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/20 px-2 py-1 backdrop-blur-sm">
+                    {landingBanners.map((banner, index) => (
+                      <button
+                        key={banner.id || index}
+                        type="button"
+                        className={cn("h-1.5 rounded-full transition-all", index === activeLandingBannerIndex ? "w-5 bg-white" : "w-1.5 bg-white/55")}
+                        aria-label={`Xem banner ${index + 1}`}
+                        onClick={() => setActiveLandingBannerIndex(index)}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : (
         <section id="dealer-top" className="border-b bg-[#16110d] text-amber-50">
           <div className="mx-auto max-w-6xl px-4 py-4 pb-6 md:py-5">
             <div className="overflow-hidden rounded-[28px] border border-amber-400/20 bg-gradient-to-br from-[#3b210d] via-[#25160e] to-[#120d09] shadow-2xl shadow-black/35">
