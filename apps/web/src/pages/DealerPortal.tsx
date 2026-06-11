@@ -662,7 +662,7 @@ export default function DealerPortal() {
                       {isNppMode ? "Đặt hàng cho nhiều điểm bán" : "Tăng đơn dễ hơn với combo bán chạy"}
                     </h1>
                     <p className="mt-3 max-w-xl text-sm leading-6 text-[#765333] sm:text-base">
-                      {isNppMode ? "Nhập số lượng theo từng điểm bán con, kiểm tra tổng đơn rồi gửi 1 lần cho BMQ." : "Xem nhanh chương trình khuyến mãi, thêm sản phẩm bán kèm và gửi đơn đại lý chỉ trong vài thao tác."}
+                      {isNppMode ? "Chat với BMQ Agent để nhập đơn theo từng điểm bán, kiểm tra tổng đơn rồi gửi 1 lần cho BMQ." : "Xem nhanh chương trình khuyến mãi, thêm sản phẩm bán kèm và gửi đơn đại lý chỉ trong vài thao tác."}
                     </p>
                   </div>
                   <div className="flex flex-col gap-2 sm:flex-row">
@@ -671,7 +671,7 @@ export default function DealerPortal() {
                       onClick={() => document.getElementById("quick-order")?.scrollIntoView({ behavior: "smooth", block: "start" })}
                     >
                       <PackagePlus className="h-4 w-4" />
-                      {isNppMode ? "Nhập số lượng" : "Thêm combo"}
+                      {isNppMode ? "Chat với BMQ Agent để đặt hàng" : "Thêm combo"}
                     </Button>
                     <Button
                       asChild
@@ -1114,6 +1114,10 @@ export default function DealerPortal() {
         ) : null}
       </main>
 
+      <footer className="border-t border-amber-100 bg-[#fffaf0] px-4 py-5 pb-24 text-center text-xs font-medium text-[#8a6a4a] lg:pb-5">
+        © 2026 Bánh Mì Que Pháp BMQ. All rights reserved. Powered by VNAgent.ai
+      </footer>
+
       {isCatalogUnlocked && !isNppMode ? (
         <div className="fixed inset-x-0 bottom-14 z-30 border-t bg-card/95 px-4 py-3 shadow-lg backdrop-blur lg:hidden">
           <div className="mx-auto max-w-6xl">
@@ -1236,7 +1240,7 @@ export default function DealerPortal() {
                 <DialogHeader>
                   <DialogTitle className="text-xl font-display font-extrabold leading-tight">{selectedProduct.name}</DialogTitle>
                   <DialogDescription className="text-sm leading-6 text-[#765333]">
-                    {formatVnd(selectedProduct.price)} / {selectedProduct.unit}. Nhập số lượng theo bội số 10 {selectedProduct.unit || "đơn vị"}.
+                    {formatVnd(selectedProduct.price)} / {selectedProduct.unit}. Đặt theo bội số 10 {selectedProduct.unit || "đơn vị"}.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-2">
