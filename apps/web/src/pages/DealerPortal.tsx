@@ -643,15 +643,12 @@ export default function DealerPortal() {
       {isCatalogRestoring ? (
         <section id="dealer-top" className="bg-[#fffaf0] text-[#3f2411]">
           <div className="mx-auto max-w-6xl px-4 pb-3 pt-4 md:pb-5 md:pt-6">
-            <div className="rounded-[28px] border border-amber-200 bg-gradient-to-br from-[#fff7df] via-[#fffaf0] to-[#eefbea] p-6 shadow-xl shadow-amber-900/10 sm:p-7">
-              <div className="flex items-center gap-3">
-                <Loader2 className="h-5 w-5 animate-spin text-amber-700" />
-                <div>
-                  <h1 className="text-2xl font-display font-extrabold leading-tight sm:text-3xl">Đang tải phiên đặt hàng</h1>
-                  <p className="mt-1 text-sm text-[#765333]">
-                    BMQ đang kiểm tra tài khoản đại lý và chuẩn bị đúng luồng đặt hàng cho anh.
-                  </p>
-                </div>
+            <div className="rounded-[28px] border border-amber-100 bg-white/70 p-5 shadow-sm sm:p-6" aria-label="Đang tải dữ liệu đại lý">
+              <div className="space-y-3">
+                <div className="h-4 w-28 animate-pulse rounded-full bg-amber-100" />
+                <div className="h-8 w-3/4 animate-pulse rounded-full bg-amber-100 sm:w-1/2" />
+                <div className="h-4 w-full max-w-xl animate-pulse rounded-full bg-amber-50" />
+                <div className="h-11 w-52 animate-pulse rounded-2xl bg-amber-100" />
               </div>
             </div>
           </div>
@@ -888,9 +885,9 @@ export default function DealerPortal() {
 
           {isCatalogRestoring ? (
             <Card className="rounded-md border-amber-200 bg-amber-50/70">
-              <CardContent className="flex items-center gap-3 p-4 text-sm text-[#765333]">
+              <CardContent className="flex items-center gap-3 p-4 text-sm text-[#765333]" aria-label="Đang tải dữ liệu đại lý">
                 <Loader2 className="h-4 w-4 animate-spin text-amber-700" />
-                <span>Đang tải dữ liệu đặt hàng, vui lòng chờ trong giây lát...</span>
+                <span>Đang tải...</span>
               </CardContent>
             </Card>
           ) : null}
