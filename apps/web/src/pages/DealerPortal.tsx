@@ -685,65 +685,7 @@ export default function DealerPortal() {
             </div>
           </div>
         </section>
-      ) : isCatalogUnlocked ? (
-        <section id="dealer-top" className="bg-[#fffaf0] text-[#3f2411]">
-          <div className="mx-auto max-w-6xl px-4 pb-3 pt-4 md:pb-5 md:pt-6">
-            <div className="overflow-hidden rounded-[28px] border border-amber-200 bg-gradient-to-br from-[#fff7df] via-[#fffaf0] to-[#eefbea] shadow-xl shadow-amber-900/10">
-              <div className="grid gap-0 md:grid-cols-[1.05fr_0.95fr]">
-                <div className="space-y-4 p-5 sm:p-6 md:p-7">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge className="rounded-full bg-amber-500 text-[#2b1708] hover:bg-amber-500">
-                      <Sparkles className="h-3.5 w-3.5" />
-                      Ưu đãi hôm nay
-                    </Badge>
-                    <Badge variant="outline" className="rounded-full border-amber-300 bg-white/70 text-amber-800">
-                      Mua 10 tặng 1
-                    </Badge>
-                    <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 text-emerald-700">
-                      Freeship từ 500k
-                    </Badge>
-                  </div>
-                  <div>
-                    <h1 className="text-3xl font-display font-extrabold leading-[1.05] tracking-tight sm:text-4xl">
-                      {isNppMode ? "Đặt hàng cho nhiều điểm bán" : "Tăng đơn dễ hơn với combo bán chạy"}
-                    </h1>
-                    <p className="mt-3 max-w-xl text-sm leading-6 text-[#765333] sm:text-base">
-                      {isNppMode ? "Chat với BMQ Agent để nhập đơn theo từng điểm bán, kiểm tra tổng đơn rồi gửi 1 lần cho BMQ." : "Xem nhanh chương trình khuyến mãi, thêm sản phẩm bán kèm và gửi đơn đại lý chỉ trong vài thao tác."}
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <Button
-                      className="h-12 rounded-2xl bg-amber-500 px-5 text-base font-bold text-[#2b1708] shadow-lg shadow-amber-900/20 hover:bg-amber-400"
-                      onClick={() => document.getElementById("quick-order")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                    >
-                      <PackagePlus className="h-4 w-4" />
-                      {isNppMode ? "Chat với BMQ Agent để đặt hàng" : "Thêm combo"}
-                    </Button>
-                    <Button
-                      asChild
-                      variant="outline"
-                      className="h-12 rounded-2xl border-amber-300 bg-white/80 px-5 text-[#5b3418] hover:bg-amber-50"
-                    >
-                      <a href={activePromotionPath}>
-                        Xem chương trình
-                        <ChevronRight className="h-4 w-4" />
-                      </a>
-                    </Button>
-                  </div>
-                </div>
-                <div className="relative min-h-[220px] overflow-hidden bg-[#2b1708] md:min-h-full">
-                  {activeLandingBannerUrl ? (
-                    <img src={activeLandingBannerUrl} alt={activeLandingBanner?.eventLabel || "Ưu đãi đại lý BMQ"} className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="h-full w-full bg-[radial-gradient(circle_at_70%_25%,rgba(245,158,11,0.55),transparent_28%),linear-gradient(135deg,#7c2d12,#f59e0b_55%,#fff7ed)]" />
-                  )}
-
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-      ) : (
+      ) : isCatalogUnlocked ? null : (
         <section id="dealer-top" className="border-b bg-[#16110d] text-amber-50">
           <div className="mx-auto max-w-6xl px-4 py-4 pb-6 md:py-5">
             <div className="overflow-hidden rounded-[28px] border border-amber-400/20 bg-gradient-to-br from-[#3b210d] via-[#25160e] to-[#120d09] shadow-2xl shadow-black/35">
@@ -930,10 +872,10 @@ export default function DealerPortal() {
             <div className="flex items-end justify-between gap-3">
               <div>
                 <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Đặt hàng đại lý</div>
-                <h2 className="text-2xl font-display font-extrabold text-[#3f2411]">{isNppMode ? "Đặt hàng cho điểm bán" : "Sản phẩm & gợi ý bán kèm"}</h2>
+                <h2 className="text-2xl font-display font-extrabold text-[#3f2411]">Chat với BMQ Agent để đặt hàng</h2>
               </div>
               <Badge variant="outline" className="rounded-full border-amber-300 bg-white text-amber-800">
-                {catalogStatus === "loading" ? "Đang tải" : `${catalogProducts.length} sản phẩm`}
+                BMQ Agent
               </Badge>
             </div>
 
@@ -1919,3 +1861,4 @@ function CartSummary({
     </Card>
   );
 }
+
