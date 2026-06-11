@@ -559,6 +559,7 @@ export default function DealerPortal() {
   const totalItems = isNppMode ? nppSelectedLines.reduce((sum, line) => sum + line.physicalQuantity, 0) : selectedLines.reduce((sum, product) => sum + product.quantity, 0);
   const cartTotal = isNppMode ? nppSelectedLines.reduce((sum, line) => sum + line.lineTotal, 0) : selectedLines.reduce((sum, product) => sum + product.lineTotal, 0);
   const isCatalogUnlocked = loginStep === "catalog" && Boolean(sessionToken);
+  const isCatalogRestoring = isCatalogUnlocked && (catalogStatus === "idle" || catalogStatus === "loading");
   const dealerDisplayName = toDisplayName(dealerCustomer?.name) || dealerCustomer?.code || "Đại lý BMQ";
   const activeLandingBanner = landingBanners[activeLandingBannerIndex] || landingBanners[0];
   const activeLandingBannerUrl = activeLandingBanner?.url || landingBannerUrl;
@@ -639,7 +640,23 @@ export default function DealerPortal() {
         </div>
       </header>
 
-      {isCatalogUnlocked ? (
+      {isCatalogRestoring ? (
+        <section id="dealer-top" className="bg-[#fffaf0] text-[#3f2411]">
+          <div className="mx-auto max-w-6xl px-4 pb-3 pt-4 md:pb-5 md:pt-6">
+            <div className="rounded-[28px] border border-amber-200 bg-gradient-to-br from-[#fff7df] via-[#fffaf0] to-[#eefbea] p-6 shadow-xl shadow-amber-900/10 sm:p-7">
+              <div className="flex items-center gap-3">
+                <Loader2 className="h-5 w-5 animate-spin text-amber-700" />
+                <div>
+                  <h1 className="text-2xl font-display font-extrabold leading-tight sm:text-3xl">Đang tải phiên đặt hàng</h1>
+                  <p className="mt-1 text-sm text-[#765333]">
+                    BMQ đang kiểm tra tài khoản đại lý và chuẩn bị đúng luồng đặt hàng cho anh.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : isCatalogUnlocked ? (
         <section id="dealer-top" className="bg-[#fffaf0] text-[#3f2411]">
           <div className="mx-auto max-w-6xl px-4 pb-3 pt-4 md:pb-5 md:pt-6">
             <div className="overflow-hidden rounded-[28px] border border-amber-200 bg-gradient-to-br from-[#fff7df] via-[#fffaf0] to-[#eefbea] shadow-xl shadow-amber-900/10">
@@ -869,7 +886,16 @@ export default function DealerPortal() {
             </CardContent>
           </Card>
 
-          {isCatalogUnlocked ? (
+          {isCatalogRestoring ? (
+            <Card className="rounded-md border-amber-200 bg-amber-50/70">
+              <CardContent className="flex items-center gap-3 p-4 text-sm text-[#765333]">
+                <Loader2 className="h-4 w-4 animate-spin text-amber-700" />
+                <span>Đang tải dữ liệu đặt hàng, vui lòng chờ trong giây lát...</span>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {isCatalogUnlocked && !isCatalogRestoring ? (
             <div className="contents">
           <section id="quick-order" className="scroll-mt-24 space-y-4">
             <div className="flex items-end justify-between gap-3">
@@ -1096,7 +1122,7 @@ export default function DealerPortal() {
           )}
         </div>
 
-        {isCatalogUnlocked && !isNppMode ? (
+        {isCatalogUnlocked && !isCatalogRestoring && !isNppMode ? (
           <aside className="hidden lg:block">
             <div className="sticky top-20">
               <CartSummary
@@ -1118,7 +1144,7 @@ export default function DealerPortal() {
         © 2026 Bánh Mì Que Pháp BMQ. All rights reserved. Powered by VNAgent.ai
       </footer>
 
-      {isCatalogUnlocked && !isNppMode ? (
+      {isCatalogUnlocked && !isCatalogRestoring && !isNppMode ? (
         <div className="fixed inset-x-0 bottom-14 z-30 border-t bg-card/95 px-4 py-3 shadow-lg backdrop-blur lg:hidden">
           <div className="mx-auto max-w-6xl">
             <CartSummary
