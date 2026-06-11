@@ -128,7 +128,27 @@ type DealerPublicConfigResponse = {
 };
 
 const DEALER_SESSION_STORAGE_KEY = "bmq_dealer_session_token";
+const DEALER_PROFILE_CACHE_KEY = "bmq_dealer_profile_cache";
 const DEALER_ORDER_STEP = 10;
+
+type DealerProfileCache = {
+  customer: DealerCustomer | null;
+  hasDealerRoutes: boolean;
+};
+
+const readDealerProfileCache = (): DealerProfileCache => {
+  try {
+    const raw = localStorage.getItem(DEALER_PROFILE_CACHE_KEY);
+    if (!raw) return { customer: null, hasDealerRoutes: false };
+    const parsed = JSON.parse(raw) as Partial<DealerProfileCache>;
+    return {
+      customer: parsed.customer || null,
+      hasDealerRoutes: Boolean(parsed.hasDealerRoutes),
+    };
+  } catch {
+    return { customer: null, hasDealerRoutes: false };
+  }
+};
 
 const navItems = [
   { id: "home", label: "Trang chủ", icon: Home, target: "dealer-top" },
@@ -184,6 +204,7 @@ const toDisplayName = (value?: string | null) =>
     .replace(/(^|[\s'’.-])([\p{L}])/gu, (_, prefix: string, letter: string) => `${prefix}${letter.toLocaleUpperCase("vi-VN")}`);
 
 export default function DealerPortal() {
+  const [dealerProfileCache, setDealerProfileCache] = useState<DealerProfileCache>(() => readDealerProfileCache());
   const [sessionToken, setSessionToken] = useState(() => localStorage.getItem(DEALER_SESSION_STORAGE_KEY) || "");
   const [loginStep, setLoginStep] = useState<LoginStep>(() =>
     localStorage.getItem(DEALER_SESSION_STORAGE_KEY) ? "catalog" : "phone",
@@ -197,7 +218,7 @@ export default function DealerPortal() {
   const [landingBanners, setLandingBanners] = useState<DealerLandingBanner[]>([]);
   const [activeLandingBannerIndex, setActiveLandingBannerIndex] = useState(0);
   const [announcements, setAnnouncements] = useState<CatalogResponse["announcements"]>([]);
-  const [dealerCustomer, setDealerCustomer] = useState<DealerCustomer | null>(null);
+  const [dealerCustomer, setDealerCustomer] = useState<DealerCustomer | null>(() => dealerProfileCache.customer);
   const [dealerRoutes, setDealerRoutes] = useState<DealerRoute[]>([]);
   const [authLoading, setAuthLoading] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
@@ -275,10 +296,17 @@ export default function DealerPortal() {
       if (error) throw error;
 
       const nextProducts = Array.isArray(data?.products) ? data.products.map(mapCatalogProduct) : [];
+      const nextRoutes = Array.isArray(data?.dealer_routes) ? data.dealer_routes : [];
+      const nextProfileCache = {
+        customer: data?.customer || null,
+        hasDealerRoutes: nextRoutes.length > 0,
+      };
       setCatalogProducts(nextProducts);
       setAnnouncements(data?.announcements || []);
-      setDealerCustomer(data?.customer || null);
-      setDealerRoutes(Array.isArray(data?.dealer_routes) ? data.dealer_routes : []);
+      setDealerCustomer(nextProfileCache.customer);
+      setDealerRoutes(nextRoutes);
+      setDealerProfileCache(nextProfileCache);
+      localStorage.setItem(DEALER_PROFILE_CACHE_KEY, JSON.stringify(nextProfileCache));
       setCatalogStatus("live");
     } catch (error) {
       const message = await getFunctionErrorMessage(error, "Không tải được danh sách sản phẩm.");
@@ -357,6 +385,7 @@ export default function DealerPortal() {
       localStorage.setItem(DEALER_SESSION_STORAGE_KEY, data.dealer_token);
       setSessionToken(data.dealer_token);
       setDealerCustomer(data.customer || null);
+      setDealerProfileCache((current) => ({ ...current, customer: data.customer || null }));
       setLoginStep("catalog");
       setOtp("");
       setAuthMessage("Đã xác thực đại lý. Anh có thể gửi đơn thật.");
@@ -369,6 +398,8 @@ export default function DealerPortal() {
 
   const handleLogoutDealer = () => {
     localStorage.removeItem(DEALER_SESSION_STORAGE_KEY);
+    localStorage.removeItem(DEALER_PROFILE_CACHE_KEY);
+    setDealerProfileCache({ customer: null, hasDealerRoutes: false });
     setSessionToken("");
     setDealerCustomer(null);
     setDealerRoutes([]);
@@ -530,7 +561,8 @@ export default function DealerPortal() {
     [catalogProducts, quantities],
   );
 
-  const isNppMode = dealerRoutes.length > 0;
+  const isCatalogRefreshing = catalogStatus === "idle" || catalogStatus === "loading";
+  const isNppMode = dealerRoutes.length > 0 || (isCatalogRefreshing && dealerProfileCache.hasDealerRoutes);
   const nppProduct = useMemo(
     () => catalogProducts.find((product) => `${product.name} ${product.skuCode || ""}`.toLocaleLowerCase("vi-VN").includes("que")) || catalogProducts[0] || null,
     [catalogProducts],
@@ -559,7 +591,7 @@ export default function DealerPortal() {
   const totalItems = isNppMode ? nppSelectedLines.reduce((sum, line) => sum + line.physicalQuantity, 0) : selectedLines.reduce((sum, product) => sum + product.quantity, 0);
   const cartTotal = isNppMode ? nppSelectedLines.reduce((sum, line) => sum + line.lineTotal, 0) : selectedLines.reduce((sum, product) => sum + product.lineTotal, 0);
   const isCatalogUnlocked = loginStep === "catalog" && Boolean(sessionToken);
-  const isCatalogRestoring = isCatalogUnlocked && (catalogStatus === "idle" || catalogStatus === "loading");
+  const isCatalogRestoring = isCatalogUnlocked && isCatalogRefreshing && !dealerProfileCache.customer;
   const dealerDisplayName = toDisplayName(dealerCustomer?.name) || dealerCustomer?.code || "Đại lý BMQ";
   const activeLandingBanner = landingBanners[activeLandingBannerIndex] || landingBanners[0];
   const activeLandingBannerUrl = activeLandingBanner?.url || landingBannerUrl;
