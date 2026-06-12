@@ -1407,29 +1407,29 @@ function NppQuickOrderPanel({
   }
 
   return (
-    <div className="space-y-4 pb-28" data-stitch-dealer-chat-agent="bottom-bar-v2">
-      <div className="rounded-3xl border border-amber-100 bg-white p-4 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
+    <div className="min-w-0 space-y-4 pb-28" data-stitch-dealer-chat-agent="bottom-bar-v2">
+      <div className="min-w-0 overflow-hidden rounded-3xl border border-amber-100 bg-white p-3 shadow-sm sm:p-4">
+        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border border-amber-100 bg-white shadow-sm">
               <img src={bmqLogo} alt="BMQ Agent" className="h-9 w-9 object-contain" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">BMQ Agent</div>
-              <h3 className="text-xl font-display font-extrabold text-[#3f2411]">Nhập đơn bằng tin nhắn</h3>
+              <h3 className="text-lg font-display font-extrabold leading-tight text-[#3f2411] sm:text-xl">Nhập đơn bằng tin nhắn</h3>
             </div>
           </div>
-          <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 text-emerald-700">
+          <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 text-xs text-emerald-700">
             Đơn sẽ được BMQ xác nhận
           </Badge>
         </div>
 
-        <div className="mt-4 space-y-3 rounded-3xl bg-[#fff8e8] p-3">
-          <div className="flex items-start gap-2">
+        <div className="mt-4 min-w-0 space-y-3 rounded-3xl bg-[#fff8e8] p-2 sm:p-3">
+          <div className="flex min-w-0 items-start gap-2">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-amber-700 shadow-sm">
               {parseStatus === "processing" ? <Loader2 className="h-4 w-4 animate-spin" /> : parseStatus === "success" ? <CheckCircle2 className="h-4 w-4 text-emerald-700" /> : <Sparkles className="h-4 w-4" />}
             </div>
-            <div className="max-w-[82%] rounded-2xl rounded-tl-md bg-white px-3 py-2 text-sm leading-6 text-[#5f3b1d] shadow-sm">
+            <div className="min-w-0 max-w-[calc(100%-2.5rem)] break-words rounded-2xl rounded-tl-md bg-white px-3 py-2 text-sm leading-6 text-[#5f3b1d] shadow-sm">
               {parseStatus === "processing"
                 ? "Em đang đọc nội dung đơn..."
                 : parseStatus === "success"
@@ -1437,12 +1437,12 @@ function NppQuickOrderPanel({
                   : "Chào anh, gửi nội dung đơn ở ô bên dưới. Em sẽ tách đơn để anh kiểm tra trước khi gửi."}
             </div>
           </div>
-          <div className="flex items-end gap-2 rounded-3xl border border-amber-200 bg-white p-2 shadow-sm focus-within:ring-2 focus-within:ring-amber-300">
+          <div className="flex min-w-0 items-end gap-2 rounded-3xl border border-amber-200 bg-white p-2 shadow-sm focus-within:ring-2 focus-within:ring-amber-300">
             <Textarea
               value={orderText}
               onChange={(event) => setOrderText(event.target.value)}
               placeholder="Dán nội dung đơn ở đây..."
-              className="min-h-28 flex-1 resize-none border-0 bg-transparent text-base leading-7 text-[#3f2411] shadow-none placeholder:text-[#a7835d] focus-visible:ring-0"
+              className="min-h-28 min-w-0 flex-1 resize-none border-0 bg-transparent text-base leading-7 text-[#3f2411] shadow-none placeholder:text-[#a7835d] focus-visible:ring-0"
             />
             <Button
               type="button"
@@ -1466,12 +1466,12 @@ function NppQuickOrderPanel({
         </div>
 
         {productSuggestions.length > 0 ? (
-          <div className="mt-4 space-y-2">
-            <div className="flex items-center justify-between gap-3">
+          <div className="mt-4 min-w-0 space-y-2">
+            <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
               <h4 className="text-sm font-extrabold text-[#3f2411]">Sản phẩm BMQ khác</h4>
               <span className="text-xs font-medium text-[#8a6a4a]">Chạm để hỏi thêm trong chat</span>
             </div>
-            <div className="flex gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none]">
+            <div className="flex max-w-full gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none]">
               {productSuggestions.map((suggestedProduct) => (
                 <button
                   key={suggestedProduct.id}
