@@ -17,7 +17,6 @@ import {
   LogOut,
   MapPin,
   MessageCircle,
-  MessageSquareText,
   PackagePlus,
   Phone,
   Send,
@@ -933,6 +932,7 @@ export default function DealerPortal() {
               <NppQuickOrderPanel
                 routes={dealerRoutes}
                 product={nppProduct}
+                productSuggestions={catalogProducts.filter((product) => product.id !== nppProduct?.id).slice(0, 8)}
                 quantities={nppQuantities}
                 notes={nppNotes}
                 exchangeQuantities={nppExchangeQuantities}
@@ -1339,6 +1339,7 @@ export default function DealerPortal() {
 function NppQuickOrderPanel({
   routes,
   product,
+  productSuggestions,
   quantities,
   notes,
   exchangeQuantities,
@@ -1362,6 +1363,7 @@ function NppQuickOrderPanel({
 }: {
   routes: DealerRoute[];
   product: Product | null;
+  productSuggestions: Product[];
   quantities: Record<string, number>;
   notes: Record<string, string>;
   exchangeQuantities: Record<string, number>;
@@ -1391,6 +1393,10 @@ function NppQuickOrderPanel({
     return ordered + exchange + makeup > 0;
   });
   const selectedRouteCount = selectedRoutes.length;
+  const addProductSuggestionToChat = (suggestedProduct: Product) => {
+    const suggestion = `Anh muốn xem thêm ${suggestedProduct.name}`;
+    setOrderText((current) => current.trim() ? `${current.trim()}\n${suggestion}` : suggestion);
+  };
 
   if (!product) {
     return (
@@ -1405,8 +1411,8 @@ function NppQuickOrderPanel({
       <div className="rounded-3xl border border-amber-100 bg-white p-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-100 text-amber-800">
-              <MessageSquareText className="h-5 w-5" />
+            <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border border-amber-100 bg-white shadow-sm">
+              <img src={bmqLogo} alt="BMQ Agent" className="h-9 w-9 object-contain" />
             </div>
             <div>
               <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">BMQ Agent</div>
@@ -1428,12 +1434,7 @@ function NppQuickOrderPanel({
                 ? "Em đang đọc nội dung đơn..."
                 : parseStatus === "success"
                   ? "Đã nhận đơn. Anh bấm thanh bên dưới để xem và chỉnh chi tiết."
-                  : "Chào anh, anh nhập đơn giống email hằng ngày. Em sẽ tách điểm bán, số đặt, đổi và bù để anh kiểm tra trước khi gửi."}
-            </div>
-          </div>
-          <div className="flex justify-end">
-            <div className="max-w-[92%] rounded-2xl rounded-tr-md bg-amber-500 px-3 py-2 text-sm font-medium leading-6 text-[#2b1708] shadow-sm">
-              Rạch Giá 200 đổi 10, ĐVC 100 đổi 19 bù 3, Topsmarket Âu Cơ 80, Quang Trung 160 đổi 11
+                  : "Chào anh, gửi nội dung đơn ở ô bên dưới. Em sẽ tách đơn để anh kiểm tra trước khi gửi."}
             </div>
           </div>
           <div className="flex items-end gap-2 rounded-3xl border border-amber-200 bg-white p-2 shadow-sm focus-within:ring-2 focus-within:ring-amber-300">
@@ -1463,6 +1464,37 @@ function NppQuickOrderPanel({
             </div>
           ) : null}
         </div>
+
+        {productSuggestions.length > 0 ? (
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <h4 className="text-sm font-extrabold text-[#3f2411]">Sản phẩm BMQ khác</h4>
+              <span className="text-xs font-medium text-[#8a6a4a]">Chạm để hỏi thêm trong chat</span>
+            </div>
+            <div className="flex gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none]">
+              {productSuggestions.map((suggestedProduct) => (
+                <button
+                  key={suggestedProduct.id}
+                  type="button"
+                  className="min-w-[150px] max-w-[170px] rounded-2xl border border-amber-100 bg-[#fffaf0] p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md"
+                  onClick={() => addProductSuggestionToChat(suggestedProduct)}
+                >
+                  <div className="overflow-hidden rounded-xl border border-amber-100 bg-white">
+                    {suggestedProduct.imageUrl ? (
+                      <img src={suggestedProduct.imageUrl} alt={suggestedProduct.name} loading="lazy" className="h-20 w-full object-cover" />
+                    ) : (
+                      <div className="flex h-20 items-center justify-center bg-amber-50">
+                        <img src={bmqLogo} alt="BMQ" className="h-10 w-10 object-contain" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-2 line-clamp-2 text-sm font-bold leading-5 text-[#3f2411]">{suggestedProduct.name}</div>
+                  <div className="mt-1 text-xs font-semibold text-amber-700">{formatVnd(suggestedProduct.price)} / {suggestedProduct.unit}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {selectedRouteCount > 0 ? (
