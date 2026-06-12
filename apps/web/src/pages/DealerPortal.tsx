@@ -24,7 +24,6 @@ import {
   ShoppingCart,
   Sparkles,
   Timer,
-  Truck,
   UserRound,
   WalletCards,
 } from "lucide-react";
@@ -150,10 +149,10 @@ const readDealerProfileCache = (): DealerProfileCache => {
 };
 
 const navItems = [
-  { id: "home", label: "Trang chủ", icon: Home, target: "dealer-top" },
-  { id: "order", label: "Đặt hàng", icon: ClipboardList, target: "quick-order" },
-  { id: "delivery", label: "Giao hàng", icon: Truck, target: "delivery-plan" },
-  { id: "support", label: "Hỗ trợ", icon: HelpCircle, target: "dealer-support" },
+  { id: "home", label: "Trang chủ", icon: Home },
+  { id: "products", label: "Sản phẩm", icon: PackagePlus },
+  { id: "order", label: "Đặt hàng", icon: ClipboardList },
+  { id: "support", label: "Hỗ trợ", icon: HelpCircle },
 ];
 
 const formatVnd = (value: number) =>
@@ -210,7 +209,7 @@ export default function DealerPortal() {
   );
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
-  const [activeNav, setActiveNav] = useState("order");
+  const [activeNav, setActiveNav] = useState("home");
   const [catalogProducts, setCatalogProducts] = useState<Product[]>([]);
   const [catalogStatus, setCatalogStatus] = useState<"idle" | "loading" | "live" | "error">("idle");
   const [landingBannerUrl, setLandingBannerUrl] = useState("");
@@ -599,6 +598,8 @@ export default function DealerPortal() {
     : `/dealer/promotion/${activeLandingBanner?.id || "event-1"}`;
   const categoryChips = ["Tất cả", "Bánh mì", "Bánh ngọt"];
   const featuredProducts = catalogProducts.slice(0, 3);
+  const productCarouselProducts = catalogProducts.filter((product) => product.id !== nppProduct?.id).slice(0, 10);
+  const marqueeProducts = productCarouselProducts.length > 0 ? [...productCarouselProducts, ...productCarouselProducts] : [];
   const filteredProducts = catalogProducts.filter((product) => {
     if (activeCategory === "Tất cả") return true;
     const haystack = `${product.name} ${product.tag}`.toLowerCase();
@@ -613,6 +614,16 @@ export default function DealerPortal() {
     setSelectedProduct(product);
     setDraftQuantity(quantities[product.id] ? String(quantities[product.id]) : "");
     setQuantityModalError("");
+  };
+
+  const handleProductCta = (product: Product) => {
+    if (isNppMode) {
+      const suggestion = `Anh muốn xem thêm ${product.name}`;
+      setNppOrderText((current) => current.trim() ? `${current.trim()}\n${suggestion}` : suggestion);
+      setActiveNav("order");
+      return;
+    }
+    openProductDialog(product);
   };
 
   const handleProductQuantitySubmit = () => {
@@ -639,11 +650,11 @@ export default function DealerPortal() {
 
   const handleNav = (item: (typeof navItems)[number]) => {
     setActiveNav(item.id);
-    document.getElementById(item.target)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   return (
     <div className="min-h-screen bg-background text-foreground">
+      <style>{`@keyframes dealer-product-marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } } .dealer-product-marquee { animation: dealer-product-marquee 34s linear infinite; } .dealer-product-marquee:hover { animation-play-state: paused; } @media (prefers-reduced-motion: reduce) { .dealer-product-marquee { animation: none; } }`}</style>
       <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
@@ -684,7 +695,7 @@ export default function DealerPortal() {
             </div>
           </div>
         </section>
-      ) : isCatalogUnlocked ? (
+      ) : isCatalogUnlocked && activeNav === "home" ? (
         <section id="dealer-top" className="bg-[#fffaf0] text-[#3f2411]">
           <div className="mx-auto max-w-6xl px-4 pb-3 pt-4 md:pb-5 md:pt-6">
             <div className="overflow-hidden rounded-[28px] border border-amber-200 bg-white shadow-xl shadow-amber-900/10">
@@ -721,7 +732,7 @@ export default function DealerPortal() {
             </div>
           </div>
         </section>
-      ) : (
+      ) : !isCatalogUnlocked ? (
         <section id="dealer-top" className="border-b bg-[#16110d] text-amber-50">
           <div className="mx-auto max-w-6xl px-4 py-4 pb-6 md:py-5">
             <div className="overflow-hidden rounded-[28px] border border-amber-400/20 bg-gradient-to-br from-[#3b210d] via-[#25160e] to-[#120d09] shadow-2xl shadow-black/35">
@@ -786,9 +797,14 @@ export default function DealerPortal() {
             </div>
           </div>
         </section>
-      )}
+      ) : null}
 
-      <main className={cn("mx-auto grid max-w-6xl gap-4 px-4 pt-4", isCatalogUnlocked ? "bg-[#fffaf0] pb-40 lg:grid-cols-[minmax(0,1fr)_340px] lg:pb-12" : "pb-28")}>
+      <main className={cn(
+        "mx-auto grid max-w-6xl gap-4 px-4 pt-4",
+        isCatalogUnlocked
+          ? cn("bg-[#fffaf0] pb-40 lg:pb-12", !isNppMode && activeNav !== "home" && activeNav !== "support" && "lg:grid-cols-[minmax(0,1fr)_340px]")
+          : "pb-28",
+      )}>
         <div className="space-y-4">
           <Card id="dealer-login" className={cn("scroll-mt-24 rounded-md", isCatalogUnlocked && "hidden")}>
             <CardHeader className="p-4 pb-3">
@@ -904,7 +920,52 @@ export default function DealerPortal() {
 
           {isCatalogUnlocked && !isCatalogRestoring ? (
             <div className="contents">
-          <section id="quick-order" className="scroll-mt-24 space-y-4">
+          {activeNav === "home" ? (
+            <section id="dealer-home" className="space-y-4" data-dealer-page="home">
+              <div className="rounded-3xl border border-amber-100 bg-white p-4 shadow-sm">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Trang chủ đại lý</div>
+                    <h2 className="text-2xl font-display font-extrabold text-[#3f2411]">Promotion & sản phẩm BMQ</h2>
+                  </div>
+                  <Button type="button" className="rounded-2xl bg-amber-500 font-bold text-[#2b1708] hover:bg-amber-400" onClick={() => setActiveNav("order")}>
+                    <ClipboardList className="h-4 w-4" />
+                    Đặt hàng
+                  </Button>
+                </div>
+                <div className="mt-4 overflow-hidden rounded-3xl border border-amber-100 bg-[#fff8e8] py-3">
+                  {marqueeProducts.length > 0 ? (
+                    <div className="dealer-product-marquee flex w-max gap-3 px-3">
+                      {marqueeProducts.map((product, index) => (
+                        <button
+                          key={`${product.id}-${index}`}
+                          type="button"
+                          className="w-[170px] shrink-0 rounded-2xl border border-amber-100 bg-white p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md"
+                          onClick={() => handleProductCta(product)}
+                        >
+                          <div className="overflow-hidden rounded-xl border border-amber-100 bg-amber-50">
+                            {product.imageUrl ? (
+                              <img src={product.imageUrl} alt={product.name} loading="lazy" className="h-24 w-full object-cover" />
+                            ) : (
+                              <div className="flex h-24 items-center justify-center bg-amber-50">
+                                <img src={bmqLogo} alt="BMQ" className="h-11 w-11 object-contain" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="mt-2 line-clamp-2 text-sm font-extrabold leading-5 text-[#3f2411]">{product.name}</div>
+                          <div className="mt-1 text-xs font-semibold text-amber-700">{formatVnd(product.price)} / {product.unit}</div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="px-4 py-3 text-sm font-medium text-[#765333]">Đang tải sản phẩm...</div>
+                  )}
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          <section id="quick-order" className={cn("space-y-4", activeNav !== "order" && "hidden")}>
             <div className="flex items-end justify-between gap-3">
               <div>
                 <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Đặt hàng đại lý</div>
@@ -932,7 +993,7 @@ export default function DealerPortal() {
               <NppQuickOrderPanel
                 routes={dealerRoutes}
                 product={nppProduct}
-                productSuggestions={catalogProducts.filter((product) => product.id !== nppProduct?.id).slice(0, 8)}
+                productSuggestions={[]}
                 quantities={nppQuantities}
                 notes={nppNotes}
                 exchangeQuantities={nppExchangeQuantities}
@@ -1077,7 +1138,50 @@ export default function DealerPortal() {
             ) : null}
           </section>
 
-          <section id="delivery-plan" className="scroll-mt-24 space-y-3">
+          {activeNav === "products" ? (
+            <section id="dealer-products" className="space-y-4" data-dealer-page="products">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Sản phẩm BMQ</div>
+                  <h2 className="text-2xl font-display font-extrabold text-[#3f2411]">Danh sách SKU đang mở bán</h2>
+                </div>
+                <Button type="button" variant="outline" className="rounded-2xl border-amber-200 bg-white text-[#765333]" onClick={() => setActiveNav("order")}>
+                  Mở chat đặt hàng
+                </Button>
+              </div>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                {catalogProducts.length === 0 ? (
+                  <div className="col-span-2 rounded-2xl border border-dashed border-amber-200 bg-white p-5 text-sm text-[#765333] md:col-span-3">
+                    Đang tải sản phẩm...
+                  </div>
+                ) : null}
+                {catalogProducts.map((product) => (
+                  <Card key={product.id} className="overflow-hidden rounded-3xl border-amber-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md">
+                    <button type="button" className="flex h-full w-full flex-col gap-3 p-3 text-left" onClick={() => handleProductCta(product)}>
+                      <div className="overflow-hidden rounded-2xl border border-amber-100 bg-amber-50">
+                        {product.imageUrl ? (
+                          <img src={product.imageUrl} alt={product.name} loading="lazy" className="h-32 w-full object-cover sm:h-36" />
+                        ) : (
+                          <div className="flex h-32 w-full items-center justify-center bg-amber-50 sm:h-36">
+                            <img src={bmqLogo} alt="BMQ" className="h-12 w-12 object-contain" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="line-clamp-2 text-sm font-extrabold leading-snug text-[#3f2411] sm:text-base">{product.name}</h3>
+                        <div className="mt-1 text-xs font-semibold text-amber-700">{formatVnd(product.price)} / {product.unit}</div>
+                      </div>
+                      <div className="rounded-full bg-amber-100 px-3 py-1 text-center text-xs font-bold text-amber-800">
+                        {isNppMode ? "Hỏi BMQ Agent" : "Chọn"}
+                      </div>
+                    </button>
+                  </Card>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          <section id="delivery-plan" className={cn("space-y-3", activeNav !== "support" && "hidden")}>
             <h2 className="text-xl font-display font-bold">Giao hàng & thanh toán</h2>
             <div className="grid gap-3 md:grid-cols-3">
               <StatusTile
@@ -1098,7 +1202,7 @@ export default function DealerPortal() {
             </div>
           </section>
 
-          <section id="dealer-support" className="scroll-mt-24 space-y-3">
+          <section id="dealer-support" className={cn("space-y-3", activeNav !== "support" && "hidden")}>
             <h2 className="text-xl font-display font-bold">Hỗ trợ đơn hàng</h2>
             <div className="rounded-md border bg-card p-4">
               <div className="flex items-start gap-3">
@@ -1130,7 +1234,7 @@ export default function DealerPortal() {
           )}
         </div>
 
-        {isCatalogUnlocked && !isCatalogRestoring && !isNppMode ? (
+        {isCatalogUnlocked && !isCatalogRestoring && !isNppMode && activeNav !== "home" && activeNav !== "support" ? (
           <aside className="hidden lg:block">
             <div className="sticky top-20">
               <CartSummary
@@ -1152,7 +1256,7 @@ export default function DealerPortal() {
         © 2026 Bánh Mì Que Pháp BMQ. All rights reserved. Powered by VNAgent.ai
       </footer>
 
-      {isCatalogUnlocked && !isCatalogRestoring && !isNppMode ? (
+      {isCatalogUnlocked && !isCatalogRestoring && !isNppMode && activeNav !== "home" && activeNav !== "support" ? (
         <div className="fixed inset-x-0 bottom-14 z-30 border-t bg-card/95 px-4 py-3 shadow-lg backdrop-blur lg:hidden">
           <div className="mx-auto max-w-6xl">
             <CartSummary
