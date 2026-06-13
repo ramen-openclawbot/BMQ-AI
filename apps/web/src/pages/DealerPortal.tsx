@@ -618,9 +618,9 @@ export default function DealerPortal() {
 
   const handleProductCta = (product: Product) => {
     if (isNppMode) {
-      const suggestion = `Anh muốn xem thêm ${product.name}`;
-      setNppOrderText((current) => current.trim() ? `${current.trim()}\n${suggestion}` : suggestion);
       setActiveNav("order");
+      setNppParseStatus("idle");
+      setNppParseMessage(`Để đặt ${product.name}, anh nhập số lượng theo từng điểm bán ở ô chat. Ví dụ: Rạch Giá 200 đổi 10, ĐVC 100 bù 3.`);
       return;
     }
     openProductDialog(product);
@@ -940,7 +940,7 @@ export default function DealerPortal() {
                         <button
                           key={`${product.id}-${index}`}
                           type="button"
-                          className="w-[170px] shrink-0 rounded-2xl border border-amber-100 bg-white p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md"
+                          className="w-[190px] shrink-0 rounded-2xl border border-amber-100 bg-white p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md sm:w-[210px]"
                           onClick={() => handleProductCta(product)}
                         >
                           <div className="overflow-hidden rounded-xl border border-amber-100 bg-amber-50">
@@ -953,7 +953,7 @@ export default function DealerPortal() {
                             )}
                           </div>
                           <div className="mt-2 line-clamp-2 text-sm font-extrabold leading-5 text-[#3f2411]">{product.name}</div>
-                          <div className="mt-1 text-xs font-semibold text-amber-700">{formatVnd(product.price)} / {product.unit}</div>
+                          <div className="mt-1 truncate text-xs font-semibold text-amber-700">{formatVnd(product.price)} / {product.unit}</div>
                         </button>
                       ))}
                     </div>
@@ -993,7 +993,7 @@ export default function DealerPortal() {
               <NppQuickOrderPanel
                 routes={dealerRoutes}
                 product={nppProduct}
-                productSuggestions={[]}
+                productSuggestions={productCarouselProducts}
                 quantities={nppQuantities}
                 notes={nppNotes}
                 exchangeQuantities={nppExchangeQuantities}
@@ -1004,6 +1004,7 @@ export default function DealerPortal() {
                 setNotes={setNppNotes}
                 orderText={nppOrderText}
                 setOrderText={setNppOrderText}
+                onProductSuggestion={handleProductCta}
                 parseMessage={nppParseMessage}
                 parseStatus={nppParseStatus}
                 onParse={handleParseNppOrderText}
@@ -1454,6 +1455,7 @@ function NppQuickOrderPanel({
   setNotes,
   orderText,
   setOrderText,
+  onProductSuggestion,
   parseMessage,
   parseStatus,
   onParse,
@@ -1478,6 +1480,7 @@ function NppQuickOrderPanel({
   setNotes: Dispatch<SetStateAction<Record<string, string>>>;
   orderText: string;
   setOrderText: Dispatch<SetStateAction<string>>;
+  onProductSuggestion: (product: Product) => void;
   parseMessage: string;
   parseStatus: "idle" | "processing" | "success";
   onParse: () => void;
@@ -1497,11 +1500,6 @@ function NppQuickOrderPanel({
     return ordered + exchange + makeup > 0;
   });
   const selectedRouteCount = selectedRoutes.length;
-  const addProductSuggestionToChat = (suggestedProduct: Product) => {
-    const suggestion = `Anh muốn xem thêm ${suggestedProduct.name}`;
-    setOrderText((current) => current.trim() ? `${current.trim()}\n${suggestion}` : suggestion);
-  };
-
   if (!product) {
     return (
       <div className="rounded-3xl border border-dashed border-amber-200 bg-white p-5 text-sm text-[#765333]">
@@ -1573,15 +1571,15 @@ function NppQuickOrderPanel({
           <div className="mt-4 min-w-0 space-y-2">
             <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
               <h4 className="text-sm font-extrabold text-[#3f2411]">Sản phẩm BMQ khác</h4>
-              <span className="text-xs font-medium text-[#8a6a4a]">Chạm để hỏi thêm trong chat</span>
+              <span className="text-xs font-medium text-[#8a6a4a]">Chạm để xem cách đặt</span>
             </div>
             <div className="flex max-w-full gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none]">
               {productSuggestions.map((suggestedProduct) => (
                 <button
                   key={suggestedProduct.id}
                   type="button"
-                  className="min-w-[150px] max-w-[170px] rounded-2xl border border-amber-100 bg-[#fffaf0] p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md"
-                  onClick={() => addProductSuggestionToChat(suggestedProduct)}
+                  className="min-w-[170px] max-w-[190px] rounded-2xl border border-amber-100 bg-[#fffaf0] p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md"
+                  onClick={() => onProductSuggestion(suggestedProduct)}
                 >
                   <div className="overflow-hidden rounded-xl border border-amber-100 bg-white">
                     {suggestedProduct.imageUrl ? (
@@ -1593,7 +1591,7 @@ function NppQuickOrderPanel({
                     )}
                   </div>
                   <div className="mt-2 line-clamp-2 text-sm font-bold leading-5 text-[#3f2411]">{suggestedProduct.name}</div>
-                  <div className="mt-1 text-xs font-semibold text-amber-700">{formatVnd(suggestedProduct.price)} / {suggestedProduct.unit}</div>
+                  <div className="mt-1 truncate text-xs font-semibold text-amber-700">{formatVnd(suggestedProduct.price)} / {suggestedProduct.unit}</div>
                 </button>
               ))}
             </div>
