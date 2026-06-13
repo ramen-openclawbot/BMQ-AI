@@ -53,6 +53,9 @@ type Product = {
   cutoff: string;
   imageUrl?: string | null;
   priceSource?: "cost_values_selling_price" | "customer_override";
+  shelfLifeDays?: number | null;
+  netWeightValue?: number | null;
+  netWeightUnit?: string | null;
 };
 
 type DealerCustomer = {
@@ -92,6 +95,9 @@ type CatalogProductResponse = {
   price_source?: "cost_values_selling_price" | "customer_override";
   notes?: string | null;
   image_url?: string | null;
+  shelf_life_days?: number | string | null;
+  net_weight_value?: number | string | null;
+  net_weight_unit?: string | null;
 };
 
 type CatalogResponse = {
@@ -162,6 +168,25 @@ const formatVnd = (value: number) =>
     maximumFractionDigits: 0,
   }).format(value);
 
+const toNullableNumber = (value: number | string | null | undefined) => {
+  if (value === null || value === undefined || value === "") return null;
+  const nextValue = Number(value);
+  return Number.isFinite(nextValue) ? nextValue : null;
+};
+
+const formatProductWeight = (product: Pick<Product, "netWeightValue" | "netWeightUnit">) => {
+  const value = product.netWeightValue;
+  if (value === null || value === undefined) return "Chưa cấu hình";
+  const formatted = Number.isInteger(value) ? String(value) : value.toLocaleString("vi-VN");
+  return `${formatted}${product.netWeightUnit || "g"}`;
+};
+
+const formatProductShelfLife = (product: Pick<Product, "shelfLifeDays">) => {
+  const days = product.shelfLifeDays;
+  if (!days || days < 1) return "Chưa cấu hình";
+  return `${days} ngày`;
+};
+
 const mapCatalogProduct = (product: CatalogProductResponse): Product => {
   const price = Number(product.price_vnd ?? product.unit_price ?? 0) || 0;
   const priceSource = product.price_source || "cost_values_selling_price";
@@ -178,6 +203,9 @@ const mapCatalogProduct = (product: CatalogProductResponse): Product => {
     cutoff: "Chốt trước 20:00",
     imageUrl: product.image_url || null,
     priceSource,
+    shelfLifeDays: toNullableNumber(product.shelf_life_days),
+    netWeightValue: toNullableNumber(product.net_weight_value),
+    netWeightUnit: product.net_weight_unit || null,
   };
 };
 
@@ -620,7 +648,8 @@ export default function DealerPortal() {
     if (isNppMode) {
       setActiveNav("order");
       setNppParseStatus("idle");
-      setNppParseMessage(`Để đặt ${product.name}, anh nhập số lượng theo từng điểm bán ở ô chat. Ví dụ: Rạch Giá 200 đổi 10, ĐVC 100 bù 3.`);
+      setNppParseMessage("");
+      openProductDialog(product);
       return;
     }
     openProductDialog(product);
@@ -1375,39 +1404,65 @@ export default function DealerPortal() {
                   </div>
                 )}
               </div>
-              <div className="space-y-4 p-5">
+              <div className="space-y-4 p-5" data-dealer-product-detail="label-specs">
                 <DialogHeader>
                   <DialogTitle className="text-xl font-display font-extrabold leading-tight">{selectedProduct.name}</DialogTitle>
                   <DialogDescription className="text-sm leading-6 text-[#765333]">
-                    {formatVnd(selectedProduct.price)} / {selectedProduct.unit}. Đặt theo bội số 10 {selectedProduct.unit || "đơn vị"}.
+                    {formatVnd(selectedProduct.price)} / {selectedProduct.unit}
+                    {isNppMode ? ". Anh nhập số lượng theo từng điểm bán trong ô chat sau khi xem thông tin sản phẩm." : `. Đặt theo bội số ${DEALER_ORDER_STEP} ${selectedProduct.unit || "đơn vị"}.`}
                   </DialogDescription>
                 </DialogHeader>
-                <div className="space-y-2">
-                  <Label htmlFor="dealer-product-quantity">Số lượng đặt</Label>
-                  <Input
-                    id="dealer-product-quantity"
-                    type="number"
-                    inputMode="numeric"
-                    min={0}
-                    step={DEALER_ORDER_STEP}
-                    value={draftQuantity}
-                    placeholder="VD: 100"
-                    onChange={(event) => {
-                      setDraftQuantity(event.target.value.replace(/[^0-9]/g, ""));
-                      setQuantityModalError("");
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") handleProductQuantitySubmit();
-                    }}
-                    className="h-12 rounded-2xl border-amber-200 bg-white text-center text-lg font-extrabold text-[#3f2411] focus-visible:ring-amber-400"
-                  />
-                  <div className="text-xs text-[#8a6a4a]">Nhập 0 để bỏ sản phẩm khỏi đơn.</div>
-                  {quantityModalError ? <div className="text-sm font-medium text-destructive">{quantityModalError}</div> : null}
+                <div className="grid grid-cols-3 gap-2" data-dealer-product-specs="weight-shelf-life">
+                  <div className="rounded-2xl border border-amber-100 bg-white px-2 py-3 text-center">
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-[#8a6a4a]">Giá bán</div>
+                    <div className="mt-1 truncate text-sm font-extrabold text-[#3f2411]">{formatVnd(selectedProduct.price)}</div>
+                  </div>
+                  <div className="rounded-2xl border border-amber-100 bg-white px-2 py-3 text-center">
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-[#8a6a4a]">Trọng lượng</div>
+                    <div className="mt-1 truncate text-sm font-extrabold text-[#3f2411]">{formatProductWeight(selectedProduct)}</div>
+                  </div>
+                  <div className="rounded-2xl border border-amber-100 bg-white px-2 py-3 text-center">
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-[#8a6a4a]">HSD</div>
+                    <div className="mt-1 truncate text-sm font-extrabold text-[#3f2411]">{formatProductShelfLife(selectedProduct)}</div>
+                  </div>
                 </div>
-                <DialogFooter>
-                  <Button className="h-12 w-full rounded-2xl bg-amber-500 text-base font-bold text-[#2b1708] hover:bg-amber-400" onClick={handleProductQuantitySubmit}>
-                    Gửi
+                {!isNppMode ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="dealer-product-quantity">Số lượng đặt</Label>
+                    <Input
+                      id="dealer-product-quantity"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      step={DEALER_ORDER_STEP}
+                      value={draftQuantity}
+                      placeholder="VD: 100"
+                      onChange={(event) => {
+                        setDraftQuantity(event.target.value.replace(/[^0-9]/g, ""));
+                        setQuantityModalError("");
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") handleProductQuantitySubmit();
+                      }}
+                      className="h-12 rounded-2xl border-amber-200 bg-white text-center text-lg font-extrabold text-[#3f2411] focus-visible:ring-amber-400"
+                    />
+                    <div className="text-xs text-[#8a6a4a]">Nhập 0 để bỏ sản phẩm khỏi đơn.</div>
+                    {quantityModalError ? <div className="text-sm font-medium text-destructive">{quantityModalError}</div> : null}
+                  </div>
+                ) : null}
+                <DialogFooter className="gap-2 sm:gap-2">
+                  <Button variant="outline" className="h-11 w-full rounded-2xl border-amber-200 bg-white text-[#765333]" onClick={() => setSelectedProduct(null)}>
+                    Đóng
                   </Button>
+                  {isNppMode ? (
+                    <Button className="h-11 w-full rounded-2xl bg-amber-500 text-base font-bold text-[#2b1708] hover:bg-amber-400" onClick={() => setSelectedProduct(null)}>
+                      Đặt bằng chat
+                    </Button>
+                  ) : (
+                    <Button className="h-11 w-full rounded-2xl bg-amber-500 text-base font-bold text-[#2b1708] hover:bg-amber-400" onClick={handleProductQuantitySubmit}>
+                      Gửi
+                    </Button>
+                  )}
                 </DialogFooter>
               </div>
             </>

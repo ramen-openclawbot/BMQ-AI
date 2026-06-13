@@ -33,6 +33,13 @@ type ProductSku = {
   hide_from_dealer_portal?: boolean | null;
 };
 
+type ProductLabelSpec = {
+  sku_id: string;
+  shelf_life_days: number | null;
+  net_weight_value: number | string | null;
+  net_weight_unit: string | null;
+};
+
 const normalizeSkuText = (value: string | null | undefined) =>
   String(value || "")
     .toLowerCase()
@@ -97,6 +104,20 @@ serve(async (req) => {
 
     if (skuError) throw skuError;
 
+    const skuIds = ((skus || []) as ProductSku[]).map((sku) => sku.id).filter(Boolean);
+    const labelSpecBySkuId = new Map<string, ProductLabelSpec>();
+    if (skuIds.length > 0) {
+      const { data: labelSpecs, error: labelSpecError } = await supabase
+        .from("product_label_specs")
+        .select("sku_id, shelf_life_days, net_weight_value, net_weight_unit")
+        .in("sku_id", skuIds);
+
+      if (labelSpecError) throw labelSpecError;
+      ((labelSpecs || []) as ProductLabelSpec[]).forEach((spec) => {
+        if (spec.sku_id) labelSpecBySkuId.set(spec.sku_id, spec);
+      });
+    }
+
     const priceOverrides = new Map<string, number>();
     if (sessionContext) {
       const { data: prices, error: priceError } = await supabase
@@ -135,6 +156,7 @@ serve(async (req) => {
       const override = priceOverrides.get(sku.id);
       const skuSellingPrice = numberFromCostValues(sku.cost_values, "selling_price");
       const price = override ?? skuSellingPrice;
+      const labelSpec = labelSpecBySkuId.get(sku.id);
 
       if (!Number.isFinite(price) || price <= 0) return [];
 
@@ -151,6 +173,9 @@ serve(async (req) => {
         image_url: sku.image_url ?? null,
         image_path: sku.image_path ?? null,
         image_updated_at: sku.image_updated_at ?? null,
+        shelf_life_days: labelSpec?.shelf_life_days ?? null,
+        net_weight_value: labelSpec?.net_weight_value ?? null,
+        net_weight_unit: labelSpec?.net_weight_unit ?? null,
       }];
     });
 
