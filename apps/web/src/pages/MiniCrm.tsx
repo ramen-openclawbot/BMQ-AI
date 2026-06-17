@@ -1480,6 +1480,26 @@ export default function MiniCrm() {
           throw new Error("Vui lòng chọn đúng 1 SĐT chính đang hoạt động cho dealer portal");
         }
 
+        const activeDealerPhones = activeDealerContacts.map((contact) => contact.phone_normalized);
+        if (activeDealerPhones.length) {
+          const { data: conflictingDealerContacts, error: conflictLookupError } = await (supabase as any)
+            .from("dealer_customer_contacts")
+            .select("phone_normalized, phone_raw, customer_id, mini_crm_customers(customer_name)")
+            .in("phone_normalized", activeDealerPhones)
+            .eq("is_active", true)
+            .neq("customer_id", editingCustomerId);
+          if (conflictLookupError) {
+            throw new Error(`Lỗi kiểm tra SĐT dealer portal: ${conflictLookupError.message}`);
+          }
+          if (Array.isArray(conflictingDealerContacts) && conflictingDealerContacts.length) {
+            const conflict = conflictingDealerContacts[0];
+            const customerName = Array.isArray(conflict.mini_crm_customers)
+              ? conflict.mini_crm_customers[0]?.customer_name
+              : conflict.mini_crm_customers?.customer_name;
+            throw new Error(`SĐT ${conflict.phone_raw || conflict.phone_normalized} đang được dùng cho khách hàng ${customerName || conflict.customer_id}. Vui lòng xoá/ngưng hoạt động số đó ở khách hàng cũ trước khi lưu.`);
+          }
+        }
+
         const { error: deleteDealerContactsError } = await (supabase as any)
           .from("dealer_customer_contacts")
           .delete()
@@ -1604,7 +1624,7 @@ export default function MiniCrm() {
     onSuccess: async (result: any) => {
       cancelEditCustomer();
       const warningText = Array.isArray(result?.warnings) && result.warnings.length ? ` Tuy nhiên có phần mở rộng chưa lưu được: ${result.warnings.join("; ")}.` : "";
-      const msg = `Đã lưu thành công${result?.emailChanged ? ` (${result?.emailCount || 0} email)` : ""}.${warningText}`;
+      const msg = `Đã lưu thay đổi cho ${editCustomerName.trim() || "khách hàng"}${result?.emailChanged ? ` (${result?.emailCount || 0} email)` : ""}.${warningText}`;
       setEditFeedback(msg);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] }),
@@ -3969,29 +3989,9 @@ export default function MiniCrm() {
               <p className="text-xs text-muted-foreground">Hệ thống gửi mail công nợ theo danh sách này, không phụ thuộc email nhận diện PO.</p>
             </div>
             <div className="space-y-3 md:col-span-2 rounded-md border p-3">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <Label>Liên hệ đại lý / SĐT đăng nhập OTP</Label>
-                  <p className="mt-1 text-xs text-muted-foreground">Các số này được lưu ở dealer_customer_contacts và dùng cho cổng dathang.banhmique.vn.</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setEditDealerContacts((prev) => [...prev, { ...createEmptyDealerContactDraft(), is_primary: prev.every((contact) => !contact.is_active) }])}
-                  >
-                    + Thêm SĐT
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={async () => { setEditFeedback("Đang lưu..."); try { await updateCustomerMutation.mutateAsync(); } catch { return; } }}
-                    disabled={updateCustomerMutation.isPending}
-                  >
-                    {updateCustomerMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}Lưu SĐT
-                  </Button>
-                </div>
+              <div>
+                <Label>Liên hệ đại lý / SĐT đăng nhập OTP</Label>
+                <p className="mt-1 text-xs text-muted-foreground">Nhập SĐT tại đây, sau đó bấm “Lưu thay đổi” ở cuối cửa sổ chính.</p>
               </div>
               <div className="space-y-2">
                 {editDealerContacts.map((contact, idx) => (
