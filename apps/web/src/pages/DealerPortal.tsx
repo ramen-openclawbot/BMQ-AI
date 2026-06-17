@@ -252,6 +252,41 @@ const toDisplayName = (value?: string | null) =>
     .toLocaleLowerCase("vi-VN")
     .replace(/(^|[\s'’.-])([\p{L}])/gu, (_, prefix: string, letter: string) => `${prefix}${letter.toLocaleUpperCase("vi-VN")}`);
 
+function CatalogEmptyState({
+  status,
+  error,
+  onRetry,
+  className,
+}: {
+  status: "idle" | "loading" | "live" | "error";
+  error?: string;
+  onRetry: () => void;
+  className?: string;
+}) {
+  const isLoading = status === "idle" || status === "loading";
+
+  return (
+    <div className={cn("rounded-2xl border border-dashed border-amber-200 bg-white p-4 text-sm text-[#765333]", className)}>
+      {isLoading ? (
+        <div className="flex items-center gap-2 font-medium">
+          <Loader2 className="h-4 w-4 animate-spin text-amber-700" />
+          <span>Đang tải sản phẩm...</span>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="font-semibold text-[#3f2411]">Không tải được sản phẩm.</div>
+          <div className="text-xs leading-5 text-[#8a6a4a]">
+            {error || "Anh/chị bấm tải lại. Nếu vẫn lỗi, vui lòng đăng xuất rồi đăng nhập OTP lại để làm mới phiên đại lý."}
+          </div>
+          <Button type="button" size="sm" variant="outline" className="rounded-xl border-amber-300 bg-amber-50 text-[#765333]" onClick={onRetry}>
+            Tải lại sản phẩm
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DealerPortal() {
   const [dealerProfileCache, setDealerProfileCache] = useState<DealerProfileCache>(() => readDealerProfileCache());
   const [, setDealerCatalogCache] = useState<DealerCatalogCache>(() => readDealerCatalogCache());
@@ -264,6 +299,7 @@ export default function DealerPortal() {
   const [activeNav, setActiveNav] = useState("home");
   const [catalogProducts, setCatalogProducts] = useState<Product[]>(() => readDealerCatalogCache().products);
   const [catalogStatus, setCatalogStatus] = useState<"idle" | "loading" | "live" | "error">("idle");
+  const [catalogError, setCatalogError] = useState("");
   const [landingBannerUrl, setLandingBannerUrl] = useState("");
   const [landingBanners, setLandingBanners] = useState<DealerLandingBanner[]>([]);
   const [activeLandingBannerIndex, setActiveLandingBannerIndex] = useState(0);
@@ -332,6 +368,7 @@ export default function DealerPortal() {
       setDealerRoutes([]);
       setDealerCatalogCache({ products: [], announcements: [], dealerRoutes: [] });
       localStorage.removeItem(DEALER_CATALOG_CACHE_KEY);
+      setCatalogError("");
       setCatalogStatus("idle");
       return;
     }
@@ -344,6 +381,7 @@ export default function DealerPortal() {
       setDealerCatalogCache(cachedCatalog);
     }
 
+    setCatalogError("");
     setCatalogStatus("loading");
 
     try {
@@ -352,6 +390,13 @@ export default function DealerPortal() {
       if (error) {
         if (isSessionExpired) {
           localStorage.removeItem(DEALER_SESSION_STORAGE_KEY);
+          localStorage.removeItem(DEALER_PROFILE_CACHE_KEY);
+          localStorage.removeItem(DEALER_CATALOG_CACHE_KEY);
+          setDealerProfileCache({ customer: null, hasDealerRoutes: false });
+          setDealerCatalogCache({ products: [], announcements: [], dealerRoutes: [] });
+          setDealerCustomer(null);
+          setDealerRoutes([]);
+          setLoginStep("phone");
           setSessionToken("");
         }
         throw new Error(error);
@@ -376,6 +421,7 @@ export default function DealerPortal() {
       setDealerCatalogCache(nextCatalogCache);
       localStorage.setItem(DEALER_PROFILE_CACHE_KEY, JSON.stringify(nextProfileCache));
       localStorage.setItem(DEALER_CATALOG_CACHE_KEY, JSON.stringify(nextCatalogCache));
+      setCatalogError("");
       setCatalogStatus("live");
     } catch (error) {
       const message = await getFunctionErrorMessage(error, "Không tải được danh sách sản phẩm.");
@@ -384,6 +430,7 @@ export default function DealerPortal() {
         setAnnouncements([]);
         setDealerRoutes([]);
       }
+      setCatalogError(message || "Không tải được danh sách sản phẩm.");
       setCatalogStatus("error");
       console.warn("Không tải được danh sách sản phẩm đại lý", message || error);
     }
@@ -473,6 +520,7 @@ export default function DealerPortal() {
     localStorage.removeItem(DEALER_CATALOG_CACHE_KEY);
     setDealerProfileCache({ customer: null, hasDealerRoutes: false });
     setDealerCatalogCache({ products: [], announcements: [], dealerRoutes: [] });
+    setCatalogError("");
     setSessionToken("");
     setDealerCustomer(null);
     setDealerRoutes([]);
@@ -1034,7 +1082,7 @@ export default function DealerPortal() {
                       ))}
                     </div>
                   ) : (
-                    <div className="px-4 py-3 text-sm font-medium text-[#765333]">Đang tải sản phẩm...</div>
+                    <CatalogEmptyState status={catalogStatus} error={catalogError} onRetry={() => void loadCatalog(sessionToken)} />
                   )}
                 </div>
               </div>
@@ -1136,11 +1184,7 @@ export default function DealerPortal() {
 
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               {catalogProducts.length === 0 ? (
-                <div className="col-span-2 rounded-2xl border border-dashed border-amber-200 bg-white p-5 text-sm text-[#765333] md:col-span-3">
-                  {catalogStatus === "loading"
-                    ? "Đang tải sản phẩm..."
-                    : "Chưa có sản phẩm để đặt. Vui lòng liên hệ BMQ để được hỗ trợ."}
-                </div>
+                <CatalogEmptyState status={catalogStatus} error={catalogError} onRetry={() => void loadCatalog(sessionToken)} className="col-span-2 md:col-span-3" />
               ) : null}
               {filteredProducts.map((product) => {
                 const quantity = quantities[product.id] || 0;
@@ -1228,9 +1272,7 @@ export default function DealerPortal() {
               </div>
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
                 {catalogProducts.length === 0 ? (
-                  <div className="col-span-2 rounded-2xl border border-dashed border-amber-200 bg-white p-5 text-sm text-[#765333] md:col-span-3">
-                    Đang tải sản phẩm...
-                  </div>
+                  <CatalogEmptyState status={catalogStatus} error={catalogError} onRetry={() => void loadCatalog(sessionToken)} className="col-span-2 md:col-span-3" />
                 ) : null}
                 {catalogProducts.map((product) => (
                   <Card key={product.id} className="overflow-hidden rounded-3xl border-amber-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md">
