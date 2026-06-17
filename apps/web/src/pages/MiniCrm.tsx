@@ -1588,7 +1588,15 @@ export default function MiniCrm() {
           });
         if (kbVersionError) throw new Error(`Lỗi lưu KB version: ${kbVersionError.message}`);
       } catch (detailError: any) {
-        warnings.push(detailError?.message || "Một phần dữ liệu mở rộng chưa lưu được");
+        const detailMessage = detailError?.message || "Một phần dữ liệu mở rộng chưa lưu được";
+        if (
+          detailMessage.includes("SĐT dealer portal") ||
+          detailMessage.includes("dealer_customer_contacts") ||
+          detailMessage.includes("SĐT chính đang hoạt động")
+        ) {
+          throw detailError;
+        }
+        warnings.push(detailMessage);
       }
 
       return { saved: true, emailCount: emails.length, emailChanged, warnings };
@@ -3966,14 +3974,24 @@ export default function MiniCrm() {
                   <Label>Liên hệ đại lý / SĐT đăng nhập OTP</Label>
                   <p className="mt-1 text-xs text-muted-foreground">Các số này được lưu ở dealer_customer_contacts và dùng cho cổng dathang.banhmique.vn.</p>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setEditDealerContacts((prev) => [...prev, { ...createEmptyDealerContactDraft(), is_primary: prev.every((contact) => !contact.is_active) }])}
-                >
-                  + Thêm SĐT
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditDealerContacts((prev) => [...prev, { ...createEmptyDealerContactDraft(), is_primary: prev.every((contact) => !contact.is_active) }])}
+                  >
+                    + Thêm SĐT
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={async () => { setEditFeedback("Đang lưu..."); try { await updateCustomerMutation.mutateAsync(); } catch { return; } }}
+                    disabled={updateCustomerMutation.isPending}
+                  >
+                    {updateCustomerMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}Lưu SĐT
+                  </Button>
+                </div>
               </div>
               <div className="space-y-2">
                 {editDealerContacts.map((contact, idx) => (
@@ -4157,9 +4175,9 @@ export default function MiniCrm() {
             />
           </div>
 
-          <div className="flex justify-end gap-2">
+          <div className="sticky bottom-0 z-10 -mx-6 -mb-6 flex justify-end gap-2 border-t bg-background/95 px-6 py-3 backdrop-blur">
             <Button variant="outline" onClick={cancelEditCustomer}>Huỷ</Button>
-            <Button onClick={async () => { setEditFeedback("Đang lưu..."); try { await updateCustomerMutation.mutateAsync(); } catch (_) {} }} disabled={updateCustomerMutation.isPending}>
+            <Button onClick={async () => { setEditFeedback("Đang lưu..."); try { await updateCustomerMutation.mutateAsync(); } catch { return; } }} disabled={updateCustomerMutation.isPending}>
               {updateCustomerMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}Lưu thay đổi
             </Button>
           </div>
