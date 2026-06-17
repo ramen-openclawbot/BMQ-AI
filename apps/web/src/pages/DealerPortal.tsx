@@ -37,6 +37,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
+import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import { cn } from "@/lib/utils";
 
 type LoginStep = "phone" | "otp" | "catalog";
@@ -133,11 +134,18 @@ type DealerPublicConfigResponse = {
 
 const DEALER_SESSION_STORAGE_KEY = "bmq_dealer_session_token";
 const DEALER_PROFILE_CACHE_KEY = "bmq_dealer_profile_cache";
+const DEALER_CATALOG_CACHE_KEY = "bmq_dealer_catalog_cache";
 const DEALER_ORDER_STEP = 10;
 
 type DealerProfileCache = {
   customer: DealerCustomer | null;
   hasDealerRoutes: boolean;
+};
+
+type DealerCatalogCache = {
+  products: Product[];
+  announcements: CatalogResponse["announcements"];
+  dealerRoutes: DealerRoute[];
 };
 
 const readDealerProfileCache = (): DealerProfileCache => {
@@ -151,6 +159,21 @@ const readDealerProfileCache = (): DealerProfileCache => {
     };
   } catch {
     return { customer: null, hasDealerRoutes: false };
+  }
+};
+
+const readDealerCatalogCache = (): DealerCatalogCache => {
+  try {
+    const raw = localStorage.getItem(DEALER_CATALOG_CACHE_KEY);
+    if (!raw) return { products: [], announcements: [], dealerRoutes: [] };
+    const parsed = JSON.parse(raw) as Partial<DealerCatalogCache>;
+    return {
+      products: Array.isArray(parsed.products) ? parsed.products : [],
+      announcements: Array.isArray(parsed.announcements) ? parsed.announcements : [],
+      dealerRoutes: Array.isArray(parsed.dealerRoutes) ? parsed.dealerRoutes : [],
+    };
+  } catch {
+    return { products: [], announcements: [], dealerRoutes: [] };
   }
 };
 
@@ -231,6 +254,7 @@ const toDisplayName = (value?: string | null) =>
 
 export default function DealerPortal() {
   const [dealerProfileCache, setDealerProfileCache] = useState<DealerProfileCache>(() => readDealerProfileCache());
+  const [, setDealerCatalogCache] = useState<DealerCatalogCache>(() => readDealerCatalogCache());
   const [sessionToken, setSessionToken] = useState(() => localStorage.getItem(DEALER_SESSION_STORAGE_KEY) || "");
   const [loginStep, setLoginStep] = useState<LoginStep>(() =>
     localStorage.getItem(DEALER_SESSION_STORAGE_KEY) ? "catalog" : "phone",
@@ -238,14 +262,14 @@ export default function DealerPortal() {
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [activeNav, setActiveNav] = useState("home");
-  const [catalogProducts, setCatalogProducts] = useState<Product[]>([]);
+  const [catalogProducts, setCatalogProducts] = useState<Product[]>(() => readDealerCatalogCache().products);
   const [catalogStatus, setCatalogStatus] = useState<"idle" | "loading" | "live" | "error">("idle");
   const [landingBannerUrl, setLandingBannerUrl] = useState("");
   const [landingBanners, setLandingBanners] = useState<DealerLandingBanner[]>([]);
   const [activeLandingBannerIndex, setActiveLandingBannerIndex] = useState(0);
-  const [announcements, setAnnouncements] = useState<CatalogResponse["announcements"]>([]);
+  const [announcements, setAnnouncements] = useState<CatalogResponse["announcements"]>(() => readDealerCatalogCache().announcements);
   const [dealerCustomer, setDealerCustomer] = useState<DealerCustomer | null>(() => dealerProfileCache.customer);
-  const [dealerRoutes, setDealerRoutes] = useState<DealerRoute[]>([]);
+  const [dealerRoutes, setDealerRoutes] = useState<DealerRoute[]>(() => readDealerCatalogCache().dealerRoutes);
   const [authLoading, setAuthLoading] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
   const [authError, setAuthError] = useState("");
@@ -271,11 +295,9 @@ export default function DealerPortal() {
 
   const loadLandingConfig = useCallback(async () => {
     try {
-      const { data, error } = await supabase.functions.invoke<DealerPublicConfigResponse>("dealer-public-config", {
-        body: {},
-      });
+      const { data, error } = await callEdgeFunction<DealerPublicConfigResponse>("dealer-public-config", {}, undefined, 8000);
 
-      if (error) throw error;
+      if (error) throw new Error(error);
       const nextBanners = Array.isArray(data?.landing?.banners)
         ? data.landing.banners.filter((banner) => banner?.enabled !== false && Boolean(banner?.url)).slice(0, 3)
         : [];
@@ -308,18 +330,32 @@ export default function DealerPortal() {
       setAnnouncements([]);
       setDealerCustomer(null);
       setDealerRoutes([]);
+      setDealerCatalogCache({ products: [], announcements: [], dealerRoutes: [] });
+      localStorage.removeItem(DEALER_CATALOG_CACHE_KEY);
       setCatalogStatus("idle");
       return;
+    }
+
+    const cachedCatalog = readDealerCatalogCache();
+    if (cachedCatalog.products.length > 0) {
+      setCatalogProducts(cachedCatalog.products);
+      setAnnouncements(cachedCatalog.announcements || []);
+      setDealerRoutes(cachedCatalog.dealerRoutes || []);
+      setDealerCatalogCache(cachedCatalog);
     }
 
     setCatalogStatus("loading");
 
     try {
-      const { data, error } = await supabase.functions.invoke<CatalogResponse>("dealer-catalog", {
-        body: token ? { dealer_token: token } : {},
-      });
+      const { data, error, isSessionExpired } = await callEdgeFunction<CatalogResponse>("dealer-catalog", token ? { dealer_token: token } : {}, undefined, 12000);
 
-      if (error) throw error;
+      if (error) {
+        if (isSessionExpired) {
+          localStorage.removeItem(DEALER_SESSION_STORAGE_KEY);
+          setSessionToken("");
+        }
+        throw new Error(error);
+      }
 
       const nextProducts = Array.isArray(data?.products) ? data.products.map(mapCatalogProduct) : [];
       const nextRoutes = Array.isArray(data?.dealer_routes) ? data.dealer_routes : [];
@@ -327,18 +363,27 @@ export default function DealerPortal() {
         customer: data?.customer || null,
         hasDealerRoutes: nextRoutes.length > 0,
       };
+      const nextCatalogCache = {
+        products: nextProducts,
+        announcements: data?.announcements || [],
+        dealerRoutes: nextRoutes,
+      };
       setCatalogProducts(nextProducts);
-      setAnnouncements(data?.announcements || []);
+      setAnnouncements(nextCatalogCache.announcements);
       setDealerCustomer(nextProfileCache.customer);
       setDealerRoutes(nextRoutes);
       setDealerProfileCache(nextProfileCache);
+      setDealerCatalogCache(nextCatalogCache);
       localStorage.setItem(DEALER_PROFILE_CACHE_KEY, JSON.stringify(nextProfileCache));
+      localStorage.setItem(DEALER_CATALOG_CACHE_KEY, JSON.stringify(nextCatalogCache));
       setCatalogStatus("live");
     } catch (error) {
       const message = await getFunctionErrorMessage(error, "Không tải được danh sách sản phẩm.");
-      setCatalogProducts([]);
-      setAnnouncements([]);
-      setDealerRoutes([]);
+      if (cachedCatalog.products.length === 0) {
+        setCatalogProducts([]);
+        setAnnouncements([]);
+        setDealerRoutes([]);
+      }
       setCatalogStatus("error");
       console.warn("Không tải được danh sách sản phẩm đại lý", message || error);
     }
@@ -425,7 +470,9 @@ export default function DealerPortal() {
   const handleLogoutDealer = () => {
     localStorage.removeItem(DEALER_SESSION_STORAGE_KEY);
     localStorage.removeItem(DEALER_PROFILE_CACHE_KEY);
+    localStorage.removeItem(DEALER_CATALOG_CACHE_KEY);
     setDealerProfileCache({ customer: null, hasDealerRoutes: false });
+    setDealerCatalogCache({ products: [], announcements: [], dealerRoutes: [] });
     setSessionToken("");
     setDealerCustomer(null);
     setDealerRoutes([]);

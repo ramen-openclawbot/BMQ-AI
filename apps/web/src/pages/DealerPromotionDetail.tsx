@@ -5,7 +5,7 @@ import bmqLogo from "@/assets/bmq-logo.png";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { supabase } from "@/integrations/supabase/client";
+import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 
 type DealerLandingBanner = {
   id?: string;
@@ -44,10 +44,8 @@ export default function DealerPromotionDetail() {
     setLoading(true);
     setError("");
     try {
-      const { data, error: configError } = await supabase.functions.invoke<DealerPublicConfigResponse>("dealer-public-config", {
-        body: {},
-      });
-      if (configError) throw configError;
+      const { data, error: configError } = await callEdgeFunction<DealerPublicConfigResponse>("dealer-public-config", {}, undefined, 8000);
+      if (configError) throw new Error(configError);
       const nextBanners = Array.isArray(data?.landing?.banners)
         ? data.landing.banners.filter((banner) => banner?.enabled !== false && Boolean(banner?.url)).slice(0, 3)
         : [];
