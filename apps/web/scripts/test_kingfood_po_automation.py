@@ -52,6 +52,12 @@ def test_kingfood_pdf_croissant_160g_keeps_canonical_finished_sku_name() -> None
     assert "return \"Croissant (40g)\"" not in sync, "Kingfood Croissant 160g must not be shortened; strict production SKU matching will hide it"
 
 
+def test_kingfood_croffle_external_barcode_maps_to_internal_finished_sku() -> None:
+    assert_contains(sync, "SP001596", "Kingfood Croffle external barcode")
+    assert_contains(sync, "KF-CROFFLE-40G-T0526", "internal Croffle finished SKU code")
+    assert_contains(sync, "resolveKingfoodInternalSkuCode(sku)", "Kingfood parsed items carry internal sku_code for Q7 strict matching")
+
+
 def test_scheduler_keeps_unparsed_exception_out_of_pending_revenue() -> None:
     assert_contains(scheduler, "po_automation", "scheduler reads PO automation metadata")
     assert_contains(scheduler, "pdf_only_needs_review", "scheduler flags PDF-only exception")

@@ -363,6 +363,12 @@ const sanitizeTotal = (subtotal: number, vat: number, total: number) => {
   return t;
 };
 
+const KINGFOOD_EXTERNAL_SKU_TO_INTERNAL_SKU: Record<string, string> = {
+  SP001596: "KF-CROFFLE-40G-T0526",
+};
+
+const resolveKingfoodInternalSkuCode = (sku: string) => KINGFOOD_EXTERNAL_SKU_TO_INTERNAL_SKU[String(sku || "").trim().toUpperCase()] || null;
+
 function parseKingfoodXlsx(bytes: Uint8Array) {
   const workbook = XLSX.read(bytes, { type: "array" });
   let best = { sheetName: null as string | null, items: [] as any[], subtotal: 0, vat: 0, total: 0, totalQty: 0, itemCount: 0 };
@@ -383,6 +389,7 @@ function parseKingfoodXlsx(bytes: Uint8Array) {
           product_name: productName,
           source_column_name: "row_item",
           sku,
+          sku_code: resolveKingfoodInternalSkuCode(sku),
           qty,
           unit: String(row?.[16] || "").trim(),
           unit_price: unitPrice,
@@ -480,6 +487,7 @@ function parseKingfoodPdfLines(lines: string[], subject: string) {
           product_name: rawProduct,
           source_column_name: "kingfood_pdf_row_item",
           sku,
+          sku_code: resolveKingfoodInternalSkuCode(sku),
           qty,
           unit: numericBarcodeMatch[3],
           unit_price: unitPrice,
@@ -509,6 +517,7 @@ function parseKingfoodPdfLines(lines: string[], subject: string) {
           product_name: rawProduct,
           source_column_name: "kingfood_pdf_row_item",
           sku,
+          sku_code: resolveKingfoodInternalSkuCode(sku),
           qty,
           unit: compactMatch[3],
           unit_price: unitPrice,
@@ -555,6 +564,7 @@ function parseKingfoodPdfLines(lines: string[], subject: string) {
       product_name: productName,
       source_column_name: "kingfood_pdf_row_item",
       sku,
+      sku_code: resolveKingfoodInternalSkuCode(sku),
       qty,
       unit: unitIndex >= 0 ? afterSku[unitIndex] : "Cái",
       unit_price: unitPrice,
