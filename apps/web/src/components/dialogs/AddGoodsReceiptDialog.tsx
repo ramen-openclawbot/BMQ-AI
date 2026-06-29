@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useForm, useFieldArray, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -203,16 +203,16 @@ export function AddGoodsReceiptDialog() {
     return Math.round(coverage * 85);
   };
 
-  const slugifySku = (name: string) =>
+  const slugifySku = useCallback((name: string) =>
     String(name || "")
       .toUpperCase()
       .normalize("NFD")
       .replace(/\p{Diacritic}/gu, "")
       .replace(/[^A-Z0-9]+/g, "-")
       .replace(/(^-|-$)/g, "")
-      .slice(0, 24);
+      .slice(0, 24), []);
 
-  const ensureRawMaterialSku = async (productName: string, unit?: string): Promise<{ id: string; sku_code: string }> => {
+  const ensureRawMaterialSku = useCallback(async (productName: string, unit?: string): Promise<{ id: string; sku_code: string }> => {
     const normalizedName = String(productName || "").trim();
     if (!normalizedName) throw new Error("Thiếu tên nguyên vật liệu để tạo SKU");
 
@@ -239,7 +239,7 @@ export function AddGoodsReceiptDialog() {
 
     if (error || !created?.id) throw error || new Error("Không thể tạo SKU NVL tự động");
     return { id: created.id, sku_code: (created as any).sku_code || skuCode };
-  };
+  }, [slugifySku]);
 
 
   const fileToBase64 = async (file: File): Promise<string> => {
@@ -476,7 +476,7 @@ export function AddGoodsReceiptDialog() {
       return;
     }
 
-    let files: File[] = [];
+    const files: File[] = [];
     try {
       for (const file of selectedFiles) {
         if (file.type === "application/pdf") {
@@ -693,7 +693,7 @@ export function AddGoodsReceiptDialog() {
     }, 700);
 
     return () => clearTimeout(timer);
-  }, [open, watchedItems, form]);
+  }, [open, watchedItems, form, ensureRawMaterialSku]);
 
   // Submit form
   const onSubmit = async (data: FormData) => {

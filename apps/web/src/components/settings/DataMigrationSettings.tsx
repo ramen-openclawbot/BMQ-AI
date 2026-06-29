@@ -315,7 +315,7 @@ export function DataMigrationSettings() {
       }
 
       const contentDisposition = resp.headers.get("Content-Disposition") || "";
-      const match = contentDisposition.match(/filename="?([^\"]+)"?/i);
+      const match = contentDisposition.match(/filename="?([^";]+)"?/i);
       const filename = match?.[1] || `bmq-storage-archive-${Date.now()}.zip`;
 
       const totalBytes = Number(resp.headers.get("Content-Length") || 0);

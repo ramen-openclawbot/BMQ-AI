@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Building2, Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSuppliers } from "@/hooks/useSuppliers";
@@ -53,7 +53,7 @@ export function SupplierAliasManager({
     setNewSupplierId(supplierId || "");
   }, [supplierId]);
 
-  const fetchAliases = async () => {
+  const fetchAliases = useCallback(async () => {
     setLoading(true);
     try {
       let query = (supabase as any)
@@ -71,11 +71,11 @@ export function SupplierAliasManager({
     } finally {
       setLoading(false);
     }
-  };
+  }, [lockedSupplierId]);
 
   useEffect(() => {
     fetchAliases();
-  }, [lockedSupplierId]);
+  }, [fetchAliases]);
 
   const handleCreate = async () => {
     const targetSupplierId = lockedSupplierId || newSupplierId;

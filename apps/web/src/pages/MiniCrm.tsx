@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, RefreshCw, Pencil, Save, X, Trash2, Search } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -2168,7 +2168,7 @@ export default function MiniCrm() {
 
   const getInboxRowCustomerId = (row: any) => String(row?.customer_id || row?.matched_customer_id || "").trim() || null;
 
-  const resolveCustomerIdFromInboxRow = (row: any) => {
+  const resolveCustomerIdFromInboxRow = useCallback((row: any) => {
     const directCustomerId = getInboxRowCustomerId(row);
     if (directCustomerId) return directCustomerId;
     const fromEmail = String(row?.from_email || "").trim().toLowerCase();
@@ -2183,7 +2183,7 @@ export default function MiniCrm() {
     if (preferredNpp.length > 1) return null;
     if (nonNppDependent.length === 1) return nonNppDependent[0].id;
     return null;
-  };
+  }, [customers]);
 
   const filteredPoInbox = useMemo(() => {
     const fromMs = poDateFrom ? new Date(`${poDateFrom}T00:00:00`).getTime() : null;
@@ -2203,7 +2203,7 @@ export default function MiniCrm() {
       }
       return true;
     });
-  }, [poInbox, poDateFrom, poDateTo, poNeedsAttentionOnly, poCustomerFilter, poModeFilter, customerKnowledgeProfiles, customers]);
+  }, [poInbox, poDateFrom, poDateTo, poNeedsAttentionOnly, poCustomerFilter, poModeFilter, customerKnowledgeProfiles, resolveCustomerIdFromInboxRow]);
 
   const totalPoPages = Math.max(1, Math.ceil(filteredPoInbox.length / PO_PAGE_SIZE));
   const paginatedPoInbox = useMemo(() => {
@@ -2265,7 +2265,7 @@ export default function MiniCrm() {
         return resolvedCustomerId === targetCustomerId || (fromEmail && recognizedEmails.has(fromEmail));
       })
       .sort((a: any, b: any) => new Date(b?.received_at || 0).getTime() - new Date(a?.received_at || 0).getTime());
-  }, [poInbox, editingCustomerId, customers]);
+  }, [poInbox, editingCustomerId, customers, resolveCustomerIdFromInboxRow]);
 
   const recentRevenueAudit = useMemo(() => revenueAuditRows.slice(0, 20), [revenueAuditRows]);
 
@@ -2329,7 +2329,7 @@ export default function MiniCrm() {
   const selectedPoResolvedCustomerId = useMemo(() => {
     if (!selectedPo) return null;
     return resolveCustomerIdFromInboxRow(selectedPo);
-  }, [selectedPo, customers]);
+  }, [selectedPo, resolveCustomerIdFromInboxRow]);
   const selectedPoKnowledgeProfile = useMemo(() => {
     if (!selectedPoResolvedCustomerId) return null;
     return customerKnowledgeProfiles.find((x: any) => x.customer_id === selectedPoResolvedCustomerId) || null;

@@ -217,8 +217,8 @@ export default function AttendanceManagement() {
     let minutesLate = 0;
     let minutesEarlyLeave = 0;
     let status = "missing_both";
-    let missingCheckIn = !firstCheckIn;
-    let missingCheckOut = !lastCheckOut;
+    const missingCheckIn = !firstCheckIn;
+    const missingCheckOut = !lastCheckOut;
 
     if (assignment?.attendance_shifts) {
       const shift = assignment.attendance_shifts;

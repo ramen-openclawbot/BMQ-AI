@@ -83,7 +83,7 @@ const toNum = (v: any) => {
 const normalizeDate = (v: any): string | null => {
   const s = String(v || "").trim();
   if (!s) return null;
-  const m = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  const m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
   if (m) {
     const mm = m[1].padStart(2, "0");
     const dd = m[2].padStart(2, "0");

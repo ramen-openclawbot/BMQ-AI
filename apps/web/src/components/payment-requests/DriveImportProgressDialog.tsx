@@ -420,6 +420,8 @@ export function DriveImportProgressDialog({
       setError(e?.message || 'Không thể duyệt thư mục');
       setPhase('complete');
     });
+    // loadBrowseFolders intentionally reads current dialog state; adding it here would retrigger folder browsing on every local state update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, folderUrl, authToken, browsePath]);
 
   // Load all suppliers for dropdown

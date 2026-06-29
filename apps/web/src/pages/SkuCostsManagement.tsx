@@ -350,7 +350,9 @@ export default function SkuCostsManagement() {
 
   useEffect(() => {
     (async () => {
-      try { await sb.rpc("snapshot_sku_costs_daily", { p_snapshot_date: new Date().toISOString().slice(0, 10) }); } catch (_) {}
+      try { await sb.rpc("snapshot_sku_costs_daily", { p_snapshot_date: new Date().toISOString().slice(0, 10) }); } catch (_) {
+        // Snapshot is best-effort; page load should continue if the RPC is unavailable.
+      }
       loadAll();
     })();
     /* eslint-disable-next-line */
@@ -644,7 +646,9 @@ export default function SkuCostsManagement() {
             document_name: `EDIT_COST_${new Date().toISOString()}`,
             document_url: `audit://sku/${skuForm.id}/edit`,
           });
-        } catch (_) {}
+        } catch (_) {
+          // Audit trace insert is best-effort and must not block saving SKU edits.
+        }
 
         toast({ title: "Đã cập nhật SKU" });
       } else {
@@ -661,7 +665,9 @@ export default function SkuCostsManagement() {
               document_name: `CREATE_COST_${new Date().toISOString()}`,
               document_url: `audit://sku/${data.id}/create`,
             });
-          } catch (_) {}
+          } catch (_) {
+            // Audit trace insert is best-effort and must not block SKU creation.
+          }
 
           const rows = buildFormulaRowsFromDraft(data.id);
           if (rows.length > 0) {

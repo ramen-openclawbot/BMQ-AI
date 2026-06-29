@@ -39,7 +39,9 @@ serve(async (req) => {
       if (stateData.redirect && isAllowedRedirect(stateData.redirect)) {
         redirectBase = stateData.redirect;
       }
-    } catch (_) {}
+    } catch (_) {
+      // Invalid state falls back to default settings URL.
+    }
   }
   const settingsUrl = `${redirectBase}/settings`;
 
@@ -60,7 +62,9 @@ serve(async (req) => {
       try {
         const body = await req.json();
         if (body.redirect && isAllowedRedirect(body.redirect)) appRedirect = body.redirect;
-      } catch (_) {}
+      } catch (_) {
+        // Invalid JSON body falls back to default redirect URL.
+      }
     }
 
     const redirectUri = `${supabaseUrl}/functions/v1/google-gmail-auth`;

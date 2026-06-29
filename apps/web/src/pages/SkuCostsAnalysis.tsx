@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 import { useMemo, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, ChevronDown, Info } from "lucide-react";

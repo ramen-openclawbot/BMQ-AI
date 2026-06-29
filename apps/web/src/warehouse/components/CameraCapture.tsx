@@ -149,6 +149,8 @@ export function CameraCapture({
     return () => {
       stopCamera();
     };
+    // Mount/unmount only: re-running when stream changes would stop the camera immediately.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

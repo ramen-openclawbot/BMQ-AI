@@ -93,7 +93,7 @@ const vnDate = (date: string) => {
 
 const safeSheetTitle = (name: string) =>
   String(name || "Sheet")
-    .replace(/[\\/?*\[\]:]/g, " ")
+    .replace(/[\\/?*[\]:]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 90) || "Sheet";
@@ -394,7 +394,7 @@ function parseRangeTitle(range: string) {
 
 function safeExcelSheetTitle(name: string, used: Set<string>) {
   const base = String(name || "Sheet")
-    .replace(/[\\/?*\[\]:]/g, " ")
+    .replace(/[\\/?*[\]:]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 31) || "Sheet";
@@ -652,7 +652,7 @@ serve(async (req) => {
     const workbookBytes = buildDebtWorkbookBytes(data);
     let spreadsheetId: string | null = null;
     let webViewLink: string | null = null;
-    let shareResults: Array<{ email: string; ok: boolean; permissionId?: string | null; error?: string }> = [];
+    const shareResults: Array<{ email: string; ok: boolean; permissionId?: string | null; error?: string }> = [];
     let emailResult: unknown = null;
     let attachmentName: string | null = null;
     let overwrittenExisting = false;
