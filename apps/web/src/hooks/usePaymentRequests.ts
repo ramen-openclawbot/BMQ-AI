@@ -324,6 +324,11 @@ export function useMarkDelivered() {
 
   return useMutation({
     mutationFn: async (id: string) => {
+      const { error: receiptError } = await supabase.rpc("ensure_payment_request_receipt_queue", {
+        p_payment_request_id: id,
+      });
+      if (receiptError) throw receiptError;
+
       const { error } = await supabase
         .from("payment_requests")
         .update({ delivery_status: "delivered" })
@@ -334,6 +339,7 @@ export function useMarkDelivered() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payment-requests"] });
       queryClient.invalidateQueries({ queryKey: ["payment-request"] });
+      queryClient.invalidateQueries({ queryKey: ["goods-receipts"] });
     },
     onError: (error) => {
       console.error("Error marking as delivered:", error);
