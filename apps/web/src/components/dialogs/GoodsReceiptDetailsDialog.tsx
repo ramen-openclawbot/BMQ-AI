@@ -36,6 +36,14 @@ function validateLine(draft: LineEdit | undefined, orderedQty: number): string |
   return null;
 }
 
+function getConfirmReceiptErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "Không thể nhập hàng vào kho";
+  if (message.includes("Cannot create payable with zero amount")) {
+    return "Không thể tạo công nợ 0đ. Kiểm tra đơn giá trong PO hoặc đơn giá dòng phiếu nhập trước khi nhập kho.";
+  }
+  return message;
+}
+
 export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: GoodsReceiptDetailsDialogProps) {
   const { data: receipt, isLoading: receiptLoading, error: receiptError } = useGoodsReceipt(receiptId);
   const { data: items = [], isLoading: itemsLoading } = useGoodsReceiptItems(receiptId);
@@ -234,8 +242,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
       toast.success("Đã nhập hàng vào kho và tạo công nợ chờ duyệt");
       onOpenChange(false);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Không thể nhập hàng vào kho";
-      toast.error(message);
+      toast.error(getConfirmReceiptErrorMessage(error));
     } finally {
       setIsSaving(false);
     }

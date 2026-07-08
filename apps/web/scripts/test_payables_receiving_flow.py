@@ -191,10 +191,14 @@ def test_finalization_rpc_posts_inventory_and_generates_pending_payable_atomical
     assert "finalized_by = p_user_id" in migrations
     assert "RAISE EXCEPTION" in migrations
     assert "Cannot create payable with zero amount" in migrations
+    assert "NULLIF(v_item.unit_price, 0)" in migrations
+    assert "public.purchase_order_items poi" in migrations
+    assert "poi.id = v_item.purchase_order_item_id" in migrations
     assert "PO goods receipt requires an uploaded receipt/delivery-note image before finalizing" in migrations
     assert "image_url = COALESCE(image_url, v_purchase_order.image_url)" in migrations
     assert "v_purchase_order.image_url" in migrations
     assert "data-bmq-goods-receipt-attached-evidence" in read(GOODS_RECEIPT_DETAILS)
+    assert "Không thể tạo công nợ 0đ" in read(GOODS_RECEIPT_DETAILS)
     zero_amount_guard = migrations.split("Cannot create payable with zero amount", 1)[0]
     assert "v_total_amount := v_subtotal + v_vat_amount" in zero_amount_guard
     assert zero_amount_guard.rfind("IF v_total_amount <= 0 THEN") > zero_amount_guard.rfind("v_total_amount := v_subtotal + v_vat_amount")
