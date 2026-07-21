@@ -104,7 +104,9 @@ serve(async (req) => {
 
     if (skuError) throw skuError;
 
-    const skuIds = ((skus || []) as ProductSku[]).map((sku) => sku.id).filter(Boolean);
+    const eligibleSkus = ((skus || []) as ProductSku[])
+      .filter((sku) => isFinishedSku(sku) && !sku.hide_from_dealer_portal);
+    const skuIds = eligibleSkus.map((sku) => sku.id).filter(Boolean);
     const labelSpecBySkuId = new Map<string, ProductLabelSpec>();
     if (skuIds.length > 0) {
       const { data: labelSpecs, error: labelSpecError } = await supabase
@@ -150,9 +152,7 @@ serve(async (req) => {
         address: route.address,
       }));
 
-    const products = ((skus || []) as ProductSku[]).flatMap((sku) => {
-      if (!isFinishedSku(sku) || sku.hide_from_dealer_portal) return [];
-
+    const products = eligibleSkus.flatMap((sku) => {
       const override = priceOverrides.get(sku.id);
       const skuSellingPrice = numberFromCostValues(sku.cost_values, "selling_price");
       const price = override ?? skuSellingPrice;
