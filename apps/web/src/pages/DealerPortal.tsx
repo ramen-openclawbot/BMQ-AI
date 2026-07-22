@@ -19,6 +19,7 @@ import {
   MessageCircle,
   PackagePlus,
   Phone,
+  Search,
   Send,
   ShieldCheck,
   ShoppingCart,
@@ -327,6 +328,7 @@ export default function DealerPortal() {
   const [draftQuantity, setDraftQuantity] = useState("");
   const [quantityModalError, setQuantityModalError] = useState("");
   const [activeCategory, setActiveCategory] = useState("Tất cả");
+  const [productSearch, setProductSearch] = useState("");
   const [dealerProfileOpen, setDealerProfileOpen] = useState(false);
 
   const loadLandingConfig = useCallback(async () => {
@@ -719,10 +721,9 @@ export default function DealerPortal() {
   const activePromotionPath = window.location.hostname === "dathang.banhmique.vn"
     ? `/promotion/${activeLandingBanner?.id || "event-1"}`
     : `/dealer/promotion/${activeLandingBanner?.id || "event-1"}`;
-  const categoryChips = ["Tất cả", "Bánh mì", "Bánh ngọt"];
+  const categoryChips = ["Tất cả", "Bánh mì", "Bánh ngọt", "Bán chạy"];
   const featuredProducts = catalogProducts.slice(0, 3);
   const productCarouselProducts = catalogProducts.filter((product) => product.id !== nppProduct?.id).slice(0, 10);
-  const marqueeProducts = productCarouselProducts.length > 0 ? [...productCarouselProducts, ...productCarouselProducts] : [];
   const filteredProducts = catalogProducts.filter((product) => {
     if (activeCategory === "Tất cả") return true;
     const haystack = `${product.name} ${product.tag}`.toLowerCase();
@@ -731,6 +732,13 @@ export default function DealerPortal() {
     if (activeCategory === "Combo") return haystack.includes("combo") || haystack.includes("set");
     if (activeCategory === "Bán chạy") return featuredProducts.some((item) => item.id === product.id);
     return true;
+  });
+  const normalizedProductSearch = productSearch.trim().toLocaleLowerCase("vi-VN");
+  const homeProducts = filteredProducts.filter((product) => {
+    if (!normalizedProductSearch) return true;
+    return `${product.name} ${product.skuCode || ""} ${product.tag}`
+      .toLocaleLowerCase("vi-VN")
+      .includes(normalizedProductSearch);
   });
 
   const openProductDialog = (product: Product) => {
@@ -777,8 +785,7 @@ export default function DealerPortal() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <style>{`@keyframes dealer-product-marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } } .dealer-product-marquee { animation: dealer-product-marquee 34s linear infinite; } .dealer-product-marquee:hover { animation-play-state: paused; } @media (prefers-reduced-motion: reduce) { .dealer-product-marquee { animation: none; } }`}</style>
+    <div className="min-h-screen overflow-x-clip bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
@@ -823,16 +830,20 @@ export default function DealerPortal() {
         <section id="dealer-top" className="bg-[#fffaf0] text-[#3f2411]">
           <div className="mx-auto max-w-6xl px-4 pb-3 pt-4 md:pb-5 md:pt-6">
             <div className="overflow-hidden rounded-[28px] border border-amber-200 bg-white shadow-xl shadow-amber-900/10">
-              <div className="relative h-[190px] overflow-hidden bg-[#24150d] sm:h-[230px] md:h-[280px]">
+              <div className="relative h-[220px] overflow-hidden bg-[#24150d] sm:h-[260px] md:h-[300px]" data-stitch-dealer-banner="responsive-cover-v1">
                 {activeLandingBannerUrl ? (
-                  <img src={activeLandingBannerUrl} alt={activeLandingBanner?.eventLabel || "Banner khuyến mãi BMQ"} className="h-full w-full object-contain" />
+                  <>
+                    <img src={activeLandingBannerUrl} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full scale-110 object-cover blur-2xl opacity-65" />
+                    <div className="absolute inset-0 bg-gradient-to-r from-[#24150d]/20 via-transparent to-[#24150d]/55" />
+                    <img src={activeLandingBannerUrl} alt={activeLandingBanner?.eventLabel || "Banner khuyến mãi BMQ"} className="relative z-[1] h-full w-full object-contain" />
+                  </>
                 ) : (
                   <div className="h-full w-full bg-[radial-gradient(circle_at_78%_18%,rgba(245,178,65,0.42),transparent_28%),linear-gradient(135deg,rgba(197,121,19,0.36),transparent_48%)]" />
                 )}
                 <Button
                   asChild
                   size="sm"
-                  className="absolute bottom-3 right-3 h-9 rounded-full bg-amber-500/95 px-4 text-sm font-semibold text-[#1b1208] shadow-lg shadow-black/25 hover:bg-amber-400"
+                  className="absolute bottom-3 right-3 z-10 h-9 rounded-full bg-amber-500/95 px-4 text-sm font-semibold text-[#1b1208] shadow-lg shadow-black/25 hover:bg-amber-400"
                 >
                   <a href={activePromotionPath}>
                     Xem chương trình
@@ -840,7 +851,7 @@ export default function DealerPortal() {
                   </a>
                 </Button>
                 {landingBanners.length > 1 ? (
-                  <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/20 px-2 py-1 backdrop-blur-sm">
+                  <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/20 px-2 py-1 backdrop-blur-sm">
                     {landingBanners.map((banner, index) => (
                       <button
                         key={banner.id || index}
@@ -860,16 +871,20 @@ export default function DealerPortal() {
         <section id="dealer-top" className="border-b bg-[#16110d] text-amber-50">
           <div className="mx-auto max-w-6xl px-4 py-4 pb-6 md:py-5">
             <div className="overflow-hidden rounded-[28px] border border-amber-400/20 bg-gradient-to-br from-[#3b210d] via-[#25160e] to-[#120d09] shadow-2xl shadow-black/35">
-              <div className="relative h-[210px] overflow-hidden bg-[#24150d] sm:h-[240px] md:h-[300px] lg:h-[340px]">
+              <div className="relative h-[220px] overflow-hidden bg-[#24150d] sm:h-[260px] md:h-[300px]" data-stitch-dealer-banner="responsive-cover-v1">
                 {activeLandingBannerUrl ? (
-                  <img src={activeLandingBannerUrl} alt={activeLandingBanner?.eventLabel || "Banner khuyến mãi BMQ"} className="h-full w-full object-contain" />
+                  <>
+                    <img src={activeLandingBannerUrl} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full scale-110 object-cover blur-2xl opacity-65" />
+                    <div className="absolute inset-0 bg-gradient-to-r from-[#24150d]/20 via-transparent to-[#24150d]/55" />
+                    <img src={activeLandingBannerUrl} alt={activeLandingBanner?.eventLabel || "Banner khuyến mãi BMQ"} className="relative z-[1] h-full w-full object-contain" />
+                  </>
                 ) : (
                   <div className="h-full w-full bg-[radial-gradient(circle_at_78%_18%,rgba(245,178,65,0.42),transparent_28%),linear-gradient(135deg,rgba(197,121,19,0.36),transparent_48%)]" />
                 )}
                 <Button
                   asChild
                   size="sm"
-                  className="absolute bottom-3 right-3 h-9 rounded-full bg-amber-500/95 px-4 text-sm font-semibold text-[#1b1208] shadow-lg shadow-black/25 hover:bg-amber-400"
+                  className="absolute bottom-3 right-3 z-10 h-9 rounded-full bg-amber-500/95 px-4 text-sm font-semibold text-[#1b1208] shadow-lg shadow-black/25 hover:bg-amber-400"
                 >
                   <a href={activePromotionPath}>
                     Xem ngay
@@ -877,7 +892,7 @@ export default function DealerPortal() {
                   </a>
                 </Button>
                 {landingBanners.length > 1 ? (
-                  <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/20 px-2 py-1 backdrop-blur-sm">
+                  <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/20 px-2 py-1 backdrop-blur-sm">
                     {landingBanners.map((banner, index) => (
                       <button
                         key={banner.id || index}
@@ -1045,45 +1060,89 @@ export default function DealerPortal() {
           {isCatalogUnlocked && !isCatalogRestoring ? (
             <div className="contents">
           {activeNav === "home" ? (
-            <section id="dealer-home" className="space-y-4" data-dealer-page="home">
-              <div className="rounded-3xl border border-amber-100 bg-white p-4 shadow-sm">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <section id="dealer-home" className="min-w-0 space-y-4" data-dealer-page="home" data-stitch-dealer-home="responsive-grid-v1">
+              <div className="rounded-3xl border border-amber-100 bg-white p-4 shadow-sm sm:p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                   <div>
                     <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Trang chủ đại lý</div>
-                    <h2 className="text-2xl font-display font-extrabold text-[#3f2411]">Promotion & sản phẩm BMQ</h2>
+                    <h2 className="mt-1 text-2xl font-display font-extrabold text-[#3f2411] sm:text-3xl">Sản phẩm BMQ</h2>
+                    <p className="mt-1 text-sm text-[#8a6a4a]">Chọn sản phẩm để xem chi tiết và đặt hàng nhanh.</p>
                   </div>
-                  <Button type="button" className="rounded-2xl bg-amber-500 font-bold text-[#2b1708] hover:bg-amber-400" onClick={() => setActiveNav("order")}>
-                    <ClipboardList className="h-4 w-4" />
-                    Đặt hàng
-                  </Button>
+                  <div className="flex w-full items-center gap-2 lg:w-auto">
+                    <div className="relative min-w-0 flex-1 lg:w-80">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#a7835d]" />
+                      <Input
+                        value={productSearch}
+                        onChange={(event) => setProductSearch(event.target.value)}
+                        placeholder="Tìm sản phẩm"
+                        aria-label="Tìm sản phẩm"
+                        className="h-11 rounded-2xl border-amber-200 bg-[#fffaf0] pl-10 text-[#3f2411] placeholder:text-[#a7835d] focus-visible:ring-amber-400"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      className="hidden h-11 rounded-2xl bg-amber-500 px-4 font-bold text-[#2b1708] hover:bg-amber-400 lg:inline-flex"
+                      data-stitch-dealer-home-order-cta="desktop"
+                      onClick={() => setActiveNav("order")}
+                    >
+                      <ShoppingCart className="h-4 w-4" />
+                      Đặt hàng
+                    </Button>
+                  </div>
                 </div>
-                <div className="mt-4 overflow-hidden rounded-3xl border border-amber-100 bg-[#fff8e8] py-3">
-                  {marqueeProducts.length > 0 ? (
-                    <div className="dealer-product-marquee flex w-max gap-3 px-3">
-                      {marqueeProducts.map((product, index) => (
-                        <button
-                          key={`${product.id}-${index}`}
-                          type="button"
-                          className="w-[190px] shrink-0 rounded-2xl border border-amber-100 bg-white p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md sm:w-[210px]"
-                          onClick={() => handleProductCta(product)}
-                        >
-                          <div className="overflow-hidden rounded-xl border border-amber-100 bg-amber-50">
+
+                <div className="mt-4 flex max-w-full gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  {categoryChips.map((chip) => (
+                    <button
+                      key={chip}
+                      type="button"
+                      className={cn(
+                        "h-10 shrink-0 rounded-full border px-4 text-sm font-semibold transition",
+                        activeCategory === chip
+                          ? "border-[#3f2411] bg-[#3f2411] text-amber-50 shadow-sm"
+                          : "border-amber-200 bg-white text-[#765333] hover:border-amber-400 hover:bg-amber-50",
+                      )}
+                      onClick={() => setActiveCategory(chip)}
+                    >
+                      {chip}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-4 grid min-w-0 grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3" data-stitch-dealer-product-grid="responsive-2-3-4">
+                  {catalogProducts.length === 0 ? (
+                    <CatalogEmptyState status={catalogStatus} error={catalogError} onRetry={() => void loadCatalog(sessionToken)} className="col-span-2 md:col-span-3 lg:col-span-4" />
+                  ) : null}
+                  {catalogProducts.length > 0 && homeProducts.length === 0 ? (
+                    <div className="col-span-2 rounded-2xl border border-dashed border-amber-200 bg-[#fffaf0] p-5 text-center text-sm text-[#765333] md:col-span-3 lg:col-span-4">
+                      Không tìm thấy sản phẩm phù hợp.
+                    </div>
+                  ) : null}
+                  {homeProducts.map((product) => {
+                    const quantity = quantities[product.id] || 0;
+                    return (
+                      <Card key={product.id} className="min-w-0 overflow-hidden rounded-3xl border-amber-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md">
+                        <button type="button" className="flex h-full min-w-0 w-full flex-col gap-3 p-2.5 text-left sm:p-3" onClick={() => handleProductCta(product)}>
+                          <div className="aspect-[4/3] w-full overflow-hidden rounded-2xl border border-amber-100 bg-amber-50">
                             {product.imageUrl ? (
-                              <img src={product.imageUrl} alt={product.name} loading="lazy" className="h-24 w-full object-cover" />
+                              <img src={product.imageUrl} alt={product.name} loading="lazy" className="h-full w-full object-cover" />
                             ) : (
-                              <div className="flex h-24 items-center justify-center bg-amber-50">
-                                <img src={bmqLogo} alt="BMQ" className="h-11 w-11 object-contain" />
+                              <div className="flex h-full w-full items-center justify-center bg-amber-50">
+                                <img src={bmqLogo} alt="BMQ" className="h-12 w-12 object-contain" />
                               </div>
                             )}
                           </div>
-                          <div className="mt-2 line-clamp-2 text-sm font-extrabold leading-5 text-[#3f2411]">{product.name}</div>
-                          <div className="mt-1 truncate text-xs font-semibold text-amber-700">{formatVnd(product.price)} / {product.unit}</div>
+                          <div className="min-w-0 flex-1">
+                            <h3 className="line-clamp-2 text-sm font-extrabold leading-snug text-[#3f2411] sm:text-base">{product.name}</h3>
+                            <div className="mt-1 truncate text-xs font-semibold text-amber-700 sm:text-sm">{formatVnd(product.price)} / {product.unit}</div>
+                          </div>
+                          <div className={cn("w-full rounded-full px-3 py-2 text-center text-xs font-bold", quantity > 0 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800")}>
+                            {quantity > 0 ? `${quantity} ${product.unit}` : isNppMode ? "Xem cách đặt" : "Chọn"}
+                          </div>
                         </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <CatalogEmptyState status={catalogStatus} error={catalogError} onRetry={() => void loadCatalog(sessionToken)} />
-                  )}
+                      </Card>
+                    );
+                  })}
                 </div>
               </div>
             </section>
@@ -1375,8 +1434,28 @@ export default function DealerPortal() {
         © 2026 Bánh Mì Que Pháp BMQ. All rights reserved. Powered by VNAgent.ai
       </footer>
 
+      {isCatalogUnlocked && !isCatalogRestoring && activeNav === "home" ? (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-amber-200 bg-white/95 px-4 py-3 shadow-[0_-10px_30px_rgba(63,36,17,0.14)] backdrop-blur lg:hidden" data-stitch-dealer-home-order-bar="mobile">
+          <div className="mx-auto flex max-w-md items-center gap-3">
+            <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setActiveNav("order")}>
+              <div className="flex items-center gap-2 text-sm font-extrabold text-[#3f2411]">
+                <ShoppingCart className="h-4 w-4 text-amber-700" />
+                {isNppMode ? "Đặt hàng với BMQ Agent" : `${selectedLines.length} sản phẩm • ${totalItems} đơn vị`}
+              </div>
+              <div className="truncate text-xs font-medium text-[#765333]">
+                {isNppMode ? "Nhập đơn nhanh bằng tin nhắn" : `Tạm tính ${formatVnd(cartTotal)}`}
+              </div>
+            </button>
+            <Button type="button" className="h-11 shrink-0 rounded-2xl bg-amber-500 px-4 font-bold text-[#2b1708] hover:bg-amber-400" onClick={() => setActiveNav("order")}>
+              Đặt hàng
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       {isCatalogUnlocked && !isCatalogRestoring && !isNppMode && activeNav !== "home" && activeNav !== "support" ? (
-        <div className="fixed inset-x-0 bottom-14 z-30 border-t bg-card/95 px-4 py-3 shadow-lg backdrop-blur lg:hidden">
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-card/95 px-4 py-3 shadow-lg backdrop-blur lg:hidden">
           <div className="mx-auto max-w-6xl">
             <CartSummary
               selectedLines={selectedLines}
@@ -1410,35 +1489,6 @@ export default function DealerPortal() {
             </Button>
           </div>
         </div>
-      ) : null}
-
-      {isCatalogUnlocked ? (
-        <nav
-          className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 px-2 pt-1 backdrop-blur lg:hidden"
-          style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.25rem)" }}
-        >
-        <div className="mx-auto grid max-w-md grid-cols-4">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeNav === item.id;
-
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className={cn(
-                  "flex h-12 flex-col items-center justify-center gap-0.5 rounded-md text-[11px] font-medium text-muted-foreground transition-colors",
-                  isActive && "bg-primary/10 text-primary",
-                )}
-                onClick={() => handleNav(item)}
-              >
-                <Icon className="h-4 w-4" />
-                <span className="max-w-full truncate px-1">{item.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      </nav>
       ) : null}
 
       {isCatalogUnlocked ? (
@@ -1745,7 +1795,7 @@ function NppQuickOrderPanel({
 
       {selectedRouteCount > 0 ? (
         <>
-          <div className="fixed inset-x-0 bottom-14 z-30 border-t border-amber-200 bg-white/95 px-4 pb-3 pt-3 shadow-[0_-10px_30px_rgba(63,36,17,0.16)] backdrop-blur lg:hidden" data-stitch-dealer-order-bottom-bar="mobile">
+          <div className="fixed inset-x-0 bottom-0 z-30 border-t border-amber-200 bg-white/95 px-4 pb-3 pt-3 shadow-[0_-10px_30px_rgba(63,36,17,0.16)] backdrop-blur lg:hidden" data-stitch-dealer-order-bottom-bar="mobile">
             <div className="mx-auto flex max-w-6xl items-center gap-3">
               <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setDetailOpen(true)}>
                 <div className="text-sm font-extrabold text-[#3f2411]">{selectedRouteCount} dòng • giao {totalItems} {unitLabel}</div>
