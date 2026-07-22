@@ -36,6 +36,14 @@ class DealerHomeResponsiveTests(unittest.TestCase):
         self.assertIn('data-stitch-dealer-home-order-cta="desktop"', self.source)
         self.assertNotIn('<nav\n          className="fixed inset-x-0 bottom-0', self.source)
 
+    def test_chat_surface_contains_horizontal_overflow(self) -> None:
+        self.assertIn('data-stitch-dealer-chat-overflow="contained-v1"', self.source)
+        self.assertIn('<section id="quick-order" className={cn("min-w-0 space-y-4"', self.source)
+        self.assertIn('<div className="min-w-0 space-y-4">', self.source)
+        self.assertIn('className="min-w-0 flex-1 whitespace-normal break-words', self.source)
+        self.assertIn('className="min-h-28 w-0 min-w-0 flex-1', self.source)
+        self.assertNotIn("max-w-[calc(100%-2.5rem)]", self.source)
+
 
 if __name__ == "__main__":
     unittest.main()

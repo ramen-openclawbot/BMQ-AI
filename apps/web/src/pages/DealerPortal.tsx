@@ -939,12 +939,12 @@ export default function DealerPortal() {
       ) : null}
 
       <main className={cn(
-        "mx-auto grid max-w-6xl gap-4 px-4 pt-4",
+        "mx-auto grid min-w-0 w-full max-w-6xl gap-4 px-4 pt-4",
         isCatalogUnlocked
           ? cn("bg-[#fffaf0] pb-40 lg:pb-12", !isNppMode && activeNav !== "home" && activeNav !== "support" && "lg:grid-cols-[minmax(0,1fr)_340px]")
           : "pb-28",
       )}>
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <Card id="dealer-login" className={cn("scroll-mt-24 rounded-md", isCatalogUnlocked && "hidden")}>
             <CardHeader className="p-4 pb-3">
               <div className="flex items-start justify-between gap-3">
@@ -1148,11 +1148,11 @@ export default function DealerPortal() {
             </section>
           ) : null}
 
-          <section id="quick-order" className={cn("space-y-4", activeNav !== "order" && "hidden")}>
-            <div className="flex items-end justify-between gap-3">
-              <div>
+          <section id="quick-order" className={cn("min-w-0 space-y-4", activeNav !== "order" && "hidden")}>
+            <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div className="min-w-0">
                 <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Đặt hàng đại lý</div>
-                <h2 className="text-2xl font-display font-extrabold text-[#3f2411]">Chat với BMQ Agent để đặt hàng</h2>
+                <h2 className="break-words text-2xl font-display font-extrabold text-[#3f2411]">Chat với BMQ Agent để đặt hàng</h2>
               </div>
               <Badge variant="outline" className="rounded-full border-amber-300 bg-white text-amber-800">
                 BMQ Agent
@@ -1703,8 +1703,8 @@ function NppQuickOrderPanel({
   }
 
   return (
-    <div className="min-w-0 space-y-4 pb-28" data-stitch-dealer-chat-agent="bottom-bar-v2">
-      <div className="min-w-0 overflow-hidden rounded-3xl border border-amber-100 bg-white p-3 shadow-sm sm:p-4">
+    <div className="min-w-0 w-full max-w-full space-y-4 pb-28" data-stitch-dealer-chat-agent="bottom-bar-v2" data-stitch-dealer-chat-overflow="contained-v1">
+      <div className="min-w-0 w-full max-w-full overflow-hidden rounded-3xl border border-amber-100 bg-white p-3 shadow-sm sm:p-4">
         <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border border-amber-100 bg-white shadow-sm">
@@ -1725,7 +1725,7 @@ function NppQuickOrderPanel({
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-amber-700 shadow-sm">
               {parseStatus === "processing" ? <Loader2 className="h-4 w-4 animate-spin" /> : parseStatus === "success" ? <CheckCircle2 className="h-4 w-4 text-emerald-700" /> : <Sparkles className="h-4 w-4" />}
             </div>
-            <div className="min-w-0 max-w-[calc(100%-2.5rem)] break-words rounded-2xl rounded-tl-md bg-white px-3 py-2 text-sm leading-6 text-[#5f3b1d] shadow-sm">
+            <div className="min-w-0 flex-1 whitespace-normal break-words rounded-2xl rounded-tl-md bg-white px-3 py-2 text-sm leading-6 text-[#5f3b1d] shadow-sm">
               {parseStatus === "processing"
                 ? "Em đang đọc nội dung đơn..."
                 : parseStatus === "success"
@@ -1733,12 +1733,12 @@ function NppQuickOrderPanel({
                   : "Chào anh, gửi nội dung đơn ở ô bên dưới. Em sẽ tách đơn để anh kiểm tra trước khi gửi."}
             </div>
           </div>
-          <div className="flex min-w-0 items-end gap-2 rounded-3xl border border-amber-200 bg-white p-2 shadow-sm focus-within:ring-2 focus-within:ring-amber-300">
+          <div className="flex min-w-0 w-full max-w-full items-end gap-2 overflow-hidden rounded-3xl border border-amber-200 bg-white p-2 shadow-sm focus-within:ring-2 focus-within:ring-amber-300">
             <Textarea
               value={orderText}
               onChange={(event) => setOrderText(event.target.value)}
               placeholder="Dán nội dung đơn ở đây..."
-              className="min-h-28 min-w-0 flex-1 resize-none border-0 bg-transparent text-base leading-7 text-[#3f2411] shadow-none placeholder:text-[#a7835d] focus-visible:ring-0"
+              className="min-h-28 w-0 min-w-0 flex-1 resize-none border-0 bg-transparent text-base leading-7 text-[#3f2411] shadow-none placeholder:text-[#a7835d] focus-visible:ring-0"
             />
             <Button
               type="button"
@@ -1762,17 +1762,17 @@ function NppQuickOrderPanel({
         </div>
 
         {productSuggestions.length > 0 ? (
-          <div className="mt-4 min-w-0 space-y-2">
+          <div className="mt-4 min-w-0 w-full max-w-full space-y-2 overflow-hidden">
             <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
               <h4 className="text-sm font-extrabold text-[#3f2411]">Sản phẩm BMQ khác</h4>
               <span className="text-xs font-medium text-[#8a6a4a]">Chạm để xem cách đặt</span>
             </div>
-            <div className="flex max-w-full gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none]">
+            <div className="flex min-w-0 w-full max-w-full gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none]">
               {productSuggestions.map((suggestedProduct) => (
                 <button
                   key={suggestedProduct.id}
                   type="button"
-                  className="min-w-[170px] max-w-[190px] rounded-2xl border border-amber-100 bg-[#fffaf0] p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md"
+                  className="w-[170px] shrink-0 rounded-2xl border border-amber-100 bg-[#fffaf0] p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md sm:w-[190px]"
                   onClick={() => onProductSuggestion(suggestedProduct)}
                 >
                   <div className="overflow-hidden rounded-xl border border-amber-100 bg-white">
