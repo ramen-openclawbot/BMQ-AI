@@ -1983,6 +1983,7 @@ const normalizeDealerChatText = (value: string) =>
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .replace(/đ/g, "d")
+    .replace(/ð/g, "d")
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
