@@ -185,6 +185,8 @@ const TIME_ZONE = "Asia/Ho_Chi_Minh";
 const REVENUE_CRON_SECRET_ENV_KEY = "REVENUE_CRON_SECRET";
 const LEGACY_PO_CRON_SECRET_ENV_KEY = "PO_SYNC_CRON_SECRET";
 const THUY_DIRECT_DEALER_SENDER = "mi@bmq.vn";
+const TONY_THANH_NPP_SENDER = "tonythanh@hotmail.com";
+const TONY_THANH_NPP_RULE = "tony_thanh_npp_text";
 const AUTOMATION_REVIEW_STATUSES = new Set([
   "cancel_signal",
   "pdf_only_needs_review",
@@ -771,32 +773,12 @@ async function getDealerParseSource(supabaseAdmin: ReturnType<typeof createClien
   return data?.value === "dealer_portal" ? "dealer_portal" : "email_po";
 }
 
-const isDealerInboxRow = (row: InboxRow) => {
+const isTonyThanhNppInboxRow = (row: InboxRow) => {
   const raw = asRecord(row.raw_payload);
   const poAutomation = asRecord(raw.po_automation);
-  const customerName = stringValue(row.mini_crm_customers?.customer_name, raw.customer_name, row.email_subject);
-  const signal = normalizeText(
-    row.revenue_channel,
-    raw.revenue_channel,
-    row.mini_crm_customers?.product_group,
-    poAutomation.rule,
-    poAutomation.channel_scope,
-    row.from_email,
-    customerName,
-  );
-
-  return (
-    row.from_email === THUY_DIRECT_DEALER_SENDER ||
-    signal.includes("thuy") ||
-    signal.includes("tony") ||
-    signal.includes("anh thanh") ||
-    signal.includes("direct_company_dealer") ||
-    signal.includes("direct dealer") ||
-    signal.includes("direct_dealer") ||
-    signal.includes("banhmi_agency") ||
-    signal.includes("agency") ||
-    signal.includes("dai ly")
-  );
+  const sender = String(row.from_email || "").trim().toLowerCase();
+  const rule = String(poAutomation.rule || "").trim().toLowerCase();
+  return sender === TONY_THANH_NPP_SENDER || rule === TONY_THANH_NPP_RULE;
 };
 
 const dealerOrderRevenueDate = (order: DealerOrderRow) => {
@@ -1531,7 +1513,7 @@ async function runCurrentMonthPreview(
     const dealerPortalOrders = dealerParseSource === "dealer_portal"
       ? await fetchDealerPortalOrders(supabaseAdmin, window, receivedFrom, receivedTo)
       : [];
-    const sourceRows = dealerParseSource === "dealer_portal" ? rows.filter((row) => !isDealerInboxRow(row)) : rows;
+    const sourceRows = dealerParseSource === "dealer_portal" ? rows.filter((row) => !isTonyThanhNppInboxRow(row)) : rows;
     emit?.({
       type: "progress",
       stage: "inbox_fetch_done",

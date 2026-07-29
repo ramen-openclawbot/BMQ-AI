@@ -675,8 +675,8 @@ export default function FinanceRevenueControl() {
                 <div className="text-sm font-semibold text-foreground">Nguồn parse kênh đại lý</div>
                 <div className="text-xs text-muted-foreground">
                   {dealerParseSource === "dealer_portal"
-                    ? "Đang dùng đơn từ link dathang.banhmique.vn, thay cho email PO đại lý khi parse."
-                    : "Đang dùng email PO gửi về po@bmq.vn cho kênh đại lý."}
+                    ? "Đang dùng đơn từ dathang.banhmique.vn thay cho email PO Anh Thanh; vẫn giữ mi@bmq.vn và các email khác."
+                    : "Đang dùng email PO Anh Thanh gửi về po@bmq.vn."}
                 </div>
               </div>
               <div className="flex items-center gap-3 rounded-full border border-border bg-card/80 px-3 py-2">
