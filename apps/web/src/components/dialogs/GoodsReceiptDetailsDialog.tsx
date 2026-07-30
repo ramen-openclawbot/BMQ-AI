@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { Camera, Sparkles, CheckCircle, Clock, FileCheck, Package, ExternalLink, Loader2, AlertCircle, Link2, XCircle, AlertTriangle } from "lucide-react";
-import { useGoodsReceipt, useGoodsReceiptItems, useConfirmGoodsReceipt, useUpdateGoodsReceiptItems, useUpdateGoodsReceipt, getGoodsReceiptImageUrl, useDeliveryNoteOcr } from "@/hooks/useGoodsReceipts";
+import { Camera, Sparkles, CheckCircle, Clock, FileCheck, Package, ExternalLink, Loader2, AlertCircle, Link2, XCircle, AlertTriangle, History } from "lucide-react";
+import { useGoodsReceipt, useGoodsReceiptItems, useConfirmGoodsReceipt, useUpdateGoodsReceiptItems, useUpdateGoodsReceipt, getGoodsReceiptImageUrl, useDeliveryNoteOcr, usePaidPaymentRequestsForSupplier, useFinalizeHistoricalPaidGoodsReceipt } from "@/hooks/useGoodsReceipts";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
@@ -48,13 +48,22 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
   const { data: receipt, isLoading: receiptLoading, error: receiptError } = useGoodsReceipt(receiptId);
   const { data: items = [], isLoading: itemsLoading } = useGoodsReceiptItems(receiptId);
   const confirmReceipt = useConfirmGoodsReceipt();
+  const finalizeHistoricalPaidReceipt = useFinalizeHistoricalPaidGoodsReceipt();
   const updateItems = useUpdateGoodsReceiptItems();
   const updateReceipt = useUpdateGoodsReceipt();
   const ocrDelivery = useDeliveryNoteOcr();
   const [imageOpen, setImageOpen] = useState(false);
+  const [historicalDialogOpen, setHistoricalDialogOpen] = useState(false);
+  const [selectedHistoricalPaymentRequestId, setSelectedHistoricalPaymentRequestId] = useState("");
+  const [historicalStockConfirmed, setHistoricalStockConfirmed] = useState(false);
+  const [historicalReconciliationReason, setHistoricalReconciliationReason] = useState("");
   const [editDraft, setEditDraft] = useState<Record<string, LineEdit>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [deliveryNotePath, setDeliveryNotePath] = useState<string | null>(null);
+  const { data: paidHistoricalRequests = [], isLoading: paidHistoricalRequestsLoading } = usePaidPaymentRequestsForSupplier(
+    receipt?.purchase_order_id ? null : receipt?.supplier_id || null,
+    receiptId,
+  );
 
   const receiptImageUrl = receipt?.image_url;
 
@@ -71,6 +80,10 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
   useEffect(() => {
     setEditDraft({});
     setDeliveryNotePath(null);
+    setHistoricalDialogOpen(false);
+    setSelectedHistoricalPaymentRequestId("");
+    setHistoricalStockConfirmed(false);
+    setHistoricalReconciliationReason("");
     ocrDelivery.reset();
     // ocrDelivery.reset is stable (closes over useState setters only)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -153,6 +166,9 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
   };
 
   const getPayableBadge = () => {
+    if (receipt?.payment_requests?.payment_status === "paid") {
+      return <Badge className="bg-blue-600"><CheckCircle className="h-3 w-3 mr-1" />Đã thanh toán trước</Badge>;
+    }
     if (receipt?.payable_status === "generated") {
       return <Badge className="bg-emerald-600"><CheckCircle className="h-3 w-3 mr-1" />Đã tạo công nợ</Badge>;
     }
@@ -205,6 +221,10 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
       const orderedQty = Number(item.ordered_quantity ?? item.quantity ?? 0);
       return validateLine(editDraft[item.id], orderedQty) === null;
     });
+  const isHistoricalPaidEligible = isReceiveMode && !receipt?.purchase_order_id;
+  const selectedHistoricalPaymentRequest = paidHistoricalRequests.find(
+    request => request.id === selectedHistoricalPaymentRequestId,
+  );
 
   const handleConfirmReceipt = async () => {
     if (!receiptId || !isReceiveMode) return;
@@ -248,7 +268,57 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
     }
   };
 
-  const isSubmitting = isSaving || confirmReceipt.isPending || updateItems.isPending;
+  const handleFinalizeHistoricalPaidReceipt = async () => {
+    if (
+      !receiptId ||
+      !isHistoricalPaidEligible ||
+      !selectedHistoricalPaymentRequestId ||
+      !historicalStockConfirmed ||
+      !historicalReconciliationReason.trim()
+    ) return;
+    if (!hasRequiredReceiptEvidence) {
+      toast.error("Đơn cũ đã thanh toán phải có ảnh/chứng từ trước khi nhập kho.");
+      return;
+    }
+
+    const payload = [];
+    for (const item of items) {
+      const orderedQty = Number(item.ordered_quantity ?? item.quantity ?? 0);
+      const err = validateLine(editDraft[item.id], orderedQty);
+      if (err) {
+        toast.error(`${item.product_name}: ${err}`);
+        return;
+      }
+      const draft = editDraft[item.id]!;
+      const actualQty = parseFloat(draft.actual_quantity);
+      payload.push({
+        id: item.id,
+        actual_quantity: actualQty,
+        line_status: actualQty < orderedQty ? "thieu" : "du",
+        variance_reason: draft.variance_reason.trim() || null,
+      });
+    }
+
+    try {
+      setIsSaving(true);
+      await updateItems.mutateAsync({ receiptId, items: payload });
+      await finalizeHistoricalPaidReceipt.mutateAsync({
+        receiptId,
+        historicalPaymentRequestId: selectedHistoricalPaymentRequestId,
+        historicalStockNotIncludedConfirmed: historicalStockConfirmed,
+        historicalReconciliationReason: historicalReconciliationReason.trim(),
+      });
+      toast.success("Đã nhập kho đơn cũ và liên kết khoản đã thanh toán. Không tạo công nợ mới.");
+      setHistoricalDialogOpen(false);
+      onOpenChange(false);
+    } catch (error) {
+      toast.error(getConfirmReceiptErrorMessage(error));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const isSubmitting = isSaving || confirmReceipt.isPending || finalizeHistoricalPaidReceipt.isPending || updateItems.isPending;
 
   return (
     <>
@@ -732,18 +802,33 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                   {hasRequiredReceiptEvidence && !hasRequiredVarianceEvidence && (
                     <p className="mb-2 text-xs font-medium text-amber-700 sm:mb-0">Có chênh lệch/thiếu hàng: cần chụp/scan phiếu giao hàng trước khi nhập kho.</p>
                   )}
-                  <Button
-                    className="btn-gradient w-full sm:w-auto"
-                    onClick={handleConfirmReceipt}
-                    disabled={isSubmitting || !canFinalize}
-                  >
-                    {isSubmitting ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <CheckCircle className="h-4 w-4 mr-2" />
+                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                    {isHistoricalPaidEligible && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full border-blue-300 text-blue-700 sm:w-auto"
+                        onClick={() => setHistoricalDialogOpen(true)}
+                        disabled={isSubmitting || !canFinalize}
+                        data-bmq-historical-paid-receipt-flow
+                      >
+                        <History className="mr-2 h-4 w-4" />
+                        Nhập kho đơn cũ đã thanh toán
+                      </Button>
                     )}
-                    Nhập kho + Tạo công nợ
-                  </Button>
+                    <Button
+                      className="btn-gradient w-full sm:w-auto"
+                      onClick={handleConfirmReceipt}
+                      disabled={isSubmitting || !canFinalize}
+                    >
+                      {isSubmitting ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                      )}
+                      Nhập kho + Tạo công nợ
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>
@@ -752,6 +837,97 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
               Chọn một phiếu nhập kho để xem chi tiết.
             </div>
           )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={historicalDialogOpen} onOpenChange={setHistoricalDialogOpen}>
+        <DialogContent className="max-w-lg" data-bmq-historical-paid-receipt-flow>
+          <DialogHeader>
+            <DialogTitle>Nhập kho đơn cũ đã thanh toán</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+              <p className="font-semibold">Chỉ dùng khi khoản mua đã thanh toán đầy đủ.</p>
+              <p className="mt-1 text-xs">Hệ thống sẽ liên kết Duyệt chi đã trả, lấy đơn giá từ chứng từ, tạo batch kho theo ngày nhận và <strong>Không tạo công nợ mới</strong>.</p>
+            </div>
+
+            <div>
+              <label htmlFor="historical-payment-request" className="mb-1.5 block text-sm font-medium">Khoản đã thanh toán</label>
+              <select
+                id="historical-payment-request"
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={selectedHistoricalPaymentRequestId}
+                onChange={event => setSelectedHistoricalPaymentRequestId(event.target.value)}
+                disabled={paidHistoricalRequestsLoading || isSubmitting}
+              >
+                <option value="">{paidHistoricalRequestsLoading ? "Đang tải..." : "Chọn mã Duyệt chi đã thanh toán"}</option>
+                {paidHistoricalRequests.map(request => (
+                  <option key={request.id} value={request.id}>
+                    {request.request_number} · {Number(request.total_amount || 0).toLocaleString("vi-VN")}đ · {formatSafeDate(request.paid_at)}
+                  </option>
+                ))}
+              </select>
+              {!paidHistoricalRequestsLoading && paidHistoricalRequests.length === 0 && (
+                <p className="mt-1 text-xs text-amber-700">Không tìm thấy khoản đã thanh toán chưa liên kết của nhà cung cấp này.</p>
+              )}
+            </div>
+
+            {selectedHistoricalPaymentRequest && (
+              <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
+                <p className="font-mono font-semibold">{selectedHistoricalPaymentRequest.request_number}</p>
+                <p className="mt-1 text-muted-foreground">{selectedHistoricalPaymentRequest.title || "Khoản thanh toán nhà cung cấp"}</p>
+                <p className="mt-1 font-semibold">{Number(selectedHistoricalPaymentRequest.total_amount || 0).toLocaleString("vi-VN")}đ</p>
+              </div>
+            )}
+
+            <div>
+              <label htmlFor="historical-reconciliation-reason" className="mb-1.5 block text-sm font-medium">
+                Lý do đối soát
+              </label>
+              <textarea
+                id="historical-reconciliation-reason"
+                className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={historicalReconciliationReason}
+                onChange={event => setHistoricalReconciliationReason(event.target.value)}
+                placeholder="Ví dụ: Đơn tháng 06 đã thanh toán, chưa ghi nhận tồn kho"
+                disabled={isSubmitting}
+                maxLength={500}
+              />
+            </div>
+
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-amber-400"
+                checked={historicalStockConfirmed}
+                onChange={event => setHistoricalStockConfirmed(event.target.checked)}
+                disabled={isSubmitting}
+              />
+              <span>
+                <strong>Xác nhận tồn hiện tại chưa bao gồm lô hàng này.</strong>
+                <span className="mt-1 block text-xs">Nếu hàng đã nằm trong tồn đầu kỳ hoặc từng được cộng thủ công, nhập tiếp sẽ làm tăng tồn trùng.</span>
+              </span>
+            </label>
+
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" onClick={() => setHistoricalDialogOpen(false)} disabled={isSubmitting}>Hủy</Button>
+              <Button
+                type="button"
+                className="bg-blue-600 text-white hover:bg-blue-700"
+                onClick={handleFinalizeHistoricalPaidReceipt}
+                disabled={
+                  isSubmitting ||
+                  !selectedHistoricalPaymentRequestId ||
+                  !historicalStockConfirmed ||
+                  !historicalReconciliationReason.trim() ||
+                  !canFinalize
+                }
+              >
+                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <History className="mr-2 h-4 w-4" />}
+                Nhập kho, không tạo công nợ
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

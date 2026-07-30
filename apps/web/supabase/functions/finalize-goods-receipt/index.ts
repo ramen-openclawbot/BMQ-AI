@@ -15,10 +15,32 @@ serve(async (req) => {
   }
 
   try {
-    const { receiptId } = await req.json();
+    const {
+      receiptId,
+      historicalPaymentRequestId,
+      historicalStockNotIncludedConfirmed,
+      historicalReconciliationReason,
+    } = await req.json();
 
     if (!receiptId) {
       return jsonResponse(req, { error: "Missing receipt ID" }, 400);
+    }
+
+    if (historicalPaymentRequestId !== undefined && !historicalPaymentRequestId) {
+      return jsonResponse(req, { error: "Missing historical payment request ID" }, 400);
+    }
+
+    if (historicalPaymentRequestId && historicalStockNotIncludedConfirmed !== true) {
+      return jsonResponse(req, { error: "Historical stock-not-included confirmation is required" }, 400);
+    }
+
+    if (
+      historicalPaymentRequestId &&
+      (typeof historicalReconciliationReason !== "string" ||
+        historicalReconciliationReason.trim().length < 3 ||
+        historicalReconciliationReason.trim().length > 500)
+    ) {
+      return jsonResponse(req, { error: "Historical reconciliation reason must be 3-500 characters" }, 400);
     }
 
     const authHeader = req.headers.get("Authorization");
@@ -36,10 +58,53 @@ serve(async (req) => {
       return jsonResponse(req, { error: "Invalid token" }, 401);
     }
 
-    const { data, error } = await supabase.rpc("finalize_goods_receipt", {
-      p_receipt_id: receiptId,
-      p_user_id: user.id,
-    });
+    if (historicalPaymentRequestId) {
+      const [{ data: roleRows, error: roleError }, { data: permissionRows, error: permissionError }] = await Promise.all([
+        supabase.from("user_roles").select("role").eq("user_id", user.id),
+        supabase
+          .from("user_module_permissions")
+          .select("module_key, can_edit")
+          .eq("user_id", user.id)
+          .in("module_key", ["payment_requests", "purchase_orders"]),
+      ]);
+
+      if (roleError || permissionError) {
+        console.error("Failed to verify historical receipt permissions:", roleError || permissionError);
+        return jsonResponse(req, { error: "Unable to verify permissions" }, 500);
+      }
+
+      const roles = (roleRows || []) as Array<{ role: string }>;
+      const permissions = (permissionRows || []) as Array<{ module_key: string; can_edit: boolean }>;
+      const isOwner = roles.some((row) => row.role === "owner");
+      const editableModules = new Set(
+        permissions.filter((row) => row.can_edit).map((row) => row.module_key),
+      );
+      if (!isOwner) {
+        const canLinkHistoricalPayment =
+          editableModules.has("payment_requests") && editableModules.has("purchase_orders");
+        if (!canLinkHistoricalPayment) {
+          return jsonResponse(
+            req,
+            { error: "Forbidden: payment_requests and purchase_orders edit permissions required" },
+            403,
+          );
+        }
+      }
+    }
+
+    const rpcResult = historicalPaymentRequestId
+      ? await supabase.rpc("finalize_historical_paid_goods_receipt", {
+          p_receipt_id: receiptId,
+          p_payment_request_id: historicalPaymentRequestId,
+          p_stock_not_included_confirmed: historicalStockNotIncludedConfirmed,
+          p_reconciliation_reason: historicalReconciliationReason.trim(),
+          p_user_id: user.id,
+        })
+      : await supabase.rpc("finalize_goods_receipt", {
+          p_receipt_id: receiptId,
+          p_user_id: user.id,
+        });
+    const { data, error } = rpcResult;
 
     if (error) {
       console.error("Failed to finalize goods receipt:", error);

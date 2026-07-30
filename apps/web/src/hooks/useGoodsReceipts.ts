@@ -22,6 +22,11 @@ export type GoodsReceiptItem = Tables<"goods_receipt_items"> & {
   purchase_order_items?: { id: string; product_name: string | null; quantity: number | null; unit_price: number | null } | null;
 };
 
+export type PaidHistoricalPaymentRequest = Pick<
+  Tables<"payment_requests">,
+  "id" | "request_number" | "title" | "total_amount" | "paid_at" | "goods_receipt_id"
+>;
+
 export type GoodsReceiptInsert = TablesInsert<"goods_receipts">;
 export type GoodsReceiptItemInsert = TablesInsert<"goods_receipt_items">;
 
@@ -160,6 +165,27 @@ export function useGoodsReceiptItems(receiptId: string | null) {
       })) as GoodsReceiptItem[];
     },
     enabled: !!receiptId,
+    staleTime: 30000,
+  });
+}
+
+export function usePaidPaymentRequestsForSupplier(supplierId: string | null, receiptId: string | null) {
+  return useQuery({
+    queryKey: ["paid-payment-requests-for-receipt", supplierId, receiptId],
+    queryFn: async () => {
+      if (!supplierId || !receiptId) return [];
+      const { data, error } = await supabase
+        .from("payment_requests")
+        .select("id, request_number, title, total_amount, paid_at, goods_receipt_id")
+        .eq("supplier_id", supplierId)
+        .eq("status", "approved")
+        .eq("payment_status", "paid")
+        .or(`goods_receipt_id.is.null,goods_receipt_id.eq.${receiptId}`)
+        .order("paid_at", { ascending: false, nullsFirst: false });
+      if (error) throw error;
+      return (data || []) as PaidHistoricalPaymentRequest[];
+    },
+    enabled: !!supplierId && !!receiptId,
     staleTime: 30000,
   });
 }
@@ -328,6 +354,56 @@ export function useConfirmGoodsReceipt() {
       queryClient.invalidateQueries({ queryKey: ["expiry-stats"] });
       queryClient.invalidateQueries({ queryKey: ["payment-requests"] });
       queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+    },
+  });
+}
+
+export function useFinalizeHistoricalPaidGoodsReceipt() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      receiptId,
+      historicalPaymentRequestId,
+      historicalStockNotIncludedConfirmed,
+      historicalReconciliationReason,
+    }: {
+      receiptId: string;
+      historicalPaymentRequestId: string;
+      historicalStockNotIncludedConfirmed: boolean;
+      historicalReconciliationReason: string;
+    }) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await callEdgeFunction<{
+        success: boolean;
+        receiptId: string;
+        payableId: string;
+        totalAmount: number;
+        historicalPaid: boolean;
+        createdNewPayable: false;
+      }>(
+        "finalize-goods-receipt",
+        {
+          receiptId,
+          historicalPaymentRequestId,
+          historicalStockNotIncludedConfirmed,
+          historicalReconciliationReason,
+        },
+        session?.access_token,
+        120000
+      );
+
+      if (response.error || !response.data) {
+        throw new Error(response.error || "Không thể nhập kho đơn cũ đã thanh toán");
+      }
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["goods-receipts"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory-batches"] });
+      queryClient.invalidateQueries({ queryKey: ["payment-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["paid-payment-requests-for-receipt"] });
     },
   });
 }

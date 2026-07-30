@@ -244,6 +244,53 @@ def test_goods_receipt_confirm_uses_finalization_edge_function_not_client_side_i
     assert "verify_jwt = false" in config.split("[functions.finalize-goods-receipt]", 1)[1].split("[functions.", 1)[0]
 
 
+def test_historical_paid_receipt_posts_stock_without_creating_duplicate_payable():
+    migrations = "\n".join(read(path) for path in sorted(MIGRATIONS.glob("*.sql")))
+    edge = read(FINALIZE_RECEIPT_FUNCTION)
+    hook = read(GOODS_RECEIPTS_HOOK)
+    details = read(GOODS_RECEIPT_DETAILS)
+
+    assert "finalize_historical_paid_goods_receipt" in migrations
+    assert "Historical paid request must be fully paid" in migrations
+    assert "Historical paid request supplier does not match receipt supplier" in migrations
+    assert "Historical paid request is already linked to another goods receipt" in migrations
+    assert "Historical paid receipt item could not be matched to a paid request line" in migrations
+    assert "Historical paid receipt line counts do not match paid request lines" in migrations
+    assert "Historical paid receipt line quantity does not match paid request line" in migrations
+    assert "p_stock_not_included_confirmed boolean" in migrations
+    assert "p_reconciliation_reason text" in migrations
+    assert "v_used_request_item_ids" in migrations
+    assert "stock_not_included_confirmed_by=" in migrations
+    assert "reconciliation_reason=" in migrations
+    assert "historical_paid_receipt" in migrations
+    assert "received_date = receipt_date" in migrations
+    assert "payment_status = 'paid'" in migrations
+    assert "status IN ('approved', 'completed')" in migrations
+    assert "goods_receipt_id = p_receipt_id" in migrations
+    assert "must not create a new payable" in migrations
+
+    assert "historicalPaymentRequestId" in edge
+    assert "historicalStockNotIncludedConfirmed" in edge
+    assert "historicalReconciliationReason" in edge
+    assert "Forbidden: payment_requests and purchase_orders edit permissions required" in edge
+    assert 'rpc("finalize_historical_paid_goods_receipt"' in edge
+    assert "p_payment_request_id" in edge
+
+    assert "usePaidPaymentRequestsForSupplier" in hook
+    assert "useFinalizeHistoricalPaidGoodsReceipt" in hook
+    assert "historicalPaymentRequestId" in hook
+    assert "historicalStockNotIncludedConfirmed" in hook
+    assert "historicalReconciliationReason" in hook
+
+    assert "Nhập kho đơn cũ đã thanh toán" in details
+    assert "Lý do đối soát" in details
+    assert "Xác nhận tồn hiện tại chưa bao gồm lô hàng này" in details
+    assert "Không tạo công nợ mới" in details
+    assert "data-bmq-historical-paid-receipt-flow" in details
+    assert "selectedHistoricalPaymentRequestId" in details
+    assert "historicalStockConfirmed" in details
+
+
 def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finalization():
     hook = read(GOODS_RECEIPTS_HOOK)
     page = read(GOODS_RECEIPTS_PAGE)
