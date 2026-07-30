@@ -4175,11 +4175,27 @@ export default function MiniCrm() {
             />
           </div>
 
-          <div className="sticky bottom-0 z-10 -mx-6 -mb-6 flex justify-end gap-2 border-t bg-background/95 px-6 py-3 backdrop-blur">
-            <Button variant="outline" onClick={cancelEditCustomer}>Huỷ</Button>
-            <Button onClick={async () => { setEditFeedback("Đang lưu..."); try { await updateCustomerMutation.mutateAsync(); } catch { return; } }} disabled={updateCustomerMutation.isPending}>
-              {updateCustomerMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}Lưu thay đổi
-            </Button>
+          <div className="sticky bottom-0 z-10 -mx-6 -mb-6 flex flex-col gap-2 border-t bg-background/95 px-6 py-3 backdrop-blur sm:flex-row sm:items-center">
+            {editFeedback && (
+              <div
+                role="alert"
+                aria-live="assertive"
+                data-bmq-mini-crm-save-feedback
+                className={`min-w-0 flex-1 rounded-md border px-3 py-2 text-sm font-medium ${
+                  editFeedback.startsWith("Lưu thất bại")
+                    ? "border-destructive/40 bg-destructive/10 text-destructive"
+                    : "border-border bg-muted/50 text-foreground"
+                }`}
+              >
+                {editFeedback}
+              </div>
+            )}
+            <div className="flex shrink-0 justify-end gap-2">
+              <Button variant="outline" onClick={cancelEditCustomer}>Huỷ</Button>
+              <Button onClick={async () => { setEditFeedback("Đang lưu..."); try { await updateCustomerMutation.mutateAsync(); } catch { return; } }} disabled={updateCustomerMutation.isPending}>
+                {updateCustomerMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}Lưu thay đổi
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

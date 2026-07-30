@@ -20,7 +20,7 @@ def test_mini_crm_edit_dialog_has_dealer_contact_fields() -> None:
         ("SĐT đăng nhập OTP", "OTP phone input label"),
         ("Số chính", "primary phone selector"),
         ("Đang hoạt động", "active phone selector"),
-        ("+ Thêm SĐT", "add phone button"),
+        ("Lưu thay đổi", "single main save action"),
     ]:
         assert_contains(mini_crm, needle, label)
 
@@ -41,9 +41,16 @@ def test_customer_detail_shows_dealer_contacts() -> None:
     assert_contains(mini_crm, "dealer_customer_contacts", "customer detail contact data source")
 
 
+def test_edit_dialog_shows_save_error_inline() -> None:
+    assert_contains(mini_crm, "data-bmq-mini-crm-save-feedback", "inline save feedback inside edit dialog")
+    assert_contains(mini_crm, 'role="alert"', "accessible save error alert")
+    assert_contains(mini_crm, "Lưu thất bại", "save failure state")
+
+
 if __name__ == "__main__":
     test_mini_crm_loads_dealer_contacts_with_customers()
     test_mini_crm_edit_dialog_has_dealer_contact_fields()
     test_mini_crm_saves_dealer_contacts_to_dedicated_table()
     test_customer_detail_shows_dealer_contacts()
+    test_edit_dialog_shows_save_error_inline()
     print("mini CRM dealer contact static checks passed")
