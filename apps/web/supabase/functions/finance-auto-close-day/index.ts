@@ -763,15 +763,6 @@ async function buildSnapshot(
     ...qtmProcessed.blockers,
   ];
 
-  if (declarationMismatchFlagsValue.length > 0) {
-    blockers.push({
-      code: "existing_declaration_reconciliation_mismatch",
-      message:
-        "Existing declaration reconciliation metadata contains mismatch flags",
-      detail: declarationMismatchFlagsValue,
-    });
-  }
-
   const snapshot = {
     closingDate,
     declaredUnc,

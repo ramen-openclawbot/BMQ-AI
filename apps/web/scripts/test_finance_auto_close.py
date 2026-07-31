@@ -7,7 +7,9 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "supabase/migrations/20260731090000_finance_auto_approval_close.sql"
 CHAIN_PATCH = ROOT / "supabase/migrations/20260731104500_finance_auto_close_full_prior_chain.sql"
-FINAL_PATCH = ROOT / "supabase/migrations/20260731111500_finance_auto_close_already_approved_matches.sql"
+FINAL_PATCH = ROOT / "supabase/migrations/20260731130000_finance_auto_close_unc_qtm_only.sql"
+SHADOW_RECHECK = ROOT / "supabase/migrations/20260731131000_finance_auto_close_recheck_first_10_shadow.sql"
+ENFORCED_BATCH = ROOT / "supabase/migrations/20260731132000_finance_auto_close_first_10_unc_qtm.sql"
 
 
 def read_migration() -> str:
@@ -156,61 +158,31 @@ def test_gate_blockers_cover_evidence_confidence_amounts_qtm_and_snapshot_blocke
     assert "snapshot_declaration_mismatch" in body
     assert "qtm_evidence_sum_mismatch" in body
     assert "duplicate_evidence_file" in body
-    assert "duplicate_payment_request_match" in body
     assert "select coalesce(min(confidence), 1)" in body
     assert "select coalesce(sum(amount), 0)" in body
     assert "where evidence_source = 'qtm'" in body
 
 
-def test_matching_contract_unique_ambiguous_receipt_and_already_approved_paths():
+def test_evidence_contract_is_drive_unc_qtm_only():
     body = compact(function_body(read_migration()))
 
-    assert_ordered(
-        body,
-        [
-            "paymentrequestid",
-            "v_evidence.supplier_id is not null",
-            "pr.supplier_id = v_evidence.supplier_id",
-            "pr.total_amount = v_evidence.amount",
-            "v_match_strategy := 'amount'",
-            "pr.total_amount = v_evidence.amount",
-        ],
-    )
-    for blocker in (
-        "explicit_payment_request_not_found",
-        "explicit_payment_request_amount_mismatch",
-        "explicit_payment_request_supplier_mismatch",
-        "explicit_payment_request_outside_close_scope",
-        "explicit_payment_request_method_mismatch",
-        "supplier_amount_no_match",
-        "supplier_amount_ambiguous",
-        "amount_no_match",
-        "amount_ambiguous",
-        "unmatched_scoped_payment_request",
-        "pending_receipt",
-    ):
-        assert blocker in body
+    assert "create temporary table tmp_finance_auto_close_evidence" in body
+    assert "evidence_source text not null" in body
+    assert "file_id text" in body
+    assert "amount numeric not null" in body
+    assert "confidence numeric not null" in body
+    assert "from jsonb_array_elements(v_unc_evidence)" in body
+    assert "from jsonb_array_elements(v_qtm_evidence)" in body
 
-    assert "pr.status::text in ('pending', 'approved')" in body
-    assert "v_match_status := 'already_approved'" in body
-    assert (
-        "if v_match_status = 'approved' then v_match_status := 'already_approved'; "
-        "else v_match_status := 'matched'; end if; "
-        "insert into tmp_finance_auto_close_matched_prs(payment_request_id)"
-        in body
-    )
-    assert "already_approved" in body
-    assert "pr.status = 'pending'::public.payment_request_status" in body
-    assert "purchase_order_id is not null" in body
-    assert "public.goods_receipts" in body
-    assert "gr.status::text = 'received'" in body
-    assert "(pr.goods_receipt_id is not null and gr.id = pr.goods_receipt_id)" in body
-    assert "or (pr.goods_receipt_id is null and gr.purchase_order_id = pr.purchase_order_id)" in body
-    assert "gr.status::text in ('received', 'confirmed')" not in body
-    assert "pr.payment_method::text = case v_evidence.evidence_source when 'unc' then 'bank_transfer' else 'cash' end" in body
-    assert "strpos(concat_ws(' ', pr.image_url, pr.description, pr.notes, pr.title), v_evidence.file_id) > 0" in body
-    assert "ilike '%' || v_evidence.file_id || '%'" not in body
-    assert body.count("v_match_blocker := 'duplicate_payment_request_match'") == 1
+    for forbidden in (
+        "payment_requests",
+        "payment_request",
+        "goods_receipts",
+        "goods_receipt",
+        "purchase_order",
+        "finance_payment_auto_approval_matches",
+    ):
+        assert forbidden not in body
 
 
 def test_shadow_enforced_idempotency_and_forbidden_mutations():
@@ -222,27 +194,23 @@ def test_shadow_enforced_idempotency_and_forbidden_mutations():
     assert "status = 'succeeded'" in body
     assert "'existing', true" in body
     assert "insert into public.finance_daily_close_runs" in body
-    assert "insert into public.finance_payment_auto_approval_matches" in body
     assert "'shadow'" in body
     assert "'enforced'" in body
 
-    assert "finance_auto_approve_enabled" in body
     assert "finance_auto_close_enabled" in body
+    assert "finance_auto_approve_enabled" not in body
     assert "setting_disabled" in body
-    assert "update public.payment_requests" in body
-    assert "set status = 'approved'::public.payment_request_status" in body
-    assert "approved_at = now()" in body
-    assert "approved_by = null" in body
-    assert "pr.status = 'pending'::public.payment_request_status" in body
+    assert "update public.payment_requests" not in body
+    assert "public.goods_receipts" not in body
+    assert "public.finance_payment_auto_approval_matches" not in body
 
-    update_pr_section = body.split("update public.payment_requests", 1)[1].split("returning id", 1)[0]
-    assert "payment_status" not in update_pr_section
-    assert "paid_at" not in update_pr_section
-    assert "insert into public.payments" not in lower
-    assert "update public.payments" not in lower
-    assert "insert into public.payment_allocations" not in lower
-    assert "update public.payment_allocations" not in lower
-    assert "record_payment_allocations" not in lower
+    assert "payment_status" not in body
+    assert "paid_at" not in body
+    assert "insert into public.payments" not in body
+    assert "update public.payments" not in body
+    assert "insert into public.payment_allocations" not in body
+    assert "update public.payment_allocations" not in body
+    assert "record_payment_allocations" not in body
 
 
 def test_successful_enforced_close_locks_declaration_with_append_only_audit_metadata():
@@ -258,7 +226,9 @@ def test_successful_enforced_close_locks_declaration_with_append_only_audit_meta
     assert "coalesce(v_declaration.extraction_meta, '{}'::jsonb)" in body
     assert "|| jsonb_build_object(" in body
     assert "jsonb_set(" in body
-    assert "approved_payment_request_ids" in body
+    assert "unc_evidence_sum" in body
+    assert "qtm_evidence_sum" in body
+    assert "closeddeclarationid" in body
     assert "where id = v_declaration.id" in body
 
 
@@ -274,8 +244,58 @@ def test_chain_patch_invalidates_stale_successful_shadow_runs():
     assert "close_approval_locked" in sql
 
 
+def test_effective_final_function_is_unc_qtm_only_and_never_touches_payment_workflows():
+    assert FINAL_PATCH.exists(), f"Missing migration: {FINAL_PATCH}"
+    body = compact(function_body(FINAL_PATCH.read_text(encoding="utf-8")))
+
+    for forbidden in (
+        "payment_requests",
+        "payment_request",
+        "goods_receipts",
+        "goods_receipt",
+        "purchase_order",
+        "finance_payment_auto_approval_matches",
+        "finance_auto_approve_enabled",
+    ):
+        assert forbidden not in body
+
+    assert "finance_auto_close_enabled" in body
+    assert "update public.ceo_daily_closing_declarations" in body
+    assert "unc_amount_mismatch" in body
+    assert "qtm_evidence_sum_mismatch" in body
+    assert "qtm_chain_mismatch" in body
+    assert "qtm_opening_chain_mismatch" in body
+
+
 def test_effective_final_migration_matches_canonical_function_body():
     assert FINAL_PATCH.exists(), f"Missing migration: {FINAL_PATCH}"
     canonical = compact(function_body(read_migration()))
     effective = compact(function_body(FINAL_PATCH.read_text(encoding="utf-8")))
     assert effective == canonical
+
+
+def test_operational_batches_are_chronological_unc_qtm_only_and_stop_safely():
+    shadow = compact(SHADOW_RECHECK.read_text(encoding="utf-8"))
+    enforced = compact(ENFORCED_BATCH.read_text(encoding="utf-8"))
+
+    assert "'shadow'" in shadow
+    assert "update public.ceo_daily_closing_declarations" not in shadow
+    assert "order by d.closing_date asc" in shadow
+    assert "limit 10" in shadow
+
+    assert "finance_auto_close_enabled" in enforced
+    assert "'enforced'" in enforced
+    assert "order by d.closing_date asc" in enforced
+    assert "exit when v_processed >= 10" in enforced
+    assert "if coalesce((v_result->>'ok')::boolean, false) is not true then exit" in enforced
+    assert "result=no_snapshot stop=true" in enforced
+    assert "blocker->>'code' <> 'existing_declaration_reconciliation_mismatch'" in enforced
+
+    for sql in (shadow, enforced):
+        for forbidden in (
+            "payment_requests",
+            "goods_receipts",
+            "purchase_order",
+            "finance_payment_auto_approval_matches",
+        ):
+            assert forbidden not in sql

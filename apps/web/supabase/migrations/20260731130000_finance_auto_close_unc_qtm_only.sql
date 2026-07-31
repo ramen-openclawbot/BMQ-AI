@@ -1,99 +1,18 @@
--- Finance daily auto-close database layer.
--- Keeps parse evidence in the RPC snapshot and finance execution/audit in SQL.
+-- Correct finance daily close scope: CEO declaration versus Drive UNC/QTM only.
+-- Invalidate stale successful shadow decisions produced by the broader legacy contract.
 
-create table if not exists public.finance_daily_close_runs (
-  id uuid primary key default gen_random_uuid(),
-  closing_date date not null,
-  mode text not null check (mode in ('shadow', 'enforced')),
-  status text not null default 'running' check (status in ('running', 'succeeded', 'blocked', 'failed')),
-  decision text not null default 'pending' check (decision in ('pending', 'approve', 'block')),
-  actor text not null default 'system_finance_cron',
-  snapshot jsonb not null default '{}'::jsonb,
-  blockers jsonb not null default '[]'::jsonb,
-  blocker_count integer not null default 0,
-  match_count integer not null default 0,
-  approved_count integer not null default 0,
-  approved_payment_request_ids jsonb not null default '[]'::jsonb,
-  result jsonb not null default '{}'::jsonb,
-  started_at timestamptz not null default now(),
-  finished_at timestamptz,
-  created_at timestamptz not null default now(),
-  created_by text not null default 'system_finance_cron',
-  updated_at timestamptz not null default now(),
-  updated_by text not null default 'system_finance_cron'
-);
-
-create unique index if not exists uq_finance_daily_close_runs_active_final
-  on public.finance_daily_close_runs(closing_date, mode)
-  where status in ('running', 'succeeded');
-
-create index if not exists idx_finance_daily_close_runs_closing_date
-  on public.finance_daily_close_runs(closing_date desc);
-
-create table if not exists public.finance_payment_auto_approval_matches (
-  id uuid primary key default gen_random_uuid(),
-  run_id uuid not null references public.finance_daily_close_runs(id) on delete cascade,
-  payment_request_id uuid references public.payment_requests(id) on delete set null,
-  evidence_source text not null check (evidence_source in ('unc', 'qtm', 'pending_scope')),
-  evidence_file_id text,
-  evidence_reference text,
-  evidence_amount numeric,
-  evidence_confidence numeric,
-  supplier_id uuid references public.suppliers(id) on delete set null,
-  match_strategy text not null check (match_strategy in ('explicit_payment_request_id', 'supplier_amount', 'amount', 'pending_scope')),
-  match_status text not null check (match_status in ('matched', 'already_approved', 'blocked')),
-  blocker text,
-  match_candidates jsonb not null default '[]'::jsonb,
-  created_at timestamptz not null default now(),
-  created_by text not null default 'system_finance_cron',
-  updated_at timestamptz not null default now(),
-  updated_by text not null default 'system_finance_cron'
-);
-
-create index if not exists idx_finance_payment_auto_matches_run_id
-  on public.finance_payment_auto_approval_matches(run_id);
-
-create index if not exists idx_finance_payment_auto_matches_payment_request_id
-  on public.finance_payment_auto_approval_matches(payment_request_id)
-  where payment_request_id is not null;
-
-alter table public.finance_daily_close_runs enable row level security;
-alter table public.finance_payment_auto_approval_matches enable row level security;
-
-drop policy if exists "finance_daily_close_runs_select_finance" on public.finance_daily_close_runs;
-create policy "finance_daily_close_runs_select_finance"
-  on public.finance_daily_close_runs
-  for select
-  to authenticated
-  using (
-    public.has_role((select auth.uid()), 'owner'::public.app_role)
-    or public.has_module_permission((select auth.uid()), 'payment_requests', 'view')
-  );
-
-drop policy if exists "finance_payment_auto_matches_select_finance" on public.finance_payment_auto_approval_matches;
-create policy "finance_payment_auto_matches_select_finance"
-  on public.finance_payment_auto_approval_matches
-  for select
-  to authenticated
-  using (
-    public.has_role((select auth.uid()), 'owner'::public.app_role)
-    or public.has_module_permission((select auth.uid()), 'payment_requests', 'view')
-  );
-
-revoke insert, update, delete on public.finance_daily_close_runs from public, anon, authenticated;
-revoke insert, update, delete on public.finance_payment_auto_approval_matches from public, anon, authenticated;
-grant select on public.finance_daily_close_runs to authenticated;
-grant select on public.finance_payment_auto_approval_matches to authenticated;
-grant select, insert, update, delete on public.finance_daily_close_runs to service_role;
-grant select, insert, update, delete on public.finance_payment_auto_approval_matches to service_role;
-
-insert into public.app_settings (key, value, updated_at)
-values
-  ('finance_auto_approve_enabled', 'false', now()),
-  ('finance_auto_close_enabled', 'false', now()),
-  ('finance_auto_close_mode', 'shadow', now()),
-  ('finance_auto_close_time_vn', '00:10', now())
-on conflict (key) do nothing;
+update public.finance_daily_close_runs
+set status = 'failed',
+    decision = 'block',
+    result = coalesce(result, '{}'::jsonb) || jsonb_build_object(
+      'invalidatedBy', '20260731130000_finance_auto_close_unc_qtm_only',
+      'reason', 'legacy_scope_removed'
+    ),
+    finished_at = coalesce(finished_at, now()),
+    updated_at = now(),
+    updated_by = 'migration_20260731130000'
+where mode = 'shadow'
+  and status = 'succeeded';
 
 create or replace function public.finance_auto_close_day(
   p_closing_date date,

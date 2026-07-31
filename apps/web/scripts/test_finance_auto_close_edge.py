@@ -160,6 +160,7 @@ def test_snapshot_fields_blockers_sequential_stop_and_rpc_only_mutation():
     assert "LOW_CONFIDENCE_THRESHOLD = 0.85" in source
     assert "uncScan.completed && qtmScan.completed" in source
     assert "qtmOpening + qtmTopup - qtmSpent" in source
+    assert "existing_declaration_reconciliation_mismatch" not in source
     assert "unc_folder_status_mismatch" not in source
     assert "unc_folder_delta_mismatch" not in source
     assert ".rpc(\"finance_auto_close_day\"" in source
