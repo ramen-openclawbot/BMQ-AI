@@ -10,6 +10,7 @@ CHAIN_PATCH = ROOT / "supabase/migrations/20260731104500_finance_auto_close_full
 FINAL_PATCH = ROOT / "supabase/migrations/20260731130000_finance_auto_close_unc_qtm_only.sql"
 SHADOW_RECHECK = ROOT / "supabase/migrations/20260731131000_finance_auto_close_recheck_first_10_shadow.sql"
 ENFORCED_BATCH = ROOT / "supabase/migrations/20260731132000_finance_auto_close_first_10_unc_qtm.sql"
+CARRY_FORWARD_PATCH = ROOT / "supabase/migrations/20260731133000_finance_auto_close_qtm_carry_forward.sql"
 
 
 def read_migration() -> str:
@@ -299,3 +300,29 @@ def test_operational_batches_are_chronological_unc_qtm_only_and_stop_safely():
             "finance_payment_auto_approval_matches",
         ):
             assert forbidden not in sql
+
+
+def test_qtm_opening_is_system_carried_from_previous_close_not_user_blocked():
+    assert CARRY_FORWARD_PATCH.exists(), f"Missing migration: {CARRY_FORWARD_PATCH}"
+    body = compact(function_body(CARRY_FORWARD_PATCH.read_text(encoding="utf-8")))
+
+    assert "v_qtm_opening := v_previous_closing" in body
+    assert "v_previous_declaration.qtm_extracted_amount" in body
+    assert "v_previous_declaration.cash_fund_topup_amount" in body
+    assert "v_qtm_closing := v_qtm_opening + v_qtm_topup - v_qtm_spent" in body
+    assert "qtm_opening_chain_mismatch" not in body
+    assert "or v_qtm_opening is distinct from v_db_qtm_opening" not in body
+    assert "'qtm_opening_source_date', v_previous_declaration.closing_date" in body
+
+
+def test_enforced_close_persists_next_day_opening_but_shadow_never_mutates():
+    assert CARRY_FORWARD_PATCH.exists(), f"Missing migration: {CARRY_FORWARD_PATCH}"
+    body = compact(function_body(CARRY_FORWARD_PATCH.read_text(encoding="utf-8")))
+
+    shadow_return = body.index("if v_mode = 'shadow' then")
+    next_day_update = body.index("closing_date = p_closing_date + 1")
+    assert shadow_return < next_day_update
+    assert "coalesce(extraction_meta->>'close_approval_locked', 'false') <> 'true'" in body[next_day_update - 500:]
+    assert "'qtm_opening_balance', v_qtm_closing" in body[next_day_update - 1000:next_day_update]
+    assert "'qtm_opening_source_date', p_closing_date" in body[next_day_update - 1000:next_day_update]
+    assert "select count(*) from public.ceo_daily_closing_declarations next_day" in body

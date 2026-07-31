@@ -277,6 +277,41 @@ async function loadDeclaration(
   return data || null;
 }
 
+async function loadPreviousClosedQtmBalance(
+  supabase: any,
+  closingDate: string,
+): Promise<{ closing: number; closingDate: string } | null> {
+  const { data, error } = await supabase
+    .from("ceo_daily_closing_declarations")
+    .select(
+      "closing_date,cash_fund_topup_amount,qtm_extracted_amount,extraction_meta",
+    )
+    .lt("closing_date", closingDate)
+    .order("closing_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data || data?.extraction_meta?.close_approval_locked !== true) {
+    return null;
+  }
+
+  const explicitClosing = numberOrNull(
+    data?.extraction_meta?.qtm_closing_balance,
+  );
+  const closing = explicitClosing ?? (
+    coalesceNumber(data?.extraction_meta?.qtm_opening_balance, 0) +
+    coalesceNumber(
+      data?.qtm_extracted_amount,
+      data?.cash_fund_topup_amount,
+      0,
+    ) -
+    coalesceNumber(data?.extraction_meta?.qtm_spent_from_folder, 0)
+  );
+
+  return { closing, closingDate: String(data.closing_date) };
+}
+
 async function callFunction(
   functionName: string,
   serviceRoleKey: string,
@@ -689,6 +724,11 @@ async function buildSnapshot(
     };
   }
 
+  const priorQtmBalance = await loadPreviousClosedQtmBalance(
+    supabase,
+    closingDate,
+  );
+
   const uncPath = applyDatePathTemplate(UNC_PATH_TEMPLATE, closingDate);
   const qtmPath = applyDatePathTemplate(QTM_PATH_TEMPLATE, closingDate);
 
@@ -737,10 +777,12 @@ async function buildSnapshot(
     declaration.cash_fund_topup_amount,
     0,
   );
-  const qtmOpening = coalesceNumber(
+  const storedQtmOpening = coalesceNumber(
     declaration.extraction_meta?.qtm_opening_balance,
     0,
   );
+  const qtmOpening = priorQtmBalance?.closing ?? storedQtmOpening;
+  const qtmOpeningSourceDate = priorQtmBalance?.closingDate ?? null;
   const expectedQtmSpent = coalesceNumber(
     declaration.extraction_meta?.qtm_spent_from_folder,
     0,
@@ -768,6 +810,7 @@ async function buildSnapshot(
     declaredUnc,
     qtmTopup,
     qtmOpening,
+    qtmOpeningSourceDate,
     qtmSpent,
     qtmClosing,
     driveConnectivity: uncScan.completed && qtmScan.completed,
