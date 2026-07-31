@@ -130,6 +130,9 @@ verify_jwt = false
 [functions.finance-auto-reconcile]
 verify_jwt = false
 
+[functions.finance-auto-close-day]
+verify_jwt = false
+
 [functions.po-gmail-ingest]
 verify_jwt = false
 

@@ -11,6 +11,22 @@ const jsonResponse = (body: unknown, status = 200, corsHeaders?: Record<string, 
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
+const isFinanceCronBypass = (req: Request): boolean => {
+  const cronHeader = req.headers.get("x-finance-cron-secret");
+  if (!cronHeader) return false;
+
+  const cronSecret = Deno.env.get("FINANCE_AUTO_CLOSE_CRON_SECRET") ||
+    Deno.env.get("FINANCE_CRON_SECRET");
+  if (cronHeader && !cronSecret) {
+    throw new Response(
+      JSON.stringify({ error: "Server misconfigured: FINANCE_AUTO_CLOSE_CRON_SECRET not set" }),
+      { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } },
+    );
+  }
+
+  return cronHeader === cronSecret;
+};
+
 /** Parse common VN/EN bank-slip amount strings to number.
  *  Examples:
  *  - "41.006.300,00" -> 41006300
@@ -431,15 +447,18 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflightResponse(req);
 
   try {
-    const { user } = await requireAuth(req, getCorsHeaders(req));
+    const cronBypass = isFinanceCronBypass(req);
+    if (!cronBypass) {
+      const { user } = await requireAuth(req, getCorsHeaders(req));
 
-    const rateLimit = await checkAndRecordRateLimit(user.id, "finance-extract-slip-amount", 200);
-    if (!rateLimit.allowed) {
-      return jsonResponse(
-        { error: "Bạn đã vượt quá giới hạn scan hôm nay. Vui lòng thử lại vào ngày mai.", code: "RATE_LIMIT_EXCEEDED" },
-        429,
-        { ...getCorsHeaders(req), ...getRateLimitHeaders(rateLimit) }
-      );
+      const rateLimit = await checkAndRecordRateLimit(user.id, "finance-extract-slip-amount", 200);
+      if (!rateLimit.allowed) {
+        return jsonResponse(
+          { error: "Bạn đã vượt quá giới hạn scan hôm nay. Vui lòng thử lại vào ngày mai.", code: "RATE_LIMIT_EXCEEDED" },
+          429,
+          { ...getCorsHeaders(req), ...getRateLimitHeaders(rateLimit) }
+        );
+      }
     }
 
     const { imageBase64, mimeType, slipType } = await req.json();
