@@ -100,7 +100,7 @@ def test_drive_root_paths_scan_download_ocr_cache_and_blockers():
     assert "const UNC_PATH_TEMPLATE = \"yyyy/MM/dd/UNC\"" in source
     assert "const QTM_PATH_TEMPLATE = \"yyyy/MM/dd/QTM\"" in source
     assert "applyDatePathTemplate" in source
-    assert_ordered(source, ["const uncScan = await scanEvidenceFolder(", "const qtmScan = await scanEvidenceFolder("])
+    assert_ordered(source, ["const uncScan = uncDriveRequired ? await scanEvidenceFolder(", "const qtmScan = await scanEvidenceFolder("])
     assert "folderType: \"bank_slip\"" in source
     assert "includeBase64: false" in source
     assert "skipProcessed: false" in source
@@ -158,7 +158,8 @@ def test_snapshot_fields_blockers_sequential_stop_and_rpc_only_mutation():
     assert "qtm_extracted_amount" in source and "cash_fund_topup_amount" in source
     assert "qtm_opening_balance" in source
     assert "LOW_CONFIDENCE_THRESHOLD = 0.85" in source
-    assert "uncScan.completed && qtmScan.completed" in source
+    assert "(uncDriveRequired ? uncScan.completed : true)" in source
+    assert "qtmScan.completed" in source
     assert "qtmOpening + qtmTopup - qtmSpent" in source
     assert "loadPreviousClosedQtmBalance" in source
     assert "priorQtmBalance?.closing ?? storedQtmOpening" in source
@@ -180,6 +181,26 @@ def test_snapshot_fields_blockers_sequential_stop_and_rpc_only_mutation():
     assert ".from(\"ceo_daily_closing_declarations\").update" not in lower
     assert ".from('ceo_daily_closing_declarations').update" not in lower
     assert ".from(\"ceo_daily_closing_declarations\").upsert" not in lower
+
+
+def test_single_embedded_ceo_unc_slip_is_evidence_but_multiple_transfers_still_require_drive():
+    source = read(AUTO_CLOSE_FN)
+    compact_source = compact(source)
+
+    assert "function getSingleDeclaredUncEvidence" in source
+    assert "uncItems.length !== 1 || uncImages.length !== 1" in source
+    assert 'typeof image === "string" && image.trim().length > 0' in source
+    assert 'typeof declaration.unc_slip_image_base64 === "string"' in source
+    assert "declaration.unc_slip_image_base64.trim().length > 0" in source
+    assert "amount !== declaredUnc" in source
+    assert "const confidence = Number.isFinite(rawConfidence) ? rawConfidence : 0" in source
+    assert 'source: "ceo_declaration"' in source
+    assert 'fileId: `ceo-declaration-unc-${declaration.closing_date}`' in source
+    assert "const uncDriveRequired = !singleDeclaredUncEvidence" in source
+    assert "uncDriveRequired ? await scanEvidenceFolder(" in compact_source
+    assert "? { evidence: [singleDeclaredUncEvidence], blockers: [] }" in source
+    assert "uncDriveRequired ? uncScan.completed : true" in source
+    assert "uncDriveRequired &&" in source
 
 
 def test_extraction_internal_bypass_is_minimal_and_existing_user_auth_remains():

@@ -32,6 +32,7 @@ type Evidence = {
   confidence: number;
   reference: string | null;
   name: string;
+  source?: "drive" | "ceo_declaration";
 };
 
 type ScanResult = {
@@ -44,6 +45,7 @@ type Declaration = {
   closing_date: string;
   unc_total_declared?: number | string | null;
   unc_extracted_amount?: number | string | null;
+  unc_slip_image_base64?: string | null;
   cash_fund_topup_amount?: number | string | null;
   qtm_extracted_amount?: number | string | null;
   notes?: string | null;
@@ -80,6 +82,49 @@ const coalesceNumber = (...values: unknown[]): number => {
   }
   return 0;
 };
+
+function getSingleDeclaredUncEvidence(
+  declaration: Declaration,
+  declaredUnc: number,
+): Evidence | null {
+  // Single-transfer exception: one CEO-uploaded UNC slip is already the bank
+  // transaction evidence. Multiple transfers still require accountant Drive slips.
+  const meta = declaration.extraction_meta || {};
+  const uncItems = Array.isArray(meta.unc_items) ? meta.unc_items : [];
+  const metaImages = Array.isArray(meta.unc_images)
+    ? meta.unc_images.filter((image) =>
+      typeof image === "string" && image.trim().length > 0
+    )
+    : [];
+  const legacyUncImage = typeof declaration.unc_slip_image_base64 === "string" &&
+      declaration.unc_slip_image_base64.trim().length > 0
+    ? declaration.unc_slip_image_base64
+    : null;
+  const uncImages = metaImages.length > 0
+    ? metaImages
+    : (legacyUncImage
+      ? [legacyUncImage]
+      : []);
+
+  if (uncItems.length !== 1 || uncImages.length !== 1 || declaredUnc <= 0) {
+    return null;
+  }
+
+  const item = uncItems[0] as Record<string, unknown>;
+  const amount = coalesceNumber(item?.amount, 0);
+  if (amount !== declaredUnc) return null;
+  const rawConfidence = Number(item?.confidence);
+  const confidence = Number.isFinite(rawConfidence) ? rawConfidence : 0;
+
+  return {
+    fileId: `ceo-declaration-unc-${declaration.closing_date}`,
+    amount,
+    confidence,
+    reference: item?.reference ? String(item.reference) : null,
+    name: "CEO declaration UNC slip 1",
+    source: "ceo_declaration",
+  };
+}
 
 function vnToday(now = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -268,7 +313,7 @@ async function loadDeclaration(
   const { data, error } = await supabase
     .from("ceo_daily_closing_declarations")
     .select(
-      "closing_date,unc_total_declared,unc_extracted_amount,cash_fund_topup_amount,qtm_extracted_amount,notes,extraction_meta",
+      "closing_date,unc_total_declared,unc_extracted_amount,unc_slip_image_base64,cash_fund_topup_amount,qtm_extracted_amount,notes,extraction_meta",
     )
     .eq("closing_date", closingDate)
     .maybeSingle();
@@ -731,13 +776,23 @@ async function buildSnapshot(
 
   const uncPath = applyDatePathTemplate(UNC_PATH_TEMPLATE, closingDate);
   const qtmPath = applyDatePathTemplate(QTM_PATH_TEMPLATE, closingDate);
+  const declaredUnc = coalesceNumber(
+    declaration.unc_extracted_amount,
+    declaration.unc_total_declared,
+    0,
+  );
+  const singleDeclaredUncEvidence = getSingleDeclaredUncEvidence(
+    declaration,
+    declaredUnc,
+  );
+  const uncDriveRequired = !singleDeclaredUncEvidence;
 
-  const uncScan = await scanEvidenceFolder(
+  const uncScan = uncDriveRequired ? await scanEvidenceFolder(
     serviceRoleKey,
     rootFolderUrl,
     uncPath,
     "unc",
-  );
+  ) : { completed: true, files: [], blockers: [] };
   const qtmScan = await scanEvidenceFolder(
     serviceRoleKey,
     rootFolderUrl,
@@ -746,16 +801,18 @@ async function buildSnapshot(
   );
 
   const seenFileIds = new Set<string>();
-  const uncProcessed = await buildEvidence(
-    supabase,
-    serviceRoleKey,
-    cronSecret,
-    rootFolderUrl,
-    closingDate,
-    uncScan.files,
-    "unc",
-    seenFileIds,
-  );
+  const uncProcessed = singleDeclaredUncEvidence
+    ? { evidence: [singleDeclaredUncEvidence], blockers: [] }
+    : await buildEvidence(
+      supabase,
+      serviceRoleKey,
+      cronSecret,
+      rootFolderUrl,
+      closingDate,
+      uncScan.files,
+      "unc",
+      seenFileIds,
+    );
   const qtmProcessed = await buildEvidence(
     supabase,
     serviceRoleKey,
@@ -767,11 +824,6 @@ async function buildSnapshot(
     seenFileIds,
   );
 
-  const declaredUnc = coalesceNumber(
-    declaration.unc_extracted_amount,
-    declaration.unc_total_declared,
-    0,
-  );
   const qtmTopup = coalesceNumber(
     declaration.qtm_extracted_amount,
     declaration.cash_fund_topup_amount,
@@ -796,7 +848,8 @@ async function buildSnapshot(
 
   const blockers: Blocker[] = [
     ...uncScan.blockers.filter((blocker) =>
-      blocker.code !== "folder_not_found" || declaredUnc > 0
+      uncDriveRequired &&
+      (blocker.code !== "folder_not_found" || declaredUnc > 0)
     ),
     ...qtmScan.blockers.filter((blocker) =>
       blocker.code !== "folder_not_found" || expectedQtmSpent > 0
@@ -813,7 +866,8 @@ async function buildSnapshot(
     qtmOpeningSourceDate,
     qtmSpent,
     qtmClosing,
-    driveConnectivity: uncScan.completed && qtmScan.completed,
+    driveConnectivity: (uncDriveRequired ? uncScan.completed : true) &&
+      qtmScan.completed,
     uncEvidence: uncProcessed.evidence,
     qtmEvidence: qtmProcessed.evidence,
     blockers,
