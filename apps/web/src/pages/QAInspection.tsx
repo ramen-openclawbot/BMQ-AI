@@ -199,6 +199,21 @@ const orderMatchesDate = (order: ProductionOrder, selectedDate: string) => {
 
 const getErrorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error || ""));
 
+const API_CREDIT_ERROR_MESSAGE = "Hết API credit. Vui lòng liên hệ bộ phận quản trị.";
+
+const getLabelScanErrorMessage = (error: unknown) => {
+  const message = getErrorMessage(error);
+  const normalized = message.toLowerCase();
+  if (
+    message.includes("Edge Function returned a non-2xx status code") ||
+    normalized.includes("insufficient_quota") ||
+    normalized.includes("api credit")
+  ) {
+    return API_CREDIT_ERROR_MESSAGE;
+  }
+  return message;
+};
+
 const slugPart = (value: string) =>
   value
     .normalize("NFD")
@@ -481,7 +496,7 @@ export default function QAInspection() {
     } catch (error) {
       setLabelChecks((current) => ({
         ...current,
-        [itemKey]: { status: "failed", reason: getErrorMessage(error), image_url: null, extracted: null },
+        [itemKey]: { status: "failed", reason: getLabelScanErrorMessage(error), image_url: null, extracted: null },
       }));
     } finally {
       setScanningLabel(false);
