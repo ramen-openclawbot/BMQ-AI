@@ -45,6 +45,13 @@ class DealerAgentExperienceTests(unittest.TestCase):
         self.assertIn("Đang trực tuyến", self.source)
         self.assertIn("Nhắn BMQ Agent…", self.source)
 
+    def test_authenticated_secondary_screens_have_zalo_style_back_action(self) -> None:
+        portal_header = self.source.split('data-dealer-secondary-header="true"', 1)[1].split("</header>", 1)[0]
+        self.assertIn('data-dealer-agent-back="secondary-screen"', portal_header)
+        self.assertIn('aria-label="Quay lại danh sách tin nhắn"', portal_header)
+        self.assertIn('onClick={() => setActiveNav("messages")}', portal_header)
+        self.assertLess(portal_header.index("data-dealer-agent-back"), portal_header.index('alt="BMQ"'))
+
     def test_logout_resets_next_login_to_agent_inbox(self) -> None:
         logout_body = self.source.split("const handleLogoutDealer = () => {", 1)[1].split("\n  };", 1)[0]
         self.assertIn('setActiveNav("messages")', logout_body)

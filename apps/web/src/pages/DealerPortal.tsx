@@ -1140,9 +1140,18 @@ export default function DealerPortal() {
 
   return (
     <div className="min-h-screen overflow-x-clip bg-background text-foreground">
-      <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur" data-dealer-secondary-header="true">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              data-dealer-agent-back="secondary-screen"
+              aria-label="Quay lại danh sách tin nhắn"
+              className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[#5a4650] transition hover:bg-[#fff0f6] active:bg-[#fce2ed]"
+              onClick={() => setActiveNav("messages")}
+            >
+              <ArrowLeft className="h-6 w-6" />
+            </button>
             <img src={bmqLogo} alt="BMQ" className="h-9 w-auto shrink-0" />
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold leading-tight">Bánh Mì Que</div>
