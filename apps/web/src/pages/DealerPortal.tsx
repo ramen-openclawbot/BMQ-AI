@@ -625,6 +625,20 @@ export default function DealerPortal() {
     void confirmSubmitNppOrder();
   };
 
+  const handleStartNewNppOrder = () => {
+    setNppConfirmOpen(false);
+    setNppQuantities({});
+    setNppExchangeQuantities({});
+    setNppMakeupQuantities({});
+    setNppNotes({});
+    setNppOrderText("");
+    setNppLastSentOrderText("");
+    setNppParseMessage("");
+    setNppParseStatus("idle");
+    setOrderMessage("");
+    setOrderError("");
+  };
+
 
   const handleParseNppOrderText = () => {
     const submittedText = nppOrderText.trim();
@@ -632,6 +646,19 @@ export default function DealerPortal() {
 
     setNppLastSentOrderText(submittedText);
     setNppOrderText("");
+    if (isDealerChatConfirmationIntent(submittedText)) {
+      const hasReadyOrder = nppSelectedLines.length > 0;
+      setOrderMessage("");
+      setOrderError("");
+      setNppParseStatus(hasReadyOrder ? "success" : "idle");
+      setNppParseMessage(
+        hasReadyOrder
+          ? "Đơn đã sẵn sàng. Anh kiểm tra lần cuối trước khi gửi nhé."
+          : "Anh chưa có đơn để xác nhận. Hãy nhập đơn mới hoặc chọn Xem mẫu.",
+      );
+      if (hasReadyOrder) setNppConfirmOpen(true);
+      return;
+    }
     setNppParseStatus("processing");
     setNppParseMessage("");
     setOrderMessage("");
@@ -671,10 +698,16 @@ export default function DealerPortal() {
       setNppMakeupQuantities(nextMakeupQuantities);
       setNppNotes(nextNotes);
       setOrderError("");
+      const matchedLineCount = parsedLines.length - unmatched.length;
+      if (matchedLineCount === 0) {
+        setNppParseStatus("idle");
+        setNppParseMessage(`Em chưa nhận diện được điểm bán: ${unmatched.slice(0, 3).join(", ")}. Anh chọn Xem mẫu hoặc nhập lại đơn nhé.`);
+        return;
+      }
       setNppParseStatus("success");
       setNppParseMessage(
         unmatched.length
-          ? `Em đã chuẩn bị ${parsedLines.length - unmatched.length} dòng để xác nhận. Chưa khớp: ${unmatched.slice(0, 3).join(", ")}.`
+          ? `Em đã chuẩn bị ${matchedLineCount} dòng để xác nhận. Chưa khớp: ${unmatched.slice(0, 3).join(", ")}.`
           : "Em đã chuẩn bị bản xác nhận đơn. Anh kiểm tra giúp em nhé.",
       );
     }, 650);
@@ -1092,6 +1125,7 @@ export default function DealerPortal() {
             canSubmit={Boolean(sessionToken) && catalogStatus === "live" && nppSelectedLines.length > 0}
             submitting={orderSubmitting}
             onSubmit={handleSubmitNppOrder}
+            onStartNewOrder={handleStartNewNppOrder}
           />
         </main>
         <Dialog open={dealerProfileOpen} onOpenChange={setDealerProfileOpen}>
@@ -1521,6 +1555,7 @@ export default function DealerPortal() {
                 canSubmit={Boolean(sessionToken) && catalogStatus === "live" && nppSelectedLines.length > 0}
                 submitting={orderSubmitting}
                 onSubmit={handleSubmitNppOrder}
+                onStartNewOrder={handleStartNewNppOrder}
               />
             ) : null}
 
@@ -1986,6 +2021,7 @@ function NppQuickOrderPanel({
   canSubmit,
   submitting,
   onSubmit,
+  onStartNewOrder,
 }: {
   routes: DealerRoute[];
   product: Product | null;
@@ -2014,6 +2050,7 @@ function NppQuickOrderPanel({
   canSubmit: boolean;
   submitting: boolean;
   onSubmit: () => void;
+  onStartNewOrder: () => void;
 }) {
   const unitLabel = product?.unit || "que";
   const selectedRoutes = routes.filter((route) => {
@@ -2025,6 +2062,7 @@ function NppQuickOrderPanel({
   const selectedRouteCount = selectedRoutes.length;
   const [isEditingOrder, setIsEditingOrder] = useState(false);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (!sentOrderText && !successMessage && !errorMessage) return;
@@ -2037,6 +2075,20 @@ function NppQuickOrderPanel({
   const openOrderConfirmation = () => {
     setIsEditingOrder(false);
     setDetailOpen(true);
+  };
+
+  const openOrderEditor = () => {
+    setIsEditingOrder(true);
+    setDetailOpen(true);
+  };
+
+  const focusComposer = () => {
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  };
+
+  const showOrderExample = () => {
+    setOrderText("Rạch Giá 200 đổi 10\nĐVC 100 bù 3");
+    focusComposer();
   };
 
   const handleDetailOpenChange = (open: boolean) => {
@@ -2100,66 +2152,79 @@ function NppQuickOrderPanel({
         </div>
       ) : null}
 
+      {parseMessage && parseStatus === "idle" && selectedRouteCount === 0 ? (
+        <div className="ml-11 grid max-w-sm grid-cols-2 gap-2 pb-2" data-dealer-chat-choices="parse-recovery" role="group" aria-label="Chọn cách tiếp tục">
+          <Button type="button" variant="outline" className="h-10 rounded-full border-[#e7b9cd] bg-white text-sm font-bold text-[#a73f70] hover:bg-[#fff0f6]" onClick={focusComposer}>
+            Nhập lại đơn
+          </Button>
+          <Button type="button" variant="outline" className="h-10 rounded-full border-[#e7b9cd] bg-white text-sm font-bold text-[#a73f70] hover:bg-[#fff0f6]" onClick={showOrderExample}>
+            Xem mẫu
+          </Button>
+        </div>
+      ) : null}
+
       {parseStatus === "success" && selectedRouteCount > 0 ? (
-        <div className="flex min-w-0 items-start gap-2 py-2">
-          <div className="w-9 shrink-0" aria-hidden="true" />
-          <button
-            type="button"
-            className="w-full max-w-sm overflow-hidden rounded-[24px] border border-[#ebc7d7] bg-white text-left shadow-[0_14px_35px_rgba(105,49,73,0.13)] transition hover:-translate-y-0.5 hover:border-[#d94f8a] hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d94f8a]"
-            data-dealer-order-preview-card="chat-attachment"
-            onClick={openOrderConfirmation}
-          >
-            <div className="bg-[linear-gradient(135deg,#d94f8a,#b83770)] px-4 py-4 text-white">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/75">BMQ Agent</div>
-                  <div className="mt-1 text-lg font-extrabold">Bản xác nhận đơn hàng</div>
-                </div>
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/25">
+        <div className="space-y-2 py-2">
+          <div className="flex min-w-0 items-start gap-2">
+            <div className="w-9 shrink-0" aria-hidden="true" />
+            <button
+              type="button"
+              className="w-full max-w-sm rounded-[22px] border border-[#ebc7d7] bg-white p-3 text-left shadow-[0_10px_26px_rgba(105,49,73,0.11)] transition hover:border-[#d94f8a] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d94f8a]"
+              data-dealer-order-preview-card="chat-attachment"
+              onClick={openOrderConfirmation}
+            >
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#fff0f6] text-[#c43f79]">
                   <ClipboardList className="h-5 w-5" />
                 </div>
+                <div className="min-w-0 flex-1">
+                  <div className="font-extrabold text-[#4a343e]">Xác nhận đơn hàng</div>
+                  <div className="mt-0.5 text-xs font-medium text-[#927681]">{selectedRouteCount} điểm giao • {totalItems} {unitLabel}</div>
+                </div>
+                <div className="shrink-0 text-sm font-extrabold text-[#b33f72]">{formatVnd(cartTotal)}</div>
               </div>
-            </div>
-            <div className="space-y-3 p-4">
-              <div className="space-y-2">
-                {selectedRoutes.slice(0, 3).map((route) => {
+              <div className="mt-3 flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-[#704f5e]">
+                {selectedRoutes.slice(0, 2).map((route) => {
                   const physical = (quantities[route.id] || 0) + (exchangeQuantities[route.id] || 0) + (makeupQuantities[route.id] || 0);
-                  return (
-                    <div key={route.id} className="flex items-center justify-between gap-3 text-sm">
-                      <span className="min-w-0 truncate font-semibold text-[#4a343e]">{route.name}</span>
-                      <span className="shrink-0 font-extrabold text-[#b33f72]">{physical} {unitLabel}</span>
-                    </div>
-                  );
+                  return <span key={route.id} className="max-w-[46%] truncate rounded-full bg-[#fff5f9] px-2 py-1 font-semibold">{route.name} · {physical}</span>;
                 })}
-                {selectedRouteCount > 3 ? <div className="text-xs font-medium text-[#927681]">+ {selectedRouteCount - 3} điểm giao khác</div> : null}
+                {selectedRouteCount > 2 ? <span className="shrink-0 font-bold text-[#a73f70]">+{selectedRouteCount - 2}</span> : null}
               </div>
-              <div className="grid grid-cols-2 gap-2 border-t border-[#f2dfe7] pt-3">
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wide text-[#a18491]">Tổng giao</div>
-                  <div className="mt-1 text-base font-extrabold text-[#4a343e]">{totalItems} {unitLabel}</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-[10px] font-bold uppercase tracking-wide text-[#a18491]">Tạm tính</div>
-                  <div className="mt-1 text-base font-extrabold text-[#b33f72]">{formatVnd(cartTotal)}</div>
-                </div>
-              </div>
-              <div className="flex items-center justify-between rounded-2xl bg-[#fff0f6] px-3 py-2 text-xs font-bold text-[#a73f70]">
+              <div className="mt-3 flex items-center justify-between border-t border-[#f2dfe7] pt-2 text-xs font-bold text-[#a73f70]">
                 <span>Chạm để xem chi tiết</span>
                 <ChevronRight className="h-4 w-4" />
               </div>
-            </div>
-          </button>
+            </button>
+          </div>
+          <div className="ml-11 grid max-w-sm grid-cols-2 gap-2" data-dealer-chat-choices="order-ready" role="group" aria-label="Chọn thao tác với đơn hàng">
+            <Button type="button" className="col-span-2 h-11 rounded-full bg-[#d94f8a] font-extrabold text-white hover:bg-[#c43f79]" data-dealer-chat-choice="confirm" onClick={openOrderConfirmation}>
+              <CheckCircle2 className="h-4 w-4" /> Xác nhận gửi
+            </Button>
+            <Button type="button" variant="outline" className="h-10 rounded-full border-[#e7b9cd] bg-white font-bold text-[#a73f70] hover:bg-[#fff0f6]" data-dealer-chat-choice="edit" onClick={openOrderEditor}>
+              Chỉnh sửa
+            </Button>
+            <Button type="button" variant="outline" className="h-10 rounded-full border-[#e7b9cd] bg-white font-bold text-[#704f5e] hover:bg-[#fff0f6]" data-dealer-chat-choice="new-order" onClick={onStartNewOrder}>
+              Đặt đơn khác
+            </Button>
+          </div>
         </div>
       ) : null}
 
       {successMessage ? (
-        <div className="flex min-w-0 items-start gap-2 py-2" data-dealer-chat-message="success" aria-live="polite">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0ccdc] bg-white shadow-sm">
-            <img src={bmqLogo} alt="BMQ Agent" className="h-8 w-8 object-contain" />
+        <div className="space-y-2 py-2">
+          <div className="flex min-w-0 items-start gap-2" data-dealer-chat-message="success" aria-live="polite">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0ccdc] bg-white shadow-sm">
+              <img src={bmqLogo} alt="BMQ Agent" className="h-8 w-8 object-contain" />
+            </div>
+            <div className="max-w-[85%] rounded-2xl rounded-tl-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-800 shadow-sm">
+              <div className="flex items-center gap-2 font-extrabold"><CheckCircle2 className="h-4 w-4" />Đã nhận đơn thành công</div>
+              <div className="mt-1">{successMessage}</div>
+            </div>
           </div>
-          <div className="max-w-[85%] rounded-2xl rounded-tl-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-800 shadow-sm">
-            <div className="flex items-center gap-2 font-extrabold"><CheckCircle2 className="h-4 w-4" />Đã nhận đơn thành công</div>
-            <div className="mt-1">{successMessage}</div>
+          <div className="ml-11" data-dealer-chat-choices="order-complete">
+            <Button type="button" variant="outline" className="h-10 rounded-full border-[#e7b9cd] bg-white font-bold text-[#a73f70] hover:bg-[#fff0f6]" onClick={onStartNewOrder}>
+              Đặt đơn khác
+            </Button>
           </div>
         </div>
       ) : null}
@@ -2211,6 +2276,7 @@ function NppQuickOrderPanel({
 
       <div className="sticky bottom-[max(12px,env(safe-area-inset-bottom))] z-20 mt-auto flex min-w-0 w-full max-w-full items-end gap-2 overflow-hidden rounded-[26px] border border-[#edccda] bg-white p-2 shadow-[0_12px_35px_rgba(105,49,73,0.12)] focus-within:ring-2 focus-within:ring-[#e8a6c3]">
         <Textarea
+          ref={composerRef}
           value={orderText}
           onChange={(event) => setOrderText(event.target.value)}
           placeholder="Nhắn BMQ Agent…"
@@ -2434,6 +2500,21 @@ const normalizeDealerChatText = (value: string) =>
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+const DEALER_CHAT_CONFIRMATION_INTENTS = new Set([
+  "ok",
+  "okay",
+  "oke",
+  "oki",
+  "dong y",
+  "xac nhan",
+  "gui",
+  "gui don",
+  "chot don",
+]);
+
+const isDealerChatConfirmationIntent = (value: string) =>
+  DEALER_CHAT_CONFIRMATION_INTENTS.has(normalizeDealerChatText(value));
 
 const splitDealerChatOrderLines = (text: string) =>
   String(text || "")

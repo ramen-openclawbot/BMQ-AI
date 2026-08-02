@@ -69,11 +69,53 @@ class DealerAgentExperienceTests(unittest.TestCase):
     def test_agent_returns_clickable_order_preview_inside_chat(self) -> None:
         panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]
         self.assertIn('data-dealer-order-preview-card="chat-attachment"', panel)
-        self.assertIn("Bản xác nhận đơn hàng", panel)
+        self.assertIn("Xác nhận đơn hàng", panel)
         self.assertIn("Chạm để xem chi tiết", panel)
         self.assertIn("onClick={openOrderConfirmation}", panel)
         self.assertNotIn('data-stitch-dealer-order-bottom-bar="mobile"', panel)
         self.assertNotIn('data-stitch-dealer-order-bottom-bar="desktop"', panel)
+
+    def test_confirmation_intent_bypasses_order_parser_and_opens_review(self) -> None:
+        self.assertIn("DEALER_CHAT_CONFIRMATION_INTENTS", self.source)
+        self.assertIn('"ok"', self.source)
+        self.assertIn('"dong y"', self.source)
+        parse_body = self.source.split("const handleParseNppOrderText = () => {", 1)[1].split("\n  };", 1)[0]
+        intent_index = parse_body.index("isDealerChatConfirmationIntent(submittedText)")
+        processing_index = parse_body.index('setNppParseStatus("processing")')
+        self.assertLess(intent_index, processing_index)
+        self.assertIn("setNppConfirmOpen(true)", parse_body)
+        self.assertIn("return", parse_body[intent_index:processing_index])
+
+    def test_ready_order_uses_explicit_multiple_choice_actions(self) -> None:
+        panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]
+        self.assertIn('data-dealer-chat-choices="order-ready"', panel)
+        self.assertIn('data-dealer-chat-choice="confirm"', panel)
+        self.assertIn('data-dealer-chat-choice="edit"', panel)
+        self.assertIn('data-dealer-chat-choice="new-order"', panel)
+        self.assertIn("Xác nhận gửi", panel)
+        self.assertIn("Chỉnh sửa", panel)
+        self.assertIn("Đặt đơn khác", panel)
+
+    def test_parser_failure_offers_recovery_choices(self) -> None:
+        panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]
+        self.assertIn('data-dealer-chat-choices="parse-recovery"', panel)
+        self.assertIn("Nhập lại đơn", panel)
+        self.assertIn("Xem mẫu", panel)
+
+    def test_all_unmatched_parsed_lines_return_to_recovery_state(self) -> None:
+        parse_body = self.source.split("const handleParseNppOrderText = () => {", 1)[1].split("\n  };", 1)[0]
+        self.assertIn("const matchedLineCount = parsedLines.length - unmatched.length", parse_body)
+        unmatched_branch = parse_body.split("if (matchedLineCount === 0)", 1)[1].split('setNppParseStatus("success")', 1)[0]
+        self.assertIn('setNppParseStatus("idle")', unmatched_branch)
+        self.assertIn("return", unmatched_branch)
+
+    def test_order_preview_is_compact_and_has_no_gradient_header(self) -> None:
+        panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]
+        preview = panel.split('data-dealer-order-preview-card="chat-attachment"', 1)[1].split("</button>", 1)[0]
+        self.assertIn("{selectedRouteCount} điểm giao", preview)
+        self.assertIn("{totalItems} {unitLabel}", preview)
+        self.assertIn("{formatVnd(cartTotal)}", preview)
+        self.assertNotIn("linear-gradient", preview)
 
     def test_npp_submit_uses_chat_success_bubble_not_success_dialog(self) -> None:
         submit_body = self.source.split("const confirmSubmitNppOrder = async () => {", 1)[1].split("\n  };", 1)[0]
@@ -88,7 +130,7 @@ class DealerAgentExperienceTests(unittest.TestCase):
     def test_order_submit_ctas_open_final_confirmation_before_sending(self) -> None:
         panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]
         self.assertIn("const openOrderConfirmation", panel)
-        self.assertEqual(panel.count("onClick={openOrderConfirmation}"), 1)
+        self.assertEqual(panel.count("onClick={openOrderConfirmation}"), 2)
         self.assertEqual(panel.count("onClick={onSubmit}"), 1)
         pre_confirmation = panel.split('<Dialog open={detailOpen}', 1)[0]
         confirmation = panel.split('<Dialog open={detailOpen}', 1)[1]
