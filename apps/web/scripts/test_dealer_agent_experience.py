@@ -34,9 +34,27 @@ class DealerAgentExperienceTests(unittest.TestCase):
     def test_login_uses_phone_otp_agent_entry(self) -> None:
         self.assertIn('data-dealer-agent-screen="login"', self.source)
         self.assertIn("Đặt món cùng BMQ Agent", self.source)
-        self.assertIn("Nhập số điện thoại của anh", self.source)
+        self.assertIn("BMQ chuẩn bị đơn hàng cho Quý Khách Hàng ngay", self.source)
+        self.assertIn("Nhập số điện thoại của Quý Khách Hàng", self.source)
         self.assertIn("Gửi mã OTP Zalo", self.source)
-        self.assertIn("Thông tin của anh được BMQ bảo mật", self.source)
+        self.assertIn("Thông tin của Quý Khách Hàng được BMQ bảo mật", self.source)
+
+    def test_customer_facing_copy_is_gender_neutral(self) -> None:
+        for outdated_copy in (
+            "Anh/chị bấm tải lại",
+            "Đã xác thực đại lý. Anh có thể",
+            "Cảm ơn anh đã đặt hàng",
+            "Anh kiểm tra",
+            "Anh chưa có đơn",
+            "Anh có thể nhắn",
+            "Anh chỉ cần nhắn",
+            "Anh chọn Xem mẫu",
+            "cho anh ngay",
+            "của anh",
+            "Anh nhập số lượng",
+            "Chào anh",
+        ):
+            self.assertNotIn(outdated_copy, self.source)
 
     def test_chat_has_dedicated_agent_header_and_back_action(self) -> None:
         self.assertIn('data-dealer-agent-screen="chat"', self.source)
@@ -156,7 +174,7 @@ class DealerAgentExperienceTests(unittest.TestCase):
         self.assertIn("setDirectCatalogOrder(false)", parse_body)
         self.assertIn("parseDealerChatOrderText(submittedText, dealerRoutes)", parse_body)
         self.assertIn("parseRetailDealerChatOrderText(submittedText, retailDealerRoute)", parse_body)
-        self.assertIn("Anh chỉ cần nhắn số lượng", parse_body)
+        self.assertIn("Quý Khách Hàng chỉ cần nhắn số lượng", parse_body)
 
     def test_retail_direct_submit_records_exchange_makeup_without_child_route_id(self) -> None:
         submit_body = self.source.split("const confirmSubmitNppOrder = async () => {", 1)[1].split("\n  };", 1)[0]

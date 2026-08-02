@@ -279,7 +279,7 @@ function CatalogEmptyState({
         <div className="space-y-3">
           <div className="font-semibold text-[#3f2411]">Không tải được sản phẩm.</div>
           <div className="text-xs leading-5 text-[#8a6a4a]">
-            {error || "Anh/chị bấm tải lại. Nếu vẫn lỗi, vui lòng đăng xuất rồi đăng nhập OTP lại để làm mới phiên đại lý."}
+            {error || "Quý Khách Hàng bấm tải lại. Nếu vẫn lỗi, vui lòng đăng xuất rồi đăng nhập OTP lại để làm mới phiên đại lý."}
           </div>
           <Button type="button" size="sm" variant="outline" className="rounded-xl border-amber-300 bg-amber-50 text-[#765333]" onClick={onRetry}>
             Tải lại sản phẩm
@@ -514,7 +514,7 @@ export default function DealerPortal() {
       setLoginStep("catalog");
       setActiveNav("messages");
       setOtp("");
-      setAuthMessage("Đã xác thực đại lý. Anh có thể gửi đơn thật.");
+      setAuthMessage("Đã xác thực đại lý. Quý Khách Hàng có thể gửi đơn thật.");
     } catch (error) {
       setAuthError(await getFunctionErrorMessage(error, "Không xác thực được OTP."));
     } finally {
@@ -578,7 +578,7 @@ export default function DealerPortal() {
       setNppConfirmOpen(false);
       setOrderMessage(
         options.chatNative
-          ? `${nextOrderNumber ? `Mã đơn ${nextOrderNumber}. ` : ""}Cảm ơn anh đã đặt hàng cùng BMQ.`
+          ? `${nextOrderNumber ? `Mã đơn ${nextOrderNumber}. ` : ""}Cảm ơn Quý Khách Hàng đã đặt hàng cùng BMQ.`
           : `Đã gửi đơn ${nextOrderNumber}. Xin cảm ơn quý khách đã chọn lựa Bánh Mì Que Pháp BMQ.`,
       );
       setQuantities({});
@@ -658,8 +658,8 @@ export default function DealerPortal() {
       setNppParseStatus(hasReadyOrder ? "success" : "idle");
       setNppParseMessage(
         hasReadyOrder
-          ? "Đơn đã sẵn sàng. Anh kiểm tra lần cuối trước khi gửi nhé."
-          : "Anh chưa có đơn để xác nhận. Hãy nhập đơn mới hoặc chọn Xem mẫu.",
+          ? "Đơn đã sẵn sàng. Quý Khách Hàng kiểm tra lần cuối trước khi gửi nhé."
+          : "Quý Khách Hàng chưa có đơn để xác nhận. Hãy nhập đơn mới hoặc chọn Xem mẫu.",
       );
       if (hasReadyOrder) setNppConfirmOpen(true);
       return;
@@ -682,8 +682,8 @@ export default function DealerPortal() {
         setNppParseStatus("idle");
         setNppParseMessage(
           isNppMode
-            ? "Em chưa nhận diện được điểm bán. Anh có thể nhắn theo mẫu: Rạch Giá 200 đổi 10, ĐVC 100 bù 3."
-            : "Em chưa nhận diện được số lượng. Anh chỉ cần nhắn số lượng, đổi hoặc bù, ví dụ: 200 đổi 14 bù 5.",
+            ? "Em chưa nhận diện được điểm bán. Quý Khách Hàng có thể nhắn theo mẫu: Rạch Giá 200 đổi 10, ĐVC 100 bù 3."
+            : "Em chưa nhận diện được số lượng. Quý Khách Hàng chỉ cần nhắn số lượng, đổi hoặc bù, ví dụ: 200 đổi 14 bù 5.",
         );
         return;
       }
@@ -713,14 +713,14 @@ export default function DealerPortal() {
       const matchedLineCount = parsedLines.length - unmatched.length;
       if (matchedLineCount === 0) {
         setNppParseStatus("idle");
-        setNppParseMessage(`Em chưa nhận diện được điểm bán: ${unmatched.slice(0, 3).join(", ")}. Anh chọn Xem mẫu hoặc nhập lại đơn nhé.`);
+        setNppParseMessage(`Em chưa nhận diện được điểm bán: ${unmatched.slice(0, 3).join(", ")}. Quý Khách Hàng chọn Xem mẫu hoặc nhập lại đơn nhé.`);
         return;
       }
       setNppParseStatus("success");
       setNppParseMessage(
         unmatched.length
           ? `Em đã chuẩn bị ${matchedLineCount} dòng để xác nhận. Chưa khớp: ${unmatched.slice(0, 3).join(", ")}.`
-          : "Em đã chuẩn bị bản xác nhận đơn. Anh kiểm tra giúp em nhé.",
+          : "Em đã chuẩn bị bản xác nhận đơn. Quý Khách Hàng kiểm tra giúp em nhé.",
       );
     }, 650);
   };
@@ -882,7 +882,7 @@ export default function DealerPortal() {
       setNppQuantities({ [retailDealerRoute.id]: nextQuantity });
       setNppLastSentOrderText(`${selectedProduct.name} ${nextQuantity}`);
       setNppParseStatus("success");
-      setNppParseMessage("Em đã chuẩn bị bản xác nhận đơn. Anh kiểm tra giúp em nhé.");
+      setNppParseMessage("Em đã chuẩn bị bản xác nhận đơn. Quý Khách Hàng kiểm tra giúp em nhé.");
       setSelectedProduct(null);
       setDraftQuantity("");
       setQuantityModalError("");
@@ -913,7 +913,7 @@ export default function DealerPortal() {
               <img src={bmqLogo} alt="BMQ" className="mx-auto h-16 w-auto object-contain" />
               <h1 className="mt-6 text-3xl font-extrabold tracking-tight">Đặt món cùng BMQ Agent</h1>
               <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-[#78636d]">
-                Nhắn một câu, BMQ chuẩn bị đơn hàng cho anh ngay.
+                Nhắn một câu, BMQ chuẩn bị đơn hàng cho Quý Khách Hàng ngay.
               </p>
             </div>
 
@@ -951,7 +951,7 @@ export default function DealerPortal() {
                         id="dealer-phone-agent"
                         inputMode="tel"
                         autoComplete="tel"
-                        placeholder="Nhập số điện thoại của anh"
+                        placeholder="Nhập số điện thoại của Quý Khách Hàng"
                         value={phone}
                         onChange={(event) => setPhone(event.target.value)}
                         onKeyDown={(event) => {
@@ -1002,7 +1002,7 @@ export default function DealerPortal() {
 
             <div className="mt-5 flex items-center justify-center gap-2 text-xs font-medium text-[#8d7180]">
               <ShieldCheck className="h-4 w-4 text-[#d94f8a]" />
-              Thông tin của anh được BMQ bảo mật
+              Thông tin của Quý Khách Hàng được BMQ bảo mật
             </div>
           </div>
           <footer data-dealer-login-footer className="pt-8 text-center text-[11px] font-medium text-[#9a7e8b]">
@@ -1986,7 +1986,7 @@ export default function DealerPortal() {
                   <DialogTitle className="text-xl font-display font-extrabold leading-tight">{selectedProduct.name}</DialogTitle>
                   <DialogDescription className="text-sm leading-6 text-[#765333]">
                     {formatVnd(selectedProduct.price)} / {selectedProduct.unit}
-                    {isNppMode ? ". Anh nhập số lượng theo từng điểm bán trong ô chat sau khi xem thông tin sản phẩm." : `. Đặt theo bội số ${DEALER_ORDER_STEP} ${selectedProduct.unit || "đơn vị"}.`}
+                    {isNppMode ? ". Quý Khách Hàng nhập số lượng theo từng điểm bán trong ô chat sau khi xem thông tin sản phẩm." : `. Đặt theo bội số ${DEALER_ORDER_STEP} ${selectedProduct.unit || "đơn vị"}.`}
                   </DialogDescription>
                 </DialogHeader>
                 <div className="grid grid-cols-3 gap-2" data-dealer-product-specs="weight-shelf-life">
@@ -2277,8 +2277,8 @@ function NppQuickOrderPanel({
           </div>
           <div className="min-w-0 flex-1 whitespace-normal break-words max-w-[85%] rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm leading-6 text-[#543943] shadow-sm ring-1 ring-[#f4e5eb]">
             {isRetailDealer
-              ? "Chào anh 👋 Đại lý đã được xác nhận. Anh chỉ cần nhắn số lượng, đổi hoặc bù; không cần nhập lại tên đại lý."
-              : "Chào anh 👋 Hôm nay mình đặt món gì ạ? Anh nhắn nội dung đơn, em sẽ tách từng điểm giao để anh kiểm tra trước khi gửi."}
+              ? "Chào Quý Khách Hàng 👋 Đại lý đã được xác nhận. Quý Khách Hàng chỉ cần nhắn số lượng, đổi hoặc bù; không cần nhập lại tên đại lý."
+              : "Chào Quý Khách Hàng 👋 Hôm nay mình đặt món gì ạ? Quý Khách Hàng nhắn nội dung đơn, em sẽ tách từng điểm giao để Quý Khách Hàng kiểm tra trước khi gửi."}
           </div>
         </div>
       ) : null}
@@ -2494,8 +2494,8 @@ function NppQuickOrderPanel({
             {!isEditingOrder ? (
               <div className="rounded-2xl border border-[#efcfdd] bg-white px-4 py-3 text-sm font-medium leading-6 text-[#704f5e]">
                 {isRetailDealer
-                  ? "Anh kiểm tra lại số lượng của đại lý trước khi xác nhận gửi đơn."
-                  : "Anh kiểm tra lại số lượng và điểm giao trước khi xác nhận gửi đơn."}
+                  ? "Quý Khách Hàng kiểm tra lại số lượng của đại lý trước khi xác nhận gửi đơn."
+                  : "Quý Khách Hàng kiểm tra lại số lượng và điểm giao trước khi xác nhận gửi đơn."}
               </div>
             ) : null}
             {routes.map((route) => {
