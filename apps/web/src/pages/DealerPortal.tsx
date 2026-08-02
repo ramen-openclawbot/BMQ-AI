@@ -1993,6 +1993,18 @@ function NppQuickOrderPanel({
     return ordered + exchange + makeup > 0;
   });
   const selectedRouteCount = selectedRoutes.length;
+  const [isEditingOrder, setIsEditingOrder] = useState(false);
+
+  const openOrderConfirmation = () => {
+    setIsEditingOrder(false);
+    setDetailOpen(true);
+  };
+
+  const handleDetailOpenChange = (open: boolean) => {
+    setDetailOpen(open);
+    if (!open) setIsEditingOrder(false);
+  };
+
   if (!product) {
     return (
       <div className="rounded-3xl border border-dashed border-amber-200 bg-white p-5 text-sm text-[#765333]">
@@ -2079,34 +2091,32 @@ function NppQuickOrderPanel({
 
       {selectedRouteCount > 0 ? (
         <>
-          <div className="fixed inset-x-0 bottom-0 z-30 border-t border-amber-200 bg-white/95 px-4 pb-3 pt-3 shadow-[0_-10px_30px_rgba(63,36,17,0.16)] backdrop-blur lg:hidden" data-stitch-dealer-order-bottom-bar="mobile">
+          <div className="fixed inset-x-0 bottom-0 z-30 border-t border-[#f0d7e2] bg-white/95 px-4 pb-3 pt-3 shadow-[0_-10px_30px_rgba(105,49,73,0.14)] backdrop-blur lg:hidden" data-stitch-dealer-order-bottom-bar="mobile">
             <div className="mx-auto flex max-w-6xl items-center gap-3">
-              <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setDetailOpen(true)}>
-                <div className="text-sm font-extrabold text-[#3f2411]">{selectedRouteCount} dòng • giao {totalItems} {unitLabel}</div>
-                <div className="truncate text-xs font-medium text-[#765333]">Tạm tính {formatVnd(cartTotal)} • Bấm để xem chi tiết</div>
+              <button type="button" className="min-w-0 flex-1 text-left" onClick={openOrderConfirmation}>
+                <div className="text-sm font-extrabold text-[#4a343e]">{selectedRouteCount} dòng • giao {totalItems} {unitLabel}</div>
+                <div className="truncate text-xs font-medium text-[#927681]">Tạm tính {formatVnd(cartTotal)} • Kiểm tra trước khi gửi</div>
               </button>
-              <Button type="button" className="h-12 shrink-0 rounded-2xl bg-amber-500 px-4 font-bold text-[#2b1708] hover:bg-amber-400" disabled={!canSubmit || submitting} onClick={onSubmit}>
-                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                Gửi đơn
+              <Button type="button" className="h-12 shrink-0 rounded-2xl bg-[#d94f8a] px-4 font-bold text-white hover:bg-[#c43f79]" disabled={!canSubmit || submitting} onClick={openOrderConfirmation}>
+                Xem & xác nhận
               </Button>
             </div>
           </div>
 
-          <div className="hidden rounded-3xl border border-amber-100 bg-white p-4 shadow-sm lg:block" data-stitch-dealer-order-bottom-bar="desktop">
+          <div className="hidden rounded-3xl border border-[#f0d7e2] bg-white p-4 shadow-sm lg:block" data-stitch-dealer-order-bottom-bar="desktop">
             <div className="flex items-center justify-between gap-3">
-              <button type="button" className="min-w-0 text-left" onClick={() => setDetailOpen(true)}>
-                <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Đơn đã nhận</div>
-                <h3 className="mt-1 text-xl font-display font-extrabold text-[#3f2411]">{selectedRouteCount} dòng • giao {totalItems} {unitLabel}</h3>
-                <div className="text-sm font-medium text-[#765333]">Bấm để xem và chỉnh chi tiết</div>
+              <button type="button" className="min-w-0 text-left" onClick={openOrderConfirmation}>
+                <div className="text-xs font-semibold uppercase tracking-wide text-[#c34f82]">Đơn đã nhận</div>
+                <h3 className="mt-1 text-xl font-display font-extrabold text-[#4a343e]">{selectedRouteCount} dòng • giao {totalItems} {unitLabel}</h3>
+                <div className="text-sm font-medium text-[#927681]">Kiểm tra bản cuối trước khi gửi</div>
               </button>
               <div className="flex items-center gap-3">
                 <div className="text-right">
-                  <div className="text-xs text-[#8a6a4a]">Tạm tính</div>
-                  <div className="text-lg font-extrabold text-[#3f2411]">{formatVnd(cartTotal)}</div>
+                  <div className="text-xs text-[#927681]">Tạm tính</div>
+                  <div className="text-lg font-extrabold text-[#4a343e]">{formatVnd(cartTotal)}</div>
                 </div>
-                <Button type="button" className="h-12 rounded-2xl bg-amber-500 px-5 font-bold text-[#2b1708] hover:bg-amber-400" disabled={!canSubmit || submitting} onClick={onSubmit}>
-                  {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  Gửi đơn
+                <Button type="button" className="h-12 rounded-2xl bg-[#d94f8a] px-5 font-bold text-white hover:bg-[#c43f79]" disabled={!canSubmit || submitting} onClick={openOrderConfirmation}>
+                  Xem & xác nhận
                 </Button>
               </div>
             </div>
@@ -2114,17 +2124,27 @@ function NppQuickOrderPanel({
         </>
       ) : null}
 
-      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="top-3 max-h-[calc(100dvh-1.5rem)] max-w-lg translate-y-0 overflow-y-auto rounded-3xl border-amber-200 bg-[#fffaf0] p-0 pb-[env(safe-area-inset-bottom)] text-[#3f2411] shadow-2xl sm:top-[50%] sm:translate-y-[-50%]">
-          <div className="sticky top-0 z-10 border-b border-amber-100 bg-[#fffaf0]/95 p-5 backdrop-blur">
+      <Dialog open={detailOpen} onOpenChange={handleDetailOpenChange}>
+        <DialogContent
+          data-dealer-order-confirmation-mode={isEditingOrder ? "edit" : "review"}
+          className="top-3 max-h-[calc(100dvh-1.5rem)] max-w-lg translate-y-0 overflow-y-auto rounded-3xl border-[#efcfdd] bg-[#fff5f9] p-0 pb-[env(safe-area-inset-bottom)] text-[#4a343e] shadow-2xl sm:top-[50%] sm:translate-y-[-50%]"
+        >
+          <div className="sticky top-0 z-10 border-b border-[#f1dbe4] bg-[#fff5f9]/95 p-5 backdrop-blur">
             <DialogHeader>
-              <DialogTitle className="text-xl font-display font-extrabold">Chi tiết đơn hàng</DialogTitle>
-              <DialogDescription className="text-sm text-[#765333]">
+              <DialogTitle className="text-xl font-display font-extrabold">
+                {isEditingOrder ? "Chỉnh sửa đơn hàng" : "Xác nhận đơn hàng"}
+              </DialogTitle>
+              <DialogDescription className="text-sm text-[#927681]">
                 {selectedRouteCount} dòng • giao {totalItems} {unitLabel} • tạm tính {formatVnd(cartTotal)}
               </DialogDescription>
             </DialogHeader>
           </div>
           <div className="space-y-3 p-5">
+            {!isEditingOrder ? (
+              <div className="rounded-2xl border border-[#efcfdd] bg-white px-4 py-3 text-sm font-medium leading-6 text-[#704f5e]">
+                Anh kiểm tra lại số lượng và điểm giao trước khi xác nhận gửi đơn.
+              </div>
+            ) : null}
             {routes.map((route) => {
               const ordered = quantities[route.id] || 0;
               const exchange = exchangeQuantities[route.id] || 0;
@@ -2132,45 +2152,84 @@ function NppQuickOrderPanel({
               const physical = ordered + exchange + makeup;
               if (physical <= 0) return null;
               return (
-                <div key={route.id} className="rounded-3xl border border-amber-100 bg-white p-3">
+                <div key={route.id} className="rounded-3xl border border-[#efcfdd] bg-white p-3 shadow-sm">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-extrabold text-[#3f2411]">{route.name}</div>
-                      <div className="mt-1 text-xs font-medium text-[#8a6a4a]">
+                      <div className="truncate text-sm font-extrabold text-[#4a343e]">{route.name}</div>
+                      <div className="mt-1 text-xs font-medium text-[#927681]">
                         Giao {physical} {unitLabel} • Tính tiền {ordered} {unitLabel}
                       </div>
                     </div>
-                    <div className="shrink-0 text-right text-sm font-extrabold text-[#3f2411]">
+                    <div className="shrink-0 text-right text-sm font-extrabold text-[#c43f79]">
                       {formatVnd(ordered * product.price)}
                     </div>
                   </div>
-                  <div className="mt-3 grid grid-cols-4 gap-2">
-                    <MiniQuantityField label="Đặt" value={ordered} step={DEALER_ORDER_STEP} onChange={(value) => setQuantities((current) => ({ ...current, [route.id]: value }))} />
-                    <MiniQuantityField label="Đổi" value={exchange} step={1} onChange={(value) => setExchangeQuantities((current) => ({ ...current, [route.id]: value }))} />
-                    <MiniQuantityField label="Bù" value={makeup} step={1} onChange={(value) => setMakeupQuantities((current) => ({ ...current, [route.id]: value }))} />
-                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-2 py-2 text-center">
-                      <div className="text-[11px] font-bold uppercase text-emerald-700">Giao</div>
-                      <div className="mt-1 text-base font-extrabold text-[#3f2411]">{physical}</div>
-                    </div>
-                  </div>
-                  <Input
-                    value={notes[route.id] || ""}
-                    placeholder="Ghi chú"
-                    className="mt-2 h-10 rounded-2xl border-amber-100 bg-white text-sm"
-                    onChange={(event) => setNotes((current) => ({ ...current, [route.id]: event.target.value.slice(0, 160) }))}
-                  />
+                  {isEditingOrder ? (
+                    <>
+                      <div className="mt-3 grid grid-cols-4 gap-2">
+                        <MiniQuantityField label="Đặt" value={ordered} step={DEALER_ORDER_STEP} onChange={(value) => setQuantities((current) => ({ ...current, [route.id]: value }))} />
+                        <MiniQuantityField label="Đổi" value={exchange} step={1} onChange={(value) => setExchangeQuantities((current) => ({ ...current, [route.id]: value }))} />
+                        <MiniQuantityField label="Bù" value={makeup} step={1} onChange={(value) => setMakeupQuantities((current) => ({ ...current, [route.id]: value }))} />
+                        <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-2 py-2 text-center">
+                          <div className="text-[11px] font-bold uppercase text-emerald-700">Giao</div>
+                          <div className="mt-1 text-base font-extrabold text-[#4a343e]">{physical}</div>
+                        </div>
+                      </div>
+                      <Input
+                        value={notes[route.id] || ""}
+                        placeholder="Ghi chú"
+                        className="mt-2 h-10 rounded-2xl border-[#efcfdd] bg-white text-sm text-[#4a343e] focus-visible:ring-[#d94f8a]"
+                        onChange={(event) => setNotes((current) => ({ ...current, [route.id]: event.target.value.slice(0, 160) }))}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <div className="mt-3 grid grid-cols-4 gap-2" data-dealer-order-review-values>
+                        {[
+                          ["Đặt", ordered],
+                          ["Đổi", exchange],
+                          ["Bù", makeup],
+                        ].map(([label, value]) => (
+                          <div key={label} className="rounded-2xl border border-[#f1dbe4] bg-[#fff8fb] px-2 py-2 text-center">
+                            <div className="text-[10px] font-bold uppercase text-[#a06f85]">{label}</div>
+                            <div className="mt-1 text-base font-extrabold text-[#4a343e]">{value}</div>
+                          </div>
+                        ))}
+                        <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-2 py-2 text-center">
+                          <div className="text-[10px] font-bold uppercase text-emerald-700">Giao</div>
+                          <div className="mt-1 text-base font-extrabold text-[#4a343e]">{physical}</div>
+                        </div>
+                      </div>
+                      {notes[route.id] ? (
+                        <div className="mt-2 rounded-2xl bg-[#fff0f6] px-3 py-2 text-xs leading-5 text-[#704f5e]">
+                          <span className="font-bold text-[#a73f70]">Ghi chú:</span> {notes[route.id]}
+                        </div>
+                      ) : null}
+                    </>
+                  )}
                 </div>
               );
             })}
           </div>
-          <DialogFooter className="sticky bottom-0 border-t border-amber-100 bg-[#fffaf0]/95 p-5 backdrop-blur">
-            <Button type="button" variant="outline" className="h-11 rounded-2xl border-amber-200" onClick={() => setDetailOpen(false)}>
+          <DialogFooter className="sticky bottom-0 grid grid-cols-2 gap-2 border-t border-[#f1dbe4] bg-[#fff5f9]/95 p-5 backdrop-blur sm:flex">
+            <Button type="button" variant="outline" className="h-11 rounded-2xl border-[#e7b9cd] text-[#704f5e] hover:bg-[#fff0f6]" onClick={() => handleDetailOpenChange(false)}>
               Đóng
             </Button>
-            <Button type="button" className="h-11 rounded-2xl bg-amber-500 font-bold text-[#2b1708] hover:bg-amber-400" disabled={!canSubmit || submitting} onClick={onSubmit}>
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              Gửi đơn
-            </Button>
+            {isEditingOrder ? (
+              <Button type="button" className="h-11 rounded-2xl bg-[#d94f8a] font-bold text-white hover:bg-[#c43f79]" onClick={() => setIsEditingOrder(false)}>
+                Lưu thay đổi
+              </Button>
+            ) : (
+              <>
+                <Button type="button" variant="outline" className="h-11 rounded-2xl border-[#e7b9cd] text-[#a73f70] hover:bg-[#fff0f6]" onClick={() => setIsEditingOrder(true)}>
+                  Chỉnh sửa đơn
+                </Button>
+                <Button type="button" className="col-span-2 h-11 rounded-2xl bg-[#d94f8a] font-bold text-white hover:bg-[#c43f79] sm:col-span-1" disabled={!canSubmit || submitting} onClick={onSubmit}>
+                  {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  Xác nhận & gửi đơn
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2220,8 +2279,8 @@ function MiniQuantityField({
   onChange: (value: number) => void;
 }) {
   return (
-    <label className="rounded-2xl border border-amber-100 bg-white px-2 py-2 text-center">
-      <span className="text-[11px] font-bold uppercase text-[#8a6a4a]">{label}</span>
+    <label className="rounded-2xl border border-[#efcfdd] bg-white px-2 py-2 text-center">
+      <span className="text-[11px] font-bold uppercase text-[#a06f85]">{label}</span>
       <Input
         type="number"
         inputMode="numeric"
@@ -2229,7 +2288,7 @@ function MiniQuantityField({
         step={step}
         value={value || ""}
         placeholder="0"
-        className="mt-1 h-9 border-0 bg-transparent p-0 text-center text-base font-extrabold text-[#3f2411] shadow-none focus-visible:ring-0"
+        className="mt-1 h-9 border-0 bg-transparent p-0 text-center text-base font-extrabold text-[#4a343e] shadow-none focus-visible:ring-0"
         onChange={(event) => {
           const nextValue = Number(event.target.value.replace(/[^0-9]/g, ""));
           onChange(Number.isFinite(nextValue) ? nextValue : 0);

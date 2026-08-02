@@ -53,6 +53,31 @@ class DealerAgentExperienceTests(unittest.TestCase):
         self.assertNotIn("Chào anh Minh", self.source)
         self.assertIn("Chào {dealerDisplayName}", self.source)
 
+    def test_order_submit_ctas_open_final_confirmation_before_sending(self) -> None:
+        panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]
+        self.assertIn("const openOrderConfirmation", panel)
+        self.assertGreaterEqual(panel.count("onClick={openOrderConfirmation}"), 2)
+        self.assertEqual(panel.count("onClick={onSubmit}"), 1)
+        pre_confirmation = panel.split('<Dialog open={detailOpen}', 1)[0]
+        confirmation = panel.split('<Dialog open={detailOpen}', 1)[1]
+        self.assertNotIn("onClick={onSubmit}", pre_confirmation)
+        self.assertIn("onClick={onSubmit}", confirmation)
+        self.assertIn("Xác nhận & gửi đơn", panel)
+
+    def test_final_confirmation_is_read_only_until_customer_edits(self) -> None:
+        panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]
+        self.assertIn('data-dealer-order-confirmation-mode={isEditingOrder ? "edit" : "review"}', panel)
+        self.assertIn("Chỉnh sửa đơn", panel)
+        self.assertIn("Lưu thay đổi", panel)
+        self.assertIn("isEditingOrder ? (", panel)
+        self.assertIn("<MiniQuantityField", panel)
+
+    def test_final_confirmation_uses_bmq_pink_theme_not_legacy_amber(self) -> None:
+        modal = self.source.split('<Dialog open={detailOpen}', 1)[1].split("</Dialog>", 1)[0]
+        self.assertNotIn("amber", modal)
+        self.assertIn("#d94f8a", modal)
+        self.assertIn("#fff5f9", modal)
+
 
 if __name__ == "__main__":
     unittest.main()
