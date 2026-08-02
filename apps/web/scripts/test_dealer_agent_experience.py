@@ -45,6 +45,14 @@ class DealerAgentExperienceTests(unittest.TestCase):
         self.assertIn("Đang trực tuyến", self.source)
         self.assertIn("Nhắn BMQ Agent…", self.source)
 
+    def test_logout_resets_next_login_to_agent_inbox(self) -> None:
+        logout_body = self.source.split("const handleLogoutDealer = () => {", 1)[1].split("\n  };", 1)[0]
+        self.assertIn('setActiveNav("messages")', logout_body)
+
+    def test_inbox_greeting_uses_the_authenticated_dealer_name(self) -> None:
+        self.assertNotIn("Chào anh Minh", self.source)
+        self.assertIn("Chào {dealerDisplayName}", self.source)
+
 
 if __name__ == "__main__":
     unittest.main()

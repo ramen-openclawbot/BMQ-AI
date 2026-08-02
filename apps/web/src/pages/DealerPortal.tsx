@@ -508,6 +508,7 @@ export default function DealerPortal() {
       setDealerCustomer(data.customer || null);
       setDealerProfileCache((current) => ({ ...current, customer: data.customer || null }));
       setLoginStep("catalog");
+      setActiveNav("messages");
       setOtp("");
       setAuthMessage("Đã xác thực đại lý. Anh có thể gửi đơn thật.");
     } catch (error) {
@@ -534,6 +535,7 @@ export default function DealerPortal() {
     setNppOrderText("");
     setNppParseMessage("");
     setNppParseStatus("idle");
+    setActiveNav("messages");
     setLoginStep("phone");
     setOtp("");
     setAuthMessage("");
@@ -953,7 +955,7 @@ export default function DealerPortal() {
                 <div className="truncate text-base font-extrabold">BMQ Agent</div>
                 <span className="rounded-full bg-[#fce7f0] px-2 py-0.5 text-[11px] font-bold text-[#bd4a7c]">Đặt bánh</span>
               </div>
-              <p className="mt-1 truncate text-sm text-[#776b71]">Chào anh Minh 👋 Hôm nay mình đặt món gì ạ?</p>
+              <p className="mt-1 truncate text-sm text-[#776b71]">Chào {dealerDisplayName} 👋 Hôm nay mình đặt món gì ạ?</p>
             </div>
             <div className="flex shrink-0 flex-col items-end gap-2">
               <span className="text-xs text-[#9a8e94]">Bây giờ</span>
