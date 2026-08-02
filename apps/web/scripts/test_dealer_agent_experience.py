@@ -177,7 +177,12 @@ class DealerAgentExperienceTests(unittest.TestCase):
         self.assertIn('setNppParseStatus("success")', self.source)
         self.assertIn("[retailDealerRoute.id]: nextQuantity", self.source)
 
-    def test_selected_product_uses_authenticated_dealer_location_without_asking_route(self) -> None:
+    def test_product_quantity_placeholder_cannot_look_like_an_entered_value(self) -> None:
+        self.assertNotIn('placeholder="VD: 100"', self.source)
+        self.assertIn('placeholder="Nhập số lượng"', self.source)
+        self.assertIn('placeholder:text-[#b99aa8]', self.source)
+
+    def test_selected_product_uses_authenticated_dealer_location(self) -> None:
         self.assertIn("const directDealerOrder = !isNppMode || directCatalogOrder;", self.source)
         self.assertIn("directDealerOrder && retailDealerRoute ? [retailDealerRoute]", self.source)
         self.assertIn("isNppMode && !directCatalogOrder", self.source)

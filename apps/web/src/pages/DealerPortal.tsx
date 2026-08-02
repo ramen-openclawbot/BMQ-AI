@@ -2006,7 +2006,7 @@ export default function DealerPortal() {
                       min={0}
                       step={DEALER_ORDER_STEP}
                       value={draftQuantity}
-                      placeholder="VD: 100"
+                      placeholder="Nhập số lượng"
                       onChange={(event) => {
                         setDraftQuantity(event.target.value.replace(/[^0-9]/g, ""));
                         setQuantityModalError("");
@@ -2014,7 +2014,7 @@ export default function DealerPortal() {
                       onKeyDown={(event) => {
                         if (event.key === "Enter") handleProductQuantitySubmit();
                       }}
-                      className="h-12 rounded-2xl border-amber-200 bg-white text-center text-lg font-extrabold text-[#3f2411] focus-visible:ring-amber-400"
+                      className="h-12 rounded-2xl border-amber-200 bg-white text-center text-lg font-extrabold text-[#3f2411] placeholder:font-normal placeholder:text-[#b99aa8] focus-visible:ring-amber-400"
                     />
                     <div className="text-xs text-[#8a6a4a]">Nhập 0 để bỏ sản phẩm khỏi đơn.</div>
                     {quantityModalError ? <div className="text-sm font-medium text-destructive">{quantityModalError}</div> : null}
@@ -2124,10 +2124,10 @@ function ProductDetailDialog({
                   min={DEALER_ORDER_STEP}
                   step={DEALER_ORDER_STEP}
                   value={draftQuantity}
-                  placeholder="VD: 100"
+                  placeholder="Nhập số lượng"
                   onChange={(event) => onDraftQuantityChange(event.target.value.replace(/[^0-9]/g, ""))}
                   onKeyDown={(event) => { if (event.key === "Enter") onSubmit(); }}
-                  className="h-12 rounded-2xl border-[#e7b9cd] bg-white text-center text-lg font-extrabold text-[#4a343e] focus-visible:ring-[#d94f8a]"
+                  className="h-12 rounded-2xl border-[#e7b9cd] bg-white text-center text-lg font-extrabold text-[#4a343e] placeholder:font-normal placeholder:text-[#b99aa8] focus-visible:ring-[#d94f8a]"
                 />
                 {quantityError ? <div className="text-sm font-medium text-destructive">{quantityError}</div> : null}
               </div>
