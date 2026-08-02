@@ -1005,6 +1005,10 @@ export default function DealerPortal() {
               Thông tin của anh được BMQ bảo mật
             </div>
           </div>
+          <footer data-dealer-login-footer className="pt-8 text-center text-[11px] font-medium text-[#9a7e8b]">
+            <span className="block">© 2026 Bánh Mì Que Pháp</span>
+            <span className="block">BMQ. All rights reserved. Powered by VNAgent.ai</span>
+          </footer>
         </main>
       </div>
     );
@@ -1864,7 +1868,8 @@ export default function DealerPortal() {
       </main>
 
       <footer className="border-t border-amber-100 bg-[#fffaf0] px-4 py-5 pb-24 text-center text-xs font-medium text-[#8a6a4a] lg:pb-5">
-        © 2026 Bánh Mì Que Pháp BMQ. All rights reserved. Powered by VNAgent.ai
+        <span className="block">© 2026 Bánh Mì Que Pháp</span>
+        <span className="block">BMQ. All rights reserved. Powered by VNAgent.ai</span>
       </footer>
 
       {isCatalogUnlocked && !isCatalogRestoring && activeNav === "home" ? (

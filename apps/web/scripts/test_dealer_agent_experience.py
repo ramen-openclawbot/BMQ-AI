@@ -172,6 +172,12 @@ class DealerAgentExperienceTests(unittest.TestCase):
         self.assertIn("const productCarouselProducts = catalogProducts;", self.source)
         self.assertNotIn(".slice(0, 10)", self.source)
 
+    def test_footer_credits_vnagent_design_and_development(self) -> None:
+        self.assertIn("© 2026 Bánh Mì Que Pháp", self.source)
+        self.assertIn("BMQ. All rights reserved. Powered by VNAgent.ai", self.source)
+        self.assertNotIn("Thiết kế và Phát triển bởi VNAgent.ai", self.source)
+        self.assertIn("data-dealer-login-footer", self.source)
+
     def test_product_suggestion_cards_have_uniform_single_line_layout(self) -> None:
         self.assertIn('data-dealer-product-suggestion="card"', self.source)
         self.assertIn("h-[154px]", self.source)
