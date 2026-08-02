@@ -138,6 +138,7 @@ const DEALER_SESSION_STORAGE_KEY = "bmq_dealer_session_token";
 const DEALER_PROFILE_CACHE_KEY = "bmq_dealer_profile_cache";
 const DEALER_CATALOG_CACHE_KEY = "bmq_dealer_catalog_cache";
 const DEALER_ORDER_STEP = 10;
+const DEFAULT_DEALER_CHAT_PRODUCT_SKU = "BMQ-001";
 
 type DealerProfileCache = {
   customer: DealerCustomer | null;
@@ -773,7 +774,11 @@ export default function DealerPortal() {
     [dealerRoutes, directDealerOrder, retailDealerRoute],
   );
   const nppProduct = useMemo(
-    () => catalogProducts.find((product) => `${product.name} ${product.skuCode || ""}`.toLocaleLowerCase("vi-VN").includes("que")) || catalogProducts[0] || null,
+    () => catalogProducts.find(
+      (product) => product.skuCode?.trim().toUpperCase() === DEFAULT_DEALER_CHAT_PRODUCT_SKU,
+    ) || catalogProducts.find(
+      (product) => normalizeDealerChatText(`${product.name} ${product.skuCode || ""}`).includes("banh mi que"),
+    ) || null,
     [catalogProducts],
   );
   const chatProduct = useMemo(

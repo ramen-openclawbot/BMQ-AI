@@ -190,6 +190,16 @@ class DealerAgentExperienceTests(unittest.TestCase):
         self.assertIn("setChatProductId(product.id)", self.source)
         self.assertIn("Đặt sản phẩm này", self.source)
 
+    def test_bare_quantity_defaults_to_bmq_breadstick_without_catalog_order_fallback(self) -> None:
+        self.assertIn('const DEFAULT_DEALER_CHAT_PRODUCT_SKU = "BMQ-001";', self.source)
+        default_product = self.source.split("const nppProduct = useMemo(", 1)[1].split("const chatProduct = useMemo(", 1)[0]
+        self.assertIn("product.skuCode?.trim().toUpperCase() === DEFAULT_DEALER_CHAT_PRODUCT_SKU", default_product)
+        self.assertIn('normalizeDealerChatText(`${product.name} ${product.skuCode || ""}`).includes("banh mi que")', default_product)
+        self.assertNotIn("catalogProducts[0]", default_product)
+        chat_product = self.source.split("const chatProduct = useMemo(", 1)[1].split("const nppSelectedLines", 1)[0]
+        self.assertIn("product.id === chatProductId", chat_product)
+        self.assertIn("|| nppProduct", chat_product)
+
     def test_product_quantity_creates_chat_confirmation_for_any_authenticated_dealer(self) -> None:
         self.assertIn('activeNav === "order"', self.source)
         self.assertIn('setDirectCatalogOrder(true)', self.source)
