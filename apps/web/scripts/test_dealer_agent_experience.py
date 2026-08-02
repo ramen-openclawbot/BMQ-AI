@@ -25,7 +25,7 @@ class DealerAgentExperienceTests(unittest.TestCase):
     def test_inbox_is_a_simple_message_list(self) -> None:
         self.assertIn("Tin nhắn", self.source)
         self.assertIn("Tìm kiếm BMQ Agent", self.source)
-        self.assertIn("BMQ Theo dõi đơn", self.source)
+        self.assertNotIn("BMQ Theo dõi đơn", self.source)
         self.assertIn("BMQ Chăm sóc khách hàng", self.source)
         self.assertIn('data-dealer-agent-nav="messages-orders-account"', self.source)
         self.assertIn("Đơn hàng", self.source)

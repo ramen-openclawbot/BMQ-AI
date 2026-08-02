@@ -1017,16 +1017,6 @@ export default function DealerPortal() {
           </button>
 
           <div className="bg-[#faf7f8] px-4 py-2 text-[11px] font-bold uppercase tracking-[0.12em] text-[#96858d]">Hỗ trợ khác</div>
-          <button type="button" className="flex w-full items-center gap-3 border-b border-[#f1e8ec] px-4 py-4 text-left hover:bg-[#fff7fa]" onClick={() => setActiveNav("order")}>
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0ccdc] bg-[#fff4f8]">
-              <img src={bmqLogo} alt="BMQ Theo dõi đơn" className="h-10 w-10 object-contain" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="font-bold">BMQ Theo dõi đơn</div>
-              <div className="mt-1 truncate text-sm text-[#776b71]">Kiểm tra trạng thái đơn hàng của anh</div>
-            </div>
-            <span className="text-xs text-[#9a8e94]">Hôm qua</span>
-          </button>
           <button type="button" className="flex w-full items-center gap-3 border-b border-[#f1e8ec] px-4 py-4 text-left hover:bg-[#fff7fa]" onClick={() => setActiveNav("support")}>
             <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0ccdc] bg-[#fff4f8]">
               <img src={bmqLogo} alt="BMQ Chăm sóc khách hàng" className="h-10 w-10 object-contain" />
