@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ComponentType, type Dispatch, type SetStateAction } from "react";
 import {
   AlertCircle,
+  ArrowLeft,
   BadgePercent,
   BellRing,
   Building2,
@@ -297,7 +298,7 @@ export default function DealerPortal() {
   );
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
-  const [activeNav, setActiveNav] = useState("home");
+  const [activeNav, setActiveNav] = useState("messages");
   const [catalogProducts, setCatalogProducts] = useState<Product[]>(() => readDealerCatalogCache().products);
   const [catalogStatus, setCatalogStatus] = useState<"idle" | "loading" | "live" | "error">("idle");
   const [catalogError, setCatalogError] = useState("");
@@ -783,6 +784,302 @@ export default function DealerPortal() {
   const handleNav = (item: (typeof navItems)[number]) => {
     setActiveNav(item.id);
   };
+
+  const shouldShowAgentLogin = () => !isCatalogUnlocked;
+
+  if (shouldShowAgentLogin()) {
+    return (
+      <div className="min-h-[100dvh] bg-[#fff9f5] text-[#271f23]" data-dealer-agent-screen="login">
+        <main className="mx-auto flex min-h-[100dvh] w-full max-w-md flex-col px-5 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(28px,env(safe-area-inset-top))] sm:justify-center sm:py-10">
+          <div className="flex flex-1 flex-col justify-center py-8 sm:flex-none">
+            <div className="text-center">
+              <img src={bmqLogo} alt="BMQ" className="mx-auto h-16 w-auto object-contain" />
+              <h1 className="mt-6 text-3xl font-extrabold tracking-tight">Đặt món cùng BMQ Agent</h1>
+              <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-[#78636d]">
+                Nhắn một câu, BMQ chuẩn bị đơn hàng cho anh ngay.
+              </p>
+            </div>
+
+            <div className="mt-7 flex items-start gap-3 rounded-[24px] border border-[#f5d8e5] bg-white p-4 shadow-[0_16px_45px_rgba(217,79,138,0.09)]">
+              <div className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f3c7d9] bg-[#fff4f8]">
+                <img src={bmqLogo} alt="BMQ Agent" className="h-10 w-10 object-contain" />
+                <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500" />
+              </div>
+              <div className="rounded-2xl rounded-tl-md bg-[#fff2f7] px-4 py-3 text-sm font-medium leading-6 text-[#5b3a48]">
+                Hôm nay mình dùng món gì ạ?
+              </div>
+            </div>
+
+            <section className="mt-5 rounded-[28px] border border-[#f3dce6] bg-white p-5 shadow-[0_18px_55px_rgba(87,42,61,0.08)]">
+              {authMessage ? (
+                <div className="mb-4 flex items-start gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{authMessage}</span>
+                </div>
+              ) : null}
+              {authError ? (
+                <div className="mb-4 flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{authError}</span>
+                </div>
+              ) : null}
+
+              {loginStep === "phone" ? (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="dealer-phone-agent" className="text-sm font-semibold">Số điện thoại</Label>
+                    <div className="relative">
+                      <Phone className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#aa8194]" />
+                      <Input
+                        id="dealer-phone-agent"
+                        inputMode="tel"
+                        autoComplete="tel"
+                        placeholder="Nhập số điện thoại của anh"
+                        value={phone}
+                        onChange={(event) => setPhone(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" && phone.trim() && !authLoading) void handleStartAuth();
+                        }}
+                        className="h-[52px] rounded-2xl border-[#efd6e1] bg-[#fffafb] pl-11 focus-visible:ring-[#df6da0]"
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    className="h-12 w-full rounded-2xl bg-[#d94f8a] text-base font-bold text-white shadow-lg shadow-[#d94f8a]/20 hover:bg-[#c83f7b]"
+                    onClick={handleStartAuth}
+                    disabled={authLoading || !phone.trim()}
+                  >
+                    {authLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronRight className="h-4 w-4" />}
+                    Gửi mã OTP Zalo
+                  </Button>
+                </div>
+              ) : null}
+
+              {loginStep === "otp" ? (
+                <div className="space-y-4">
+                  <div>
+                    <div className="font-bold">Nhập mã OTP</div>
+                    <p className="mt-1 text-sm leading-6 text-[#78636d]">Mã gồm 6 số đã được gửi qua Zalo cho {phone.trim()}.</p>
+                  </div>
+                  <InputOTP maxLength={6} value={otp} onChange={setOtp}>
+                    <InputOTPGroup className="w-full justify-between gap-2">
+                      {[0, 1, 2, 3, 4, 5].map((index) => (
+                        <InputOTPSlot key={index} index={index} className="h-12 w-11 rounded-xl border-[#efd6e1]" />
+                      ))}
+                    </InputOTPGroup>
+                  </InputOTP>
+                  <Button
+                    className="h-12 w-full rounded-2xl bg-[#d94f8a] text-base font-bold text-white hover:bg-[#c83f7b]"
+                    onClick={handleVerifyAuth}
+                    disabled={authLoading || otp.length !== 6}
+                  >
+                    {authLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                    Xác thực OTP
+                  </Button>
+                  <Button variant="ghost" className="h-10 w-full rounded-xl text-[#9a667d]" onClick={() => setLoginStep("phone")}>
+                    Đổi số điện thoại
+                  </Button>
+                </div>
+              ) : null}
+            </section>
+
+            <div className="mt-5 flex items-center justify-center gap-2 text-xs font-medium text-[#8d7180]">
+              <ShieldCheck className="h-4 w-4 text-[#d94f8a]" />
+              Thông tin của anh được BMQ bảo mật
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (isCatalogRestoring) {
+    return (
+      <div className="flex min-h-[100dvh] items-center justify-center bg-[#fff9f5]" aria-label="Đang tải dữ liệu đại lý">
+        <div className="text-center">
+          <Loader2 className="mx-auto h-7 w-7 animate-spin text-[#d94f8a]" />
+          <p className="mt-3 text-sm font-medium text-[#78636d]">Đang mở BMQ Agent…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (activeNav === "messages") {
+    return (
+      <div className="min-h-[100dvh] bg-white text-[#251f22]" data-dealer-agent-screen="inbox">
+        <header className="sticky top-0 z-30 bg-[#df78a7] px-4 pb-4 pt-[max(14px,env(safe-area-inset-top))] text-white shadow-sm">
+          <div className="mx-auto flex max-w-2xl items-center justify-between gap-4">
+            <h1 className="text-[28px] font-extrabold tracking-tight">Tin nhắn</h1>
+            <div className="flex items-center gap-2">
+              <button type="button" aria-label="Tìm kiếm" className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-white/15">
+                <Search className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                aria-label="Mở tài khoản"
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/60 bg-[#fce5ef] text-sm font-extrabold text-[#b33f72]"
+                onClick={() => setDealerProfileOpen(true)}
+              >
+                {(dealerDisplayName.trim().charAt(0) || "M").toLocaleUpperCase("vi-VN")}
+              </button>
+            </div>
+          </div>
+          <div className="mx-auto mt-3 max-w-2xl">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9d7184]" />
+              <Input
+                readOnly
+                aria-label="Tìm kiếm BMQ Agent"
+                placeholder="Tìm kiếm BMQ Agent"
+                className="h-11 rounded-full border-0 bg-white pl-11 text-[#362831] shadow-none placeholder:text-[#9d7184] focus-visible:ring-2 focus-visible:ring-white/60"
+              />
+            </div>
+          </div>
+        </header>
+
+        <main className="mx-auto max-w-2xl pb-24">
+          <button
+            type="button"
+            data-dealer-agent-row="order"
+            className="flex w-full items-center gap-3 border-b border-[#f1e8ec] px-4 py-4 text-left transition hover:bg-[#fff7fa] active:bg-[#fcecf3]"
+            onClick={() => setActiveNav("order")}
+          >
+            <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0ccdc] bg-[#fff4f8]">
+              <img src={bmqLogo} alt="BMQ Agent" className="h-12 w-12 object-contain" />
+              <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <div className="truncate text-base font-extrabold">BMQ Agent</div>
+                <span className="rounded-full bg-[#fce7f0] px-2 py-0.5 text-[11px] font-bold text-[#bd4a7c]">Đặt bánh</span>
+              </div>
+              <p className="mt-1 truncate text-sm text-[#776b71]">Chào anh Minh 👋 Hôm nay mình đặt món gì ạ?</p>
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-2">
+              <span className="text-xs text-[#9a8e94]">Bây giờ</span>
+              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[#d94f8a] px-1.5 text-[11px] font-bold text-white">1</span>
+            </div>
+          </button>
+
+          <div className="bg-[#faf7f8] px-4 py-2 text-[11px] font-bold uppercase tracking-[0.12em] text-[#96858d]">Hỗ trợ khác</div>
+          <button type="button" className="flex w-full items-center gap-3 border-b border-[#f1e8ec] px-4 py-4 text-left hover:bg-[#fff7fa]" onClick={() => setActiveNav("order")}>
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0ccdc] bg-[#fff4f8]">
+              <img src={bmqLogo} alt="BMQ Theo dõi đơn" className="h-10 w-10 object-contain" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="font-bold">BMQ Theo dõi đơn</div>
+              <div className="mt-1 truncate text-sm text-[#776b71]">Kiểm tra trạng thái đơn hàng của anh</div>
+            </div>
+            <span className="text-xs text-[#9a8e94]">Hôm qua</span>
+          </button>
+          <button type="button" className="flex w-full items-center gap-3 border-b border-[#f1e8ec] px-4 py-4 text-left hover:bg-[#fff7fa]" onClick={() => setActiveNav("support")}>
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0ccdc] bg-[#fff4f8]">
+              <img src={bmqLogo} alt="BMQ Chăm sóc khách hàng" className="h-10 w-10 object-contain" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="font-bold">BMQ Chăm sóc khách hàng</div>
+              <div className="mt-1 truncate text-sm text-[#776b71]">Hỗ trợ thay đổi hoặc phản hồi đơn hàng</div>
+            </div>
+            <span className="text-xs text-[#9a8e94]">T6</span>
+          </button>
+        </main>
+
+        <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-[#eee4e8] bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-5px_20px_rgba(71,39,53,0.05)] backdrop-blur" data-dealer-agent-nav="messages-orders-account">
+          <div className="mx-auto grid h-16 max-w-2xl grid-cols-3">
+            <button type="button" className="flex flex-col items-center justify-center gap-1 text-[#d94f8a]">
+              <MessageCircle className="h-5 w-5" />
+              <span className="text-[11px] font-bold">Tin nhắn</span>
+            </button>
+            <button type="button" className="flex flex-col items-center justify-center gap-1 text-[#88777f]" onClick={() => setActiveNav("order")}>
+              <ClipboardList className="h-5 w-5" />
+              <span className="text-[11px] font-medium">Đơn hàng</span>
+            </button>
+            <button type="button" className="flex flex-col items-center justify-center gap-1 text-[#88777f]" onClick={() => setDealerProfileOpen(true)}>
+              <UserRound className="h-5 w-5" />
+              <span className="text-[11px] font-medium">Tài khoản</span>
+            </button>
+          </div>
+        </nav>
+
+        <Dialog open={dealerProfileOpen} onOpenChange={setDealerProfileOpen}>
+          <DialogContent className="max-w-sm rounded-[28px] border-[#f0d5e1] bg-[#fff9fb] text-[#35252c]">
+            <DialogHeader>
+              <DialogTitle>Tài khoản đặt hàng</DialogTitle>
+              <DialogDescription>{dealerDisplayName}</DialogDescription>
+            </DialogHeader>
+            <Button variant="outline" className="h-11 rounded-2xl border-[#efd3df] bg-white text-[#b33f72]" onClick={handleLogoutDealer}>
+              <LogOut className="h-4 w-4" />
+              Đăng xuất
+            </Button>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
+
+  if (activeNav === "order" && isNppMode) {
+    return (
+      <div className="min-h-[100dvh] bg-[#fff9f5] text-[#2d2227]" data-dealer-agent-screen="chat">
+        <header className="sticky top-0 z-40 border-b border-[#f2dce5] bg-white/95 px-3 pb-3 pt-[max(10px,env(safe-area-inset-top))] backdrop-blur">
+          <div className="mx-auto flex max-w-2xl items-center gap-3">
+            <button type="button" aria-label="Quay lại danh sách tin nhắn" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#5a4650] hover:bg-[#fff0f6]" onClick={() => setActiveNav("messages")}>
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <div className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0cada] bg-[#fff5f9]">
+              <img src={bmqLogo} alt="BMQ Agent" className="h-9 w-9 object-contain" />
+              <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-base font-extrabold">BMQ Agent</div>
+              <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-600">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                Đang trực tuyến
+              </div>
+            </div>
+            <button type="button" aria-label="Tài khoản" className="flex h-9 w-9 items-center justify-center rounded-full text-[#7f6672] hover:bg-[#fff0f6]" onClick={() => setDealerProfileOpen(true)}>
+              <UserRound className="h-5 w-5" />
+            </button>
+          </div>
+        </header>
+        <main className="mx-auto w-full max-w-2xl px-3 py-4 sm:px-4">
+          {orderMessage ? <div className="mb-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{orderMessage}</div> : null}
+          {orderError ? <div className="mb-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{orderError}</div> : null}
+          <NppQuickOrderPanel
+            routes={dealerRoutes}
+            product={nppProduct}
+            productSuggestions={productCarouselProducts}
+            quantities={nppQuantities}
+            notes={nppNotes}
+            exchangeQuantities={nppExchangeQuantities}
+            makeupQuantities={nppMakeupQuantities}
+            setQuantities={setNppQuantities}
+            setExchangeQuantities={setNppExchangeQuantities}
+            setMakeupQuantities={setNppMakeupQuantities}
+            setNotes={setNppNotes}
+            orderText={nppOrderText}
+            setOrderText={setNppOrderText}
+            onProductSuggestion={handleProductCta}
+            parseMessage={nppParseMessage}
+            parseStatus={nppParseStatus}
+            onParse={handleParseNppOrderText}
+            detailOpen={nppConfirmOpen}
+            setDetailOpen={setNppConfirmOpen}
+            totalItems={totalItems}
+            cartTotal={cartTotal}
+            canSubmit={Boolean(sessionToken) && catalogStatus === "live" && nppSelectedLines.length > 0}
+            submitting={orderSubmitting}
+            onSubmit={handleSubmitNppOrder}
+          />
+        </main>
+        <Dialog open={dealerProfileOpen} onOpenChange={setDealerProfileOpen}>
+          <DialogContent className="max-w-sm rounded-[28px] border-[#f0d5e1] bg-[#fff9fb]">
+            <DialogHeader><DialogTitle>{dealerDisplayName}</DialogTitle></DialogHeader>
+            <Button variant="outline" className="h-11 rounded-2xl" onClick={handleLogoutDealer}><LogOut className="h-4 w-4" />Đăng xuất</Button>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen overflow-x-clip bg-background text-foreground">
@@ -1703,94 +2000,79 @@ function NppQuickOrderPanel({
   }
 
   return (
-    <div className="min-w-0 w-full max-w-full space-y-4 pb-28" data-stitch-dealer-chat-agent="bottom-bar-v2" data-stitch-dealer-chat-overflow="contained-v1">
-      <div className="min-w-0 w-full max-w-full overflow-hidden rounded-3xl border border-amber-100 bg-white p-3 shadow-sm sm:p-4">
-        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border border-amber-100 bg-white shadow-sm">
-              <img src={bmqLogo} alt="BMQ Agent" className="h-9 w-9 object-contain" />
-            </div>
-            <div className="min-w-0">
-              <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">BMQ Agent</div>
-              <h3 className="text-lg font-display font-extrabold leading-tight text-[#3f2411] sm:text-xl">Nhập đơn bằng tin nhắn</h3>
-            </div>
-          </div>
-          <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 text-xs text-emerald-700">
-            Đơn sẽ được BMQ xác nhận
-          </Badge>
-        </div>
+    <div className="flex min-h-[calc(100dvh-88px)] min-w-0 w-full max-w-full flex-col pb-24" data-stitch-dealer-chat-agent="bottom-bar-v2" data-stitch-dealer-chat-overflow="contained-v1">
+      <div className="py-2 text-center text-[11px] font-medium text-[#a18d96]">Hôm nay</div>
 
-        <div className="mt-4 min-w-0 space-y-3 rounded-3xl bg-[#fff8e8] p-2 sm:p-3">
-          <div className="flex min-w-0 items-start gap-2">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-amber-700 shadow-sm">
-              {parseStatus === "processing" ? <Loader2 className="h-4 w-4 animate-spin" /> : parseStatus === "success" ? <CheckCircle2 className="h-4 w-4 text-emerald-700" /> : <Sparkles className="h-4 w-4" />}
-            </div>
-            <div className="min-w-0 flex-1 whitespace-normal break-words rounded-2xl rounded-tl-md bg-white px-3 py-2 text-sm leading-6 text-[#5f3b1d] shadow-sm">
-              {parseStatus === "processing"
-                ? "Em đang đọc nội dung đơn..."
-                : parseStatus === "success"
-                  ? "Đã nhận đơn. Anh bấm thanh bên dưới để xem và chỉnh chi tiết."
-                  : "Chào anh, gửi nội dung đơn ở ô bên dưới. Em sẽ tách đơn để anh kiểm tra trước khi gửi."}
-            </div>
-          </div>
-          <div className="flex min-w-0 w-full max-w-full items-end gap-2 overflow-hidden rounded-3xl border border-amber-200 bg-white p-2 shadow-sm focus-within:ring-2 focus-within:ring-amber-300">
-            <Textarea
-              value={orderText}
-              onChange={(event) => setOrderText(event.target.value)}
-              placeholder="Dán nội dung đơn ở đây..."
-              className="min-h-28 w-0 min-w-0 flex-1 resize-none border-0 bg-transparent text-base leading-7 text-[#3f2411] shadow-none placeholder:text-[#a7835d] focus-visible:ring-0"
-            />
-            <Button
-              type="button"
-              size="icon"
-              aria-label="Gửi nội dung đơn"
-              className="h-12 w-12 shrink-0 rounded-2xl bg-amber-500 text-[#2b1708] hover:bg-amber-400"
-              onClick={onParse}
-              disabled={parseStatus === "processing" || !orderText.trim()}
-            >
-              {parseStatus === "processing" ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-            </Button>
-          </div>
-          {parseMessage ? (
-            <div className={cn(
-              "rounded-2xl px-3 py-2 text-sm font-medium",
-              parseStatus === "success" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-[#765333]",
-            )}>
-              {parseMessage}
-            </div>
-          ) : null}
+      <div className="flex min-w-0 items-start gap-2 py-2">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0ccdc] bg-white shadow-sm">
+          <img src={bmqLogo} alt="BMQ Agent" className="h-8 w-8 object-contain" />
         </div>
+        <div className="min-w-0 flex-1 whitespace-normal break-words rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm leading-6 text-[#543943] shadow-sm ring-1 ring-[#f4e5eb]">
+          {parseStatus === "processing"
+            ? "Em đang đọc nội dung đơn..."
+            : parseStatus === "success"
+              ? "Em đã nhận đơn. Anh kiểm tra chi tiết rồi xác nhận giúp em nhé."
+              : "Chào anh 👋 Hôm nay mình đặt món gì ạ? Anh nhắn nội dung đơn, em sẽ tách từng điểm giao để anh kiểm tra trước khi gửi."}
+        </div>
+      </div>
 
-        {productSuggestions.length > 0 ? (
-          <div className="mt-4 min-w-0 w-full max-w-full space-y-2 overflow-hidden">
-            <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-              <h4 className="text-sm font-extrabold text-[#3f2411]">Sản phẩm BMQ khác</h4>
-              <span className="text-xs font-medium text-[#8a6a4a]">Chạm để xem cách đặt</span>
-            </div>
-            <div className="flex min-w-0 w-full max-w-full gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none]">
-              {productSuggestions.map((suggestedProduct) => (
-                <button
-                  key={suggestedProduct.id}
-                  type="button"
-                  className="w-[170px] shrink-0 rounded-2xl border border-amber-100 bg-[#fffaf0] p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-md sm:w-[190px]"
-                  onClick={() => onProductSuggestion(suggestedProduct)}
-                >
-                  <div className="overflow-hidden rounded-xl border border-amber-100 bg-white">
-                    {suggestedProduct.imageUrl ? (
-                      <img src={suggestedProduct.imageUrl} alt={suggestedProduct.name} loading="lazy" className="h-20 w-full object-cover" />
-                    ) : (
-                      <div className="flex h-20 items-center justify-center bg-amber-50">
-                        <img src={bmqLogo} alt="BMQ" className="h-10 w-10 object-contain" />
-                      </div>
-                    )}
-                  </div>
-                  <div className="mt-2 line-clamp-2 text-sm font-bold leading-5 text-[#3f2411]">{suggestedProduct.name}</div>
-                  <div className="mt-1 truncate text-xs font-semibold text-amber-700">{formatVnd(suggestedProduct.price)} / {suggestedProduct.unit}</div>
-                </button>
-              ))}
-            </div>
+      {parseMessage ? (
+        <div className="ml-11 mt-1 rounded-2xl rounded-tl-md bg-[#fff0f6] px-4 py-3 text-sm font-medium leading-6 text-[#a73f70] ring-1 ring-[#f3d6e3]">
+          {parseMessage}
+        </div>
+      ) : null}
+
+      {productSuggestions.length > 0 ? (
+        <div className="mt-5 min-w-0 w-full max-w-full space-y-2 overflow-hidden">
+          <div className="flex items-center justify-between gap-3 px-1">
+            <h4 className="text-sm font-extrabold text-[#4a343e]">Gợi ý sản phẩm</h4>
+            <span className="text-xs font-medium text-[#927681]">Chạm để xem</span>
           </div>
-        ) : null}
+          <div className="flex min-w-0 w-full max-w-full gap-3 overflow-x-auto pb-2 [-ms-overflow-style:none] [scrollbar-width:none]">
+            {productSuggestions.map((suggestedProduct) => (
+              <button
+                key={suggestedProduct.id}
+                type="button"
+                className="w-[160px] shrink-0 rounded-2xl border border-[#f0d7e2] bg-white p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#df78a7] hover:shadow-md sm:w-[180px]"
+                onClick={() => onProductSuggestion(suggestedProduct)}
+              >
+                <div className="overflow-hidden rounded-xl border border-[#f4e4eb] bg-[#fff7fa]">
+                  {suggestedProduct.imageUrl ? (
+                    <img src={suggestedProduct.imageUrl} alt={suggestedProduct.name} loading="lazy" className="h-20 w-full object-cover" />
+                  ) : (
+                    <div className="flex h-20 items-center justify-center bg-[#fff3f8]">
+                      <img src={bmqLogo} alt="BMQ" className="h-10 w-10 object-contain" />
+                    </div>
+                  )}
+                </div>
+                <div className="mt-2 line-clamp-2 text-sm font-bold leading-5 text-[#4a343e]">{suggestedProduct.name}</div>
+                <div className="mt-1 truncate text-xs font-semibold text-[#c34f82]">{formatVnd(suggestedProduct.price)} / {suggestedProduct.unit}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className={cn(
+        "sticky z-20 mt-auto flex min-w-0 w-full max-w-full items-end gap-2 overflow-hidden rounded-[26px] border border-[#edccda] bg-white p-2 shadow-[0_12px_35px_rgba(105,49,73,0.12)] focus-within:ring-2 focus-within:ring-[#e8a6c3]",
+        selectedRouteCount > 0 ? "bottom-20" : "bottom-3",
+      )}>
+        <Textarea
+          value={orderText}
+          onChange={(event) => setOrderText(event.target.value)}
+          placeholder="Nhắn BMQ Agent…"
+          className="min-h-28 w-0 min-w-0 flex-1 resize-none border-0 bg-transparent text-base leading-7 text-[#3f2731] shadow-none placeholder:text-[#a98997] focus-visible:ring-0"
+        />
+        <Button
+          type="button"
+          size="icon"
+          aria-label="Gửi nội dung đơn"
+          className="h-12 w-12 shrink-0 rounded-full bg-[#d94f8a] text-white hover:bg-[#c43f79]"
+          onClick={onParse}
+          disabled={parseStatus === "processing" || !orderText.trim()}
+        >
+          {parseStatus === "processing" ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+        </Button>
       </div>
 
       {selectedRouteCount > 0 ? (
