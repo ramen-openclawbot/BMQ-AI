@@ -326,6 +326,7 @@ export default function DealerPortal() {
   const [nppLastSentOrderText, setNppLastSentOrderText] = useState("");
   const [nppParseMessage, setNppParseMessage] = useState("");
   const [nppParseStatus, setNppParseStatus] = useState<"idle" | "processing" | "success">("idle");
+  const [chatProductId, setChatProductId] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [draftQuantity, setDraftQuantity] = useState("");
   const [quantityModalError, setQuantityModalError] = useState("");
@@ -669,10 +670,16 @@ export default function DealerPortal() {
     setNppNotes({});
 
     window.setTimeout(() => {
-      const parsedLines = parseDealerChatOrderText(submittedText, dealerRoutes);
+      const parsedLines = isNppMode
+        ? parseDealerChatOrderText(submittedText, dealerRoutes)
+        : parseRetailDealerChatOrderText(submittedText, retailDealerRoute);
       if (!parsedLines.length) {
         setNppParseStatus("idle");
-        setNppParseMessage("Em chưa nhận diện được điểm bán. Anh có thể nhắn theo mẫu: Rạch Giá 200 đổi 10, ĐVC 100 bù 3.");
+        setNppParseMessage(
+          isNppMode
+            ? "Em chưa nhận diện được điểm bán. Anh có thể nhắn theo mẫu: Rạch Giá 200 đổi 10, ĐVC 100 bù 3."
+            : "Em chưa nhận diện được số lượng. Anh chỉ cần nhắn số lượng, đổi hoặc bù, ví dụ: 200 đổi 14 bù 5.",
+        );
         return;
       }
 
@@ -722,9 +729,16 @@ export default function DealerPortal() {
       exchange_quantity: line.exchangeQuantity,
       makeup_quantity: line.makeupQuantity,
       physical_quantity: line.physicalQuantity,
-      route_customer_id: line.route.id,
-      route_customer_name: line.route.name,
-      route_note: line.note,
+      ...(isNppMode
+        ? {
+            route_customer_id: line.route.id,
+            route_customer_name: line.route.name,
+            route_note: line.note,
+          }
+        : {
+            route_customer_name: dealerDisplayName,
+            route_note: line.note,
+          }),
     })), { chatNative: true });
   };
 
@@ -742,12 +756,27 @@ export default function DealerPortal() {
 
   const isCatalogRefreshing = catalogStatus === "idle" || catalogStatus === "loading";
   const isNppMode = dealerRoutes.length > 0 || (isCatalogRefreshing && dealerProfileCache.hasDealerRoutes);
+  const dealerDisplayName = toDisplayName(dealerCustomer?.name) || dealerCustomer?.code || "Đại lý BMQ";
+  const retailDealerRoute = useMemo<DealerRoute | null>(() => dealerCustomer ? ({
+    id: dealerCustomer.id,
+    name: dealerDisplayName,
+    code: dealerCustomer.code,
+    address: dealerCustomer.address,
+  }) : null, [dealerCustomer, dealerDisplayName]);
+  const chatOrderRoutes = useMemo(
+    () => isNppMode ? dealerRoutes : retailDealerRoute ? [retailDealerRoute] : [],
+    [dealerRoutes, isNppMode, retailDealerRoute],
+  );
   const nppProduct = useMemo(
     () => catalogProducts.find((product) => `${product.name} ${product.skuCode || ""}`.toLocaleLowerCase("vi-VN").includes("que")) || catalogProducts[0] || null,
     [catalogProducts],
   );
+  const chatProduct = useMemo(
+    () => catalogProducts.find((product) => product.id === chatProductId) || nppProduct,
+    [catalogProducts, chatProductId, nppProduct],
+  );
   const nppSelectedLines = useMemo<NppOrderLine[]>(
-    () => !nppProduct ? [] : dealerRoutes
+    () => !chatProduct ? [] : chatOrderRoutes
       .map((route) => {
         const quantity = nppQuantities[route.id] || 0;
         const exchangeQuantity = nppExchangeQuantities[route.id] || 0;
@@ -755,23 +784,24 @@ export default function DealerPortal() {
         const physicalQuantity = quantity + exchangeQuantity + makeupQuantity;
         return {
           route,
-          product: nppProduct,
+          product: chatProduct,
           quantity,
           exchangeQuantity,
           makeupQuantity,
           physicalQuantity,
           note: nppNotes[route.id] || "",
-          lineTotal: quantity * nppProduct.price,
+          lineTotal: quantity * chatProduct.price,
         };
       })
       .filter((line) => line.physicalQuantity > 0),
-    [dealerRoutes, nppExchangeQuantities, nppMakeupQuantities, nppNotes, nppProduct, nppQuantities],
+    [chatOrderRoutes, chatProduct, nppExchangeQuantities, nppMakeupQuantities, nppNotes, nppQuantities],
   );
-  const totalItems = isNppMode ? nppSelectedLines.reduce((sum, line) => sum + line.physicalQuantity, 0) : selectedLines.reduce((sum, product) => sum + product.quantity, 0);
-  const cartTotal = isNppMode ? nppSelectedLines.reduce((sum, line) => sum + line.lineTotal, 0) : selectedLines.reduce((sum, product) => sum + product.lineTotal, 0);
+  const chatTotalItems = nppSelectedLines.reduce((sum, line) => sum + line.physicalQuantity, 0);
+  const chatCartTotal = nppSelectedLines.reduce((sum, line) => sum + line.lineTotal, 0);
+  const totalItems = isNppMode ? chatTotalItems : selectedLines.reduce((sum, product) => sum + product.quantity, 0);
+  const cartTotal = isNppMode ? chatCartTotal : selectedLines.reduce((sum, product) => sum + product.lineTotal, 0);
   const isCatalogUnlocked = loginStep === "catalog" && Boolean(sessionToken);
   const isCatalogRestoring = isCatalogUnlocked && isCatalogRefreshing && !dealerProfileCache.customer;
-  const dealerDisplayName = toDisplayName(dealerCustomer?.name) || dealerCustomer?.code || "Đại lý BMQ";
   const activeLandingBanner = landingBanners[activeLandingBannerIndex] || landingBanners[0];
   const activeLandingBannerUrl = activeLandingBanner?.url || landingBannerUrl;
   const activePromotionPath = window.location.hostname === "dathang.banhmique.vn"
@@ -779,7 +809,7 @@ export default function DealerPortal() {
     : `/dealer/promotion/${activeLandingBanner?.id || "event-1"}`;
   const categoryChips = ["Tất cả", "Bánh mì", "Bánh ngọt", "Bán chạy"];
   const featuredProducts = catalogProducts.slice(0, 3);
-  const productCarouselProducts = catalogProducts.filter((product) => product.id !== nppProduct?.id).slice(0, 10);
+  const productCarouselProducts = catalogProducts;
   const filteredProducts = catalogProducts.filter((product) => {
     if (activeCategory === "Tất cả") return true;
     const haystack = `${product.name} ${product.tag}`.toLowerCase();
@@ -804,14 +834,29 @@ export default function DealerPortal() {
   };
 
   const handleProductCta = (product: Product) => {
-    if (isNppMode) {
-      setActiveNav("order");
-      setNppParseStatus("idle");
-      setNppParseMessage("");
-      openProductDialog(product);
-      return;
-    }
     openProductDialog(product);
+  };
+
+  const resetChatOrderForProduct = (product: Product) => {
+    setChatProductId(product.id);
+    setNppQuantities({});
+    setNppExchangeQuantities({});
+    setNppMakeupQuantities({});
+    setNppNotes({});
+    setNppOrderText("");
+    setNppLastSentOrderText("");
+    setOrderMessage("");
+    setOrderError("");
+  };
+
+  const handleSelectProductForChat = () => {
+    if (!selectedProduct) return;
+    resetChatOrderForProduct(selectedProduct);
+    setNppParseStatus("success");
+    setNppParseMessage(`Đã chọn ${selectedProduct.name}. Anh nhập tên điểm và số lượng để em chuẩn bị đơn.`);
+    setSelectedProduct(null);
+    setDraftQuantity("");
+    setQuantityModalError("");
   };
 
   const handleProductQuantitySubmit = () => {
@@ -824,6 +869,22 @@ export default function DealerPortal() {
     }
     if (nextQuantity % DEALER_ORDER_STEP !== 0) {
       setQuantityModalError(`Số lượng phải là bội số ${DEALER_ORDER_STEP} ${selectedProduct.unit || "đơn vị"}.`);
+      return;
+    }
+
+    if (activeNav === "order" && !isNppMode) {
+      if (!retailDealerRoute || nextQuantity <= 0) {
+        setQuantityModalError(`Vui lòng nhập ít nhất ${DEALER_ORDER_STEP} ${selectedProduct.unit || "đơn vị"}.`);
+        return;
+      }
+      resetChatOrderForProduct(selectedProduct);
+      setNppQuantities({ [retailDealerRoute.id]: nextQuantity });
+      setNppLastSentOrderText(`${selectedProduct.name} ${nextQuantity}`);
+      setNppParseStatus("success");
+      setNppParseMessage("Em đã chuẩn bị bản xác nhận đơn. Anh kiểm tra giúp em nhé.");
+      setSelectedProduct(null);
+      setDraftQuantity("");
+      setQuantityModalError("");
       return;
     }
 
@@ -1062,7 +1123,7 @@ export default function DealerPortal() {
     );
   }
 
-  if (activeNav === "order" && isNppMode) {
+  if (activeNav === "order") {
     return (
       <div className="min-h-[100dvh] bg-[#fff9f5] text-[#2d2227]" data-dealer-agent-screen="chat">
         <header className="sticky top-0 z-40 border-b border-[#f2dce5] bg-white/95 px-3 pb-3 pt-[max(10px,env(safe-area-inset-top))] backdrop-blur">
@@ -1088,8 +1149,9 @@ export default function DealerPortal() {
         </header>
         <main className="mx-auto w-full max-w-2xl px-3 py-4 sm:px-4">
           <NppQuickOrderPanel
-            routes={dealerRoutes}
-            product={nppProduct}
+            routes={chatOrderRoutes}
+            isRetailDealer={!isNppMode}
+            product={chatProduct}
             productSuggestions={productCarouselProducts}
             quantities={nppQuantities}
             notes={nppNotes}
@@ -1110,12 +1172,28 @@ export default function DealerPortal() {
             onParse={handleParseNppOrderText}
             detailOpen={nppConfirmOpen}
             setDetailOpen={setNppConfirmOpen}
-            totalItems={totalItems}
-            cartTotal={cartTotal}
+            totalItems={chatTotalItems}
+            cartTotal={chatCartTotal}
             canSubmit={Boolean(sessionToken) && catalogStatus === "live" && nppSelectedLines.length > 0}
             submitting={orderSubmitting}
             onSubmit={handleSubmitNppOrder}
             onStartNewOrder={handleStartNewNppOrder}
+          />
+          <ProductDetailDialog
+            product={selectedProduct}
+            isNppMode={isNppMode}
+            draftQuantity={draftQuantity}
+            quantityError={quantityModalError}
+            onDraftQuantityChange={(value) => {
+              setDraftQuantity(value);
+              setQuantityModalError("");
+            }}
+            onClose={() => {
+              setSelectedProduct(null);
+              setDraftQuantity("");
+              setQuantityModalError("");
+            }}
+            onSubmit={isNppMode ? handleSelectProductForChat : handleProductQuantitySubmit}
           />
         </main>
         <Dialog open={dealerProfileOpen} onOpenChange={setDealerProfileOpen}>
@@ -1527,7 +1605,8 @@ export default function DealerPortal() {
 
             {isNppMode ? (
               <NppQuickOrderPanel
-                routes={dealerRoutes}
+                routes={chatOrderRoutes}
+                isRetailDealer={!isNppMode}
                 product={nppProduct}
                 productSuggestions={productCarouselProducts}
                 quantities={nppQuantities}
@@ -1549,8 +1628,8 @@ export default function DealerPortal() {
                 onParse={handleParseNppOrderText}
                 detailOpen={nppConfirmOpen}
                 setDetailOpen={setNppConfirmOpen}
-                totalItems={totalItems}
-                cartTotal={cartTotal}
+                totalItems={chatTotalItems}
+                cartTotal={chatCartTotal}
                 canSubmit={Boolean(sessionToken) && catalogStatus === "live" && nppSelectedLines.length > 0}
                 submitting={orderSubmitting}
                 onSubmit={handleSubmitNppOrder}
@@ -1992,8 +2071,93 @@ export default function DealerPortal() {
 }
 
 
+function ProductDetailDialog({
+  product,
+  isNppMode,
+  draftQuantity,
+  quantityError,
+  onDraftQuantityChange,
+  onClose,
+  onSubmit,
+}: {
+  product: Product | null;
+  isNppMode: boolean;
+  draftQuantity: string;
+  quantityError: string;
+  onDraftQuantityChange: (value: string) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <Dialog open={Boolean(product)} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent data-dealer-product-detail="label-specs" className="top-3 max-h-[calc(100dvh-1.5rem)] max-w-sm translate-y-0 overflow-y-auto rounded-3xl border-[#f0d5e1] bg-[#fff9fb] p-0 pb-[env(safe-area-inset-bottom)] text-[#3f2411] shadow-2xl sm:top-[50%] sm:translate-y-[-50%]">
+        {product ? (
+          <>
+            <div className="h-36 bg-[#fff0f6] sm:h-48">
+              {product.imageUrl ? (
+                <img src={product.imageUrl} alt={product.name} className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-[#fff0f6] text-[#b33f72]">
+                  <ImageIcon className="h-8 w-8" />
+                  <span className="text-sm font-medium">Ảnh sản phẩm</span>
+                </div>
+              )}
+            </div>
+            <div className="space-y-4 p-5">
+              <DialogHeader>
+                <DialogTitle className="text-xl font-display font-extrabold leading-tight">{product.name}</DialogTitle>
+                <DialogDescription className="text-sm leading-6 text-[#765333]">
+                  {formatVnd(product.price)} / {product.unit}. {isNppMode
+                    ? "Chọn sản phẩm này rồi nhập số lượng theo từng điểm bán trong ô chat."
+                    : `Đặt theo bội số ${DEALER_ORDER_STEP} ${product.unit || "đơn vị"}.`}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid grid-cols-3 gap-2" data-dealer-product-specs="weight-shelf-life">
+                {[
+                  ["Giá bán", formatVnd(product.price)],
+                  ["Trọng lượng", formatProductWeight(product)],
+                  ["HSD", formatProductShelfLife(product)],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-2xl border border-[#f0d5e1] bg-white px-2 py-3 text-center">
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-[#927681]">{label}</div>
+                    <div className="mt-1 truncate text-sm font-extrabold text-[#4a343e]">{value}</div>
+                  </div>
+                ))}
+              </div>
+              {!isNppMode ? (
+                <div className="space-y-2">
+                  <Label htmlFor="dealer-product-quantity">Số lượng đặt</Label>
+                  <Input
+                    id="dealer-product-quantity"
+                    type="number"
+                    inputMode="numeric"
+                    min={DEALER_ORDER_STEP}
+                    step={DEALER_ORDER_STEP}
+                    value={draftQuantity}
+                    placeholder="VD: 100"
+                    onChange={(event) => onDraftQuantityChange(event.target.value.replace(/[^0-9]/g, ""))}
+                    onKeyDown={(event) => { if (event.key === "Enter") onSubmit(); }}
+                    className="h-12 rounded-2xl border-[#e7b9cd] bg-white text-center text-lg font-extrabold text-[#4a343e] focus-visible:ring-[#d94f8a]"
+                  />
+                  {quantityError ? <div className="text-sm font-medium text-destructive">{quantityError}</div> : null}
+                </div>
+              ) : null}
+              <DialogFooter className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-2">
+                <Button variant="outline" className="h-11 rounded-2xl border-[#e7b9cd] bg-white text-[#704f5e]" onClick={onClose}>Đóng</Button>
+                <Button className="h-11 rounded-2xl bg-[#d94f8a] font-bold text-white hover:bg-[#c43f79]" onClick={onSubmit}>Đặt sản phẩm này</Button>
+              </DialogFooter>
+            </div>
+          </>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
 function NppQuickOrderPanel({
   routes,
+  isRetailDealer,
   product,
   productSuggestions,
   quantities,
@@ -2023,6 +2187,7 @@ function NppQuickOrderPanel({
   onStartNewOrder,
 }: {
   routes: DealerRoute[];
+  isRetailDealer: boolean;
   product: Product | null;
   productSuggestions: Product[];
   quantities: Record<string, number>;
@@ -2086,7 +2251,7 @@ function NppQuickOrderPanel({
   };
 
   const showOrderExample = () => {
-    setOrderText("Rạch Giá 200 đổi 10\nĐVC 100 bù 3");
+    setOrderText(isRetailDealer ? "200 đổi 14 bù 5" : "Rạch Giá 200 đổi 10\nĐVC 100 bù 3");
     focusComposer();
   };
 
@@ -2098,7 +2263,9 @@ function NppQuickOrderPanel({
   if (!product) {
     return (
       <div className="rounded-3xl border border-dashed border-amber-200 bg-white p-5 text-sm text-[#765333]">
-        Chưa có sản phẩm bánh mì que đang mở bán cho account NPP này. Vui lòng liên hệ BMQ để kiểm tra giá.
+        {isRetailDealer
+          ? "Chưa có sản phẩm bánh mì que đang mở bán cho đại lý này. Vui lòng liên hệ BMQ để kiểm tra giá."
+          : "Chưa có sản phẩm bánh mì que đang mở bán cho account NPP này. Vui lòng liên hệ BMQ để kiểm tra giá."}
       </div>
     );
   }
@@ -2113,7 +2280,9 @@ function NppQuickOrderPanel({
             <img src={bmqLogo} alt="BMQ Agent" className="h-8 w-8 object-contain" />
           </div>
           <div className="min-w-0 flex-1 whitespace-normal break-words max-w-[85%] rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm leading-6 text-[#543943] shadow-sm ring-1 ring-[#f4e5eb]">
-            Chào anh 👋 Hôm nay mình đặt món gì ạ? Anh nhắn nội dung đơn, em sẽ tách từng điểm giao để anh kiểm tra trước khi gửi.
+            {isRetailDealer
+              ? "Chào anh 👋 Đại lý đã được xác nhận. Anh chỉ cần nhắn số lượng, đổi hoặc bù; không cần nhập lại tên đại lý."
+              : "Chào anh 👋 Hôm nay mình đặt món gì ạ? Anh nhắn nội dung đơn, em sẽ tách từng điểm giao để anh kiểm tra trước khi gửi."}
           </div>
         </div>
       ) : null}
@@ -2188,7 +2357,7 @@ function NppQuickOrderPanel({
                 </div>
                 <div className="rounded-2xl bg-[#fff0f6] px-3 py-3 text-right" data-dealer-order-preview-total="amount">
                   <div className="text-[11px] font-bold uppercase tracking-wide text-[#927681]">Tổng tiền</div>
-                  <div className="mt-1 whitespace-nowrap text-2xl font-extrabold tracking-tight text-[#b33f72]">{formatVnd(cartTotal)}</div>
+                  <div className="mt-1 whitespace-nowrap text-xl font-extrabold tabular-nums tracking-tight text-[#b33f72] sm:text-2xl">{formatVnd(cartTotal)}</div>
                 </div>
               </div>
               <div className="mt-3 flex items-center justify-between border-t border-[#f2dfe7] pt-2 text-xs font-bold text-[#a73f70]">
@@ -2246,17 +2415,20 @@ function NppQuickOrderPanel({
         <div className="mt-5 min-w-0 w-full max-w-full space-y-2 overflow-hidden">
           <div className="flex items-center justify-between gap-3 px-1">
             <h4 className="text-sm font-extrabold text-[#4a343e]">Gợi ý sản phẩm</h4>
-            <span className="text-xs font-medium text-[#927681]">Chạm để xem</span>
+            <span className="text-xs font-medium text-[#927681]">{productSuggestions.length} sản phẩm • Vuốt để xem hết</span>
           </div>
           <div className="flex min-w-0 w-full max-w-full gap-3 overflow-x-auto pb-2 [-ms-overflow-style:none] [scrollbar-width:none]">
             {productSuggestions.map((suggestedProduct) => (
               <button
                 key={suggestedProduct.id}
                 type="button"
-                className="w-[160px] shrink-0 rounded-2xl border border-[#f0d7e2] bg-white p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#df78a7] hover:shadow-md sm:w-[180px]"
+                data-dealer-product-suggestion="card"
+                aria-label={`Xem và đặt ${suggestedProduct.name}`}
+                title={suggestedProduct.name}
+                className="flex h-[154px] w-[150px] shrink-0 flex-col rounded-2xl border border-[#f0d7e2] bg-white p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#df78a7] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d94f8a] sm:w-[164px]"
                 onClick={() => onProductSuggestion(suggestedProduct)}
               >
-                <div className="overflow-hidden rounded-xl border border-[#f4e4eb] bg-[#fff7fa]">
+                <div className="w-full shrink-0 overflow-hidden rounded-xl border border-[#f4e4eb] bg-[#fff7fa]">
                   {suggestedProduct.imageUrl ? (
                     <img src={suggestedProduct.imageUrl} alt={suggestedProduct.name} loading="lazy" className="h-20 w-full object-cover" />
                   ) : (
@@ -2265,8 +2437,8 @@ function NppQuickOrderPanel({
                     </div>
                   )}
                 </div>
-                <div className="mt-2 line-clamp-2 text-sm font-bold leading-5 text-[#4a343e]">{suggestedProduct.name}</div>
-                <div className="mt-1 truncate text-xs font-semibold text-[#c34f82]">{formatVnd(suggestedProduct.price)} / {suggestedProduct.unit}</div>
+                <div className="mt-2 w-full truncate text-sm font-bold leading-5 text-[#4a343e]">{suggestedProduct.name}</div>
+                <div className="mt-auto w-full truncate text-xs font-semibold text-[#c34f82]">{formatVnd(suggestedProduct.price)} / {suggestedProduct.unit}</div>
               </button>
             ))}
           </div>
@@ -2313,7 +2485,9 @@ function NppQuickOrderPanel({
           <div className="space-y-3 p-5">
             {!isEditingOrder ? (
               <div className="rounded-2xl border border-[#efcfdd] bg-white px-4 py-3 text-sm font-medium leading-6 text-[#704f5e]">
-                Anh kiểm tra lại số lượng và điểm giao trước khi xác nhận gửi đơn.
+                {isRetailDealer
+                  ? "Anh kiểm tra lại số lượng của đại lý trước khi xác nhận gửi đơn."
+                  : "Anh kiểm tra lại số lượng và điểm giao trước khi xác nhận gửi đơn."}
               </div>
             ) : null}
             {routes.map((route) => {
@@ -2560,6 +2734,39 @@ function parseDealerChatOrderText(text: string, routes: DealerRoute[]): ParsedDe
       note: tail.trim(),
     };
   }).filter((line): line is ParsedDealerChatLine => Boolean(line));
+}
+
+function parseRetailDealerChatOrderText(text: string, retailDealerRoute: DealerRoute | null): ParsedDealerChatLine[] {
+  if (!retailDealerRoute) return [];
+  const rawLine = String(text || "").trim();
+  if (!rawLine || rawLine.includes("\n")) return [];
+
+  const orderedMatch = rawLine.match(/^\s*(\d+(?:[.,]\d+)?)\b/i);
+  const exchangeMatch = rawLine.match(/(?:^|\s)(?:đổi|doi)\s+(\d+(?:[.,]\d+)?)/i);
+  const makeupMatch = rawLine.match(/(?:^|\s)(?:bù|bu)\s+(\d+(?:[.,]\d+)?)/i);
+  if (!orderedMatch && !exchangeMatch && !makeupMatch) return [];
+
+  const orderedQuantity = numberFromDealerChatText(orderedMatch?.[1]);
+  const exchangeQuantity = numberFromDealerChatText(exchangeMatch?.[1]);
+  const makeupQuantity = numberFromDealerChatText(makeupMatch?.[1]);
+  const physicalQuantity = orderedQuantity + exchangeQuantity + makeupQuantity;
+  if (![orderedQuantity, exchangeQuantity, makeupQuantity, physicalQuantity].every(Number.isFinite) || physicalQuantity <= 0) return [];
+
+  const note = rawLine
+    .replace(/^\s*\d+(?:[.,]\d+)?\b/i, "")
+    .replace(/(?:^|\s)(?:đổi|doi)\s+\d+(?:[.,]\d+)?/gi, " ")
+    .replace(/(?:^|\s)(?:bù|bu)\s+\d+(?:[.,]\d+)?/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return [{
+    route: retailDealerRoute,
+    routeText: retailDealerRoute.name,
+    orderedQuantity,
+    exchangeQuantity,
+    makeupQuantity,
+    note,
+  }];
 }
 
 function PublicLandingSupport() {

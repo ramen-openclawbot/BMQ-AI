@@ -116,6 +116,65 @@ class DealerAgentExperienceTests(unittest.TestCase):
         self.assertIn('setNppParseStatus("idle")', unmatched_branch)
         self.assertIn("return", unmatched_branch)
 
+    def test_retail_dealer_order_opens_the_same_agent_chat(self) -> None:
+        self.assertIn('if (activeNav === "order")', self.source)
+        self.assertNotIn('if (activeNav === "order" && isNppMode)', self.source)
+        self.assertIn("const retailDealerRoute", self.source)
+        self.assertIn("const chatOrderRoutes", self.source)
+
+    def test_retail_parser_accepts_quantity_exchange_and_makeup_without_name(self) -> None:
+        parser = self.source.split("function parseRetailDealerChatOrderText", 1)[1].split("function PublicLandingSupport", 1)[0]
+        self.assertIn("orderedQuantity", parser)
+        self.assertIn("exchangeQuantity", parser)
+        self.assertIn("makeupQuantity", parser)
+        self.assertIn("physicalQuantity", parser)
+        self.assertIn("return []", parser)
+        self.assertNotIn("findDealerChatRoute", parser)
+
+    def test_parse_handler_keeps_named_route_parser_for_npp_only(self) -> None:
+        parse_body = self.source.split("const handleParseNppOrderText = () => {", 1)[1].split("\n  };", 1)[0]
+        self.assertIn("isNppMode", parse_body)
+        self.assertIn("parseDealerChatOrderText(submittedText, dealerRoutes)", parse_body)
+        self.assertIn("parseRetailDealerChatOrderText(submittedText, retailDealerRoute)", parse_body)
+        self.assertIn("Anh chỉ cần nhắn số lượng", parse_body)
+
+    def test_retail_direct_submit_records_exchange_makeup_without_child_route_id(self) -> None:
+        submit_body = self.source.split("const confirmSubmitNppOrder = async () => {", 1)[1].split("\n  };", 1)[0]
+        self.assertIn("ordered_quantity", submit_body)
+        self.assertIn("exchange_quantity", submit_body)
+        self.assertIn("makeup_quantity", submit_body)
+        self.assertIn("physical_quantity", submit_body)
+        self.assertIn("...(isNppMode", submit_body)
+        self.assertIn("route_customer_id", submit_body)
+        self.assertIn("route_customer_name: dealerDisplayName", submit_body)
+
+    def test_product_suggestions_show_the_full_active_catalog(self) -> None:
+        self.assertIn("const productCarouselProducts = catalogProducts;", self.source)
+        self.assertNotIn(".slice(0, 10)", self.source)
+
+    def test_product_suggestion_cards_have_uniform_single_line_layout(self) -> None:
+        self.assertIn('data-dealer-product-suggestion="card"', self.source)
+        self.assertIn("h-[154px]", self.source)
+        self.assertIn("truncate text-sm font-bold", self.source)
+        self.assertNotIn("line-clamp-2 text-sm font-bold", self.source)
+
+    def test_product_suggestion_opens_detail_inside_chat_render_branch(self) -> None:
+        chat_branch = self.source.split('if (activeNav === "order") {\n    return (', 1)[1].split("\n  return (", 1)[0]
+        self.assertIn("<ProductDetailDialog", chat_branch)
+        self.assertIn("onProductSuggestion={handleProductCta}", chat_branch)
+        self.assertIn("data-dealer-product-detail", self.source)
+
+    def test_chat_order_uses_the_product_selected_from_suggestions(self) -> None:
+        self.assertIn("const chatProduct =", self.source)
+        self.assertIn("product={chatProduct}", self.source)
+        self.assertIn("setChatProductId(product.id)", self.source)
+        self.assertIn("Đặt sản phẩm này", self.source)
+
+    def test_retail_product_quantity_creates_chat_confirmation(self) -> None:
+        self.assertIn('activeNav === "order" && !isNppMode', self.source)
+        self.assertIn('setNppParseStatus("success")', self.source)
+        self.assertIn("[retailDealerRoute.id]: nextQuantity", self.source)
+
     def test_agent_avatar_has_no_online_badge_overlay(self) -> None:
         self.assertNotIn("absolute bottom-0 right-0", self.source)
 
@@ -137,7 +196,7 @@ class DealerAgentExperienceTests(unittest.TestCase):
     def test_npp_submit_uses_chat_success_bubble_not_success_dialog(self) -> None:
         submit_body = self.source.split("const confirmSubmitNppOrder = async () => {", 1)[1].split("\n  };", 1)[0]
         self.assertIn("chatNative: true", submit_body)
-        chat_branch = self.source.split('if (activeNav === "order" && isNppMode)', 1)[1].split("\n  return (", 1)[0]
+        chat_branch = self.source.split('if (activeNav === "order")', 1)[1].split("\n  return (", 1)[0]
         self.assertNotIn("orderMessage ? <div", chat_branch)
         panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]
         self.assertIn('data-dealer-chat-message="success"', panel)
