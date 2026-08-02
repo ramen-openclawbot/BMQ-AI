@@ -53,10 +53,42 @@ class DealerAgentExperienceTests(unittest.TestCase):
         self.assertNotIn("Chào anh Minh", self.source)
         self.assertIn("Chào {dealerDisplayName}", self.source)
 
+    def test_chat_turn_renders_customer_bubble_then_agent_processing_state(self) -> None:
+        self.assertIn('const [nppLastSentOrderText, setNppLastSentOrderText] = useState("")', self.source)
+        parse_body = self.source.split("const handleParseNppOrderText = () => {", 1)[1].split("\n  };", 1)[0]
+        self.assertIn("const submittedText = nppOrderText.trim()", parse_body)
+        self.assertIn("setNppLastSentOrderText(submittedText)", parse_body)
+        self.assertIn('setNppOrderText("")', parse_body)
+        panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]
+        self.assertIn('data-dealer-chat-message="customer"', panel)
+        self.assertIn("BMQ Agent đang xử lý", panel)
+        self.assertIn('data-dealer-chat-status="processing"', panel)
+        self.assertIn("scrollIntoView", panel)
+        self.assertIn("data-dealer-chat-scroll-anchor", panel)
+
+    def test_agent_returns_clickable_order_preview_inside_chat(self) -> None:
+        panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]
+        self.assertIn('data-dealer-order-preview-card="chat-attachment"', panel)
+        self.assertIn("Bản xác nhận đơn hàng", panel)
+        self.assertIn("Chạm để xem chi tiết", panel)
+        self.assertIn("onClick={openOrderConfirmation}", panel)
+        self.assertNotIn('data-stitch-dealer-order-bottom-bar="mobile"', panel)
+        self.assertNotIn('data-stitch-dealer-order-bottom-bar="desktop"', panel)
+
+    def test_npp_submit_uses_chat_success_bubble_not_success_dialog(self) -> None:
+        submit_body = self.source.split("const confirmSubmitNppOrder = async () => {", 1)[1].split("\n  };", 1)[0]
+        self.assertIn("chatNative: true", submit_body)
+        chat_branch = self.source.split('if (activeNav === "order" && isNppMode)', 1)[1].split("\n  return (", 1)[0]
+        self.assertNotIn("orderMessage ? <div", chat_branch)
+        panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]
+        self.assertIn('data-dealer-chat-message="success"', panel)
+        self.assertIn("Đã nhận đơn thành công", panel)
+        self.assertIn('data-dealer-chat-message="error"', panel)
+
     def test_order_submit_ctas_open_final_confirmation_before_sending(self) -> None:
         panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]
         self.assertIn("const openOrderConfirmation", panel)
-        self.assertGreaterEqual(panel.count("onClick={openOrderConfirmation}"), 2)
+        self.assertEqual(panel.count("onClick={openOrderConfirmation}"), 1)
         self.assertEqual(panel.count("onClick={onSubmit}"), 1)
         pre_confirmation = panel.split('<Dialog open={detailOpen}', 1)[0]
         confirmation = panel.split('<Dialog open={detailOpen}', 1)[1]

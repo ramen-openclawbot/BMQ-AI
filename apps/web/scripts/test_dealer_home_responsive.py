@@ -41,7 +41,7 @@ class DealerHomeResponsiveTests(unittest.TestCase):
         self.assertIn('<section id="quick-order" className={cn("min-w-0 space-y-4"', self.source)
         self.assertIn('<div className="min-w-0 space-y-4">', self.source)
         self.assertIn('className="min-w-0 flex-1 whitespace-normal break-words', self.source)
-        self.assertIn('className="min-h-28 w-0 min-w-0 flex-1', self.source)
+        self.assertIn('className="min-h-[52px] max-h-32 w-0 min-w-0 flex-1', self.source)
         self.assertNotIn("max-w-[calc(100%-2.5rem)]", self.source)
 
 

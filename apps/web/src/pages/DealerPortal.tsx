@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ComponentType, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type Dispatch, type SetStateAction } from "react";
 import {
   AlertCircle,
   ArrowLeft,
@@ -323,6 +323,7 @@ export default function DealerPortal() {
   const [nppMakeupQuantities, setNppMakeupQuantities] = useState<Record<string, number>>({});
   const [nppNotes, setNppNotes] = useState<Record<string, string>>({});
   const [nppOrderText, setNppOrderText] = useState("");
+  const [nppLastSentOrderText, setNppLastSentOrderText] = useState("");
   const [nppParseMessage, setNppParseMessage] = useState("");
   const [nppParseStatus, setNppParseStatus] = useState<"idle" | "processing" | "success">("idle");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -533,6 +534,7 @@ export default function DealerPortal() {
     setNppMakeupQuantities({});
     setNppNotes({});
     setNppOrderText("");
+    setNppLastSentOrderText("");
     setNppParseMessage("");
     setNppParseStatus("idle");
     setActiveNav("messages");
@@ -544,7 +546,10 @@ export default function DealerPortal() {
     setOrderError("");
   };
 
-  const submitOrderPayload = async (items: Array<Record<string, unknown>>) => {
+  const submitOrderPayload = async (
+    items: Array<Record<string, unknown>>,
+    options: { chatNative?: boolean } = {},
+  ) => {
     setOrderSubmitting(true);
     setOrderMessage("");
     setOrderError("");
@@ -565,9 +570,13 @@ export default function DealerPortal() {
 
       const nextOrderNumber = data?.order_number || "";
       setOrderSuccessNumber(nextOrderNumber);
-      setOrderSuccessOpen(true);
+      setOrderSuccessOpen(!options.chatNative);
       setNppConfirmOpen(false);
-      setOrderMessage(`Đã gửi đơn ${nextOrderNumber}. Xin cảm ơn quý khách đã chọn lựa Bánh Mì Que Pháp BMQ.`);
+      setOrderMessage(
+        options.chatNative
+          ? `${nextOrderNumber ? `Mã đơn ${nextOrderNumber}. ` : ""}Cảm ơn anh đã đặt hàng cùng BMQ.`
+          : `Đã gửi đơn ${nextOrderNumber}. Xin cảm ơn quý khách đã chọn lựa Bánh Mì Que Pháp BMQ.`,
+      );
       setQuantities({});
       setNppQuantities({});
       setNppExchangeQuantities({});
@@ -618,14 +627,25 @@ export default function DealerPortal() {
 
 
   const handleParseNppOrderText = () => {
+    const submittedText = nppOrderText.trim();
+    if (!submittedText) return;
+
+    setNppLastSentOrderText(submittedText);
+    setNppOrderText("");
     setNppParseStatus("processing");
     setNppParseMessage("");
+    setOrderMessage("");
+    setOrderError("");
+    setNppQuantities({});
+    setNppExchangeQuantities({});
+    setNppMakeupQuantities({});
+    setNppNotes({});
 
     window.setTimeout(() => {
-      const parsedLines = parseDealerChatOrderText(nppOrderText, dealerRoutes);
+      const parsedLines = parseDealerChatOrderText(submittedText, dealerRoutes);
       if (!parsedLines.length) {
         setNppParseStatus("idle");
-        setNppParseMessage("Chưa nhận diện được điểm bán. Anh có thể nhập theo mẫu: Rạch Giá 200 đổi 10, ĐVC 100 bù 3.");
+        setNppParseMessage("Em chưa nhận diện được điểm bán. Anh có thể nhắn theo mẫu: Rạch Giá 200 đổi 10, ĐVC 100 bù 3.");
         return;
       }
 
@@ -654,8 +674,8 @@ export default function DealerPortal() {
       setNppParseStatus("success");
       setNppParseMessage(
         unmatched.length
-          ? `Đã nhận ${parsedLines.length - unmatched.length} dòng. Chưa khớp: ${unmatched.slice(0, 3).join(", ")}.`
-          : `Đã nhận ${parsedLines.length} dòng. Anh có thể chỉnh trực tiếp ở chi tiết đơn.`,
+          ? `Em đã chuẩn bị ${parsedLines.length - unmatched.length} dòng để xác nhận. Chưa khớp: ${unmatched.slice(0, 3).join(", ")}.`
+          : "Em đã chuẩn bị bản xác nhận đơn. Anh kiểm tra giúp em nhé.",
       );
     }, 650);
   };
@@ -672,7 +692,7 @@ export default function DealerPortal() {
       route_customer_id: line.route.id,
       route_customer_name: line.route.name,
       route_note: line.note,
-    })));
+    })), { chatNative: true });
   };
 
   const selectedLines = useMemo(
@@ -1044,8 +1064,6 @@ export default function DealerPortal() {
           </div>
         </header>
         <main className="mx-auto w-full max-w-2xl px-3 py-4 sm:px-4">
-          {orderMessage ? <div className="mb-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{orderMessage}</div> : null}
-          {orderError ? <div className="mb-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{orderError}</div> : null}
           <NppQuickOrderPanel
             routes={dealerRoutes}
             product={nppProduct}
@@ -1060,6 +1078,9 @@ export default function DealerPortal() {
             setNotes={setNppNotes}
             orderText={nppOrderText}
             setOrderText={setNppOrderText}
+            sentOrderText={nppLastSentOrderText}
+            successMessage={orderMessage}
+            errorMessage={orderError}
             onProductSuggestion={handleProductCta}
             parseMessage={nppParseMessage}
             parseStatus={nppParseStatus}
@@ -1486,6 +1507,9 @@ export default function DealerPortal() {
                 setNotes={setNppNotes}
                 orderText={nppOrderText}
                 setOrderText={setNppOrderText}
+                sentOrderText={nppLastSentOrderText}
+                successMessage={orderMessage}
+                errorMessage={orderError}
                 onProductSuggestion={handleProductCta}
                 parseMessage={nppParseMessage}
                 parseStatus={nppParseStatus}
@@ -1948,6 +1972,9 @@ function NppQuickOrderPanel({
   setNotes,
   orderText,
   setOrderText,
+  sentOrderText,
+  successMessage,
+  errorMessage,
   onProductSuggestion,
   parseMessage,
   parseStatus,
@@ -1973,6 +2000,9 @@ function NppQuickOrderPanel({
   setNotes: Dispatch<SetStateAction<Record<string, string>>>;
   orderText: string;
   setOrderText: Dispatch<SetStateAction<string>>;
+  sentOrderText: string;
+  successMessage: string;
+  errorMessage: string;
   onProductSuggestion: (product: Product) => void;
   parseMessage: string;
   parseStatus: "idle" | "processing" | "success";
@@ -1994,6 +2024,15 @@ function NppQuickOrderPanel({
   });
   const selectedRouteCount = selectedRoutes.length;
   const [isEditingOrder, setIsEditingOrder] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!sentOrderText && !successMessage && !errorMessage) return;
+    const frame = window.requestAnimationFrame(() => {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [errorMessage, parseStatus, selectedRouteCount, sentOrderText, successMessage]);
 
   const openOrderConfirmation = () => {
     setIsEditingOrder(false);
@@ -2014,29 +2053,130 @@ function NppQuickOrderPanel({
   }
 
   return (
-    <div className="flex min-h-[calc(100dvh-88px)] min-w-0 w-full max-w-full flex-col pb-24" data-stitch-dealer-chat-agent="bottom-bar-v2" data-stitch-dealer-chat-overflow="contained-v1">
+    <div className="flex min-h-[calc(100dvh-88px)] min-w-0 w-full max-w-full flex-col pb-[max(12px,env(safe-area-inset-bottom))]" data-stitch-dealer-chat-agent="conversation-v1" data-stitch-dealer-chat-overflow="contained-v1">
       <div className="py-2 text-center text-[11px] font-medium text-[#a18d96]">Hôm nay</div>
 
-      <div className="flex min-w-0 items-start gap-2 py-2">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0ccdc] bg-white shadow-sm">
-          <img src={bmqLogo} alt="BMQ Agent" className="h-8 w-8 object-contain" />
-        </div>
-        <div className="min-w-0 flex-1 whitespace-normal break-words rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm leading-6 text-[#543943] shadow-sm ring-1 ring-[#f4e5eb]">
-          {parseStatus === "processing"
-            ? "Em đang đọc nội dung đơn..."
-            : parseStatus === "success"
-              ? "Em đã nhận đơn. Anh kiểm tra chi tiết rồi xác nhận giúp em nhé."
-              : "Chào anh 👋 Hôm nay mình đặt món gì ạ? Anh nhắn nội dung đơn, em sẽ tách từng điểm giao để anh kiểm tra trước khi gửi."}
-        </div>
-      </div>
-
-      {parseMessage ? (
-        <div className="ml-11 mt-1 rounded-2xl rounded-tl-md bg-[#fff0f6] px-4 py-3 text-sm font-medium leading-6 text-[#a73f70] ring-1 ring-[#f3d6e3]">
-          {parseMessage}
+      {!sentOrderText && !successMessage && !errorMessage && parseStatus === "idle" && !parseMessage ? (
+        <div className="flex min-w-0 items-start gap-2 py-2">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0ccdc] bg-white shadow-sm">
+            <img src={bmqLogo} alt="BMQ Agent" className="h-8 w-8 object-contain" />
+          </div>
+          <div className="min-w-0 flex-1 whitespace-normal break-words max-w-[85%] rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm leading-6 text-[#543943] shadow-sm ring-1 ring-[#f4e5eb]">
+            Chào anh 👋 Hôm nay mình đặt món gì ạ? Anh nhắn nội dung đơn, em sẽ tách từng điểm giao để anh kiểm tra trước khi gửi.
+          </div>
         </div>
       ) : null}
 
-      {productSuggestions.length > 0 ? (
+      {sentOrderText ? (
+        <div className="flex justify-end py-2" data-dealer-chat-message="customer">
+          <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-tr-md bg-[#d94f8a] px-4 py-3 text-sm leading-6 text-white shadow-sm">
+            {sentOrderText}
+          </div>
+        </div>
+      ) : null}
+
+      {parseStatus === "processing" ? (
+        <div className="flex min-w-0 items-start gap-2 py-2" data-dealer-chat-status="processing" aria-live="polite">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0ccdc] bg-white shadow-sm">
+            <img src={bmqLogo} alt="BMQ Agent" className="h-8 w-8 object-contain" />
+          </div>
+          <div className="flex items-center gap-2 rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm font-semibold text-[#704f5e] shadow-sm ring-1 ring-[#f4e5eb]">
+            <span>BMQ Agent đang xử lý</span>
+            <span className="flex items-center gap-1" aria-hidden="true">
+              {[0, 1, 2].map((dot) => <span key={dot} className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#d94f8a]" style={{ animationDelay: `${dot * 140}ms` }} />)}
+            </span>
+          </div>
+        </div>
+      ) : null}
+
+      {parseMessage && parseStatus !== "processing" ? (
+        <div className="flex min-w-0 items-start gap-2 py-2" data-dealer-chat-message="agent">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0ccdc] bg-white shadow-sm">
+            <img src={bmqLogo} alt="BMQ Agent" className="h-8 w-8 object-contain" />
+          </div>
+          <div className="min-w-0 max-w-[85%] whitespace-normal break-words rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm font-medium leading-6 text-[#543943] shadow-sm ring-1 ring-[#f4e5eb]">
+            {parseMessage}
+          </div>
+        </div>
+      ) : null}
+
+      {parseStatus === "success" && selectedRouteCount > 0 ? (
+        <div className="flex min-w-0 items-start gap-2 py-2">
+          <div className="w-9 shrink-0" aria-hidden="true" />
+          <button
+            type="button"
+            className="w-full max-w-sm overflow-hidden rounded-[24px] border border-[#ebc7d7] bg-white text-left shadow-[0_14px_35px_rgba(105,49,73,0.13)] transition hover:-translate-y-0.5 hover:border-[#d94f8a] hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d94f8a]"
+            data-dealer-order-preview-card="chat-attachment"
+            onClick={openOrderConfirmation}
+          >
+            <div className="bg-[linear-gradient(135deg,#d94f8a,#b83770)] px-4 py-4 text-white">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/75">BMQ Agent</div>
+                  <div className="mt-1 text-lg font-extrabold">Bản xác nhận đơn hàng</div>
+                </div>
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/25">
+                  <ClipboardList className="h-5 w-5" />
+                </div>
+              </div>
+            </div>
+            <div className="space-y-3 p-4">
+              <div className="space-y-2">
+                {selectedRoutes.slice(0, 3).map((route) => {
+                  const physical = (quantities[route.id] || 0) + (exchangeQuantities[route.id] || 0) + (makeupQuantities[route.id] || 0);
+                  return (
+                    <div key={route.id} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="min-w-0 truncate font-semibold text-[#4a343e]">{route.name}</span>
+                      <span className="shrink-0 font-extrabold text-[#b33f72]">{physical} {unitLabel}</span>
+                    </div>
+                  );
+                })}
+                {selectedRouteCount > 3 ? <div className="text-xs font-medium text-[#927681]">+ {selectedRouteCount - 3} điểm giao khác</div> : null}
+              </div>
+              <div className="grid grid-cols-2 gap-2 border-t border-[#f2dfe7] pt-3">
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-[#a18491]">Tổng giao</div>
+                  <div className="mt-1 text-base font-extrabold text-[#4a343e]">{totalItems} {unitLabel}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-[#a18491]">Tạm tính</div>
+                  <div className="mt-1 text-base font-extrabold text-[#b33f72]">{formatVnd(cartTotal)}</div>
+                </div>
+              </div>
+              <div className="flex items-center justify-between rounded-2xl bg-[#fff0f6] px-3 py-2 text-xs font-bold text-[#a73f70]">
+                <span>Chạm để xem chi tiết</span>
+                <ChevronRight className="h-4 w-4" />
+              </div>
+            </div>
+          </button>
+        </div>
+      ) : null}
+
+      {successMessage ? (
+        <div className="flex min-w-0 items-start gap-2 py-2" data-dealer-chat-message="success" aria-live="polite">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0ccdc] bg-white shadow-sm">
+            <img src={bmqLogo} alt="BMQ Agent" className="h-8 w-8 object-contain" />
+          </div>
+          <div className="max-w-[85%] rounded-2xl rounded-tl-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-800 shadow-sm">
+            <div className="flex items-center gap-2 font-extrabold"><CheckCircle2 className="h-4 w-4" />Đã nhận đơn thành công</div>
+            <div className="mt-1">{successMessage}</div>
+          </div>
+        </div>
+      ) : null}
+
+      {errorMessage ? (
+        <div className="flex min-w-0 items-start gap-2 py-2" data-dealer-chat-message="error" aria-live="polite">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0ccdc] bg-white shadow-sm">
+            <img src={bmqLogo} alt="BMQ Agent" className="h-8 w-8 object-contain" />
+          </div>
+          <div className="max-w-[85%] rounded-2xl rounded-tl-md border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700 shadow-sm">
+            <div className="flex items-center gap-2 font-bold"><AlertCircle className="h-4 w-4" />Chưa gửi được đơn</div>
+            <div className="mt-1">{errorMessage}</div>
+          </div>
+        </div>
+      ) : null}
+
+      {productSuggestions.length > 0 && !sentOrderText && parseStatus === "idle" && !successMessage ? (
         <div className="mt-5 min-w-0 w-full max-w-full space-y-2 overflow-hidden">
           <div className="flex items-center justify-between gap-3 px-1">
             <h4 className="text-sm font-extrabold text-[#4a343e]">Gợi ý sản phẩm</h4>
@@ -2067,15 +2207,14 @@ function NppQuickOrderPanel({
         </div>
       ) : null}
 
-      <div className={cn(
-        "sticky z-20 mt-auto flex min-w-0 w-full max-w-full items-end gap-2 overflow-hidden rounded-[26px] border border-[#edccda] bg-white p-2 shadow-[0_12px_35px_rgba(105,49,73,0.12)] focus-within:ring-2 focus-within:ring-[#e8a6c3]",
-        selectedRouteCount > 0 ? "bottom-20" : "bottom-3",
-      )}>
+      <div ref={chatEndRef} aria-hidden="true" data-dealer-chat-scroll-anchor />
+
+      <div className="sticky bottom-[max(12px,env(safe-area-inset-bottom))] z-20 mt-auto flex min-w-0 w-full max-w-full items-end gap-2 overflow-hidden rounded-[26px] border border-[#edccda] bg-white p-2 shadow-[0_12px_35px_rgba(105,49,73,0.12)] focus-within:ring-2 focus-within:ring-[#e8a6c3]">
         <Textarea
           value={orderText}
           onChange={(event) => setOrderText(event.target.value)}
           placeholder="Nhắn BMQ Agent…"
-          className="min-h-28 w-0 min-w-0 flex-1 resize-none border-0 bg-transparent text-base leading-7 text-[#3f2731] shadow-none placeholder:text-[#a98997] focus-visible:ring-0"
+          className="min-h-[52px] max-h-32 w-0 min-w-0 flex-1 resize-none border-0 bg-transparent text-base leading-6 text-[#3f2731] shadow-none placeholder:text-[#a98997] focus-visible:ring-0"
         />
         <Button
           type="button"
@@ -2088,41 +2227,6 @@ function NppQuickOrderPanel({
           {parseStatus === "processing" ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
         </Button>
       </div>
-
-      {selectedRouteCount > 0 ? (
-        <>
-          <div className="fixed inset-x-0 bottom-0 z-30 border-t border-[#f0d7e2] bg-white/95 px-4 pb-3 pt-3 shadow-[0_-10px_30px_rgba(105,49,73,0.14)] backdrop-blur lg:hidden" data-stitch-dealer-order-bottom-bar="mobile">
-            <div className="mx-auto flex max-w-6xl items-center gap-3">
-              <button type="button" className="min-w-0 flex-1 text-left" onClick={openOrderConfirmation}>
-                <div className="text-sm font-extrabold text-[#4a343e]">{selectedRouteCount} dòng • giao {totalItems} {unitLabel}</div>
-                <div className="truncate text-xs font-medium text-[#927681]">Tạm tính {formatVnd(cartTotal)} • Kiểm tra trước khi gửi</div>
-              </button>
-              <Button type="button" className="h-12 shrink-0 rounded-2xl bg-[#d94f8a] px-4 font-bold text-white hover:bg-[#c43f79]" disabled={!canSubmit || submitting} onClick={openOrderConfirmation}>
-                Xem & xác nhận
-              </Button>
-            </div>
-          </div>
-
-          <div className="hidden rounded-3xl border border-[#f0d7e2] bg-white p-4 shadow-sm lg:block" data-stitch-dealer-order-bottom-bar="desktop">
-            <div className="flex items-center justify-between gap-3">
-              <button type="button" className="min-w-0 text-left" onClick={openOrderConfirmation}>
-                <div className="text-xs font-semibold uppercase tracking-wide text-[#c34f82]">Đơn đã nhận</div>
-                <h3 className="mt-1 text-xl font-display font-extrabold text-[#4a343e]">{selectedRouteCount} dòng • giao {totalItems} {unitLabel}</h3>
-                <div className="text-sm font-medium text-[#927681]">Kiểm tra bản cuối trước khi gửi</div>
-              </button>
-              <div className="flex items-center gap-3">
-                <div className="text-right">
-                  <div className="text-xs text-[#927681]">Tạm tính</div>
-                  <div className="text-lg font-extrabold text-[#4a343e]">{formatVnd(cartTotal)}</div>
-                </div>
-                <Button type="button" className="h-12 rounded-2xl bg-[#d94f8a] px-5 font-bold text-white hover:bg-[#c43f79]" disabled={!canSubmit || submitting} onClick={openOrderConfirmation}>
-                  Xem & xác nhận
-                </Button>
-              </div>
-            </div>
-          </div>
-        </>
-      ) : null}
 
       <Dialog open={detailOpen} onOpenChange={handleDetailOpenChange}>
         <DialogContent
