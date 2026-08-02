@@ -42,7 +42,10 @@ class DealerAgentExperienceTests(unittest.TestCase):
         self.assertIn('data-dealer-agent-screen="chat"', self.source)
         self.assertIn('aria-label="Quay lại danh sách tin nhắn"', self.source)
         self.assertIn('setActiveNav("messages")', self.source)
-        self.assertIn("Đang trực tuyến", self.source)
+        chat_header = self.source.split('data-dealer-agent-screen="chat"', 1)[1].split("</header>", 1)[0]
+        self.assertIn("Trợ lý đặt hàng", chat_header)
+        self.assertNotIn("Đang trực tuyến", chat_header)
+        self.assertNotIn("bg-emerald-500", chat_header)
         self.assertIn("Nhắn BMQ Agent…", self.source)
 
     def test_authenticated_secondary_screens_have_zalo_style_back_action(self) -> None:
@@ -77,10 +80,26 @@ class DealerAgentExperienceTests(unittest.TestCase):
         panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]
         self.assertIn('data-dealer-order-preview-card="chat-attachment"', panel)
         self.assertIn("Xác nhận đơn hàng", panel)
-        self.assertIn("Chạm để xem chi tiết", panel)
         self.assertIn("onClick={openOrderConfirmation}", panel)
         self.assertNotIn('data-stitch-dealer-order-bottom-bar="mobile"', panel)
         self.assertNotIn('data-stitch-dealer-order-bottom-bar="desktop"', panel)
+
+    def test_order_preview_matches_approved_compact_product_design(self) -> None:
+        panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]
+        self.assertIn('data-dealer-order-preview-product="compact"', panel)
+        self.assertIn('data-dealer-order-preview-product-image', panel)
+        self.assertIn("product.imageUrl", panel)
+        self.assertIn("{product.name}", panel)
+        self.assertIn("{formatVnd(product.price)} / {unitLabel}", panel)
+        self.assertIn("h-16 w-16", panel)
+        self.assertIn('className="min-w-0 flex-1 max-w-sm rounded-[22px]', panel)
+        self.assertNotIn('className="w-full max-w-sm rounded-[22px]', panel)
+        self.assertIn('data-dealer-order-preview-total="quantity"', panel)
+        self.assertIn('data-dealer-order-preview-total="amount"', panel)
+        self.assertIn('data-dealer-chat-choice="confirm"', panel)
+        self.assertIn('data-dealer-chat-choice="edit"', panel)
+        self.assertIn('data-dealer-chat-choice="new-order"', panel)
+        self.assertNotIn("Chạm để xem chi tiết", panel)
 
     def test_confirmation_intent_bypasses_order_parser_and_opens_review(self) -> None:
         self.assertIn("DEALER_CHAT_CONFIRMATION_INTENTS", self.source)

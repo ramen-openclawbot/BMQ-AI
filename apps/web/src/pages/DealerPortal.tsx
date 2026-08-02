@@ -1133,10 +1133,7 @@ export default function DealerPortal() {
             </div>
             <div className="min-w-0 flex-1">
               <div className="truncate text-base font-extrabold">BMQ Agent</div>
-              <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-600">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                Đang trực tuyến
-              </div>
+              <div className="text-xs font-medium text-[#927681]">Trợ lý đặt hàng</div>
             </div>
             <button type="button" aria-label="Tài khoản" className="flex h-9 w-9 items-center justify-center rounded-full text-[#7f6672] hover:bg-[#fff0f6]" onClick={() => setDealerProfileOpen(true)}>
               <UserRound className="h-5 w-5" />
@@ -2321,50 +2318,62 @@ function NppQuickOrderPanel({
       ) : null}
 
       {parseStatus === "success" && selectedRouteCount > 0 ? (
-        <div className="space-y-2 py-2">
+        <div className="py-2">
           <div className="flex min-w-0 items-start gap-2">
             <div className="w-9 shrink-0" aria-hidden="true" />
-            <button
-              type="button"
-              className="w-full max-w-sm rounded-[22px] border border-[#ebc7d7] bg-white p-3 text-left shadow-[0_10px_26px_rgba(105,49,73,0.11)] transition hover:border-[#d94f8a] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d94f8a]"
-              data-dealer-order-preview-card="chat-attachment"
-              onClick={openOrderConfirmation}
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#fff0f6] text-[#c43f79]">
-                  <ClipboardList className="h-5 w-5" />
+            <div className="min-w-0 flex-1 max-w-sm rounded-[22px] border border-[#ebc7d7] bg-white p-3 shadow-[0_10px_26px_rgba(105,49,73,0.11)]">
+              <button
+                type="button"
+                className="block w-full rounded-2xl text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d94f8a]"
+                data-dealer-order-preview-card="chat-attachment"
+                aria-label="Xem chi tiết xác nhận đơn hàng"
+                onClick={openOrderConfirmation}
+              >
+                <div className="flex items-center gap-2 text-[#a73f70]">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-[#fff0f6]">
+                    <ClipboardList className="h-4 w-4" />
+                  </div>
+                  <div className="text-[11px] font-extrabold uppercase tracking-[0.12em]">Xác nhận đơn hàng</div>
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="font-extrabold text-[#4a343e]">Xác nhận đơn hàng</div>
-                  <div className="mt-0.5 text-xs font-medium text-[#927681]">Bấm để kiểm tra chi tiết</div>
+                <div className="mt-3 flex items-center gap-3 rounded-2xl bg-[#fff8fb] p-2" data-dealer-order-preview-product="compact">
+                  <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-[#f1dbe4] bg-white" data-dealer-order-preview-product-image>
+                    {product.imageUrl ? (
+                      <img src={product.imageUrl} alt={product.name} loading="lazy" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-[#fff3f8]">
+                        <img src={bmqLogo} alt="BMQ" className="h-9 w-9 object-contain" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-base font-extrabold text-[#4a343e]">{product.name}</div>
+                    <div className="mt-1 truncate text-sm font-bold text-[#c34f82]">{formatVnd(product.price)} / {unitLabel}</div>
+                  </div>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-[#bd8ca1]" />
                 </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="rounded-2xl bg-[#fff5f9] px-3 py-3" data-dealer-order-preview-total="quantity">
+                    <div className="text-[10px] font-extrabold uppercase tracking-wide text-[#927681]">Tổng số lượng</div>
+                    <div className="mt-1 whitespace-nowrap text-2xl font-extrabold tracking-tight text-[#4a343e]">{totalItems} {unitLabel}</div>
+                  </div>
+                  <div className="rounded-2xl bg-[#fff0f6] px-3 py-3 text-right" data-dealer-order-preview-total="amount">
+                    <div className="text-[10px] font-extrabold uppercase tracking-wide text-[#927681]">Tổng tiền</div>
+                    <div className="mt-1 whitespace-nowrap text-xl font-extrabold tabular-nums tracking-tight text-[#b33f72] sm:text-2xl">{formatVnd(cartTotal)}</div>
+                  </div>
+                </div>
+              </button>
+              <div className="mt-3 grid grid-cols-2 gap-2 border-t border-[#f2dfe7] pt-3" data-dealer-chat-choices="order-ready" role="group" aria-label="Chọn thao tác với đơn hàng">
+                <Button type="button" className="col-span-2 h-11 rounded-2xl bg-[#d94f8a] font-extrabold text-white shadow-sm hover:bg-[#c43f79]" data-dealer-chat-choice="confirm" onClick={openOrderConfirmation}>
+                  <CheckCircle2 className="h-4 w-4" /> Xác nhận gửi
+                </Button>
+                <Button type="button" variant="outline" className="h-10 rounded-2xl border-[#e7b9cd] bg-white font-bold text-[#a73f70] hover:bg-[#fff0f6]" data-dealer-chat-choice="edit" onClick={openOrderEditor}>
+                  Chỉnh sửa
+                </Button>
+                <Button type="button" variant="outline" className="h-10 rounded-2xl border-[#e7b9cd] bg-white font-bold text-[#704f5e] hover:bg-[#fff0f6]" data-dealer-chat-choice="new-order" onClick={onStartNewOrder}>
+                  Đặt đơn khác
+                </Button>
               </div>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <div className="rounded-2xl bg-[#fff5f9] px-3 py-3" data-dealer-order-preview-total="quantity">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-[#927681]">Tổng số lượng</div>
-                  <div className="mt-1 text-2xl font-extrabold tracking-tight text-[#4a343e]">{totalItems} {unitLabel}</div>
-                </div>
-                <div className="rounded-2xl bg-[#fff0f6] px-3 py-3 text-right" data-dealer-order-preview-total="amount">
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-[#927681]">Tổng tiền</div>
-                  <div className="mt-1 whitespace-nowrap text-xl font-extrabold tabular-nums tracking-tight text-[#b33f72] sm:text-2xl">{formatVnd(cartTotal)}</div>
-                </div>
-              </div>
-              <div className="mt-3 flex items-center justify-between border-t border-[#f2dfe7] pt-2 text-xs font-bold text-[#a73f70]">
-                <span>Chạm để xem chi tiết</span>
-                <ChevronRight className="h-4 w-4" />
-              </div>
-            </button>
-          </div>
-          <div className="ml-11 grid max-w-sm grid-cols-2 gap-2" data-dealer-chat-choices="order-ready" role="group" aria-label="Chọn thao tác với đơn hàng">
-            <Button type="button" className="col-span-2 h-11 rounded-full bg-[#d94f8a] font-extrabold text-white hover:bg-[#c43f79]" data-dealer-chat-choice="confirm" onClick={openOrderConfirmation}>
-              <CheckCircle2 className="h-4 w-4" /> Xác nhận gửi
-            </Button>
-            <Button type="button" variant="outline" className="h-10 rounded-full border-[#e7b9cd] bg-white font-bold text-[#a73f70] hover:bg-[#fff0f6]" data-dealer-chat-choice="edit" onClick={openOrderEditor}>
-              Chỉnh sửa
-            </Button>
-            <Button type="button" variant="outline" className="h-10 rounded-full border-[#e7b9cd] bg-white font-bold text-[#704f5e] hover:bg-[#fff0f6]" data-dealer-chat-choice="new-order" onClick={onStartNewOrder}>
-              Đặt đơn khác
-            </Button>
+            </div>
           </div>
         </div>
       ) : null}
