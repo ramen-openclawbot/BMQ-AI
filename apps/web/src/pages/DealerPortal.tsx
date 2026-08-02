@@ -327,6 +327,7 @@ export default function DealerPortal() {
   const [nppParseMessage, setNppParseMessage] = useState("");
   const [nppParseStatus, setNppParseStatus] = useState<"idle" | "processing" | "success">("idle");
   const [chatProductId, setChatProductId] = useState("");
+  const [directCatalogOrder, setDirectCatalogOrder] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [draftQuantity, setDraftQuantity] = useState("");
   const [quantityModalError, setQuantityModalError] = useState("");
@@ -538,6 +539,7 @@ export default function DealerPortal() {
     setNppLastSentOrderText("");
     setNppParseMessage("");
     setNppParseStatus("idle");
+    setDirectCatalogOrder(false);
     setActiveNav("messages");
     setLoginStep("phone");
     setOtp("");
@@ -636,6 +638,7 @@ export default function DealerPortal() {
     setNppLastSentOrderText("");
     setNppParseMessage("");
     setNppParseStatus("idle");
+    setDirectCatalogOrder(false);
     setOrderMessage("");
     setOrderError("");
   };
@@ -660,6 +663,7 @@ export default function DealerPortal() {
       if (hasReadyOrder) setNppConfirmOpen(true);
       return;
     }
+    if (isNppMode) setDirectCatalogOrder(false);
     setNppParseStatus("processing");
     setNppParseMessage("");
     setOrderMessage("");
@@ -729,7 +733,7 @@ export default function DealerPortal() {
       exchange_quantity: line.exchangeQuantity,
       makeup_quantity: line.makeupQuantity,
       physical_quantity: line.physicalQuantity,
-      ...(isNppMode
+      ...(isNppMode && !directCatalogOrder
         ? {
             route_customer_id: line.route.id,
             route_customer_name: line.route.name,
@@ -763,9 +767,10 @@ export default function DealerPortal() {
     code: dealerCustomer.code,
     address: dealerCustomer.address,
   }) : null, [dealerCustomer, dealerDisplayName]);
+  const directDealerOrder = !isNppMode || directCatalogOrder;
   const chatOrderRoutes = useMemo(
-    () => isNppMode ? dealerRoutes : retailDealerRoute ? [retailDealerRoute] : [],
-    [dealerRoutes, isNppMode, retailDealerRoute],
+    () => directDealerOrder && retailDealerRoute ? [retailDealerRoute] : dealerRoutes,
+    [dealerRoutes, directDealerOrder, retailDealerRoute],
   );
   const nppProduct = useMemo(
     () => catalogProducts.find((product) => `${product.name} ${product.skuCode || ""}`.toLocaleLowerCase("vi-VN").includes("que")) || catalogProducts[0] || null,
@@ -849,16 +854,6 @@ export default function DealerPortal() {
     setOrderError("");
   };
 
-  const handleSelectProductForChat = () => {
-    if (!selectedProduct) return;
-    resetChatOrderForProduct(selectedProduct);
-    setNppParseStatus("success");
-    setNppParseMessage(`Đã chọn ${selectedProduct.name}. Anh nhập tên điểm và số lượng để em chuẩn bị đơn.`);
-    setSelectedProduct(null);
-    setDraftQuantity("");
-    setQuantityModalError("");
-  };
-
   const handleProductQuantitySubmit = () => {
     if (!selectedProduct) return;
 
@@ -872,12 +867,13 @@ export default function DealerPortal() {
       return;
     }
 
-    if (activeNav === "order" && !isNppMode) {
+    if (activeNav === "order") {
       if (!retailDealerRoute || nextQuantity <= 0) {
         setQuantityModalError(`Vui lòng nhập ít nhất ${DEALER_ORDER_STEP} ${selectedProduct.unit || "đơn vị"}.`);
         return;
       }
       resetChatOrderForProduct(selectedProduct);
+      setDirectCatalogOrder(true);
       setNppQuantities({ [retailDealerRoute.id]: nextQuantity });
       setNppLastSentOrderText(`${selectedProduct.name} ${nextQuantity}`);
       setNppParseStatus("success");
@@ -1150,7 +1146,7 @@ export default function DealerPortal() {
         <main className="mx-auto w-full max-w-2xl px-3 py-4 sm:px-4">
           <NppQuickOrderPanel
             routes={chatOrderRoutes}
-            isRetailDealer={!isNppMode}
+            isRetailDealer={directDealerOrder}
             product={chatProduct}
             productSuggestions={productCarouselProducts}
             quantities={nppQuantities}
@@ -1181,7 +1177,6 @@ export default function DealerPortal() {
           />
           <ProductDetailDialog
             product={selectedProduct}
-            isNppMode={isNppMode}
             draftQuantity={draftQuantity}
             quantityError={quantityModalError}
             onDraftQuantityChange={(value) => {
@@ -1193,7 +1188,7 @@ export default function DealerPortal() {
               setDraftQuantity("");
               setQuantityModalError("");
             }}
-            onSubmit={isNppMode ? handleSelectProductForChat : handleProductQuantitySubmit}
+            onSubmit={handleProductQuantitySubmit}
           />
         </main>
         <Dialog open={dealerProfileOpen} onOpenChange={setDealerProfileOpen}>
@@ -1606,7 +1601,7 @@ export default function DealerPortal() {
             {isNppMode ? (
               <NppQuickOrderPanel
                 routes={chatOrderRoutes}
-                isRetailDealer={!isNppMode}
+                isRetailDealer={directDealerOrder}
                 product={nppProduct}
                 productSuggestions={productCarouselProducts}
                 quantities={nppQuantities}
@@ -2073,7 +2068,6 @@ export default function DealerPortal() {
 
 function ProductDetailDialog({
   product,
-  isNppMode,
   draftQuantity,
   quantityError,
   onDraftQuantityChange,
@@ -2081,7 +2075,6 @@ function ProductDetailDialog({
   onSubmit,
 }: {
   product: Product | null;
-  isNppMode: boolean;
   draftQuantity: string;
   quantityError: string;
   onDraftQuantityChange: (value: string) => void;
@@ -2107,9 +2100,7 @@ function ProductDetailDialog({
               <DialogHeader>
                 <DialogTitle className="text-xl font-display font-extrabold leading-tight">{product.name}</DialogTitle>
                 <DialogDescription className="text-sm leading-6 text-[#765333]">
-                  {formatVnd(product.price)} / {product.unit}. {isNppMode
-                    ? "Chọn sản phẩm này rồi nhập số lượng theo từng điểm bán trong ô chat."
-                    : `Đặt theo bội số ${DEALER_ORDER_STEP} ${product.unit || "đơn vị"}.`}
+                  {formatVnd(product.price)} / {product.unit}. Đặt theo bội số {DEALER_ORDER_STEP} {product.unit || "đơn vị"}.
                 </DialogDescription>
               </DialogHeader>
               <div className="grid grid-cols-3 gap-2" data-dealer-product-specs="weight-shelf-life">
@@ -2124,24 +2115,22 @@ function ProductDetailDialog({
                   </div>
                 ))}
               </div>
-              {!isNppMode ? (
-                <div className="space-y-2">
-                  <Label htmlFor="dealer-product-quantity">Số lượng đặt</Label>
-                  <Input
-                    id="dealer-product-quantity"
-                    type="number"
-                    inputMode="numeric"
-                    min={DEALER_ORDER_STEP}
-                    step={DEALER_ORDER_STEP}
-                    value={draftQuantity}
-                    placeholder="VD: 100"
-                    onChange={(event) => onDraftQuantityChange(event.target.value.replace(/[^0-9]/g, ""))}
-                    onKeyDown={(event) => { if (event.key === "Enter") onSubmit(); }}
-                    className="h-12 rounded-2xl border-[#e7b9cd] bg-white text-center text-lg font-extrabold text-[#4a343e] focus-visible:ring-[#d94f8a]"
-                  />
-                  {quantityError ? <div className="text-sm font-medium text-destructive">{quantityError}</div> : null}
-                </div>
-              ) : null}
+              <div className="space-y-2">
+                <Label htmlFor="dealer-product-quantity">Số lượng đặt</Label>
+                <Input
+                  id="dealer-product-quantity"
+                  type="number"
+                  inputMode="numeric"
+                  min={DEALER_ORDER_STEP}
+                  step={DEALER_ORDER_STEP}
+                  value={draftQuantity}
+                  placeholder="VD: 100"
+                  onChange={(event) => onDraftQuantityChange(event.target.value.replace(/[^0-9]/g, ""))}
+                  onKeyDown={(event) => { if (event.key === "Enter") onSubmit(); }}
+                  className="h-12 rounded-2xl border-[#e7b9cd] bg-white text-center text-lg font-extrabold text-[#4a343e] focus-visible:ring-[#d94f8a]"
+                />
+                {quantityError ? <div className="text-sm font-medium text-destructive">{quantityError}</div> : null}
+              </div>
               <DialogFooter className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-2">
                 <Button variant="outline" className="h-11 rounded-2xl border-[#e7b9cd] bg-white text-[#704f5e]" onClick={onClose}>Đóng</Button>
                 <Button className="h-11 rounded-2xl bg-[#d94f8a] font-bold text-white hover:bg-[#c43f79]" onClick={onSubmit}>Đặt sản phẩm này</Button>

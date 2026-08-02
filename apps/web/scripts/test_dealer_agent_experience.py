@@ -134,6 +134,7 @@ class DealerAgentExperienceTests(unittest.TestCase):
     def test_parse_handler_keeps_named_route_parser_for_npp_only(self) -> None:
         parse_body = self.source.split("const handleParseNppOrderText = () => {", 1)[1].split("\n  };", 1)[0]
         self.assertIn("isNppMode", parse_body)
+        self.assertIn("setDirectCatalogOrder(false)", parse_body)
         self.assertIn("parseDealerChatOrderText(submittedText, dealerRoutes)", parse_body)
         self.assertIn("parseRetailDealerChatOrderText(submittedText, retailDealerRoute)", parse_body)
         self.assertIn("Anh chỉ cần nhắn số lượng", parse_body)
@@ -170,10 +171,20 @@ class DealerAgentExperienceTests(unittest.TestCase):
         self.assertIn("setChatProductId(product.id)", self.source)
         self.assertIn("Đặt sản phẩm này", self.source)
 
-    def test_retail_product_quantity_creates_chat_confirmation(self) -> None:
-        self.assertIn('activeNav === "order" && !isNppMode', self.source)
+    def test_product_quantity_creates_chat_confirmation_for_any_authenticated_dealer(self) -> None:
+        self.assertIn('activeNav === "order"', self.source)
+        self.assertIn('setDirectCatalogOrder(true)', self.source)
         self.assertIn('setNppParseStatus("success")', self.source)
         self.assertIn("[retailDealerRoute.id]: nextQuantity", self.source)
+
+    def test_selected_product_uses_authenticated_dealer_location_without_asking_route(self) -> None:
+        self.assertIn("const directDealerOrder = !isNppMode || directCatalogOrder;", self.source)
+        self.assertIn("directDealerOrder && retailDealerRoute ? [retailDealerRoute]", self.source)
+        self.assertIn("isNppMode && !directCatalogOrder", self.source)
+        self.assertNotIn("Anh nhập tên điểm và số lượng để em chuẩn bị đơn.", self.source)
+        detail_component = self.source.split("function ProductDetailDialog", 1)[1].split("function NppQuickOrderPanel", 1)[0]
+        self.assertIn('htmlFor="dealer-product-quantity"', detail_component)
+        self.assertNotIn("!isNppMode ?", detail_component)
 
     def test_agent_avatar_has_no_online_badge_overlay(self) -> None:
         self.assertNotIn("absolute bottom-0 right-0", self.source)
