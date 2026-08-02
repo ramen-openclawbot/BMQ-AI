@@ -116,12 +116,22 @@ class DealerAgentExperienceTests(unittest.TestCase):
         self.assertIn('setNppParseStatus("idle")', unmatched_branch)
         self.assertIn("return", unmatched_branch)
 
-    def test_order_preview_is_compact_and_has_no_gradient_header(self) -> None:
+    def test_agent_avatar_has_no_online_badge_overlay(self) -> None:
+        self.assertNotIn("absolute bottom-0 right-0", self.source)
+
+    def test_order_preview_only_shows_large_quantity_and_amount_totals(self) -> None:
         panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]
         preview = panel.split('data-dealer-order-preview-card="chat-attachment"', 1)[1].split("</button>", 1)[0]
-        self.assertIn("{selectedRouteCount} điểm giao", preview)
+        self.assertIn('data-dealer-order-preview-total="quantity"', preview)
+        self.assertIn('data-dealer-order-preview-total="amount"', preview)
+        self.assertIn("Tổng số lượng", preview)
+        self.assertIn("Tổng tiền", preview)
         self.assertIn("{totalItems} {unitLabel}", preview)
         self.assertIn("{formatVnd(cartTotal)}", preview)
+        self.assertIn("text-2xl", preview)
+        self.assertNotIn("điểm giao", preview)
+        self.assertNotIn("selectedRoutes.slice", preview)
+        self.assertNotIn("selectedRouteCount", preview)
         self.assertNotIn("linear-gradient", preview)
 
     def test_npp_submit_uses_chat_success_bubble_not_success_dialog(self) -> None:

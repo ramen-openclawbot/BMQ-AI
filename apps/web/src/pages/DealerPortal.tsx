@@ -858,7 +858,7 @@ export default function DealerPortal() {
             <div className="mt-7 flex items-start gap-3 rounded-[24px] border border-[#f5d8e5] bg-white p-4 shadow-[0_16px_45px_rgba(217,79,138,0.09)]">
               <div className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f3c7d9] bg-[#fff4f8]">
                 <img src={bmqLogo} alt="BMQ Agent" className="h-10 w-10 object-contain" />
-                <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500" />
+
               </div>
               <div className="rounded-2xl rounded-tl-md bg-[#fff2f7] px-4 py-3 text-sm font-medium leading-6 text-[#5b3a48]">
                 Hôm nay mình dùng món gì ạ?
@@ -1001,7 +1001,7 @@ export default function DealerPortal() {
           >
             <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0ccdc] bg-[#fff4f8]">
               <img src={bmqLogo} alt="BMQ Agent" className="h-12 w-12 object-contain" />
-              <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" />
+
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
@@ -1082,7 +1082,7 @@ export default function DealerPortal() {
             </button>
             <div className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0cada] bg-[#fff5f9]">
               <img src={bmqLogo} alt="BMQ Agent" className="h-9 w-9 object-contain" />
-              <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500" />
+
             </div>
             <div className="min-w-0 flex-1">
               <div className="truncate text-base font-extrabold">BMQ Agent</div>
@@ -2182,22 +2182,24 @@ function NppQuickOrderPanel({
               data-dealer-order-preview-card="chat-attachment"
               onClick={openOrderConfirmation}
             >
-              <div className="flex items-start gap-3">
+              <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#fff0f6] text-[#c43f79]">
                   <ClipboardList className="h-5 w-5" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="font-extrabold text-[#4a343e]">Xác nhận đơn hàng</div>
-                  <div className="mt-0.5 text-xs font-medium text-[#927681]">{selectedRouteCount} điểm giao • {totalItems} {unitLabel}</div>
+                  <div className="mt-0.5 text-xs font-medium text-[#927681]">Bấm để kiểm tra chi tiết</div>
                 </div>
-                <div className="shrink-0 text-sm font-extrabold text-[#b33f72]">{formatVnd(cartTotal)}</div>
               </div>
-              <div className="mt-3 flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-[#704f5e]">
-                {selectedRoutes.slice(0, 2).map((route) => {
-                  const physical = (quantities[route.id] || 0) + (exchangeQuantities[route.id] || 0) + (makeupQuantities[route.id] || 0);
-                  return <span key={route.id} className="max-w-[46%] truncate rounded-full bg-[#fff5f9] px-2 py-1 font-semibold">{route.name} · {physical}</span>;
-                })}
-                {selectedRouteCount > 2 ? <span className="shrink-0 font-bold text-[#a73f70]">+{selectedRouteCount - 2}</span> : null}
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="rounded-2xl bg-[#fff5f9] px-3 py-3" data-dealer-order-preview-total="quantity">
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-[#927681]">Tổng số lượng</div>
+                  <div className="mt-1 text-2xl font-extrabold tracking-tight text-[#4a343e]">{totalItems} {unitLabel}</div>
+                </div>
+                <div className="rounded-2xl bg-[#fff0f6] px-3 py-3 text-right" data-dealer-order-preview-total="amount">
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-[#927681]">Tổng tiền</div>
+                  <div className="mt-1 whitespace-nowrap text-2xl font-extrabold tracking-tight text-[#b33f72]">{formatVnd(cartTotal)}</div>
+                </div>
               </div>
               <div className="mt-3 flex items-center justify-between border-t border-[#f2dfe7] pt-2 text-xs font-bold text-[#a73f70]">
                 <span>Chạm để xem chi tiết</span>
