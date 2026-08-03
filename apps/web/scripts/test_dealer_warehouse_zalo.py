@@ -62,6 +62,26 @@ def test_submit_queues_only_after_order_items_are_saved() -> None:
     assert "unit_price_vnd" not in submit[enqueue:], "notification path must not include prices"
 
 
+def test_warehouse_message_uses_approved_operations_layout() -> None:
+    helper = HELPER.read_text(encoding="utf-8")
+    submit = SUBMIT.read_text(encoding="utf-8")
+    for needle in [
+        "submittedAt: string",
+        '"📦 ĐƠN HÀNG MỚI TỪ DATHANG.BANHMIQUE.VN"',
+        'Thời gian đặt: ${formatSubmittedAt(input.submittedAt)}',
+        'return `${day}/${month}/${year} ${hour}:${minute}`;',
+        'Ngày giao: ${formatDeliveryDate(input.requestedDeliveryDate)}',
+        '➜ Kho cần giao: ${formatQuantity(line.physicalQuantity)} ${unit}',
+        '"━━━━━━━━━━━━━━"',
+        '"📊 TỔNG ĐƠN"',
+        '• Đặt mới: ${formatQuantity(totals.ordered)} ${totalUnit}',
+        '✅ TỔNG KHO CẦN GIAO: ${formatQuantity(totals.physical)} ${totalUnit}',
+        '"Nguồn: dathang.banhmique.vn"',
+    ]:
+        assert needle in helper, f"missing approved message marker: {needle}"
+    assert "submittedAt: order.submitted_at" in submit
+
+
 def test_retry_worker_is_server_only_and_uses_claim_rpc() -> None:
     worker = WORKER.read_text(encoding="utf-8")
     helper = HELPER.read_text(encoding="utf-8")

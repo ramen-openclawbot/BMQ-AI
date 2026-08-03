@@ -10,6 +10,7 @@ import {
 const ORDER = {
   orderNumber: "DOP-20260803-ABCD1234",
   customerName: "NPP Anh Thanh",
+  submittedAt: "2026-08-03T15:56:36.591751Z",
   requestedDeliveryDate: "2026-08-04",
   deliveryNote: "Giao trước 08:00",
   customerNote: null,
@@ -40,16 +41,22 @@ const ORDER = {
 test("formats warehouse quantities by delivery route without prices", () => {
   const message = formatWarehouseOrderMessage(ORDER);
 
-  assert.match(message, /📦 ĐƠN HÀNG MỚI TỪ PORTAL/);
+  assert.match(message, /📦 ĐƠN HÀNG MỚI TỪ DATHANG\.BANHMIQUE\.VN/);
   assert.match(message, /Mã đơn: DOP-20260803-ABCD1234/);
-  assert.match(message, /Khách hàng: NPP Anh Thanh/);
+  assert.match(message, /Khách đặt: NPP Anh Thanh/);
+  assert.match(message, /Thời gian đặt: 03\/08\/2026 22:56/);
   assert.match(message, /Ngày giao: 04\/08\/2026/);
   assert.match(message, /🚚 Điểm giao: Điểm bán Quận 1/);
-  assert.match(message, /• Bánh Mì Que Pate: Đặt 100 que \| Đổi 2 \| Bù 3 \| Tổng giao 105 que/);
-  assert.match(message, /Ghi chú điểm: Cửa sau/);
+  assert.match(message, /• Bánh Mì Que Pate\n  Đặt 100 \| Đổi 2 \| Bù 3\n  ➜ Kho cần giao: 105 que/);
+  assert.match(message, /📝 Ghi chú: Cửa sau/);
   assert.match(message, /🚚 Điểm giao: Điểm bán Quận 3/);
-  assert.match(message, /TỔNG ĐƠN: Đặt 140 \| Đổi 2 \| Bù 8 \| Kho cần giao 150 que/);
+  assert.match(message, /📊 TỔNG ĐƠN/);
+  assert.match(message, /• Đặt mới: 140 que/);
+  assert.match(message, /• Đổi: 2 que/);
+  assert.match(message, /• Bù: 8 que/);
+  assert.match(message, /✅ TỔNG KHO CẦN GIAO: 150 que/);
   assert.match(message, /Ghi chú giao hàng: Giao trước 08:00/);
+  assert.match(message, /Nguồn: dathang\.banhmique\.vn/);
   assert.doesNotMatch(message, /đơn giá|thành tiền|unit_price|50000/i);
 });
 
@@ -62,7 +69,7 @@ test("uses a direct-delivery section when no NPP route exists", () => {
   });
 
   assert.match(message, /🚚 Điểm giao: Giao trực tiếp/);
-  assert.match(message, /Ngày giao: Chưa xác định/);
+  assert.match(message, /Ngày giao: ⚠️ Chưa xác định/);
 });
 
 test("sends the official Zalo GMF text payload and returns message id", async () => {

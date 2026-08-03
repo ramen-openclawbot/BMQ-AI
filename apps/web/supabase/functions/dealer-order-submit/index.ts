@@ -232,6 +232,7 @@ serve(async (req) => {
       const messageBody = formatWarehouseOrderMessage({
         orderNumber: order.order_number,
         customerName: sessionContext.customer.customer_name || "Khách hàng BMQ",
+        submittedAt: order.submitted_at,
         requestedDeliveryDate,
         deliveryNote,
         customerNote,
@@ -357,7 +358,7 @@ async function insertOrderWithRetry(supabase: ReturnType<typeof createServiceCli
         order_number: orderNumber,
         status: "submitted",
       })
-      .select("id, order_number")
+      .select("id, order_number, submitted_at")
       .single();
 
     if (!error) return data;

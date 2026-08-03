@@ -12,6 +12,7 @@ export type WarehouseOrderLine = {
 export type WarehouseOrderMessageInput = {
   orderNumber: string;
   customerName: string;
+  submittedAt: string;
   requestedDeliveryDate: string | null;
   deliveryNote: string | null;
   customerNote: string | null;
@@ -34,9 +35,30 @@ const formatQuantity = (value: number) => new Intl.NumberFormat("vi-VN", {
 }).format(value);
 
 const formatDeliveryDate = (value: string | null) => {
-  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return "Chưa xác định";
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return "⚠️ Chưa xác định";
   const [year, month, day] = value.split("-");
   return `${day}/${month}/${year}`;
+};
+
+const formatSubmittedAt = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Chưa xác định";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const valueOf = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || "--";
+  const day = valueOf("day");
+  const month = valueOf("month");
+  const year = valueOf("year");
+  const hour = valueOf("hour");
+  const minute = valueOf("minute");
+  return `${day}/${month}/${year} ${hour}:${minute}`;
 };
 
 export function formatWarehouseOrderMessage(input: WarehouseOrderMessageInput): string {
@@ -54,12 +76,13 @@ export function formatWarehouseOrderMessage(input: WarehouseOrderMessageInput): 
     lines.forEach((line) => {
       const unit = line.unit?.trim() || "đơn vị";
       content.push(
-        `• ${line.productName}: Đặt ${formatQuantity(line.orderedQuantity)} ${unit} | `
+        `• ${line.productName}`,
+        `  Đặt ${formatQuantity(line.orderedQuantity)} | `
           + `Đổi ${formatQuantity(line.exchangeQuantity)} | `
-          + `Bù ${formatQuantity(line.makeupQuantity)} | `
-          + `Tổng giao ${formatQuantity(line.physicalQuantity)} ${unit}`,
+          + `Bù ${formatQuantity(line.makeupQuantity)}`,
+        `  ➜ Kho cần giao: ${formatQuantity(line.physicalQuantity)} ${unit}`,
       );
-      if (line.routeNote?.trim()) content.push(`  Ghi chú điểm: ${line.routeNote.trim()}`);
+      if (line.routeNote?.trim()) content.push(`  📝 Ghi chú: ${line.routeNote.trim()}`);
     });
     sections.push(content.join("\n"));
   });
@@ -77,23 +100,29 @@ export function formatWarehouseOrderMessage(input: WarehouseOrderMessageInput): 
   const totalUnit = units.size === 1 ? Array.from(units)[0] : "đơn vị";
 
   const message = [
-    "📦 ĐƠN HÀNG MỚI TỪ PORTAL",
+    "📦 ĐƠN HÀNG MỚI TỪ DATHANG.BANHMIQUE.VN",
     "",
     `Mã đơn: ${input.orderNumber}`,
-    `Khách hàng: ${input.customerName}`,
+    `Khách đặt: ${input.customerName}`,
+    `Thời gian đặt: ${formatSubmittedAt(input.submittedAt)}`,
     `Ngày giao: ${formatDeliveryDate(input.requestedDeliveryDate)}`,
     "",
     sections.join("\n\n"),
-    "",
-    `TỔNG ĐƠN: Đặt ${formatQuantity(totals.ordered)} | `
-      + `Đổi ${formatQuantity(totals.exchange)} | `
-      + `Bù ${formatQuantity(totals.makeup)} | `
-      + `Kho cần giao ${formatQuantity(totals.physical)} ${totalUnit}`,
   ];
 
   if (input.deliveryNote?.trim()) message.push(`Ghi chú giao hàng: ${input.deliveryNote.trim()}`);
   if (input.customerNote?.trim()) message.push(`Ghi chú khách hàng: ${input.customerNote.trim()}`);
-  message.push("Nguồn: dathang.banhmique.vn");
+  message.push(
+    "",
+    "━━━━━━━━━━━━━━",
+    "📊 TỔNG ĐƠN",
+    `• Đặt mới: ${formatQuantity(totals.ordered)} ${totalUnit}`,
+    `• Đổi: ${formatQuantity(totals.exchange)} ${totalUnit}`,
+    `• Bù: ${formatQuantity(totals.makeup)} ${totalUnit}`,
+    `✅ TỔNG KHO CẦN GIAO: ${formatQuantity(totals.physical)} ${totalUnit}`,
+    "",
+    "Nguồn: dathang.banhmique.vn",
+  );
   return message.join("\n");
 }
 
