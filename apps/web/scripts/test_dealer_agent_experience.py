@@ -168,6 +168,12 @@ class DealerAgentExperienceTests(unittest.TestCase):
         self.assertIn("return []", parser)
         self.assertNotIn("findDealerChatRoute", parser)
 
+    def test_retail_parser_accepts_optional_dat_prefix_before_quantity(self) -> None:
+        parser = self.source.split("function parseRetailDealerChatOrderText", 1)[1].split("function PublicLandingSupport", 1)[0]
+        self.assertIn('const normalizedLine = rawLine.replace(/^(?:đặt|dat)\\s+/i, "");', parser)
+        self.assertIn("normalizedLine.match", parser)
+        self.assertIn("const note = normalizedLine", parser)
+
     def test_parse_handler_keeps_named_route_parser_for_npp_only(self) -> None:
         parse_body = self.source.split("const handleParseNppOrderText = () => {", 1)[1].split("\n  };", 1)[0]
         self.assertIn("isNppMode", parse_body)

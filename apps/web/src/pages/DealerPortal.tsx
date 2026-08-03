@@ -2748,10 +2748,11 @@ function parseRetailDealerChatOrderText(text: string, retailDealerRoute: DealerR
   if (!retailDealerRoute) return [];
   const rawLine = String(text || "").trim();
   if (!rawLine || rawLine.includes("\n")) return [];
+  const normalizedLine = rawLine.replace(/^(?:đặt|dat)\s+/i, "");
 
-  const orderedMatch = rawLine.match(/^\s*(\d+(?:[.,]\d+)?)\b/i);
-  const exchangeMatch = rawLine.match(/(?:^|\s)(?:đổi|doi)\s+(\d+(?:[.,]\d+)?)/i);
-  const makeupMatch = rawLine.match(/(?:^|\s)(?:bù|bu)\s+(\d+(?:[.,]\d+)?)/i);
+  const orderedMatch = normalizedLine.match(/^\s*(\d+(?:[.,]\d+)?)\b/i);
+  const exchangeMatch = normalizedLine.match(/(?:^|\s)(?:đổi|doi)\s+(\d+(?:[.,]\d+)?)/i);
+  const makeupMatch = normalizedLine.match(/(?:^|\s)(?:bù|bu)\s+(\d+(?:[.,]\d+)?)/i);
   if (!orderedMatch && !exchangeMatch && !makeupMatch) return [];
 
   const orderedQuantity = numberFromDealerChatText(orderedMatch?.[1]);
@@ -2760,7 +2761,7 @@ function parseRetailDealerChatOrderText(text: string, retailDealerRoute: DealerR
   const physicalQuantity = orderedQuantity + exchangeQuantity + makeupQuantity;
   if (![orderedQuantity, exchangeQuantity, makeupQuantity, physicalQuantity].every(Number.isFinite) || physicalQuantity <= 0) return [];
 
-  const note = rawLine
+  const note = normalizedLine
     .replace(/^\s*\d+(?:[.,]\d+)?\b/i, "")
     .replace(/(?:^|\s)(?:đổi|doi)\s+\d+(?:[.,]\d+)?/gi, " ")
     .replace(/(?:^|\s)(?:bù|bu)\s+\d+(?:[.,]\d+)?/gi, " ")
