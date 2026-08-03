@@ -2564,6 +2564,15 @@ function NppQuickOrderPanel({
               );
             })}
           </div>
+          {errorMessage ? (
+            <div
+              data-dealer-order-confirmation-error
+              aria-live="assertive"
+              className="mx-5 mb-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold leading-5 text-red-700"
+            >
+              Chưa gửi được đơn: {errorMessage}
+            </div>
+          ) : null}
           <DialogFooter className="sticky bottom-0 grid grid-cols-2 gap-2 border-t border-[#f1dbe4] bg-[#fff5f9]/95 p-5 backdrop-blur sm:flex">
             <Button type="button" variant="outline" className="h-11 rounded-2xl border-[#e7b9cd] text-[#704f5e] hover:bg-[#fff0f6]" onClick={() => handleDetailOpenChange(false)}>
               Đóng

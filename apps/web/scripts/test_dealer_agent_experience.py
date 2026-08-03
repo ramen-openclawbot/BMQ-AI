@@ -303,6 +303,12 @@ class DealerAgentExperienceTests(unittest.TestCase):
         self.assertIn("#d94f8a", modal)
         self.assertIn("#fff5f9", modal)
 
+    def test_submit_error_is_visible_inside_open_confirmation(self) -> None:
+        modal = self.source.split('<Dialog open={detailOpen}', 1)[1].split("</Dialog>", 1)[0]
+        self.assertIn('data-dealer-order-confirmation-error', modal)
+        self.assertIn("{errorMessage}", modal)
+        self.assertIn('aria-live="assertive"', modal)
+
 
 if __name__ == "__main__":
     unittest.main()
