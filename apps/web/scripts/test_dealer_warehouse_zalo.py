@@ -87,7 +87,7 @@ def test_warehouse_message_uses_approved_operations_layout() -> None:
         '"📦 ĐƠN HÀNG MỚI TỪ DATHANG.BANHMIQUE.VN"',
         'Thời gian đặt: ${formatSubmittedAt(input.submittedAt)}',
         'return `${day}/${month}/${year} ${hour}:${minute}`;',
-        'Ngày giao: ${formatDeliveryDate(input.requestedDeliveryDate)}',
+        'Ngày giao: ${formatDeliveryDate(input.requestedDeliveryDate, input.submittedAt)}',
         '➜ Kho cần giao: ${formatQuantity(line.physicalQuantity)} ${unit}',
         '"━━━━━━━━━━━━━━"',
         '"📊 TỔNG ĐƠN"',
@@ -97,6 +97,8 @@ def test_warehouse_message_uses_approved_operations_layout() -> None:
     ]:
         assert needle in helper, f"missing approved message marker: {needle}"
     assert "submittedAt: order.submitted_at" in submit
+    assert "defaultDeliveryDateTPlusOne" in submit
+    assert "requested_delivery_date: requestedDeliveryDate" in submit
 
 
 def test_retry_worker_is_server_only_and_uses_claim_rpc() -> None:

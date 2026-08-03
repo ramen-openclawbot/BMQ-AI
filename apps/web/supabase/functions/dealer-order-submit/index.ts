@@ -9,7 +9,11 @@ import {
   readJsonBody,
   resolveDealerSession,
 } from "../_shared/dealer.ts";
-import { formatWarehouseOrderMessage } from "../_shared/dealer-warehouse-notification.ts";
+import {
+  defaultDeliveryDateTPlusOne,
+  formatWarehouseOrderMessage,
+  isValidDeliveryDate,
+} from "../_shared/dealer-warehouse-notification.ts";
 
 type SubmitItemInput = {
   sku_id?: unknown;
@@ -183,7 +187,9 @@ serve(async (req) => {
     });
 
     const subtotal = roundMoney(lines.reduce((sum, line) => sum + line.lineTotal, 0));
-    const requestedDeliveryDate = normalizeDeliveryDate(body.requested_delivery_date);
+    const submittedAt = new Date().toISOString();
+    const requestedDeliveryDate = normalizeDeliveryDate(body.requested_delivery_date)
+      ?? defaultDeliveryDateTPlusOne(submittedAt);
     const deliveryNote = normalizeNullableText(body.delivery_note, 500);
     const customerNote = normalizeNullableText(body.customer_note, 500);
     const customerSnapshot = publicCustomerProfile(sessionContext.customer);
@@ -194,6 +200,7 @@ serve(async (req) => {
       session_id: sessionContext.session.id,
       subtotal_amount_vnd: subtotal,
       total_amount_vnd: subtotal,
+      submitted_at: submittedAt,
       requested_delivery_date: requestedDeliveryDate,
       delivery_note: deliveryNote,
       customer_note: customerNote,
@@ -323,7 +330,7 @@ function normalizeItems(items: SubmitItemInput[] | undefined): NormalizedSubmitI
 
 function normalizeDeliveryDate(value: unknown): string | null {
   const text = typeof value === "string" ? value.trim() : "";
-  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+  return isValidDeliveryDate(text) ? text : null;
 }
 
 function normalizeNullableText(value: unknown, maxLength: number): string | null {

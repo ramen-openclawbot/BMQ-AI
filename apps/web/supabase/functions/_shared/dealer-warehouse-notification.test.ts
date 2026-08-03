@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  defaultDeliveryDateTPlusOne,
   formatWarehouseOrderMessage,
   refreshZaloOaAccessToken,
   sendZaloGmfText,
@@ -47,7 +48,7 @@ test("formats warehouse quantities by delivery route without prices", () => {
   assert.match(message, /Thời gian đặt: 03\/08\/2026 22:56/);
   assert.match(message, /Ngày giao: 04\/08\/2026/);
   assert.match(message, /🚚 Điểm giao: Điểm bán Quận 1/);
-  assert.match(message, /• Bánh Mì Que Pate\n  Đặt 100 \| Đổi 2 \| Bù 3\n  ➜ Kho cần giao: 105 que/);
+  assert.match(message, /• Bánh Mì Que Pate\n {2}Đặt 100 \| Đổi 2 \| Bù 3\n {2}➜ Kho cần giao: 105 que/);
   assert.match(message, /📝 Ghi chú: Cửa sau/);
   assert.match(message, /🚚 Điểm giao: Điểm bán Quận 3/);
   assert.match(message, /📊 TỔNG ĐƠN/);
@@ -69,7 +70,24 @@ test("uses a direct-delivery section when no NPP route exists", () => {
   });
 
   assert.match(message, /🚚 Điểm giao: Giao trực tiếp/);
-  assert.match(message, /Ngày giao: ⚠️ Chưa xác định/);
+  assert.match(message, /Ngày giao: 04\/08\/2026/);
+});
+
+test("defaults delivery to the next Vietnam calendar day", () => {
+  assert.equal(defaultDeliveryDateTPlusOne("2026-08-03T13:21:15.405225Z"), "2026-08-04");
+  assert.equal(defaultDeliveryDateTPlusOne("2026-08-03T18:30:00Z"), "2026-08-05");
+  assert.equal(defaultDeliveryDateTPlusOne("invalid"), null);
+});
+
+test("falls back to T+1 when an explicit delivery date is invalid", () => {
+  for (const requestedDeliveryDate of ["2026-99-99", "2026-02-30", "not-a-date"]) {
+    const message = formatWarehouseOrderMessage({
+      ...ORDER,
+      requestedDeliveryDate,
+    });
+
+    assert.match(message, /Ngày giao: 04\/08\/2026/);
+  }
 });
 
 test("sends the official Zalo GMF text payload and returns message id", async () => {

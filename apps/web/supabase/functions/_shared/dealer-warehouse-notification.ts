@@ -34,9 +34,40 @@ const formatQuantity = (value: number) => new Intl.NumberFormat("vi-VN", {
   maximumFractionDigits: 3,
 }).format(value);
 
-const formatDeliveryDate = (value: string | null) => {
-  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return "⚠️ Chưa xác định";
-  const [year, month, day] = value.split("-");
+export const defaultDeliveryDateTPlusOne = (submittedAt: string): string | null => {
+  const submittedDate = new Date(submittedAt);
+  if (Number.isNaN(submittedDate.getTime())) return null;
+  const nextDay = new Date(submittedDate.getTime() + 24 * 60 * 60 * 1000);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(nextDay);
+  const valueOf = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value;
+  const year = valueOf("year");
+  const month = valueOf("month");
+  const day = valueOf("day");
+  return year && month && day ? `${year}-${month}-${day}` : null;
+};
+
+export const isValidDeliveryDate = (value: string | null): value is string => {
+  const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+  const [, year, month, day] = match;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime())
+    && parsed.getUTCFullYear() === Number(year)
+    && parsed.getUTCMonth() + 1 === Number(month)
+    && parsed.getUTCDate() === Number(day);
+};
+
+const formatDeliveryDate = (value: string | null, submittedAt: string) => {
+  const deliveryDate = isValidDeliveryDate(value)
+    ? value
+    : defaultDeliveryDateTPlusOne(submittedAt);
+  if (!deliveryDate) return "⚠️ Chưa xác định";
+  const [year, month, day] = deliveryDate.split("-");
   return `${day}/${month}/${year}`;
 };
 
@@ -105,7 +136,7 @@ export function formatWarehouseOrderMessage(input: WarehouseOrderMessageInput): 
     `Mã đơn: ${input.orderNumber}`,
     `Khách đặt: ${input.customerName}`,
     `Thời gian đặt: ${formatSubmittedAt(input.submittedAt)}`,
-    `Ngày giao: ${formatDeliveryDate(input.requestedDeliveryDate)}`,
+    `Ngày giao: ${formatDeliveryDate(input.requestedDeliveryDate, input.submittedAt)}`,
     "",
     sections.join("\n\n"),
   ];
