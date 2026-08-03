@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createServiceClient, timingSafeEqual } from "../_shared/dealer.ts";
 import { refreshZaloOaAccessToken, sendZaloGmfText } from "../_shared/dealer-warehouse-notification.ts";
+import { isWarehouseNotificationWindow } from "../_shared/dealer-warehouse-schedule.ts";
 
 type NotificationJob = {
   id: string;
@@ -141,6 +142,18 @@ serve(async (req) => {
   const supabase = createServiceClient();
   if (!await authorized(req, serviceRoleKey, supabase)) {
     return json({ success: false, error: "unauthorized" }, 401);
+  }
+
+  if (!isWarehouseNotificationWindow(new Date())) {
+    return json({
+      success: true,
+      skipped: true,
+      reason: "outside_vietnam_evening_window",
+      claimed: 0,
+      sent: 0,
+      retried: 0,
+      failed: 0,
+    });
   }
 
   const groupId = Deno.env.get("ZALO_GMF_WAREHOUSE_GROUP_ID");

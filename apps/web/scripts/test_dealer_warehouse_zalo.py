@@ -8,6 +8,7 @@ SUBMIT = ROOT / "supabase/functions/dealer-order-submit/index.ts"
 WORKER = ROOT / "supabase/functions/dealer-warehouse-notify/index.ts"
 HELPER = ROOT / "supabase/functions/_shared/dealer-warehouse-notification.ts"
 CONFIG = ROOT / "supabase/config.toml"
+SCHEDULE_MIGRATION = ROOT / "supabase/migrations/20260803181500_dealer_warehouse_vietnam_evening_schedule.sql"
 
 
 def migration_text() -> str:
@@ -60,6 +61,22 @@ def test_submit_queues_only_after_order_items_are_saved() -> None:
     assert 'channel: "zalo_gmf"' in submit
     assert 'group_name: "BMQ - Kho Tân Tạo"' in submit
     assert "unit_price_vnd" not in submit[enqueue:], "notification path must not include prices"
+    assert 'functions.invoke("dealer-warehouse-notify"' not in submit, (
+        "order submission must queue only; the Vietnam evening cron owns delivery"
+    )
+
+
+def test_worker_and_cron_enforce_vietnam_evening_schedule() -> None:
+    worker = WORKER.read_text(encoding="utf-8")
+    sql = SCHEDULE_MIGRATION.read_text(encoding="utf-8")
+    assert 'isWarehouseNotificationWindow(new Date())' in worker
+    assert 'reason: "outside_vietnam_evening_window"' in worker
+    assert "dealer-warehouse-notify-every-2-minutes" in sql
+    assert "dealer-warehouse-notify-vn-20-22-30" in sql
+    assert "dealer-warehouse-notify-vn-23-final" in sql
+    assert "'0,30 13-15 * * *'" in sql
+    assert "'0,30,59 16 * * *'" in sql
+    assert "Asia/Ho_Chi_Minh" in sql
 
 
 def test_warehouse_message_uses_approved_operations_layout() -> None:

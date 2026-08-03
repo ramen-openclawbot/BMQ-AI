@@ -262,13 +262,6 @@ serve(async (req) => {
         });
 
       if (notificationError) throw notificationError;
-
-      const { error: invokeError } = await supabase.functions.invoke("dealer-warehouse-notify", {
-        body: { batch_size: 10 },
-      });
-      if (invokeError) {
-        console.error("[dealer-order-submit] Warehouse notification worker invocation failed", invokeError.message);
-      }
     } catch (notificationError) {
       // The customer order is already complete; a Zalo outage must never delete or fail it.
       console.error("[dealer-order-submit] Warehouse notification queue failed", notificationError);
