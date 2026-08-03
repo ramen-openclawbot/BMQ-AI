@@ -9,6 +9,7 @@ import {
   readJsonBody,
   resolveDealerSession,
 } from "../_shared/dealer.ts";
+import { formatWarehouseOrderMessage } from "../_shared/dealer-warehouse-notification.ts";
 
 type SubmitItemInput = {
   sku_id?: unknown;
@@ -225,6 +226,51 @@ serve(async (req) => {
     if (itemError) {
       await supabase.from("dealer_orders").delete().eq("id", order.id);
       throw itemError;
+    }
+
+    try {
+      const messageBody = formatWarehouseOrderMessage({
+        orderNumber: order.order_number,
+        customerName: sessionContext.customer.customer_name || "Khách hàng BMQ",
+        requestedDeliveryDate,
+        deliveryNote,
+        customerNote,
+        lines: lines.map((line) => ({
+          productName: line.sku.product_name,
+          unit: dealerDisplayUnit(line.sku),
+          orderedQuantity: line.quantity,
+          exchangeQuantity: line.exchangeQuantity,
+          makeupQuantity: line.makeupQuantity,
+          physicalQuantity: line.physicalQuantity,
+          routeCustomerName: line.routeCustomerName,
+          routeNote: line.routeNote,
+        })),
+      });
+      const { error: notificationError } = await supabase
+        .from("dealer_order_notifications")
+        .upsert({
+          order_id: order.id,
+          channel: "zalo_gmf",
+          group_name: "BMQ - Kho Tân Tạo",
+          message_body: messageBody,
+          status: "pending",
+          next_attempt_at: new Date().toISOString(),
+        }, {
+          onConflict: "order_id,channel",
+          ignoreDuplicates: true,
+        });
+
+      if (notificationError) throw notificationError;
+
+      const { error: invokeError } = await supabase.functions.invoke("dealer-warehouse-notify", {
+        body: { batch_size: 10 },
+      });
+      if (invokeError) {
+        console.error("[dealer-order-submit] Warehouse notification worker invocation failed", invokeError.message);
+      }
+    } catch (notificationError) {
+      // The customer order is already complete; a Zalo outage must never delete or fail it.
+      console.error("[dealer-order-submit] Warehouse notification queue failed", notificationError);
     }
 
     return jsonResponse(req, {
