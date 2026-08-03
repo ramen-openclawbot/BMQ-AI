@@ -108,6 +108,8 @@ Trích xuất các thông tin sau từ đơn đặt hàng:
    - Ghi chú (Notes) nếu có - VD: NSX, HSD, thông tin thêm
 
 Lưu ý quan trọng:
+- Chép nguyên văn tên hàng đúng như chữ trên chứng từ; không tự đổi sang một tên vật liệu hoặc nhóm hàng khác.
+- Không được suy diễn chất liệu từ công dụng hoặc hình dáng bao bì. Ví dụ: nếu chứng từ ghi "Bao bánh mì" thì phải trả đúng "Bao bánh mì", tuyệt đối không đổi thành "Bao bì nhựa".
 - Đơn đặt hàng Việt Nam thường có chữ tiếng Việt
 - Số có thể dùng dấu chấm/phẩy làm separator (VD: 1.000.000 = 1000000)
 - Trích xuất TẤT CẢ các dòng sản phẩm trong bảng
