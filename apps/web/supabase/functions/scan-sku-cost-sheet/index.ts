@@ -1,7 +1,33 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/auth.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
+
+type SkuCogsMaterial = {
+  id: string;
+  material_code: string;
+  canonical_name: string;
+  normalized_name: string;
+  default_unit: string;
+  ingredient_sku_id: string | null;
+};
+
+type SkuCogsMaterialAlias = {
+  material_id: string;
+  alias_name: string;
+  normalized_alias: string;
+};
+
+const normalizeMaterialName = (value: unknown) => String(value || "")
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .replace(/đ/g, "d")
+  .replace(/Đ/g, "D")
+  .toLowerCase()
+  .replace(/[^a-z0-9\s]/g, " ")
+  .replace(/\s+/g, " ")
+  .trim();
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflightResponse(req);
@@ -128,7 +154,94 @@ Quy tắc bắt buộc:
     if (!toolCall) throw new Error("Failed to extract SKU data");
 
     const extracted = JSON.parse(toolCall.function.arguments || "{}");
+    const scannedIngredients = Array.isArray(extracted.ingredients) ? extracted.ingredients : [];
 
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error("SKU COGS material registry is not configured");
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
+      auth: { persistSession: false },
+    });
+
+    const [materialsResult, aliasesResult] = await Promise.all([
+      supabase
+        .from("sku_cogs_materials")
+        .select("id,material_code,canonical_name,normalized_name,default_unit,ingredient_sku_id")
+        .eq("active", true),
+      supabase
+        .from("sku_cogs_material_aliases")
+        .select("material_id,alias_name,normalized_alias")
+        .eq("active", true),
+    ]);
+
+    if (materialsResult.error || aliasesResult.error) {
+      throw new Error(`Không đọc được danh mục NVL Giá vốn: ${materialsResult.error?.message || aliasesResult.error?.message}`);
+    }
+
+    const materialRows = (materialsResult.data || []) as SkuCogsMaterial[];
+    const aliasRows = (aliasesResult.data || []) as SkuCogsMaterialAlias[];
+    if (materialRows.length === 0) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: "Danh mục NVL SKU COGS chưa được khai báo. Vui lòng liên hệ bộ phận quản trị.",
+        code: "SKU_COGS_MATERIAL_NOT_FOUND",
+        unknown_materials: [],
+      }), {
+        status: 422,
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
+
+    const materialsById = new Map<string, SkuCogsMaterial>(materialRows.map((material) => [material.id, material]));
+    const materialIdByName = new Map<string, string>();
+    for (const material of materialRows) {
+      materialIdByName.set(normalizeMaterialName(material.canonical_name), material.id);
+      materialIdByName.set(String(material.normalized_name || ""), material.id);
+    }
+    for (const alias of aliasRows) {
+      if (materialsById.has(alias.material_id)) {
+        materialIdByName.set(String(alias.normalized_alias || normalizeMaterialName(alias.alias_name)), alias.material_id);
+      }
+    }
+
+    const unknownMaterialNames: string[] = [];
+    const canonicalIngredients = scannedIngredients.map((ingredient: Record<string, unknown>) => {
+      const rawOcrName = String(ingredient.ingredient_name || "").trim();
+      const materialId = materialIdByName.get(normalizeMaterialName(rawOcrName));
+      const material = materialId ? materialsById.get(materialId) : null;
+      if (!material) {
+        if (rawOcrName) unknownMaterialNames.push(rawOcrName);
+        return ingredient;
+      }
+      return {
+        ...ingredient,
+        raw_ocr_name: rawOcrName,
+        ingredient_name: material.canonical_name,
+        canonical_material_id: material.id,
+        canonical_material_name: material.canonical_name,
+        material_code: material.material_code,
+        ingredient_sku_id: material.ingredient_sku_id,
+        unit: ingredient.unit || material.default_unit,
+      };
+    });
+
+    if (unknownMaterialNames.length > 0) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: `NVL không có trong SKU COGS: ${[...new Set(unknownMaterialNames)].join(", ")}. Vui lòng liên hệ bộ phận quản trị vì tên NVL không đúng với Giá vốn đã khai báo.`,
+        code: "SKU_COGS_MATERIAL_NOT_FOUND",
+        unknown_materials: [...new Set(unknownMaterialNames)],
+      }), {
+        status: 422,
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
+
+    extracted.ingredients = canonicalIngredients;
     return new Response(JSON.stringify({ success: true, data: extracted }), { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } });
   } catch (error) {
     if (error instanceof Response) return error;

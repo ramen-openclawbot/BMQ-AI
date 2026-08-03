@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { DEFAULT_SKU_COST_TEMPLATE, DEFAULT_SKU_COST_VALUES, parseCostTemplate, parseCostValues, toNumber } from "@/lib/sku-cost-template";
@@ -14,6 +15,21 @@ import { SkuCostMenuBar } from "@/components/sku-costs/SkuCostMenuBar";
 
 type SKU = any;
 type FormulaRow = any;
+type CanonicalMaterial = {
+  id: string;
+  material_code: string;
+  canonical_name: string;
+  default_unit: string;
+  ingredient_sku_id: string | null;
+};
+type SkuCogsVersion = {
+  id: string;
+  version_no: number;
+  effective_from: string;
+  effective_to: string | null;
+  change_reason: string;
+  created_at: string;
+};
 type PriceMode = "latest" | "avg30" | "avg90";
 type WidgetLine = { name: string; amount: number };
 
@@ -181,6 +197,11 @@ const normalizeScannedIngredient = (row: any) => {
 
   return {
     ingredient_name: row.ingredient_name || row.name || row.product_name || "",
+    canonical_material_id: row.canonical_material_id || "",
+    canonical_material_name: row.canonical_material_name || "",
+    material_code: row.material_code || "",
+    ingredient_sku_id: row.ingredient_sku_id || "",
+    raw_ocr_name: row.raw_ocr_name || row.ingredient_name || row.name || row.product_name || "",
     unit,
     unit_price: unitPrice,
     dosage_qty: dosageQty,
@@ -212,6 +233,8 @@ const toDraftRow = (row: any, overrides: Record<string, any> = {}) => {
     is_level2: overrides.is_level2 ?? false,
     level1_sku_id: overrides.level1_sku_id ?? row?.ingredient_sku_id ?? "",
     ingredient_sku_id: overrides.ingredient_sku_id ?? row?.ingredient_sku_id ?? "",
+    canonical_material_id: overrides.canonical_material_id ?? row?.canonical_material_id ?? "",
+    raw_ocr_name: overrides.raw_ocr_name ?? row?.raw_ocr_name ?? "",
     level1_name: overrides.level1_name ?? row?.ingredient_name ?? "",
     level2_name: overrides.level2_name ?? "",
     ingredient_name: overrides.ingredient_name ?? row?.ingredient_name ?? "",
@@ -282,6 +305,9 @@ export default function SkuCostsManagement() {
   const { toast } = useToast();
   const [skus, setSkus] = useState<SKU[]>([]);
   const [formula, setFormula] = useState<FormulaRow[]>([]);
+  const [canonicalMaterials, setCanonicalMaterials] = useState<CanonicalMaterial[]>([]);
+  const [skuCogsVersions, setSkuCogsVersions] = useState<SkuCogsVersion[]>([]);
+  const [cogsEffectiveFrom, setCogsEffectiveFrom] = useState(new Date().toISOString().slice(0, 10));
   const [activeSkuId, setActiveSkuId] = useState<string>("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -311,11 +337,12 @@ export default function SkuCostsManagement() {
   const widgetValues = useMemo(() => parseWidgets(activeSku.cost_widgets), [activeSku.cost_widgets]);
 
   const loadAll = async () => {
-    const [skuRes, poRes, prRes, invRes] = await Promise.all([
+    const [skuRes, poRes, prRes, invRes, materialRes] = await Promise.all([
       sb.from("product_skus").select("id,sku_code,product_name,category,unit,unit_price,updated_at,supplier_id,sku_type,notes,cost_values,cost_widgets,cost_template,finished_output_qty,finished_output_unit,created_at,created_by,hide_from_dealer_portal").order("updated_at", { ascending: false }),
       sb.from("purchase_order_items").select("sku_id, unit_price, created_at, purchase_order_id, purchase_orders(po_number, order_date)").not("sku_id", "is", null).limit(500),
       sb.from("payment_request_items").select("sku_id, unit_price, created_at, payment_request_id, payment_requests(request_number)").not("sku_id", "is", null).limit(500),
       sb.from("inventory_batches").select("sku_id, quantity").not("sku_id", "is", null).limit(500),
+      sb.from("sku_cogs_materials").select("id,material_code,canonical_name,default_unit,ingredient_sku_id").eq("active", true).order("canonical_name"),
     ]);
 
     const pp: PurchasePoint[] = [
@@ -335,6 +362,7 @@ export default function SkuCostsManagement() {
     setPurchasePoints(pp);
     setInventoryMap(inv);
     setSkus(skuRes.data || []);
+    setCanonicalMaterials(materialRes.data || []);
 
     const requestedSkuId = new URLSearchParams(window.location.search).get("sku") || "";
     const firstFinishedSku = (skuRes.data || []).find((s: any) => isFinishedSku(s));
@@ -360,8 +388,12 @@ export default function SkuCostsManagement() {
   useEffect(() => {
     if (!activeSkuId) return;
     (async () => {
-      const { data: fRows } = await sb.from("sku_formulations").select("*").eq("sku_id", activeSkuId).order("sort_order");
-      setFormula(fRows || []);
+      const [formulaRes, versionsRes] = await Promise.all([
+        sb.from("sku_formulations").select("*").eq("sku_id", activeSkuId).order("sort_order"),
+        sb.from("sku_cogs_versions").select("id,version_no,effective_from,effective_to,change_reason,created_at").eq("sku_id", activeSkuId).order("version_no", { ascending: false }),
+      ]);
+      setFormula(formulaRes.data || []);
+      setSkuCogsVersions(versionsRes.data || []);
     })();
   }, [activeSkuId]);
 
@@ -529,55 +561,48 @@ export default function SkuCostsManagement() {
     };
   }, [activeSku.finished_output_qty, formulaComputed]);
 
-  const openCreateSku = () => { setScanSkuMessage(""); setSaveSkuError(""); setImportedFormulaDraft([]); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: FORMULA_BASE_QTY, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {}, hide_from_dealer_portal: false }); setDialogOpen(true); };
+  const openCreateSku = () => { setScanSkuMessage(""); setSaveSkuError(""); setImportedFormulaDraft([]); setCogsEffectiveFrom(new Date().toISOString().slice(0, 10)); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: FORMULA_BASE_QTY, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {}, hide_from_dealer_portal: false }); setDialogOpen(true); };
   const openSkuDetail = (sku: SKU) => { setActiveSkuId(sku.id); setDetailOpen(true); };
 
   const buildFormulaRowsFromDraft = (skuId: string) => {
     const rows: any[] = [];
     const level1Rows = importedFormulaDraft.filter((r: any) => !r.is_level2 && String(r.level1_name || r.ingredient_name || "").trim());
+    const findMaterial = (id: unknown) => canonicalMaterials.find((material) => material.id === String(id || ""));
 
     level1Rows.forEach((r: any) => {
-      const level1 = String(r.level1_name || r.ingredient_name || "").trim();
-      const childRows = importedFormulaDraft.filter((x: any) => x.is_level2 && String(x.level1_name || "").trim() === level1 && String(x.level2_name || "").trim());
-      const matchLevel1 = ingredientSkus.find((s) => s.id === (r.level1_sku_id || r.ingredient_sku_id)) || ingredientSkus.find((s) => {
-        const n = level1.toLowerCase();
-        const t = `${s.sku_code} ${s.product_name}`.toLowerCase();
-        return t.includes(n) || n.includes(String(s.product_name || "").toLowerCase());
-      });
+      const level1Material = findMaterial(r.canonical_material_id);
+      if (!level1Material) return;
+
+      const level1 = level1Material.canonical_name;
+      const childRows = importedFormulaDraft.filter((x: any) => x.is_level2 && String(x.level1_name || "").trim() === String(r.level1_name || "").trim());
 
       if (childRows.length > 0) {
         const childBatchQty = childRows.reduce((sum: number, child: any) => sum + parseDosageGramInput(child.dosage_input ?? child.dosage_qty, 0), 0);
         const childBatchCost = childRows.reduce((sum: number, child: any) => sum + computeDraftLineCost(child), 0);
         const parentUnitPrice = childBatchQty > 0 ? childBatchCost / childBatchQty : toNumber(r.unit_price, 0);
-        const parentDosageQty = parseDosageGramInput(r.dosage_input ?? r.dosage_qty, 0);
 
-        const parentIngredientName = matchLevel1?.product_name || level1;
         rows.push({
           sku_id: skuId,
-          ingredient_sku_id: matchLevel1?.id || null,
-          ingredient_name: parentIngredientName,
-          material_code: buildMaterialCode(parentIngredientName),
+          canonical_material_id: level1Material.id,
+          ingredient_name: level1,
+          raw_ocr_name: r.raw_ocr_name || null,
+          material_code: level1Material.material_code,
           unit: "g",
           unit_price: parentUnitPrice,
-          dosage_qty: parentDosageQty,
+          dosage_qty: parseDosageGramInput(r.dosage_input ?? r.dosage_qty, 0),
           wastage_percent: 0,
           sort_order: rows.length + 1,
         });
 
         childRows.forEach((child: any) => {
-          const level2 = String(child.level2_name || "").trim();
-          const ingredientLabel = `${level1}${LEVEL2_SEPARATOR}${level2}`;
-          const matchedChild = ingredientSkus.find((s) => s.id === child.ingredient_sku_id) || ingredientSkus.find((s) => {
-            const n = ingredientLabel.toLowerCase();
-            const t = `${s.sku_code} ${s.product_name}`.toLowerCase();
-            return t.includes(n) || n.includes(String(s.product_name || "").toLowerCase());
-          });
-
+          const childMaterial = findMaterial(child.canonical_material_id);
+          if (!childMaterial) return;
           rows.push({
             sku_id: skuId,
-            ingredient_sku_id: matchedChild?.id || null,
-            ingredient_name: ingredientLabel,
-            material_code: buildMaterialCode(ingredientLabel),
+            canonical_material_id: childMaterial.id,
+            ingredient_name: `${level1}${LEVEL2_SEPARATOR}${childMaterial.canonical_name}`,
+            raw_ocr_name: child.raw_ocr_name || null,
+            material_code: childMaterial.material_code,
             unit: "g",
             unit_price: toNumber(child.unit_price, 0),
             dosage_qty: parseDosageGramInput(child.dosage_input ?? child.dosage_qty, 0),
@@ -588,12 +613,12 @@ export default function SkuCostsManagement() {
         return;
       }
 
-      const ingredientName = matchLevel1?.product_name || level1;
       rows.push({
         sku_id: skuId,
-        ingredient_sku_id: matchLevel1?.id || null,
-        ingredient_name: ingredientName,
-        material_code: buildMaterialCode(ingredientName),
+        canonical_material_id: level1Material.id,
+        ingredient_name: level1,
+        raw_ocr_name: r.raw_ocr_name || null,
+        material_code: level1Material.material_code,
         unit: "g",
         unit_price: toNumber(r.unit_price, 0),
         dosage_qty: parseDosageGramInput(r.dosage_input ?? r.dosage_qty, 0),
@@ -607,6 +632,7 @@ export default function SkuCostsManagement() {
 
   const openEditSku = async (sku: SKU) => {
     setSaveSkuError("");
+    setCogsEffectiveFrom(new Date().toISOString().slice(0, 10));
     setSkuForm({ ...sku, hide_from_dealer_portal: Boolean(sku.hide_from_dealer_portal), cost_template: parseCostTemplate(sku.cost_template), cost_values: parseCostValues(sku.cost_values), cost_widgets: parseWidgets(sku.cost_widgets) });
     const { data } = await sb.from("sku_formulations").select("*").eq("sku_id", sku.id).order("sort_order");
     setImportedFormulaDraft(buildDraftFromStoredRows(data || []));
@@ -624,61 +650,70 @@ export default function SkuCostsManagement() {
       return;
     }
 
+    if (!cogsEffectiveFrom) {
+      const msg = "Cần chọn ngày hiệu lực COGS.";
+      setSaveSkuError(msg);
+      toast({ title: "Thiếu ngày hiệu lực", description: msg });
+      return;
+    }
+
+    const invalidMaterialRows = importedFormulaDraft.filter((row) =>
+      String(row.level1_name || row.level2_name || row.ingredient_name || "").trim()
+      && !row.canonical_material_id
+    );
+    if (invalidMaterialRows.length > 0) {
+      const msg = "NVL phải được chọn từ danh mục Giá vốn. Vui lòng liên hệ bộ phận quản trị nếu chưa có NVL cần dùng.";
+      setSaveSkuError(msg);
+      toast({ title: "NVL chưa được chuẩn hóa", description: msg, variant: "destructive" });
+      return;
+    }
+
     setIsSavingSku(true);
 
     try {
-      if (skuForm.id) {
-        const { error } = await sb.from("product_skus").update({ ...skuForm, sku_type: "finished_good" }).eq("id", skuForm.id);
-        if (error) throw error;
+      const skuUpdates = {
+        sku_code: skuForm.sku_code,
+        product_name: skuForm.product_name,
+        unit: skuForm.unit || skuForm.finished_output_unit,
+        category: skuForm.category || "Thành phẩm",
+        base_unit: skuForm.base_unit || skuForm.finished_output_unit,
+        finished_output_qty: skuForm.finished_output_qty,
+        finished_output_unit: skuForm.finished_output_unit,
+        cost_template: skuForm.cost_template,
+        cost_values: skuForm.cost_values,
+        cost_widgets: skuForm.cost_widgets,
+        hide_from_dealer_portal: Boolean(skuForm.hide_from_dealer_portal),
+      };
 
-        const rows = buildFormulaRowsFromDraft(skuForm.id);
-        const { error: deleteFormulaError } = await sb.from("sku_formulations").delete().eq("sku_id", skuForm.id);
-        if (deleteFormulaError) throw deleteFormulaError;
-        if (rows.length > 0) {
-          const { error: formulaError } = await sb.from("sku_formulations").insert(rows);
-          if (formulaError) throw formulaError;
-        }
+      const rows = buildFormulaRowsFromDraft(skuForm.id || "");
+      const { data: savedCogs, error: saveCogsError } = await sb.rpc("save_sku_cogs", {
+        p_sku_id: skuForm.id || null,
+        p_sku_updates: skuUpdates,
+        p_formulations: rows,
+        p_effective_from: cogsEffectiveFrom,
+        p_change_reason: skuForm.id ? "Cập nhật SKU COGS từ màn hình quản trị" : "Tạo SKU COGS ban đầu",
+      }).single();
+      if (saveCogsError) throw saveCogsError;
 
-        try {
-          await sb.from("sku_trace_documents").insert({
-            sku_id: skuForm.id,
-            document_type: "audit",
-            document_name: `EDIT_COST_${new Date().toISOString()}`,
-            document_url: `audit://sku/${skuForm.id}/edit`,
-          });
-        } catch (_) {
-          // Audit trace insert is best-effort and must not block saving SKU edits.
-        }
+      const targetSkuId = savedCogs?.saved_sku_id;
+      if (!targetSkuId) throw new Error("Không nhận được SKU sau khi lưu COGS.");
+      setActiveSkuId(targetSkuId);
 
-        toast({ title: "Đã cập nhật SKU" });
-      } else {
-        const { id: _unusedId, ...skuInsertPayload } = skuForm;
-        const { data, error } = await sb.from("product_skus").insert({ ...skuInsertPayload, sku_type: "finished_good" }).select("*").single();
-        if (error) throw error;
-
-        if (data?.id) {
-          setActiveSkuId(data.id);
-          try {
-            await sb.from("sku_trace_documents").insert({
-              sku_id: data.id,
-              document_type: "audit",
-              document_name: `CREATE_COST_${new Date().toISOString()}`,
-              document_url: `audit://sku/${data.id}/create`,
-            });
-          } catch (_) {
-            // Audit trace insert is best-effort and must not block SKU creation.
-          }
-
-          const rows = buildFormulaRowsFromDraft(data.id);
-          if (rows.length > 0) {
-            const { error: formulaError } = await sb.from("sku_formulations").insert(rows);
-            if (formulaError) throw formulaError;
-          }
-        }
-
-        toast({ title: "SKU đã tạo thành công", description: "Đã cập nhật ngay danh sách SKU thành phẩm." });
-        setScanSkuMessage("SKU đã tạo thành công và đã cập nhật danh sách.");
+      try {
+        await sb.from("sku_trace_documents").insert({
+          sku_id: targetSkuId,
+          document_type: "audit",
+          document_name: `${skuForm.id ? "EDIT" : "CREATE"}_COST_${new Date().toISOString()}`,
+          document_url: `audit://sku/${targetSkuId}/${skuForm.id ? "edit" : "create"}`,
+        });
+      } catch (_) {
+        // Versioned COGS tables are authoritative; trace document remains best-effort.
       }
+
+      toast({
+        title: skuForm.id ? "Đã cập nhật SKU" : "SKU đã tạo thành công",
+        description: `Đã lưu ngày hiệu lực ${cogsEffectiveFrom} và phiên bản công thức COGS.`,
+      });
 
       setDialogOpen(false);
       setImportedFormulaDraft([]);
@@ -700,7 +735,7 @@ export default function SkuCostsManagement() {
   const addDraftMaterialRow = () => {
     setImportedFormulaDraft((prev) => [
       ...prev,
-      { is_level2: false, level1_sku_id: "", ingredient_sku_id: "", level1_name: "", level2_name: "", ingredient_name: "", material_code: buildMaterialCode(""), unit: "g", unit_price: 0, dosage_qty: 0, dosage_input: "", line_cost: 0 },
+      { is_level2: false, canonical_material_id: "", raw_ocr_name: "", level1_sku_id: "", ingredient_sku_id: "", level1_name: "", level2_name: "", ingredient_name: "", material_code: buildMaterialCode(""), unit: "g", unit_price: 0, dosage_qty: 0, dosage_input: "", line_cost: 0 },
     ]);
   };
 
@@ -714,7 +749,7 @@ export default function SkuCostsManagement() {
         ? next.reduce((last, row, i) => (String(row.level1_name || "").trim() === parentLevel1 ? i : last), parentIdx) + 1
         : next.length;
 
-      next.splice(insertIdx, 0, { is_level2: true, level1_sku_id: "", ingredient_sku_id: "", level1_name: parentLevel1, level2_name: "", ingredient_name: `${parentLevel1} > `, material_code: buildMaterialCode(`${parentLevel1} > `), unit: "g", unit_price: 0, dosage_qty: 0, dosage_input: "", line_cost: 0 });
+      next.splice(insertIdx, 0, { is_level2: true, canonical_material_id: "", raw_ocr_name: "", level1_sku_id: "", ingredient_sku_id: "", level1_name: parentLevel1, level2_name: "", ingredient_name: `${parentLevel1} > `, material_code: buildMaterialCode(`${parentLevel1} > `), unit: "g", unit_price: 0, dosage_qty: 0, dosage_input: "", line_cost: 0 });
       return next;
     });
   };
@@ -724,7 +759,16 @@ export default function SkuCostsManagement() {
     const draftRows = ingredients
       .map((r: any) => normalizeScannedIngredient(r))
       .filter((x: any) => x.ingredient_name)
-      .map((x: any) => ({ ...x, is_level2: false, level1_name: x.ingredient_name, level2_name: "", material_code: buildMaterialCode(x.ingredient_name), dosage_input: String(x.dosage_qty).replace(".", ",") }));
+      .map((x: any) => ({
+        ...x,
+        is_level2: false,
+        canonical_material_id: x.canonical_material_id || "",
+        raw_ocr_name: x.raw_ocr_name || x.ingredient_name,
+        level1_name: x.canonical_material_name || x.ingredient_name,
+        level2_name: "",
+        material_code: x.material_code || buildMaterialCode(x.ingredient_name),
+        dosage_input: String(x.dosage_qty).replace(".", ","),
+      }));
     setImportedFormulaDraft(draftRows);
 
     const productName = d.product_name || d.ten_mon || "SKU từ ảnh";
@@ -816,6 +860,11 @@ export default function SkuCostsManagement() {
         selling_price: data.selling_price,
         ingredients: (data.ingredients || []).map((x: any) => ({
           ingredient_name: x.ingredient_name,
+          canonical_material_id: x.canonical_material_id,
+          canonical_material_name: x.canonical_material_name,
+          material_code: x.material_code,
+          ingredient_sku_id: x.ingredient_sku_id,
+          raw_ocr_name: x.raw_ocr_name,
           unit: x.unit,
           unit_price: x.unit_price,
           dosage_qty: x.dosage_qty,
@@ -834,9 +883,6 @@ export default function SkuCostsManagement() {
     }
   };
 
-  const addFormula = async () => { if (!activeSkuId) return; await sb.from("sku_formulations").insert({ sku_id: activeSkuId, ingredient_name: "NVL mới", material_code: buildMaterialCode("NVL mới"), unit: "kg", unit_price: 0, dosage_qty: 0, wastage_percent: 0, sort_order: formula.length + 1 }); loadAll(); };
-  const updateFormulaRow = async (r: any, patch: any) => { await sb.from("sku_formulations").update(patch).eq("id", r.id); loadAll(); };
-  const removeFormulaRow = async (id: string) => { await sb.from("sku_formulations").delete().eq("id", id); loadAll(); };
   const removeSku = async (sku: any) => {
     if (!window.confirm(`Xóa SKU ${sku.sku_code} - ${sku.product_name}?`)) return;
     await sb.from("sku_formulations").delete().eq("sku_id", sku.id);
@@ -996,6 +1042,23 @@ export default function SkuCostsManagement() {
             <div className="rounded border p-3">Net profit (%): <b>{Number(detailCosting.netProfitPct || 0).toFixed(2)}%</b></div>
             <div className="rounded border p-3">Cập nhật: <b>{activeSku.updated_at ? new Date(activeSku.updated_at).toLocaleString("vi-VN") : "-"}</b></div>
           </div>
+
+          <div className="mt-4 rounded border p-3">
+            <h3 className="font-semibold">Lịch sử phiên bản COGS</h3>
+            <p className="mt-1 text-xs text-muted-foreground">Mỗi lần lưu sẽ giữ công thức cũ, ngày hiệu lực và người cập nhật trong hệ thống.</p>
+            <div className="mt-3 space-y-2">
+              {skuCogsVersions.map((version) => (
+                <div key={version.id} className="grid gap-1 rounded-lg bg-muted/40 p-3 text-sm md:grid-cols-4">
+                  <div><span className="text-muted-foreground">Phiên bản:</span> <b>v{version.version_no}</b></div>
+                  <div><span className="text-muted-foreground">Hiệu lực:</span> <b>{version.effective_from}</b></div>
+                  <div><span className="text-muted-foreground">Kết thúc:</span> <b>{version.effective_to || "Đang áp dụng"}</b></div>
+                  <div><span className="text-muted-foreground">Lưu lúc:</span> <b>{new Date(version.created_at).toLocaleString("vi-VN")}</b></div>
+                  <div className="md:col-span-4 text-muted-foreground">{version.change_reason}</div>
+                </div>
+              ))}
+              {skuCogsVersions.length === 0 && <div className="text-sm text-muted-foreground">Chưa có phiên bản lịch sử. Phiên bản đầu tiên sẽ được tạo khi migration hoặc khi lưu COGS.</div>}
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -1022,11 +1085,12 @@ export default function SkuCostsManagement() {
                 Dữ liệu đã đủ để tạo SKU. Anh kiểm tra lại và bấm Lưu SKU.
               </div>
             )}
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
               <div className="space-y-1 md:col-span-1"><Label>Tên món</Label><Input className="h-11" value={skuForm.product_name || ""} onChange={(e) => setSkuForm({ ...skuForm, product_name: e.target.value })} /></div>
               <div className="space-y-1"><Label>Mã SKU thành phẩm</Label><Input className="h-11" value={skuForm.sku_code || ""} onChange={(e) => setSkuForm({ ...skuForm, sku_code: e.target.value })} /></div>
               <div className="space-y-1"><Label>Thành phẩm ĐVT</Label><Input className="h-11" value={skuForm.finished_output_unit || "cái"} onChange={(e) => setSkuForm({ ...skuForm, finished_output_unit: e.target.value })} /></div>
               <div className="space-y-1"><Label>Sản lượng thành phẩm / mẻ</Label><Input className="h-11" type="number" min={1} value={skuForm.finished_output_qty ?? FORMULA_BASE_QTY} onChange={(e) => setSkuForm({ ...skuForm, finished_output_qty: Math.max(1, Number(e.target.value || FORMULA_BASE_QTY)) })} /></div>
+              <div className="space-y-1"><Label>Ngày hiệu lực COGS</Label><Input className="h-11" type="date" value={cogsEffectiveFrom} onChange={(e) => setCogsEffectiveFrom(e.target.value)} /></div>
             </div>
             <label className="flex items-start gap-3 rounded border bg-muted/30 p-3 text-sm">
               <input
@@ -1064,44 +1128,58 @@ export default function SkuCostsManagement() {
                     return (
                       <TableRow key={`draft-table-${idx}`} className={isLevel1Row ? "" : "bg-muted/30"}>
                         <TableCell>{isLevel1Row ? "NVL cấp 1" : <span className="pl-5">↳ NVL cấp 2 ({r.level1_name || "-"})</span>}</TableCell>
-                        <TableCell className="font-mono text-xs">{buildMaterialCode(isLevel1Row ? (r.level1_name || r.ingredient_name) : `${r.level1_name || ""}${r.level2_name ? `${LEVEL2_SEPARATOR}${r.level2_name}` : ""}`)}</TableCell>
+                        <TableCell className="font-mono text-xs">{r.material_code || buildMaterialCode(isLevel1Row ? (r.level1_name || r.ingredient_name) : (r.level2_name || ""))}</TableCell>
                         <TableCell>
-                          <Input
-                            list={isLevel1Row ? `level1-sku-options-table-${idx}` : `level2-sku-options-table-${idx}`}
-                            value={isLevel1Row ? (r.level1_name || "") : (r.level2_name || "")}
-                            className={isLevel1Row ? "" : "ml-5"}
-                            placeholder={isLevel1Row ? "Gõ để tìm NVL cấp 1" : "Gõ để tìm NVL cấp 2"}
-                            onChange={(e) => {
-                              const keyword = e.target.value;
-                              const picked = ingredientSkus.find((s) => `${s.sku_code} - ${s.product_name}` === keyword || s.product_name === keyword || s.sku_code === keyword);
+                          <Select
+                            value={r.canonical_material_id || undefined}
+                            onValueChange={(materialId) => {
+                              const picked = canonicalMaterials.find((material) => material.id === materialId);
+                              if (!picked) return;
                               const next = [...importedFormulaDraft];
 
                               if (isLevel1Row) {
-                                const level1Name = picked?.product_name || keyword;
+                                const oldLevel1Name = String(next[idx].level1_name || "").trim();
                                 next[idx] = {
                                   ...next[idx],
-                                  level1_sku_id: picked?.id || "",
-                                  level1_name: level1Name,
-                                  ingredient_name: level1Name,
+                                  canonical_material_id: picked.id,
+                                  ingredient_sku_id: picked.ingredient_sku_id || "",
+                                  level1_sku_id: picked.ingredient_sku_id || "",
+                                  level1_name: picked.canonical_name,
+                                  ingredient_name: picked.canonical_name,
+                                  material_code: picked.material_code,
+                                  unit: picked.default_unit || "g",
                                 };
+                                next.forEach((child, childIndex) => {
+                                  if (child.is_level2 && String(child.level1_name || "").trim() === oldLevel1Name) {
+                                    next[childIndex] = { ...child, level1_name: picked.canonical_name };
+                                  }
+                                });
                               } else {
-                                const level2Name = picked?.product_name || keyword;
-                                const unit = String(picked?.unit || r.unit || "g");
                                 next[idx] = {
                                   ...next[idx],
-                                  ingredient_sku_id: picked?.id || "",
-                                  level2_name: level2Name,
-                                  ingredient_name: `${next[idx].level1_name || ""}${level2Name ? ` > ${level2Name}` : ""}`,
-                                  unit,
+                                  canonical_material_id: picked.id,
+                                  ingredient_sku_id: picked.ingredient_sku_id || "",
+                                  level2_name: picked.canonical_name,
+                                  ingredient_name: `${next[idx].level1_name || ""}${LEVEL2_SEPARATOR}${picked.canonical_name}`,
+                                  material_code: picked.material_code,
+                                  unit: picked.default_unit || "g",
                                 };
                               }
 
                               setImportedFormulaDraft(next);
                             }}
-                          />
-                          <datalist id={isLevel1Row ? `level1-sku-options-table-${idx}` : `level2-sku-options-table-${idx}`}>
-                            {ingredientSkus.map((s) => <option key={s.id} value={`${s.sku_code} - ${s.product_name}`} />)}
-                          </datalist>
+                          >
+                            <SelectTrigger className={isLevel1Row ? "" : "ml-5"}>
+                              <SelectValue placeholder="Chọn NVL đã khai báo" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {canonicalMaterials.map((material) => (
+                                <SelectItem key={material.id} value={material.id}>
+                                  {material.material_code} - {material.canonical_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </TableCell>
                         {/* DVT cố định gram theo nghiệp vụ */}
                         <TableCell><Input disabled={hasChildren} value={hasChildren ? String(Math.round(displayUnitPrice * 1000) / 1000) : (r.unit_price_input ?? (toNumber(r.unit_price, 0) === 0 ? "" : String(toNumber(r.unit_price, 0))))} onChange={(e) => { const next = [...importedFormulaDraft]; const unit_price_input = e.target.value; const unit_price = unit_price_input === "" ? 0 : Number(unit_price_input); const dosage_qty = toNumber(next[idx].dosage_qty, 0); next[idx] = { ...next[idx], unit_price_input, unit_price: Number.isFinite(unit_price) ? unit_price : 0, line_cost: (Number.isFinite(unit_price) ? unit_price : 0) * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
@@ -1137,49 +1215,63 @@ export default function SkuCostsManagement() {
                           {isLevel1Row ? "NVL cấp 1" : `NVL cấp 2 · ${r.level1_name || "-"}`}
                         </span>
                         <span className="min-w-0 flex-1 break-all rounded-full bg-muted px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
-                          {buildMaterialCode(isLevel1Row ? (r.level1_name || r.ingredient_name) : `${r.level1_name || ""}${r.level2_name ? `${LEVEL2_SEPARATOR}${r.level2_name}` : ""}`)}
+                          {r.material_code || buildMaterialCode(isLevel1Row ? (r.level1_name || r.ingredient_name) : (r.level2_name || ""))}
                         </span>
                         <Button type="button" className="h-9 shrink-0" size="sm" variant="destructive" onClick={() => setImportedFormulaDraft((prev) => prev.filter((_, i) => i !== idx))}>Xóa</Button>
                       </div>
 
                       <div className="space-y-1">
                         <Label>Tên NVL</Label>
-                        <Input
-                          className="h-11"
-                          list={isLevel1Row ? `level1-sku-options-mobile-${idx}` : `level2-sku-options-mobile-${idx}`}
-                          value={isLevel1Row ? (r.level1_name || "") : (r.level2_name || "")}
-                          placeholder={isLevel1Row ? "Gõ để tìm NVL cấp 1" : "Gõ để tìm NVL cấp 2"}
-                          onChange={(e) => {
-                            const keyword = e.target.value;
-                            const picked = ingredientSkus.find((s) => `${s.sku_code} - ${s.product_name}` === keyword || s.product_name === keyword || s.sku_code === keyword);
+                        <Select
+                          value={r.canonical_material_id || undefined}
+                          onValueChange={(materialId) => {
+                            const picked = canonicalMaterials.find((material) => material.id === materialId);
+                            if (!picked) return;
                             const next = [...importedFormulaDraft];
 
                             if (isLevel1Row) {
-                              const level1Name = picked?.product_name || keyword;
+                              const oldLevel1Name = String(next[idx].level1_name || "").trim();
                               next[idx] = {
                                 ...next[idx],
-                                level1_sku_id: picked?.id || "",
-                                level1_name: level1Name,
-                                ingredient_name: level1Name,
+                                canonical_material_id: picked.id,
+                                ingredient_sku_id: picked.ingredient_sku_id || "",
+                                level1_sku_id: picked.ingredient_sku_id || "",
+                                level1_name: picked.canonical_name,
+                                ingredient_name: picked.canonical_name,
+                                material_code: picked.material_code,
+                                unit: picked.default_unit || "g",
                               };
+                              next.forEach((child, childIndex) => {
+                                if (child.is_level2 && String(child.level1_name || "").trim() === oldLevel1Name) {
+                                  next[childIndex] = { ...child, level1_name: picked.canonical_name };
+                                }
+                              });
                             } else {
-                              const level2Name = picked?.product_name || keyword;
-                              const unit = String(picked?.unit || r.unit || "g");
                               next[idx] = {
                                 ...next[idx],
-                                ingredient_sku_id: picked?.id || "",
-                                level2_name: level2Name,
-                                ingredient_name: `${next[idx].level1_name || ""}${level2Name ? ` > ${level2Name}` : ""}`,
-                                unit,
+                                canonical_material_id: picked.id,
+                                ingredient_sku_id: picked.ingredient_sku_id || "",
+                                level2_name: picked.canonical_name,
+                                ingredient_name: `${next[idx].level1_name || ""}${LEVEL2_SEPARATOR}${picked.canonical_name}`,
+                                material_code: picked.material_code,
+                                unit: picked.default_unit || "g",
                               };
                             }
 
                             setImportedFormulaDraft(next);
                           }}
-                        />
-                        <datalist id={isLevel1Row ? `level1-sku-options-mobile-${idx}` : `level2-sku-options-mobile-${idx}`}>
-                          {ingredientSkus.map((s) => <option key={s.id} value={`${s.sku_code} - ${s.product_name}`} />)}
-                        </datalist>
+                        >
+                          <SelectTrigger className="h-11">
+                            <SelectValue placeholder="Chọn NVL đã khai báo" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {canonicalMaterials.map((material) => (
+                              <SelectItem key={material.id} value={material.id}>
+                                {material.material_code} - {material.canonical_name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
 
                       <div className="mt-3 grid grid-cols-2 gap-3">
