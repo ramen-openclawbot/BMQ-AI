@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Truck, Plus, Loader2, PackageCheck, AlertTriangle, RefreshCw, Camera, PackageSearch, CheckCircle2 } from "lucide-react";
+import { Truck, Plus, Loader2, PackageCheck, AlertTriangle, RefreshCw, Camera, PackageSearch, CheckCircle2, Bot, Eye } from "lucide-react";
 import { format, subDays } from "date-fns";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -169,6 +169,31 @@ type ProductionMaterialIssueItem = {
   amount: number;
 };
 
+type GoodsReceiptAutoIssueItem = {
+  id: string;
+  auto_issue_id: string;
+  product_name: string;
+  quantity: number;
+  unit: string;
+  unit_cost: number;
+  amount: number;
+};
+
+type GoodsReceiptAutoIssue = {
+  id: string;
+  issue_number: string;
+  goods_receipt_id: string;
+  issue_date: string;
+  status: string;
+  source: string;
+  total_quantity: number;
+  notes: string | null;
+  created_at: string;
+  receipt_number: string;
+  supplier_name: string;
+  line_count: number;
+};
+
 type MaterialPreviewRow = {
   key: string;
   production_item_name: string;
@@ -237,8 +262,9 @@ export default function WarehouseDispatch() {
   const dispatchRevenueDate = params.get("revenueDate") || "";
   const dispatchReason = params.get("reason") || "";
   const [activeTab, setActiveTab] = useState<DispatchStatus | "all">("all");
-  const [activeWorkflow, setActiveWorkflow] = useState<"finished" | "materials">("finished");
+  const [activeWorkflow, setActiveWorkflow] = useState<"finished" | "materials" | "auto">("finished");
   const [selectedMaterialOrderId, setSelectedMaterialOrderId] = useState("");
+  const [selectedAutoIssue, setSelectedAutoIssue] = useState<GoodsReceiptAutoIssue | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selected, setSelected] = useState<Dispatch | null>(null);
@@ -280,6 +306,79 @@ export default function WarehouseDispatch() {
       return data || [];
     },
   });
+
+  // Trigger-created receipt issues are audit-only: signed-in staff can read,
+  // while database grants/RLS prevent all client-side writes.
+  const {
+    data: autoIssueData = { issues: [], items: [] },
+    isLoading: loadingAutoIssues,
+    isError: autoIssuesError,
+    refetch: refetchAutoIssues,
+  } = useQuery<{
+    issues: GoodsReceiptAutoIssue[];
+    items: GoodsReceiptAutoIssueItem[];
+  }>({
+    queryKey: ["goods_receipt_auto_issues_audit"],
+    queryFn: async () => {
+      const { data: issueRows, error: issueError } = await (supabase as any)
+        .from("goods_receipt_auto_issues")
+        .select("id,issue_number,goods_receipt_id,issue_date,status,source,total_quantity,notes,created_at")
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (issueError) throw issueError;
+
+      const issues = (issueRows || []) as any[];
+      if (!issues.length) return { issues: [], items: [] };
+
+      const issueIds = issues.map((row) => row.id);
+      const receiptIds = issues.map((row) => row.goods_receipt_id);
+      const [{ data: itemRows, error: itemError }, { data: receiptRows, error: receiptError }] = await Promise.all([
+        (supabase as any)
+          .from("goods_receipt_auto_issue_items")
+          .select("id,auto_issue_id,product_name,quantity,unit,unit_cost,amount")
+          .in("auto_issue_id", issueIds)
+          .order("created_at", { ascending: true }),
+        (supabase as any)
+          .from("goods_receipts")
+          .select("id,receipt_number,supplier_id")
+          .in("id", receiptIds),
+      ]);
+      if (itemError) throw itemError;
+      if (receiptError) throw receiptError;
+
+      const receipts = (receiptRows || []) as any[];
+      const supplierIds = Array.from(new Set(receipts.map((row) => row.supplier_id).filter(Boolean)));
+      const { data: supplierRows, error: supplierError } = supplierIds.length
+        ? await (supabase as any).from("suppliers").select("id,name").in("id", supplierIds)
+        : { data: [], error: null };
+      if (supplierError) throw supplierError;
+
+      const receiptById = new Map(receipts.map((row) => [row.id, row]));
+      const supplierById = new Map(((supplierRows || []) as any[]).map((row) => [row.id, row.name]));
+      const items = (itemRows || []) as GoodsReceiptAutoIssueItem[];
+
+      return {
+        items,
+        issues: issues.map((row) => {
+          const receipt = receiptById.get(row.goods_receipt_id);
+          return {
+            ...row,
+            total_quantity: Number(row.total_quantity || 0),
+            receipt_number: receipt?.receipt_number || "—",
+            supplier_name: receipt?.supplier_id ? supplierById.get(receipt.supplier_id) || "—" : "—",
+            line_count: items.filter((item) => item.auto_issue_id === row.id).length,
+          } as GoodsReceiptAutoIssue;
+        }),
+      };
+    },
+    enabled: activeWorkflow === "auto",
+  });
+
+  const autoIssues = autoIssueData.issues;
+  const autoIssueItems = autoIssueData.items;
+  const selectedAutoIssueItems = selectedAutoIssue
+    ? autoIssueItems.filter((item) => item.auto_issue_id === selectedAutoIssue.id)
+    : [];
 
   // Approved sales POs for dispatch — delivery_date trong 3 ngày trước ngày xuất kho
   // Ví dụ: ngày xuất = 04/04 → lấy PO có delivery_date từ 01/04 đến 03/04
@@ -966,7 +1065,7 @@ export default function WarehouseDispatch() {
             <div className="space-y-2">
               <h1 className="font-display text-3xl font-bold tracking-tight md:text-4xl">Xuất kho</h1>
               <p className="max-w-3xl text-sm leading-6 text-white/65 md:text-base">
-                Tách rõ phiếu xuất thành phẩm để tính công nợ/đối chiếu PO và phiếu xuất nguyên vật liệu để theo dõi tiêu hao theo định lượng SKU, tồn kiểm tay và mua hàng.
+                Tách rõ phiếu xuất thành phẩm để tính công nợ, phiếu xuất NVL sản xuất và PXK tự động 1:1 từ phiếu nhập để kiểm tra audit.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -988,6 +1087,15 @@ export default function WarehouseDispatch() {
               >
                 <PackageSearch className="mr-2 h-5 w-5" /> Nguyên vật liệu
               </Button>
+              <Button
+                type="button"
+                onClick={() => setActiveWorkflow("auto")}
+                className={activeWorkflow === "auto"
+                  ? "rounded-2xl bg-amber-500 px-4 py-6 font-bold text-stone-950 hover:bg-amber-400"
+                  : "rounded-2xl border border-white/10 bg-white/5 px-4 py-6 font-bold text-white hover:bg-white/10"}
+              >
+                <Bot className="mr-2 h-5 w-5" /> PXK tự động
+              </Button>
             </div>
           </div>
 
@@ -1005,8 +1113,8 @@ export default function WarehouseDispatch() {
               <p className="mt-2 text-3xl font-bold text-emerald-200">{stats.dispatched}</p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-              <p className="text-xs text-white/55">Mapping chờ duyệt</p>
-              <p className="mt-2 text-3xl font-bold text-sky-200">18</p>
+              <p className="text-xs text-white/55">PXK tự động</p>
+              <p className="mt-2 text-3xl font-bold text-sky-200">{autoIssues.length}</p>
             </div>
           </div>
         </div>
@@ -1141,7 +1249,7 @@ export default function WarehouseDispatch() {
             </Card>
           </div>
         </div>
-      ) : (
+      ) : activeWorkflow === "materials" ? (
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
           <Card className="border-white/10 bg-[#1b120e]/90 text-white shadow-xl shadow-black/20">
             <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
@@ -1285,7 +1393,162 @@ export default function WarehouseDispatch() {
             </Card>
           </div>
         </div>
+      ) : (
+        <Card className="border-white/10 bg-[#1b120e]/90 text-white shadow-xl shadow-black/20">
+          <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-xl md:text-2xl">
+                <Bot className="h-6 w-6 text-sky-300" /> PXK tự động từ phiếu nhập
+              </CardTitle>
+              <p className="mt-1 text-sm leading-6 text-white/55">
+                Chứng từ 1:1 do hệ thống tạo ngay khi hoàn tất nhập kho. Đây là dữ liệu audit chỉ đọc, không ảnh hưởng luồng xuất thành phẩm giao khách.
+              </p>
+            </div>
+            <Badge variant="outline" className="shrink-0 whitespace-nowrap border-sky-300/35 bg-sky-500/10 text-sky-100">
+              <Bot className="mr-1 h-3.5 w-3.5" /> Hệ thống tự động
+            </Badge>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {loadingAutoIssues ? (
+              <div className="flex min-h-[220px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04]">
+                <Loader2 className="h-8 w-8 animate-spin text-white/45" />
+              </div>
+            ) : autoIssuesError ? (
+              <div className="rounded-2xl border border-red-300/25 bg-red-500/10 px-5 py-10 text-center text-red-50">
+                <AlertTriangle className="mx-auto mb-3 h-9 w-9 text-red-200" />
+                <p className="font-semibold">Không tải được PXK tự động</p>
+                <p className="mt-1 text-sm text-red-100/75">Dữ liệu chưa được kết luận là trống. Vui lòng thử tải lại.</p>
+                <Button type="button" variant="outline" className="mt-4 border-red-200/30 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={() => void refetchAutoIssues()}>
+                  <RefreshCw className="mr-2 h-4 w-4" /> Tải lại
+                </Button>
+              </div>
+            ) : autoIssues.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-white/15 px-5 py-12 text-center text-white/50">
+                <Bot className="mx-auto mb-3 h-10 w-10 opacity-40" />
+                <p className="font-medium text-white/70">Chưa có PXK tự động</p>
+                <p className="mt-1 text-sm">Phiếu đầu tiên sẽ xuất hiện khi một phiếu nhập mới được hoàn tất sau thời điểm triển khai.</p>
+              </div>
+            ) : (
+              <>
+                <div data-testid="auto-issue-mobile-list" className="space-y-3 md:hidden">
+                  {autoIssues.map((issue) => (
+                    <button
+                      key={issue.id}
+                      type="button"
+                      onClick={() => setSelectedAutoIssue(issue)}
+                      className="w-full rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-left transition hover:bg-white/[0.07]"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate font-mono text-sm font-bold text-sky-100">{issue.issue_number}</p>
+                          <p className="mt-1 truncate text-sm text-white/65">PNK: {issue.receipt_number}</p>
+                        </div>
+                        <Badge variant="outline" className="shrink-0 border-emerald-300/30 bg-emerald-500/10 text-emerald-100">Đã ghi sổ</Badge>
+                      </div>
+                      <p className="mt-3 truncate text-sm text-white/60">{issue.supplier_name}</p>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-white/50">
+                        <span>Ngày giờ tạo: {format(new Date(issue.created_at), "dd/MM/yyyy HH:mm")}</span>
+                        <span className="text-right">{issue.line_count} dòng · {issue.total_quantity.toLocaleString("vi-VN", { maximumFractionDigits: 3 })}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                <div data-testid="auto-issue-desktop-table" className="hidden overflow-x-auto rounded-2xl border border-white/10 md:block">
+                  <Table className="min-w-[1080px]">
+                    <TableHeader>
+                      <TableRow className="border-white/10 bg-white/[0.04] hover:bg-white/[0.04]">
+                        <TableHead className="text-white/55">Mã PXK</TableHead>
+                        <TableHead className="text-white/55">Phiếu nhập nguồn</TableHead>
+                        <TableHead className="text-white/55">Nhà cung cấp</TableHead>
+                        <TableHead className="text-white/55">Ngày giờ tạo</TableHead>
+                        <TableHead className="text-right text-white/55">Số dòng</TableHead>
+                        <TableHead className="text-right text-white/55">Tổng số lượng</TableHead>
+                        <TableHead className="text-white/55">Trạng thái</TableHead>
+                        <TableHead className="text-right text-white/55">Thao tác</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {autoIssues.map((issue) => (
+                        <TableRow key={issue.id} className="cursor-pointer border-white/10 hover:bg-white/[0.04]" onClick={() => setSelectedAutoIssue(issue)}>
+                          <TableCell className="font-mono font-semibold text-sky-100">{issue.issue_number}</TableCell>
+                          <TableCell className="font-mono text-xs text-white/70">{issue.receipt_number}</TableCell>
+                          <TableCell className="text-sm text-white/70">{issue.supplier_name}</TableCell>
+                          <TableCell className="whitespace-nowrap text-sm">{format(new Date(issue.created_at), "dd/MM/yyyy HH:mm")}</TableCell>
+                          <TableCell className="text-right">{issue.line_count}</TableCell>
+                          <TableCell className="text-right font-semibold">{issue.total_quantity.toLocaleString("vi-VN", { maximumFractionDigits: 3 })}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="whitespace-nowrap border-emerald-300/30 bg-emerald-500/10 text-emerald-100">Hệ thống tự động</Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button variant="ghost" size="sm" className="text-white hover:bg-white/10 hover:text-white" onClick={(event) => { event.stopPropagation(); setSelectedAutoIssue(issue); }}>
+                              <Eye className="mr-1 h-4 w-4" /> Chi tiết
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
       )}
+
+      {/* ── Read-only automatic issue detail ─────────────────────────────── */}
+      <Dialog open={Boolean(selectedAutoIssue)} onOpenChange={(open) => { if (!open) setSelectedAutoIssue(null); }}>
+        <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bot className="h-5 w-5 text-sky-600" /> Chi tiết PXK tự động
+            </DialogTitle>
+          </DialogHeader>
+          {selectedAutoIssue && (
+            <div className="space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sky-950">
+                <div>
+                  <p className="font-mono text-lg font-bold">{selectedAutoIssue.issue_number}</p>
+                  <p className="mt-1 text-sm text-sky-800">Nguồn: {selectedAutoIssue.receipt_number} · {selectedAutoIssue.supplier_name}</p>
+                </div>
+                <Badge variant="outline" className="border-sky-300 bg-white text-sky-800">Chứng từ chỉ đọc</Badge>
+              </div>
+
+              <div className="grid gap-3 text-sm sm:grid-cols-3">
+                <div className="rounded-xl border p-3"><p className="text-xs text-muted-foreground">Ngày giờ tạo</p><p className="mt-1 font-medium">{format(new Date(selectedAutoIssue.created_at), "dd/MM/yyyy HH:mm")}</p></div>
+                <div className="rounded-xl border p-3"><p className="text-xs text-muted-foreground">Số dòng</p><p className="mt-1 font-medium">{selectedAutoIssue.line_count}</p></div>
+                <div className="rounded-xl border p-3"><p className="text-xs text-muted-foreground">Tổng số lượng</p><p className="mt-1 font-medium">{selectedAutoIssue.total_quantity.toLocaleString("vi-VN", { maximumFractionDigits: 3 })}</p></div>
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/40">
+                      <TableHead>Sản phẩm</TableHead>
+                      <TableHead className="text-right">Số lượng</TableHead>
+                      <TableHead>ĐVT</TableHead>
+                      <TableHead className="text-right">Đơn giá</TableHead>
+                      <TableHead className="text-right">Thành tiền</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {selectedAutoIssueItems.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium">{item.product_name}</TableCell>
+                        <TableCell className="text-right font-medium">{Number(item.quantity).toLocaleString("vi-VN", { maximumFractionDigits: 3 })}</TableCell>
+                        <TableCell className="text-muted-foreground">{item.unit}</TableCell>
+                        <TableCell className="text-right">{Number(item.unit_cost).toLocaleString("vi-VN")}</TableCell>
+                        <TableCell className="text-right">{Number(item.amount).toLocaleString("vi-VN")}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="flex justify-end"><Button variant="outline" onClick={() => setSelectedAutoIssue(null)}>Đóng</Button></div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* ── Create Dialog ────────────────────────────────────────────────── */}
       <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (!o) resetForm(); }}>
