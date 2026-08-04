@@ -9,6 +9,7 @@ import {
   Phone,
   Save,
   Send,
+  ShieldCheck,
   UserRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -369,43 +370,51 @@ export default function KioskReportPortal() {
 
   if (step !== "report") {
     return (
-      <main className="min-h-screen bg-[#f3f4f6] px-4 py-8 text-slate-950">
-        <section className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-md flex-col justify-center">
-          <div className="mb-6 flex justify-center">
-            <img src="/assets/brand/bmq-logo-master-1024.png" alt="BMQ" className="h-24 w-24 object-contain" />
+      <main className="min-h-screen bg-[#fefbf9] px-5 text-[#211d1e]">
+        <section className="mx-auto flex min-h-screen max-w-md flex-col pb-7 pt-9 sm:pt-12">
+          <div className="flex justify-center">
+            <img
+              src="/assets/brand/bmq-logo-master-1024.png"
+              alt="BMQ - Bánh Mì Que Pháp"
+              className="h-auto w-[130px] object-contain sm:w-[145px]"
+            />
           </div>
-          <div className="rounded-[28px] bg-white p-5 shadow-sm ring-1 ring-slate-200">
-            <div className="mb-5 text-center">
-              <h1 className="text-2xl font-bold tracking-normal">Báo cáo điểm bán</h1>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Mã OTP được gửi qua Zalo ZNS. Trường hợp Zalo lỗi, hệ thống dùng SMS dự phòng.
-              </p>
-            </div>
+          <div className="mb-8 mt-8 text-center">
+            <h1 className="text-[40px] font-bold leading-[1.08] tracking-[-0.025em]">Báo cáo bán hàng</h1>
+            <p className="mt-3 text-[18px] leading-7 text-[#666263]">Dành cho nhân viên điểm bán BMQ</p>
+          </div>
+
+          <div className="rounded-[28px] bg-white px-6 py-7 shadow-[0_12px_28px_rgba(70,50,55,0.10)] ring-1 ring-[#eee8e5]">
 
             {step === "phone" ? (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="report-phone">Nhập số điện thoại</Label>
+              <div className="space-y-6">
+                <div className="space-y-3">
+                  <Label htmlFor="report-phone" className="text-[18px] font-bold text-[#211d1e]">Số điện thoại</Label>
                   <div className="relative">
-                    <Phone className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <Phone className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 fill-[#dc4f78] text-[#dc4f78]" />
                     <Input
                       id="report-phone"
                       inputMode="tel"
                       value={phone}
                       onChange={(event) => setPhone(event.target.value)}
-                      placeholder="VD: 0966998999"
-                      className="h-12 rounded-2xl border-slate-200 pl-10 text-base"
+                      placeholder="09xx xxx xxx"
+                      className="h-14 rounded-2xl border-[#ef8caf] bg-white pl-12 text-[17px] shadow-none placeholder:text-[#aaa7a8] focus-visible:ring-[#dc4f78]"
                     />
                   </div>
                 </div>
                 <Button
-                  className="h-12 w-full rounded-2xl bg-[#b71c1c] text-base font-semibold hover:bg-[#991818]"
+                  className="h-14 w-full rounded-2xl border-0 text-[20px] font-bold text-white shadow-none hover:brightness-95"
+                  style={{ background: "linear-gradient(90deg, #dc4f78 0%, #dc527a 100%)" }}
                   onClick={startAuth}
                   disabled={loading}
                 >
-                  {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Gửi mã OTP Zalo
+                  {loading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : null}
+                  Nhận mã OTP qua Zalo
                 </Button>
+                <div className="flex items-center justify-center gap-3 text-[14px] text-[#4f4a4b]">
+                  <ShieldCheck className="h-6 w-6 shrink-0 text-[#dc4f78]" strokeWidth={1.8} />
+                  <span>Mã xác thực được gửi qua Zalo</span>
+                </div>
               </div>
             ) : (
               <div className="space-y-5">
@@ -446,9 +455,13 @@ export default function KioskReportPortal() {
               </div>
             )}
           </div>
-          <p className="mt-5 text-center text-xs text-slate-500">
-            BMQ bảo mật số điện thoại và chỉ dùng cho Báo cáo điểm bán.
+          <p className="mt-12 text-center text-[14px] leading-6 text-[#666263] min-[375px]:whitespace-nowrap">
+            Số điện thoại chưa được kích hoạt?{" "}
+            <a href="mailto:ramen@bmq.vn" className="font-medium text-[#dc4f78] underline underline-offset-4">
+              Liên hệ quản lý BMQ
+            </a>
           </p>
+          <p className="mt-auto pt-12 text-center text-[14px] text-[#8a8687]">© 2026 Bánh Mì Que Pháp BMQ</p>
         </section>
       </main>
     );
