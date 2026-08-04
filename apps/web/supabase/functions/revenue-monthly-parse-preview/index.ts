@@ -185,6 +185,7 @@ const TIME_ZONE = "Asia/Ho_Chi_Minh";
 const REVENUE_CRON_SECRET_ENV_KEY = "REVENUE_CRON_SECRET";
 const LEGACY_PO_CRON_SECRET_ENV_KEY = "PO_SYNC_CRON_SECRET";
 const THUY_DIRECT_DEALER_SENDER = "mi@bmq.vn";
+const THUY_DIRECT_DEALER_RULE = "thuy_direct_dealer_text";
 const TONY_THANH_NPP_SENDER = "tonythanh@hotmail.com";
 const TONY_THANH_NPP_RULE = "tony_thanh_npp_text";
 const AUTOMATION_REVIEW_STATUSES = new Set([
@@ -781,10 +782,39 @@ const isTonyThanhNppInboxRow = (row: InboxRow) => {
   return sender === TONY_THANH_NPP_SENDER || rule === TONY_THANH_NPP_RULE;
 };
 
+const isThuyDirectDealerInboxRow = (row: InboxRow) => {
+  const raw = asRecord(row.raw_payload);
+  const poAutomation = asRecord(raw.po_automation);
+  const sender = String(row.from_email || "").trim().toLowerCase();
+  const rule = String(poAutomation.rule || "").trim().toLowerCase();
+  return sender === THUY_DIRECT_DEALER_SENDER || rule === THUY_DIRECT_DEALER_RULE;
+};
+
 const dealerOrderRevenueDate = (order: DealerOrderRow) => {
   if (order.requested_delivery_date) return order.requested_delivery_date;
   const submittedLocalDate = localDateFromTimestamp(order.submitted_at || order.created_at || "");
   return submittedLocalDate ? shiftLocalDate(submittedLocalDate, 1) : null;
+};
+
+const dealerPortalCustomerDateKeys = (orders: DealerOrderRow[]) => {
+  const keys = new Set<string>();
+  for (const order of orders) {
+    const revenueDate = dealerOrderRevenueDate(order);
+    if (!revenueDate) continue;
+    const items = Array.isArray(order.dealer_order_items) ? order.dealer_order_items : [];
+    if (items.length === 0 && Number(order.total_amount_vnd || order.subtotal_amount_vnd || 0) > 0 && order.customer_id) {
+      keys.add(`${revenueDate}|${order.customer_id}`);
+      continue;
+    }
+    for (const item of items) {
+      const quantity = Number(item.ordered_quantity ?? item.quantity ?? 0);
+      const gross = Number(item.line_total_vnd || 0);
+      if (quantity <= 0 && gross <= 0) continue;
+      const customerId = stringValue(item.route_customer_id, order.customer_id);
+      if (customerId) keys.add(`${revenueDate}|${customerId}`);
+    }
+  }
+  return keys;
 };
 
 async function fetchDealerPortalOrders(
@@ -1184,6 +1214,78 @@ const lineRevenueDate = (row: InboxRow, item: JsonRecord, poReceivedDate: string
   );
 };
 
+const filterDirectDealerEmailLinesReplacedByPortal = (
+  rows: InboxRow[],
+  portalCustomerDateKeys: Set<string>,
+) => {
+  const filteredRows: InboxRow[] = [];
+  let excludedTonyEmailRows = 0;
+  let excludedDirectDealerEmailRows = 0;
+  let excludedDirectDealerEmailLines = 0;
+
+  for (const row of rows) {
+    if (isTonyThanhNppInboxRow(row)) {
+      excludedTonyEmailRows += 1;
+      continue;
+    }
+    if (!isThuyDirectDealerInboxRow(row)) {
+      filteredRows.push(row);
+      continue;
+    }
+
+    const poReceivedDate = localDateFromTimestamp(row.received_at);
+    const raw = asRecord(row.raw_payload);
+    const productionItems = asArray(row.production_items).map(asRecord);
+    const parsedItems = asArray(raw.parsed_items_preview).map(asRecord);
+    if (productionItems.length === 0 && parsedItems.length === 0) {
+      const fallbackCustomerId = stringValue(row.matched_customer_id, raw.customer_id, raw.agency_customer_id);
+      const fallbackRevenueDate = lineRevenueDate(row, {}, poReceivedDate);
+      if (fallbackCustomerId && fallbackRevenueDate && portalCustomerDateKeys.has(`${fallbackRevenueDate}|${fallbackCustomerId}`)) {
+        excludedDirectDealerEmailRows += 1;
+        excludedDirectDealerEmailLines += 1;
+        continue;
+      }
+      filteredRows.push(row);
+      continue;
+    }
+    const keepItem = (item: JsonRecord) => {
+      const customerId = stringValue(item.customer_id, item.route_customer_id, item.agency_customer_id, row.matched_customer_id);
+      const revenueDate = lineRevenueDate(row, item, poReceivedDate);
+      return !customerId || !revenueDate || !portalCustomerDateKeys.has(`${revenueDate}|${customerId}`);
+    };
+    const filteredProductionItems = productionItems.filter(keepItem);
+    const filteredParsedItems = parsedItems.filter(keepItem);
+    const activeItems = productionItems.length > 0 ? productionItems : parsedItems;
+    const filteredActiveItems = productionItems.length > 0 ? filteredProductionItems : filteredParsedItems;
+    const excludedLineCount = activeItems.length - filteredActiveItems.length;
+
+    if (excludedLineCount === 0) {
+      filteredRows.push(row);
+      continue;
+    }
+    excludedDirectDealerEmailLines += excludedLineCount;
+    if (filteredActiveItems.length === 0) {
+      excludedDirectDealerEmailRows += 1;
+      continue;
+    }
+    filteredRows.push({
+      ...row,
+      production_items: filteredProductionItems,
+      raw_payload: {
+        ...raw,
+        parsed_items_preview: filteredParsedItems,
+      },
+    });
+  }
+
+  return {
+    rows: filteredRows,
+    excludedTonyEmailRows,
+    excludedDirectDealerEmailRows,
+    excludedDirectDealerEmailLines,
+  };
+};
+
 const isThuyDealerDateHeaderItem = (row: InboxRow, item: JsonRecord) => {
   const raw = asRecord(row.raw_payload);
   const poAutomation = asRecord(raw.po_automation);
@@ -1513,7 +1615,15 @@ async function runCurrentMonthPreview(
     const dealerPortalOrders = dealerParseSource === "dealer_portal"
       ? await fetchDealerPortalOrders(supabaseAdmin, window, receivedFrom, receivedTo)
       : [];
-    const sourceRows = dealerParseSource === "dealer_portal" ? rows.filter((row) => !isTonyThanhNppInboxRow(row)) : rows;
+    const dealerEmailReplacement = dealerParseSource === "dealer_portal"
+      ? filterDirectDealerEmailLinesReplacedByPortal(rows, dealerPortalCustomerDateKeys(dealerPortalOrders))
+      : {
+          rows,
+          excludedTonyEmailRows: 0,
+          excludedDirectDealerEmailRows: 0,
+          excludedDirectDealerEmailLines: 0,
+        };
+    const sourceRows = dealerEmailReplacement.rows;
     emit?.({
       type: "progress",
       stage: "inbox_fetch_done",
@@ -1521,7 +1631,7 @@ async function runCurrentMonthPreview(
       inboxRows: sourceRows.length,
       dealerPortalOrders: dealerPortalOrders.length,
       message: dealerParseSource === "dealer_portal"
-        ? `Đã lấy ${sourceRows.length} mail non-đại-lý và ${dealerPortalOrders.length} đơn từ dathang.banhmique.vn`
+        ? `Đã giữ ${sourceRows.length} mail, bỏ ${dealerEmailReplacement.excludedDirectDealerEmailLines} dòng email đại lý đã có đơn web và lấy ${dealerPortalOrders.length} đơn từ dathang.banhmique.vn`
         : `Đã lấy ${rows.length} mail trong inbox, bắt đầu parse theo kênh`,
     });
     const { rows: rowsAfterCancellationResolution, resolution: dailyCancellationResolution } = resolveDailyCancellationReplacements(sourceRows, window);
@@ -1574,7 +1684,12 @@ async function runCurrentMonthPreview(
       dealerParseSource,
       dealerPortalOrders: dealerPortalOrders.length,
       dealerPortalLines: dealerPortalLines.length,
-      excludedDealerEmailRows: dealerParseSource === "dealer_portal" ? rows.length - sourceRows.length : 0,
+      excludedDealerEmailRows: dealerParseSource === "dealer_portal"
+        ? dealerEmailReplacement.excludedTonyEmailRows + dealerEmailReplacement.excludedDirectDealerEmailRows
+        : 0,
+      excludedTonyEmailRows: dealerEmailReplacement.excludedTonyEmailRows,
+      excludedDirectDealerEmailRows: dealerEmailReplacement.excludedDirectDealerEmailRows,
+      excludedDirectDealerEmailLines: dealerEmailReplacement.excludedDirectDealerEmailLines,
       daily_latest_bakery_excluded_row_count: dailyLatestBakeryResolution.excludedRows.length,
       daily_cancellation_replacement_confirmation_required: dailyCancellationResolution.requiresConfirmation,
       ...(options.runSummary || {}),

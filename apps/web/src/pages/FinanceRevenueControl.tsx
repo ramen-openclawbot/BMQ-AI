@@ -675,7 +675,7 @@ export default function FinanceRevenueControl() {
                 <div className="text-sm font-semibold text-foreground">Nguồn parse kênh đại lý</div>
                 <div className="text-xs text-muted-foreground">
                   {dealerParseSource === "dealer_portal"
-                    ? "Đang dùng đơn từ dathang.banhmique.vn thay cho email PO Anh Thanh; vẫn giữ mi@bmq.vn và các email khác."
+                    ? "Đang ưu tiên đơn từ dathang.banhmique.vn: bỏ email Anh Thanh và bỏ từng dòng mi@bmq.vn đã trùng đại lý + ngày giao; các dòng email không trùng vẫn được giữ."
                     : "Đang dùng email PO Anh Thanh gửi về po@bmq.vn."}
                 </div>
               </div>
