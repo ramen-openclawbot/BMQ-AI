@@ -101,6 +101,18 @@ def test_report_auth_functions_use_report_tables_and_never_expose_salary() -> No
         assert_not_contains(source, "monthly_salary_vnd", "salary exposure in public auth function")
 
 
+def test_report_auth_session_ttl_matches_rpc_security_boundary() -> None:
+    auth_verify = read(FUNCTIONS / "report-auth-verify/index.ts")
+    shared = read(SHARED)
+    migration = read_report_migrations()
+
+    assert_contains(shared, "REPORT_SESSION_TTL_HOURS = 12", "bounded report session TTL")
+    assert_contains(shared, "getReportSessionExpiresAt", "report-specific session expiry helper")
+    assert_contains(auth_verify, "getReportSessionExpiresAt()", "report-specific session expiry use")
+    assert_not_contains(auth_verify, "getSessionExpiresAt", "30-day dealer session expiry reuse")
+    assert_contains(migration, "p_session_expires_at > v_now + interval '24 hours'", "RPC maximum session TTL")
+
+
 def test_public_auth_is_generic_has_no_dev_otp_and_is_rate_limited() -> None:
     auth_start = read(FUNCTIONS / "report-auth-start/index.ts")
     auth_verify = read(FUNCTIONS / "report-auth-verify/index.ts")

@@ -6,7 +6,7 @@ import {
   errorResponse,
   generateReportSessionToken,
   getRequestMetadata,
-  getSessionExpiresAt,
+  getReportSessionExpiresAt,
   hashReportOtp,
   hashReportSessionToken,
   jsonResponse,
@@ -94,7 +94,7 @@ serve(async (req) => {
     const otpHash = await hashReportOtp(challenge.id, phoneNormalized, otp);
     const sessionToken = generateReportSessionToken();
     const sessionTokenHash = await hashReportSessionToken(sessionToken);
-    const expiresAt = getSessionExpiresAt();
+    const expiresAt = getReportSessionExpiresAt();
     const { data: verification, error: verificationError } = await supabase.rpc(
       "verify_kiosk_report_otp_atomic",
       {

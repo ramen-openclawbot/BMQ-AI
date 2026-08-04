@@ -4,7 +4,6 @@ import {
   generateDealerOtp,
   getOtpExpiresAt,
   getRequestMetadata,
-  getSessionExpiresAt,
   jsonResponse,
   normalizeDealerPhone,
   readJsonBody,
@@ -13,6 +12,7 @@ import {
 } from "./dealer.ts";
 
 const encoder = new TextEncoder();
+const REPORT_SESSION_TTL_HOURS = 12;
 
 export {
   createServiceClient,
@@ -20,7 +20,6 @@ export {
   generateDealerOtp,
   getOtpExpiresAt,
   getRequestMetadata,
-  getSessionExpiresAt,
   jsonResponse,
   normalizeDealerPhone,
   readJsonBody,
@@ -71,6 +70,10 @@ export async function hashReportOtp(challengeId: string, phoneNormalized: string
 
 export async function hashReportSessionToken(token: string): Promise<string> {
   return sha256Hex(["report-session-v1", token, getReportSecret()].join(":"));
+}
+
+export function getReportSessionExpiresAt(): string {
+  return new Date(Date.now() + REPORT_SESSION_TTL_HOURS * 60 * 60 * 1000).toISOString();
 }
 
 export async function hashReportRateLimitKey(scope: string, key: string): Promise<string> {
