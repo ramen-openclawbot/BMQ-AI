@@ -278,7 +278,7 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = public
-as $$
+as $verify_kiosk_report_otp$
 declare
   v_now timestamptz := clock_timestamp();
   v_challenge public.kiosk_report_otp_challenges%rowtype;
@@ -396,7 +396,7 @@ begin
     )
   );
 end;
-$$;
+$verify_kiosk_report_otp$;
 
 revoke all on function public.verify_kiosk_report_otp_atomic(
   uuid, text, text, text, timestamptz, text, text
