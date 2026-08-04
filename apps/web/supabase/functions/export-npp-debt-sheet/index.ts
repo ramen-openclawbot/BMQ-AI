@@ -529,6 +529,24 @@ serve(async (req) => {
     const recipientEmails: string[] = Array.from(new Set((Array.isArray(customer.debt_emails) ? customer.debt_emails : [])
       .map((email: string) => String(email || "").trim().toLowerCase())
       .filter((email: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))));
+    const isNpp = Boolean(customer.is_npp);
+
+    let debtAdjustment: {
+      opening_balance_vnd?: number | string | null;
+      amount_collected_vnd?: number | string | null;
+      payment_due_date?: string | null;
+    } | null = null;
+    if (!isNpp) {
+      const { data: adjustment, error: adjustmentError } = await supabaseAdmin
+        .from("customer_debt_period_adjustments")
+        .select("opening_balance_vnd,amount_collected_vnd,payment_due_date")
+        .eq("customer_id", customerId)
+        .eq("period_from", fromDate)
+        .eq("period_to", toDate)
+        .maybeSingle();
+      if (adjustmentError) throw adjustmentError;
+      debtAdjustment = adjustment;
+    }
 
     const { data: children, error: childError } = await supabaseAdmin
       .from("mini_crm_customers")
@@ -547,7 +565,6 @@ serve(async (req) => {
       .limit(10000);
     if (lineError) throw lineError;
 
-    const isNpp = Boolean(customer.is_npp);
     const allLines = (lines || []) as LedgerLine[];
     const childRows = (children || []) as Customer[];
     const productLabelsByCustomerId = await buildCustomerProductLabelMap(supabaseAdmin, [
@@ -626,13 +643,23 @@ serve(async (req) => {
       summaryCount = directLines.length;
       const gross = sum(directLines, "gross_revenue");
       const quantity = sum(directLines, "quantity");
+      const openingBalance = Number(debtAdjustment?.opening_balance_vnd || 0);
+      const amountCollected = Number(debtAdjustment?.amount_collected_vnd || 0);
+      const remainingDebt = openingBalance + gross - amountCollected;
+      const paymentDueDate = debtAdjustment?.payment_due_date ? vnDate(debtAdjustment.payment_due_date) : "";
       emailLineCount = directLines.length;
-      emailPayable = gross;
+      emailPayable = remainingDebt;
       const values = [
         ...COMPANY_HEADER_LINES.map((line) => [line]),
         ["SỔ CHI TIẾT CÔNG NỢ"],
         [`${customerName} • Từ ${vnDate(fromDate)} đến ${vnDate(toDate)}`],
         [`Email nhận công nợ: ${recipientEmails.join(", ") || "Chưa có email nhận công nợ"}`],
+        [],
+        ["Dư đầu kỳ", "", "", "", "", openingBalance],
+        ["Doanh thu phát sinh", "", "", "", "", gross],
+        ["Đã thu", "", "", "", "", -amountCollected],
+        ["CÔNG NỢ CÒN LẠI", "", "", "", "", remainingDebt],
+        ["Hạn thanh toán", paymentDueDate],
         [],
         ["Ngày", "Kênh", "Sản phẩm", "Số lượng", "Đơn giá", "Công nợ"],
         ...directLines.map((line) => [
@@ -644,7 +671,7 @@ serve(async (req) => {
           Number(line.gross_revenue || 0),
         ]),
         [],
-        ["", "", "TỔNG", quantity, "", gross],
+        ["", "", "TỔNG DOANH THU", quantity, "", gross],
       ];
       data.push({ range: `TOTAL!A1:F${values.length}`, values });
     }

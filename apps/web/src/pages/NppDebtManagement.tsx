@@ -103,6 +103,25 @@ type RevenueUpdatePayload = {
   raw_payload: Record<string, unknown>;
 };
 
+type DebtAdjustment = {
+  id: string;
+  customer_id: string;
+  period_from: string;
+  period_to: string;
+  opening_balance_vnd: number | string;
+  amount_collected_vnd: number | string;
+  payment_due_date: string | null;
+  note: string | null;
+  updated_at?: string | null;
+};
+
+type DebtAdjustmentForm = {
+  opening_balance_vnd: string;
+  amount_collected_vnd: string;
+  payment_due_date: string;
+  note: string;
+};
+
 type AgencySummary = {
   id: string;
   name: string;
@@ -143,6 +162,12 @@ type DebtExportOptions = { overwrite?: boolean };
 type PendingOverwrite = { spreadsheetName: string; existingWebViewLink?: string | null };
 type DebtExportError = Error & { code?: string; spreadsheetName?: string; existingWebViewLink?: string | null };
 type RpcQuery = PromiseLike<{ data: LedgerLine | null; error: QueryError }>;
+type DebtAdjustmentQuery = PromiseLike<{ data: DebtAdjustment | null; error: QueryError }> & {
+  select: (columns: string) => DebtAdjustmentQuery;
+  eq: (column: string, value: string) => DebtAdjustmentQuery;
+  maybeSingle: () => PromiseLike<{ data: DebtAdjustment | null; error: QueryError }>;
+};
+type DebtAdjustmentRpcQuery = PromiseLike<{ data: DebtAdjustment | null; error: QueryError }>;
 type ExportStatus = {
   kind: "idle" | "pending" | "success" | "error";
   title: string;
@@ -156,6 +181,18 @@ const debtDb = supabase as unknown as {
 const ledgerDb = supabase as unknown as {
   from: (table: "revenue_ledger_lines") => LedgerLineQuery;
   rpc: (fn: "edit_revenue_ledger_line", args: { _ledger_line_id: string; _patch: RevenueUpdatePayload; _note: string | null }) => RpcQuery;
+};
+const adjustmentDb = supabase as unknown as {
+  from: (table: "customer_debt_period_adjustments") => DebtAdjustmentQuery;
+  rpc: (fn: "upsert_customer_debt_period_adjustment", args: {
+    _customer_id: string;
+    _period_from: string;
+    _period_to: string;
+    _opening_balance_vnd: number;
+    _amount_collected_vnd: number;
+    _payment_due_date: string | null;
+    _note: string | null;
+  }) => DebtAdjustmentRpcQuery;
 };
 
 const asRecord = (value: unknown): Record<string, unknown> =>
@@ -263,6 +300,13 @@ export default function NppDebtManagement() {
   const [expandedAgencyRevenuePage, setExpandedAgencyRevenuePage] = useState(1);
   const [editForm, setEditForm] = useState<RevenueEditForm | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [debtAdjustmentForm, setDebtAdjustmentForm] = useState<DebtAdjustmentForm>({
+    opening_balance_vnd: "0",
+    amount_collected_vnd: "0",
+    payment_due_date: "",
+    note: "",
+  });
+  const [savingDebtAdjustment, setSavingDebtAdjustment] = useState(false);
 
   const { data: customers = [], isLoading: customersLoading } = useQuery<Customer[]>({
     queryKey: ["npp-debt-customers"],
@@ -344,6 +388,25 @@ export default function NppDebtManagement() {
   const hasViewedDebt = Boolean(viewCustomerId);
   const selectedCustomer = useMemo(() => customers.find((c) => c.id === effectiveCustomerId) || null, [customers, effectiveCustomerId]);
   const isSelectedNpp = Boolean(selectedCustomer?.is_npp);
+  const {
+    data: debtAdjustment,
+    isLoading: debtAdjustmentLoading,
+    refetch: refetchDebtAdjustment,
+  } = useQuery<DebtAdjustment | null>({
+    queryKey: ["customer-debt-period-adjustment", effectiveCustomerId, dateFrom, dateTo],
+    enabled: Boolean(hasViewedDebt && effectiveCustomerId && !isSelectedNpp && dateFrom && dateTo),
+    queryFn: async () => {
+      const { data, error } = await adjustmentDb
+        .from("customer_debt_period_adjustments")
+        .select("id,customer_id,period_from,period_to,opening_balance_vnd,amount_collected_vnd,payment_due_date,note,updated_at")
+        .eq("customer_id", effectiveCustomerId)
+        .eq("period_from", dateFrom)
+        .eq("period_to", dateTo)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
 
   const childAgencies = useMemo(
     () => isSelectedNpp ? customers.filter((c) => c.supplied_by_npp_customer_id === effectiveCustomerId && c.is_active !== false) : [],
@@ -464,6 +527,56 @@ export default function NppDebtManagement() {
       lines: acc.lines + row.lines.length,
     }), { quantity: 0, gross: 0, managementFee: 0, payable: 0, lines: 0 });
   }, [directLines, isSelectedNpp, summaries]);
+
+  useEffect(() => {
+    if (!hasViewedDebt || isSelectedNpp) return;
+    setDebtAdjustmentForm({
+      opening_balance_vnd: String(debtAdjustment?.opening_balance_vnd ?? 0),
+      amount_collected_vnd: String(debtAdjustment?.amount_collected_vnd ?? 0),
+      payment_due_date: debtAdjustment?.payment_due_date || "",
+      note: debtAdjustment?.note || "",
+    });
+  }, [debtAdjustment, hasViewedDebt, isSelectedNpp]);
+
+  const parsedOpeningBalance = Number(debtAdjustmentForm.opening_balance_vnd || 0);
+  const parsedAmountCollected = Number(debtAdjustmentForm.amount_collected_vnd || 0);
+  const openingBalance = Number.isFinite(parsedOpeningBalance) ? parsedOpeningBalance : 0;
+  const amountCollected = Number.isFinite(parsedAmountCollected) ? parsedAmountCollected : 0;
+  const remainingDebt = isSelectedNpp ? totals.payable : openingBalance + totals.gross - amountCollected;
+
+  const saveDebtAdjustment = async () => {
+    if (!effectiveCustomerId || isSelectedNpp) return;
+    if (!canEditRevenue) {
+      toast({ title: "Không có quyền sửa công nợ", variant: "destructive" });
+      return;
+    }
+    setSavingDebtAdjustment(true);
+    try {
+      const nextOpeningBalance = toNumber(debtAdjustmentForm.opening_balance_vnd);
+      const nextAmountCollected = toNumber(debtAdjustmentForm.amount_collected_vnd);
+      if (nextAmountCollected < 0) throw new Error("Số tiền đã thu không được âm.");
+      const { error } = await adjustmentDb.rpc("upsert_customer_debt_period_adjustment", {
+        _customer_id: effectiveCustomerId,
+        _period_from: dateFrom,
+        _period_to: dateTo,
+        _opening_balance_vnd: nextOpeningBalance,
+        _amount_collected_vnd: nextAmountCollected,
+        _payment_due_date: debtAdjustmentForm.payment_due_date || null,
+        _note: debtAdjustmentForm.note.trim() || null,
+      });
+      if (error) throw error;
+      await refetchDebtAdjustment();
+      toast({ title: "Đã lưu thông tin công nợ" });
+    } catch (error) {
+      toast({
+        title: "Không lưu được thông tin công nợ",
+        description: error instanceof Error ? error.message : "Vui lòng thử lại.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingDebtAdjustment(false);
+    }
+  };
 
   const buildExportMutation = (sendEmail: boolean) => ({
     mutationFn: async (options?: DebtExportOptions) => {
@@ -658,7 +771,7 @@ export default function NppDebtManagement() {
     </div>
   );
 
-  const isLoading = customersLoading || (hasViewedDebt && linesLoading);
+  const isLoading = customersLoading || (hasViewedDebt && (linesLoading || (!isSelectedNpp && debtAdjustmentLoading)));
   const canViewDebt = Boolean(selectedCustomerId && dateFrom && dateTo);
   const handleViewDebt = () => {
     if (!canViewDebt) return;
@@ -688,7 +801,7 @@ export default function NppDebtManagement() {
         </div>
         {hasViewedDebt && (
           <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap md:justify-end">
-            <Button className="h-10 px-3 text-xs sm:text-sm md:w-auto" variant="outline" onClick={() => refetch()} disabled={isLoading}>
+            <Button className="h-10 px-3 text-xs sm:text-sm md:w-auto" variant="outline" onClick={() => { void refetch(); if (!isSelectedNpp) void refetchDebtAdjustment(); }} disabled={isLoading}>
               {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
               Làm mới
             </Button>
@@ -835,8 +948,68 @@ export default function NppDebtManagement() {
         <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">{isSelectedNpp ? "Số đại lý" : "Số dòng"}</CardDescription><CardTitle className="text-xl md:text-2xl">{isSelectedNpp ? childAgencies.length : totals.lines}</CardTitle></CardHeader></Card>
         <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">Số lượng</CardDescription><CardTitle className="text-xl md:text-2xl">{formatQty(totals.quantity)}</CardTitle></CardHeader></Card>
         <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">Doanh thu kiểm soát</CardDescription><CardTitle className="break-words text-base leading-tight md:text-2xl">{formatVnd(totals.gross)}</CardTitle></CardHeader></Card>
-        <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">{isSelectedNpp ? "Công nợ sau phí" : "Công nợ phải thu"}</CardDescription><CardTitle className="break-words text-base leading-tight md:text-2xl">{formatVnd(totals.payable)}</CardTitle></CardHeader></Card>
+        <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">{isSelectedNpp ? "Công nợ sau phí" : "Công nợ còn lại"}</CardDescription><CardTitle className="break-words text-base leading-tight md:text-2xl">{formatVnd(remainingDebt)}</CardTitle></CardHeader></Card>
       </div>
+
+      {!isSelectedNpp && (
+        <Card data-customer-debt-period-adjustment className="border-primary/20 bg-card/80 shadow-card">
+          <CardHeader className="space-y-1 px-4 py-4 md:px-6 md:py-5">
+            <CardTitle className="text-lg">Thông tin đối soát công nợ</CardTitle>
+            <CardDescription>
+              Doanh thu lấy từ đơn đã duyệt. Dư đầu kỳ và Đã thu mặc định 0; kế toán kiểm tra rồi bổ sung cho kỳ này.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 px-4 pb-4 md:grid-cols-4 md:px-6 md:pb-6">
+            <div className="space-y-2">
+              <Label>Dư đầu kỳ</Label>
+              <Input
+                inputMode="decimal"
+                value={debtAdjustmentForm.opening_balance_vnd}
+                onChange={(event) => setDebtAdjustmentForm((current) => ({ ...current, opening_balance_vnd: event.target.value }))}
+                disabled={!canEditRevenue || savingDebtAdjustment}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Đã thu</Label>
+              <Input
+                inputMode="decimal"
+                value={debtAdjustmentForm.amount_collected_vnd}
+                onChange={(event) => setDebtAdjustmentForm((current) => ({ ...current, amount_collected_vnd: event.target.value }))}
+                disabled={!canEditRevenue || savingDebtAdjustment}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Hạn thanh toán</Label>
+              <Input
+                type="date"
+                value={debtAdjustmentForm.payment_due_date}
+                onChange={(event) => setDebtAdjustmentForm((current) => ({ ...current, payment_due_date: event.target.value }))}
+                disabled={!canEditRevenue || savingDebtAdjustment}
+              />
+            </div>
+            <div className="rounded-xl bg-primary/10 p-4">
+              <div className="text-xs text-primary/80">Công nợ còn lại</div>
+              <div className="mt-1 break-words text-lg font-semibold text-primary">{formatVnd(remainingDebt)}</div>
+              <div className="mt-1 text-xs text-muted-foreground">Dư đầu kỳ + doanh thu − đã thu</div>
+            </div>
+            <div className="space-y-2 md:col-span-3">
+              <Label>Ghi chú kế toán</Label>
+              <Input
+                value={debtAdjustmentForm.note}
+                onChange={(event) => setDebtAdjustmentForm((current) => ({ ...current, note: event.target.value }))}
+                placeholder="Không bắt buộc"
+                disabled={!canEditRevenue || savingDebtAdjustment}
+              />
+            </div>
+            <div className="flex items-end">
+              <Button className="w-full" type="button" onClick={saveDebtAdjustment} disabled={!canEditRevenue || savingDebtAdjustment}>
+                {savingDebtAdjustment ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Lưu công nợ
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="bg-card/80 shadow-card">
         <CardHeader className="space-y-1 px-4 py-4 md:px-6 md:py-6">
