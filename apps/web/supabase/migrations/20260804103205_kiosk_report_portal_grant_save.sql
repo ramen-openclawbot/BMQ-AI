@@ -1,0 +1,1 @@
+grant execute on function public.save_kiosk_daily_report_atomic(uuid, uuid, date, text, text, text, text, text, text, text, jsonb, jsonb) to service_role;

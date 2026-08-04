@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FUNCTIONS = ROOT / "supabase/functions"
 SHARED = FUNCTIONS / "_shared/report.ts"
-MIGRATION = ROOT / "supabase/migrations/20260804103000_kiosk_report_portal.sql"
+MIGRATION_GLOB = "20260804103*_kiosk_report_portal*.sql"
 
 REPORT_FUNCTIONS = [
     "report-auth-start",
@@ -21,6 +21,32 @@ REPORT_FUNCTIONS = [
 def read(path: Path) -> str:
     assert path.exists(), f"Missing expected file: {path.relative_to(ROOT)}"
     return path.read_text(encoding="utf-8")
+
+
+def read_report_migrations() -> str:
+    paths = sorted((ROOT / "supabase/migrations").glob(MIGRATION_GLOB))
+    assert paths, "Missing kiosk report migrations"
+    return "\n".join(read(path) for path in paths)
+
+
+def test_report_plpgsql_migrations_are_supabase_parser_safe() -> None:
+    paths = sorted((ROOT / "supabase/migrations").glob(MIGRATION_GLOB))
+    assert paths, "Missing kiosk report migrations"
+    for path in paths:
+        source = read(path)
+        function_count = source.lower().count("language plpgsql")
+        assert function_count <= 1, f"Multiple PL/pgSQL functions in {path.name}"
+        if function_count:
+            function_start = source.lower().index("create or replace function")
+            prefix = source[:function_start].lower()
+            assert "on function public." not in prefix or "(\n" not in prefix, (
+                f"Multiline FUNCTION grant confuses Supabase CLI in {path.name}"
+            )
+            closing = source.rfind("$$;")
+            assert closing >= 0, f"Missing dollar-quoted function terminator in {path.name}"
+            assert not source[closing + 3:].strip(), (
+                f"Supabase CLI may group statements after PL/pgSQL function in {path.name}"
+            )
 
 
 def assert_contains(text: str, needle: str, label: str) -> None:
@@ -79,7 +105,7 @@ def test_public_auth_is_generic_has_no_dev_otp_and_is_rate_limited() -> None:
     auth_start = read(FUNCTIONS / "report-auth-start/index.ts")
     auth_verify = read(FUNCTIONS / "report-auth-verify/index.ts")
     shared = read(SHARED)
-    migration = read(MIGRATION)
+    migration = read_report_migrations()
 
     assert_not_contains(auth_start, "dev_otp", "client-visible development OTP")
     assert_not_contains(auth_start, "CONTACT_SUPPORT_MESSAGE", "enumerable unknown-staff response")
@@ -137,7 +163,7 @@ def test_bootstrap_session_save_and_logout_contracts() -> None:
     ]:
         assert_not_contains(daily_save, forbidden, "non-transactional report write")
 
-    migration = read(MIGRATION)
+    migration = read_report_migrations()
     assert_contains(migration, "create or replace function public.save_kiosk_daily_report_atomic", "atomic save function")
     assert_contains(migration, "for update", "submitted-report lock")
     assert_contains(migration, "submitted_report_immutable", "submitted immutability inside transaction")

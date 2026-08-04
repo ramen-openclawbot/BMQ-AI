@@ -8,12 +8,18 @@ ROUTES = ROOT / "src/components/AppRoutes.tsx"
 PORTAL = ROOT / "src/pages/KioskReportPortal.tsx"
 CONFIG = ROOT / "supabase/config.toml"
 CORS = ROOT / "supabase/functions/_shared/cors.ts"
-MIGRATION = ROOT / "supabase/migrations/20260804103000_kiosk_report_portal.sql"
+MIGRATION_GLOB = "20260804103*_kiosk_report_portal*.sql"
 
 
 def read(path: Path) -> str:
     assert path.exists(), f"Missing expected file: {path.relative_to(ROOT)}"
     return path.read_text(encoding="utf-8")
+
+
+def read_report_migrations() -> str:
+    paths = sorted((ROOT / "supabase/migrations").glob(MIGRATION_GLOB))
+    assert paths, "Missing kiosk report migrations"
+    return "\n".join(read(path) for path in paths)
 
 
 def assert_contains(text: str, needle: str, label: str) -> None:
@@ -100,7 +106,7 @@ def test_report_functions_are_registered_with_cors() -> None:
 
 
 def test_report_schema_contract() -> None:
-    sql = read(MIGRATION)
+    sql = read_report_migrations()
     for needle, label in [
         ("create table if not exists public.kiosk_report_locations", "locations table"),
         ("create table if not exists public.kiosk_report_staff", "staff table"),
