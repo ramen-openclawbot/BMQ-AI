@@ -120,6 +120,27 @@ verify_jwt = false
 # Server-only worker: authorizes service-role invocation or x-cron-secret in code.
 verify_jwt = false
 
+[functions.report-auth-start]
+verify_jwt = false
+
+[functions.report-auth-verify]
+verify_jwt = false
+
+[functions.report-session]
+verify_jwt = false
+
+[functions.report-bootstrap]
+verify_jwt = false
+
+[functions.report-daily-save]
+verify_jwt = false
+
+[functions.report-auth-logout]
+verify_jwt = false
+
+[functions.kiosk-report-admin]
+verify_jwt = false
+
 # ──────────────────────────────────────────────────────────
 # Functions with JWT verification DISABLED
 # Reason: OAuth callbacks (no JWT available) or Cron jobs (use x-cron-secret)

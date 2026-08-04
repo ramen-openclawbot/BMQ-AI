@@ -18,6 +18,7 @@ import ExcelJS from "exceljs";
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { SalesPoQuickViewEditor } from "@/components/mini-crm/SalesPoQuickViewEditor";
 import { KnowledgeBaseProfileEditor } from "@/components/mini-crm/KnowledgeBaseProfileEditor";
+import { KioskReportAdminPanel } from "@/components/mini-crm/KioskReportAdminPanel";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   buildManualSummaryMessage,
@@ -513,6 +514,7 @@ export default function MiniCrm() {
   const [confirmTemplateRead, setConfirmTemplateRead] = useState<boolean>(false);
   const [setupModalOpen, setSetupModalOpen] = useState(false);
   const [viewCustomer, setViewCustomer] = useState<any | null>(null);
+  const [miniCrmSection, setMiniCrmSection] = useState<"customers" | "locations" | "staff">("customers");
   const [setupContractFile, setSetupContractFile] = useState<File | null>(null);
   const [setupPriceRows, setSetupPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
   const [setupEmailBodyTemplate, setSetupEmailBodyTemplate] = useState("");
@@ -3171,6 +3173,19 @@ export default function MiniCrm() {
       {!isSalesPoPage && (
       <> 
 
+      <Tabs
+        value={miniCrmSection}
+        onValueChange={(value) => setMiniCrmSection(value as "customers" | "locations" | "staff")}
+        className="w-full"
+        data-kiosk-report-admin-function="kiosk-report-admin"
+      >
+        <TabsList className="grid w-full grid-cols-3 md:w-auto">
+          <TabsTrigger value="customers">Khách hàng</TabsTrigger>
+          <TabsTrigger value="locations">Điểm bán</TabsTrigger>
+          <TabsTrigger value="staff">Nhân viên bán hàng</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
       <Dialog open={setupModalOpen} onOpenChange={setSetupModalOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -3314,6 +3329,7 @@ export default function MiniCrm() {
         </DialogContent>
       </Dialog>
 
+      {miniCrmSection === "customers" && (
       <Card className="border-border/70 bg-gradient-to-b from-background to-muted/20 shadow-sm">
         <CardHeader className="space-y-4 pb-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -3490,6 +3506,15 @@ export default function MiniCrm() {
           </div>
         </CardContent>
       </Card>
+      )}
+
+      {miniCrmSection === "locations" && (
+        <KioskReportAdminPanel mode="locations" isOwner={isOwner} />
+      )}
+
+      {miniCrmSection === "staff" && (
+        <KioskReportAdminPanel mode="staff" isOwner={isOwner} />
+      )}
 
       </>
       )}
