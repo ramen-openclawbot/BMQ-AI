@@ -93,14 +93,14 @@ def test_authenticated_report_matches_approved_responsive_design_system() -> Non
         ('bg-[#fff8fa]', "approved warm-pink report canvas"),
         ('text-[#20212d]', "approved ink color"),
         ('#ec5b91', "approved primary pink"),
-        ('md:pl-[238px]', "approved desktop sidebar offset"),
+        ('lg:pl-[238px]', "approved desktop sidebar offset"),
         ('function ReportSidebar', "desktop BMQ sidebar"),
         ('function ProductIcon', "product icon system"),
         ('function ChannelIcon', "channel brand icon system"),
         ('expandedProductCode', "inventory accordion state"),
         ('Báo cáo ngày', "approved report title"),
         ('Chưa gửi', "approved draft status"),
-        ('Kiểm tra & gửi báo cáo', "approved submit action copy"),
+        ('Kiểm tra & gửi', "approved compact submit action copy"),
         ('Tổng số bán', "approved totals copy"),
         ('data-testid="report-shell"', "responsive QA hook"),
         ('data-testid="inventory-section"', "inventory QA hook"),
@@ -111,6 +111,29 @@ def test_authenticated_report_matches_approved_responsive_design_system() -> Non
     assert_not_contains(portal, 'min-w-[920px]', "legacy horizontally scrolling inventory table")
     assert_not_contains(portal, 'Không thu tiền mặt', "removed non-cash helper copy")
     assert_contains(portal, 'items-center gap-1 p-2', "vertically centered channel row icon and copy")
+
+
+def test_hallmark_redesign_is_compact_clear_and_mobile_safe() -> None:
+    portal = read(PORTAL)
+    for needle, label in [
+        ('data-hallmark="compact-operational"', "Hallmark redesign stamp"),
+        ('data-testid="inventory-ledger"', "flat inventory ledger"),
+        ('divide-y divide-[#f2e5e9] border-y', "single-layer row separation"),
+        ('data-testid="computed-closing"', "computed closing presentation"),
+        ("Hệ thống tính", "computed-field explanation"),
+        ('grid-cols-2 gap-x-2.5 gap-y-2.5 min-[360px]:grid-cols-3 sm:grid-cols-4', "320px-safe inventory grid"),
+        ('lg:pl-[238px]', "tablet-safe desktop shell breakpoint"),
+        ('lg:hidden', "mobile/tablet header and action breakpoint"),
+        ('pb-[calc(0.75rem+env(safe-area-inset-bottom))]', "safe-area sticky action bar"),
+        ("Wheat", "bread product line icon"),
+        ("PackageOpen", "packaged product line icon"),
+        ("Flame", "chili product line icon"),
+        ("Kiểm tra & gửi", "compact submit copy"),
+    ]:
+        assert_contains(portal, needle, label)
+    assert_not_contains(portal, "Kiểm tra & gửi báo cáo", "two-line-prone submit copy")
+    for emoji in ["🥖", "🥫", "🌶️", "🥨"]:
+        assert_not_contains(portal, emoji, "platform-dependent product emoji")
 
 
 def test_redesign_keeps_all_channel_amounts_editable_before_submit() -> None:

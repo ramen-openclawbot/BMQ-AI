@@ -9,11 +9,14 @@ import {
   ChevronUp,
   CircleDollarSign,
   Clock3,
+  Cookie,
+  Flame,
   LayoutDashboard,
   Loader2,
   LogOut,
   MapPin,
   Package,
+  PackageOpen,
   Phone,
   Save,
   Send,
@@ -21,6 +24,7 @@ import {
   ShieldCheck,
   Store,
   UserRound,
+  Wheat,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -489,35 +493,35 @@ export default function KioskReportPortal() {
   }
 
   return (
-    <main data-testid="report-shell" className="min-h-screen bg-[#fff8fa] text-[#20212d] md:pl-[238px]">
+    <main data-testid="report-shell" data-hallmark="compact-operational" className="min-h-screen bg-[#fff8fa] text-[#20212d] lg:pl-[238px]">
       <ReportSidebar staffName={staff?.full_name} onLogout={logout} />
 
-      <div className="mx-auto min-h-screen max-w-[1440px] px-4 pb-28 pt-5 sm:px-6 md:px-8 md:pb-10 md:pt-8 xl:px-10">
-        <header className="mb-5 md:mb-7">
-          <div className="grid grid-cols-[104px_minmax(0,1fr)_52px] items-start gap-2 md:hidden">
+      <div className="mx-auto min-h-screen max-w-[1440px] px-3.5 pb-24 pt-3.5 min-[375px]:px-4 sm:px-6 lg:px-8 lg:pb-8 lg:pt-6 xl:px-10">
+        <header className="mb-3.5 lg:mb-5">
+          <div className="grid grid-cols-[88px_minmax(0,1fr)_44px] items-start gap-2 lg:hidden">
             <img
               src="/assets/brand/bmq-logo-master-1024.png"
               alt="BMQ"
-              className="row-span-2 h-auto w-[104px] shrink-0 object-contain"
+              className="row-span-2 h-auto w-[88px] shrink-0 object-contain"
             />
             <div className="min-w-0 pt-1">
-              <h1 className="whitespace-nowrap text-[26px] font-extrabold leading-tight tracking-[-0.025em]">Báo cáo ngày</h1>
+              <h1 className="whitespace-nowrap text-[23px] font-extrabold leading-tight tracking-[-0.025em]">Báo cáo ngày</h1>
             </div>
             <button
               type="button"
               onClick={logout}
               aria-label="Đăng xuất"
-              className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#f7a4c1] to-[#e96998] text-lg font-bold text-white shadow-sm"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#ec5b91] text-base font-bold text-white shadow-sm"
             >
               {getInitials(staff?.full_name)}
             </button>
-            <div className="col-span-2 col-start-2 row-start-2 inline-flex max-w-full items-center gap-1 justify-self-start rounded-xl bg-[#fdeaf1] px-2.5 py-1.5 text-[13px] font-medium text-[#b93667]">
+            <div className="col-span-2 col-start-2 row-start-2 inline-flex max-w-full items-center gap-1 justify-self-start rounded-lg bg-[#fdeaf1] px-2.5 py-1 text-xs font-medium text-[#b93667]">
               <MapPin className="h-4 w-4 shrink-0 fill-[#ec5b91] text-[#ec5b91]" />
               <span className="truncate">{location?.name || "Điểm bán BMQ"}</span>
             </div>
           </div>
 
-          <div className="hidden items-center justify-between gap-6 md:flex">
+          <div className="hidden items-center justify-between gap-6 lg:flex">
             <div>
               <h1 className="text-[30px] font-extrabold tracking-[-0.02em]">Báo cáo ngày</h1>
               <p className="mt-1 text-sm text-[#74717a]">Nhập và gửi báo cáo vận hành tại điểm bán</p>
@@ -540,11 +544,11 @@ export default function KioskReportPortal() {
           </div>
         </header>
 
-        <section className="relative mb-6 flex min-h-[82px] items-center justify-between gap-3 overflow-hidden rounded-[22px] border border-[#f0dfe5] bg-white px-4 py-4 shadow-[0_10px_28px_rgba(86,48,63,0.10)] sm:px-6">
+        <section className="relative mb-4 flex min-h-[68px] items-center justify-between gap-3 overflow-hidden rounded-[18px] border border-[#f0dfe5] bg-white px-3.5 py-3 shadow-[0_6px_18px_rgba(86,48,63,0.07)] sm:px-5">
           <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-            <CalendarDays className="h-7 w-7 shrink-0 text-[#ec5b91]" strokeWidth={2.2} />
+            <CalendarDays className="h-6 w-6 shrink-0 text-[#ec5b91]" strokeWidth={2.2} />
             <div className="relative">
-              <span className="text-[20px] font-extrabold sm:text-[22px]">{formatReportDate(reportDate)}</span>
+              <span className="text-[18px] font-extrabold sm:text-[20px]">{formatReportDate(reportDate)}</span>
               <Input
                 aria-label="Ngày báo cáo"
                 type="date"
@@ -555,12 +559,12 @@ export default function KioskReportPortal() {
             </div>
           </div>
           <div className={cn(
-            "inline-flex shrink-0 items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-semibold sm:px-4 sm:text-base",
+            "inline-flex shrink-0 items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs font-semibold sm:px-3 sm:text-sm",
             isSubmitted
               ? "border-[#bfead0] bg-[#edfbf2] text-[#28995a]"
               : "border-[#ffd5a6] bg-[#fff7eb] text-[#f28a24]",
           )}>
-            {isSubmitted ? <CheckCircle2 className="h-5 w-5" /> : <Clock3 className="h-5 w-5" />}
+            {isSubmitted ? <CheckCircle2 className="h-4 w-4" /> : <Clock3 className="h-4 w-4" />}
             {isSubmitted ? "Đã gửi" : "Chưa gửi"}
           </div>
         </section>
@@ -585,25 +589,25 @@ export default function KioskReportPortal() {
           </div>
         )}
 
-        <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.22fr)_minmax(390px,0.78fr)]">
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.22fr)_minmax(390px,0.78fr)]">
           <section
             data-testid="inventory-section"
-            className="overflow-hidden rounded-[24px] border border-[#f0dfe5] bg-white p-4 shadow-[0_12px_30px_rgba(86,48,63,0.10)] sm:p-5"
+            className="overflow-hidden rounded-[20px] border border-[#f0dfe5] bg-white p-3.5 shadow-[0_8px_22px_rgba(86,48,63,0.07)] sm:p-5"
           >
             <SectionTitle icon={Box} title="Tồn kho & luân chuyển" />
-            <div className="mt-4 space-y-2.5">
+            <div data-testid="inventory-ledger" className="mt-3 divide-y divide-[#f2e5e9] border-y border-[#f2e5e9]">
               {inventoryRows.map((row) => {
                 const expanded = expandedProductCode === row.product_code;
                 return (
-                  <div key={row.product_code} className="overflow-hidden rounded-[20px] border border-[#f2dce5] bg-white">
+                  <div key={row.product_code} className="bg-white">
                     <button
                       type="button"
                       aria-expanded={expanded}
                       onClick={() => setExpandedProductCode(expanded ? null : row.product_code)}
-                      className="flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-[#fff9fb] sm:px-4"
+                      className="flex w-full items-center gap-2.5 px-1 py-2.5 text-left transition-colors hover:bg-[#fff9fb] sm:gap-3 sm:px-2"
                     >
                       <ProductIcon code={row.product_code} />
-                      <span className="min-w-0 flex-1 truncate text-[17px] font-bold sm:text-[18px]">{row.product_name_snapshot}</span>
+                      <span className="min-w-0 flex-1 truncate text-[16px] font-bold sm:text-[17px]">{row.product_name_snapshot}</span>
                       {!expanded && (
                         <div className="hidden items-center gap-2 lg:flex">
                           <MetricPill label="Tồn đầu" value={row.opening_quantity} />
@@ -617,7 +621,7 @@ export default function KioskReportPortal() {
                     </button>
 
                     {!expanded && (
-                      <div className="flex flex-wrap gap-2 px-3 pb-3 lg:hidden">
+                      <div className="flex flex-wrap gap-1.5 px-1 pb-2.5 lg:hidden">
                         <MetricPill label="Tồn đầu" value={row.opening_quantity} />
                         <MetricPill label="Nhập" value={row.received_quantity} />
                         <MetricPill label="Tồn cuối" value={calcClosing(row)} />
@@ -625,8 +629,8 @@ export default function KioskReportPortal() {
                     )}
 
                     {expanded && (
-                      <div className="border-t border-[#f6e5eb] bg-[#fffdfd] p-3 sm:p-4">
-                        <div className="grid grid-cols-3 gap-x-2.5 gap-y-3 sm:grid-cols-4 sm:gap-x-3">
+                      <div className="px-1 pb-3 pt-1 sm:px-2 sm:pb-4">
+                        <div className="grid grid-cols-2 gap-x-2.5 gap-y-2.5 min-[360px]:grid-cols-3 sm:grid-cols-4 sm:gap-x-3">
                           <ReportNumberField label="Tồn đầu" value={row.opening_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "opening_quantity", value)} />
                           <ReportNumberField label="Nhập" value={row.received_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "received_quantity", value)} />
                           <ReportNumberField label="Thiếu" value={row.shortage_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "shortage_quantity", value)} />
@@ -635,11 +639,14 @@ export default function KioskReportPortal() {
                           <ReportNumberField label="Đổi trả" value={row.returns_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "returns_quantity", value)} />
                           <ReportNumberField label="Đã bán" value={row.sold_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "sold_quantity", value)} />
                         </div>
-                        <div className="mt-3">
-                          <div className="mb-1.5 text-sm text-[#625d63]">Tồn cuối <span className="text-[#aaa4a8]">(Tự tính)</span></div>
-                          <div className="flex h-[52px] items-center rounded-2xl border border-[#ddd8da] bg-[#f8f7f7] px-4 text-[18px] font-semibold text-[#343139]">
-                            {calcClosing(row).toLocaleString("vi-VN")}
+                        <div data-testid="computed-closing" className="mt-3 flex items-center justify-between rounded-xl border border-dashed border-[#efb6ca] bg-[#fff5f8] px-3 py-2.5">
+                          <div>
+                            <div className="text-sm font-semibold text-[#4f4950]">Tồn cuối</div>
+                            <div className="text-[11px] text-[#9b5d73]">Hệ thống tính</div>
                           </div>
+                          <output className="text-[20px] font-extrabold tabular-nums text-[#c83f70]">
+                            {calcClosing(row).toLocaleString("vi-VN")}
+                          </output>
                         </div>
                       </div>
                     )}
@@ -649,17 +656,17 @@ export default function KioskReportPortal() {
             </div>
           </section>
 
-          <div className="space-y-5">
+          <div className="space-y-4">
             <section
               data-testid="channel-section"
-              className="overflow-hidden rounded-[24px] border border-[#f0dfe5] bg-white p-4 shadow-[0_12px_30px_rgba(86,48,63,0.10)] sm:p-5"
+              className="overflow-hidden rounded-[20px] border border-[#f0dfe5] bg-white p-3.5 shadow-[0_8px_22px_rgba(86,48,63,0.07)] sm:p-5"
             >
               <SectionTitle icon={CircleDollarSign} title="Doanh thu theo kênh" />
-              <div className="mt-4 overflow-hidden rounded-[20px] border border-[#f2dce5]">
-                {channelRows.map((row, index) => {
+              <div className="mt-3 divide-y divide-[#f2e5e9] border-y border-[#f2e5e9]">
+                {channelRows.map((row) => {
                   const cashChannel = row.channel_code === "khach_le";
                   return (
-                    <div key={row.channel_code} className={cn("grid grid-cols-[36px_minmax(72px,1fr)_52px_62px] items-center gap-1 p-2 min-[360px]:grid-cols-[40px_minmax(86px,1fr)_68px_84px] min-[360px]:gap-1.5 min-[360px]:p-3 sm:grid-cols-[48px_minmax(105px,1fr)_100px_128px] sm:gap-3", index > 0 && "border-t border-[#f2e5e9]")}>
+                    <div key={row.channel_code} className="grid grid-cols-[36px_minmax(72px,1fr)_52px_62px] items-center gap-1 p-2 min-[360px]:grid-cols-[40px_minmax(86px,1fr)_68px_84px] min-[360px]:gap-1.5 min-[360px]:p-2.5 sm:grid-cols-[48px_minmax(105px,1fr)_100px_128px] sm:gap-3">
                       <ChannelIcon code={row.channel_code} />
                       <div className="self-center whitespace-nowrap text-[13px] font-bold sm:text-[17px]">{row.channel_name_snapshot}</div>
                       <ChannelNumberField label="Số lượng" value={row.quantity} disabled={isSubmitted} onChange={(value) => updateChannelRow(row.channel_code, "quantity", value)} />
@@ -670,7 +677,7 @@ export default function KioskReportPortal() {
               </div>
             </section>
 
-            <section className="grid grid-cols-2 divide-x divide-[#eadfe3] rounded-[22px] border border-[#f0dfe5] bg-white px-3 py-5 text-center shadow-[0_10px_26px_rgba(86,48,63,0.09)]">
+            <section className="grid grid-cols-2 divide-x divide-[#eadfe3] rounded-[18px] border border-[#f0dfe5] bg-white px-3 py-3.5 text-center shadow-[0_6px_18px_rgba(86,48,63,0.06)]">
               <div>
                 <div className="text-sm text-[#514c53] sm:text-base">Tổng số bán</div>
                 <div className="mt-1 text-[27px] font-extrabold text-[#ec5b91] sm:text-[31px]">{totalQuantity.toLocaleString("vi-VN")}</div>
@@ -681,7 +688,7 @@ export default function KioskReportPortal() {
               </div>
             </section>
 
-            <details className="group rounded-[22px] border border-[#f0dfe5] bg-white shadow-[0_8px_24px_rgba(86,48,63,0.07)]">
+            <details className="group rounded-[18px] border border-[#f0dfe5] bg-white shadow-[0_6px_18px_rgba(86,48,63,0.05)]">
               <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3.5 font-semibold">
                 <span>Ghi chú ca bán</span>
                 <ChevronDown className="h-5 w-5 text-[#ec5b91] transition-transform group-open:rotate-180" />
@@ -698,14 +705,14 @@ export default function KioskReportPortal() {
               </div>
             </details>
 
-            <div className="hidden rounded-[22px] border border-[#f0dfe5] bg-white p-4 shadow-[0_8px_24px_rgba(86,48,63,0.07)] md:block">
+            <div className="hidden rounded-[22px] border border-[#f0dfe5] bg-white p-4 shadow-[0_8px_24px_rgba(86,48,63,0.07)] lg:block">
               <ActionButtons loading={loading} disabled={isSubmitted} onSaveDraft={() => saveReport("draft")} onSubmit={() => saveReport("submitted")} />
             </div>
           </div>
         </div>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[#f1dfe6] bg-white/95 p-3 shadow-[0_-10px_26px_rgba(86,48,63,0.10)] backdrop-blur md:hidden">
+      <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[#f1dfe6] bg-white/95 px-3 pt-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-8px_22px_rgba(86,48,63,0.09)] backdrop-blur lg:hidden">
         <ActionButtons loading={loading} disabled={isSubmitted} onSaveDraft={() => saveReport("draft")} onSubmit={() => saveReport("submitted")} />
       </div>
     </main>
@@ -714,7 +721,7 @@ export default function KioskReportPortal() {
 
 function ReportSidebar({ staffName, onLogout }: { staffName?: string | null; onLogout: () => void }) {
   return (
-    <aside className="fixed inset-y-0 left-0 z-30 hidden w-[238px] flex-col border-r border-[#eee5e8] bg-white md:flex">
+    <aside className="fixed inset-y-0 left-0 z-30 hidden w-[238px] flex-col border-r border-[#eee5e8] bg-white lg:flex">
       <div className="flex justify-center px-6 pb-8 pt-7">
         <img src="/assets/brand/bmq-logo-master-1024.png" alt="BMQ - Bánh Mì Que Pháp" className="h-auto w-[164px] object-contain" />
       </div>
@@ -753,10 +760,10 @@ function SectionTitle({ icon: Icon, title }: { icon: typeof Box; title: string }
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fdeaf1] text-[#ec5b91]">
-          <Icon className="h-6 w-6" strokeWidth={2.1} />
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#fdeaf1] text-[#ec5b91]">
+          <Icon className="h-5 w-5" strokeWidth={2.1} />
         </div>
-        <h2 className="text-[21px] font-extrabold tracking-[-0.015em] sm:text-[23px]">{title}</h2>
+        <h2 className="text-[19px] font-extrabold tracking-[-0.015em] sm:text-[21px]">{title}</h2>
       </div>
       <ChevronUp className="h-5 w-5 shrink-0 text-[#ec5b91]" />
     </div>
@@ -764,8 +771,8 @@ function SectionTitle({ icon: Icon, title }: { icon: typeof Box; title: string }
 }
 
 function ProductIcon({ code }: { code: string }) {
-  const emoji = code === "banh_mi_que" ? "🥖" : code === "pate" ? "🥫" : code === "ot" ? "🌶️" : "🥨";
-  return <span aria-hidden="true" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fdebf2] text-[23px]">{emoji}</span>;
+  const Icon = code === "banh_mi_que" ? Wheat : code === "pate" ? PackageOpen : code === "ot" ? Flame : Cookie;
+  return <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#fdebf2] text-[#d94479]"><Icon className="h-5 w-5" strokeWidth={2} /></span>;
 }
 
 function ChannelIcon({ code }: { code: string }) {
@@ -793,7 +800,7 @@ function ReportNumberField({ label, value, disabled, onChange }: { label: string
   return (
     <label className="block min-w-0">
       <span className="mb-1.5 block truncate text-xs text-[#625d63] sm:text-sm">{label}</span>
-      <Input type="number" inputMode="decimal" value={Number.isFinite(value) ? String(value) : "0"} onChange={(event) => onChange(event.target.value)} disabled={disabled} className="h-[52px] rounded-2xl border-[#ddd8da] bg-white px-3 text-left text-[17px] shadow-none focus-visible:ring-[#ec5b91]" />
+      <Input type="number" inputMode="decimal" value={Number.isFinite(value) ? String(value) : "0"} onChange={(event) => onChange(event.target.value)} disabled={disabled} className="h-12 rounded-xl border-[#ddd8da] bg-white px-3 text-left text-[17px] shadow-none focus-visible:ring-[#ec5b91]" />
     </label>
   );
 }
@@ -810,13 +817,13 @@ function ChannelNumberField({ label, value, disabled, placeholder, onChange }: {
 function ActionButtons({ loading, disabled, onSaveDraft, onSubmit }: { loading: boolean; disabled?: boolean; onSaveDraft: () => void; onSubmit: () => void }) {
   return (
     <div className="grid grid-cols-[0.9fr_1.2fr] gap-2.5 sm:gap-3">
-      <Button variant="outline" className={cn("h-14 rounded-2xl border-[#ec5b91] bg-white px-2 text-[15px] font-bold text-[#d94479] hover:bg-[#fff4f8] sm:text-base", disabled && "opacity-60")} onClick={onSaveDraft} disabled={loading || disabled}>
+      <Button variant="outline" className={cn("h-12 rounded-xl border-[#ec5b91] bg-white px-2 text-[15px] font-bold text-[#d94479] hover:bg-[#fff4f8] sm:text-base", disabled && "opacity-60")} onClick={onSaveDraft} disabled={loading || disabled}>
         {loading ? <Loader2 className="mr-1.5 h-5 w-5 animate-spin" /> : <Save className="mr-1.5 h-5 w-5" />}
         Lưu nháp
       </Button>
-      <Button aria-label="Gửi báo cáo" className="h-14 rounded-2xl border-0 bg-gradient-to-r from-[#e9568d] to-[#ec6b9c] px-2 text-[14px] font-bold text-white shadow-none hover:brightness-95 sm:text-base" onClick={onSubmit} disabled={loading || disabled}>
+      <Button aria-label="Gửi báo cáo" className="h-12 rounded-xl border-0 bg-[#e9568d] px-2 text-[14px] font-bold text-white shadow-none hover:bg-[#d9477d] sm:text-base" onClick={onSubmit} disabled={loading || disabled}>
         {loading ? <Loader2 className="mr-1.5 h-5 w-5 animate-spin" /> : <Send className="mr-1.5 h-5 w-5" />}
-        Kiểm tra & gửi báo cáo
+        Kiểm tra & gửi
       </Button>
     </div>
   );
