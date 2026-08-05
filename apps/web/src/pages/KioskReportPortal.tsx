@@ -40,6 +40,10 @@ import {
 import { cn } from "@/lib/utils";
 
 const REPORT_SESSION_STORAGE_KEY = "bmq_report_session_token";
+const SAFE_SAVE_ERROR_MESSAGES = new Set([
+  "Vui lòng gửi báo cáo ngày trước trước khi gửi ngày này.",
+  "Không thể gửi báo cáo cũ hơn một báo cáo đã gửi.",
+]);
 
 const DEFAULT_PRODUCTS = [
   { code: "banh_mi_que", product_name: "Bánh mì que", unit: "que", sale_allowed: true, breadstick_consumption_ratio: 0 },
@@ -100,6 +104,8 @@ type PublicLocation = {
   address?: string | null;
 };
 
+type OpeningInventoryRow = Pick<InventoryRow, "product_code" | "opening_quantity">;
+
 type BootstrapResponse = {
   success?: boolean;
   report_date?: string;
@@ -107,12 +113,15 @@ type BootstrapResponse = {
   location?: PublicLocation | null;
   products?: ReportProduct[];
   channels?: ReportChannel[];
+  opening_inventory_rows?: OpeningInventoryRow[];
+  opening_source_report_date?: string | null;
   report?: {
     report_date?: string | null;
     status?: "draft" | "submitted" | string;
     notes?: string | null;
     submitted_at?: string | null;
     updated_at?: string | null;
+    opening_source_report_date?: string | null;
     inventory_rows?: InventoryRow[];
     channel_rows?: ChannelRow[];
   } | null;
@@ -207,7 +216,10 @@ const normalizeProducts = (products: ReportProduct[]) => products.map((product) 
   };
 });
 
-const mergeInventoryRows = (products: ReportProduct[], rows: InventoryRow[] = []) => {
+const mergeInventoryRows = (
+  products: ReportProduct[],
+  rows: Array<Partial<InventoryRow> & Pick<InventoryRow, "product_code">> = [],
+) => {
   const byCode = new Map(rows.map((row) => [row.product_code, row]));
   return products.map((product) => ({
     ...createInventoryRows([product])[0],
@@ -242,6 +254,8 @@ export default function KioskReportPortal() {
   const [notes, setNotes] = useState("");
   const [reportStatus, setReportStatus] = useState<"draft" | "submitted">("draft");
   const [submittedAt, setSubmittedAt] = useState<string | null>(null);
+  const [openingLocked, setOpeningLocked] = useState(false);
+  const [openingSourceReportDate, setOpeningSourceReportDate] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -276,7 +290,13 @@ export default function KioskReportPortal() {
     setReportStatus(payload.report?.status === "submitted" ? "submitted" : "draft");
     setSubmittedAt(payload.report?.submitted_at || null);
     setNotes(payload.report?.notes || "");
-    setInventoryRows(mergeInventoryRows(nextProducts, payload.report?.inventory_rows || []));
+    const openingSourceDate = payload.report?.opening_source_report_date || payload.opening_source_report_date || null;
+    setOpeningSourceReportDate(openingSourceDate);
+    setOpeningLocked(Boolean(payload.report || openingSourceDate));
+    setInventoryRows(mergeInventoryRows(
+      nextProducts,
+      payload.report?.inventory_rows || payload.opening_inventory_rows || [],
+    ));
     setChannelRows(mergeChannelRows(nextChannels, payload.report?.channel_rows || []));
   }, []);
 
@@ -379,7 +399,11 @@ export default function KioskReportPortal() {
     setLoading(false);
 
     if (result.error) {
-      setErrorMessage("Chưa lưu được báo cáo. Vui lòng thử lại.");
+      setErrorMessage(
+        SAFE_SAVE_ERROR_MESSAGES.has(result.error)
+          ? result.error
+          : "Chưa lưu được báo cáo. Vui lòng thử lại.",
+      );
       setStatusMessage("");
       return;
     }
@@ -624,6 +648,11 @@ export default function KioskReportPortal() {
             className="overflow-hidden rounded-[20px] border border-[#f0dfe5] bg-white p-3.5 shadow-[0_8px_22px_rgba(86,48,63,0.07)] sm:p-5"
           >
             <SectionTitle icon={Box} title="Tồn kho & luân chuyển" />
+            {openingSourceReportDate && (
+              <div className="mt-3 rounded-xl border border-[#f2d5df] bg-[#fff8fa] px-3 py-2 text-xs font-medium text-[#80566a] sm:text-sm">
+                Tồn đầu được chuyển tự động từ tồn cuối ngày {formatReportDate(openingSourceReportDate)}.
+              </div>
+            )}
             <div data-testid="inventory-ledger" className="mt-3 divide-y divide-[#f2e5e9] border-y border-[#f2e5e9]">
               {inventoryRows.map((row) => {
                 const expanded = expandedProductCode === row.product_code;
@@ -668,7 +697,7 @@ export default function KioskReportPortal() {
                     {expanded && (
                       <div className="px-1 pb-3 pt-1 sm:px-2 sm:pb-4">
                         <div className="grid grid-cols-2 gap-x-2.5 gap-y-2.5 min-[360px]:grid-cols-3 sm:grid-cols-4 sm:gap-x-3">
-                          <ReportNumberField label="Tồn đầu" value={row.opening_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "opening_quantity", value)} />
+                          <ReportNumberField label="Tồn đầu" value={row.opening_quantity} disabled={isSubmitted || openingLocked} onChange={(value) => updateInventoryRow(row.product_code, "opening_quantity", value)} />
                           <ReportNumberField label="Nhập" value={row.received_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "received_quantity", value)} />
                           <ReportNumberField label="Thiếu" value={row.shortage_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "shortage_quantity", value)} />
                           <ReportNumberField label="Điều chuyển" value={row.transfer_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "transfer_quantity", value)} />

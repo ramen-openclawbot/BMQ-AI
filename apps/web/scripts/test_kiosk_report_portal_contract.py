@@ -149,6 +149,20 @@ def test_ingredient_consumption_is_automatic_and_not_retail_editable() -> None:
         assert_contains(portal, needle, label)
 
 
+def test_inventory_opening_is_carried_and_locked_when_system_managed() -> None:
+    portal = read(PORTAL)
+    for needle, label in [
+        ("opening_inventory_rows", "carried opening inventory response"),
+        ("opening_source_report_date", "opening inventory source date"),
+        ("setOpeningLocked", "opening lock state"),
+        ("disabled={isSubmitted || openingLocked}", "locked opening input"),
+        ("Tồn đầu được chuyển tự động từ tồn cuối ngày", "rollover explanation"),
+        ("SAFE_SAVE_ERROR_MESSAGES", "safe save error allowlist"),
+        ("SAFE_SAVE_ERROR_MESSAGES.has(result.error)", "allowlisted chronology guidance rendering"),
+    ]:
+        assert_contains(portal, needle, label)
+
+
 def test_redesign_keeps_all_channel_amounts_editable_before_submit() -> None:
     portal = read(PORTAL)
     assert_not_contains(portal, 'disabled={isSubmitted || !cashChannel}', "non-cash amount regression")

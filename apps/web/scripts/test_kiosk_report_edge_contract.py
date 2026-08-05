@@ -113,6 +113,48 @@ def test_report_auth_session_ttl_matches_rpc_security_boundary() -> None:
     assert_contains(migration, "p_session_expires_at > v_now + interval '24 hours'", "RPC maximum session TTL")
 
 
+def test_bootstrap_and_save_roll_forward_inventory_by_location() -> None:
+    bootstrap = read(FUNCTIONS / "report-bootstrap/index.ts")
+    daily_save = read(FUNCTIONS / "report-daily-save/index.ts")
+    migration = read(ROOT / "supabase/migrations/20260805200000_kiosk_report_inventory_rollover.sql")
+
+    for needle, label in [
+        ('eq("status", "submitted")', "submitted-only prior report lookup"),
+        ('lt("report_date", reportDate)', "strictly prior report date guard"),
+        ('order("report_date", { ascending: false })', "most recent prior report ordering"),
+        ('opening_inventory_rows', "carried opening inventory payload"),
+        ('opening_source_report_date', "carried opening source date"),
+    ]:
+        assert_contains(bootstrap, needle, label)
+
+    for needle, label in [
+        ("v_previous_report_id", "previous submitted report lookup"),
+        ("v_existing_openings", "existing draft opening preservation"),
+        ("previous_inventory.closing_quantity", "stored closing-to-opening rollover"),
+        ("previous_report.status = 'submitted'", "submitted-only database rollover"),
+        ("previous_report.location_id = p_location_id", "location-scoped database rollover"),
+        ("previous_report.report_date < p_report_date", "strictly prior database rollover"),
+        ("hashtextextended(p_location_id::text, 0)", "location-wide chronology lock"),
+        ("prior_draft_report_pending", "earlier draft submit guard"),
+        ("later_submitted_report_exists", "historical submit chronology guard"),
+    ]:
+        assert_contains(migration, needle, label)
+
+    assert_not_contains(
+        migration,
+        "p_location_id::text || ':' || p_report_date::text",
+        "date-scoped lock that permits cross-date submit races",
+    )
+
+    for needle, label in [
+        ("prior_draft_report_pending", "earlier draft conflict mapping"),
+        ("Vui lòng gửi báo cáo ngày trước trước khi gửi ngày này.", "earlier draft guidance"),
+        ("later_submitted_report_exists", "historical chronology conflict mapping"),
+        ("Không thể gửi báo cáo cũ hơn một báo cáo đã gửi.", "historical chronology guidance"),
+    ]:
+        assert_contains(daily_save, needle, label)
+
+
 def test_public_auth_is_generic_has_no_dev_otp_and_is_rate_limited() -> None:
     auth_start = read(FUNCTIONS / "report-auth-start/index.ts")
     auth_verify = read(FUNCTIONS / "report-auth-verify/index.ts")

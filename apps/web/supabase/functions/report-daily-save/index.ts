@@ -134,6 +134,12 @@ serve(async (req) => {
     if (saveError?.message?.includes("ingredient_retail_sale_forbidden")) {
       return errorResponse(req, "Pate, ớt và nguyên liệu chỉ dùng nội bộ, không được ghi nhận bán lẻ.", 400, "ingredient_retail_sale_forbidden");
     }
+    if (saveError?.message?.includes("prior_draft_report_pending")) {
+      return errorResponse(req, "Vui lòng gửi báo cáo ngày trước trước khi gửi ngày này.", 409, "prior_draft_report_pending");
+    }
+    if (saveError?.message?.includes("later_submitted_report_exists")) {
+      return errorResponse(req, "Không thể gửi báo cáo cũ hơn một báo cáo đã gửi.", 409, "later_submitted_report_exists");
+    }
     if (saveError) throw saveError;
 
     return jsonResponse(req, {

@@ -54,7 +54,7 @@ serve(async (req) => {
         .order("display_order", { ascending: true }),
       supabase
         .from("kiosk_daily_reports")
-        .select("id, report_date, status, notes, submitted_at, updated_at")
+        .select("id, report_date, status, notes, submitted_at, updated_at, opening_source_report_date")
         .eq("location_id", sessionContext.session.location_id)
         .eq("report_date", reportDate)
         .maybeSingle(),
@@ -81,12 +81,45 @@ serve(async (req) => {
     if (inventoryRes.error) throw inventoryRes.error;
     if (channelRowsRes.error) throw channelRowsRes.error;
 
+    let openingSourceReport: { id: string; report_date: string } | null = null;
+    let openingInventoryRows: Array<{ product_code: string; opening_quantity: number }> = [];
+
+    if (!report) {
+      const previousReportRes = await supabase
+        .from("kiosk_daily_reports")
+        .select("id, report_date")
+        .eq("location_id", sessionContext.session.location_id)
+        .eq("status", "submitted")
+        .lt("report_date", reportDate)
+        .order("report_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (previousReportRes.error) throw previousReportRes.error;
+      openingSourceReport = previousReportRes.data;
+
+      if (openingSourceReport?.id) {
+        const previousInventoryRes = await supabase
+          .from("kiosk_daily_report_inventory_rows")
+          .select("product_code, closing_quantity")
+          .eq("report_id", openingSourceReport.id);
+
+        if (previousInventoryRes.error) throw previousInventoryRes.error;
+        openingInventoryRows = (previousInventoryRes.data || []).map((row) => ({
+          product_code: row.product_code,
+          opening_quantity: Number(row.closing_quantity || 0),
+        }));
+      }
+    }
+
     return jsonResponse(req, {
       success: true,
       report_date: reportDate,
       ...publicReportStaffProfile(sessionContext.staff, sessionContext.location),
       products: productsRes.data || [],
       channels: channelsRes.data || [],
+      opening_inventory_rows: openingInventoryRows,
+      opening_source_report_date: openingSourceReport?.report_date || null,
       report: report
         ? {
             report_date: report.report_date,
@@ -94,6 +127,7 @@ serve(async (req) => {
             notes: report.notes,
             submitted_at: report.submitted_at,
             updated_at: report.updated_at,
+            opening_source_report_date: report.opening_source_report_date,
             inventory_rows: inventoryRes.data || [],
             channel_rows: channelRowsRes.data || [],
           }
