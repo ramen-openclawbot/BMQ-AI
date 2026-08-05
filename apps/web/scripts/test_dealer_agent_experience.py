@@ -309,6 +309,40 @@ class DealerAgentExperienceTests(unittest.TestCase):
         self.assertIn("{errorMessage}", modal)
         self.assertIn('aria-live="assertive"', modal)
 
+    def test_hallmark_studied_dna_is_stamped_on_visible_agent_states(self) -> None:
+        self.assertEqual(self.source.count('data-hallmark-dna="dealer-conversational-catalogue"'), 3)
+        self.assertIn('data-hallmark-login="single-surface"', self.source)
+        self.assertIn('data-hallmark-chat="bottom-clustered"', self.source)
+        self.assertIn('data-hallmark-preview="single-layer"', self.source)
+
+    def test_login_is_left_biased_and_uses_one_containment_layer(self) -> None:
+        login = self.source.split('data-dealer-agent-screen="login"', 1)[1].split("if (isCatalogRestoring)", 1)[0]
+        self.assertIn('data-hallmark-login="single-surface"', login)
+        self.assertIn("text-left", login)
+        self.assertNotIn("sm:justify-center", login)
+        self.assertNotIn("Hôm nay mình dùng món gì ạ?", login)
+        self.assertNotIn("rounded-[28px]", login)
+
+    def test_customer_agent_surface_uses_one_icon_voice_without_emoji(self) -> None:
+        self.assertNotIn("👋", self.source)
+        self.assertIn("MessageCircle", self.source)
+
+    def test_chat_clusters_catalogue_and_composer_without_midpage_void(self) -> None:
+        panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]
+        catalogue = panel.split('data-hallmark-chat-actions="catalogue"', 1)[1].split('data-dealer-chat-scroll-anchor', 1)[0]
+        composer = panel.split('data-hallmark-chat-composer="inline-sticky"', 1)[1].split("<Dialog open={detailOpen}", 1)[0]
+        self.assertIn("mt-auto", catalogue)
+        self.assertNotIn("mt-auto", composer)
+        self.assertIn("whitespace-nowrap", composer)
+
+    def test_order_preview_uses_divider_rows_instead_of_metric_cards(self) -> None:
+        panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]
+        preview = panel.split('data-hallmark-preview="single-layer"', 1)[1].split('data-dealer-chat-choices="order-ready"', 1)[0]
+        self.assertIn('data-dealer-order-preview-totals="divider-rows"', preview)
+        self.assertIn("divide-y", preview)
+        self.assertNotIn("grid grid-cols-2", preview)
+        self.assertNotIn("rounded-2xl bg-[#fff5f9]", preview)
+
 
 if __name__ == "__main__":
     unittest.main()
