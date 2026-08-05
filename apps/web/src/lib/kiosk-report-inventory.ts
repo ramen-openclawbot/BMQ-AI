@@ -30,6 +30,14 @@ export const calculateConsumedQuantity = (
   nonnegative(breadstickSoldQuantity) * nonnegative(product?.breadstick_consumption_ratio),
 );
 
+export const calculateEffectiveConsumedQuantity = (
+  product: ReportInventoryProduct | null | undefined,
+  breadstickSoldQuantity: number,
+  manualConsumedQuantity: number,
+) => product?.code === "ot"
+  ? roundInventoryQuantity(nonnegative(manualConsumedQuantity))
+  : calculateConsumedQuantity(product, breadstickSoldQuantity);
+
 export const calculateInventoryClosing = (
   row: ReportInventoryRow,
   consumedQuantity = 0,

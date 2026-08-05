@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   calculateConsumedQuantity,
+  calculateEffectiveConsumedQuantity,
   calculateInventoryClosing,
   isRetailSaleAllowed,
   type ReportInventoryProduct,
@@ -41,5 +42,9 @@ assert.equal(calculateConsumedQuantity(pate, 106), 5.3);
 assert.equal(calculateConsumedQuantity(chili, 106), 0);
 assert.equal(calculateInventoryClosing(pateRow, calculateConsumedQuantity(pate, 106)), 2.7);
 assert.equal(calculateConsumedQuantity(pate, -10), 0);
+assert.equal(calculateEffectiveConsumedQuantity(pate, 106, 99), 5.3);
+assert.equal(calculateEffectiveConsumedQuantity(chili, 106, 2.5), 2.5);
+assert.equal(calculateEffectiveConsumedQuantity(chili, 106, -2.5), 0);
+assert.equal(calculateInventoryClosing(pateRow, calculateEffectiveConsumedQuantity(chili, 106, 2.5)), 5.5);
 
 console.log("PASS kiosk report ingredient consumption");

@@ -20,6 +20,7 @@ type InventoryInput = {
   waste_quantity?: unknown;
   returns_quantity?: unknown;
   sold_quantity?: unknown;
+  consumed_quantity?: unknown;
   notes?: unknown;
 };
 
@@ -96,6 +97,7 @@ serve(async (req) => {
         waste_quantity: nonnegative(row.waste_quantity),
         returns_quantity: nonnegative(row.returns_quantity),
         sold_quantity: nonnegative(row.sold_quantity),
+        consumed_quantity: nonnegative(row.consumed_quantity),
         notes: String(row.notes || "").trim().slice(0, 1000) || null,
       }));
     const channelRows = (Array.isArray(body.channel_rows) ? body.channel_rows : [])

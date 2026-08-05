@@ -136,7 +136,7 @@ def test_hallmark_redesign_is_compact_clear_and_mobile_safe() -> None:
         assert_not_contains(portal, emoji, "platform-dependent product emoji")
 
 
-def test_ingredient_consumption_is_automatic_and_not_retail_editable() -> None:
+def test_ingredient_consumption_keeps_pate_automatic_and_chili_manually_editable() -> None:
     portal = read(PORTAL)
     for needle, label in [
         ('from "@/lib/kiosk-report-inventory"', "shared inventory calculation import"),
@@ -144,6 +144,10 @@ def test_ingredient_consumption_is_automatic_and_not_retail_editable() -> None:
         ('breadstick_consumption_ratio: 1 / 20', "pate consumption ratio"),
         ('Tiêu hao tự động', "automatic ingredient consumption label"),
         ('1 hộp = 20 bánh mì que', "pate recipe explanation"),
+        ('row.product_code === "ot"', "chili-specific manual usage guard"),
+        ('label="Ớt sử dụng"', "manual chili usage field"),
+        ('updateInventoryRow(row.product_code, "consumed_quantity", value)', "manual chili usage state update"),
+        ('calculateEffectiveConsumedQuantity', "trusted effective consumption calculation"),
         ('isRetailSaleAllowed(product)', "retail sale field guard"),
     ]:
         assert_contains(portal, needle, label)

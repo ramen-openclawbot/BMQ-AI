@@ -210,6 +210,8 @@ def test_bootstrap_session_save_and_logout_contracts() -> None:
         ("current location/date", "current assignment guard copy"),
         ("save_kiosk_daily_report_atomic", "atomic daily report RPC"),
         ("ingredient_retail_sale_forbidden", "ingredient retail-sale rejection"),
+        ("consumed_quantity?: unknown", "manual ingredient consumption input type"),
+        ("consumed_quantity: nonnegative(row.consumed_quantity)", "manual ingredient consumption sanitization"),
     ]:
         assert_contains(daily_save, needle, label)
     for forbidden in [
@@ -225,6 +227,10 @@ def test_bootstrap_session_save_and_logout_contracts() -> None:
     assert_contains(migration, "for update", "submitted-report lock")
     assert_contains(migration, "submitted_report_immutable", "submitted immutability inside transaction")
     assert_contains(migration, "v_breadstick_sold * product.breadstick_consumption_ratio", "transactional recipe consumption")
+    assert_contains(migration, "when product.code = 'ot'", "manual chili consumption policy")
+    assert_contains(migration, "input.row_data->>'consumed_quantity'", "manual chili consumption payload")
+    assert_contains(migration, "duplicate_inventory_product", "duplicate inventory product rejection")
+    assert_contains(migration, "having count(*) > 1", "duplicate inventory product grouping guard")
     assert_contains(migration, "ingredient_retail_sale_forbidden", "database ingredient retail-sale guard")
     assert_contains(migration, "revoke all on function public.save_kiosk_daily_report_atomic", "atomic save RPC grant hardening")
     assert_contains(logout, 'from("kiosk_report_sessions")', "report session revoke")

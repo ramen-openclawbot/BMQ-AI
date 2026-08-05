@@ -33,7 +33,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import {
-  calculateConsumedQuantity,
+  calculateEffectiveConsumedQuantity,
   calculateInventoryClosing,
   isRetailSaleAllowed,
 } from "@/lib/kiosk-report-inventory";
@@ -184,6 +184,7 @@ const createInventoryRows = (products: ReportProduct[]): InventoryRow[] =>
     waste_quantity: 0,
     returns_quantity: 0,
     sold_quantity: 0,
+    consumed_quantity: 0,
     notes: "",
   }));
 
@@ -659,7 +660,7 @@ export default function KioskReportPortal() {
                 const product = productByCode.get(row.product_code);
                 const consumedQuantity = isSubmitted
                   ? numberValue(row.consumed_quantity)
-                  : calculateConsumedQuantity(product, breadstickSoldQuantity);
+                  : calculateEffectiveConsumedQuantity(product, breadstickSoldQuantity, numberValue(row.consumed_quantity));
                 const closingQuantity = calcClosing(row, consumedQuantity);
                 const saleAllowed = isRetailSaleAllowed(product);
                 return (
@@ -706,12 +707,15 @@ export default function KioskReportPortal() {
                           {saleAllowed && (
                             <ReportNumberField label="Đã bán" value={row.sold_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "sold_quantity", value)} />
                           )}
+                          {row.product_code === "ot" && (
+                            <ReportNumberField label="Ớt sử dụng" value={row.consumed_quantity || 0} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "consumed_quantity", value)} />
+                          )}
                         </div>
                         {!saleAllowed && (
                           <div className="mt-3 rounded-xl border border-[#f2d5df] bg-[#fff8fa] px-3 py-2.5 text-sm text-[#80566a]">
                             {row.product_code === "pate"
                               ? <><strong>Tiêu hao tự động: {consumedQuantity.toLocaleString("vi-VN")} hộp</strong><span className="ml-1.5">• 1 hộp = 20 bánh mì que</span></>
-                              : <strong>Nguyên liệu nội bộ • Không bán lẻ</strong>}
+                              : <strong>Nhập lượng ớt sử dụng thực tế trong ngày • Không bán lẻ</strong>}
                           </div>
                         )}
                         <div data-testid="computed-closing" className="mt-3 flex items-center justify-between rounded-xl border border-dashed border-[#efb6ca] bg-[#fff5f8] px-3 py-2.5">
@@ -875,7 +879,7 @@ function ReportNumberField({ label, value, disabled, onChange }: { label: string
   return (
     <label className="block min-w-0">
       <span className="mb-1.5 block truncate text-xs text-[#625d63] sm:text-sm">{label}</span>
-      <Input type="number" inputMode="decimal" value={Number.isFinite(value) ? String(value) : "0"} onChange={(event) => onChange(event.target.value)} disabled={disabled} className="h-12 rounded-xl border-[#ddd8da] bg-white px-3 text-left text-[17px] shadow-none focus-visible:ring-[#ec5b91]" />
+      <Input type="number" inputMode="decimal" min="0" step="any" value={Number.isFinite(value) ? String(value) : "0"} onChange={(event) => onChange(event.target.value)} disabled={disabled} className="h-12 rounded-xl border-[#ddd8da] bg-white px-3 text-left text-[17px] shadow-none focus-visible:ring-[#ec5b91]" />
     </label>
   );
 }
