@@ -1,15 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  BarChart3,
+  Box,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  CircleDollarSign,
+  Clock3,
+  LayoutDashboard,
   Loader2,
   LogOut,
   MapPin,
+  Package,
   Phone,
   Save,
   Send,
+  Settings,
   ShieldCheck,
+  Store,
   UserRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -132,6 +142,16 @@ const formatVnd = (value: number) =>
     maximumFractionDigits: 0,
   }).format(value);
 
+const formatReportDate = (value: string) => {
+  const [year, month, day] = value.split("-");
+  return year && month && day ? `${day}/${month}/${year}` : value;
+};
+
+const getInitials = (name?: string | null) => {
+  const words = String(name || "Nhân viên").trim().split(/\s+/).filter(Boolean);
+  return words.slice(-2).map((word) => word[0]?.toUpperCase()).join("") || "NV";
+};
+
 const createInventoryRows = (products: ReportProduct[]): InventoryRow[] =>
   products.map((product) => ({
     product_code: product.code,
@@ -203,6 +223,7 @@ export default function KioskReportPortal() {
   const [errorMessage, setErrorMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(Boolean(reportToken));
+  const [expandedProductCode, setExpandedProductCode] = useState<string | null>("banh_mi_que");
 
   const isSubmitted = reportStatus === "submitted";
   const totalAmount = useMemo(
@@ -360,7 +381,7 @@ export default function KioskReportPortal() {
 
   if (bootstrapping) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f3f4f6] text-slate-700">
+      <div className="flex min-h-screen items-center justify-center bg-[#fff8fa] text-[#20212d]">
         <Loader2 className="mr-2 h-5 w-5 animate-spin" />
         Đang tải báo cáo...
       </div>
@@ -468,34 +489,50 @@ export default function KioskReportPortal() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f3f4f6] text-slate-950">
-      <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 pb-28 pt-5 md:px-8 md:pb-10">
-        <header className="mb-5 space-y-4">
-          <div className="flex justify-center">
-            <img src="/assets/brand/bmq-logo-master-1024.png" alt="BMQ" className="h-20 w-20 object-contain" />
+    <main data-testid="report-shell" className="min-h-screen bg-[#fff8fa] text-[#20212d] md:pl-[238px]">
+      <ReportSidebar staffName={staff?.full_name} onLogout={logout} />
+
+      <div className="mx-auto min-h-screen max-w-[1440px] px-4 pb-28 pt-5 sm:px-6 md:px-8 md:pb-10 md:pt-8 xl:px-10">
+        <header className="mb-5 md:mb-7">
+          <div className="grid grid-cols-[104px_minmax(0,1fr)_52px] items-start gap-2 md:hidden">
+            <img
+              src="/assets/brand/bmq-logo-master-1024.png"
+              alt="BMQ"
+              className="row-span-2 h-auto w-[104px] shrink-0 object-contain"
+            />
+            <div className="min-w-0 pt-1">
+              <h1 className="whitespace-nowrap text-[26px] font-extrabold leading-tight tracking-[-0.025em]">Báo cáo ngày</h1>
+            </div>
+            <button
+              type="button"
+              onClick={logout}
+              aria-label="Đăng xuất"
+              className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#f7a4c1] to-[#e96998] text-lg font-bold text-white shadow-sm"
+            >
+              {getInitials(staff?.full_name)}
+            </button>
+            <div className="col-span-2 col-start-2 row-start-2 inline-flex max-w-full items-center gap-1 justify-self-start rounded-xl bg-[#fdeaf1] px-2.5 py-1.5 text-[13px] font-medium text-[#b93667]">
+              <MapPin className="h-4 w-4 shrink-0 fill-[#ec5b91] text-[#ec5b91]" />
+              <span className="truncate">{location?.name || "Điểm bán BMQ"}</span>
+            </div>
           </div>
-          <div className="rounded-[28px] bg-white p-4 shadow-sm ring-1 ring-slate-200 md:p-5">
-            <div className="grid gap-3 md:grid-cols-[1fr_1fr_180px_auto] md:items-center">
-              <InfoTile icon={UserRound} label="Thông tin nhân viên" value={staff?.full_name || "Nhân viên"} />
-              <InfoTile
-                icon={MapPin}
-                label="Điểm bán"
-                value={location?.name || "Điểm bán"}
-                detail={[location?.code, location?.address].filter(Boolean).join(" · ")}
-              />
-              <div className="space-y-1">
-                <Label className="text-xs text-slate-500">Ngày báo cáo</Label>
-                <div className="relative">
-                  <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <Input
-                    type="date"
-                    value={reportDate}
-                    onChange={(event) => setReportDate(event.target.value)}
-                    className="h-11 rounded-2xl border-slate-200 pl-10"
-                  />
+
+          <div className="hidden items-center justify-between gap-6 md:flex">
+            <div>
+              <h1 className="text-[30px] font-extrabold tracking-[-0.02em]">Báo cáo ngày</h1>
+              <p className="mt-1 text-sm text-[#74717a]">Nhập và gửi báo cáo vận hành tại điểm bán</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div aria-label="Thông tin nhân viên" className="flex items-center gap-3 rounded-2xl border border-[#eadfe3] bg-white px-3 py-2 shadow-[0_8px_24px_rgba(78,44,58,0.06)]">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-[#f7a4c1] to-[#e96998] text-sm font-bold text-white">
+                  {getInitials(staff?.full_name)}
+                </div>
+                <div className="max-w-[220px]">
+                  <div className="truncate text-sm font-semibold">{staff?.full_name || "Nhân viên"}</div>
+                  <div className="truncate text-xs text-[#85808a]">{location?.name || "Điểm bán BMQ"}</div>
                 </div>
               </div>
-              <Button variant="outline" className="h-11 rounded-2xl" onClick={logout}>
+              <Button variant="outline" className="h-12 rounded-2xl border-[#eadfe3] bg-white px-4 text-[#4d4850]" onClick={logout}>
                 <LogOut className="mr-2 h-4 w-4" />
                 Đăng xuất
               </Button>
@@ -503,253 +540,286 @@ export default function KioskReportPortal() {
           </div>
         </header>
 
+        <section className="relative mb-6 flex min-h-[82px] items-center justify-between gap-3 overflow-hidden rounded-[22px] border border-[#f0dfe5] bg-white px-4 py-4 shadow-[0_10px_28px_rgba(86,48,63,0.10)] sm:px-6">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+            <CalendarDays className="h-7 w-7 shrink-0 text-[#ec5b91]" strokeWidth={2.2} />
+            <div className="relative">
+              <span className="text-[20px] font-extrabold sm:text-[22px]">{formatReportDate(reportDate)}</span>
+              <Input
+                aria-label="Ngày báo cáo"
+                type="date"
+                value={reportDate}
+                onChange={(event) => setReportDate(event.target.value)}
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              />
+            </div>
+          </div>
+          <div className={cn(
+            "inline-flex shrink-0 items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-semibold sm:px-4 sm:text-base",
+            isSubmitted
+              ? "border-[#bfead0] bg-[#edfbf2] text-[#28995a]"
+              : "border-[#ffd5a6] bg-[#fff7eb] text-[#f28a24]",
+          )}>
+            {isSubmitted ? <CheckCircle2 className="h-5 w-5" /> : <Clock3 className="h-5 w-5" />}
+            {isSubmitted ? "Đã gửi" : "Chưa gửi"}
+          </div>
+        </section>
+
         {isSubmitted && (
-          <div className="mb-4 rounded-[20px] border border-emerald-200 bg-white px-4 py-3 text-sm text-emerald-800">
+          <div className="mb-4 rounded-2xl border border-[#bfead0] bg-[#edfbf2] px-4 py-3 text-sm text-[#247d4b]">
             <CheckCircle2 className="mr-2 inline h-4 w-4 align-text-bottom" />
-            Báo cáo ngày này đã gửi{submittedAt ? ` lúc ${new Date(submittedAt).toLocaleString("vi-VN")}` : ""}. Báo cáo đã khóa chỉnh sửa.
+            Báo cáo ngày này đã gửi{submittedAt ? ` lúc ${new Date(submittedAt).toLocaleString("vi-VN")}` : ""} và đã khóa chỉnh sửa.
           </div>
         )}
 
         {errorMessage && (
-          <div className="mb-4 rounded-[20px] border border-red-200 bg-white px-4 py-3 text-sm text-red-700">
+          <div className="mb-4 rounded-2xl border border-[#ffc3d1] bg-[#fff2f6] px-4 py-3 text-sm text-[#b93667]">
             <AlertTriangle className="mr-2 inline h-4 w-4 align-text-bottom" />
             {errorMessage}
           </div>
         )}
 
         {statusMessage && !errorMessage && (
-          <div className="mb-4 rounded-[20px] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+          <div className="mb-4 rounded-2xl border border-[#f0dfe5] bg-white px-4 py-3 text-sm text-[#69636b]">
             {statusMessage}
           </div>
         )}
 
-        <div className="grid flex-1 gap-5 lg:grid-cols-[1.25fr_0.75fr]">
-          <section className="rounded-[28px] bg-white p-4 shadow-sm ring-1 ring-slate-200 md:p-5">
-            <div className="mb-4 flex items-end justify-between gap-3">
+        <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.22fr)_minmax(390px,0.78fr)]">
+          <section
+            data-testid="inventory-section"
+            className="overflow-hidden rounded-[24px] border border-[#f0dfe5] bg-white p-4 shadow-[0_12px_30px_rgba(86,48,63,0.10)] sm:p-5"
+          >
+            <SectionTitle icon={Box} title="Tồn kho & luân chuyển" />
+            <div className="mt-4 space-y-2.5">
+              {inventoryRows.map((row) => {
+                const expanded = expandedProductCode === row.product_code;
+                return (
+                  <div key={row.product_code} className="overflow-hidden rounded-[20px] border border-[#f2dce5] bg-white">
+                    <button
+                      type="button"
+                      aria-expanded={expanded}
+                      onClick={() => setExpandedProductCode(expanded ? null : row.product_code)}
+                      className="flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-[#fff9fb] sm:px-4"
+                    >
+                      <ProductIcon code={row.product_code} />
+                      <span className="min-w-0 flex-1 truncate text-[17px] font-bold sm:text-[18px]">{row.product_name_snapshot}</span>
+                      {!expanded && (
+                        <div className="hidden items-center gap-2 lg:flex">
+                          <MetricPill label="Tồn đầu" value={row.opening_quantity} />
+                          <MetricPill label="Nhập" value={row.received_quantity} />
+                          <MetricPill label="Tồn cuối" value={calcClosing(row)} />
+                        </div>
+                      )}
+                      {expanded
+                        ? <ChevronUp className="h-5 w-5 shrink-0 text-[#ec5b91]" />
+                        : <ChevronDown className="h-5 w-5 shrink-0 text-[#ec5b91]" />}
+                    </button>
+
+                    {!expanded && (
+                      <div className="flex flex-wrap gap-2 px-3 pb-3 lg:hidden">
+                        <MetricPill label="Tồn đầu" value={row.opening_quantity} />
+                        <MetricPill label="Nhập" value={row.received_quantity} />
+                        <MetricPill label="Tồn cuối" value={calcClosing(row)} />
+                      </div>
+                    )}
+
+                    {expanded && (
+                      <div className="border-t border-[#f6e5eb] bg-[#fffdfd] p-3 sm:p-4">
+                        <div className="grid grid-cols-3 gap-x-2.5 gap-y-3 sm:grid-cols-4 sm:gap-x-3">
+                          <ReportNumberField label="Tồn đầu" value={row.opening_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "opening_quantity", value)} />
+                          <ReportNumberField label="Nhập" value={row.received_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "received_quantity", value)} />
+                          <ReportNumberField label="Thiếu" value={row.shortage_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "shortage_quantity", value)} />
+                          <ReportNumberField label="Điều chuyển" value={row.transfer_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "transfer_quantity", value)} />
+                          <ReportNumberField label="Hủy" value={row.waste_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "waste_quantity", value)} />
+                          <ReportNumberField label="Đổi trả" value={row.returns_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "returns_quantity", value)} />
+                          <ReportNumberField label="Đã bán" value={row.sold_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "sold_quantity", value)} />
+                        </div>
+                        <div className="mt-3">
+                          <div className="mb-1.5 text-sm text-[#625d63]">Tồn cuối <span className="text-[#aaa4a8]">(Tự tính)</span></div>
+                          <div className="flex h-[52px] items-center rounded-2xl border border-[#ddd8da] bg-[#f8f7f7] px-4 text-[18px] font-semibold text-[#343139]">
+                            {calcClosing(row).toLocaleString("vi-VN")}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <div className="space-y-5">
+            <section
+              data-testid="channel-section"
+              className="overflow-hidden rounded-[24px] border border-[#f0dfe5] bg-white p-4 shadow-[0_12px_30px_rgba(86,48,63,0.10)] sm:p-5"
+            >
+              <SectionTitle icon={CircleDollarSign} title="Doanh thu theo kênh" />
+              <div className="mt-4 overflow-hidden rounded-[20px] border border-[#f2dce5]">
+                {channelRows.map((row, index) => {
+                  const cashChannel = row.channel_code === "khach_le";
+                  return (
+                    <div key={row.channel_code} className={cn("grid grid-cols-[36px_minmax(72px,1fr)_52px_62px] items-end gap-1 p-2 min-[360px]:grid-cols-[40px_minmax(86px,1fr)_68px_84px] min-[360px]:gap-1.5 min-[360px]:p-3 sm:grid-cols-[48px_minmax(105px,1fr)_100px_128px] sm:gap-3", index > 0 && "border-t border-[#f2e5e9]")}>
+                      <ChannelIcon code={row.channel_code} />
+                      <div className="self-center whitespace-nowrap text-[13px] font-bold sm:text-[17px]">{row.channel_name_snapshot}</div>
+                      <ChannelNumberField label="Số lượng" value={row.quantity} disabled={isSubmitted} onChange={(value) => updateChannelRow(row.channel_code, "quantity", value)} />
+                      <div>
+                        <ChannelNumberField label="Thành tiền" value={row.amount_vnd} disabled={isSubmitted} placeholder={cashChannel ? undefined : "—"} onChange={(value) => updateChannelRow(row.channel_code, "amount_vnd", value)} />
+                        {!cashChannel && <div className="mt-1 text-center text-[9px] leading-tight text-[#777178] sm:text-[10px]">Không thu tiền mặt</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="grid grid-cols-2 divide-x divide-[#eadfe3] rounded-[22px] border border-[#f0dfe5] bg-white px-3 py-5 text-center shadow-[0_10px_26px_rgba(86,48,63,0.09)]">
               <div>
-                <h2 className="text-xl font-bold tracking-normal">Tồn kho & luân chuyển</h2>
-                <p className="text-sm text-slate-500">Tồn cuối = đầu + nhận - thiếu + luân chuyển - hủy - trả - bán.</p>
+                <div className="text-sm text-[#514c53] sm:text-base">Tổng số bán</div>
+                <div className="mt-1 text-[27px] font-extrabold text-[#ec5b91] sm:text-[31px]">{totalQuantity.toLocaleString("vi-VN")}</div>
               </div>
-            </div>
-
-            <div className="space-y-4 md:hidden">
-              {inventoryRows.map((row) => (
-                <div key={row.product_code} className="rounded-[22px] border border-slate-200 p-3">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div>
-                      <div className="font-semibold">{row.product_name_snapshot}</div>
-                      <div className="text-xs text-slate-500">Tồn cuối: {calcClosing(row).toLocaleString("vi-VN")}</div>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <NumberField label="Đầu" value={row.opening_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "opening_quantity", value)} />
-                    <NumberField label="Nhận" value={row.received_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "received_quantity", value)} />
-                    <NumberField label="Thiếu" value={row.shortage_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "shortage_quantity", value)} />
-                    <NumberField label="Luân chuyển (+/-)" value={row.transfer_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "transfer_quantity", value)} />
-                    <NumberField label="Hủy" value={row.waste_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "waste_quantity", value)} />
-                    <NumberField label="Trả" value={row.returns_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "returns_quantity", value)} />
-                    <NumberField label="Bán" value={row.sold_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "sold_quantity", value)} />
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="hidden overflow-x-auto md:block">
-              <div className="min-w-[920px]">
-                <div className="grid grid-cols-[140px_repeat(8,1fr)] gap-2 border-b border-slate-200 pb-2 text-xs font-semibold uppercase text-slate-500">
-                  <div>Sản phẩm</div>
-                  <div>Đầu</div>
-                  <div>Nhận</div>
-                  <div>Thiếu</div>
-                  <div>Luân chuyển</div>
-                  <div>Hủy</div>
-                  <div>Trả</div>
-                  <div>Bán</div>
-                  <div>Tồn cuối</div>
-                </div>
-                <div className="divide-y divide-slate-100">
-                  {inventoryRows.map((row) => (
-                    <div key={row.product_code} className="grid grid-cols-[140px_repeat(8,1fr)] items-center gap-2 py-3">
-                      <div className="font-medium">{row.product_name_snapshot}</div>
-                      <InlineNumber value={row.opening_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "opening_quantity", value)} />
-                      <InlineNumber value={row.received_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "received_quantity", value)} />
-                      <InlineNumber value={row.shortage_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "shortage_quantity", value)} />
-                      <InlineNumber value={row.transfer_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "transfer_quantity", value)} />
-                      <InlineNumber value={row.waste_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "waste_quantity", value)} />
-                      <InlineNumber value={row.returns_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "returns_quantity", value)} />
-                      <InlineNumber value={row.sold_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "sold_quantity", value)} />
-                      <div className="rounded-2xl bg-slate-100 px-3 py-2 text-right font-semibold">{calcClosing(row).toLocaleString("vi-VN")}</div>
-                    </div>
-                  ))}
-                </div>
+              <div>
+                <div className="text-sm text-[#514c53] sm:text-base">Tổng doanh thu</div>
+                <div className="mt-1 text-[24px] font-extrabold text-[#ec5b91] sm:text-[29px]">{formatVnd(totalAmount)}</div>
               </div>
-            </div>
-          </section>
+            </section>
 
-          <section className="space-y-5">
-            <div className="rounded-[28px] bg-white p-4 shadow-sm ring-1 ring-slate-200 md:p-5">
-              <h2 className="text-xl font-bold tracking-normal">Doanh thu theo kênh</h2>
-              <p className="mb-4 text-sm text-slate-500">Nhập số lượng và số tiền từng kênh.</p>
-              <div className="space-y-3">
-                {channelRows.map((row) => (
-                  <div key={row.channel_code} className="rounded-[22px] border border-slate-200 p-3">
-                    <div className="mb-3 font-semibold">{row.channel_name_snapshot}</div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <NumberField label="Số lượng" value={row.quantity} disabled={isSubmitted} onChange={(value) => updateChannelRow(row.channel_code, "quantity", value)} />
-                      <NumberField label="Doanh thu" value={row.amount_vnd} disabled={isSubmitted} onChange={(value) => updateChannelRow(row.channel_code, "amount_vnd", value)} />
-                    </div>
-                  </div>
-                ))}
+            <details className="group rounded-[22px] border border-[#f0dfe5] bg-white shadow-[0_8px_24px_rgba(86,48,63,0.07)]">
+              <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3.5 font-semibold">
+                <span>Ghi chú ca bán</span>
+                <ChevronDown className="h-5 w-5 text-[#ec5b91] transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="px-4 pb-4">
+                <Textarea
+                  id="report-notes"
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  placeholder="Ghi chú sự cố hoặc chênh lệch..."
+                  disabled={isSubmitted}
+                  className="min-h-[96px] rounded-2xl border-[#e7dfe2] bg-[#fffdfd]"
+                />
               </div>
-              <div className="mt-4 rounded-[22px] bg-slate-50 p-3">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-500">Tổng số lượng</span>
-                  <span className="font-semibold">{totalQuantity.toLocaleString("vi-VN")}</span>
-                </div>
-                <div className="mt-2 flex items-center justify-between text-sm">
-                  <span className="text-slate-500">Tổng doanh thu</span>
-                  <span className="font-semibold text-[#b71c1c]">{formatVnd(totalAmount)}</span>
-                </div>
-              </div>
-            </div>
+            </details>
 
-            <div className="rounded-[28px] bg-white p-4 shadow-sm ring-1 ring-slate-200 md:p-5">
-              <Label htmlFor="report-notes">Ghi chú</Label>
-              <Textarea
-                id="report-notes"
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                placeholder="Ghi chú ca bán, sự cố, chênh lệch..."
-                disabled={isSubmitted}
-                className="mt-2 min-h-[120px] rounded-2xl border-slate-200"
-              />
+            <div className="hidden rounded-[22px] border border-[#f0dfe5] bg-white p-4 shadow-[0_8px_24px_rgba(86,48,63,0.07)] md:block">
+              <ActionButtons loading={loading} disabled={isSubmitted} onSaveDraft={() => saveReport("draft")} onSubmit={() => saveReport("submitted")} />
             </div>
-
-            <div className="hidden rounded-[28px] bg-white p-4 shadow-sm ring-1 ring-slate-200 md:block">
-              <ActionButtons
-                loading={loading}
-                disabled={isSubmitted}
-                onSaveDraft={() => saveReport("draft")}
-                onSubmit={() => saveReport("submitted")}
-              />
-            </div>
-          </section>
+          </div>
         </div>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 bg-white/95 p-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur md:hidden">
-        <ActionButtons
-          loading={loading}
-          disabled={isSubmitted}
-          onSaveDraft={() => saveReport("draft")}
-          onSubmit={() => saveReport("submitted")}
-        />
+      <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[#f1dfe6] bg-white/95 p-3 shadow-[0_-10px_26px_rgba(86,48,63,0.10)] backdrop-blur md:hidden">
+        <ActionButtons loading={loading} disabled={isSubmitted} onSaveDraft={() => saveReport("draft")} onSubmit={() => saveReport("submitted")} />
       </div>
     </main>
   );
 }
 
-function InfoTile({
-  icon: Icon,
-  label,
-  value,
-  detail,
-}: {
-  icon: typeof UserRound;
-  label: string;
-  value: string;
-  detail?: string;
-}) {
+function ReportSidebar({ staffName, onLogout }: { staffName?: string | null; onLogout: () => void }) {
   return (
-    <div className="flex items-start gap-3 rounded-[22px] bg-slate-50 p-3">
-      <div className="mt-0.5 rounded-2xl bg-white p-2 text-[#b71c1c] shadow-sm">
-        <Icon className="h-4 w-4" />
+    <aside className="fixed inset-y-0 left-0 z-30 hidden w-[238px] flex-col border-r border-[#eee5e8] bg-white md:flex">
+      <div className="flex justify-center px-6 pb-8 pt-7">
+        <img src="/assets/brand/bmq-logo-master-1024.png" alt="BMQ - Bánh Mì Que Pháp" className="h-auto w-[164px] object-contain" />
       </div>
-      <div className="min-w-0">
-        <div className="text-xs text-slate-500">{label}</div>
-        <div className="truncate font-semibold">{value}</div>
-        {detail ? <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">{detail}</div> : null}
+      <nav className="space-y-2 px-3">
+        <SidebarItem icon={LayoutDashboard} label="Tổng quan" />
+        <SidebarItem icon={BarChart3} label="Báo cáo" active />
+        <SidebarItem icon={Store} label="Điểm bán" />
+        <SidebarItem icon={Settings} label="Cấu hình" />
+      </nav>
+      <div className="mt-auto border-t border-[#f2eaed] p-4">
+        <div className="mb-3 flex items-center gap-3 rounded-2xl bg-[#fff4f8] p-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#ec5b91] text-sm font-bold text-white">{getInitials(staffName)}</div>
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold">{staffName || "Nhân viên"}</div>
+            <div className="text-xs text-[#888189]">Báo cáo điểm bán</div>
+          </div>
+        </div>
+        <button type="button" onClick={onLogout} className="flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm text-[#6c656d] hover:bg-[#fff4f8] hover:text-[#c23e70]">
+          <LogOut className="h-4 w-4" /> Đăng xuất
+        </button>
       </div>
+    </aside>
+  );
+}
+
+function SidebarItem({ icon: Icon, label, active = false }: { icon: typeof LayoutDashboard; label: string; active?: boolean }) {
+  return (
+    <div className={cn("flex h-12 items-center gap-3 rounded-xl border-l-[3px] px-4 text-sm font-medium", active ? "border-[#ec5b91] bg-[#fdebf2] text-[#d84579]" : "border-transparent text-[#39353b]")}>
+      <Icon className="h-5 w-5" strokeWidth={1.8} />
+      {label}
     </div>
   );
 }
 
-function NumberField({
-  label,
-  value,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  disabled?: boolean;
-  onChange: (value: string) => void;
-}) {
+function SectionTitle({ icon: Icon, title }: { icon: typeof Box; title: string }) {
   return (
-    <div className="space-y-1">
-      <Label className="text-xs text-slate-500">{label}</Label>
-      <Input
-        type="number"
-        inputMode="decimal"
-        value={Number.isFinite(value) ? String(value) : "0"}
-        onChange={(event) => onChange(event.target.value)}
-        disabled={disabled}
-        className="h-10 rounded-2xl border-slate-200 text-right"
-      />
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fdeaf1] text-[#ec5b91]">
+          <Icon className="h-6 w-6" strokeWidth={2.1} />
+        </div>
+        <h2 className="text-[21px] font-extrabold tracking-[-0.015em] sm:text-[23px]">{title}</h2>
+      </div>
+      <ChevronUp className="h-5 w-5 shrink-0 text-[#ec5b91]" />
     </div>
   );
 }
 
-function InlineNumber({
-  value,
-  disabled,
-  onChange,
-}: {
-  value: number;
-  disabled?: boolean;
-  onChange: (value: string) => void;
-}) {
+function ProductIcon({ code }: { code: string }) {
+  const emoji = code === "banh_mi_que" ? "🥖" : code === "pate" ? "🥫" : code === "ot" ? "🌶️" : "🥨";
+  return <span aria-hidden="true" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fdebf2] text-[23px]">{emoji}</span>;
+}
+
+function ChannelIcon({ code }: { code: string }) {
+  if (code === "khach_le") {
+    return <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fdebf2] text-[#ec5b91]"><UserRound className="h-6 w-6" /></span>;
+  }
+  if (code === "shopeefood") {
+    return <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fff0eb]"><span className="flex h-7 w-7 items-center justify-center rounded-md bg-[#ee4d2d] text-[10px] font-black text-white">SF</span></span>;
+  }
+  if (code === "grabfood") {
+    return <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#eaf8ef]"><span className="rounded bg-[#00b14f] px-1 py-1 text-center text-[8px] font-black leading-[8px] text-white">Grab<br />Food</span></span>;
+  }
+  return <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fff7d8]"><span className="flex h-7 w-7 items-center justify-center rounded-md bg-[#ffd52f] text-[13px] font-black text-[#123b78]">be</span></span>;
+}
+
+function MetricPill({ label, value }: { label: string; value: number }) {
   return (
-    <Input
-      type="number"
-      inputMode="decimal"
-      value={Number.isFinite(value) ? String(value) : "0"}
-      onChange={(event) => onChange(event.target.value)}
-      disabled={disabled}
-      className="h-10 rounded-2xl border-slate-200 text-right"
-    />
+    <span className="inline-flex items-center gap-1.5 rounded-xl bg-[#f8f6f7] px-2.5 py-1.5 text-xs text-[#5f5960]">
+      {label} <strong className="text-sm text-[#242129]">{numberValue(value).toLocaleString("vi-VN")}</strong>
+    </span>
   );
 }
 
-function ActionButtons({
-  loading,
-  disabled,
-  onSaveDraft,
-  onSubmit,
-}: {
-  loading: boolean;
-  disabled?: boolean;
-  onSaveDraft: () => void;
-  onSubmit: () => void;
-}) {
+function ReportNumberField({ label, value, disabled, onChange }: { label: string; value: number; disabled?: boolean; onChange: (value: string) => void }) {
   return (
-    <div className="grid grid-cols-2 gap-2">
-      <Button
-        variant="outline"
-        className={cn("h-12 rounded-2xl text-base font-semibold", disabled && "opacity-60")}
-        onClick={onSaveDraft}
-        disabled={loading || disabled}
-      >
-        {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+    <label className="block min-w-0">
+      <span className="mb-1.5 block truncate text-xs text-[#625d63] sm:text-sm">{label}</span>
+      <Input type="number" inputMode="decimal" value={Number.isFinite(value) ? String(value) : "0"} onChange={(event) => onChange(event.target.value)} disabled={disabled} className="h-[52px] rounded-2xl border-[#ddd8da] bg-white px-3 text-left text-[17px] shadow-none focus-visible:ring-[#ec5b91]" />
+    </label>
+  );
+}
+
+function ChannelNumberField({ label, value, disabled, placeholder, onChange }: { label: string; value: number; disabled?: boolean; placeholder?: string; onChange: (value: string) => void }) {
+  return (
+    <label className="block min-w-0">
+      <span className="mb-1 block truncate text-[10px] text-[#746e75] sm:text-xs">{label}</span>
+      <Input type="number" inputMode="decimal" value={placeholder && Number(value) === 0 ? "" : Number.isFinite(value) ? String(value) : "0"} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} disabled={disabled} className="h-10 rounded-xl border-[#ded9db] bg-white px-2 text-left text-sm shadow-none placeholder:text-[#4d4850] focus-visible:ring-[#ec5b91] sm:h-11 sm:px-3 sm:text-base" />
+    </label>
+  );
+}
+
+function ActionButtons({ loading, disabled, onSaveDraft, onSubmit }: { loading: boolean; disabled?: boolean; onSaveDraft: () => void; onSubmit: () => void }) {
+  return (
+    <div className="grid grid-cols-[0.9fr_1.2fr] gap-2.5 sm:gap-3">
+      <Button variant="outline" className={cn("h-14 rounded-2xl border-[#ec5b91] bg-white px-2 text-[15px] font-bold text-[#d94479] hover:bg-[#fff4f8] sm:text-base", disabled && "opacity-60")} onClick={onSaveDraft} disabled={loading || disabled}>
+        {loading ? <Loader2 className="mr-1.5 h-5 w-5 animate-spin" /> : <Save className="mr-1.5 h-5 w-5" />}
         Lưu nháp
       </Button>
-      <Button
-        className="h-12 rounded-2xl bg-[#b71c1c] text-base font-semibold hover:bg-[#991818]"
-        onClick={onSubmit}
-        disabled={loading || disabled}
-      >
-        {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-        Gửi báo cáo
+      <Button aria-label="Gửi báo cáo" className="h-14 rounded-2xl border-0 bg-gradient-to-r from-[#e9568d] to-[#ec6b9c] px-2 text-[14px] font-bold text-white shadow-none hover:brightness-95 sm:text-base" onClick={onSubmit} disabled={loading || disabled}>
+        {loading ? <Loader2 className="mr-1.5 h-5 w-5 animate-spin" /> : <Send className="mr-1.5 h-5 w-5" />}
+        Kiểm tra & gửi báo cáo
       </Button>
     </div>
   );

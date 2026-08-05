@@ -87,6 +87,40 @@ def test_otp_step_uses_pink_action_and_hides_backend_details() -> None:
     assert_contains(portal, "Mã OTP không đúng hoặc đã hết hạn.", "concise OTP verification error")
 
 
+def test_authenticated_report_matches_approved_responsive_design_system() -> None:
+    portal = read(PORTAL)
+    for needle, label in [
+        ('bg-[#fff8fa]', "approved warm-pink report canvas"),
+        ('text-[#20212d]', "approved ink color"),
+        ('#ec5b91', "approved primary pink"),
+        ('md:pl-[238px]', "approved desktop sidebar offset"),
+        ('function ReportSidebar', "desktop BMQ sidebar"),
+        ('function ProductIcon', "product icon system"),
+        ('function ChannelIcon', "channel brand icon system"),
+        ('expandedProductCode', "inventory accordion state"),
+        ('Báo cáo ngày', "approved report title"),
+        ('Chưa gửi', "approved draft status"),
+        ('Kiểm tra & gửi báo cáo', "approved submit action copy"),
+        ('Tổng số bán', "approved totals copy"),
+        ('Không thu tiền mặt', "non-cash channel guidance"),
+        ('data-testid="report-shell"', "responsive QA hook"),
+        ('data-testid="inventory-section"', "inventory QA hook"),
+        ('data-testid="channel-section"', "channel QA hook"),
+    ]:
+        assert_contains(portal, needle, label)
+    assert_not_contains(portal, 'bg-[#f3f4f6]', "legacy gray authenticated canvas")
+    assert_not_contains(portal, 'min-w-[920px]', "legacy horizontally scrolling inventory table")
+
+
+def test_redesign_keeps_all_channel_amounts_editable_before_submit() -> None:
+    portal = read(PORTAL)
+    assert_not_contains(portal, 'disabled={isSubmitted || !cashChannel}', "non-cash amount regression")
+    assert_contains(portal, 'disabled={isSubmitted}', "submitted report amount lock")
+    assert_contains(portal, 'updateChannelRow(row.channel_code, "amount_vnd", value)', "channel amount update")
+    assert_not_contains(portal, 'value={placeholder ? "" :', "placeholder masking entered amount")
+    assert_contains(portal, 'placeholder && Number(value) === 0', "zero-only non-cash placeholder")
+
+
 def test_report_portal_uses_only_report_functions() -> None:
     portal = read(PORTAL)
     for fn_name in [
