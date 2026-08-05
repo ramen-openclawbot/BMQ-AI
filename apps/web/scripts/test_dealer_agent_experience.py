@@ -311,17 +311,22 @@ class DealerAgentExperienceTests(unittest.TestCase):
 
     def test_hallmark_studied_dna_is_stamped_on_visible_agent_states(self) -> None:
         self.assertEqual(self.source.count('data-hallmark-dna="dealer-conversational-catalogue"'), 3)
-        self.assertIn('data-hallmark-login="single-surface"', self.source)
+        self.assertIn('data-hallmark-login="branded-rounded"', self.source)
         self.assertIn('data-hallmark-chat="bottom-clustered"', self.source)
         self.assertIn('data-hallmark-preview="single-layer"', self.source)
 
-    def test_login_is_left_biased_and_uses_one_containment_layer(self) -> None:
+    def test_login_restores_centered_brand_and_rounded_cards(self) -> None:
         login = self.source.split('data-dealer-agent-screen="login"', 1)[1].split("if (isCatalogRestoring)", 1)[0]
-        self.assertIn('data-hallmark-login="single-surface"', login)
-        self.assertIn("text-left", login)
-        self.assertNotIn("sm:justify-center", login)
-        self.assertNotIn("Hôm nay mình dùng món gì ạ?", login)
-        self.assertNotIn("rounded-[28px]", login)
+        self.assertIn('data-hallmark-login="branded-rounded"', login)
+        self.assertIn("sm:justify-center", login)
+        self.assertIn('className="text-center"', login)
+        self.assertIn('alt="BMQ" className="mx-auto h-16', login)
+        self.assertIn("Hôm nay mình dùng món gì ạ?", login)
+        self.assertIn("rounded-[24px]", login)
+        self.assertIn("rounded-[28px]", login)
+        self.assertIn("items-center justify-center gap-2", login)
+        self.assertIn("text-xs sm:text-base", login)
+        self.assertNotIn("border-y border-[var(--dealer-rule)]", login)
 
     def test_customer_agent_surface_uses_one_icon_voice_without_emoji(self) -> None:
         self.assertNotIn("👋", self.source)

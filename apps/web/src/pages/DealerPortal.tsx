@@ -920,29 +920,31 @@ export default function DealerPortal() {
   if (shouldShowAgentLogin()) {
     return (
       <div
-        className="min-h-[100dvh] bg-[var(--dealer-paper)] text-[var(--dealer-ink)]"
+        className="min-h-[100dvh] bg-[#fff9f5] text-[#271f23]"
         data-dealer-agent-screen="login"
         data-hallmark-dna="dealer-conversational-catalogue"
         style={DEALER_HALLMARK_TOKENS}
       >
-        <main className="mx-auto flex min-h-[100dvh] w-full max-w-lg flex-col px-5 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(30px,env(safe-area-inset-top))] sm:px-8 sm:pt-14">
-          <section className="py-4 text-left sm:py-8" data-hallmark-login="single-surface">
-            <div className="flex items-center gap-3">
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--dealer-rule)] bg-[var(--dealer-surface)]">
-                <img src={bmqLogo} alt="BMQ Agent" className="h-12 w-12 object-contain" />
+        <main className="mx-auto flex min-h-[100dvh] w-full max-w-md flex-col px-5 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(28px,env(safe-area-inset-top))] sm:justify-center sm:py-10">
+          <div className="flex flex-1 flex-col justify-center py-8 sm:flex-none" data-hallmark-login="branded-rounded">
+            <div className="text-center">
+              <img src={bmqLogo} alt="BMQ" className="mx-auto h-16 w-auto object-contain" />
+              <h1 className="mt-6 text-3xl font-extrabold tracking-tight">Đặt món cùng BMQ Agent</h1>
+              <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-[#78636d]">
+                Nhắn một câu, BMQ chuẩn bị đơn hàng cho Quý Khách Hàng ngay.
+              </p>
+            </div>
+
+            <div className="mt-7 flex items-start gap-3 rounded-[24px] border border-[#f5d8e5] bg-white p-4 shadow-[0_16px_45px_rgba(217,79,138,0.09)]">
+              <div className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f3c7d9] bg-[#fff4f8]">
+                <img src={bmqLogo} alt="BMQ Agent" className="h-10 w-10 object-contain" />
               </div>
-              <div className="min-w-0">
-                <div className="text-sm font-extrabold text-[var(--dealer-accent-strong)]">BMQ Agent</div>
-                <div className="mt-0.5 text-xs font-medium text-[var(--dealer-ink-muted)]">Đặt hàng qua Zalo OTP</div>
+              <div className="rounded-2xl rounded-tl-md bg-[#fff2f7] px-4 py-3 text-sm font-medium leading-6 text-[#5b3a48]">
+                Hôm nay mình dùng món gì ạ?
               </div>
             </div>
 
-            <h1 className="mt-8 max-w-sm text-3xl font-extrabold leading-tight tracking-tight sm:text-[2.25rem]">Đặt món cùng BMQ Agent</h1>
-            <p className="mt-3 max-w-sm text-sm leading-6 text-[var(--dealer-ink-muted)]">
-              Nhắn một câu, BMQ chuẩn bị đơn hàng cho Quý Khách Hàng ngay.
-            </p>
-
-            <div className="mt-7 border-y border-[var(--dealer-rule)] bg-[var(--dealer-surface)] py-5 sm:px-5">
+            <section className="mt-5 rounded-[28px] border border-[#f3dce6] bg-white p-5 shadow-[0_18px_55px_rgba(87,42,61,0.08)]">
               {authMessage ? (
                 <div className="mb-4 flex items-start gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
@@ -972,12 +974,12 @@ export default function DealerPortal() {
                         onKeyDown={(event) => {
                           if (event.key === "Enter" && phone.trim() && !authLoading) void handleStartAuth();
                         }}
-                        className="h-[52px] rounded-xl border-[var(--dealer-rule)] bg-[var(--dealer-paper)] pl-11 text-[var(--dealer-ink)] focus-visible:ring-[var(--dealer-focus)]"
+                        className="h-[52px] rounded-2xl border-[#efd6e1] bg-[#fffafb] pl-11 text-xs sm:text-base focus-visible:ring-[#df6da0]"
                       />
                     </div>
                   </div>
                   <Button
-                    className="h-12 w-full whitespace-nowrap rounded-xl bg-[var(--dealer-accent)] text-base font-bold text-white shadow-sm hover:bg-[var(--dealer-accent-strong)] disabled:bg-[var(--dealer-accent-soft)] disabled:text-[var(--dealer-ink-muted)] disabled:opacity-100"
+                    className="h-12 w-full whitespace-nowrap rounded-2xl bg-[#d94f8a] text-base font-bold text-white shadow-lg shadow-[#d94f8a]/20 hover:bg-[#c83f7b]"
                     onClick={handleStartAuth}
                     disabled={authLoading || !phone.trim()}
                   >
@@ -996,31 +998,31 @@ export default function DealerPortal() {
                   <InputOTP maxLength={6} value={otp} onChange={setOtp}>
                     <InputOTPGroup className="w-full justify-between gap-2">
                       {[0, 1, 2, 3, 4, 5].map((index) => (
-                        <InputOTPSlot key={index} index={index} className="h-12 w-11 rounded-xl border-[var(--dealer-rule)]" />
+                        <InputOTPSlot key={index} index={index} className="h-12 w-11 rounded-xl border-[#efd6e1]" />
                       ))}
                     </InputOTPGroup>
                   </InputOTP>
                   <Button
-                    className="h-12 w-full whitespace-nowrap rounded-xl bg-[var(--dealer-accent)] text-base font-bold text-white hover:bg-[var(--dealer-accent-strong)] disabled:bg-[var(--dealer-accent-soft)] disabled:text-[var(--dealer-ink-muted)] disabled:opacity-100"
+                    className="h-12 w-full whitespace-nowrap rounded-2xl bg-[#d94f8a] text-base font-bold text-white hover:bg-[#c83f7b]"
                     onClick={handleVerifyAuth}
                     disabled={authLoading || otp.length !== 6}
                   >
                     {authLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
                     Xác thực OTP
                   </Button>
-                  <Button variant="ghost" className="h-10 w-full whitespace-nowrap rounded-xl text-[var(--dealer-ink-muted)]" onClick={() => setLoginStep("phone")}>
+                  <Button variant="ghost" className="h-10 w-full whitespace-nowrap rounded-xl text-[#9a667d]" onClick={() => setLoginStep("phone")}>
                     Đổi số điện thoại
                   </Button>
                 </div>
               ) : null}
-            </div>
+            </section>
 
-            <div className="mt-5 flex items-center gap-2 text-xs font-medium text-[var(--dealer-ink-muted)]">
-              <ShieldCheck className="h-4 w-4 text-[var(--dealer-accent)]" />
+            <div className="mt-5 flex items-center justify-center gap-2 text-xs font-medium text-[#8d7180]">
+              <ShieldCheck className="h-4 w-4 text-[#d94f8a]" />
               Thông tin của Quý Khách Hàng được BMQ bảo mật
             </div>
-          </section>
-          <footer data-dealer-login-footer className="mt-auto pt-8 text-center text-[11px] font-medium text-[var(--dealer-ink-muted)]">
+          </div>
+          <footer data-dealer-login-footer className="pt-8 text-center text-[11px] font-medium text-[#9a7e8b]">
             <span className="block">© 2026 Bánh Mì Que Pháp</span>
             <span className="block">BMQ. All rights reserved. Powered by VNAgent.ai</span>
           </footer>
