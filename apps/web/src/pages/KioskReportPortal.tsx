@@ -238,7 +238,7 @@ export default function KioskReportPortal() {
       localStorage.removeItem(REPORT_SESSION_STORAGE_KEY);
       setReportToken("");
       setStep("phone");
-      setErrorMessage(sessionResult.error);
+      setErrorMessage("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
       setBootstrapping(false);
       return;
     }
@@ -250,7 +250,7 @@ export default function KioskReportPortal() {
       30000,
     );
     if (bootstrapResult.error || !bootstrapResult.data) {
-      setErrorMessage(bootstrapResult.error || "Không tải được báo cáo.");
+      setErrorMessage("Chưa tải được báo cáo. Vui lòng thử lại.");
       setBootstrapping(false);
       return;
     }
@@ -276,11 +276,10 @@ export default function KioskReportPortal() {
     setLoading(false);
 
     if (result.error || !result.data) {
-      setErrorMessage(result.error || "Không gửi được OTP.");
+      setErrorMessage("Chưa gửi được mã OTP. Vui lòng thử lại.");
       return;
     }
 
-    setStatusMessage(result.data.message || "Mã OTP được gửi qua Zalo.");
     if (result.data.otp_required === false) return;
     setOtp("");
     setStep("otp");
@@ -293,7 +292,7 @@ export default function KioskReportPortal() {
     setLoading(false);
 
     if (result.error || !result.data?.report_token) {
-      setErrorMessage(result.error || "Không xác thực được OTP.");
+      setErrorMessage("Mã OTP không đúng hoặc đã hết hạn.");
       return;
     }
 
@@ -326,7 +325,7 @@ export default function KioskReportPortal() {
     setLoading(false);
 
     if (result.error) {
-      setErrorMessage(result.error);
+      setErrorMessage("Chưa lưu được báo cáo. Vui lòng thử lại.");
       setStatusMessage("");
       return;
     }
@@ -431,7 +430,8 @@ export default function KioskReportPortal() {
                   </div>
                 </div>
                 <Button
-                  className="h-12 w-full rounded-2xl bg-[#b71c1c] text-base font-semibold hover:bg-[#991818]"
+                  className="h-14 w-full rounded-2xl border-0 text-[20px] font-bold text-white shadow-none hover:brightness-95"
+                  style={{ background: "linear-gradient(90deg, #dc4f78 0%, #dc527a 100%)" }}
                   onClick={verifyOtp}
                   disabled={loading || otp.length !== 6}
                 >

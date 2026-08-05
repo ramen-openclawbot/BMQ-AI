@@ -78,6 +78,15 @@ def test_report_ui_matches_approved_copy_and_shape() -> None:
         assert_contains(portal, needle, label)
 
 
+def test_otp_step_uses_pink_action_and_hides_backend_details() -> None:
+    portal = read(PORTAL)
+    pink_gradient = "linear-gradient(90deg, #dc4f78 0%, #dc527a 100%)"
+    assert portal.count(pink_gradient) >= 2, "phone and OTP actions must use the same approved pink gradient"
+    assert_not_contains(portal, "setStatusMessage(result.data.message", "backend auth-start explanation")
+    assert_not_contains(portal, "setErrorMessage(result.error", "raw backend error details")
+    assert_contains(portal, "Mã OTP không đúng hoặc đã hết hạn.", "concise OTP verification error")
+
+
 def test_report_portal_uses_only_report_functions() -> None:
     portal = read(PORTAL)
     for fn_name in [
