@@ -432,8 +432,10 @@ export default function MiniCrm() {
   const { language } = useLanguage();
   const isVi = language === "vi";
   const location = useLocation();
-  const { isOwner, roles, canEditModule, user } = useAuth();
+  const { isOwner, roles, canAccessModule, canEditModule, user } = useAuth();
   const isSalesPoPage = location.pathname === "/sales-po-inbox";
+  const canEditKioskAdmin = isOwner || canEditModule("crm");
+  const canViewKioskAdmin = canEditKioskAdmin || canAccessModule("crm");
   const canApproveKb = isOwner || roles.includes("staff") || canEditModule("crm") || canEditModule("sales_po_inbox");
   const approveKbDisabledReason = canApproveKb
     ? ""
@@ -3509,11 +3511,11 @@ export default function MiniCrm() {
       )}
 
       {miniCrmSection === "locations" && (
-        <KioskReportAdminPanel mode="locations" isOwner={isOwner} />
+        <KioskReportAdminPanel mode="locations" canView={canViewKioskAdmin} canEdit={canEditKioskAdmin} />
       )}
 
       {miniCrmSection === "staff" && (
-        <KioskReportAdminPanel mode="staff" isOwner={isOwner} />
+        <KioskReportAdminPanel mode="staff" canView={canViewKioskAdmin} canEdit={canEditKioskAdmin} />
       )}
 
       </>

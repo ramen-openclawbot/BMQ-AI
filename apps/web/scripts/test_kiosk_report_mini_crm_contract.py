@@ -20,6 +20,10 @@ def assert_contains(text: str, needle: str, label: str) -> None:
     assert needle in text, f"Missing {label}: {needle!r}"
 
 
+def assert_not_contains(text: str, needle: str, label: str) -> None:
+    assert needle not in text, f"Unexpected {label}: {needle!r}"
+
+
 def test_mini_crm_has_clear_customer_location_staff_selectors() -> None:
     source_text = source()
     for needle, label in [
@@ -27,9 +31,32 @@ def test_mini_crm_has_clear_customer_location_staff_selectors() -> None:
         ("Điểm bán", "location tab"),
         ("Nhân viên bán hàng", "staff tab"),
         ("kiosk-report-admin", "dedicated admin CRUD function"),
-        ("Chỉ owner mới được quản lý dữ liệu báo cáo điểm bán", "owner-only copy"),
     ]:
         assert_contains(source_text, needle, label)
+
+
+def test_crm_module_permissions_control_kiosk_admin_view_and_edit() -> None:
+    mini_crm = read(MINI_CRM)
+    admin_panel = read(ADMIN_PANEL)
+
+    for needle, label in [
+        ('canAccessModule("crm")', "CRM view permission"),
+        ('canEditModule("crm")', "CRM edit permission"),
+        ('canView={canViewKioskAdmin}', "view permission passed to kiosk admin"),
+        ('canEdit={canEditKioskAdmin}', "edit permission passed to kiosk admin"),
+    ]:
+        assert_contains(mini_crm, needle, label)
+
+    for needle, label in [
+        ("canView: boolean", "explicit view prop"),
+        ("canEdit: boolean", "explicit edit prop"),
+        ("enabled: canView", "permission-gated data query"),
+        ("Bạn không có quyền xem dữ liệu báo cáo điểm bán", "unauthorized CRM message"),
+    ]:
+        assert_contains(admin_panel, needle, label)
+
+    assert_not_contains(admin_panel, "Chỉ owner mới được quản lý dữ liệu báo cáo điểm bán", "owner-only gate copy")
+    assert_not_contains(admin_panel, "enabled: isOwner", "owner-only data query")
 
 
 def test_location_and_staff_admin_cards_show_required_fields_and_status() -> None:
@@ -52,8 +79,9 @@ def test_location_and_staff_admin_cards_show_required_fields_and_status() -> Non
 
 def test_salary_is_loaded_only_through_admin_crud_not_public_report_ui() -> None:
     source_text = source()
-    assert_contains(source_text, "monthly_salary_vnd", "salary field in Mini CRM owner admin")
-    assert_contains(source_text, "isOwner", "owner gate")
+    assert_contains(source_text, "monthly_salary_vnd", "salary field in permission-gated Mini CRM admin")
+    assert_contains(source_text, "canView", "CRM view gate")
+    assert_contains(source_text, "canEdit", "CRM edit gate")
 
 
 if __name__ == "__main__":

@@ -84,10 +84,12 @@ async function callKioskReportAdmin<T>(body: Record<string, unknown>) {
 
 export function KioskReportAdminPanel({
   mode,
-  isOwner,
+  canView,
+  canEdit,
 }: {
   mode: "locations" | "staff";
-  isOwner: boolean;
+  canView: boolean;
+  canEdit: boolean;
 }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -97,7 +99,7 @@ export function KioskReportAdminPanel({
   const { data, isLoading, error } = useQuery({
     queryKey: ["kiosk-report-admin"],
     queryFn: async () => callKioskReportAdmin<KioskAdminData>({ action: "list" }),
-    enabled: isOwner,
+    enabled: canView,
   });
 
   const locations = useMemo(() => data?.locations || [], [data?.locations]);
@@ -140,17 +142,17 @@ export function KioskReportAdminPanel({
     },
   });
 
-  if (!isOwner) {
+  if (!canView) {
     return (
       <Card className="border-border/70 bg-gradient-to-b from-background to-muted/20 shadow-sm">
         <CardHeader>
           <CardTitle>Quản lý báo cáo điểm bán</CardTitle>
-          <CardDescription>Chỉ owner mới được quản lý dữ liệu báo cáo điểm bán.</CardDescription>
+          <CardDescription>Bạn cần được phân quyền CRM để xem dữ liệu báo cáo điểm bán.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <div>Dữ liệu nhạy cảm và quyền kích hoạt nhân viên chỉ hiển thị trong khu vực owner.</div>
+            <div>Bạn không có quyền xem dữ liệu báo cáo điểm bán.</div>
           </div>
         </CardContent>
       </Card>
@@ -181,7 +183,8 @@ export function KioskReportAdminPanel({
 
   if (mode === "locations") {
     return (
-      <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
+      <div className={canEdit ? "grid gap-4 lg:grid-cols-[360px_1fr]" : "grid gap-4"}>
+        {canEdit && (
         <Card className="border-border/70 bg-gradient-to-b from-background to-muted/20 shadow-sm">
           <CardHeader>
             <CardTitle>{locationDraft.id ? "Sửa điểm bán" : "Tạo điểm bán"}</CardTitle>
@@ -216,6 +219,7 @@ export function KioskReportAdminPanel({
             </div>
           </CardContent>
         </Card>
+        )}
 
         <Card className="border-border/70 bg-gradient-to-b from-background to-muted/20 shadow-sm">
           <CardHeader>
@@ -236,7 +240,7 @@ export function KioskReportAdminPanel({
                   </div>
                   {location.active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}
                 </div>
-                <Button
+                {canEdit && <Button
                   size="sm"
                   variant="outline"
                   className="mt-3"
@@ -250,7 +254,7 @@ export function KioskReportAdminPanel({
                 >
                   <Pencil className="mr-2 h-4 w-4" />
                   Sửa
-                </Button>
+                </Button>}
               </div>
             ))}
             {locations.length === 0 && (
@@ -265,7 +269,8 @@ export function KioskReportAdminPanel({
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[380px_1fr]">
+    <div className={canEdit ? "grid gap-4 lg:grid-cols-[380px_1fr]" : "grid gap-4"}>
+      {canEdit && (
       <Card className="border-border/70 bg-gradient-to-b from-background to-muted/20 shadow-sm">
         <CardHeader>
           <CardTitle>{staffDraft.id ? "Sửa nhân viên bán hàng" : "Tạo nhân viên bán hàng"}</CardTitle>
@@ -313,6 +318,7 @@ export function KioskReportAdminPanel({
           </div>
         </CardContent>
       </Card>
+      )}
 
       <Card className="border-border/70 bg-gradient-to-b from-background to-muted/20 shadow-sm">
         <CardHeader>
@@ -338,7 +344,7 @@ export function KioskReportAdminPanel({
                   <div className="mt-2 text-xs text-amber-700">Không có quyền truy cập Đặt hàng</div>
                 </div>
               </div>
-              <Button
+              {canEdit && <Button
                 size="sm"
                 variant="outline"
                 className="mt-3"
@@ -353,7 +359,7 @@ export function KioskReportAdminPanel({
               >
                 <Pencil className="mr-2 h-4 w-4" />
                 Sửa
-              </Button>
+              </Button>}
             </div>
           ))}
           {staffRows.length === 0 && (

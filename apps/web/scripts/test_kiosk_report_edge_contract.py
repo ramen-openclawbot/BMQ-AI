@@ -187,17 +187,23 @@ def test_bootstrap_session_save_and_logout_contracts() -> None:
         assert_not_contains(source, "monthly_salary_vnd", "salary exposure in public function")
 
 
-def test_admin_crud_function_uses_internal_token_owner_check_and_salary() -> None:
+def test_admin_crud_function_uses_internal_token_crm_permission_check_and_salary() -> None:
     admin = read(FUNCTIONS / "kiosk-report-admin/index.ts")
     for needle, label in [
-        ("requireOwner", "owner check"),
+        ("requireCrmPermission", "CRM permission check"),
         ("supabaseAdmin.auth.getUser", "internal Supabase token validation"),
+        ('from("user_module_permissions")', "module permission lookup"),
+        ('eq("module_key", "crm")', "CRM module scope"),
+        ('select("can_view, can_edit")', "view and edit permission fields"),
+        ('requiredPermission === "edit"', "action-sensitive edit guard"),
+        ('action === "list" ? "view" : "edit"', "list versus mutation permission split"),
         ("kiosk_report_locations", "locations CRUD"),
         ("kiosk_report_staff", "staff CRUD"),
         ("monthly_salary_vnd", "salary visible only in admin CRUD"),
         ("reassign_staff", "staff reassignment action"),
     ]:
         assert_contains(admin, needle, label)
+    assert_not_contains(admin, "Forbidden: owner role required", "owner-only authorization")
 
 
 if __name__ == "__main__":

@@ -10,7 +10,9 @@ function jsonResponse(req: Request, status: number, body: Record<string, unknown
   });
 }
 
-async function requireOwner(req: Request, supabaseAdmin: any) {
+type RequiredPermission = "view" | "edit";
+
+async function requireCrmPermission(req: Request, supabaseAdmin: any, requiredPermission: RequiredPermission) {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader?.startsWith("Bearer ")) {
     throw new Response(JSON.stringify({ error: "Missing authorization header" }), {
@@ -29,17 +31,32 @@ async function requireOwner(req: Request, supabaseAdmin: any) {
     });
   }
 
-  const { data: roleRows, error: roleError } = await supabaseAdmin
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", user.id)
-    .limit(10);
+  const [rolesResult, permissionsResult] = await Promise.all([
+    supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .limit(10),
+    supabaseAdmin
+      .from("user_module_permissions")
+      .select("can_view, can_edit")
+      .eq("user_id", user.id)
+      .eq("module_key", "crm")
+      .limit(10),
+  ]);
 
-  if (roleError) throw roleError;
+  if (rolesResult.error) throw rolesResult.error;
+  if (permissionsResult.error) throw permissionsResult.error;
 
-  const isOwner = (roleRows || []).some((row: any) => row.role === "owner");
-  if (!isOwner) {
-    throw new Response(JSON.stringify({ error: "Forbidden: owner role required" }), {
+  const isOwner = (rolesResult.data || []).some((row: any) => row.role === "owner");
+  const hasPermission = (permissionsResult.data || []).some((row: any) =>
+    requiredPermission === "edit"
+      ? row.can_edit === true
+      : row.can_view === true || row.can_edit === true
+  );
+
+  if (!isOwner && !hasPermission) {
+    throw new Response(JSON.stringify({ error: `Forbidden: CRM ${requiredPermission} permission required` }), {
       status: 403,
       headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
     });
@@ -71,10 +88,10 @@ serve(async (req) => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    await requireOwner(req, supabaseAdmin);
-
     const body = await req.json().catch(() => ({}));
     const action = String(body?.action || "list");
+
+    await requireCrmPermission(req, supabaseAdmin, action === "list" ? "view" : "edit");
 
     if (action === "list") {
       const [locationsRes, staffRes] = await Promise.all([
