@@ -19,6 +19,12 @@ export type WarehouseOrderMessageInput = {
   lines: WarehouseOrderLine[];
 };
 
+export type WarehouseDailyDigestInput = {
+  digestDate: string;
+  generatedAt: string;
+  orders: WarehouseOrderMessageInput[];
+};
+
 type ZaloGmfResponse = {
   data?: {
     message_id?: string;
@@ -92,69 +98,201 @@ const formatSubmittedAt = (value: string) => {
   return `${day}/${month}/${year} ${hour}:${minute}`;
 };
 
-export function formatWarehouseOrderMessage(input: WarehouseOrderMessageInput): string {
-  const grouped = new Map<string, WarehouseOrderLine[]>();
-  input.lines.forEach((line) => {
-    const routeName = line.routeCustomerName?.trim() || "Giao trực tiếp";
-    const current = grouped.get(routeName) || [];
-    current.push(line);
-    grouped.set(routeName, current);
-  });
+const formatDateKey = (value: string) => {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : "Chưa xác định";
+};
 
-  const sections: string[] = [];
-  grouped.forEach((lines, routeName) => {
-    const content = [`🚚 Điểm giao: ${routeName}`];
-    lines.forEach((line) => {
+type PointProduct = WarehouseOrderLine & { notes: string[] };
+type WarehousePoint = { name: string; products: PointProduct[] };
+
+const groupWarehousePoints = (orders: WarehouseOrderMessageInput[]): WarehousePoint[] => {
+  const points = new Map<string, Map<string, PointProduct>>();
+  orders.forEach((order) => {
+    order.lines.forEach((line) => {
+      const pointName = line.routeCustomerName?.trim() || order.customerName.trim() || "Giao trực tiếp";
+      const productName = line.productName.trim() || "Sản phẩm BMQ";
       const unit = line.unit?.trim() || "đơn vị";
-      content.push(
-        `• ${line.productName}`,
-        `  Đặt ${formatQuantity(line.orderedQuantity)} | `
-          + `Đổi ${formatQuantity(line.exchangeQuantity)} | `
-          + `Bù ${formatQuantity(line.makeupQuantity)}`,
-        `  ➜ Kho cần giao: ${formatQuantity(line.physicalQuantity)} ${unit}`,
-      );
-      if (line.routeNote?.trim()) content.push(`  📝 Ghi chú: ${line.routeNote.trim()}`);
+      const products = points.get(pointName) || new Map<string, PointProduct>();
+      const key = `${productName}\u0000${unit}`;
+      const current = products.get(key);
+      const note = line.routeNote?.trim();
+      products.set(key, {
+        ...line,
+        productName,
+        unit,
+        orderedQuantity: (current?.orderedQuantity || 0) + line.orderedQuantity,
+        exchangeQuantity: (current?.exchangeQuantity || 0) + line.exchangeQuantity,
+        makeupQuantity: (current?.makeupQuantity || 0) + line.makeupQuantity,
+        physicalQuantity: (current?.physicalQuantity || 0) + line.physicalQuantity,
+        notes: Array.from(new Set([...(current?.notes || []), ...(note ? [note] : [])])),
+      });
+      points.set(pointName, products);
     });
-    sections.push(content.join("\n"));
   });
+  return Array.from(points, ([name, products]) => ({ name, products: Array.from(products.values()) }));
+};
 
-  const totals = input.lines.reduce(
-    (sum, line) => ({
-      ordered: sum.ordered + line.orderedQuantity,
-      exchange: sum.exchange + line.exchangeQuantity,
-      makeup: sum.makeup + line.makeupQuantity,
-      physical: sum.physical + line.physicalQuantity,
-    }),
-    { ordered: 0, exchange: 0, makeup: 0, physical: 0 },
-  );
-  const units = new Set(input.lines.map((line) => line.unit?.trim()).filter(Boolean));
-  const totalUnit = units.size === 1 ? Array.from(units)[0] : "đơn vị";
+const groupWarehouseDealers = (orders: WarehouseOrderMessageInput[]): WarehousePoint[] => {
+  const dealers = new Map<string, Map<string, PointProduct>>();
+  orders.forEach((order) => {
+    const dealerName = order.customerName.trim() || order.orderNumber;
+    const products = dealers.get(dealerName) || new Map<string, PointProduct>();
+    order.lines.forEach((line) => {
+      const productName = line.productName.trim() || "Sản phẩm BMQ";
+      const unit = line.unit?.trim() || "đơn vị";
+      const key = `${productName}\u0000${unit}`;
+      const current = products.get(key);
+      products.set(key, {
+        ...line,
+        productName,
+        unit,
+        orderedQuantity: (current?.orderedQuantity || 0) + line.orderedQuantity,
+        exchangeQuantity: (current?.exchangeQuantity || 0) + line.exchangeQuantity,
+        makeupQuantity: (current?.makeupQuantity || 0) + line.makeupQuantity,
+        physicalQuantity: (current?.physicalQuantity || 0) + line.physicalQuantity,
+        notes: [],
+      });
+    });
+    dealers.set(dealerName, products);
+  });
+  return Array.from(dealers, ([name, products]) => ({ name, products: Array.from(products.values()) }));
+};
+
+const quantitySummary = (line: WarehouseOrderLine) => {
+  const parts: string[] = [];
+  if (line.orderedQuantity > 0) parts.push(`Đặt ${formatQuantity(line.orderedQuantity)}`);
+  if (line.exchangeQuantity > 0) parts.push(`Đổi ${formatQuantity(line.exchangeQuantity)}`);
+  if (line.makeupQuantity > 0) parts.push(`Bù ${formatQuantity(line.makeupQuantity)}`);
+  return parts.join(" + ") || "Không có số lượng";
+};
+
+const pointSections = (points: WarehousePoint[]) => points.map((point, index) => {
+  const content = [`${String(index + 1).padStart(2, "0")}. ${point.name}`];
+  point.products.forEach((line) => {
+    const unit = line.unit?.trim() || "đơn vị";
+    content.push(
+      `    ${line.productName}: ${quantitySummary(line)}`,
+      `    → GIAO ${formatQuantity(line.physicalQuantity)} ${unit}`,
+    );
+    line.notes.forEach((note) => content.push(`    📝 Ghi chú: ${note}`));
+  });
+  return content.join("\n");
+});
+
+const warehouseTotals = (points: WarehousePoint[]) => points.flatMap((point) => point.products).reduce(
+  (sum, line) => ({
+    ordered: sum.ordered + line.orderedQuantity,
+    exchange: sum.exchange + line.exchangeQuantity,
+    makeup: sum.makeup + line.makeupQuantity,
+    physical: sum.physical + line.physicalQuantity,
+  }),
+  { ordered: 0, exchange: 0, makeup: 0, physical: 0 },
+);
+
+const totalUnitFor = (points: WarehousePoint[]) => {
+  const units = new Set(points.flatMap((point) => point.products)
+    .map((line) => line.unit?.trim()).filter(Boolean));
+  return units.size === 1 ? Array.from(units)[0] as string : "đơn vị";
+};
+
+const totalsSection = (points: WarehousePoint[]) => {
+  const totals = warehouseTotals(points);
+  const totalUnit = totalUnitFor(points);
+  return [
+    "━━━━━━━━━━━━━━━━",
+    "📊 TỔNG KHO",
+    "",
+    `Đặt mới: ${formatQuantity(totals.ordered)} ${totalUnit}`,
+    `Đổi: ${formatQuantity(totals.exchange)} ${totalUnit}`,
+    `Bù: ${formatQuantity(totals.makeup)} ${totalUnit}`,
+    "",
+    `✅ KHO CẦN GIAO: ${formatQuantity(totals.physical)} ${totalUnit.toUpperCase()}`,
+  ];
+};
+
+export function formatWarehouseOrderMessage(input: WarehouseOrderMessageInput): string {
+  const points = groupWarehousePoints([input]);
+  const submitted = formatSubmittedAt(input.submittedAt);
+  const [submittedDate, submittedTime] = submitted.split(" ");
 
   const message = [
-    "📦 ĐƠN HÀNG MỚI TỪ DATHANG.BANHMIQUE.VN",
+    "📦 TỔNG KẾT ĐƠN BÁNH ĐẠI LÝ",
     "",
-    `Mã đơn: ${input.orderNumber}`,
-    `Khách đặt: ${input.customerName}`,
-    `Thời gian đặt: ${formatSubmittedAt(input.submittedAt)}`,
     `Ngày giao: ${formatDeliveryDate(input.requestedDeliveryDate, input.submittedAt)}`,
+    `Mã đơn: ${input.orderNumber}`,
+    `Đơn vị đặt: ${input.customerName}`,
+    `${points.length} điểm bán • Đặt lúc ${submittedTime || "--:--"} ${submittedDate?.slice(0, 5) || "--/--"}`,
     "",
-    sections.join("\n\n"),
+    "━━ CHI TIẾT ĐIỂM GIAO ━━",
+    "",
+    pointSections(points).join("\n\n"),
   ];
 
   if (input.deliveryNote?.trim()) message.push(`Ghi chú giao hàng: ${input.deliveryNote.trim()}`);
   if (input.customerNote?.trim()) message.push(`Ghi chú khách hàng: ${input.customerNote.trim()}`);
   message.push(
     "",
-    "━━━━━━━━━━━━━━",
-    "📊 TỔNG ĐƠN",
-    `• Đặt mới: ${formatQuantity(totals.ordered)} ${totalUnit}`,
-    `• Đổi: ${formatQuantity(totals.exchange)} ${totalUnit}`,
-    `• Bù: ${formatQuantity(totals.makeup)} ${totalUnit}`,
-    `✅ TỔNG KHO CẦN GIAO: ${formatQuantity(totals.physical)} ${totalUnit}`,
+    ...totalsSection(points),
     "",
     "Nguồn: dathang.banhmique.vn",
   );
   return message.join("\n");
+}
+
+const formatWarehouseDailyDigest = (
+  input: WarehouseDailyDigestInput,
+  entities: WarehousePoint[],
+  title: string,
+  entityLabel: "đại lý" | "điểm bán",
+) => {
+  const generated = formatSubmittedAt(input.generatedAt);
+  const generatedTime = generated.split(" ")[1] || "--:--";
+  const header = [
+    title,
+    "",
+    `Ngày: ${formatDateKey(input.digestDate)}`,
+    `${input.orders.length} đơn • ${entities.length} ${entityLabel}`,
+    `Chốt lúc: ${generatedTime}`,
+    "",
+    `━━ CHI TIẾT ${entityLabel.toUpperCase()} ━━`,
+    "",
+  ];
+  const footer = ["", ...totalsSection(entities), "", "Nguồn: dathang.banhmique.vn"];
+  const sections = pointSections(entities);
+  const included: string[] = [];
+  const maxLength = 9_500;
+  const omissionReserve = 80;
+  const fixedLength = [...header, ...footer].join("\n").length;
+  let detailLength = 0;
+  for (const section of sections) {
+    const addedLength = section.length + (included.length > 0 ? 2 : 0);
+    if (fixedLength + detailLength + addedLength + omissionReserve > maxLength) break;
+    included.push(section);
+    detailLength += addedLength;
+  }
+  const omitted = sections.length - included.length;
+  if (omitted > 0) included.push(`… Còn ${omitted} ${entityLabel}; xem chi tiết ở các tin đơn phía trên.`);
+
+  return [...header, included.join("\n\n"), ...footer].join("\n");
+};
+
+export function formatWarehouseDealerDailyDigest(input: WarehouseDailyDigestInput): string {
+  return formatWarehouseDailyDigest(
+    input,
+    groupWarehouseDealers(input.orders),
+    "📦 TỔNG KẾT THEO ĐẠI LÝ — CUỐI NGÀY",
+    "đại lý",
+  );
+}
+
+export function formatWarehousePointDailyDigest(input: WarehouseDailyDigestInput): string {
+  return formatWarehouseDailyDigest(
+    input,
+    groupWarehousePoints(input.orders),
+    "📍 TỔNG KẾT THEO ĐIỂM BÁN — CUỐI NGÀY",
+    "điểm bán",
+  );
 }
 
 export async function refreshZaloOaAccessToken({

@@ -1,16 +1,48 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createServiceClient, timingSafeEqual } from "../_shared/dealer.ts";
-import { refreshZaloOaAccessToken, sendZaloGmfText } from "../_shared/dealer-warehouse-notification.ts";
-import { isWarehouseNotificationWindow } from "../_shared/dealer-warehouse-schedule.ts";
+import {
+  formatWarehouseDealerDailyDigest,
+  formatWarehousePointDailyDigest,
+  refreshZaloOaAccessToken,
+  sendZaloGmfText,
+  type WarehouseOrderMessageInput,
+} from "../_shared/dealer-warehouse-notification.ts";
+import {
+  isWarehouseDailyDigestTime,
+  isWarehouseNotificationWindow,
+  warehouseVietnamDayRange,
+} from "../_shared/dealer-warehouse-schedule.ts";
 
 type NotificationJob = {
   id: string;
-  order_id: string;
+  order_id: string | null;
   channel: string;
   group_name: string;
   message_body: string;
   attempt_count: number;
   max_attempts: number;
+};
+
+type DailyDigestOrderRow = {
+  id: string;
+  order_number: string;
+  customer_snapshot: Record<string, unknown> | null;
+  submitted_at: string;
+  requested_delivery_date: string | null;
+  delivery_note: string | null;
+  customer_note: string | null;
+};
+
+type DailyDigestItemRow = {
+  order_id: string;
+  product_name: string;
+  unit: string;
+  ordered_quantity: number | string;
+  exchange_quantity: number | string;
+  makeup_quantity: number | string;
+  physical_quantity: number | string;
+  route_customer_name: string | null;
+  route_note: string | null;
 };
 
 const json = (body: Record<string, unknown>, status = 200) => new Response(JSON.stringify(body), {
@@ -133,6 +165,86 @@ const resolveZaloAccessToken = async (supabase: ReturnType<typeof createServiceC
 
 const retryDelaySeconds = (attemptCount: number) => Math.min(3600, 60 * (5 ** Math.max(0, attemptCount - 1)));
 
+const quantity = (value: number | string) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+};
+
+const enqueueWarehouseDailyDigests = async (
+  supabase: ReturnType<typeof createServiceClient>,
+  now: Date,
+): Promise<number> => {
+  const range = warehouseVietnamDayRange(now);
+  if (!range) return 0;
+
+  const { data: orderData, error: orderError } = await supabase
+    .from("dealer_orders")
+    .select("id,order_number,customer_snapshot,submitted_at,requested_delivery_date,delivery_note,customer_note")
+    .gte("submitted_at", range.startsAt)
+    .lt("submitted_at", range.endsBefore)
+    .neq("status", "cancelled")
+    .order("submitted_at", { ascending: true });
+  if (orderError) throw new Error(`Unable to read daily dealer orders: ${orderError.message}`);
+
+  const orderRows = (orderData || []) as DailyDigestOrderRow[];
+  if (orderRows.length === 0) return 0;
+
+  const { data: itemData, error: itemError } = await supabase
+    .from("dealer_order_items")
+    .select(
+      "order_id,product_name,unit,ordered_quantity,exchange_quantity,makeup_quantity,physical_quantity,route_customer_name,route_note,created_at",
+    )
+    .in("order_id", orderRows.map((order) => order.id))
+    .order("created_at", { ascending: true });
+  if (itemError) throw new Error(`Unable to read daily dealer order items: ${itemError.message}`);
+
+  const itemsByOrder = new Map<string, DailyDigestItemRow[]>();
+  ((itemData || []) as DailyDigestItemRow[]).forEach((item) => {
+    const items = itemsByOrder.get(item.order_id) || [];
+    items.push(item);
+    itemsByOrder.set(item.order_id, items);
+  });
+
+  const orders: WarehouseOrderMessageInput[] = orderRows.map((order) => ({
+    orderNumber: order.order_number,
+    customerName: String(order.customer_snapshot?.name || order.order_number),
+    submittedAt: order.submitted_at,
+    requestedDeliveryDate: order.requested_delivery_date,
+    deliveryNote: order.delivery_note,
+    customerNote: order.customer_note,
+    lines: (itemsByOrder.get(order.id) || []).map((item) => ({
+      productName: item.product_name,
+      unit: item.unit,
+      orderedQuantity: quantity(item.ordered_quantity),
+      exchangeQuantity: quantity(item.exchange_quantity),
+      makeupQuantity: quantity(item.makeup_quantity),
+      physicalQuantity: quantity(item.physical_quantity),
+      routeCustomerName: item.route_customer_name,
+      routeNote: item.route_note,
+    })),
+  })).filter((order) => order.lines.length > 0);
+  if (orders.length === 0) return 0;
+
+  const digestInput = {
+    digestDate: range.dateKey,
+    generatedAt: now.toISOString(),
+    orders,
+  };
+  const dealerMessageBody = formatWarehouseDealerDailyDigest(digestInput);
+  const pointMessageBody = formatWarehousePointDailyDigest(digestInput);
+  if (dealerMessageBody.length > 10_000 || pointMessageBody.length > 10_000) {
+    throw new Error("Daily digest exceeds the private outbox limit");
+  }
+
+  const { data, error } = await supabase.rpc("upsert_dealer_warehouse_daily_digests", {
+    p_digest_date: range.dateKey,
+    p_dealer_message_body: dealerMessageBody,
+    p_point_message_body: pointMessageBody,
+  });
+  if (error) throw new Error(`Unable to queue daily warehouse digests: ${error.message}`);
+  return Array.isArray(data) ? data.length : 0;
+};
+
 serve(async (req) => {
   if (req.method !== "POST") return json({ success: false, error: "method_not_allowed" }, 405);
 
@@ -144,7 +256,8 @@ serve(async (req) => {
     return json({ success: false, error: "unauthorized" }, 401);
   }
 
-  if (!isWarehouseNotificationWindow(new Date())) {
+  const now = new Date();
+  if (!isWarehouseNotificationWindow(now)) {
     return json({
       success: true,
       skipped: true,
@@ -159,6 +272,17 @@ serve(async (req) => {
   const groupId = Deno.env.get("ZALO_GMF_WAREHOUSE_GROUP_ID");
   if (!groupId) {
     return json({ success: false, error: "zalo_gmf_group_not_configured" }, 503);
+  }
+
+  let digestsQueued = 0;
+  let digestError: string | null = null;
+  if (isWarehouseDailyDigestTime(now)) {
+    try {
+      digestsQueued = await enqueueWarehouseDailyDigests(supabase, now);
+    } catch (error) {
+      digestError = String(error instanceof Error ? error.message : error).slice(0, 500);
+      console.error(`[dealer-warehouse-notify] Daily digest queue failed: ${digestError}`);
+    }
   }
 
   let accessToken: string;
@@ -257,5 +381,16 @@ serve(async (req) => {
     }
   }
 
-  return json({ success: true, claimed: jobs.length, sent, retried, failed });
+  return json({
+    success: true,
+    claimed: jobs.length,
+    sent,
+    retried,
+    failed,
+    digests: {
+      notification_types: ["daily_dealer_digest", "daily_point_digest"],
+      queued: digestsQueued,
+      error: digestError,
+    },
+  });
 });

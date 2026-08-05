@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   defaultDeliveryDateTPlusOne,
+  formatWarehouseDealerDailyDigest,
   formatWarehouseOrderMessage,
+  formatWarehousePointDailyDigest,
   refreshZaloOaAccessToken,
   sendZaloGmfText,
 } from "./dealer-warehouse-notification.ts";
@@ -42,20 +44,21 @@ const ORDER = {
 test("formats warehouse quantities by delivery route without prices", () => {
   const message = formatWarehouseOrderMessage(ORDER);
 
-  assert.match(message, /📦 ĐƠN HÀNG MỚI TỪ DATHANG\.BANHMIQUE\.VN/);
+  assert.match(message, /📦 TỔNG KẾT ĐƠN BÁNH ĐẠI LÝ/);
   assert.match(message, /Mã đơn: DOP-20260803-ABCD1234/);
-  assert.match(message, /Khách đặt: NPP Anh Thanh/);
-  assert.match(message, /Thời gian đặt: 03\/08\/2026 22:56/);
+  assert.match(message, /Đơn vị đặt: NPP Anh Thanh/);
+  assert.match(message, /2 điểm bán • Đặt lúc 22:56 03\/08/);
   assert.match(message, /Ngày giao: 04\/08\/2026/);
-  assert.match(message, /🚚 Điểm giao: Điểm bán Quận 1/);
-  assert.match(message, /• Bánh Mì Que Pate\n {2}Đặt 100 \| Đổi 2 \| Bù 3\n {2}➜ Kho cần giao: 105 que/);
+  assert.match(message, /01\. Điểm bán Quận 1/);
+  assert.match(message, /Bánh Mì Que Pate: Đặt 100 \+ Đổi 2 \+ Bù 3/);
+  assert.match(message, /→ GIAO 105 que/);
   assert.match(message, /📝 Ghi chú: Cửa sau/);
-  assert.match(message, /🚚 Điểm giao: Điểm bán Quận 3/);
-  assert.match(message, /📊 TỔNG ĐƠN/);
-  assert.match(message, /• Đặt mới: 140 que/);
-  assert.match(message, /• Đổi: 2 que/);
-  assert.match(message, /• Bù: 8 que/);
-  assert.match(message, /✅ TỔNG KHO CẦN GIAO: 150 que/);
+  assert.match(message, /02\. Điểm bán Quận 3/);
+  assert.match(message, /📊 TỔNG KHO/);
+  assert.match(message, /Đặt mới: 140 que/);
+  assert.match(message, /Đổi: 2 que/);
+  assert.match(message, /Bù: 8 que/);
+  assert.match(message, /✅ KHO CẦN GIAO: 150 QUE/);
   assert.match(message, /Ghi chú giao hàng: Giao trước 08:00/);
   assert.match(message, /Nguồn: dathang\.banhmique\.vn/);
   assert.doesNotMatch(message, /đơn giá|thành tiền|unit_price|50000/i);
@@ -69,8 +72,94 @@ test("uses a direct-delivery section when no NPP route exists", () => {
     lines: [{ ...ORDER.lines[0], routeCustomerName: null, routeNote: null }],
   });
 
-  assert.match(message, /🚚 Điểm giao: Giao trực tiếp/);
+  assert.match(message, /01\. NPP Anh Thanh/);
   assert.match(message, /Ngày giao: 04\/08\/2026/);
+});
+
+test("formats separate daily summaries from real dealer and point fields", () => {
+  const orders = [
+    ORDER,
+    {
+      ...ORDER,
+      orderNumber: "DOP-20260803-EFGH5678",
+      customerName: "Đại lý Mi Kho",
+      lines: [
+        {
+          productName: "Bánh Mì Que Pate",
+          unit: "que",
+          orderedQuantity: 80,
+          exchangeQuantity: 0,
+          makeupQuantity: 3,
+          physicalQuantity: 83,
+          routeCustomerName: null,
+          routeNote: "Nhận bao ly",
+        },
+      ],
+    },
+  ];
+  const input = {
+    digestDate: "2026-08-03",
+    generatedAt: "2026-08-03T16:59:00Z",
+    orders,
+  };
+
+  const dealerMessage = formatWarehouseDealerDailyDigest(input);
+  assert.match(dealerMessage, /📦 TỔNG KẾT THEO ĐẠI LÝ — CUỐI NGÀY/);
+  assert.match(dealerMessage, /2 đơn • 2 đại lý/);
+  assert.match(dealerMessage, /01\. NPP Anh Thanh/);
+  assert.match(dealerMessage, /02\. Đại lý Mi Kho/);
+  assert.doesNotMatch(dealerMessage, /Điểm bán Quận 1/);
+
+  const pointMessage = formatWarehousePointDailyDigest(input);
+  assert.match(pointMessage, /📍 TỔNG KẾT THEO ĐIỂM BÁN — CUỐI NGÀY/);
+  assert.match(pointMessage, /2 đơn • 3 điểm bán/);
+  assert.match(pointMessage, /01\. Điểm bán Quận 1/);
+  assert.match(pointMessage, /03\. Đại lý Mi Kho/);
+  assert.match(pointMessage, /Đặt 80 \+ Bù 3/);
+  assert.match(pointMessage, /→ GIAO 83 que/);
+  assert.match(pointMessage, /📝 Ghi chú: Nhận bao ly/);
+
+  for (const message of [dealerMessage, pointMessage]) {
+    assert.match(message, /Ngày: 03\/08\/2026/);
+    assert.match(message, /Đặt mới: 220 que/);
+    assert.match(message, /Đổi: 2 que/);
+    assert.match(message, /Bù: 11 que/);
+    assert.match(message, /✅ KHO CẦN GIAO: 233 QUE/);
+    assert.match(message, /Chốt lúc: 23:59/);
+    assert.doesNotMatch(message, /đơn giá|thành tiền|unit_price|50000/i);
+  }
+});
+
+test("caps a large daily digest while preserving full totals", () => {
+  const orders = Array.from({ length: 200 }, (_, index) => ({
+    ...ORDER,
+    orderNumber: `DOP-${index}`,
+    customerName: `Điểm bán rất dài số ${index + 1}`,
+    lines: [{
+      ...ORDER.lines[0],
+      orderedQuantity: 10,
+      exchangeQuantity: 0,
+      makeupQuantity: 0,
+      physicalQuantity: 10,
+      routeCustomerName: null,
+      routeNote: `Ghi chú giao hàng chi tiết số ${index + 1}`,
+    }],
+  }));
+  for (const [formatter, omittedLabel] of [
+    [formatWarehouseDealerDailyDigest, "đại lý"],
+    [formatWarehousePointDailyDigest, "điểm bán"],
+  ] as const) {
+    const message = formatter({
+      digestDate: "2026-08-03",
+      generatedAt: "2026-08-03T16:59:00Z",
+      orders,
+    });
+
+    assert.ok(message.length <= 9_500);
+    assert.match(message, new RegExp(`Còn \\d+ ${omittedLabel}`));
+    assert.match(message, /Đặt mới: 2\.000 que/);
+    assert.match(message, /✅ KHO CẦN GIAO: 2\.000 QUE/);
+  }
 });
 
 test("defaults delivery to the next Vietnam calendar day", () => {

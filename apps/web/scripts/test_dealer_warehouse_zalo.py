@@ -9,6 +9,7 @@ WORKER = ROOT / "supabase/functions/dealer-warehouse-notify/index.ts"
 HELPER = ROOT / "supabase/functions/_shared/dealer-warehouse-notification.ts"
 CONFIG = ROOT / "supabase/config.toml"
 SCHEDULE_MIGRATION = ROOT / "supabase/migrations/20260803181500_dealer_warehouse_vietnam_evening_schedule.sql"
+DAILY_DIGEST_MIGRATION = ROOT / "supabase/migrations/20260805170000_dealer_warehouse_daily_digest.sql"
 
 
 def migration_text() -> str:
@@ -69,7 +70,8 @@ def test_submit_queues_only_after_order_items_are_saved() -> None:
 def test_worker_and_cron_enforce_vietnam_evening_schedule() -> None:
     worker = WORKER.read_text(encoding="utf-8")
     sql = SCHEDULE_MIGRATION.read_text(encoding="utf-8")
-    assert 'isWarehouseNotificationWindow(new Date())' in worker
+    assert "const now = new Date();" in worker
+    assert "isWarehouseNotificationWindow(now)" in worker
     assert 'reason: "outside_vietnam_evening_window"' in worker
     assert "dealer-warehouse-notify-every-2-minutes" in sql
     assert "dealer-warehouse-notify-vn-20-22-30" in sql
@@ -84,21 +86,53 @@ def test_warehouse_message_uses_approved_operations_layout() -> None:
     submit = SUBMIT.read_text(encoding="utf-8")
     for needle in [
         "submittedAt: string",
-        '"📦 ĐƠN HÀNG MỚI TỪ DATHANG.BANHMIQUE.VN"',
-        'Thời gian đặt: ${formatSubmittedAt(input.submittedAt)}',
+        '"📦 TỔNG KẾT ĐƠN BÁNH ĐẠI LÝ"',
+        'Đơn vị đặt: ${input.customerName}',
         'return `${day}/${month}/${year} ${hour}:${minute}`;',
         'Ngày giao: ${formatDeliveryDate(input.requestedDeliveryDate, input.submittedAt)}',
-        '➜ Kho cần giao: ${formatQuantity(line.physicalQuantity)} ${unit}',
-        '"━━━━━━━━━━━━━━"',
-        '"📊 TỔNG ĐƠN"',
-        '• Đặt mới: ${formatQuantity(totals.ordered)} ${totalUnit}',
-        '✅ TỔNG KHO CẦN GIAO: ${formatQuantity(totals.physical)} ${totalUnit}',
+        '→ GIAO ${formatQuantity(line.physicalQuantity)} ${unit}',
+        '"📊 TỔNG KHO"',
+        'Đặt mới: ${formatQuantity(totals.ordered)} ${totalUnit}',
+        '✅ KHO CẦN GIAO: ${formatQuantity(totals.physical)} ${totalUnit.toUpperCase()}',
         '"Nguồn: dathang.banhmique.vn"',
     ]:
         assert needle in helper, f"missing approved message marker: {needle}"
     assert "submittedAt: order.submitted_at" in submit
     assert "defaultDeliveryDateTPlusOne" in submit
     assert "requested_delivery_date: requestedDeliveryDate" in submit
+
+
+def test_daily_digest_is_idempotent_private_and_created_only_at_final_scan() -> None:
+    helper = HELPER.read_text(encoding="utf-8")
+    worker = WORKER.read_text(encoding="utf-8")
+    sql = DAILY_DIGEST_MIGRATION.read_text(encoding="utf-8")
+    for needle in [
+        "formatWarehouseDealerDailyDigest",
+        "formatWarehousePointDailyDigest",
+        "TỔNG KẾT THEO ĐẠI LÝ — CUỐI NGÀY",
+        "TỔNG KẾT THEO ĐIỂM BÁN — CUỐI NGÀY",
+        "isWarehouseDailyDigestTime(now)",
+        '"daily_dealer_digest"',
+        '"daily_point_digest"',
+        "upsert_dealer_warehouse_daily_digests",
+    ]:
+        assert needle in helper or needle in worker or needle in sql, f"missing two-digest runtime marker: {needle}"
+    assert "Chú Đạm" not in helper
+    assert "Chú Đạm" not in worker
+    for needle in [
+        "alter column order_id drop not null",
+        "notification_type text not null default 'order'",
+        "digest_date date",
+        "dealer_order_notifications_daily_digest_unique_idx",
+        "notification_type in ('daily_dealer_digest', 'daily_point_digest')",
+        "on conflict (digest_date, channel, notification_type)",
+        "n.status = 'processing'",
+        "interval '15 minutes'",
+        "for update skip locked",
+        "revoke all on function public.upsert_dealer_warehouse_daily_digests(date, text, text) from public",
+        "grant execute on function public.upsert_dealer_warehouse_daily_digests(date, text, text) to service_role",
+    ]:
+        assert needle in sql, f"missing daily digest database contract: {needle}"
 
 
 def test_retry_worker_is_server_only_and_uses_claim_rpc() -> None:
