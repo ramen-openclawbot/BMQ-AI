@@ -659,14 +659,11 @@ export default function KioskReportPortal() {
                 {channelRows.map((row, index) => {
                   const cashChannel = row.channel_code === "khach_le";
                   return (
-                    <div key={row.channel_code} className={cn("grid grid-cols-[36px_minmax(72px,1fr)_52px_62px] items-end gap-1 p-2 min-[360px]:grid-cols-[40px_minmax(86px,1fr)_68px_84px] min-[360px]:gap-1.5 min-[360px]:p-3 sm:grid-cols-[48px_minmax(105px,1fr)_100px_128px] sm:gap-3", index > 0 && "border-t border-[#f2e5e9]")}>
+                    <div key={row.channel_code} className={cn("grid grid-cols-[36px_minmax(72px,1fr)_52px_62px] items-center gap-1 p-2 min-[360px]:grid-cols-[40px_minmax(86px,1fr)_68px_84px] min-[360px]:gap-1.5 min-[360px]:p-3 sm:grid-cols-[48px_minmax(105px,1fr)_100px_128px] sm:gap-3", index > 0 && "border-t border-[#f2e5e9]")}>
                       <ChannelIcon code={row.channel_code} />
                       <div className="self-center whitespace-nowrap text-[13px] font-bold sm:text-[17px]">{row.channel_name_snapshot}</div>
                       <ChannelNumberField label="Số lượng" value={row.quantity} disabled={isSubmitted} onChange={(value) => updateChannelRow(row.channel_code, "quantity", value)} />
-                      <div>
-                        <ChannelNumberField label="Thành tiền" value={row.amount_vnd} disabled={isSubmitted} placeholder={cashChannel ? undefined : "—"} onChange={(value) => updateChannelRow(row.channel_code, "amount_vnd", value)} />
-                        {!cashChannel && <div className="mt-1 text-center text-[9px] leading-tight text-[#777178] sm:text-[10px]">Không thu tiền mặt</div>}
-                      </div>
+                      <ChannelNumberField label="Thành tiền" value={row.amount_vnd} disabled={isSubmitted} placeholder={cashChannel ? undefined : "—"} onChange={(value) => updateChannelRow(row.channel_code, "amount_vnd", value)} />
                     </div>
                   );
                 })}

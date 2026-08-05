@@ -102,7 +102,6 @@ def test_authenticated_report_matches_approved_responsive_design_system() -> Non
         ('Chưa gửi', "approved draft status"),
         ('Kiểm tra & gửi báo cáo', "approved submit action copy"),
         ('Tổng số bán', "approved totals copy"),
-        ('Không thu tiền mặt', "non-cash channel guidance"),
         ('data-testid="report-shell"', "responsive QA hook"),
         ('data-testid="inventory-section"', "inventory QA hook"),
         ('data-testid="channel-section"', "channel QA hook"),
@@ -110,6 +109,8 @@ def test_authenticated_report_matches_approved_responsive_design_system() -> Non
         assert_contains(portal, needle, label)
     assert_not_contains(portal, 'bg-[#f3f4f6]', "legacy gray authenticated canvas")
     assert_not_contains(portal, 'min-w-[920px]', "legacy horizontally scrolling inventory table")
+    assert_not_contains(portal, 'Không thu tiền mặt', "removed non-cash helper copy")
+    assert_contains(portal, 'items-center gap-1 p-2', "vertically centered channel row icon and copy")
 
 
 def test_redesign_keeps_all_channel_amounts_editable_before_submit() -> None:
