@@ -44,7 +44,7 @@ serve(async (req) => {
     const [productsRes, channelsRes, reportRes] = await Promise.all([
       supabase
         .from("kiosk_report_products")
-        .select("code, product_name, unit, display_order")
+        .select("code, product_name, unit, sale_allowed, breadstick_consumption_ratio, display_order")
         .eq("active", true)
         .order("display_order", { ascending: true }),
       supabase
@@ -69,7 +69,7 @@ serve(async (req) => {
       ? await Promise.all([
           supabase
             .from("kiosk_daily_report_inventory_rows")
-            .select("product_code, product_name_snapshot, opening_quantity, received_quantity, shortage_quantity, transfer_quantity, waste_quantity, returns_quantity, sold_quantity, closing_quantity, notes")
+            .select("product_code, product_name_snapshot, opening_quantity, received_quantity, shortage_quantity, transfer_quantity, waste_quantity, returns_quantity, sold_quantity, consumed_quantity, closing_quantity, notes")
             .eq("report_id", report.id),
           supabase
             .from("kiosk_daily_report_channel_rows")

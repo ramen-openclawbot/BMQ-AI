@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FUNCTIONS = ROOT / "supabase/functions"
 SHARED = FUNCTIONS / "_shared/report.ts"
-MIGRATION_GLOB = "20260804103*_kiosk_report_portal*.sql"
+MIGRATION_GLOB = "202608*_kiosk_report*.sql"
 
 REPORT_FUNCTIONS = [
     "report-auth-start",
@@ -155,9 +155,11 @@ def test_bootstrap_session_save_and_logout_contracts() -> None:
         assert_contains(session, needle, label)
     for needle, label in [
         ("kiosk_report_products", "product definitions"),
+        ("sale_allowed, breadstick_consumption_ratio", "product sale and recipe metadata"),
         ("kiosk_report_channels", "channel definitions"),
         ("kiosk_daily_reports", "current draft/report lookup"),
         ("kiosk_daily_report_inventory_rows", "inventory rows"),
+        ("sold_quantity, consumed_quantity, closing_quantity", "stored submitted consumption and closing values"),
         ("kiosk_daily_report_channel_rows", "channel rows"),
     ]:
         assert_contains(bootstrap, needle, label)
@@ -165,6 +167,7 @@ def test_bootstrap_session_save_and_logout_contracts() -> None:
         ("p_status: status", "submitted save mode"),
         ("current location/date", "current assignment guard copy"),
         ("save_kiosk_daily_report_atomic", "atomic daily report RPC"),
+        ("ingredient_retail_sale_forbidden", "ingredient retail-sale rejection"),
     ]:
         assert_contains(daily_save, needle, label)
     for forbidden in [
@@ -179,6 +182,8 @@ def test_bootstrap_session_save_and_logout_contracts() -> None:
     assert_contains(migration, "create or replace function public.save_kiosk_daily_report_atomic", "atomic save function")
     assert_contains(migration, "for update", "submitted-report lock")
     assert_contains(migration, "submitted_report_immutable", "submitted immutability inside transaction")
+    assert_contains(migration, "v_breadstick_sold * product.breadstick_consumption_ratio", "transactional recipe consumption")
+    assert_contains(migration, "ingredient_retail_sale_forbidden", "database ingredient retail-sale guard")
     assert_contains(migration, "revoke all on function public.save_kiosk_daily_report_atomic", "atomic save RPC grant hardening")
     assert_contains(logout, 'from("kiosk_report_sessions")', "report session revoke")
 

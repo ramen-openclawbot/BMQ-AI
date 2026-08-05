@@ -131,6 +131,9 @@ serve(async (req) => {
     if (saveError?.message?.includes("report_assignment_invalid")) {
       return errorResponse(req, "Phân công điểm bán đã thay đổi. Vui lòng đăng nhập lại.", 403, "report_assignment_invalid");
     }
+    if (saveError?.message?.includes("ingredient_retail_sale_forbidden")) {
+      return errorResponse(req, "Pate, ớt và nguyên liệu chỉ dùng nội bộ, không được ghi nhận bán lẻ.", 400, "ingredient_retail_sale_forbidden");
+    }
     if (saveError) throw saveError;
 
     return jsonResponse(req, {

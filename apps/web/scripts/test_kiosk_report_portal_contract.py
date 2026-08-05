@@ -8,7 +8,7 @@ ROUTES = ROOT / "src/components/AppRoutes.tsx"
 PORTAL = ROOT / "src/pages/KioskReportPortal.tsx"
 CONFIG = ROOT / "supabase/config.toml"
 CORS = ROOT / "supabase/functions/_shared/cors.ts"
-MIGRATION_GLOB = "20260804103*_kiosk_report_portal*.sql"
+MIGRATION_GLOB = "202608*_kiosk_report*.sql"
 
 
 def read(path: Path) -> str:
@@ -136,6 +136,19 @@ def test_hallmark_redesign_is_compact_clear_and_mobile_safe() -> None:
         assert_not_contains(portal, emoji, "platform-dependent product emoji")
 
 
+def test_ingredient_consumption_is_automatic_and_not_retail_editable() -> None:
+    portal = read(PORTAL)
+    for needle, label in [
+        ('from "@/lib/kiosk-report-inventory"', "shared inventory calculation import"),
+        ('sale_allowed: false', "ingredient sale-disabled product metadata"),
+        ('breadstick_consumption_ratio: 1 / 20', "pate consumption ratio"),
+        ('Tiêu hao tự động', "automatic ingredient consumption label"),
+        ('1 hộp = 20 bánh mì que', "pate recipe explanation"),
+        ('isRetailSaleAllowed(product)', "retail sale field guard"),
+    ]:
+        assert_contains(portal, needle, label)
+
+
 def test_redesign_keeps_all_channel_amounts_editable_before_submit() -> None:
     portal = read(PORTAL)
     assert_not_contains(portal, 'disabled={isSubmitted || !cashChannel}', "non-cash amount regression")
@@ -199,7 +212,11 @@ def test_report_schema_contract() -> None:
         ("status text not null default 'draft'", "draft status"),
         ("check (status in ('draft', 'submitted'))", "draft/submitted status check"),
         ("closing_quantity numeric(12,3) generated always as", "computed closing field"),
-        ("opening_quantity + received_quantity - shortage_quantity + transfer_quantity - waste_quantity - returns_quantity - sold_quantity", "closing formula"),
+        ("consumed_quantity numeric(12,3)", "derived ingredient consumption field"),
+        ("opening_quantity + received_quantity - shortage_quantity + transfer_quantity - waste_quantity - returns_quantity - sold_quantity - consumed_quantity", "closing formula with ingredient consumption"),
+        ("sale_allowed boolean not null default true", "retail-sale product policy"),
+        ("breadstick_consumption_ratio numeric(12,6)", "recipe consumption ratio"),
+        ("set sale_allowed = false, breadstick_consumption_ratio = 0.05", "pate recipe policy"),
         ("Bánh mì que", "inventory product seed"),
         ("Pate", "inventory product seed"),
         ("Ớt", "inventory product seed"),

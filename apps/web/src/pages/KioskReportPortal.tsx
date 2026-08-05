@@ -32,15 +32,20 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
+import {
+  calculateConsumedQuantity,
+  calculateInventoryClosing,
+  isRetailSaleAllowed,
+} from "@/lib/kiosk-report-inventory";
 import { cn } from "@/lib/utils";
 
 const REPORT_SESSION_STORAGE_KEY = "bmq_report_session_token";
 
 const DEFAULT_PRODUCTS = [
-  { code: "banh_mi_que", product_name: "Bánh mì que", unit: "que" },
-  { code: "pate", product_name: "Pate", unit: "hộp" },
-  { code: "ot", product_name: "Ớt", unit: "phần" },
-  { code: "banh_mi_say", product_name: "Bánh mì sấy", unit: "gói" },
+  { code: "banh_mi_que", product_name: "Bánh mì que", unit: "que", sale_allowed: true, breadstick_consumption_ratio: 0 },
+  { code: "pate", product_name: "Pate", unit: "hộp", sale_allowed: false, breadstick_consumption_ratio: 1 / 20 },
+  { code: "ot", product_name: "Ớt", unit: "phần", sale_allowed: false, breadstick_consumption_ratio: 0 },
+  { code: "banh_mi_say", product_name: "Bánh mì sấy", unit: "gói", sale_allowed: true, breadstick_consumption_ratio: 0 },
 ];
 
 const DEFAULT_CHANNELS = [
@@ -54,6 +59,8 @@ type ReportProduct = {
   code: string;
   product_name: string;
   unit?: string | null;
+  sale_allowed?: boolean | null;
+  breadstick_consumption_ratio?: number | null;
 };
 
 type ReportChannel = {
@@ -71,6 +78,7 @@ type InventoryRow = {
   waste_quantity: number;
   returns_quantity: number;
   sold_quantity: number;
+  consumed_quantity?: number;
   notes?: string | null;
 };
 
@@ -179,14 +187,25 @@ const createChannelRows = (channels: ReportChannel[]): ChannelRow[] =>
     notes: "",
   }));
 
-const calcClosing = (row: InventoryRow) =>
-  numberValue(row.opening_quantity)
-  + numberValue(row.received_quantity)
-  - numberValue(row.shortage_quantity)
-  + numberValue(row.transfer_quantity)
-  - numberValue(row.waste_quantity)
-  - numberValue(row.returns_quantity)
-  - numberValue(row.sold_quantity);
+const calcClosing = (row: InventoryRow, consumedQuantity = 0) => calculateInventoryClosing({
+  openingQuantity: numberValue(row.opening_quantity),
+  receivedQuantity: numberValue(row.received_quantity),
+  shortageQuantity: numberValue(row.shortage_quantity),
+  transferQuantity: numberValue(row.transfer_quantity),
+  wasteQuantity: numberValue(row.waste_quantity),
+  returnsQuantity: numberValue(row.returns_quantity),
+  soldQuantity: numberValue(row.sold_quantity),
+}, consumedQuantity);
+
+const normalizeProducts = (products: ReportProduct[]) => products.map((product) => {
+  const fallback = DEFAULT_PRODUCTS.find((candidate) => candidate.code === product.code);
+  return {
+    ...fallback,
+    ...product,
+    sale_allowed: product.sale_allowed ?? fallback?.sale_allowed ?? true,
+    breadstick_consumption_ratio: product.breadstick_consumption_ratio ?? fallback?.breadstick_consumption_ratio ?? 0,
+  };
+});
 
 const mergeInventoryRows = (products: ReportProduct[], rows: InventoryRow[] = []) => {
   const byCode = new Map(rows.map((row) => [row.product_code, row]));
@@ -238,9 +257,16 @@ export default function KioskReportPortal() {
     () => channelRows.reduce((sum, row) => sum + numberValue(row.quantity), 0),
     [channelRows],
   );
+  const productByCode = useMemo(
+    () => new Map(products.map((product) => [product.code, product])),
+    [products],
+  );
+  const breadstickSoldQuantity = numberValue(
+    inventoryRows.find((row) => row.product_code === "banh_mi_que")?.sold_quantity,
+  );
 
   const hydrateBootstrap = useCallback((payload: BootstrapResponse) => {
-    const nextProducts = payload.products?.length ? payload.products : DEFAULT_PRODUCTS;
+    const nextProducts = normalizeProducts(payload.products?.length ? payload.products : DEFAULT_PRODUCTS);
     const nextChannels = payload.channels?.length ? payload.channels : DEFAULT_CHANNELS;
     setProducts(nextProducts);
     setChannels(nextChannels);
@@ -341,7 +367,10 @@ export default function KioskReportPortal() {
         report_date: reportDate,
         status,
         notes,
-        inventory_rows: inventoryRows,
+        inventory_rows: inventoryRows.map((row) => ({
+          ...row,
+          sold_quantity: isRetailSaleAllowed(productByCode.get(row.product_code)) ? row.sold_quantity : 0,
+        })),
         channel_rows: channelRows,
       },
       undefined,
@@ -598,6 +627,12 @@ export default function KioskReportPortal() {
             <div data-testid="inventory-ledger" className="mt-3 divide-y divide-[#f2e5e9] border-y border-[#f2e5e9]">
               {inventoryRows.map((row) => {
                 const expanded = expandedProductCode === row.product_code;
+                const product = productByCode.get(row.product_code);
+                const consumedQuantity = isSubmitted
+                  ? numberValue(row.consumed_quantity)
+                  : calculateConsumedQuantity(product, breadstickSoldQuantity);
+                const closingQuantity = calcClosing(row, consumedQuantity);
+                const saleAllowed = isRetailSaleAllowed(product);
                 return (
                   <div key={row.product_code} className="bg-white">
                     <button
@@ -612,7 +647,8 @@ export default function KioskReportPortal() {
                         <div className="hidden items-center gap-2 lg:flex">
                           <MetricPill label="Tồn đầu" value={row.opening_quantity} />
                           <MetricPill label="Nhập" value={row.received_quantity} />
-                          <MetricPill label="Tồn cuối" value={calcClosing(row)} />
+                          {consumedQuantity > 0 && <MetricPill label="Tiêu hao" value={consumedQuantity} />}
+                          <MetricPill label="Tồn cuối" value={closingQuantity} />
                         </div>
                       )}
                       {expanded
@@ -624,7 +660,8 @@ export default function KioskReportPortal() {
                       <div className="flex flex-wrap gap-1.5 px-1 pb-2.5 lg:hidden">
                         <MetricPill label="Tồn đầu" value={row.opening_quantity} />
                         <MetricPill label="Nhập" value={row.received_quantity} />
-                        <MetricPill label="Tồn cuối" value={calcClosing(row)} />
+                        {consumedQuantity > 0 && <MetricPill label="Tiêu hao" value={consumedQuantity} />}
+                        <MetricPill label="Tồn cuối" value={closingQuantity} />
                       </div>
                     )}
 
@@ -637,15 +674,24 @@ export default function KioskReportPortal() {
                           <ReportNumberField label="Điều chuyển" value={row.transfer_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "transfer_quantity", value)} />
                           <ReportNumberField label="Hủy" value={row.waste_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "waste_quantity", value)} />
                           <ReportNumberField label="Đổi trả" value={row.returns_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "returns_quantity", value)} />
-                          <ReportNumberField label="Đã bán" value={row.sold_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "sold_quantity", value)} />
+                          {saleAllowed && (
+                            <ReportNumberField label="Đã bán" value={row.sold_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "sold_quantity", value)} />
+                          )}
                         </div>
+                        {!saleAllowed && (
+                          <div className="mt-3 rounded-xl border border-[#f2d5df] bg-[#fff8fa] px-3 py-2.5 text-sm text-[#80566a]">
+                            {row.product_code === "pate"
+                              ? <><strong>Tiêu hao tự động: {consumedQuantity.toLocaleString("vi-VN")} hộp</strong><span className="ml-1.5">• 1 hộp = 20 bánh mì que</span></>
+                              : <strong>Nguyên liệu nội bộ • Không bán lẻ</strong>}
+                          </div>
+                        )}
                         <div data-testid="computed-closing" className="mt-3 flex items-center justify-between rounded-xl border border-dashed border-[#efb6ca] bg-[#fff5f8] px-3 py-2.5">
                           <div>
                             <div className="text-sm font-semibold text-[#4f4950]">Tồn cuối</div>
                             <div className="text-[11px] text-[#9b5d73]">Hệ thống tính</div>
                           </div>
                           <output className="text-[20px] font-extrabold tabular-nums text-[#c83f70]">
-                            {calcClosing(row).toLocaleString("vi-VN")}
+                            {closingQuantity.toLocaleString("vi-VN")}
                           </output>
                         </div>
                       </div>
