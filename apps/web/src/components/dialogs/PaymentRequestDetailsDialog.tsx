@@ -1,3 +1,7 @@
+/* Hallmark · component: detail-dialog · genre: modern-minimal · tone: technical
+ * structure: mobile information workbench · states: default · hover · focus · active · disabled · loading · error · success
+ * pre-emit critique: P5 H5 E4 S5 R5 V4 · contrast: pass (40–41) · mobile: pass (34, 49, 50–57)
+ */
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
@@ -262,10 +266,10 @@ export function PaymentRequestDetailsDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Chi tiết đề nghị duyệt chi</DialogTitle>
-            <DialogDescription>
+        <DialogContent className="!inset-0 !left-0 !top-0 h-[100dvh] w-full max-w-none !translate-x-0 !translate-y-0 gap-0 overflow-x-clip overflow-y-auto overscroll-contain border-0 p-0 [&>button]:flex [&>button]:h-11 [&>button]:w-11 [&>button]:items-center [&>button]:justify-center sm:!left-1/2 sm:!top-1/2 sm:h-auto sm:max-h-[90dvh] sm:max-w-4xl sm:!-translate-x-1/2 sm:!-translate-y-1/2 sm:gap-4 sm:rounded-lg sm:border sm:p-6">
+          <DialogHeader className="sticky top-0 z-20 border-b border-border bg-background px-4 pb-4 pr-14 pt-[max(1rem,env(safe-area-inset-top))] text-left sm:static sm:border-0 sm:p-0">
+            <DialogTitle className="min-w-0 [overflow-wrap:anywhere] text-xl leading-tight">Chi tiết đề nghị duyệt chi</DialogTitle>
+            <DialogDescription className="break-words">
               {request?.request_number} - {request?.title}
             </DialogDescription>
           </DialogHeader>
@@ -275,7 +279,7 @@ export function PaymentRequestDetailsDialog({
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
           ) : request ? (
-            <div className="space-y-6">
+            <div className="min-w-0 space-y-4 px-4 py-4 sm:space-y-6 sm:p-0">
               {/* Warning for paid without invoice */}
               {request.payment_status === "paid" && !request.invoice_created && (
                 <Alert variant="destructive">
@@ -287,13 +291,13 @@ export function PaymentRequestDetailsDialog({
               )}
 
               {/* Status Badges */}
-              <div className="flex flex-wrap gap-3">
+              <div className="grid min-w-0 grid-cols-2 gap-2 [&>*]:min-w-0 [&>*]:justify-center [&>*]:truncate sm:flex sm:flex-wrap sm:[&>*]:w-auto">
                 {getStatusBadge(request.status)}
                 {getPaymentMethodBadge(request.payment_method)}
                 {getDeliveryStatusBadge(request.delivery_status)}
                 {getPaymentStatusBadge(request.payment_status)}
                 {request.goods_receipt_id && (
-                  <Badge className="bg-emerald-600 gap-1">
+                  <Badge className="col-span-2 gap-1 bg-emerald-600 sm:col-span-1">
                     <Package className="h-3 w-3" />
                     Công nợ tạo từ nhập kho
                   </Badge>
@@ -301,16 +305,16 @@ export function PaymentRequestDetailsDialog({
               </div>
 
               {request.goods_receipt_id && (
-                <Alert>
+                <Alert className="min-w-0">
                   <Package className="h-4 w-4" />
-                  <AlertDescription>
+                  <AlertDescription className="min-w-0">
                     <div className="space-y-1">
                       <p className="font-medium">Công nợ tạo từ nhập kho</p>
-                      <p>
-                        Phiếu nhập kho: <span className="font-mono">{request.goods_receipts?.receipt_number || request.goods_receipt_id}</span>
+                      <p className="min-w-0 break-words text-sm text-muted-foreground">
+                        Phiếu nhập kho: <span className="break-all font-mono text-xs text-foreground">{request.goods_receipts?.receipt_number || request.goods_receipt_id}</span>
                       </p>
-                      <p>
-                        PO liên kết: <span className="font-mono">{request.purchase_orders?.po_number || request.purchase_order_id || "-"}</span>
+                      <p className="min-w-0 break-words text-sm text-muted-foreground">
+                        PO liên kết: <span className="break-all font-mono text-xs text-foreground">{request.purchase_orders?.po_number || request.purchase_order_id || "-"}</span>
                       </p>
                     </div>
                   </AlertDescription>
@@ -318,22 +322,22 @@ export function PaymentRequestDetailsDialog({
               )}
 
               {/* Request Info */}
-              <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg">
-                <div>
+              <div className="grid min-w-0 grid-cols-1 gap-4 rounded-lg bg-muted/50 p-4 sm:grid-cols-2">
+                <div className="min-w-0">
                   <Label className="text-muted-foreground">Mã đề nghị</Label>
-                  <p className="font-medium">{request.request_number}</p>
+                  <p className="break-all font-mono text-sm font-medium">{request.request_number}</p>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <Label className="text-muted-foreground">Ngày tạo</Label>
-                  <p className="font-medium">
+                  <p className="font-medium tabular-nums">
                     {format(new Date(request.created_at), "dd/MM/yyyy HH:mm", { locale: vi })}
                   </p>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <Label className="text-muted-foreground">Nhà cung cấp</Label>
-                  <p className="font-medium">{request.suppliers?.name || "Không xác định"}</p>
+                  <p className="break-words font-medium">{request.suppliers?.name || "Không xác định"}</p>
                 </div>
-                <div>
+                <div className="min-w-0 border-t border-border pt-4 sm:border-0 sm:pt-0">
                   <Label className="text-muted-foreground">Tổng tiền</Label>
                   <div className="space-y-1">
                     {request.vat_amount > 0 && (
@@ -346,7 +350,7 @@ export function PaymentRequestDetailsDialog({
                         </p>
                       </>
                     )}
-                    <p className="font-medium text-lg">{formatCurrency(request.total_amount || 0)}</p>
+                    <p className="text-2xl font-bold tabular-nums text-primary">{formatCurrency(request.total_amount || 0)}</p>
                     {allocatedAmount > 0 && (
                       <>
                         <p className="text-sm text-muted-foreground">
@@ -360,13 +364,13 @@ export function PaymentRequestDetailsDialog({
                   </div>
                 </div>
                 {request.description && (
-                  <div className="col-span-2">
+                  <div className="min-w-0 sm:col-span-2">
                     <Label className="text-muted-foreground">Mô tả</Label>
-                    <p>{request.description}</p>
+                    <p className="break-words">{request.description}</p>
                   </div>
                 )}
                 {request.rejection_reason && (
-                  <div className="col-span-2">
+                  <div className="min-w-0 sm:col-span-2">
                     <Label className="text-destructive">Lý do từ chối</Label>
                     <p className="text-destructive">{request.rejection_reason}</p>
                   </div>
@@ -395,29 +399,26 @@ export function PaymentRequestDetailsDialog({
                   <Label className="text-muted-foreground">Loại thanh toán</Label>
                   <div className="mt-1">
                     {request.payment_type === "new_order" ? (
-                      <Badge variant="default">🆕 Đơn mới</Badge>
+                      <Badge variant="default">Đơn mới</Badge>
                     ) : (
-                      <Badge variant="secondary">📋 Đơn cũ (công nợ)</Badge>
+                      <Badge variant="secondary">Đơn cũ (công nợ)</Badge>
                     )}
                   </div>
                 </div>
                 
                 {/* Linked Goods Receipt */}
                 {linkedGoodsReceipt && (
-                  <div className="col-span-2">
+                  <div className="min-w-0 sm:col-span-2">
                     <Label className="text-muted-foreground">Phiếu Nhập Kho liên kết</Label>
-                    <div className="mt-1 p-2 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-800">
-                      <div className="flex items-center gap-2">
-                        <Package className="h-4 w-4 text-blue-600" />
-                        <span className="font-medium text-blue-700 dark:text-blue-300">
-                          {linkedGoodsReceipt.receipt_number}
-                        </span>
-                        <span className="text-sm text-muted-foreground">
-                          - {linkedGoodsReceipt.suppliers?.name || "N/A"}
-                        </span>
-                        <span className="text-sm text-muted-foreground">
-                          ({format(new Date(linkedGoodsReceipt.receipt_date), "dd/MM/yyyy", { locale: vi })})
-                        </span>
+                    <div className="mt-1 rounded border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-900/20">
+                      <div className="flex min-w-0 items-start gap-2">
+                        <Package className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
+                        <div className="min-w-0">
+                          <p className="break-all font-medium text-blue-700 dark:text-blue-300">{linkedGoodsReceipt.receipt_number}</p>
+                          <p className="break-words text-sm text-muted-foreground">
+                            {linkedGoodsReceipt.suppliers?.name || "N/A"} · {format(new Date(linkedGoodsReceipt.receipt_date), "dd/MM/yyyy", { locale: vi })}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -425,20 +426,17 @@ export function PaymentRequestDetailsDialog({
                 
                 {/* Linked Purchase Order */}
                 {linkedPurchaseOrder && (
-                  <div className="col-span-2">
+                  <div className="min-w-0 sm:col-span-2">
                     <Label className="text-muted-foreground">Đơn đặt hàng liên kết</Label>
-                    <div className="mt-1 p-2 bg-purple-50 dark:bg-purple-900/20 rounded border border-purple-200 dark:border-purple-800">
-                      <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-purple-600" />
-                        <span className="font-medium text-purple-700 dark:text-purple-300">
-                          {linkedPurchaseOrder.po_number}
-                        </span>
-                        <span className="text-sm text-muted-foreground">
-                          - {linkedPurchaseOrder.suppliers?.name || "N/A"}
-                        </span>
-                        <span className="text-sm text-muted-foreground">
-                          ({format(new Date(linkedPurchaseOrder.order_date), "dd/MM/yyyy", { locale: vi })})
-                        </span>
+                    <div className="mt-1 rounded border border-purple-200 bg-purple-50 p-3 dark:border-purple-800 dark:bg-purple-900/20">
+                      <div className="flex min-w-0 items-start gap-2">
+                        <FileText className="mt-0.5 h-4 w-4 shrink-0 text-purple-600" />
+                        <div className="min-w-0">
+                          <p className="break-all font-medium text-purple-700 dark:text-purple-300">{linkedPurchaseOrder.po_number}</p>
+                          <p className="break-words text-sm text-muted-foreground">
+                            {linkedPurchaseOrder.suppliers?.name || "N/A"} · {format(new Date(linkedPurchaseOrder.order_date), "dd/MM/yyyy", { locale: vi })}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -447,11 +445,11 @@ export function PaymentRequestDetailsDialog({
 
               {/* Invoice Image */}
               {imageUrl && (
-                <div>
+                <div className="min-w-0">
                   <Label className="text-muted-foreground">Hóa đơn đính kèm</Label>
                   <Button
                     variant="outline"
-                    className="mt-2 gap-2"
+                    className="mt-2 min-h-11 w-full gap-2 whitespace-nowrap sm:min-h-10 sm:w-auto"
                     onClick={() => setShowImageDialog(true)}
                   >
                     <Image className="h-4 w-4" />
@@ -461,92 +459,159 @@ export function PaymentRequestDetailsDialog({
               )}
 
               {/* Items Table */}
-              <div>
+              <div className="min-w-0">
                 <Label className="text-muted-foreground mb-2 block">Danh sách sản phẩm</Label>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Mã SP</TableHead>
-                      <TableHead>Tên sản phẩm</TableHead>
-                      <TableHead className="text-right">SL</TableHead>
-                      <TableHead>ĐVT</TableHead>
-                      <TableHead className="text-right">Đơn giá</TableHead>
-                      <TableHead className="text-right">Thành tiền</TableHead>
-                      <TableHead>So sánh giá</TableHead>
-                      <TableHead>Tồn kho</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {items?.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell>{item.product_code || "-"}</TableCell>
-                        <TableCell className="font-medium">{item.product_name}</TableCell>
-                        <TableCell className="text-right">{item.quantity}</TableCell>
-                        <TableCell>{item.unit}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(item.unit_price)}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(item.line_total || 0)}</TableCell>
-                        <TableCell>
-                          {item.last_price ? (
-                            <div className="flex items-center gap-1">
-                              <span className="text-xs text-muted-foreground">
-                                {formatCurrency(item.last_price)}
-                              </span>
-                              {item.price_change_percent !== null && (
-                                <Badge
-                                  variant={item.price_change_percent > 0 ? "destructive" : "default"}
-                                  className={cn(
-                                    "text-xs px-1",
-                                    item.price_change_percent <= 0 && "bg-green-500"
-                                  )}
-                                >
-                                  {item.price_change_percent > 0 ? (
-                                    <TrendingUp className="h-3 w-3 mr-0.5" />
-                                  ) : (
-                                    <TrendingDown className="h-3 w-3 mr-0.5" />
-                                  )}
-                                  {Math.abs(item.price_change_percent).toFixed(1)}%
-                                </Badge>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">Chưa có</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {item.inventory_items ? (
-                            <Badge variant="outline" className="text-xs">
-                              <Package className="h-3 w-3 mr-0.5" />
-                              Tồn: {item.inventory_items.quantity}
-                            </Badge>
-                          ) : (
-                            <Badge variant="secondary" className="text-xs">
-                              <AlertTriangle className="h-3 w-3 mr-0.5" />
-                              Mới
-                            </Badge>
-                          )}
-                        </TableCell>
+                <div className="space-y-3 lg:hidden">
+                  {items?.map((item) => (
+                    <article key={item.id} className="min-w-0 border-t border-border py-3 first:border-t-0 first:pt-0">
+                      <p className="break-all font-mono text-xs text-muted-foreground">
+                        {item.product_code || "Chưa có mã"}
+                      </p>
+                      <p className="mt-1 break-words font-semibold leading-snug">{item.product_name}</p>
+                      <p className="mt-3 text-xl font-bold tabular-nums text-primary">
+                        {formatCurrency(item.line_total || 0)}
+                      </p>
+
+                      <dl className="mt-3 grid min-w-0 grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-3 text-sm">
+                        <dt className="text-muted-foreground">Số lượng</dt>
+                        <dd className="min-w-0 break-words text-right font-medium tabular-nums">
+                          {item.quantity} {item.unit}
+                        </dd>
+                        <dt className="text-muted-foreground">Đơn giá</dt>
+                        <dd className="min-w-0 break-words text-right font-medium tabular-nums">
+                          {formatCurrency(item.unit_price)}
+                        </dd>
+                      </dl>
+
+                      <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2">
+                        {item.last_price ? (
+                          <>
+                            <span className="text-xs tabular-nums text-muted-foreground">
+                              Giá gần nhất: {formatCurrency(item.last_price)}
+                            </span>
+                            {item.price_change_percent !== null && (
+                              <Badge
+                                variant={item.price_change_percent > 0 ? "destructive" : "default"}
+                                className={cn(
+                                  "gap-1 px-2 text-xs tabular-nums",
+                                  item.price_change_percent <= 0 && "bg-green-500"
+                                )}
+                              >
+                                {item.price_change_percent > 0 ? (
+                                  <TrendingUp className="h-3 w-3" />
+                                ) : (
+                                  <TrendingDown className="h-3 w-3" />
+                                )}
+                                {Math.abs(item.price_change_percent).toFixed(1)}%
+                              </Badge>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Chưa có giá gần nhất</span>
+                        )}
+
+                        {item.inventory_items ? (
+                          <Badge variant="outline" className="gap-1 text-xs tabular-nums">
+                            <Package className="h-3 w-3" />
+                            Tồn: {item.inventory_items.quantity}
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="gap-1 text-xs">
+                            <AlertTriangle className="h-3 w-3" />
+                            Sản phẩm mới
+                          </Badge>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+
+                <div className="hidden min-w-0 lg:block">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Mã SP</TableHead>
+                        <TableHead>Tên sản phẩm</TableHead>
+                        <TableHead className="text-right">SL</TableHead>
+                        <TableHead>ĐVT</TableHead>
+                        <TableHead className="text-right">Đơn giá</TableHead>
+                        <TableHead className="text-right">Thành tiền</TableHead>
+                        <TableHead>So sánh giá</TableHead>
+                        <TableHead>Tồn kho</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {items?.map((item) => (
+                        <TableRow key={item.id}>
+                          <TableCell>{item.product_code || "-"}</TableCell>
+                          <TableCell className="font-medium">{item.product_name}</TableCell>
+                          <TableCell className="text-right">{item.quantity}</TableCell>
+                          <TableCell>{item.unit}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(item.unit_price)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(item.line_total || 0)}</TableCell>
+                          <TableCell>
+                            {item.last_price ? (
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs text-muted-foreground">
+                                  {formatCurrency(item.last_price)}
+                                </span>
+                                {item.price_change_percent !== null && (
+                                  <Badge
+                                    variant={item.price_change_percent > 0 ? "destructive" : "default"}
+                                    className={cn(
+                                      "text-xs px-1",
+                                      item.price_change_percent <= 0 && "bg-green-500"
+                                    )}
+                                  >
+                                    {item.price_change_percent > 0 ? (
+                                      <TrendingUp className="h-3 w-3 mr-0.5" />
+                                    ) : (
+                                      <TrendingDown className="h-3 w-3 mr-0.5" />
+                                    )}
+                                    {Math.abs(item.price_change_percent).toFixed(1)}%
+                                  </Badge>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Chưa có</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {item.inventory_items ? (
+                              <Badge variant="outline" className="text-xs">
+                                <Package className="h-3 w-3 mr-0.5" />
+                                Tồn: {item.inventory_items.quantity}
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary" className="text-xs">
+                                <AlertTriangle className="h-3 w-3 mr-0.5" />
+                                Mới
+                              </Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               </div>
 
               {/* Notes */}
               {request.notes && (
-                <div>
+                <div className="min-w-0">
                   <Label className="text-muted-foreground">Ghi chú</Label>
-                  <p className="mt-1 p-3 bg-muted/50 rounded">{request.notes}</p>
+                  <p className="mt-1 break-words rounded bg-muted/50 p-3">{request.notes}</p>
                 </div>
               )}
 
               {/* Actions */}
-              <div className="flex flex-wrap gap-3 border-t pt-4">
+              <div className="sticky bottom-0 z-20 -mx-4 grid grid-cols-2 gap-2 border-t border-border bg-background p-4 pb-[max(1rem,env(safe-area-inset-bottom))] [&>button]:min-h-11 sm:static sm:mx-0 sm:flex sm:flex-wrap sm:p-0 sm:pt-4 sm:[&>button]:min-h-10">
                 {/* Edit button for pending requests */}
                 {request.status === "pending" && (
                   <Button
                     variant="outline"
                     onClick={() => setShowEditDialog(true)}
-                    className="gap-2"
+                    className="w-full gap-2 whitespace-nowrap sm:w-auto"
                   >
                     <Pencil className="h-4 w-4" />
                     {t.edit}
@@ -559,7 +624,7 @@ export function PaymentRequestDetailsDialog({
                     <Button
                       onClick={handleOpenApproveDialog}
                       disabled={approveRequest.isPending}
-                      className="gap-2 bg-green-600 hover:bg-green-700"
+                      className="w-full gap-2 whitespace-nowrap bg-green-600 hover:bg-green-700 sm:w-auto"
                     >
                       {approveRequest.isPending ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -571,7 +636,7 @@ export function PaymentRequestDetailsDialog({
                     <Button
                       variant="destructive"
                       onClick={() => setShowRejectDialog(true)}
-                      className="gap-2"
+                      className="w-full gap-2 whitespace-nowrap sm:w-auto"
                     >
                       <X className="h-4 w-4" />
                       Từ chối
@@ -585,14 +650,15 @@ export function PaymentRequestDetailsDialog({
                     onClick={handleMarkDelivered}
                     disabled={markDelivered.isPending}
                     variant="outline"
-                    className="gap-2"
+                    className="w-full gap-2 whitespace-nowrap sm:w-auto"
                   >
                     {markDelivered.isPending ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <Truck className="h-4 w-4" />
                     )}
-                    Đánh dấu đã giao
+                    <span className="sm:hidden">Đã giao</span>
+                    <span className="hidden sm:inline">Đánh dấu đã giao</span>
                   </Button>
                 )}
 
@@ -602,14 +668,16 @@ export function PaymentRequestDetailsDialog({
                     <Button 
                       variant="outline" 
                       onClick={() => setShowDriveImportDialog(true)}
-                      className="gap-2"
+                      className="w-full gap-2 whitespace-nowrap sm:w-auto"
                     >
                       <FolderSearch className="h-4 w-4" />
-                      Tạo hoá đơn từ GG Drive
+                      <span className="sm:hidden">Tạo từ Drive</span>
+                      <span className="hidden sm:inline">Tạo hoá đơn từ GG Drive</span>
                     </Button>
-                    <Button onClick={() => setShowCreateInvoiceDialog(true)}>
+                    <Button className="w-full whitespace-nowrap sm:w-auto" onClick={() => setShowCreateInvoiceDialog(true)}>
                       <Plus className="h-4 w-4 mr-2" />
-                      Tạo hoá đơn thủ công
+                      <span className="sm:hidden">Tạo thủ công</span>
+                      <span className="hidden sm:inline">Tạo hoá đơn thủ công</span>
                     </Button>
                   </>
                 )}
@@ -620,14 +688,15 @@ export function PaymentRequestDetailsDialog({
                     onClick={handleMarkPaidClick}
                     disabled={markPaid.isPending}
                     variant="outline"
-                    className="gap-2"
+                    className="w-full gap-2 whitespace-nowrap sm:w-auto"
                   >
                     {markPaid.isPending ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <CreditCard className="h-4 w-4" />
                     )}
-                    Ghi nhận thanh toán
+                    <span className="sm:hidden">Thanh toán</span>
+                    <span className="hidden sm:inline">Ghi nhận thanh toán</span>
                   </Button>
                 )}
 
@@ -636,7 +705,7 @@ export function PaymentRequestDetailsDialog({
                   <Button
                     onClick={handleOpenChangePaymentMethod}
                     variant="outline"
-                    className="gap-2"
+                    className="w-full gap-2 whitespace-nowrap sm:w-auto"
                   >
                     {request.payment_method === "cash" ? (
                       <Banknote className="h-4 w-4" />
@@ -647,7 +716,7 @@ export function PaymentRequestDetailsDialog({
                   </Button>
                 )}
 
-                <Button variant="outline" onClick={() => onOpenChange(false)}>
+                <Button className="w-full whitespace-nowrap sm:w-auto" variant="outline" onClick={() => onOpenChange(false)}>
                   Đóng
                 </Button>
               </div>
