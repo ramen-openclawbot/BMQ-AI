@@ -817,6 +817,24 @@ const dealerPortalCustomerDateKeys = (orders: DealerOrderRow[]) => {
   return keys;
 };
 
+const dealerPortalParentCustomerDateKeys = (orders: DealerOrderRow[]) => {
+  const keys = new Set<string>();
+  for (const order of orders) {
+    const revenueDate = dealerOrderRevenueDate(order);
+    if (!revenueDate || !order.customer_id) continue;
+    const items = Array.isArray(order.dealer_order_items) ? order.dealer_order_items : [];
+    const hasBillableLine = items.some((item) => {
+      const quantity = Number(item.ordered_quantity ?? item.quantity ?? 0);
+      const gross = Number(item.line_total_vnd || 0);
+      return quantity > 0 || gross > 0;
+    });
+    if (hasBillableLine || Number(order.total_amount_vnd || order.subtotal_amount_vnd || 0) > 0) {
+      keys.add(`${revenueDate}|${order.customer_id}`);
+    }
+  }
+  return keys;
+};
+
 async function fetchDealerPortalOrders(
   supabaseAdmin: ReturnType<typeof createClient>,
   window: ParseWindow,
@@ -1214,9 +1232,51 @@ const lineRevenueDate = (row: InboxRow, item: JsonRecord, poReceivedDate: string
   );
 };
 
+const tonyEmailRowHasPortalReplacement = (
+  row: InboxRow,
+  portalParentCustomerDateKeys: Set<string>,
+) => {
+  const raw = asRecord(row.raw_payload);
+  const productionItems = asArray(row.production_items).map(asRecord);
+  const parsedItems = asArray(raw.parsed_items_preview).map(asRecord);
+  const items = productionItems.length > 0 ? productionItems : parsedItems;
+  const poReceivedDate = localDateFromTimestamp(row.received_at);
+
+  if (items.length === 0) {
+    const poAutomation = asRecord(raw.po_automation);
+    const fallbackParentCustomerId = stringValue(
+      row.matched_customer_id,
+      raw.parent_customer_id,
+      poAutomation.parent_customer_id,
+    );
+    const fallbackRevenueDate = lineRevenueDate(row, {}, poReceivedDate);
+    return Boolean(
+      fallbackParentCustomerId
+      && fallbackRevenueDate
+      && portalParentCustomerDateKeys.has(`${fallbackRevenueDate}|${fallbackParentCustomerId}`),
+    );
+  }
+
+  return items.some((item) => {
+    const parentCustomerId = stringValue(
+      item.parent_customer_id,
+      item.customer_id,
+      row.matched_customer_id,
+      raw.parent_customer_id,
+    );
+    const revenueDate = lineRevenueDate(row, item, poReceivedDate);
+    return Boolean(
+      parentCustomerId
+      && revenueDate
+      && portalParentCustomerDateKeys.has(`${revenueDate}|${parentCustomerId}`),
+    );
+  });
+};
+
 const filterDirectDealerEmailLinesReplacedByPortal = (
   rows: InboxRow[],
   portalCustomerDateKeys: Set<string>,
+  portalParentCustomerDateKeys: Set<string>,
 ) => {
   const filteredRows: InboxRow[] = [];
   let excludedTonyEmailRows = 0;
@@ -1224,7 +1284,7 @@ const filterDirectDealerEmailLinesReplacedByPortal = (
   let excludedDirectDealerEmailLines = 0;
 
   for (const row of rows) {
-    if (isTonyThanhNppInboxRow(row)) {
+    if (isTonyThanhNppInboxRow(row) && tonyEmailRowHasPortalReplacement(row, portalParentCustomerDateKeys)) {
       excludedTonyEmailRows += 1;
       continue;
     }
@@ -1616,7 +1676,11 @@ async function runCurrentMonthPreview(
       ? await fetchDealerPortalOrders(supabaseAdmin, window, receivedFrom, receivedTo)
       : [];
     const dealerEmailReplacement = dealerParseSource === "dealer_portal"
-      ? filterDirectDealerEmailLinesReplacedByPortal(rows, dealerPortalCustomerDateKeys(dealerPortalOrders))
+      ? filterDirectDealerEmailLinesReplacedByPortal(
+          rows,
+          dealerPortalCustomerDateKeys(dealerPortalOrders),
+          dealerPortalParentCustomerDateKeys(dealerPortalOrders),
+        )
       : {
           rows,
           excludedTonyEmailRows: 0,

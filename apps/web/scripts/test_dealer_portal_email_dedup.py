@@ -33,10 +33,33 @@ def test_nonmatching_email_lines_and_non_direct_email_sources_are_preserved() ->
         assert needle in source, f"missing {label}: {needle}"
 
 
-def test_tony_npp_email_replacement_remains_unchanged() -> None:
+def test_tony_npp_email_is_replaced_only_by_matching_parent_portal_order() -> None:
     source = parser_source()
-    assert "if (isTonyThanhNppInboxRow(row))" in source
+    for needle, label in [
+        ("dealerPortalParentCustomerDateKeys", "portal parent/date identity set"),
+        ("tonyEmailRowHasPortalReplacement", "Tony replacement predicate"),
+        ("portalParentCustomerDateKeys.has", "matching parent/date guard"),
+        ("if (isTonyThanhNppInboxRow(row) && tonyEmailRowHasPortalReplacement", "conditional Tony exclusion"),
+    ]:
+        assert needle in source, f"missing {label}: {needle}"
+
+
+def test_tony_npp_email_without_matching_portal_order_is_preserved() -> None:
+    source = parser_source()
+    assert "if (isTonyThanhNppInboxRow(row) && tonyEmailRowHasPortalReplacement" in source
+    assert "filteredRows.push(row)" in source
     assert "excludedTonyEmailRows" in source
+
+
+def test_tony_row_level_fallback_is_deduplicated_when_items_are_missing() -> None:
+    source = parser_source()
+    for needle, label in [
+        ("if (items.length === 0)", "row-level Tony fallback"),
+        ("fallbackParentCustomerId", "fallback parent identity"),
+        ("fallbackRevenueDate", "fallback revenue date"),
+        ("portalParentCustomerDateKeys.has(`${fallbackRevenueDate}|${fallbackParentCustomerId}`)", "fallback parent/date match"),
+    ]:
+        assert needle in source, f"missing {label}: {needle}"
 
 
 def test_matching_fallback_total_row_is_replaced_by_portal_order() -> None:
