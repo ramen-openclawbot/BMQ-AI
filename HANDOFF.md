@@ -1,11 +1,17 @@
 # BMQ-AI Handoff
 
-Cập nhật: 2026-05-28 06:35 +07  
+Cập nhật: 2026-08-06 11:40 +07
 Repo: `/Users/c.o.t.e/.openclaw/workspace-BMQ-AI`  
 Branch: `main`  
-Latest pushed commit: `ec78263 Improve payment request delete affordance`  
+Latest pushed commit trước bản cập nhật handoff: `caceb84 feat(kiosk): add manual chili usage`
 Production: `https://ai.banhmique.vn`  
 Vercel project: `bmq-ai`
+
+## Trạng thái mới nhất (authoritative)
+
+- Production migration `20260805170000_dealer_warehouse_daily_digest.sql` đã được áp dụng; `supabase migration list --linked` ngày 2026-08-06 hiển thị local/remote cùng version `20260805170000`.
+- Supabase Edge Function `dealer-warehouse-notify` đang `ACTIVE`, version 4 trên project `cxntbdvfsikwmitapony`.
+- Các ghi chú lịch sử bên dưới nói migration này chưa áp dụng đã hết hiệu lực; luôn ưu tiên trạng thái mới nhất trong mục này.
 
 ## Current Status
 
@@ -119,3 +125,14 @@ Build has existing Vite warnings for chunk size / stale Browserslist data only.
    - pagination is clear of chat widget.
 3. If more UI screenshots arrive, patch `PaymentRequests.tsx`, run the same checks, then commit/push.
 
+## QUYỀN THỰC THI VÀ GIT
+
+- Tôi cho phép bạn triển khai, chạy test/build, commit và push `main` cho đúng nhiệm vụ tôi giao sau khi đã xác minh đầy đủ; không cần hỏi lại một câu approve máy móc nếu phạm vi đã rõ.
+- Checkout hiện tại có thể đang chậm hơn `origin/main` và chứa thay đổi local của agent khác. Tuyệt đối không reset, stash, checkout, sửa, stage hoặc commit các file local chưa rõ chủ sở hữu.
+- Trước khi làm, chạy `git fetch origin` và kiểm tra `git status`.
+- Nếu checkout chính dirty hoặc lệch `origin/main`, hãy tạo clean worktree mới từ đúng `origin/main` và chỉ làm nhiệm vụ trong worktree đó.
+- Không force-push.
+- Trước khi push, fetch lại và xác nhận push là fast-forward.
+- Chỉ stage đúng file thuộc phạm vi nhiệm vụ; kiểm tra staged diff và secret scan.
+- Sau push, xác minh commit trên `origin/main`, Vercel/Supabase tương ứng và đúng custom production domain.
+- Handoff cũ có các ghi chú lịch sử nói migration `20260805170000` chưa áp dụng. Trạng thái mới nhất ở đầu handoff là authoritative: migration này đã được áp dụng và `dealer-warehouse-notify` đang `ACTIVE` v4.
