@@ -10,6 +10,7 @@ HELPER = ROOT / "supabase/functions/_shared/dealer-warehouse-notification.ts"
 CONFIG = ROOT / "supabase/config.toml"
 SCHEDULE_MIGRATION = ROOT / "supabase/migrations/20260803181500_dealer_warehouse_vietnam_evening_schedule.sql"
 DAILY_DIGEST_MIGRATION = ROOT / "supabase/migrations/20260805170000_dealer_warehouse_daily_digest.sql"
+DUPLICATE_GUARD_MIGRATION = ROOT / "supabase/migrations/20260806224000_dealer_duplicate_order_guard.sql"
 
 
 def migration_text() -> str:
@@ -55,13 +56,15 @@ def test_outbox_is_private_idempotent_and_retryable() -> None:
 
 def test_submit_queues_only_after_order_items_are_saved() -> None:
     submit = SUBMIT.read_text(encoding="utf-8")
-    item_guard = submit.index("if (itemError)")
-    enqueue = submit.index('from("dealer_order_notifications")')
-    assert enqueue > item_guard, "notification must be queued only after item insert succeeds"
+    guard_sql = DUPLICATE_GUARD_MIGRATION.read_text(encoding="utf-8")
+    item_insert = guard_sql.index("insert into public.dealer_order_items")
+    enqueue = guard_sql.index("insert into public.dealer_order_notifications")
+    assert enqueue > item_insert, "atomic RPC must save items before queueing notification"
+    assert "submit_dealer_order_guarded" in submit
     assert "formatWarehouseOrderMessage" in submit
-    assert 'channel: "zalo_gmf"' in submit
-    assert 'group_name: "BMQ - Kho Tân Tạo"' in submit
-    assert "unit_price_vnd" not in submit[enqueue:], "notification path must not include prices"
+    assert "'zalo_gmf'" in guard_sql
+    assert "'BMQ - Kho Tân Tạo'" in guard_sql
+    assert "unit_price_vnd" not in guard_sql[enqueue:], "notification path must not include prices"
     assert 'functions.invoke("dealer-warehouse-notify"' not in submit, (
         "order submission must queue only; the Vietnam evening cron owns delivery"
     )
@@ -97,9 +100,10 @@ def test_warehouse_message_uses_approved_operations_layout() -> None:
         '"Nguồn: dathang.banhmique.vn"',
     ]:
         assert needle in helper, f"missing approved message marker: {needle}"
-    assert "submittedAt: order.submitted_at" in submit
+    assert "submittedAt," in submit
+    assert "p_submitted_at: submittedAt" in submit
     assert "defaultDeliveryDateTPlusOne" in submit
-    assert "requested_delivery_date: requestedDeliveryDate" in submit
+    assert "p_requested_delivery_date: requestedDeliveryDate" in submit
 
 
 def test_daily_digest_is_idempotent_private_and_created_only_at_final_scan() -> None:

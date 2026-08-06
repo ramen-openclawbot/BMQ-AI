@@ -38,6 +38,14 @@ type NormalizedSubmitItem = {
   route_note: string | null;
 };
 
+type SubmitRpcResult = {
+  result: "created" | "existing" | "duplicate";
+  order_id: string;
+  order_number: string;
+  submitted_at: string;
+  total_amount_vnd: number | string;
+};
+
 type RouteCustomer = {
   id: string;
   customer_name: string | null;
@@ -94,6 +102,8 @@ serve(async (req) => {
       requested_delivery_date?: unknown;
       delivery_note?: unknown;
       customer_note?: unknown;
+      client_submission_id?: unknown;
+      duplicate_action?: unknown;
     }>(req);
 
     const supabase = createServiceClient();
@@ -190,56 +200,53 @@ serve(async (req) => {
     const submittedAt = new Date().toISOString();
     const requestedDeliveryDate = normalizeDeliveryDate(body.requested_delivery_date)
       ?? defaultDeliveryDateTPlusOne(submittedAt);
+    if (!requestedDeliveryDate) throw new Error("Không xác định được ngày giao hàng");
     const deliveryNote = normalizeNullableText(body.delivery_note, 500);
     const customerNote = normalizeNullableText(body.customer_note, 500);
     const customerSnapshot = publicCustomerProfile(sessionContext.customer);
-
-    const order = await insertOrderWithRetry(supabase, {
-      customer_id: sessionContext.customer.id,
-      contact_id: sessionContext.contact?.id ?? null,
-      session_id: sessionContext.session.id,
-      subtotal_amount_vnd: subtotal,
-      total_amount_vnd: subtotal,
-      submitted_at: submittedAt,
-      requested_delivery_date: requestedDeliveryDate,
-      delivery_note: deliveryNote,
-      customer_note: customerNote,
-      customer_snapshot: customerSnapshot,
-    });
-
-    const { error: itemError } = await supabase
-      .from("dealer_order_items")
-      .insert(
-        lines.map((line) => ({
-          order_id: order.id,
-          sku_id: line.sku.id,
-          sku_code: line.sku.sku_code,
-          product_name: line.sku.product_name,
-          unit: dealerDisplayUnit(line.sku),
-          quantity: line.quantity,
-          ordered_quantity: line.quantity,
-          exchange_quantity: line.exchangeQuantity,
-          makeup_quantity: line.makeupQuantity,
-          physical_quantity: line.physicalQuantity,
-          unit_price_vnd: line.unitPrice,
-          line_total_vnd: line.lineTotal,
-          price_source: line.priceSource,
-          route_customer_id: line.routeCustomerId,
-          route_customer_name: line.routeCustomerName,
-          route_note: line.routeNote,
-        })),
-      );
-
-    if (itemError) {
-      await supabase.from("dealer_orders").delete().eq("id", order.id);
-      throw itemError;
+    const suppliedSubmissionId = typeof body.client_submission_id === "string"
+      ? body.client_submission_id.trim()
+      : "";
+    if (suppliedSubmissionId && !isUuid(suppliedSubmissionId)) {
+      return errorResponse(req, "Mã gửi đơn không hợp lệ. Vui lòng thử lại.", 400, "invalid_client_submission_id");
+    }
+    const clientSubmissionId = suppliedSubmissionId || crypto.randomUUID();
+    const duplicateAction = body.duplicate_action === "add" ? "add" : null;
+    if (body.duplicate_action != null && duplicateAction === null) {
+      return errorResponse(req, "Lựa chọn xử lý đơn tương tự không hợp lệ.", 400, "invalid_duplicate_action");
     }
 
-    try {
+    const rpcLines = lines.map((line) => ({
+      sku_id: line.sku.id,
+      sku_code: line.sku.sku_code,
+      product_name: line.sku.product_name,
+      unit: dealerDisplayUnit(line.sku),
+      quantity: line.quantity,
+      ordered_quantity: line.quantity,
+      exchange_quantity: line.exchangeQuantity,
+      makeup_quantity: line.makeupQuantity,
+      physical_quantity: line.physicalQuantity,
+      unit_price_vnd: line.unitPrice,
+      line_total_vnd: line.lineTotal,
+      price_source: line.priceSource,
+      route_customer_id: line.routeCustomerId,
+      route_customer_name: line.routeCustomerName,
+      route_note: line.routeNote,
+    }));
+    const orderFingerprint = await computeOrderFingerprint({
+      requestedDeliveryDate,
+      lines: rpcLines,
+    });
+
+    let submitResult: SubmitRpcResult | null = null;
+    let submitError: { message?: string } | null = null;
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const orderNumber = generateOrderNumber();
       const messageBody = formatWarehouseOrderMessage({
-        orderNumber: order.order_number,
+        orderNumber,
         customerName: sessionContext.customer.customer_name || "Khách hàng BMQ",
-        submittedAt: order.submitted_at,
+        submittedAt,
         requestedDeliveryDate,
         deliveryNote,
         customerNote,
@@ -254,31 +261,55 @@ serve(async (req) => {
           routeNote: line.routeNote,
         })),
       });
-      const { error: notificationError } = await supabase
-        .from("dealer_order_notifications")
-        .upsert({
-          order_id: order.id,
-          channel: "zalo_gmf",
-          group_name: "BMQ - Kho Tân Tạo",
-          message_body: messageBody,
-          status: "pending",
-          next_attempt_at: new Date().toISOString(),
-        }, {
-          onConflict: "order_id,channel",
-          ignoreDuplicates: true,
-        });
+      const rpcResponse = await supabase.rpc("submit_dealer_order_guarded", {
+        p_customer_id: sessionContext.customer.id,
+        p_contact_id: sessionContext.contact?.id ?? null,
+        p_session_id: sessionContext.session.id,
+        p_client_submission_id: clientSubmissionId,
+        p_order_fingerprint: orderFingerprint,
+        p_duplicate_action: duplicateAction,
+        p_order_number: orderNumber,
+        p_submitted_at: submittedAt,
+        p_requested_delivery_date: requestedDeliveryDate,
+        p_delivery_note: deliveryNote,
+        p_customer_note: customerNote,
+        p_customer_snapshot: customerSnapshot,
+        p_subtotal_amount_vnd: subtotal,
+        p_total_amount_vnd: subtotal,
+        p_lines: rpcLines,
+        p_notification_body: messageBody,
+      });
+      submitError = rpcResponse.error;
+      submitResult = Array.isArray(rpcResponse.data) && rpcResponse.data[0]
+        ? rpcResponse.data[0] as SubmitRpcResult
+        : null;
+      if (!submitError) break;
+      if (!String(submitError.message || "").includes("duplicate key")) break;
+    }
 
-      if (notificationError) throw notificationError;
-    } catch (notificationError) {
-      // The customer order is already complete; a Zalo outage must never delete or fail it.
-      console.error("[dealer-order-submit] Warehouse notification queue failed", notificationError);
+    if (submitError) throw submitError;
+    if (!submitResult) throw new Error("Không nhận được kết quả tạo đơn hàng");
+
+    if (submitResult.result === "duplicate") {
+      return jsonResponse(req, {
+        success: false,
+        code: "similar_order_exists",
+        message: "Đơn hàng tương tự đã được đặt. Quý Khách Hàng muốn cộng dồn hay huỷ?",
+        duplicate_order: {
+          id: submitResult.order_id,
+          order_number: submitResult.order_number,
+          submitted_at: submitResult.submitted_at,
+          total_amount_vnd: Number(submitResult.total_amount_vnd || 0),
+        },
+      });
     }
 
     return jsonResponse(req, {
       success: true,
-      order_id: order.id,
-      order_number: order.order_number,
-      total_amount_vnd: subtotal,
+      idempotent: submitResult.result === "existing",
+      order_id: submitResult.order_id,
+      order_number: submitResult.order_number,
+      total_amount_vnd: Number(submitResult.total_amount_vnd || subtotal),
     });
   } catch (error) {
     console.error("[dealer-order-submit] Unexpected error", error);
@@ -346,30 +377,37 @@ function roundQuantity(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
 
-async function insertOrderWithRetry(supabase: ReturnType<typeof createServiceClient>, payload: Record<string, unknown>) {
-  let lastError: unknown;
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const orderNumber = generateOrderNumber();
-    const { data, error } = await supabase
-      .from("dealer_orders")
-      .insert({
-        ...payload,
-        order_number: orderNumber,
-        status: "submitted",
-      })
-      .select("id, order_number, submitted_at")
-      .single();
-
-    if (!error) return data;
-    lastError = error;
-
-    if (!String(error.message || "").includes("duplicate key")) {
-      break;
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error("Không tạo được mã đơn hàng");
+async function computeOrderFingerprint(input: {
+  requestedDeliveryDate: string;
+  lines: Array<{
+    sku_id: string;
+    quantity: number;
+    exchange_quantity: number;
+    makeup_quantity: number;
+    physical_quantity: number;
+    route_customer_id: string | null;
+    route_customer_name: string | null;
+  }>;
+}) {
+  const canonicalLines = input.lines
+    .map((line) => ({
+      sku_id: line.sku_id,
+      route: line.route_customer_id || normalizeSkuText(line.route_customer_name),
+      quantity: roundQuantity(line.quantity),
+      exchange_quantity: roundQuantity(line.exchange_quantity),
+      makeup_quantity: roundQuantity(line.makeup_quantity),
+      physical_quantity: roundQuantity(line.physical_quantity),
+    }))
+    .sort((left, right) => `${left.sku_id}:${left.route}`.localeCompare(`${right.sku_id}:${right.route}`));
+  const bytes = new TextEncoder().encode(JSON.stringify({
+    requested_delivery_date: input.requestedDeliveryDate,
+    lines: canonicalLines,
+  }));
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return Array.from(digest).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function generateOrderNumber(): string {

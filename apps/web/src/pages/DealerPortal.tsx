@@ -161,6 +161,13 @@ type DealerOrderHistoryResponse = {
 type DealerOrderHistoryGranularity = "day" | "month" | "year";
 type DealerOrderHistoryStatus = "idle" | "loading" | "live" | "error";
 
+type DuplicateOrderPrompt = {
+  items: Array<Record<string, unknown>>;
+  chatNative: boolean;
+  clientSubmissionId: string;
+  orderNumber: string;
+};
+
 type DealerLandingBanner = {
   id?: string;
   eventLabel?: string;
@@ -412,6 +419,8 @@ export default function DealerPortal() {
   const [orderSuccessOpen, setOrderSuccessOpen] = useState(false);
   const [orderSuccessNumber, setOrderSuccessNumber] = useState("");
   const [nppConfirmOpen, setNppConfirmOpen] = useState(false);
+  const [duplicateOrderPrompt, setDuplicateOrderPrompt] = useState<DuplicateOrderPrompt | null>(null);
+  const orderSubmissionIdRef = useRef(crypto.randomUUID());
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [nppQuantities, setNppQuantities] = useState<Record<string, number>>({});
   const [nppExchangeQuantities, setNppExchangeQuantities] = useState<Record<string, number>>({});
@@ -702,31 +711,58 @@ export default function DealerPortal() {
     setAuthError("");
     setOrderMessage("");
     setOrderError("");
+    setDuplicateOrderPrompt(null);
+    orderSubmissionIdRef.current = crypto.randomUUID();
   };
 
   const submitOrderPayload = async (
     items: Array<Record<string, unknown>>,
-    options: { chatNative?: boolean } = {},
+    options: {
+      chatNative?: boolean;
+      duplicateAction?: "add";
+      clientSubmissionId?: string;
+    } = {},
   ) => {
     setOrderSubmitting(true);
     setOrderMessage("");
     setOrderError("");
 
+    const clientSubmissionId = options.clientSubmissionId || orderSubmissionIdRef.current;
     try {
       const { data, error } = await supabase.functions.invoke<{
         success?: boolean;
+        code?: string;
+        message?: string;
         order_number?: string;
         total_amount_vnd?: number;
+        duplicate_order?: { order_number?: string };
       }>("dealer-order-submit", {
         body: {
           dealer_token: sessionToken,
           items,
+          client_submission_id: clientSubmissionId,
+          ...(options.duplicateAction ? { duplicate_action: options.duplicateAction } : {}),
         },
       });
 
       if (error) throw error;
+      if (data?.code === "similar_order_exists") {
+        const previousOrderNumber = data.duplicate_order?.order_number || "đơn gần nhất";
+        setDuplicateOrderPrompt({
+          items,
+          chatNative: Boolean(options.chatNative),
+          clientSubmissionId,
+          orderNumber: previousOrderNumber,
+        });
+        setNppConfirmOpen(false);
+        setNppParseStatus("success");
+        setNppParseMessage(data.message || "Đơn hàng tương tự đã được đặt. Quý Khách Hàng muốn cộng dồn hay huỷ?");
+        return false;
+      }
+      if (!data?.success) throw new Error(data?.message || "Không gửi được đơn hàng.");
 
-      const nextOrderNumber = data?.order_number || "";
+      const nextOrderNumber = data.order_number || "";
+      setDuplicateOrderPrompt(null);
       setOrderSuccessNumber(nextOrderNumber);
       setOrderSuccessOpen(!options.chatNative);
       setNppConfirmOpen(false);
@@ -743,8 +779,11 @@ export default function DealerPortal() {
       setNppOrderText("");
       setNppParseMessage("");
       setNppParseStatus("idle");
+      orderSubmissionIdRef.current = crypto.randomUUID();
+      return true;
     } catch (error) {
       setOrderError(await getFunctionErrorMessage(error, "Không gửi được đơn hàng."));
+      return false;
     } finally {
       setOrderSubmitting(false);
     }
@@ -796,6 +835,8 @@ export default function DealerPortal() {
     setDirectCatalogOrder(false);
     setOrderMessage("");
     setOrderError("");
+    setDuplicateOrderPrompt(null);
+    orderSubmissionIdRef.current = crypto.randomUUID();
   };
 
 
@@ -818,6 +859,8 @@ export default function DealerPortal() {
       if (hasReadyOrder) setNppConfirmOpen(true);
       return;
     }
+    setDuplicateOrderPrompt(null);
+    orderSubmissionIdRef.current = crypto.randomUUID();
     if (isNppMode) setDirectCatalogOrder(false);
     setNppParseStatus("processing");
     setNppParseMessage("");
@@ -899,6 +942,31 @@ export default function DealerPortal() {
             route_note: line.note,
           }),
     })), { chatNative: true });
+  };
+
+  const handleDuplicateOrderAdd = async () => {
+    if (!duplicateOrderPrompt) return;
+    await submitOrderPayload(duplicateOrderPrompt.items, {
+      chatNative: duplicateOrderPrompt.chatNative,
+      duplicateAction: "add",
+      clientSubmissionId: duplicateOrderPrompt.clientSubmissionId,
+    });
+  };
+
+  const handleDuplicateOrderCancel = () => {
+    if (!duplicateOrderPrompt) return;
+    const keptOrderNumber = duplicateOrderPrompt.orderNumber;
+    setDuplicateOrderPrompt(null);
+    setNppConfirmOpen(false);
+    setNppQuantities({});
+    setNppExchangeQuantities({});
+    setNppMakeupQuantities({});
+    setNppNotes({});
+    setOrderError("");
+    setOrderMessage("");
+    setNppParseStatus("idle");
+    setNppParseMessage(`Đã huỷ đơn trùng. Đơn ${keptOrderNumber} trước đó vẫn được giữ nguyên.`);
+    orderSubmissionIdRef.current = crypto.randomUUID();
   };
 
   const selectedLines = useMemo(
@@ -1011,6 +1079,8 @@ export default function DealerPortal() {
     setNppLastSentOrderText("");
     setOrderMessage("");
     setOrderError("");
+    setDuplicateOrderPrompt(null);
+    orderSubmissionIdRef.current = crypto.randomUUID();
   };
 
   const handleProductQuantitySubmit = () => {
@@ -1634,6 +1704,9 @@ export default function DealerPortal() {
             sentOrderText={nppLastSentOrderText}
             successMessage={orderMessage}
             errorMessage={orderError}
+            duplicateOrderPrompt={duplicateOrderPrompt}
+            onDuplicateAdd={handleDuplicateOrderAdd}
+            onDuplicateCancel={handleDuplicateOrderCancel}
             onProductSuggestion={handleProductCta}
             parseMessage={nppParseMessage}
             parseStatus={nppParseStatus}
@@ -2089,6 +2162,9 @@ export default function DealerPortal() {
                 sentOrderText={nppLastSentOrderText}
                 successMessage={orderMessage}
                 errorMessage={orderError}
+                duplicateOrderPrompt={duplicateOrderPrompt}
+                onDuplicateAdd={handleDuplicateOrderAdd}
+                onDuplicateCancel={handleDuplicateOrderCancel}
                 onProductSuggestion={handleProductCta}
                 parseMessage={nppParseMessage}
                 parseStatus={nppParseStatus}
@@ -2635,6 +2711,9 @@ function NppQuickOrderPanel({
   sentOrderText,
   successMessage,
   errorMessage,
+  duplicateOrderPrompt,
+  onDuplicateAdd,
+  onDuplicateCancel,
   onProductSuggestion,
   parseMessage,
   parseStatus,
@@ -2665,6 +2744,9 @@ function NppQuickOrderPanel({
   sentOrderText: string;
   successMessage: string;
   errorMessage: string;
+  duplicateOrderPrompt: DuplicateOrderPrompt | null;
+  onDuplicateAdd: () => void;
+  onDuplicateCancel: () => void;
   onProductSuggestion: (product: Product) => void;
   parseMessage: string;
   parseStatus: "idle" | "processing" | "success";
@@ -2691,12 +2773,12 @@ function NppQuickOrderPanel({
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
-    if (!sentOrderText && !successMessage && !errorMessage) return;
+    if (!sentOrderText && !successMessage && !errorMessage && !duplicateOrderPrompt) return;
     const frame = window.requestAnimationFrame(() => {
       chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [errorMessage, parseStatus, selectedRouteCount, sentOrderText, successMessage]);
+  }, [duplicateOrderPrompt, errorMessage, parseStatus, selectedRouteCount, sentOrderText, successMessage]);
 
   const openOrderConfirmation = () => {
     setIsEditingOrder(false);
@@ -2771,13 +2853,28 @@ function NppQuickOrderPanel({
         </div>
       ) : null}
 
-      {parseMessage && parseStatus !== "processing" ? (
+      {parseMessage && parseStatus !== "processing" && !duplicateOrderPrompt ? (
         <div className="flex min-w-0 items-start gap-2 py-2" data-dealer-chat-message="agent">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0ccdc] bg-white shadow-sm">
             <img src={bmqLogo} alt="BMQ Agent" className="h-8 w-8 object-contain" />
           </div>
           <div className="min-w-0 max-w-[85%] whitespace-normal break-words rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm font-medium leading-6 text-[#543943] shadow-sm ring-1 ring-[#f4e5eb]">
             {parseMessage}
+          </div>
+        </div>
+      ) : null}
+
+      {duplicateOrderPrompt ? (
+        <div className="ml-11 max-w-sm rounded-2xl border border-[#e7b9cd] bg-[#fff7fb] p-3 shadow-sm" data-dealer-chat-choices="duplicate-order" role="group" aria-label="Xử lý đơn hàng tương tự">
+          <div className="text-sm font-extrabold text-[#543943]">Đơn hàng tương tự đã được đặt</div>
+          <div className="mt-1 text-sm leading-6 text-[#765d68]">Mã {duplicateOrderPrompt.orderNumber}. Quý Khách Hàng muốn cộng dồn hay huỷ?</div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <Button type="button" className="h-11 rounded-xl bg-[#d94f8a] font-extrabold text-white hover:bg-[#c43f79]" data-dealer-chat-choice="duplicate-add" disabled={submitting} onClick={onDuplicateAdd}>
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackagePlus className="h-4 w-4" />} Cộng dồn
+            </Button>
+            <Button type="button" variant="outline" className="h-11 rounded-xl border-[#d7bdc8] bg-white font-extrabold text-[#704f5e] hover:bg-[#fff0f6]" data-dealer-chat-choice="duplicate-cancel" disabled={submitting} onClick={onDuplicateCancel}>
+              Huỷ
+            </Button>
           </div>
         </div>
       ) : null}
@@ -2793,7 +2890,7 @@ function NppQuickOrderPanel({
         </div>
       ) : null}
 
-      {parseStatus === "success" && selectedRouteCount > 0 ? (
+      {parseStatus === "success" && selectedRouteCount > 0 && !duplicateOrderPrompt ? (
         <div className="py-2">
           <div className="flex min-w-0 items-start gap-2">
             <div className="w-9 shrink-0" aria-hidden="true" />

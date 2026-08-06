@@ -92,6 +92,7 @@ serve(async (req) => {
       .from("dealer_orders")
       .select("id, order_number, status, currency, total_amount_vnd, requested_delivery_date, delivery_note, customer_note, submitted_at", { count: "exact" })
       .eq("customer_id", sessionContext.customer.id)
+      .neq("status", "cancelled")
       .gte("submitted_at", start)
       .lt("submitted_at", end)
       .order("submitted_at", { ascending: false })
