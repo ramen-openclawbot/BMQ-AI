@@ -2,6 +2,7 @@
 """Contracts for dealer duplicate-order prevention and chat resolution."""
 
 from pathlib import Path
+import subprocess
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,11 +47,24 @@ class DealerDuplicateOrderGuardTests(unittest.TestCase):
 
     def test_edge_computes_server_fingerprint_and_uses_atomic_rpc(self) -> None:
         self.assertIn("computeOrderFingerprint", self.submit)
+        self.assertIn("canonicalPhysicalQuantity", self.submit)
+        self.assertIn("sessionContext.customer.customer_name || null", self.submit)
+        self.assertNotIn("physicalQuantityInput", self.submit)
         self.assertIn('duplicate_action?: unknown', self.submit)
         self.assertIn('client_submission_id?: unknown', self.submit)
         self.assertIn('.rpc("submit_dealer_order_guarded"', self.submit)
         self.assertNotIn('.from("dealer_orders")\n      .insert', self.submit)
         self.assertIn('similar_order_exists', self.submit)
+
+    def test_fingerprint_ignores_client_physical_and_route_display_fields(self) -> None:
+        completed = subprocess.run(
+            ["node", "scripts/test_dealer_order_fingerprint.mjs"],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
 
     def test_chat_renders_duplicate_choice_without_creating_order(self) -> None:
         self.assertIn("duplicateOrderPrompt", self.portal)

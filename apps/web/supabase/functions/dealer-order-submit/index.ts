@@ -14,6 +14,10 @@ import {
   formatWarehouseOrderMessage,
   isValidDeliveryDate,
 } from "../_shared/dealer-warehouse-notification.ts";
+import {
+  canonicalPhysicalQuantity,
+  computeOrderFingerprint,
+} from "../_shared/dealer-order-fingerprint.ts";
 
 type SubmitItemInput = {
   sku_id?: unknown;
@@ -191,7 +195,7 @@ serve(async (req) => {
         lineTotal,
         priceSource,
         routeCustomerId: item.route_customer_id,
-        routeCustomerName: route?.customer_name || item.route_customer_name,
+        routeCustomerName: route?.customer_name || sessionContext.customer.customer_name || null,
         routeNote: item.route_note,
       };
     });
@@ -328,10 +332,7 @@ function normalizeItems(items: SubmitItemInput[] | undefined): NormalizedSubmitI
     const quantity = Number(item.ordered_quantity ?? item.quantity);
     const exchangeQuantity = Math.max(0, Number(item.exchange_quantity || 0));
     const makeupQuantity = Math.max(0, Number(item.makeup_quantity || 0));
-    const physicalQuantityInput = Number(item.physical_quantity);
-    const physicalQuantity = Number.isFinite(physicalQuantityInput) && physicalQuantityInput > 0
-      ? physicalQuantityInput
-      : quantity + exchangeQuantity + makeupQuantity;
+    const physicalQuantity = canonicalPhysicalQuantity(quantity, exchangeQuantity, makeupQuantity);
     const routeCustomerId = typeof item.route_customer_id === "string" && item.route_customer_id.trim()
       ? item.route_customer_id.trim()
       : null;
@@ -379,36 +380,6 @@ function roundQuantity(value: number): number {
 
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-
-async function computeOrderFingerprint(input: {
-  requestedDeliveryDate: string;
-  lines: Array<{
-    sku_id: string;
-    quantity: number;
-    exchange_quantity: number;
-    makeup_quantity: number;
-    physical_quantity: number;
-    route_customer_id: string | null;
-    route_customer_name: string | null;
-  }>;
-}) {
-  const canonicalLines = input.lines
-    .map((line) => ({
-      sku_id: line.sku_id,
-      route: line.route_customer_id || normalizeSkuText(line.route_customer_name),
-      quantity: roundQuantity(line.quantity),
-      exchange_quantity: roundQuantity(line.exchange_quantity),
-      makeup_quantity: roundQuantity(line.makeup_quantity),
-      physical_quantity: roundQuantity(line.physical_quantity),
-    }))
-    .sort((left, right) => `${left.sku_id}:${left.route}`.localeCompare(`${right.sku_id}:${right.route}`));
-  const bytes = new TextEncoder().encode(JSON.stringify({
-    requested_delivery_date: input.requestedDeliveryDate,
-    lines: canonicalLines,
-  }));
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-  return Array.from(digest).map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
 
 function generateOrderNumber(): string {
   const dateStamp = new Intl.DateTimeFormat("en-CA", {
