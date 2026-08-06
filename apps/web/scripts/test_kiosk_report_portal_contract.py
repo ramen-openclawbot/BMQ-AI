@@ -250,6 +250,31 @@ def test_report_schema_contract() -> None:
         assert_contains(sql, needle, label)
 
 
+def test_dual_portal_test_access_requires_explicit_flags_on_both_rows() -> None:
+    sql = read_report_migrations()
+    assert sql.count("allow_dual_portal_access boolean not null default false") >= 2
+    assert_contains(
+        sql,
+        "new.allow_dual_portal_access = true and krs.allow_dual_portal_access = true",
+        "dealer activation requires matching kiosk dual-access flag",
+    )
+    assert_contains(
+        sql,
+        "new.allow_dual_portal_access = true and dcc.allow_dual_portal_access = true",
+        "kiosk activation requires matching dealer dual-access flag",
+    )
+    assert_contains(
+        sql,
+        "update of phone_normalized, active, allow_dual_portal_access",
+        "kiosk trigger rechecks dual-access flag changes",
+    )
+    assert_contains(
+        sql,
+        "update of phone_normalized, is_active, allow_dual_portal_access",
+        "dealer trigger rechecks dual-access flag changes",
+    )
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
