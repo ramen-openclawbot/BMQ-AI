@@ -7,6 +7,7 @@ import {
   Building2,
   CalendarDays,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   ClipboardList,
   HelpCircle,
@@ -41,6 +42,7 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import { cn } from "@/lib/utils";
+import "@/styles/dealer-order-history.css";
 
 type LoginStep = "phone" | "otp" | "catalog";
 
@@ -110,6 +112,54 @@ type CatalogResponse = {
   customer?: DealerCustomer | null;
   dealer_routes?: DealerRoute[];
 };
+
+type DealerOrderHistoryItem = {
+  id: string;
+  sku_code: string;
+  product_name: string;
+  unit: string;
+  ordered_quantity: number;
+  exchange_quantity: number;
+  makeup_quantity: number;
+  physical_quantity: number;
+  unit_price_vnd: number;
+  line_total_vnd: number;
+  route_customer_name?: string | null;
+  route_note?: string | null;
+};
+
+type DealerOrderHistoryOrder = {
+  id: string;
+  order_number: string;
+  status: string;
+  currency: string;
+  total_amount_vnd: number;
+  requested_delivery_date?: string | null;
+  delivery_note?: string | null;
+  customer_note?: string | null;
+  submitted_at: string;
+  physical_quantity: number;
+  items: DealerOrderHistoryItem[];
+};
+
+type DealerOrderHistoryResponse = {
+  success?: boolean;
+  summary?: {
+    order_count?: number;
+    total_physical_quantity?: number;
+    total_amount_vnd?: number;
+  };
+  pagination?: {
+    page?: number;
+    page_size?: number;
+    total_orders?: number;
+    total_pages?: number;
+  };
+  orders?: DealerOrderHistoryOrder[];
+};
+
+type DealerOrderHistoryGranularity = "day" | "month" | "year";
+type DealerOrderHistoryStatus = "idle" | "loading" | "live" | "error";
 
 type DealerLandingBanner = {
   id?: string;
@@ -206,6 +256,37 @@ const formatVnd = (value: number) =>
     currency: "VND",
     maximumFractionDigits: 0,
   }).format(value);
+
+const formatDealerQuantity = (value: number) =>
+  new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 3 }).format(value);
+
+const currentDealerHistoryAnchor = (granularity: DealerOrderHistoryGranularity) => {
+  const vietnamToday = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  if (granularity === "day") return vietnamToday;
+  if (granularity === "year") return vietnamToday.slice(0, 4);
+  return vietnamToday.slice(0, 7);
+};
+
+const formatDealerOrderTime = (value: string) =>
+  new Intl.DateTimeFormat("vi-VN", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+
+const formatDealerDeliveryDate = (value?: string | null) => {
+  if (!value) return "Chưa hẹn ngày";
+  const [year, month, day] = value.split("-");
+  return year && month && day ? `${day}/${month}/${year}` : value;
+};
 
 const toNullableNumber = (value: number | string | null | undefined) => {
   if (value === null || value === undefined || value === "") return null;
@@ -348,6 +429,13 @@ export default function DealerPortal() {
   const [activeCategory, setActiveCategory] = useState("Tất cả");
   const [productSearch, setProductSearch] = useState("");
   const [dealerProfileOpen, setDealerProfileOpen] = useState(false);
+  const [orderHistoryGranularity, setOrderHistoryGranularity] = useState<DealerOrderHistoryGranularity>("month");
+  const [orderHistoryAnchor, setOrderHistoryAnchor] = useState(() => currentDealerHistoryAnchor("month"));
+  const [orderHistoryPage, setOrderHistoryPage] = useState(1);
+  const [orderHistoryStatus, setOrderHistoryStatus] = useState<DealerOrderHistoryStatus>("idle");
+  const [orderHistoryError, setOrderHistoryError] = useState("");
+  const [orderHistoryData, setOrderHistoryData] = useState<DealerOrderHistoryResponse | null>(null);
+  const [selectedHistoryOrder, setSelectedHistoryOrder] = useState<DealerOrderHistoryOrder | null>(null);
 
   const loadLandingConfig = useCallback(async () => {
     try {
@@ -460,6 +548,54 @@ export default function DealerPortal() {
     void loadCatalog(sessionToken);
   }, [loadCatalog, sessionToken]);
 
+  const loadOrderHistory = useCallback(async () => {
+    if (!sessionToken || activeNav !== "orders") return;
+    setOrderHistoryStatus("loading");
+    setOrderHistoryError("");
+
+    const { data, error, isSessionExpired } = await callEdgeFunction<DealerOrderHistoryResponse>("dealer-order-history", {
+      dealer_token: sessionToken,
+      granularity: orderHistoryGranularity,
+      anchor: orderHistoryAnchor,
+      page: orderHistoryPage,
+      page_size: 10,
+    }, undefined, 12000);
+
+    if (error || !data) {
+      if (isSessionExpired) {
+        localStorage.removeItem(DEALER_SESSION_STORAGE_KEY);
+        localStorage.removeItem(DEALER_PROFILE_CACHE_KEY);
+        localStorage.removeItem(DEALER_CATALOG_CACHE_KEY);
+        setSessionToken("");
+        setLoginStep("phone");
+        setActiveNav("messages");
+      }
+      setOrderHistoryError(error || "Không tải được lịch sử đơn hàng. Vui lòng thử lại.");
+      setOrderHistoryStatus("error");
+      return;
+    }
+
+    setOrderHistoryData(data);
+    setOrderHistoryStatus("live");
+  }, [activeNav, orderHistoryAnchor, orderHistoryGranularity, orderHistoryPage, sessionToken]);
+
+  useEffect(() => {
+    void loadOrderHistory();
+  }, [loadOrderHistory]);
+
+  const handleOrderHistoryGranularityChange = (granularity: DealerOrderHistoryGranularity) => {
+    setOrderHistoryGranularity(granularity);
+    setOrderHistoryAnchor(currentDealerHistoryAnchor(granularity));
+    setOrderHistoryPage(1);
+    setSelectedHistoryOrder(null);
+  };
+
+  const handleOrderHistoryAnchorChange = (anchor: string) => {
+    setOrderHistoryAnchor(anchor);
+    setOrderHistoryPage(1);
+    setSelectedHistoryOrder(null);
+  };
+
   const handleStartAuth = async () => {
     setAuthLoading(true);
     setAuthError("");
@@ -555,6 +691,11 @@ export default function DealerPortal() {
     setNppParseStatus("idle");
     setDirectCatalogOrder(false);
     setActiveNav("messages");
+    setOrderHistoryData(null);
+    setOrderHistoryStatus("idle");
+    setOrderHistoryError("");
+    setOrderHistoryPage(1);
+    setSelectedHistoryOrder(null);
     setLoginStep("phone");
     setOtp("");
     setAuthMessage("");
@@ -1042,6 +1183,303 @@ export default function DealerPortal() {
     );
   }
 
+  if (activeNav === "orders") {
+    const historyOrders = orderHistoryData?.orders || [];
+    const historySummary = orderHistoryData?.summary || {};
+    const historyPagination = orderHistoryData?.pagination || {};
+    const historyTotalPages = Math.max(1, historyPagination.total_pages || 1);
+    const currentHistoryYear = Number(currentDealerHistoryAnchor("year"));
+    const historyYearOptions = Array.from({ length: 6 }, (_, index) => String(currentHistoryYear - index));
+
+    return (
+      <div
+        className="min-h-[100dvh] overflow-x-clip bg-[var(--dealer-paper)] text-[var(--dealer-ink)]"
+        data-dealer-agent-screen="orders"
+        data-dealer-order-history="mobile-first"
+        data-hallmark-dna="dealer-conversational-catalogue"
+        style={DEALER_HALLMARK_TOKENS}
+      >
+        <header className="sticky top-0 z-30 border-b border-[var(--dealer-rule)] bg-white/95 px-4 pb-3 pt-[max(12px,env(safe-area-inset-top))] backdrop-blur">
+          <div className="mx-auto flex max-w-3xl items-center gap-3">
+            <button
+              type="button"
+              aria-label="Quay lại danh sách tin nhắn"
+              className="dealer-history-icon-button -ml-2"
+              onClick={() => setActiveNav("messages")}
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-xl font-extrabold tracking-tight sm:text-2xl">Đơn hàng của tôi</h1>
+              <p className="truncate text-sm font-medium text-[var(--dealer-ink-muted)]">{dealerDisplayName}</p>
+            </div>
+            <button
+              type="button"
+              aria-label="Mở tài khoản"
+              className="dealer-history-avatar"
+              onClick={() => setDealerProfileOpen(true)}
+            >
+              {(dealerDisplayName.trim().charAt(0) || "B").toLocaleUpperCase("vi-VN")}
+            </button>
+          </div>
+        </header>
+
+        <main className="mx-auto w-full max-w-3xl px-4 pb-28 pt-5 sm:pt-7">
+          <section className="space-y-4" data-dealer-order-history-filter>
+            <div className="dealer-history-period-tabs" role="tablist" aria-label="Lọc lịch sử theo thời gian">
+              {([
+                ["day", "Ngày"],
+                ["month", "Tháng"],
+                ["year", "Năm"],
+              ] as Array<[DealerOrderHistoryGranularity, string]>).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="tab"
+                  aria-selected={orderHistoryGranularity === value}
+                  className="dealer-history-period-tab"
+                  data-active={orderHistoryGranularity === value ? "true" : "false"}
+                  onClick={() => handleOrderHistoryGranularityChange(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-[var(--dealer-ink)]">
+                {orderHistoryGranularity === "day" ? "Chọn ngày" : orderHistoryGranularity === "month" ? "Chọn tháng" : "Chọn năm"}
+              </span>
+              {orderHistoryGranularity === "year" ? (
+                <select
+                  value={orderHistoryAnchor}
+                  className="dealer-history-period-input"
+                  onChange={(event) => handleOrderHistoryAnchorChange(event.target.value)}
+                >
+                  {historyYearOptions.map((year) => <option key={year} value={year}>{year}</option>)}
+                </select>
+              ) : (
+                <Input
+                  type={orderHistoryGranularity === "day" ? "date" : "month"}
+                  value={orderHistoryAnchor}
+                  className="dealer-history-period-input"
+                  onChange={(event) => handleOrderHistoryAnchorChange(event.target.value)}
+                />
+              )}
+            </label>
+          </section>
+
+          <section className="dealer-history-summary mt-5" data-dealer-order-history-summary aria-label="Tổng hợp lịch sử đơn hàng">
+            <div className="dealer-history-summary-item">
+              <span>Số đơn</span>
+              <strong>{formatDealerQuantity(Number(historySummary.order_count || 0))}</strong>
+            </div>
+            <div className="dealer-history-summary-item">
+              <span>Tổng số bánh giao</span>
+              <strong>{formatDealerQuantity(Number(historySummary.total_physical_quantity || 0))}</strong>
+            </div>
+            <div className="dealer-history-summary-item dealer-history-summary-amount">
+              <span>Tổng tiền</span>
+              <strong>{formatVnd(Number(historySummary.total_amount_vnd || 0))}</strong>
+            </div>
+          </section>
+
+          {orderHistoryStatus === "loading" ? (
+            <section className="mt-5 space-y-3" data-dealer-order-history-state="loading" aria-label="Đang tải lịch sử đơn hàng">
+              {[0, 1, 2].map((item) => (
+                <div key={item} className="dealer-history-skeleton" aria-hidden="true">
+                  <div className="h-4 w-36 rounded-full bg-[#f2dce5]" />
+                  <div className="mt-3 h-3 w-52 max-w-full rounded-full bg-[#f8eaf0]" />
+                  <div className="mt-4 h-6 w-full rounded-lg bg-[#f8eaf0]" />
+                </div>
+              ))}
+            </section>
+          ) : null}
+
+          {orderHistoryStatus === "error" ? (
+            <section className="dealer-history-state mt-5" data-dealer-order-history-state="error" aria-live="polite">
+              <AlertCircle className="h-6 w-6 text-red-600" />
+              <div>
+                <h2 className="font-extrabold">Chưa tải được lịch sử đơn hàng</h2>
+                <p>{orderHistoryError || "Kết nối chưa ổn định. Vui lòng tải lại."}</p>
+              </div>
+              <Button type="button" variant="outline" className="dealer-history-state-action" onClick={() => void loadOrderHistory()}>
+                Tải lại
+              </Button>
+            </section>
+          ) : null}
+
+          {orderHistoryStatus === "live" && historyOrders.length === 0 ? (
+            <section className="dealer-history-state mt-5" data-dealer-order-history-state="empty">
+              <ClipboardList className="h-7 w-7 text-[var(--dealer-accent)]" />
+              <div>
+                <h2 className="font-extrabold">Chưa có đơn trong kỳ này</h2>
+                <p>Đổi khoảng thời gian hoặc bắt đầu một đơn mới cùng BMQ Agent.</p>
+              </div>
+              <Button type="button" className="dealer-history-state-action bg-[var(--dealer-accent)] text-white hover:bg-[var(--dealer-accent-strong)]" onClick={() => setActiveNav("order")}>
+                Đặt đơn mới
+              </Button>
+            </section>
+          ) : null}
+
+          {orderHistoryStatus === "live" && historyOrders.length > 0 ? (
+            <section className="mt-5" data-dealer-order-history-list aria-label="Danh sách đơn hàng">
+              <div className="dealer-history-list">
+                {historyOrders.map((order) => (
+                  <button
+                    key={order.id}
+                    type="button"
+                    className="dealer-history-row"
+                    onClick={() => setSelectedHistoryOrder(order)}
+                    aria-label={`Xem chi tiết đơn ${order.order_number}`}
+                  >
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="dealer-history-order-number">{order.order_number}</div>
+                        <div className="mt-1 text-sm text-[var(--dealer-ink-muted)]">{formatDealerOrderTime(order.submitted_at)}</div>
+                      </div>
+                      <span className="dealer-history-status">Đã ghi nhận</span>
+                    </div>
+                    <div className="dealer-history-row-values">
+                      <div>
+                        <span>Ngày giao</span>
+                        <strong>{formatDealerDeliveryDate(order.requested_delivery_date)}</strong>
+                      </div>
+                      <div>
+                        <span>Số bánh giao</span>
+                        <strong>{formatDealerQuantity(order.physical_quantity)}</strong>
+                      </div>
+                      <div>
+                        <span>Tổng tiền</span>
+                        <strong>{formatVnd(order.total_amount_vnd)}</strong>
+                      </div>
+                      <ChevronRight className="h-5 w-5 shrink-0 text-[var(--dealer-accent)]" aria-hidden="true" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {orderHistoryStatus === "live" && historyOrders.length > 0 ? (
+            <nav className="dealer-history-pagination mt-5" data-dealer-order-history-pagination aria-label="Phân trang lịch sử đơn hàng">
+              <button
+                type="button"
+                className="dealer-history-page-button"
+                disabled={orderHistoryPage <= 1}
+                onClick={() => setOrderHistoryPage((page) => Math.max(1, page - 1))}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Trước
+              </button>
+              <span className="whitespace-nowrap text-sm font-bold text-[var(--dealer-ink-muted)]">Trang {orderHistoryPage}/{historyTotalPages}</span>
+              <button
+                type="button"
+                className="dealer-history-page-button"
+                disabled={orderHistoryPage >= historyTotalPages}
+                onClick={() => setOrderHistoryPage((page) => Math.min(historyTotalPages, page + 1))}
+              >
+                Sau
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </nav>
+          ) : null}
+        </main>
+
+        <nav className="dealer-history-bottom-nav" data-dealer-agent-nav="messages-orders-account">
+          <div className="mx-auto grid h-16 max-w-3xl grid-cols-3">
+            <button type="button" onClick={() => setActiveNav("messages")}>
+              <MessageCircle className="h-5 w-5" />
+              <span>Tin nhắn</span>
+            </button>
+            <button type="button" className="is-active" aria-current="page">
+              <ClipboardList className="h-5 w-5" />
+              <span>Đơn hàng</span>
+            </button>
+            <button type="button" onClick={() => setDealerProfileOpen(true)}>
+              <UserRound className="h-5 w-5" />
+              <span>Tài khoản</span>
+            </button>
+          </div>
+        </nav>
+
+        <Dialog open={Boolean(selectedHistoryOrder)} onOpenChange={(open) => !open && setSelectedHistoryOrder(null)}>
+          <DialogContent
+            data-dealer-order-history-detail
+            className="dealer-history-detail max-w-xl p-0"
+            style={DEALER_HALLMARK_TOKENS}
+          >
+            {selectedHistoryOrder ? (
+              <>
+                <div className="border-b border-[var(--dealer-rule)] px-5 pb-4 pt-5 sm:px-6">
+                  <DialogHeader>
+                    <DialogTitle className="pr-8 text-xl font-extrabold">{selectedHistoryOrder.order_number}</DialogTitle>
+                    <DialogDescription className="text-[var(--dealer-ink-muted)]">
+                      Đặt lúc {formatDealerOrderTime(selectedHistoryOrder.submitted_at)} · giao {formatDealerDeliveryDate(selectedHistoryOrder.requested_delivery_date)}
+                    </DialogDescription>
+                  </DialogHeader>
+                </div>
+                <div className="max-h-[calc(100dvh-12rem)] space-y-4 overflow-y-auto px-5 py-4 sm:max-h-[65dvh] sm:px-6">
+                  {selectedHistoryOrder.items.map((item) => (
+                    <article key={item.id} className="dealer-history-detail-item">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="font-extrabold leading-5">{item.product_name}</h3>
+                          <p className="mt-1 text-sm text-[var(--dealer-ink-muted)]">{item.route_customer_name || dealerDisplayName}</p>
+                        </div>
+                        <strong className="shrink-0 text-sm text-[var(--dealer-accent-strong)]">{formatVnd(item.line_total_vnd)}</strong>
+                      </div>
+                      <div className="dealer-history-quantity-grid">
+                        {([
+                          ["Đặt", item.ordered_quantity],
+                          ["Đổi", item.exchange_quantity],
+                          ["Bù", item.makeup_quantity],
+                          ["Giao", item.physical_quantity],
+                        ] as Array<[string, number]>).map(([label, value]) => (
+                          <div key={label}>
+                            <span>{label}</span>
+                            <strong>{formatDealerQuantity(value)}</strong>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-3 flex items-center justify-between gap-3 text-sm text-[var(--dealer-ink-muted)]">
+                        <span>{formatVnd(item.unit_price_vnd)} / {item.unit}</span>
+                        {item.route_note ? <span className="min-w-0 truncate text-right">{item.route_note}</span> : null}
+                      </div>
+                    </article>
+                  ))}
+                  {selectedHistoryOrder.customer_note || selectedHistoryOrder.delivery_note ? (
+                    <div className="dealer-history-note">
+                      <span className="font-extrabold">Ghi chú</span>
+                      <span>{selectedHistoryOrder.customer_note || selectedHistoryOrder.delivery_note}</span>
+                    </div>
+                  ) : null}
+                </div>
+                <div className="dealer-history-detail-total">
+                  <span>{formatDealerQuantity(selectedHistoryOrder.physical_quantity)} bánh giao</span>
+                  <strong>{formatVnd(selectedHistoryOrder.total_amount_vnd)}</strong>
+                </div>
+              </>
+            ) : null}
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={dealerProfileOpen} onOpenChange={setDealerProfileOpen}>
+          <DialogContent className="max-w-sm rounded-[28px] border-[#f0d5e1] bg-[#fff9fb] text-[#35252c]">
+            <DialogHeader>
+              <DialogTitle>Tài khoản đặt hàng</DialogTitle>
+              <DialogDescription>{dealerDisplayName}</DialogDescription>
+            </DialogHeader>
+            <Button variant="outline" className="h-11 rounded-2xl border-[#efd3df] bg-white text-[#b33f72]" onClick={handleLogoutDealer}>
+              <LogOut className="h-4 w-4" />
+              Đăng xuất
+            </Button>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
+
   if (activeNav === "messages") {
     return (
       <div
@@ -1123,9 +1561,9 @@ export default function DealerPortal() {
               <MessageCircle className="h-5 w-5" />
               <span className="text-[11px] font-bold">Tin nhắn</span>
             </button>
-            <button type="button" className="flex flex-col items-center justify-center gap-1 text-[#88777f]" onClick={() => setActiveNav("order")}>
+            <button type="button" className="flex flex-col items-center justify-center gap-1 text-[#88777f]" onClick={() => setActiveNav("orders")}>
               <ClipboardList className="h-5 w-5" />
-              <span className="text-[11px] font-medium">Đơn hàng</span>
+              <span className="whitespace-nowrap text-[11px] font-medium">Đơn hàng</span>
             </button>
             <button type="button" className="flex flex-col items-center justify-center gap-1 text-[#88777f]" onClick={() => setDealerProfileOpen(true)}>
               <UserRound className="h-5 w-5" />

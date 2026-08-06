@@ -310,7 +310,9 @@ class DealerAgentExperienceTests(unittest.TestCase):
         self.assertIn('aria-live="assertive"', modal)
 
     def test_hallmark_studied_dna_is_stamped_on_visible_agent_states(self) -> None:
-        self.assertEqual(self.source.count('data-hallmark-dna="dealer-conversational-catalogue"'), 3)
+        self.assertEqual(self.source.count('data-hallmark-dna="dealer-conversational-catalogue"'), 4)
+        self.assertIn('data-dealer-agent-screen="orders"', self.source)
+        self.assertIn('data-dealer-order-history="mobile-first"', self.source)
         self.assertIn('data-hallmark-login="branded-rounded"', self.source)
         self.assertIn('data-hallmark-chat="bottom-clustered"', self.source)
         self.assertIn('data-hallmark-preview="single-layer"', self.source)

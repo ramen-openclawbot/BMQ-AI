@@ -116,6 +116,9 @@ verify_jwt = false
 [functions.dealer-order-submit]
 verify_jwt = false
 
+[functions.dealer-order-history]
+verify_jwt = false
+
 [functions.dealer-warehouse-notify]
 # Server-only worker: authorizes service-role invocation or x-cron-secret in code.
 verify_jwt = false
