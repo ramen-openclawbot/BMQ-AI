@@ -515,6 +515,7 @@ export default function MiniCrm() {
   const [selectedPreviewIds, setSelectedPreviewIds] = useState<string[]>([]);
   const [confirmTemplateRead, setConfirmTemplateRead] = useState<boolean>(false);
   const [setupModalOpen, setSetupModalOpen] = useState(false);
+  const [setupDealerPhone, setSetupDealerPhone] = useState("");
   const [viewCustomer, setViewCustomer] = useState<any | null>(null);
   const [miniCrmSection, setMiniCrmSection] = useState<"customers" | "locations" | "staff">("customers");
   const [setupContractFile, setSetupContractFile] = useState<File | null>(null);
@@ -1066,15 +1067,28 @@ export default function MiniCrm() {
       if (!trimmedName) throw new Error("Vui lòng nhập tên khách hàng");
       if (!setupIsNpp && setupUsesNpp && !setupSuppliedByNppCustomerId) throw new Error("Vui lòng chọn nhà phân phối cung cấp hàng");
 
-      const debtEmails = normalizeEmailList(debtEmailsInput || emailsInput);
-      const { data: created, error: createError } = await (supabase as any)
-        .from("mini_crm_customers")
-        .insert({ customer_name: trimmedName, customer_group: customerGroup, product_group: productGroup, debt_emails: debtEmails, is_npp: setupIsNpp, supplied_by_npp_customer_id: setupIsNpp ? null : (setupUsesNpp ? (setupSuppliedByNppCustomerId || null) : null), npp_management_fee_vnd: Number(String(setupNppManagementFee || "0").replace(/[^0-9]/g, "")) || 0 })
-        .select("id")
-        .single();
-      if (createError) throw createError;
+      const rawSetupDealerPhone = setupDealerPhone.trim();
+      const normalizedSetupDealerPhone = normalizeDealerContactPhone(rawSetupDealerPhone);
+      if (rawSetupDealerPhone && !/^84(3|5|7|8|9)\d{8}$/.test(normalizedSetupDealerPhone)) {
+        throw new Error(`SĐT nhận OTP không hợp lệ: ${rawSetupDealerPhone}`);
+      }
 
-      const customerId = created.id;
+      const debtEmails = normalizeEmailList(debtEmailsInput || emailsInput);
+      const { data: customerId, error: createError } = await (supabase as any)
+        .rpc("create_mini_crm_customer_with_dealer_contact", {
+          p_customer_name: trimmedName,
+          p_customer_group: customerGroup,
+          p_product_group: productGroup,
+          p_debt_emails: debtEmails,
+          p_is_npp: setupIsNpp,
+          p_supplied_by_npp_customer_id: setupIsNpp ? null : (setupUsesNpp ? (setupSuppliedByNppCustomerId || null) : null),
+          p_npp_management_fee_vnd: Number(String(setupNppManagementFee || "0").replace(/[^0-9]/g, "")) || 0,
+          p_phone_raw: rawSetupDealerPhone || null,
+          p_phone_normalized: normalizedSetupDealerPhone || null,
+        });
+      if (createError) throw new Error(createError.message || "Không thể tạo khách hàng");
+      if (!customerId) throw new Error("Không thể tạo khách hàng");
+
       const emails = normalizeEmailList(emailsInput);
       if (emails.length) {
         const { error: emailError } = await (supabase as any)
@@ -1161,6 +1175,7 @@ export default function MiniCrm() {
       setCustomerName("");
       setCustomerGroup("banhmi_point");
       setProductGroup("banhmi");
+      setSetupDealerPhone("");
       setEmailsInput("");
       setDebtEmailsInput("");
       setSetupContractFile(null);
@@ -3188,7 +3203,10 @@ export default function MiniCrm() {
         </TabsList>
       </Tabs>
 
-      <Dialog open={setupModalOpen} onOpenChange={setSetupModalOpen}>
+      <Dialog open={setupModalOpen} onOpenChange={(open) => {
+        setSetupModalOpen(open);
+        if (!open) setSetupDealerPhone("");
+      }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{ui.customersSetup}</DialogTitle>
@@ -3199,6 +3217,17 @@ export default function MiniCrm() {
             <div className="space-y-2">
               <Label>Tên khách hàng</Label>
               <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Ví dụ: Đại lý Hòa Bình" />
+            </div>
+            <div className="space-y-2">
+              <Label>Số điện thoại nhận OTP đặt hàng</Label>
+              <Input
+                inputMode="tel"
+                autoComplete="tel"
+                value={setupDealerPhone}
+                onChange={(e) => setSetupDealerPhone(e.target.value)}
+                placeholder="Ví dụ: 0901234567"
+              />
+              <p className="text-xs text-muted-foreground">Dùng để đăng nhập và nhận OTP tại dathang.banhmique.vn. Có thể để trống nếu khách không đặt hàng online.</p>
             </div>
             <div className="space-y-2">
               <Label>Nhóm khách hàng</Label>
@@ -3322,7 +3351,10 @@ export default function MiniCrm() {
           </div>
 
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setSetupModalOpen(false)}>Huỷ</Button>
+            <Button variant="outline" onClick={() => {
+              setSetupModalOpen(false);
+              setSetupDealerPhone("");
+            }}>Huỷ</Button>
             <Button onClick={() => setupCustomerMutation.mutate()} disabled={setupCustomerMutation.isPending}>
               {setupCustomerMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               Lưu thiết lập khách hàng
