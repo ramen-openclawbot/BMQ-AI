@@ -266,8 +266,8 @@ export function PaymentRequestDetailsDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="!inset-0 !left-0 !top-0 h-[100dvh] w-full max-w-none !translate-x-0 !translate-y-0 gap-0 overflow-x-clip overflow-y-auto overscroll-contain border-0 p-0 [&>button]:flex [&>button]:h-11 [&>button]:w-11 [&>button]:items-center [&>button]:justify-center sm:!left-1/2 sm:!top-1/2 sm:h-auto sm:max-h-[90dvh] sm:max-w-4xl sm:!-translate-x-1/2 sm:!-translate-y-1/2 sm:gap-4 sm:rounded-lg sm:border sm:p-6">
-          <DialogHeader className="sticky top-0 z-20 border-b border-border bg-background px-4 pb-4 pr-14 pt-[max(1rem,env(safe-area-inset-top))] text-left sm:static sm:border-0 sm:p-0">
+        <DialogContent className="!inset-0 !left-0 !top-0 h-screen h-[100dvh] max-h-screen max-h-[100dvh] w-full max-w-none !translate-x-0 !translate-y-0 touch-pan-y gap-0 overflow-x-hidden overflow-y-auto overscroll-contain border-0 p-0 [-webkit-overflow-scrolling:touch] [&>button]:top-[max(1rem,env(safe-area-inset-top))] [&>button]:right-[max(1rem,env(safe-area-inset-right))] [&>button]:flex [&>button]:h-11 [&>button]:w-11 [&>button]:items-center [&>button]:justify-center sm:!left-1/2 sm:!top-1/2 sm:h-auto sm:max-h-[90dvh] sm:max-w-4xl sm:!-translate-x-1/2 sm:!-translate-y-1/2 sm:gap-4 sm:rounded-lg sm:border sm:p-6">
+          <DialogHeader className="sticky top-0 z-20 border-b border-border bg-background pb-4 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(3.75rem,calc(2.75rem+env(safe-area-inset-right)))] pt-[max(1rem,env(safe-area-inset-top))] text-left sm:static sm:border-0 sm:p-0">
             <DialogTitle className="min-w-0 [overflow-wrap:anywhere] text-xl leading-tight">Chi tiết đề nghị duyệt chi</DialogTitle>
             <DialogDescription className="break-words">
               {request?.request_number} - {request?.title}
@@ -279,7 +279,7 @@ export function PaymentRequestDetailsDialog({
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
           ) : request ? (
-            <div className="min-w-0 space-y-4 px-4 py-4 sm:space-y-6 sm:p-0">
+            <div className="min-w-0 space-y-4 pb-4 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-4 sm:space-y-6 sm:p-0">
               {/* Warning for paid without invoice */}
               {request.payment_status === "paid" && !request.invoice_created && (
                 <Alert variant="destructive">
@@ -605,7 +605,7 @@ export function PaymentRequestDetailsDialog({
               )}
 
               {/* Actions */}
-              <div className="sticky bottom-0 z-20 -mx-4 grid grid-cols-2 gap-2 border-t border-border bg-background p-4 pb-[max(1rem,env(safe-area-inset-bottom))] [&>button]:min-h-11 sm:static sm:mx-0 sm:flex sm:flex-wrap sm:p-0 sm:pt-4 sm:[&>button]:min-h-10">
+              <div className="sticky bottom-0 z-20 -ml-[max(1rem,env(safe-area-inset-left))] -mr-[max(1rem,env(safe-area-inset-right))] grid grid-cols-2 gap-2 border-t border-border bg-background pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-4 [transform:translateZ(0)] [&>button]:min-h-11 sm:static sm:mx-0 sm:flex sm:flex-wrap sm:p-0 sm:pt-4 sm:[&>button]:min-h-10">
                 {/* Edit button for pending requests */}
                 {request.status === "pending" && (
                   <Button
