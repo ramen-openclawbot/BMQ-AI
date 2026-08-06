@@ -759,6 +759,7 @@ export function GlobalAgentChatWidget() {
   const isSkuCostsMobileContext = location.pathname.startsWith("/sku-costs");
   const isPurchaseOrdersMobileContext = location.pathname.startsWith("/purchase-orders");
   const isProductionProductsMobileContext = location.pathname.startsWith("/production/products");
+  const isPaymentRequestsMobileContext = location.pathname.startsWith("/payment-requests");
   const shouldLiftMobileChatButton = isRevenueMobileContext || isSkuCostsMobileContext || isPurchaseOrdersMobileContext || isProductionProductsMobileContext;
 
   const pushAgent = (text: string) => setMessages((prev) => [...prev, { role: "agent", text }]);
@@ -786,6 +787,12 @@ export function GlobalAgentChatWidget() {
       loadDashboardQuickReport();
     }
   }, [open, routeContext.key, loadDashboardQuickReport]);
+
+  useEffect(() => {
+    const openAgentChat = () => setOpen(true);
+    window.addEventListener("bmq:open-agent-chat", openAgentChat);
+    return () => window.removeEventListener("bmq:open-agent-chat", openAgentChat);
+  }, []);
 
   const loadDailyReport = useCallback(async () => {
     if (!isRevenueMobileContext) return;
@@ -1224,7 +1231,8 @@ export function GlobalAgentChatWidget() {
           "bg-primary text-primary-foreground hover:bg-primary/90",
           shouldLiftMobileChatButton
             ? "bottom-[calc(5rem+env(safe-area-inset-bottom))] right-3 h-11 w-11 sm:bottom-[calc(1.5rem+env(safe-area-inset-bottom))] sm:right-6 sm:h-14 sm:w-14"
-            : "right-6 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] h-14 w-14"
+            : "right-6 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] h-14 w-14",
+          isPaymentRequestsMobileContext && "hidden lg:inline-flex"
         )}
         onClick={() => setOpen(true)}
         aria-label="Mở AI Agent Chat"

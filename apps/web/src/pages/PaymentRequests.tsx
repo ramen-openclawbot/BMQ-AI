@@ -13,6 +13,7 @@ import {
   Eye,
   FileText,
   Loader2,
+  MessageCircle,
   PackageCheck,
   Plus,
   ReceiptText,
@@ -120,6 +121,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
   const [currentPage, setCurrentPage] = useState(1);
   const [dateFrom, setDateFrom] = useState(getCurrentVietnamDayInputValue);
   const [dateTo, setDateTo] = useState(getCurrentVietnamDayInputValue);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   
   const { canEditModule } = useAuth();
   const { language, t } = useLanguage();
@@ -160,6 +162,12 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
     const fromLabel = dateFrom ? format(new Date(`${dateFrom}T00:00:00`), "dd/MM/yyyy") : "--/--/----";
     const toLabel = dateTo ? format(new Date(`${dateTo}T00:00:00`), "dd/MM/yyyy") : "--/--/----";
     return `${fromLabel} - ${toLabel}`;
+  }, [dateFrom, dateTo]);
+
+  const mobileDateRangeLabel = useMemo(() => {
+    const fromLabel = dateFrom ? format(new Date(`${dateFrom}T00:00:00`), "dd/MM") : "--/--";
+    const toLabel = dateTo ? format(new Date(`${dateTo}T00:00:00`), "dd/MM") : "--/--";
+    return dateFrom === dateTo ? fromLabel : `${fromLabel}–${toLabel}`;
   }, [dateFrom, dateTo]);
 
   const dateFilteredRequests = useMemo(() => {
@@ -518,6 +526,15 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
               variant="outline"
               size="icon"
               className="h-11 w-11 rounded-md border-border bg-card shadow-none"
+              onClick={() => window.dispatchEvent(new Event("bmq:open-agent-chat"))}
+              title={language === "vi" ? "Mở trợ lý AI" : "Open AI assistant"}
+            >
+              <MessageCircle className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-11 w-11 rounded-md border-border bg-card shadow-none"
               onClick={() => refetch()}
               title={language === "vi" ? "Làm mới" : "Refresh"}
             >
@@ -641,16 +658,6 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
           </section>
 
           <section className="space-y-3 rounded-lg border border-border bg-card p-3">
-            <div data-bmq-payment-requests-default-vn-day="true" className="grid min-w-0 grid-cols-2 gap-2">
-              <label className="min-w-0 space-y-1.5 text-xs font-medium text-muted-foreground">
-                {language === "vi" ? "Từ ngày" : "From"}
-                <Input type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => setDateFrom(event.target.value)} className="h-11 min-w-0 rounded-md border-border bg-background px-2 text-xs tabular-nums shadow-none" />
-              </label>
-              <label className="min-w-0 space-y-1.5 text-xs font-medium text-muted-foreground">
-                {language === "vi" ? "Đến ngày" : "To"}
-                <Input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} className="h-11 min-w-0 rounded-md border-border bg-background px-2 text-xs tabular-nums shadow-none" />
-              </label>
-            </div>
             <div className="relative">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -682,10 +689,59 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                 </button>
               ))}
             </div>
-            <button type="button" onClick={() => setSourceFilter(sourceFilter === "warehouse_receipt" ? "all" : "warehouse_receipt")} className={cn("flex h-11 w-full items-center justify-between whitespace-nowrap rounded-md border px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2", sourceFilter === "warehouse_receipt" ? "border-primary bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground")}>
-              <span>{language === "vi" ? "Chỉ phiếu từ nhập kho" : "Warehouse receipts only"}</span>
-              <PackageCheck className="h-4 w-4" />
+            <button
+              type="button"
+              aria-expanded={mobileFiltersOpen}
+              onClick={() => setMobileFiltersOpen((open) => !open)}
+              className="flex h-11 w-full items-center justify-between gap-3 whitespace-nowrap rounded-md border border-border bg-background px-3 text-sm font-semibold text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <CalendarDays className="h-4 w-4 shrink-0" />
+                <span>{language === "vi" ? "Bộ lọc ngày & nguồn" : "Date & source filters"}</span>
+              </span>
+              <span className="shrink-0 text-xs font-normal tabular-nums">{mobileDateRangeLabel}</span>
             </button>
+
+            {mobileFiltersOpen ? (
+              <div className="space-y-3 border-t border-border pt-3">
+                <div data-bmq-payment-requests-default-vn-day="true" className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
+                  <label className="min-w-0 space-y-1.5 text-xs font-medium text-muted-foreground">
+                    {language === "vi" ? "Từ ngày" : "From"}
+                    <span className="relative flex h-11 min-w-0 max-w-full items-center overflow-hidden rounded-md border border-border bg-background px-3 text-sm tabular-nums text-foreground focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+                      {dateFrom ? format(new Date(`${dateFrom}T00:00:00`), "dd/MM/yyyy") : "--/--/----"}
+                      <input
+                        type="date"
+                        lang={language}
+                        value={dateFrom}
+                        max={dateTo || undefined}
+                        onChange={(event) => setDateFrom(event.target.value)}
+                        aria-label={language === "vi" ? "Từ ngày" : "From date"}
+                        className="absolute inset-0 h-full w-full min-w-0 max-w-full cursor-pointer opacity-0"
+                      />
+                    </span>
+                  </label>
+                  <label className="min-w-0 space-y-1.5 text-xs font-medium text-muted-foreground">
+                    {language === "vi" ? "Đến ngày" : "To"}
+                    <span className="relative flex h-11 min-w-0 max-w-full items-center overflow-hidden rounded-md border border-border bg-background px-3 text-sm tabular-nums text-foreground focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+                      {dateTo ? format(new Date(`${dateTo}T00:00:00`), "dd/MM/yyyy") : "--/--/----"}
+                      <input
+                        type="date"
+                        lang={language}
+                        value={dateTo}
+                        min={dateFrom || undefined}
+                        onChange={(event) => setDateTo(event.target.value)}
+                        aria-label={language === "vi" ? "Đến ngày" : "To date"}
+                        className="absolute inset-0 h-full w-full min-w-0 max-w-full cursor-pointer opacity-0"
+                      />
+                    </span>
+                  </label>
+                </div>
+                <button type="button" onClick={() => setSourceFilter(sourceFilter === "warehouse_receipt" ? "all" : "warehouse_receipt")} className={cn("flex h-11 w-full items-center justify-between whitespace-nowrap rounded-md border px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2", sourceFilter === "warehouse_receipt" ? "border-primary bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground")}>
+                  <span>{language === "vi" ? "Chỉ phiếu từ nhập kho" : "Warehouse receipts only"}</span>
+                  <PackageCheck className="h-4 w-4" />
+                </button>
+              </div>
+            ) : null}
           </section>
           <div className="grid grid-cols-[minmax(0,1fr)_44px] gap-2">
             <AddPaymentRequestDialog trigger={<Button className="h-11 w-full whitespace-nowrap rounded-md font-semibold shadow-none"><Plus className="mr-2 h-4 w-4" />{language === "vi" ? "Tạo duyệt chi" : "Create request"}</Button>} />
