@@ -30,6 +30,7 @@ import {
   Truck,
   BarChart4,
   ScanLine,
+  Store,
   Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -79,6 +80,7 @@ const navItems: NavItem[] = [
     moduleKey: "finance_revenue",
     children: [
       { icon: TrendingUp, labelKey: "financeRevenueManagement", path: "/finance-control/revenue", section: "finance", moduleKey: "finance_revenue" },
+      { icon: Store, labelKey: "financePointRevenue", path: "/finance-control/revenue/points", section: "finance", moduleKey: "finance_revenue" },
       { icon: Wallet, labelKey: "financeDebtManagement", path: "/finance-control/revenue/debt", section: "finance", moduleKey: "finance_revenue" },
     ],
   },
@@ -229,6 +231,7 @@ export function Sidebar() {
     if (child.path === "/finance-control/revenue") {
       return pathname === child.path || (
         pathname.startsWith("/finance-control/revenue/") &&
+        !pathname.startsWith("/finance-control/revenue/points") &&
         !pathname.startsWith("/finance-control/revenue/debt")
       );
     }

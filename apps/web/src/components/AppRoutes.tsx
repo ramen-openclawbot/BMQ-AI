@@ -40,6 +40,7 @@ const RevenueManagementDashboard = lazy(() => import("@/pages/RevenueManagementD
 const RevenueSourceDetail = lazy(() => import("@/pages/RevenueSourceDetail"));
 const RevenueDailyReview = lazy(() => import("@/pages/RevenueDailyReview"));
 const NppDebtManagement = lazy(() => import("@/pages/NppDebtManagement"));
+const PointRevenueManagement = lazy(() => import("@/pages/PointRevenueManagement"));
 const SkuCostsManagement = lazy(() => import("@/pages/SkuCostsManagement"));
 const SkuCostsAnalysis = lazy(() => import("@/pages/SkuCostsAnalysis"));
 const SkuCostsDjango = lazy(() => import("@/pages/SkuCostsDjango"));
@@ -232,6 +233,7 @@ export function AppRoutes() {
         <Route path="/finance-control/revenue/setup" element={<Suspense fallback={<AppLoadingFallback />}><FinanceRevenueControl /></Suspense>} />
         <Route path="/finance-control/revenue/daily-review" element={<Suspense fallback={<AppLoadingFallback />}><RevenueDailyReview /></Suspense>} />
         <Route path="/finance-control/revenue/debt" element={<Suspense fallback={<AppLoadingFallback />}><NppDebtManagement /></Suspense>} />
+        <Route path="/finance-control/revenue/points" element={<ModuleRoute moduleKey="finance_revenue"><Suspense fallback={<AppLoadingFallback />}><PointRevenueManagement /></Suspense></ModuleRoute>} />
         <Route path="/mini-crm" element={<Suspense fallback={<AppLoadingFallback />}><MiniCrm /></Suspense>} />
         <Route path="/sales-po-inbox" element={<Suspense fallback={<AppLoadingFallback />}><MiniCrm /></Suspense>} />
         {/* Production routes */}

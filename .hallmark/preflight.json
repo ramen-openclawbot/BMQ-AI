@@ -1,0 +1,9 @@
+{
+  "scanned_at": "2026-08-07",
+  "framework": "Vite 5 + React 18 + Tailwind 3 + shadcn/Radix",
+  "font_stack": ["Manrope", "JetBrains Mono"],
+  "palette": "Existing HSL app tokens; new Hallmark pages preserve app chrome and may use page-scoped OKLCH tokens",
+  "motion": "tailwindcss-animate available; product pages use restrained state-only motion",
+  "spacing": "Tailwind spacing with 4px base",
+  "preserve": ["BMQ pink approved accents", "Manrope UI typography", "Lucide icon system", "existing AppLayout chrome"]
+}
