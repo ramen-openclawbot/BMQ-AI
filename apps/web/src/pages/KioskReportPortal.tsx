@@ -35,6 +35,7 @@ import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import {
   calculateEffectiveConsumedQuantity,
   calculateInventoryClosing,
+  isNegativeInventoryClosing,
   isRetailSaleAllowed,
 } from "@/lib/kiosk-report-inventory";
 import { cn } from "@/lib/utils";
@@ -43,6 +44,7 @@ const REPORT_SESSION_STORAGE_KEY = "bmq_report_session_token";
 const SAFE_SAVE_ERROR_MESSAGES = new Set([
   "Vui lòng gửi báo cáo ngày trước trước khi gửi ngày này.",
   "Không thể gửi báo cáo cũ hơn một báo cáo đã gửi.",
+  "Tồn cuối không được âm. Vui lòng kiểm tra tồn đầu, nhập hoặc điều chuyển trước khi gửi.",
 ]);
 
 const DEFAULT_PRODUCTS = [
@@ -83,6 +85,7 @@ type InventoryRow = {
   returns_quantity: number;
   sold_quantity: number;
   consumed_quantity?: number;
+  opening_reconciliation_required?: boolean;
   notes?: string | null;
 };
 
@@ -104,7 +107,7 @@ type PublicLocation = {
   address?: string | null;
 };
 
-type OpeningInventoryRow = Pick<InventoryRow, "product_code" | "opening_quantity">;
+type OpeningInventoryRow = Pick<InventoryRow, "product_code" | "opening_quantity" | "opening_reconciliation_required">;
 
 type BootstrapResponse = {
   success?: boolean;
@@ -198,6 +201,16 @@ const createChannelRows = (channels: ReportChannel[]): ChannelRow[] =>
   }));
 
 const calcClosing = (row: InventoryRow, consumedQuantity = 0) => calculateInventoryClosing({
+  openingQuantity: numberValue(row.opening_quantity),
+  receivedQuantity: numberValue(row.received_quantity),
+  shortageQuantity: numberValue(row.shortage_quantity),
+  transferQuantity: numberValue(row.transfer_quantity),
+  wasteQuantity: numberValue(row.waste_quantity),
+  returnsQuantity: numberValue(row.returns_quantity),
+  soldQuantity: numberValue(row.sold_quantity),
+}, consumedQuantity);
+
+const hasNegativeClosing = (row: InventoryRow, consumedQuantity = 0) => isNegativeInventoryClosing({
   openingQuantity: numberValue(row.opening_quantity),
   receivedQuantity: numberValue(row.received_quantity),
   shortageQuantity: numberValue(row.shortage_quantity),
@@ -378,6 +391,22 @@ export default function KioskReportPortal() {
 
   const saveReport = async (status: "draft" | "submitted") => {
     if (!reportToken || isSubmitted) return;
+    if (status === "submitted") {
+      const negativeRow = inventoryRows.find((row) => {
+        const consumedQuantity = calculateEffectiveConsumedQuantity(
+          productByCode.get(row.product_code),
+          breadstickSoldQuantity,
+          numberValue(row.consumed_quantity),
+        );
+        return hasNegativeClosing(row, consumedQuantity);
+      });
+      if (negativeRow) {
+        setExpandedProductCode(negativeRow.product_code);
+        setErrorMessage("Tồn cuối không được âm. Vui lòng kiểm tra tồn đầu, nhập hoặc điều chuyển trước khi gửi.");
+        setStatusMessage("");
+        return;
+      }
+    }
     setLoading(true);
     setErrorMessage("");
     setStatusMessage(status === "submitted" ? "Đang gửi báo cáo..." : "Đang lưu nháp...");
@@ -698,7 +727,7 @@ export default function KioskReportPortal() {
                     {expanded && (
                       <div className="px-1 pb-3 pt-1 sm:px-2 sm:pb-4">
                         <div className="grid grid-cols-2 gap-x-2.5 gap-y-2.5 min-[360px]:grid-cols-3 sm:grid-cols-4 sm:gap-x-3">
-                          <ReportNumberField label="Tồn đầu" value={row.opening_quantity} disabled={isSubmitted || openingLocked} onChange={(value) => updateInventoryRow(row.product_code, "opening_quantity", value)} />
+                          <ReportNumberField label="Tồn đầu" value={row.opening_quantity} disabled={isSubmitted || (openingLocked && !row.opening_reconciliation_required)} onChange={(value) => updateInventoryRow(row.product_code, "opening_quantity", value)} />
                           <ReportNumberField label="Nhập" value={row.received_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "received_quantity", value)} />
                           <ReportNumberField label="Thiếu" value={row.shortage_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "shortage_quantity", value)} />
                           <ReportNumberField label="Điều chuyển" value={row.transfer_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "transfer_quantity", value)} />
@@ -718,7 +747,17 @@ export default function KioskReportPortal() {
                               : <strong>Nhập lượng ớt sử dụng thực tế trong ngày • Không bán lẻ</strong>}
                           </div>
                         )}
-                        <div data-testid="computed-closing" className="mt-3 flex items-center justify-between rounded-xl border border-dashed border-[#efb6ca] bg-[#fff5f8] px-3 py-2.5">
+                        {row.opening_reconciliation_required && !isSubmitted && (
+                          <div className="mt-3 rounded-xl border border-[#f2b75d] bg-[#fff9ec] px-3 py-2.5 text-sm text-[#8a5a12]">
+                            <strong>Tồn hôm trước bị âm.</strong> Vui lòng kiểm đếm và nhập tồn đầu thực tế trước khi gửi.
+                          </div>
+                        )}
+                        {hasNegativeClosing(row, consumedQuantity) && !isSubmitted && (
+                          <div className="mt-3 rounded-xl border border-[#f3a3b9] bg-[#fff1f5] px-3 py-2.5 text-sm font-medium text-[#ad315e]">
+                            Tồn cuối không được âm. Kiểm tra tồn đầu, nhập hoặc điều chuyển.
+                          </div>
+                        )}
+                        <div data-testid="computed-closing" className={cn("mt-3 flex items-center justify-between rounded-xl border border-dashed px-3 py-2.5", hasNegativeClosing(row, consumedQuantity) ? "border-[#e66f93] bg-[#fff0f4]" : "border-[#efb6ca] bg-[#fff5f8]")}>
                           <div>
                             <div className="text-sm font-semibold text-[#4f4950]">Tồn cuối</div>
                             <div className="text-[11px] text-[#9b5d73]">Hệ thống tính</div>

@@ -4,6 +4,7 @@ import {
   calculateConsumedQuantity,
   calculateEffectiveConsumedQuantity,
   calculateInventoryClosing,
+  isNegativeInventoryClosing,
   isRetailSaleAllowed,
   type ReportInventoryProduct,
   type ReportInventoryRow,
@@ -41,6 +42,8 @@ assert.equal(isRetailSaleAllowed(chili), false);
 assert.equal(calculateConsumedQuantity(pate, 106), 5.3);
 assert.equal(calculateConsumedQuantity(chili, 106), 0);
 assert.equal(calculateInventoryClosing(pateRow, calculateConsumedQuantity(pate, 106)), 2.7);
+assert.equal(isNegativeInventoryClosing(pateRow, calculateConsumedQuantity(pate, 180)), true);
+assert.equal(isNegativeInventoryClosing(pateRow, calculateConsumedQuantity(pate, 160)), false);
 assert.equal(calculateConsumedQuantity(pate, -10), 0);
 assert.equal(calculateEffectiveConsumedQuantity(pate, 106, 99), 5.3);
 assert.equal(calculateEffectiveConsumedQuantity(chili, 106, 2.5), 2.5);

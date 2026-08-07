@@ -155,6 +155,36 @@ def test_bootstrap_and_save_roll_forward_inventory_by_location() -> None:
         assert_contains(daily_save, needle, label)
 
 
+def test_negative_inventory_is_reconciled_and_rejected_server_side() -> None:
+    bootstrap = read(FUNCTIONS / "report-bootstrap/index.ts")
+    daily_save = read(FUNCTIONS / "report-daily-save/index.ts")
+    migration = read(ROOT / "supabase/migrations/20260807203000_kiosk_negative_inventory_reconciliation.sql")
+
+    for needle, label in [
+        ("opening_reconciliation_required", "bootstrap reconciliation marker"),
+        ("Math.max(0, previousClosing)", "nonnegative bootstrap opening"),
+        ("previousClosing < 0", "negative prior closing detection"),
+    ]:
+        assert_contains(bootstrap, needle, label)
+
+    for needle, label in [
+        ("negative_closing_inventory", "negative inventory error mapping"),
+        ("Tồn cuối không được âm", "safe reconciliation guidance"),
+    ]:
+        assert_contains(daily_save, needle, label)
+
+    for needle, label in [
+        ("opening_reconciliation_required boolean not null default false", "persisted reconciliation provenance"),
+        ("previous_inventory.closing_quantity < 0", "negative prior closing branch"),
+        ("v_existing_opening_reconciliations", "draft reconciliation preservation"),
+        ("input.row_data->>'opening_quantity'", "physical opening input"),
+        ("if p_status = 'submitted' and exists", "server-side submit validation"),
+        ("closing_quantity < 0", "negative closing rejection"),
+        ("raise exception 'negative_closing_inventory'", "fail-closed database error"),
+    ]:
+        assert_contains(migration, needle, label)
+
+
 def test_public_auth_is_generic_has_no_dev_otp_and_is_rate_limited() -> None:
     auth_start = read(FUNCTIONS / "report-auth-start/index.ts")
     auth_verify = read(FUNCTIONS / "report-auth-verify/index.ts")

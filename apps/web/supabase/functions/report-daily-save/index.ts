@@ -142,6 +142,9 @@ serve(async (req) => {
     if (saveError?.message?.includes("later_submitted_report_exists")) {
       return errorResponse(req, "Không thể gửi báo cáo cũ hơn một báo cáo đã gửi.", 409, "later_submitted_report_exists");
     }
+    if (saveError?.message?.includes("negative_closing_inventory")) {
+      return errorResponse(req, "Tồn cuối không được âm. Vui lòng kiểm tra tồn đầu, nhập hoặc điều chuyển trước khi gửi.", 400, "negative_closing_inventory");
+    }
     if (saveError) throw saveError;
 
     return jsonResponse(req, {

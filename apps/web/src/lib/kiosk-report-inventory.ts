@@ -51,3 +51,8 @@ export const calculateInventoryClosing = (
   - Number(row.soldQuantity || 0)
   - nonnegative(consumedQuantity),
 );
+
+export const isNegativeInventoryClosing = (
+  row: ReportInventoryRow,
+  consumedQuantity = 0,
+) => calculateInventoryClosing(row, consumedQuantity) < 0;

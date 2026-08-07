@@ -69,7 +69,7 @@ serve(async (req) => {
       ? await Promise.all([
           supabase
             .from("kiosk_daily_report_inventory_rows")
-            .select("product_code, product_name_snapshot, opening_quantity, received_quantity, shortage_quantity, transfer_quantity, waste_quantity, returns_quantity, sold_quantity, consumed_quantity, closing_quantity, notes")
+            .select("product_code, product_name_snapshot, opening_quantity, received_quantity, shortage_quantity, transfer_quantity, waste_quantity, returns_quantity, sold_quantity, consumed_quantity, closing_quantity, opening_reconciliation_required, notes")
             .eq("report_id", report.id),
           supabase
             .from("kiosk_daily_report_channel_rows")
@@ -82,7 +82,11 @@ serve(async (req) => {
     if (channelRowsRes.error) throw channelRowsRes.error;
 
     let openingSourceReport: { id: string; report_date: string } | null = null;
-    let openingInventoryRows: Array<{ product_code: string; opening_quantity: number }> = [];
+    let openingInventoryRows: Array<{
+      product_code: string;
+      opening_quantity: number;
+      opening_reconciliation_required: boolean;
+    }> = [];
 
     if (!report) {
       const previousReportRes = await supabase
@@ -105,10 +109,14 @@ serve(async (req) => {
           .eq("report_id", openingSourceReport.id);
 
         if (previousInventoryRes.error) throw previousInventoryRes.error;
-        openingInventoryRows = (previousInventoryRes.data || []).map((row) => ({
-          product_code: row.product_code,
-          opening_quantity: Number(row.closing_quantity || 0),
-        }));
+        openingInventoryRows = (previousInventoryRes.data || []).map((row) => {
+          const previousClosing = Number(row.closing_quantity || 0);
+          return {
+            product_code: row.product_code,
+            opening_quantity: Math.max(0, previousClosing),
+            opening_reconciliation_required: previousClosing < 0,
+          };
+        });
       }
     }
 

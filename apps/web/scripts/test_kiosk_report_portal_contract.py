@@ -159,10 +159,24 @@ def test_inventory_opening_is_carried_and_locked_when_system_managed() -> None:
         ("opening_inventory_rows", "carried opening inventory response"),
         ("opening_source_report_date", "opening inventory source date"),
         ("setOpeningLocked", "opening lock state"),
-        ("disabled={isSubmitted || openingLocked}", "locked opening input"),
+        ("openingLocked && !row.opening_reconciliation_required", "locked opening input except reconciliation"),
         ("Tồn đầu được chuyển tự động từ tồn cuối ngày", "rollover explanation"),
         ("SAFE_SAVE_ERROR_MESSAGES", "safe save error allowlist"),
         ("SAFE_SAVE_ERROR_MESSAGES.has(result.error)", "allowlisted chronology guidance rendering"),
+    ]:
+        assert_contains(portal, needle, label)
+
+
+def test_negative_inventory_requires_physical_opening_reconciliation_before_submit() -> None:
+    portal = read(PORTAL)
+    for needle, label in [
+        ("opening_reconciliation_required", "per-product reconciliation state"),
+        ("isNegativeInventoryClosing", "shared negative-closing guard"),
+        ("Tồn hôm trước bị âm", "physical count guidance"),
+        ("Vui lòng kiểm đếm và nhập tồn đầu thực tế", "opening reconciliation instruction"),
+        ("Tồn cuối không được âm", "negative submit blocker"),
+        ("setExpandedProductCode", "open offending inventory row"),
+        ("openingLocked && !row.opening_reconciliation_required", "only reconciled opening is editable"),
     ]:
         assert_contains(portal, needle, label)
 
