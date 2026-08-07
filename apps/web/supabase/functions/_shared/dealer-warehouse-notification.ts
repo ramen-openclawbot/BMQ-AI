@@ -217,7 +217,7 @@ export function formatWarehouseOrderMessage(input: WarehouseOrderMessageInput): 
   const [submittedDate, submittedTime] = submitted.split(" ");
 
   const message = [
-    "📦 TỔNG KẾT ĐƠN BÁNH ĐẠI LÝ",
+    "📦 ĐƠN BÁNH ĐẠI LÝ MỚI",
     "",
     `Ngày giao: ${formatDeliveryDate(input.requestedDeliveryDate, input.submittedAt)}`,
     `Mã đơn: ${input.orderNumber}`,

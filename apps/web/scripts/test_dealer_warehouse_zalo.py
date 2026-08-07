@@ -90,7 +90,7 @@ def test_warehouse_message_uses_approved_operations_layout() -> None:
     submit = SUBMIT.read_text(encoding="utf-8")
     for needle in [
         "submittedAt: string",
-        '"📦 TỔNG KẾT ĐƠN BÁNH ĐẠI LÝ"',
+        '"📦 ĐƠN BÁNH ĐẠI LÝ MỚI"',
         'Đơn vị đặt: ${input.customerName}',
         'return `${day}/${month}/${year} ${hour}:${minute}`;',
         'Ngày giao: ${formatDeliveryDate(input.requestedDeliveryDate, input.submittedAt)}',

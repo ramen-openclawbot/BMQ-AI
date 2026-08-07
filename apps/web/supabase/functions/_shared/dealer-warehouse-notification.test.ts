@@ -44,7 +44,8 @@ const ORDER = {
 test("formats warehouse quantities by delivery route without prices", () => {
   const message = formatWarehouseOrderMessage(ORDER);
 
-  assert.match(message, /📦 TỔNG KẾT ĐƠN BÁNH ĐẠI LÝ/);
+  assert.match(message, /📦 ĐƠN BÁNH ĐẠI LÝ MỚI/);
+  assert.doesNotMatch(message, /TỔNG KẾT/);
   assert.match(message, /Mã đơn: DOP-20260803-ABCD1234/);
   assert.match(message, /Đơn vị đặt: NPP Anh Thanh/);
   assert.match(message, /2 điểm bán • Đặt lúc 22:56 03\/08/);
