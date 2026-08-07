@@ -10,6 +10,7 @@ HELPER = ROOT / "supabase/functions/_shared/dealer-warehouse-notification.ts"
 CONFIG = ROOT / "supabase/config.toml"
 SCHEDULE_MIGRATION = ROOT / "supabase/migrations/20260803181500_dealer_warehouse_vietnam_evening_schedule.sql"
 DAILY_DIGEST_MIGRATION = ROOT / "supabase/migrations/20260805170000_dealer_warehouse_daily_digest.sql"
+POINT_DIGEST_PAUSE_MIGRATION = ROOT / "supabase/migrations/20260807005000_pause_warehouse_point_digest.sql"
 DUPLICATE_GUARD_MIGRATION = ROOT / "supabase/migrations/20260806224000_dealer_duplicate_order_guard.sql"
 
 
@@ -137,6 +138,24 @@ def test_daily_digest_is_idempotent_private_and_created_only_at_final_scan() -> 
         "grant execute on function public.upsert_dealer_warehouse_daily_digests(date, text, text) to service_role",
     ]:
         assert needle in sql, f"missing daily digest database contract: {needle}"
+
+
+def test_point_digest_is_paused_without_stopping_dealer_digest_or_kiosk_collection() -> None:
+    sql = POINT_DIGEST_PAUSE_MIGRATION.read_text(encoding="utf-8")
+    for needle in [
+        "daily_point_digest_enabled boolean not null default false",
+        "coalesce(daily_point_digest_enabled, false)",
+        "'daily_dealer_digest'",
+        "'daily_point_digest'",
+        "where v_point_digest_enabled",
+        "status = 'failed'",
+        "paused_for_kiosk_inventory_learning",
+        "status in ('pending', 'processing')",
+        "grant execute on function public.upsert_dealer_warehouse_daily_digests(date, text, text) to service_role",
+    ]:
+        assert needle in sql, f"missing point-digest pause contract: {needle}"
+    assert "delete from public.kiosk_daily_reports" not in sql.lower()
+    assert "update public.kiosk_daily_reports" not in sql.lower()
 
 
 def test_retry_worker_is_server_only_and_uses_claim_rpc() -> None:
