@@ -53,10 +53,12 @@ def main() -> None:
         'data-testid="point-revenue-mobile-card"',
         'canEditModule("finance_revenue")',
         'get_kiosk_point_revenue_reviews',
-        'save_kiosk_point_revenue_review',
+        'get_kiosk_point_report_detail',
+        'save_kiosk_point_report_correction',
         'aria-live="polite"',
-        'Số nhân viên nhập',
-        'Số kế toán xác nhận',
+        'Số lượng',
+        'Thành tiền',
+        'Lý do chỉnh sửa',
         'Lưu & đánh dấu đã kiểm tra',
     ):
         assert token in page, f"page missing behavior contract: {token}"

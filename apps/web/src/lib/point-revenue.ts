@@ -29,6 +29,44 @@ export type PointRevenueReport = {
   channels: PointRevenueChannel[];
 };
 
+export type PointReportInventoryRow = {
+  product_code: string;
+  product_name: string;
+  opening_quantity: number;
+  received_quantity: number;
+  shortage_quantity: number;
+  transfer_quantity: number;
+  waste_quantity: number;
+  returns_quantity: number;
+  sold_quantity: number;
+  consumed_quantity: number;
+  closing_quantity: number;
+  opening_reconciliation_required: boolean;
+  notes: string;
+  consumption_is_manual: boolean;
+  breadstick_consumption_ratio: number;
+};
+
+export type PointReportChannelRow = {
+  channel_code: string;
+  channel_name: string;
+  quantity: number;
+  amount_vnd: number;
+  source_amount_vnd: number;
+  notes: string;
+};
+
+export type PointReportDetail = {
+  report_id: string;
+  report_date: string;
+  report_notes: string;
+  location_name: string;
+  staff_name: string;
+  status: string;
+  inventory_rows: PointReportInventoryRow[];
+  channel_rows: PointReportChannelRow[];
+};
+
 const finiteNumber = (value: unknown) => {
   const parsed = typeof value === "number" ? value : Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -96,4 +134,47 @@ export function parsePointRevenueRows(rows: unknown[]): PointRevenueReport[] {
       };
     }),
   }));
+}
+
+export function parsePointReportDetail(raw: unknown): PointReportDetail {
+  const row = (raw ?? {}) as Record<string, unknown>;
+  return {
+    report_id: String(row.report_id ?? ""),
+    report_date: String(row.report_date ?? ""),
+    report_notes: String(row.report_notes ?? ""),
+    location_name: String(row.location_name ?? ""),
+    staff_name: String(row.staff_name ?? ""),
+    status: String(row.status ?? ""),
+    inventory_rows: (Array.isArray(row.inventory_rows) ? row.inventory_rows : []).map((rawInventory) => {
+      const inventory = rawInventory as Record<string, unknown>;
+      return {
+        product_code: String(inventory.product_code ?? ""),
+        product_name: String(inventory.product_name ?? ""),
+        opening_quantity: finiteNumber(inventory.opening_quantity),
+        received_quantity: finiteNumber(inventory.received_quantity),
+        shortage_quantity: finiteNumber(inventory.shortage_quantity),
+        transfer_quantity: finiteNumber(inventory.transfer_quantity),
+        waste_quantity: finiteNumber(inventory.waste_quantity),
+        returns_quantity: finiteNumber(inventory.returns_quantity),
+        sold_quantity: finiteNumber(inventory.sold_quantity),
+        consumed_quantity: finiteNumber(inventory.consumed_quantity),
+        closing_quantity: finiteNumber(inventory.closing_quantity),
+        opening_reconciliation_required: Boolean(inventory.opening_reconciliation_required),
+        notes: String(inventory.notes ?? ""),
+        consumption_is_manual: Boolean(inventory.consumption_is_manual),
+        breadstick_consumption_ratio: finiteNumber(inventory.breadstick_consumption_ratio),
+      };
+    }),
+    channel_rows: (Array.isArray(row.channel_rows) ? row.channel_rows : []).map((rawChannel) => {
+      const channel = rawChannel as Record<string, unknown>;
+      return {
+        channel_code: String(channel.channel_code ?? ""),
+        channel_name: String(channel.channel_name ?? ""),
+        quantity: finiteNumber(channel.quantity),
+        amount_vnd: finiteNumber(channel.amount_vnd),
+        source_amount_vnd: finiteNumber(channel.source_amount_vnd),
+        notes: String(channel.notes ?? ""),
+      };
+    }),
+  };
 }

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   detectPointRevenueIssues,
+  parsePointReportDetail,
   parsePointRevenueRows,
   summarizePointRevenue,
   type PointRevenueChannel,
@@ -76,4 +77,37 @@ test("parsePointRevenueRows normalizes numeric RPC strings and preserves audit m
   assert.equal(parsed[0].channels[0].effective_amount_vnd, 240000);
   assert.equal(parsed[0].review_status, "reviewed");
   assert.equal(parsed[0].reviewed_by_name, "Kế toán BMQ");
+});
+
+test("parsePointReportDetail normalizes full inventory and channel correction payloads", () => {
+  const parsed = parsePointReportDetail({
+    report_id: "report-1",
+    report_date: "2026-08-08",
+    report_notes: "Cuối ca",
+    status: "submitted",
+    inventory_rows: [{
+      product_code: "banh_mi_que",
+      product_name: "Bánh mì que",
+      opening_quantity: "10.000",
+      received_quantity: "5.000",
+      sold_quantity: "3.000",
+      closing_quantity: "12.000",
+      consumption_is_manual: false,
+      breadstick_consumption_ratio: "0.000",
+    }],
+    channel_rows: [{
+      channel_code: "khach_le",
+      channel_name: "Khách lẻ",
+      quantity: "3.000",
+      amount_vnd: "36000.00",
+      source_amount_vnd: "96.00",
+    }],
+  });
+
+  assert.equal(parsed.inventory_rows[0].opening_quantity, 10);
+  assert.equal(parsed.inventory_rows[0].closing_quantity, 12);
+  assert.equal(parsed.inventory_rows[0].consumption_is_manual, false);
+  assert.equal(parsed.channel_rows[0].quantity, 3);
+  assert.equal(parsed.channel_rows[0].amount_vnd, 36000);
+  assert.equal(parsed.channel_rows[0].source_amount_vnd, 96);
 });

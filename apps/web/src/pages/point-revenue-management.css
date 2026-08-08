@@ -385,6 +385,69 @@
   gap: 0.75rem;
 }
 
+.pr-full-report-section {
+  display: grid;
+  gap: 0.75rem;
+  border-top: 1px solid var(--pr-color-border);
+  padding-top: 1rem;
+}
+
+.pr-section-heading,
+.pr-inventory-card header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.pr-section-heading h3 {
+  margin: 0.25rem 0 0;
+}
+
+.pr-section-heading small,
+.pr-inventory-card header span {
+  color: var(--pr-color-muted);
+}
+
+.pr-inventory-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.pr-inventory-card {
+  min-width: 0;
+  border: 1px solid var(--pr-color-border);
+  border-radius: 1rem;
+  background: var(--pr-color-surface);
+  padding: 0.75rem;
+}
+
+.pr-inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+
+.pr-inventory-grid label {
+  display: grid;
+  min-width: 0;
+  gap: 0.35rem;
+  color: var(--pr-color-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.pr-inventory-grid input {
+  min-width: 0;
+  min-height: 44px;
+}
+
+.pr-inventory-note,
+.pr-field-block--notes {
+  grid-column: 1 / -1;
+}
+
 .pr-channel-row {
   display: grid;
   gap: 0.75rem;
@@ -538,6 +601,10 @@
   .pr-channel-fields {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .pr-inventory-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 @media (min-width: 60rem) {
@@ -580,6 +647,10 @@
 
   .pr-channel-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pr-inventory-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .pr-channel-fields .pr-delta {
