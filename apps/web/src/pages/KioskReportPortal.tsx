@@ -33,6 +33,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import {
+  calculateKioskChannelAmount,
   calculateEffectiveConsumedQuantity,
   calculateInventoryClosing,
   isNegativeInventoryClosing,
@@ -245,12 +246,18 @@ const mergeInventoryRows = (
 
 const mergeChannelRows = (channels: ReportChannel[], rows: ChannelRow[] = []) => {
   const byCode = new Map(rows.map((row) => [row.channel_code, row]));
-  return channels.map((channel) => ({
-    ...createChannelRows([channel])[0],
-    ...(byCode.get(channel.code) || {}),
-    channel_code: channel.code,
-    channel_name_snapshot: channel.channel_name,
-  }));
+  return channels.map((channel) => {
+    const merged = {
+      ...createChannelRows([channel])[0],
+      ...(byCode.get(channel.code) || {}),
+      channel_code: channel.code,
+      channel_name_snapshot: channel.channel_name,
+    };
+    return {
+      ...merged,
+      amount_vnd: calculateKioskChannelAmount(channel.code, merged.quantity, merged.amount_vnd),
+    };
+  });
 };
 
 export default function KioskReportPortal() {
@@ -421,7 +428,10 @@ export default function KioskReportPortal() {
           ...row,
           sold_quantity: isRetailSaleAllowed(productByCode.get(row.product_code)) ? row.sold_quantity : 0,
         })),
-        channel_rows: channelRows,
+        channel_rows: channelRows.map((row) => ({
+          ...row,
+          amount_vnd: calculateKioskChannelAmount(row.channel_code, row.quantity, row.amount_vnd),
+        })),
       },
       undefined,
       30000,
@@ -462,7 +472,14 @@ export default function KioskReportPortal() {
 
   const updateChannelRow = (channelCode: string, field: keyof ChannelRow, value: string) => {
     setChannelRows((current) =>
-      current.map((row) => row.channel_code === channelCode ? { ...row, [field]: field === "notes" ? value : numberValue(value) } : row),
+      current.map((row) => {
+        if (row.channel_code !== channelCode) return row;
+        const next = { ...row, [field]: field === "notes" ? value : numberValue(value) };
+        return {
+          ...next,
+          amount_vnd: calculateKioskChannelAmount(next.channel_code, next.quantity, next.amount_vnd),
+        };
+      }),
     );
   };
 
@@ -784,15 +801,16 @@ export default function KioskReportPortal() {
                 {channelRows.map((row) => {
                   const cashChannel = row.channel_code === "khach_le";
                   return (
-                    <div key={row.channel_code} className="grid grid-cols-[36px_minmax(72px,1fr)_52px_62px] items-center gap-1 p-2 min-[360px]:grid-cols-[40px_minmax(86px,1fr)_68px_84px] min-[360px]:gap-1.5 min-[360px]:p-2.5 sm:grid-cols-[48px_minmax(105px,1fr)_100px_128px] sm:gap-3">
+                    <div key={row.channel_code} className="grid grid-cols-[36px_minmax(72px,1fr)_52px_62px] items-center gap-1 p-2 min-[360px]:grid-cols-[40px_minmax(86px,1fr)_68px_84px] min-[360px]:gap-1.5 min-[360px]:p-2.5 sm:grid-cols-[48px_minmax(105px,1fr)_100px_128px] sm:gap-3 xl:grid-cols-[40px_minmax(90px,1fr)_76px_98px] xl:gap-2 xl:p-2.5">
                       <ChannelIcon code={row.channel_code} />
                       <div className="self-center whitespace-nowrap text-[13px] font-bold sm:text-[17px]">{row.channel_name_snapshot}</div>
                       <ChannelNumberField label="Số lượng" value={row.quantity} disabled={isSubmitted} onChange={(value) => updateChannelRow(row.channel_code, "quantity", value)} />
-                      <ChannelNumberField label="Thành tiền" value={row.amount_vnd} disabled={isSubmitted} placeholder={cashChannel ? undefined : "—"} onChange={(value) => updateChannelRow(row.channel_code, "amount_vnd", value)} />
+                      <ChannelNumberField label="Thành tiền" value={row.amount_vnd} disabled={isSubmitted || cashChannel} placeholder={cashChannel ? undefined : "—"} onChange={(value) => updateChannelRow(row.channel_code, "amount_vnd", value)} />
                     </div>
                   );
                 })}
               </div>
+              <p className="mt-2 text-xs font-medium text-[#80566a]">Khách lẻ tự tính 12.000đ × số lượng.</p>
             </section>
 
             <section className="grid grid-cols-2 divide-x divide-[#eadfe3] rounded-[18px] border border-[#f0dfe5] bg-white px-3 py-3.5 text-center shadow-[0_6px_18px_rgba(86,48,63,0.06)]">

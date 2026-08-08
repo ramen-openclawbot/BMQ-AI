@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import {
+  calculateKioskChannelAmount,
   calculateConsumedQuantity,
   calculateEffectiveConsumedQuantity,
   calculateInventoryClosing,
@@ -49,5 +50,11 @@ assert.equal(calculateEffectiveConsumedQuantity(pate, 106, 99), 5.3);
 assert.equal(calculateEffectiveConsumedQuantity(chili, 106, 2.5), 2.5);
 assert.equal(calculateEffectiveConsumedQuantity(chili, 106, -2.5), 0);
 assert.equal(calculateInventoryClosing(pateRow, calculateEffectiveConsumedQuantity(chili, 106, 2.5)), 5.5);
+assert.equal(calculateKioskChannelAmount("khach_le", 0, 999_999), 0);
+assert.equal(calculateKioskChannelAmount("khach_le", 3, 999_999), 36_000);
+assert.equal(calculateKioskChannelAmount(" KHACH_LE ", 3, 999_999), 36_000);
+assert.equal(calculateKioskChannelAmount("khach_le", 2.5, 0), 30_000);
+assert.equal(calculateKioskChannelAmount("grabfood", 3, 240_000), 240_000);
+assert.equal(calculateKioskChannelAmount("grabfood", 3, -10), 0);
 
 console.log("PASS kiosk report ingredient consumption");

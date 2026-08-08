@@ -21,6 +21,16 @@ const nonnegative = (value: unknown) => {
 
 const roundInventoryQuantity = (value: number) => Math.round((value + Number.EPSILON) * 1_000) / 1_000;
 
+export const KIOSK_RETAIL_CUSTOMER_UNIT_PRICE_VND = 12_000;
+
+export const calculateKioskChannelAmount = (
+  channelCode: string,
+  quantity: number,
+  enteredAmountVnd: number,
+) => String(channelCode || "").trim().toLowerCase() === "khach_le"
+  ? Math.round(nonnegative(quantity) * KIOSK_RETAIL_CUSTOMER_UNIT_PRICE_VND)
+  : Math.round(nonnegative(enteredAmountVnd));
+
 export const isRetailSaleAllowed = (product?: ReportInventoryProduct | null) => product?.sale_allowed !== false;
 
 export const calculateConsumedQuantity = (

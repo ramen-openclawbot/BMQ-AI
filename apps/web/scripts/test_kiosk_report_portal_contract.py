@@ -181,11 +181,12 @@ def test_negative_inventory_requires_physical_opening_reconciliation_before_subm
         assert_contains(portal, needle, label)
 
 
-def test_redesign_keeps_all_channel_amounts_editable_before_submit() -> None:
+def test_walk_in_revenue_is_derived_from_quantity_at_12000_vnd() -> None:
     portal = read(PORTAL)
-    assert_not_contains(portal, 'disabled={isSubmitted || !cashChannel}', "non-cash amount regression")
-    assert_contains(portal, 'disabled={isSubmitted}', "submitted report amount lock")
-    assert_contains(portal, 'updateChannelRow(row.channel_code, "amount_vnd", value)', "channel amount update")
+    assert_contains(portal, 'calculateKioskChannelAmount', "shared channel amount calculation")
+    assert_contains(portal, 'disabled={isSubmitted || cashChannel}', "walk-in amount input lock")
+    assert_contains(portal, 'Khách lẻ tự tính 12.000đ × số lượng', "walk-in auto amount explanation")
+    assert_contains(portal, 'channel_rows: channelRows.map', "derived amount save payload")
     assert_not_contains(portal, 'value={placeholder ? "" :', "placeholder masking entered amount")
     assert_contains(portal, 'placeholder && Number(value) === 0', "zero-only non-cash placeholder")
 

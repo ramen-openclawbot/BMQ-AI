@@ -39,6 +39,12 @@ const toNumber = (value: unknown) => {
 };
 
 const nonnegative = (value: unknown) => Math.max(0, toNumber(value));
+const KHACH_LE_UNIT_PRICE_VND = 12_000;
+
+const channelAmountVnd = (channelCode: string, quantity: number, submittedAmount: unknown) =>
+  channelCode === "khach_le"
+    ? Math.round(quantity * KHACH_LE_UNIT_PRICE_VND)
+    : Math.round(nonnegative(submittedAmount));
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -102,12 +108,16 @@ serve(async (req) => {
       }));
     const channelRows = (Array.isArray(body.channel_rows) ? body.channel_rows : [])
       .slice(0, 100)
-      .map((row) => ({
-        channel_code: String(row.channel_code || "").trim(),
-        quantity: nonnegative(row.quantity),
-        amount_vnd: nonnegative(row.amount_vnd),
-        notes: String(row.notes || "").trim().slice(0, 1000) || null,
-      }));
+      .map((row) => {
+        const channelCode = String(row.channel_code || "").trim().toLowerCase();
+        const quantity = nonnegative(row.quantity);
+        return {
+          channel_code: channelCode,
+          quantity,
+          amount_vnd: channelAmountVnd(channelCode, quantity, row.amount_vnd),
+          notes: String(row.notes || "").trim().slice(0, 1000) || null,
+        };
+      });
 
     const { data: finalReport, error: saveError } = await supabase.rpc(
       "save_kiosk_daily_report_atomic",

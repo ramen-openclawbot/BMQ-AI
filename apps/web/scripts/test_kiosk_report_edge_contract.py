@@ -242,6 +242,10 @@ def test_bootstrap_session_save_and_logout_contracts() -> None:
         ("ingredient_retail_sale_forbidden", "ingredient retail-sale rejection"),
         ("consumed_quantity?: unknown", "manual ingredient consumption input type"),
         ("consumed_quantity: nonnegative(row.consumed_quantity)", "manual ingredient consumption sanitization"),
+        ('KHACH_LE_UNIT_PRICE_VND = 12_000', "server-owned walk-in unit price"),
+        ('channelCode === "khach_le"', "server-side walk-in channel guard"),
+        ('.trim().toLowerCase()', "normalized channel code"),
+        ("quantity * KHACH_LE_UNIT_PRICE_VND", "server-side walk-in amount derivation"),
     ]:
         assert_contains(daily_save, needle, label)
     for forbidden in [
