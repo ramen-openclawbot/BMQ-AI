@@ -255,7 +255,7 @@ serve(async (req) => {
       const { error: updateError } = await supabase
         .from("dealer_customer_order_confirmations")
         .update({
-          status: "failed",
+          status: transition.nextStatus,
           locked_at: null,
           last_error: transition.lastError,
           updated_at: new Date().toISOString(),

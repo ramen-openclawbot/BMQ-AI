@@ -112,6 +112,7 @@ export function dealerOrderConfirmationFailureTransition(sendLeaseCommitted: boo
     : "pre_send_validation_failed";
   return {
     expectedStatus: sendLeaseCommitted ? "send_committed" : "processing",
+    nextStatus: sendLeaseCommitted ? "send_committed" : "failed",
     lastError: `${errorPrefix}: ${safeError}`,
   } as const;
 }

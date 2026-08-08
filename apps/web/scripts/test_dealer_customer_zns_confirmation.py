@@ -43,7 +43,6 @@ required_worker = [
     'sendDealerOrderConfirmationZns',
     '.eq("is_active", true)',
     'status: "suppressed"',
-    'status: "failed"',
     'dealerOrderConfirmationFailureTransition',
     'order_not_submitted_before_send',
 ]
@@ -52,6 +51,7 @@ for marker in required_worker:
 
 for marker in ['manual_reconciliation_required', 'pre_send_validation_failed']:
     assert marker in shared, marker
+assert 'nextStatus: sendLeaseCommitted ? "send_committed" : "failed"' in shared
 
 assert "DEALER_VIETGUYS_TEMPLATE_ID" not in worker
 assert "otp" not in shared.lower()

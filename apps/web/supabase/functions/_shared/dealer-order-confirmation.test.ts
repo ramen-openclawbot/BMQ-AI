@@ -94,6 +94,7 @@ test("maps pre-commit validation errors away from processing", () => {
     dealerOrderConfirmationFailureTransition(false, new Error("Invalid requestedDeliveryDate")),
     {
       expectedStatus: "processing",
+      nextStatus: "failed",
       lastError: "pre_send_validation_failed: Invalid requestedDeliveryDate",
     },
   );
@@ -104,6 +105,7 @@ test("maps post-commit ambiguity to manual reconciliation", () => {
     dealerOrderConfirmationFailureTransition(true, new Error("provider response lost")),
     {
       expectedStatus: "send_committed",
+      nextStatus: "send_committed",
       lastError: "manual_reconciliation_required: provider response lost",
     },
   );
