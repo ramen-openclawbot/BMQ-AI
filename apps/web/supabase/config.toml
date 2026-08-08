@@ -123,6 +123,10 @@ verify_jwt = false
 # Server-only worker: authorizes service-role invocation or x-cron-secret in code.
 verify_jwt = false
 
+[functions.dealer-order-confirm-notify]
+# Server-only worker: authorizes service-role invocation or x-worker-secret in code.
+verify_jwt = false
+
 [functions.report-auth-start]
 verify_jwt = false
 
