@@ -51,6 +51,7 @@ const moneyFormatter = new Intl.NumberFormat("vi-VN", {
 });
 
 const numberFormatter = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 });
+const inventoryNumberFormatter = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 3 });
 
 function formatMoney(value: number) {
   return moneyFormatter.format(Number.isFinite(value) ? value : 0);
@@ -58,6 +59,10 @@ function formatMoney(value: number) {
 
 function formatNumber(value: number) {
   return numberFormatter.format(Number.isFinite(value) ? value : 0);
+}
+
+function formatInventoryQuantity(value: number) {
+  return inventoryNumberFormatter.format(Number.isFinite(value) ? value : 0);
 }
 
 function formatDate(value: string | null | undefined) {
@@ -285,7 +290,7 @@ function InventoryEditor({
       <div className="pr-inventory-list">
         {rows.map((row) => (
           <article className="pr-inventory-card" key={row.product_code}>
-            <header><strong>{row.product_name}</strong><span>Tồn cuối: {formatNumber(row.closing_quantity)}</span></header>
+            <header><strong>{row.product_name}</strong><span>Tồn cuối: {formatInventoryQuantity(row.closing_quantity)}</span></header>
             <div className="pr-inventory-grid">
               {INVENTORY_FIELDS.map((field) => {
                 const derivedConsumption = field.key === "consumed_quantity" && !row.consumption_is_manual;

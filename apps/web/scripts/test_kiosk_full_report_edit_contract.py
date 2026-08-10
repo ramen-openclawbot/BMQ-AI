@@ -48,6 +48,8 @@ def main() -> None:
         'save_kiosk_point_report_correction',
         'data-testid="point-report-inventory-editor"',
         'data-testid="point-report-channel-editor"',
+        'const inventoryNumberFormatter = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 3 })',
+        'formatInventoryQuantity(row.closing_quantity)',
         'Lý do chỉnh sửa',
         'Sửa toàn bộ phiếu',
         'Khách lẻ tự tính 12.000đ × số lượng',
