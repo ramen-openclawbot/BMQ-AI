@@ -1,45 +1,48 @@
 /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 */
-/* Hallmark · macrostructure: Workbench · theme: custom BMQ dusty-pink · contrast: pass (40–41) · nav: existing sidebar · footer: none · slop: pass (42–45) · honest: pass (46) · chrome: pass (47) · tokens: pass (48) · responsive/mobile: pass (34, 49–57) · icons: pass (30) */
+/* Hallmark · macrostructure: Workbench · data-theme: Mediterranean-glass · shared BMQ light semantic tokens · nav: existing sidebar · footer: none · responsive/mobile: pass */
 :root {
-  --pr-color-bg: oklch(0.975 0.012 34);
-  --pr-color-surface: oklch(0.995 0.006 35);
-  --pr-color-surface-glass: oklch(0.995 0.006 35 / 0.9);
-  --pr-color-surface-muted: oklch(0.952 0.018 31);
-  --pr-color-border: oklch(0.86 0.026 28);
-  --pr-color-ink: oklch(0.24 0.025 35);
-  --pr-color-muted: oklch(0.49 0.03 35);
-  --pr-color-accent: oklch(0.72 0.108 20);
-  --pr-color-accent-ink: oklch(0.32 0.06 18);
-  --pr-color-focus: oklch(0.64 0.14 22 / 0.72);
-  --pr-color-good: oklch(0.54 0.105 148);
-  --pr-color-danger: oklch(0.52 0.16 25);
-  --pr-color-access-bg: oklch(0.92 0.035 22 / 0.72);
-  --pr-color-primary-bg: oklch(0.96 0.033 20);
-  --pr-color-selected-bg: oklch(0.96 0.034 21);
-  --pr-color-hover-bg: oklch(0.975 0.022 22);
-  --pr-color-reviewed-bg: oklch(0.92 0.065 148);
-  --pr-color-reviewed-ink: oklch(0.34 0.09 150);
-  --pr-color-in-review-bg: oklch(0.94 0.055 80);
-  --pr-color-in-review-ink: oklch(0.43 0.08 70);
-  --pr-color-unreviewed-bg: oklch(0.94 0.025 26);
-  --pr-color-unreviewed-ink: oklch(0.42 0.055 25);
-  --pr-color-issue-bg: oklch(0.95 0.052 75);
-  --pr-color-issue-ink: oklch(0.39 0.075 65);
-  --pr-color-channel-bg: oklch(0.93 0.04 20);
-  --pr-color-error-bg: oklch(0.94 0.05 25);
-  --pr-shadow-panel: 0 10px 30px oklch(0.45 0.06 25 / 0.06);
-  --pr-font-display: "Manrope", ui-sans-serif, system-ui, sans-serif;
-  --pr-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --pr-color-bg: hsl(var(--background));
+  --pr-color-surface: hsl(var(--card) / 0.9);
+  --pr-color-surface-glass: hsl(var(--card) / 0.82);
+  --pr-color-surface-muted: hsl(var(--muted) / 0.78);
+  --pr-color-border: hsl(var(--border) / 0.62);
+  --pr-color-ink: hsl(var(--foreground));
+  --pr-color-muted: hsl(var(--muted-foreground));
+  --pr-color-accent: hsl(var(--primary));
+  --pr-color-accent-ink: hsl(var(--primary));
+  --pr-color-focus: hsl(var(--ring) / 0.72);
+  --pr-color-good: hsl(var(--success));
+  --pr-color-danger: hsl(var(--destructive));
+  --pr-color-access-bg: hsl(var(--primary) / 0.09);
+  --pr-color-primary-bg: hsl(var(--primary) / 0.08);
+  --pr-color-selected-bg: hsl(var(--accent) / 0.24);
+  --pr-color-hover-bg: hsl(var(--muted) / 0.82);
+  --pr-color-reviewed-bg: hsl(var(--success) / 0.13);
+  --pr-color-reviewed-ink: hsl(var(--success));
+  --pr-color-in-review-bg: hsl(var(--warning) / 0.58);
+  --pr-color-in-review-ink: hsl(var(--warning-foreground));
+  --pr-color-unreviewed-bg: hsl(var(--muted) / 0.9);
+  --pr-color-unreviewed-ink: hsl(var(--muted-foreground));
+  --pr-color-issue-bg: hsl(var(--warning) / 0.46);
+  --pr-color-issue-ink: hsl(var(--warning-foreground));
+  --pr-color-channel-bg: hsl(var(--primary) / 0.1);
+  --pr-color-error-bg: hsl(var(--destructive) / 0.09);
+  --pr-shadow-panel: var(--shadow-card);
+  --pr-font-display: var(--font-display);
+  --pr-font-mono: var(--font-mono-data);
 }
 
 .point-revenue-page {
+  width: 100%;
+  max-width: 100rem;
   min-height: 100dvh;
+  margin-inline: auto;
   overflow-x: clip;
-  background: var(--pr-color-bg);
+  background: hsl(var(--background) / 0.68);
   color: var(--pr-color-ink);
   font-family: var(--pr-font-display);
   font-variant-numeric: tabular-nums;
-  padding: 1rem;
+  padding: 0.75rem;
 }
 
 .point-revenue-page *,
@@ -61,12 +64,14 @@
   border: 1px solid var(--pr-color-border);
   background: var(--pr-color-surface-glass);
   box-shadow: var(--pr-shadow-panel);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .pr-hero {
   display: grid;
-  gap: 1rem;
-  border-radius: 1.5rem;
+  gap: 0.75rem;
+  border-radius: 1.25rem;
   padding: 1rem;
 }
 
@@ -81,8 +86,8 @@
 .pr-hero h1 {
   min-width: 0;
   overflow-wrap: anywhere;
-  font-size: clamp(2rem, 5vw, 3.3rem);
-  line-height: 1;
+  font-size: clamp(1.75rem, 5vw, 2.6rem);
+  line-height: 1.08;
 }
 
 .pr-hero p,
@@ -93,10 +98,10 @@
 
 .pr-hero > div:first-child > p:last-child {
   max-width: 55rem;
-  margin-top: 0.75rem;
+  margin-top: 0.5rem;
   color: var(--pr-color-muted);
-  font-size: 1rem;
-  line-height: 1.65;
+  font-size: 0.92rem;
+  line-height: 1.5;
 }
 
 .pr-eyebrow {
@@ -127,15 +132,16 @@
 
 .pr-metric-rail {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
-  margin-top: 1rem;
+  margin-top: 0.75rem;
 }
 
 .pr-metric-rail article {
-  min-height: 6.5rem;
-  border-radius: 1.25rem;
-  padding: 1rem;
+  min-width: 0;
+  min-height: 5.25rem;
+  border-radius: 1rem;
+  padding: 0.875rem;
 }
 
 .pr-metric-rail span,
@@ -160,20 +166,30 @@
 }
 
 .pr-rail-primary {
-  min-height: 8.5rem;
+  grid-column: 1 / -1;
+  min-height: 6.5rem;
   background: var(--pr-color-primary-bg) !important;
 }
 
 .pr-rail-primary strong {
-  font-size: clamp(1.75rem, 8vw, 3.1rem);
+  overflow-wrap: anywhere;
+  font-size: clamp(1.6rem, 7vw, 2.75rem);
 }
 
 .pr-filters {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
-  margin-top: 1rem;
-  border-radius: 1.25rem;
+  margin-top: 0.75rem;
+  border-radius: 1rem;
   padding: 0.75rem;
+}
+
+.pr-filters label,
+.pr-filters input,
+.pr-filters [role="combobox"] {
+  min-width: 0;
+  width: 100%;
 }
 
 .pr-filters label,
@@ -192,6 +208,17 @@
 .pr-mobile-card button,
 .pr-dialog-close {
   min-height: 44px;
+}
+
+.pr-filters input,
+.pr-filters [role="combobox"],
+.pr-channel-fields input,
+.pr-inventory-grid input,
+.pr-note-field input,
+.pr-note-field textarea {
+  border-color: var(--pr-color-border);
+  background: hsl(var(--card) / 0.72);
+  color: var(--pr-color-ink);
 }
 
 .pr-workbench {
@@ -589,11 +616,6 @@
     padding: 1.25rem;
   }
 
-  .pr-metric-rail {
-    grid-template-columns: 1.6fr 0.8fr 0.8fr;
-    align-items: stretch;
-  }
-
   .pr-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -616,6 +638,15 @@
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
     padding: 1.5rem;
+  }
+
+  .pr-metric-rail {
+    grid-template-columns: 1.6fr 0.8fr 0.8fr;
+    align-items: stretch;
+  }
+
+  .pr-rail-primary {
+    grid-column: auto;
   }
 
   .pr-filters {

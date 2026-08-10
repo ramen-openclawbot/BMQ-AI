@@ -48,6 +48,7 @@ def main() -> None:
     page = read(PAGE)
     for token in (
         'data-testid="point-revenue-page"',
+        'data-stitch-revenue-theme="mediterranean-glass"',
         'data-testid="point-revenue-worklist"',
         'data-testid="point-revenue-editor"',
         'data-testid="point-revenue-mobile-card"',
@@ -69,6 +70,10 @@ def main() -> None:
     css = read(CSS)
     for token in (
         "hallmark · macrostructure: workbench",
+        "data-theme: mediterranean-glass",
+        "hsl(var(--background))",
+        "hsl(var(--card) / 0.82)",
+        "backdrop-filter: blur(16px)",
         "overflow-x: clip",
         "font-variant-numeric: tabular-nums",
         "prefers-reduced-motion: reduce",
@@ -80,6 +85,8 @@ def main() -> None:
         assert token in css.lower(), f"Hallmark CSS missing: {token}"
     assert "transition-all" not in css
     assert "100vw" not in css
+    assert "custom bmq dusty-pink" not in css.lower()
+    assert "oklch(" not in css.lower(), "page must use shared semantic BMQ tokens instead of a private legacy palette"
 
     routes = read(ROUTES)
     assert 'PointRevenueManagement' in routes

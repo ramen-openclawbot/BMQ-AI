@@ -653,7 +653,11 @@ export default function PointRevenueManagement() {
   );
 
   return (
-    <main className="point-revenue-page" data-testid="point-revenue-page">
+    <main
+      className="point-revenue-page"
+      data-testid="point-revenue-page"
+      data-stitch-revenue-theme="mediterranean-glass"
+    >
       <section className="pr-hero">
         <div>
           <p className="pr-eyebrow"><Store className="h-4 w-4" aria-hidden="true" /> Bàn làm việc kế toán</p>
@@ -696,7 +700,7 @@ export default function PointRevenueManagement() {
           <Select value={locationId} onValueChange={setLocationId}>
             <SelectTrigger><SelectValue placeholder="Tất cả điểm bán" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Tất cả điểm bán</SelectItem>
+              <SelectItem value="all">Tất cả</SelectItem>
               {locations.map((location) => <SelectItem key={location.id} value={location.id}>{location.name}</SelectItem>)}
             </SelectContent>
           </Select>
@@ -706,7 +710,7 @@ export default function PointRevenueManagement() {
           <Select value={status} onValueChange={(value) => setStatus(value as ReviewFilter)}>
             <SelectTrigger><SelectValue placeholder="Tất cả trạng thái" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Tất cả trạng thái</SelectItem>
+              <SelectItem value="all">Tất cả</SelectItem>
               <SelectItem value="unreviewed">Chờ kiểm tra</SelectItem>
               <SelectItem value="in_review">Đang kiểm tra</SelectItem>
               <SelectItem value="reviewed">Đã kiểm tra</SelectItem>
