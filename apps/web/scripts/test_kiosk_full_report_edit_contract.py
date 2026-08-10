@@ -51,8 +51,8 @@ def main() -> None:
         'const inventoryNumberFormatter = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 3 })',
         'formatInventoryQuantity(row.closing_quantity)',
         'Lý do chỉnh sửa',
-        'Sửa toàn bộ phiếu',
-        'Khách lẻ tự tính 12.000đ × số lượng',
+        'Kho và số bánh',
+        'Tự tính 12.000đ × số lượng',
     ):
         assert token in page, f"page missing full-edit behavior: {token}"
 

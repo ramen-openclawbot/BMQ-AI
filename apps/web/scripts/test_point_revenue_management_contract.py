@@ -48,10 +48,8 @@ def main() -> None:
     page = read(PAGE)
     for token in (
         'data-testid="point-revenue-page"',
-        'data-stitch-revenue-theme="mediterranean-glass"',
-        'data-testid="point-revenue-worklist"',
+        'data-point-revenue-version="daily-ranking-v1"',
         'data-testid="point-revenue-editor"',
-        'data-testid="point-revenue-mobile-card"',
         'canEditModule("finance_revenue")',
         'get_kiosk_point_revenue_reviews',
         'get_kiosk_point_report_detail',
@@ -60,20 +58,32 @@ def main() -> None:
         'sold_quantity: breadstickSoldQuantity',
         'setInventoryRows(recalculateInventory(inventoryWithDerivedSales))',
         'aria-live="polite"',
-        'Số lượng',
-        'Thành tiền',
+        'bánh bán ra trong ngày',
+        'Xếp hạng điểm bán',
+        'Bán nhiều nhất',
+        'Bán ít nhất',
+        'Số bánh',
+        'Doanh thu',
         'Lý do chỉnh sửa',
-        'Lưu & đánh dấu đã kiểm tra',
+        'Lưu thay đổi',
     ):
-        assert token in page, f"page missing behavior contract: {token}"
+        assert token in page, f"page missing daily-report behavior contract: {token}"
+
+    for removed_copy in (
+        'Danh sách kiểm tra',
+        'Báo cáo kiosk cần kiểm tra',
+        'Lưu & đánh dấu đã kiểm tra',
+        'Chờ kiểm tra',
+        'Đã kiểm tra',
+        'Xem nhanh số bánh và doanh thu của từng điểm bán theo ngày.',
+        'Kế toán được phép chỉnh sửa',
+        'Tài khoản chỉ có quyền xem',
+    ):
+        assert removed_copy not in page, f"obsolete review UI remains: {removed_copy}"
 
     css = read(CSS)
     for token in (
-        "hallmark · macrostructure: workbench",
-        "data-theme: mediterranean-glass",
-        "hsl(var(--background))",
-        "hsl(var(--card) / 0.82)",
-        "backdrop-filter: blur(16px)",
+        "hallmark · genre: modern-minimal · macrostructure: stat-led",
         "overflow-x: clip",
         "font-variant-numeric: tabular-nums",
         "prefers-reduced-motion: reduce",
@@ -81,12 +91,16 @@ def main() -> None:
         "@media (min-width: 60rem)",
         "--pr-color-accent:",
         "--pr-font-display:",
+        ".pr-date-control {",
+        "grid-template-columns: 3rem minmax(0, 1fr) 3rem;",
+        ".pr-date-control input::-webkit-calendar-picker-indicator",
+        "appearance: none;",
+        ".pr-point-revenue {",
+        "grid-column: 2 / -1;",
     ):
         assert token in css.lower(), f"Hallmark CSS missing: {token}"
     assert "transition-all" not in css
     assert "100vw" not in css
-    assert "custom bmq dusty-pink" not in css.lower()
-    assert "oklch(" not in css.lower(), "page must use shared semantic BMQ tokens instead of a private legacy palette"
 
     routes = read(ROUTES)
     assert 'PointRevenueManagement' in routes
