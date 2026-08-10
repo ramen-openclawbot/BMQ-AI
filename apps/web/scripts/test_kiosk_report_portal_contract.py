@@ -110,7 +110,11 @@ def test_authenticated_report_matches_approved_responsive_design_system() -> Non
     assert_not_contains(portal, 'bg-[#f3f4f6]', "legacy gray authenticated canvas")
     assert_not_contains(portal, 'min-w-[920px]', "legacy horizontally scrolling inventory table")
     assert_not_contains(portal, 'Không thu tiền mặt', "removed non-cash helper copy")
-    assert_contains(portal, 'items-center gap-1 p-2', "vertically centered channel row icon and copy")
+    assert_contains(portal, 'grid-cols-[40px_minmax(0,1fr)]', "mobile channel identity row")
+    assert_contains(portal, 'col-span-2 grid min-w-0 grid-cols-2', "mobile channel fields use their own full-width row")
+    assert_contains(portal, 'min-w-0 break-words', "channel names can wrap under Android text scaling")
+    assert_contains(portal, 'mb-1 block text-[10px] leading-tight', "channel field labels wrap instead of clipping")
+    assert_not_contains(portal, 'whitespace-nowrap text-[13px]', "channel name must not overflow its fixed column")
 
 
 def test_hallmark_redesign_is_compact_clear_and_mobile_safe() -> None:

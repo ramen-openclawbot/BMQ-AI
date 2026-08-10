@@ -806,11 +806,13 @@ export default function KioskReportPortal() {
                 {channelRows.map((row) => {
                   const cashChannel = row.channel_code === "khach_le";
                   return (
-                    <div key={row.channel_code} className="grid grid-cols-[36px_minmax(72px,1fr)_52px_62px] items-center gap-1 p-2 min-[360px]:grid-cols-[40px_minmax(86px,1fr)_68px_84px] min-[360px]:gap-1.5 min-[360px]:p-2.5 sm:grid-cols-[48px_minmax(105px,1fr)_100px_128px] sm:gap-3 xl:grid-cols-[40px_minmax(90px,1fr)_76px_98px] xl:gap-2 xl:p-2.5">
+                    <div key={row.channel_code} className="grid grid-cols-[40px_minmax(0,1fr)] items-center gap-x-2 gap-y-2.5 p-2.5 sm:grid-cols-[48px_minmax(105px,1fr)_100px_128px] sm:gap-3 xl:grid-cols-[40px_minmax(90px,1fr)_76px_98px] xl:gap-2 xl:p-2.5">
                       <ChannelIcon code={row.channel_code} />
-                      <div className="self-center whitespace-nowrap text-[13px] font-bold sm:text-[17px]">{row.channel_name_snapshot}</div>
-                      <ChannelNumberField label="Số lượng" value={row.quantity} disabled={isSubmitted} onChange={(value) => updateChannelRow(row.channel_code, "quantity", value)} />
-                      <ChannelNumberField label="Thành tiền" value={row.amount_vnd} disabled={isSubmitted || cashChannel} placeholder={cashChannel ? undefined : "—"} onChange={(value) => updateChannelRow(row.channel_code, "amount_vnd", value)} />
+                      <div className="min-w-0 break-words text-[15px] font-bold leading-tight sm:text-[17px]">{row.channel_name_snapshot}</div>
+                      <div className="col-span-2 grid min-w-0 grid-cols-2 gap-2 sm:contents">
+                        <ChannelNumberField label="Số lượng" value={row.quantity} disabled={isSubmitted} onChange={(value) => updateChannelRow(row.channel_code, "quantity", value)} />
+                        <ChannelNumberField label="Thành tiền" value={row.amount_vnd} disabled={isSubmitted || cashChannel} placeholder={cashChannel ? undefined : "—"} onChange={(value) => updateChannelRow(row.channel_code, "amount_vnd", value)} />
+                      </div>
                     </div>
                   );
                 })}
@@ -949,7 +951,7 @@ function ReportNumberField({ label, value, disabled, onChange }: { label: string
 function ChannelNumberField({ label, value, disabled, placeholder, onChange }: { label: string; value: number; disabled?: boolean; placeholder?: string; onChange: (value: string) => void }) {
   return (
     <label className="block min-w-0">
-      <span className="mb-1 block truncate text-[10px] text-[#746e75] sm:text-xs">{label}</span>
+      <span className="mb-1 block text-[10px] leading-tight text-[#746e75] sm:text-xs">{label}</span>
       <Input type="number" inputMode="decimal" value={placeholder && Number(value) === 0 ? "" : Number.isFinite(value) ? String(value) : "0"} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} disabled={disabled} className="h-10 rounded-xl border-[#ded9db] bg-white px-2 text-left text-sm shadow-none placeholder:text-[#4d4850] focus-visible:ring-[#ec5b91] sm:h-11 sm:px-3 sm:text-base" />
     </label>
   );
