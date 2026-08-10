@@ -540,7 +540,13 @@ export default function PointRevenueManagement() {
     ])));
     setQuantities(Object.fromEntries(detail.channel_rows.map((channel) => [channel.channel_code, channel.quantity])));
     setChannelNotes(Object.fromEntries(detail.channel_rows.map((channel) => [channel.channel_code, channel.notes])));
-    setInventoryRows(recalculateInventory(detail.inventory_rows));
+    const breadstickSoldQuantity = detail.channel_rows.reduce((sum, channel) => sum + channel.quantity, 0);
+    const inventoryWithDerivedSales = detail.inventory_rows.map((row) => (
+      row.product_code === "banh_mi_que"
+        ? { ...row, sold_quantity: breadstickSoldQuantity }
+        : row
+    ));
+    setInventoryRows(recalculateInventory(inventoryWithDerivedSales));
     setReportNotes(detail.report_notes);
   }, [detail]);
 
