@@ -296,9 +296,7 @@ export default function KioskReportPortal() {
     () => new Map(products.map((product) => [product.code, product])),
     [products],
   );
-  const breadstickSoldQuantity = numberValue(
-    inventoryRows.find((row) => row.product_code === "banh_mi_que")?.sold_quantity,
-  );
+  const breadstickSoldQuantity = totalQuantity;
 
   const hydrateBootstrap = useCallback((payload: BootstrapResponse) => {
     const nextProducts = normalizeProducts(payload.products?.length ? payload.products : DEFAULT_PRODUCTS);
@@ -431,7 +429,9 @@ export default function KioskReportPortal() {
         notes,
         inventory_rows: inventoryRows.map((row) => ({
           ...row,
-          sold_quantity: isRetailSaleAllowed(productByCode.get(row.product_code)) ? row.sold_quantity : 0,
+          sold_quantity: row.product_code === "banh_mi_que"
+            ? breadstickSoldQuantity
+            : 0,
         })),
         channel_rows: channelRows.map((row) => ({
           ...row,
@@ -756,12 +756,17 @@ export default function KioskReportPortal() {
                           <ReportNumberField label="Hủy" value={row.waste_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "waste_quantity", value)} />
                           <ReportNumberField label="Đổi trả" value={row.returns_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "returns_quantity", value)} />
                           {saleAllowed && (
-                            <ReportNumberField label="Đã bán" value={row.sold_quantity} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "sold_quantity", value)} />
+                            <ReportNumberField label="Đã bán" value={breadstickSoldQuantity} disabled onChange={() => undefined} />
                           )}
                           {row.product_code === "ot" && (
                             <ReportNumberField label="Ớt sử dụng" value={row.consumed_quantity || 0} disabled={isSubmitted} onChange={(value) => updateInventoryRow(row.product_code, "consumed_quantity", value)} />
                           )}
                         </div>
+                        {saleAllowed && !isSubmitted && (
+                          <div className="mt-3 rounded-xl border border-[#f2d5df] bg-[#fff8fa] px-3 py-2.5 text-sm text-[#80566a]">
+                            <strong>Đã bán tự tính từ tổng số lượng theo kênh.</strong>
+                          </div>
+                        )}
                         {!saleAllowed && (
                           <div className="mt-3 rounded-xl border border-[#f2d5df] bg-[#fff8fa] px-3 py-2.5 text-sm text-[#80566a]">
                             {row.product_code === "pate"

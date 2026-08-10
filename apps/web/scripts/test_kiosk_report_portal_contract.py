@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "src/App.tsx"
 ROUTES = ROOT / "src/components/AppRoutes.tsx"
 PORTAL = ROOT / "src/pages/KioskReportPortal.tsx"
+DAILY_SAVE = ROOT / "supabase/functions/report-daily-save/index.ts"
 CONFIG = ROOT / "supabase/config.toml"
 CORS = ROOT / "supabase/functions/_shared/cors.ts"
 MIGRATION_GLOB = "202608*_kiosk_report*.sql"
@@ -195,6 +196,23 @@ def test_walk_in_revenue_is_derived_from_quantity_at_12000_vnd() -> None:
     assert_contains(portal, 'channel_rows: channelRows.map', "derived amount save payload")
     assert_not_contains(portal, 'value={placeholder ? "" :', "placeholder masking entered amount")
     assert_contains(portal, 'placeholder && Number(value) === 0', "zero-only non-cash placeholder")
+
+
+def test_breadstick_inventory_sales_are_derived_from_channel_quantities() -> None:
+    portal = read(PORTAL)
+    daily_save = read(DAILY_SAVE)
+    for needle, label in [
+        ("const breadstickSoldQuantity = totalQuantity", "portal channel-total source of truth"),
+        ('label="Đã bán" value={breadstickSoldQuantity}', "derived breadstick sold display"),
+        ('sold_quantity: row.product_code === "banh_mi_que"', "derived portal save payload"),
+        ("? breadstickSoldQuantity", "portal payload uses derived sales"),
+    ]:
+        assert_contains(portal, needle, label)
+    for needle, label in [
+        ("const breadstickSoldQuantity = channelRows.reduce", "edge channel-total source of truth"),
+        ('productCode === "banh_mi_que" ? breadstickSoldQuantity', "edge overwrites stale clients"),
+    ]:
+        assert_contains(daily_save, needle, label)
 
 
 def test_report_portal_uses_only_report_functions() -> None:
