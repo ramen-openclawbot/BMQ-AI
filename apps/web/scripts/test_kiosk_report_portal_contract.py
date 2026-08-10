@@ -203,13 +203,19 @@ def test_breadstick_inventory_sales_are_derived_from_channel_quantities() -> Non
     daily_save = read(DAILY_SAVE)
     for needle, label in [
         ("const breadstickSoldQuantity = totalQuantity", "portal channel-total source of truth"),
+        ("deriveBreadstickInventoryRow", "portal derived sales calculation row"),
+        ("calcClosing(row, consumedQuantity, breadstickSoldQuantity)", "derived sales closing calculation"),
+        ("hasNegativeClosing(row, consumedQuantity, breadstickSoldQuantity)", "derived sales negative validation"),
         ('label="Đã bán" value={breadstickSoldQuantity}', "derived breadstick sold display"),
         ('sold_quantity: row.product_code === "banh_mi_que"', "derived portal save payload"),
         ("? breadstickSoldQuantity", "portal payload uses derived sales"),
     ]:
         assert_contains(portal, needle, label)
     for needle, label in [
-        ("const breadstickSoldQuantity = channelRows.reduce", "edge channel-total source of truth"),
+        ("sumValidatedChannelQuantities", "edge validated channel-total source of truth"),
+        ('new Set<string>', "edge active channel allowlist"),
+        ('validationError.code === "duplicate_report_channel"', "edge duplicate channel rejection"),
+        ('validationError.code', "edge unknown channel rejection"),
         ('productCode === "banh_mi_que" ? breadstickSoldQuantity', "edge overwrites stale clients"),
     ]:
         assert_contains(daily_save, needle, label)

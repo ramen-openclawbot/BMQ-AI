@@ -5,6 +5,7 @@ import {
   calculateConsumedQuantity,
   calculateEffectiveConsumedQuantity,
   calculateInventoryClosing,
+  deriveBreadstickInventoryRow,
   isNegativeInventoryClosing,
   isRetailSaleAllowed,
   type ReportInventoryProduct,
@@ -56,5 +57,19 @@ assert.equal(calculateKioskChannelAmount(" KHACH_LE ", 3, 999_999), 36_000);
 assert.equal(calculateKioskChannelAmount("khach_le", 2.5, 0), 30_000);
 assert.equal(calculateKioskChannelAmount("grabfood", 3, 240_000), 240_000);
 assert.equal(calculateKioskChannelAmount("grabfood", 3, -10), 0);
+
+const staleBreadstickRow: ReportInventoryRow = {
+  openingQuantity: 50,
+  receivedQuantity: 100,
+  shortageQuantity: 0,
+  transferQuantity: 1,
+  wasteQuantity: 2,
+  returnsQuantity: 0,
+  soldQuantity: 0,
+};
+const derivedBreadstickRow = deriveBreadstickInventoryRow(staleBreadstickRow, 97);
+assert.equal(derivedBreadstickRow.soldQuantity, 97);
+assert.equal(calculateInventoryClosing(derivedBreadstickRow), 52);
+assert.equal(isNegativeInventoryClosing(deriveBreadstickInventoryRow(staleBreadstickRow, 200)), true);
 
 console.log("PASS kiosk report ingredient consumption");

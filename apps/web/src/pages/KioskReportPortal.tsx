@@ -36,6 +36,7 @@ import {
   calculateKioskChannelAmount,
   calculateEffectiveConsumedQuantity,
   calculateInventoryClosing,
+  deriveBreadstickInventoryRow,
   isNegativeInventoryClosing,
   isRetailSaleAllowed,
 } from "@/lib/kiosk-report-inventory";
@@ -46,6 +47,8 @@ const SAFE_SAVE_ERROR_MESSAGES = new Set([
   "Vui lòng gửi báo cáo ngày trước trước khi gửi ngày này.",
   "Không thể gửi báo cáo cũ hơn một báo cáo đã gửi.",
   "Tồn cuối không được âm. Vui lòng kiểm tra tồn đầu, nhập hoặc điều chuyển trước khi gửi.",
+  "Dữ liệu kênh bán bị trùng. Vui lòng tải lại báo cáo.",
+  "Dữ liệu kênh bán không hợp lệ. Vui lòng tải lại báo cáo.",
 ]);
 
 const DEFAULT_PRODUCTS = [
@@ -201,7 +204,7 @@ const createChannelRows = (channels: ReportChannel[]): ChannelRow[] =>
     notes: "",
   }));
 
-const calcClosing = (row: InventoryRow, consumedQuantity = 0) => calculateInventoryClosing({
+const toInventoryCalculationRow = (row: InventoryRow) => ({
   openingQuantity: numberValue(row.opening_quantity),
   receivedQuantity: numberValue(row.received_quantity),
   shortageQuantity: numberValue(row.shortage_quantity),
@@ -209,17 +212,19 @@ const calcClosing = (row: InventoryRow, consumedQuantity = 0) => calculateInvent
   wasteQuantity: numberValue(row.waste_quantity),
   returnsQuantity: numberValue(row.returns_quantity),
   soldQuantity: numberValue(row.sold_quantity),
-}, consumedQuantity);
+});
 
-const hasNegativeClosing = (row: InventoryRow, consumedQuantity = 0) => isNegativeInventoryClosing({
-  openingQuantity: numberValue(row.opening_quantity),
-  receivedQuantity: numberValue(row.received_quantity),
-  shortageQuantity: numberValue(row.shortage_quantity),
-  transferQuantity: numberValue(row.transfer_quantity),
-  wasteQuantity: numberValue(row.waste_quantity),
-  returnsQuantity: numberValue(row.returns_quantity),
-  soldQuantity: numberValue(row.sold_quantity),
-}, consumedQuantity);
+const withDerivedBreadstickSales = (row: InventoryRow, breadstickSoldQuantity: number) => (
+  row.product_code === "banh_mi_que"
+    ? deriveBreadstickInventoryRow(toInventoryCalculationRow(row), breadstickSoldQuantity)
+    : toInventoryCalculationRow(row)
+);
+
+const calcClosing = (row: InventoryRow, consumedQuantity = 0, breadstickSoldQuantity = numberValue(row.sold_quantity)) =>
+  calculateInventoryClosing(withDerivedBreadstickSales(row, breadstickSoldQuantity), consumedQuantity);
+
+const hasNegativeClosing = (row: InventoryRow, consumedQuantity = 0, breadstickSoldQuantity = numberValue(row.sold_quantity)) =>
+  isNegativeInventoryClosing(withDerivedBreadstickSales(row, breadstickSoldQuantity), consumedQuantity);
 
 const normalizeProducts = (products: ReportProduct[]) => products.map((product) => {
   const fallback = DEFAULT_PRODUCTS.find((candidate) => candidate.code === product.code);
@@ -403,7 +408,7 @@ export default function KioskReportPortal() {
           breadstickSoldQuantity,
           numberValue(row.consumed_quantity),
         );
-        return hasNegativeClosing(row, consumedQuantity);
+        return hasNegativeClosing(row, consumedQuantity, breadstickSoldQuantity);
       });
       if (negativeRow) {
         setExpandedProductCode(negativeRow.product_code);
@@ -712,7 +717,7 @@ export default function KioskReportPortal() {
                 const consumedQuantity = isSubmitted
                   ? numberValue(row.consumed_quantity)
                   : calculateEffectiveConsumedQuantity(product, breadstickSoldQuantity, numberValue(row.consumed_quantity));
-                const closingQuantity = calcClosing(row, consumedQuantity);
+                const closingQuantity = calcClosing(row, consumedQuantity, breadstickSoldQuantity);
                 const saleAllowed = isRetailSaleAllowed(product);
                 return (
                   <div key={row.product_code} data-kiosk-inventory-product={row.product_code} className="bg-white">
@@ -779,12 +784,12 @@ export default function KioskReportPortal() {
                             <strong>Tồn hôm trước bị âm.</strong> Vui lòng kiểm đếm và nhập tồn đầu thực tế trước khi gửi.
                           </div>
                         )}
-                        {hasNegativeClosing(row, consumedQuantity) && !isSubmitted && (
+                        {hasNegativeClosing(row, consumedQuantity, breadstickSoldQuantity) && !isSubmitted && (
                           <div className="mt-3 rounded-xl border border-[#f3a3b9] bg-[#fff1f5] px-3 py-2.5 text-sm font-medium text-[#ad315e]">
                             Tồn cuối không được âm. Kiểm tra tồn đầu, nhập hoặc điều chuyển.
                           </div>
                         )}
-                        <div data-testid="computed-closing" className={cn("mt-3 flex items-center justify-between rounded-xl border border-dashed px-3 py-2.5", hasNegativeClosing(row, consumedQuantity) ? "border-[#e66f93] bg-[#fff0f4]" : "border-[#efb6ca] bg-[#fff5f8]")}>
+                        <div data-testid="computed-closing" className={cn("mt-3 flex items-center justify-between rounded-xl border border-dashed px-3 py-2.5", hasNegativeClosing(row, consumedQuantity, breadstickSoldQuantity) ? "border-[#e66f93] bg-[#fff0f4]" : "border-[#efb6ca] bg-[#fff5f8]")}>
                           <div>
                             <div className="text-sm font-semibold text-[#4f4950]">Tồn cuối</div>
                             <div className="text-[11px] text-[#9b5d73]">Hệ thống tính</div>

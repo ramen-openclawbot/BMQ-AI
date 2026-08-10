@@ -1,6 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { corsPreflightResponse } from "../_shared/cors.ts";
 import {
+  ReportChannelValidationError,
+  sumValidatedChannelQuantities,
+} from "../_shared/report-daily-normalization.ts";
+import {
   createServiceClient,
   errorResponse,
   extractReportSessionToken,
@@ -92,6 +96,14 @@ serve(async (req) => {
 
     const notes = String(body.notes || "").trim() || null;
     const profile = publicReportStaffProfile(sessionContext.staff, sessionContext.location);
+    const { data: activeChannels, error: activeChannelsError } = await supabase
+      .from("kiosk_report_channels")
+      .select("code")
+      .eq("active", true);
+    if (activeChannelsError) throw activeChannelsError;
+    const allowedChannelCodes = new Set<string>(
+      (activeChannels ?? []).map((channel: { code?: unknown }) => String(channel.code || "").trim().toLowerCase()),
+    );
     const channelRows = (Array.isArray(body.channel_rows) ? body.channel_rows : [])
       .slice(0, 100)
       .map((row) => {
@@ -104,7 +116,21 @@ serve(async (req) => {
           notes: String(row.notes || "").trim().slice(0, 1000) || null,
         };
       });
-    const breadstickSoldQuantity = channelRows.reduce((sum, row) => sum + row.quantity, 0);
+    let breadstickSoldQuantity: number;
+    try {
+      breadstickSoldQuantity = sumValidatedChannelQuantities(channelRows, allowedChannelCodes);
+    } catch (validationError) {
+      if (validationError instanceof ReportChannelValidationError) {
+        const duplicate = validationError.code === "duplicate_report_channel";
+        return errorResponse(
+          req,
+          duplicate ? "Dữ liệu kênh bán bị trùng. Vui lòng tải lại báo cáo." : "Dữ liệu kênh bán không hợp lệ. Vui lòng tải lại báo cáo.",
+          400,
+          validationError.code,
+        );
+      }
+      throw validationError;
+    }
     const inventoryRows = (Array.isArray(body.inventory_rows) ? body.inventory_rows : [])
       .slice(0, 100)
       .map((row) => {
