@@ -176,6 +176,8 @@ def test_negative_inventory_requires_physical_opening_reconciliation_before_subm
         ("Vui lòng kiểm đếm và nhập tồn đầu thực tế", "opening reconciliation instruction"),
         ("Tồn cuối không được âm", "negative submit blocker"),
         ("setExpandedProductCode", "open offending inventory row"),
+        ('data-kiosk-inventory-product={row.product_code}', "offending row scroll target"),
+        ('scrollIntoView({ behavior: "smooth", block: "center" })', "bring submit blocker into view"),
         ("openingLocked && !row.opening_reconciliation_required", "only reconciled opening is editable"),
     ]:
         assert_contains(portal, needle, label)

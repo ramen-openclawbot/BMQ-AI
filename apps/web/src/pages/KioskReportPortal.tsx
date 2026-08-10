@@ -411,6 +411,11 @@ export default function KioskReportPortal() {
         setExpandedProductCode(negativeRow.product_code);
         setErrorMessage("Tồn cuối không được âm. Vui lòng kiểm tra tồn đầu, nhập hoặc điều chuyển trước khi gửi.");
         setStatusMessage("");
+        window.setTimeout(() => {
+          document
+            .querySelector(`[data-kiosk-inventory-product="${negativeRow.product_code}"]`)
+            ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 0);
         return;
       }
     }
@@ -710,7 +715,7 @@ export default function KioskReportPortal() {
                 const closingQuantity = calcClosing(row, consumedQuantity);
                 const saleAllowed = isRetailSaleAllowed(product);
                 return (
-                  <div key={row.product_code} className="bg-white">
+                  <div key={row.product_code} data-kiosk-inventory-product={row.product_code} className="bg-white">
                     <button
                       type="button"
                       aria-expanded={expanded}
