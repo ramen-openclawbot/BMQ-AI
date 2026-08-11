@@ -215,7 +215,11 @@ serve(async (req) => {
       return errorResponse(req, "Mã gửi đơn không hợp lệ. Vui lòng thử lại.", 400, "invalid_client_submission_id");
     }
     const clientSubmissionId = suppliedSubmissionId || crypto.randomUUID();
-    const duplicateAction = body.duplicate_action === "add" ? "add" : null;
+    const duplicateAction = body.duplicate_action === "continue"
+      ? "continue"
+      : body.duplicate_action === "add"
+      ? "add"
+      : null;
     if (body.duplicate_action != null && duplicateAction === null) {
       return errorResponse(req, "Lựa chọn xử lý đơn tương tự không hợp lệ.", 400, "invalid_duplicate_action");
     }
@@ -298,7 +302,7 @@ serve(async (req) => {
       return jsonResponse(req, {
         success: false,
         code: "similar_order_exists",
-        message: "Đơn hàng tương tự đã được đặt. Quý Khách Hàng muốn cộng dồn hay huỷ?",
+        message: "Đơn hàng tương tự đã được đặt! Quý khách hàng muốn tiếp tục hay huỷ?",
         duplicate_order: {
           id: submitResult.order_id,
           order_number: submitResult.order_number,

@@ -719,7 +719,7 @@ export default function DealerPortal() {
     items: Array<Record<string, unknown>>,
     options: {
       chatNative?: boolean;
-      duplicateAction?: "add";
+      duplicateAction?: "continue";
       clientSubmissionId?: string;
     } = {},
   ) => {
@@ -756,7 +756,7 @@ export default function DealerPortal() {
         });
         setNppConfirmOpen(false);
         setNppParseStatus("success");
-        setNppParseMessage(data.message || "Đơn hàng tương tự đã được đặt. Quý Khách Hàng muốn cộng dồn hay huỷ?");
+        setNppParseMessage(data.message || "Đơn hàng tương tự đã được đặt! Quý khách hàng muốn tiếp tục hay huỷ?");
         return false;
       }
       if (!data?.success) throw new Error(data?.message || "Không gửi được đơn hàng.");
@@ -944,11 +944,11 @@ export default function DealerPortal() {
     })), { chatNative: true });
   };
 
-  const handleDuplicateOrderAdd = async () => {
+  const handleDuplicateOrderContinue = async () => {
     if (!duplicateOrderPrompt) return;
     await submitOrderPayload(duplicateOrderPrompt.items, {
       chatNative: duplicateOrderPrompt.chatNative,
-      duplicateAction: "add",
+      duplicateAction: "continue",
       clientSubmissionId: duplicateOrderPrompt.clientSubmissionId,
     });
   };
@@ -1705,7 +1705,7 @@ export default function DealerPortal() {
             successMessage={orderMessage}
             errorMessage={orderError}
             duplicateOrderPrompt={duplicateOrderPrompt}
-            onDuplicateAdd={handleDuplicateOrderAdd}
+            onDuplicateContinue={handleDuplicateOrderContinue}
             onDuplicateCancel={handleDuplicateOrderCancel}
             onProductSuggestion={handleProductCta}
             parseMessage={nppParseMessage}
@@ -2163,7 +2163,7 @@ export default function DealerPortal() {
                 successMessage={orderMessage}
                 errorMessage={orderError}
                 duplicateOrderPrompt={duplicateOrderPrompt}
-                onDuplicateAdd={handleDuplicateOrderAdd}
+                onDuplicateContinue={handleDuplicateOrderContinue}
                 onDuplicateCancel={handleDuplicateOrderCancel}
                 onProductSuggestion={handleProductCta}
                 parseMessage={nppParseMessage}
@@ -2712,7 +2712,7 @@ function NppQuickOrderPanel({
   successMessage,
   errorMessage,
   duplicateOrderPrompt,
-  onDuplicateAdd,
+  onDuplicateContinue,
   onDuplicateCancel,
   onProductSuggestion,
   parseMessage,
@@ -2745,7 +2745,7 @@ function NppQuickOrderPanel({
   successMessage: string;
   errorMessage: string;
   duplicateOrderPrompt: DuplicateOrderPrompt | null;
-  onDuplicateAdd: () => void;
+  onDuplicateContinue: () => void;
   onDuplicateCancel: () => void;
   onProductSuggestion: (product: Product) => void;
   parseMessage: string;
@@ -2866,11 +2866,11 @@ function NppQuickOrderPanel({
 
       {duplicateOrderPrompt ? (
         <div className="ml-11 max-w-sm rounded-2xl border border-[#e7b9cd] bg-[#fff7fb] p-3 shadow-sm" data-dealer-chat-choices="duplicate-order" role="group" aria-label="Xử lý đơn hàng tương tự">
-          <div className="text-sm font-extrabold text-[#543943]">Đơn hàng tương tự đã được đặt</div>
-          <div className="mt-1 text-sm leading-6 text-[#765d68]">Mã {duplicateOrderPrompt.orderNumber}. Quý Khách Hàng muốn cộng dồn hay huỷ?</div>
+          <div className="text-sm font-extrabold leading-6 text-[#543943]">Đơn hàng tương tự đã được đặt! Quý khách hàng muốn tiếp tục hay huỷ?</div>
+          <div className="mt-1 text-xs font-semibold text-[#8a6f7a]">Mã đơn trước: {duplicateOrderPrompt.orderNumber}</div>
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <Button type="button" className="h-11 rounded-xl bg-[#d94f8a] font-extrabold text-white hover:bg-[#c43f79]" data-dealer-chat-choice="duplicate-add" disabled={submitting} onClick={onDuplicateAdd}>
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackagePlus className="h-4 w-4" />} Cộng dồn
+            <Button type="button" className="h-11 rounded-xl bg-[#d94f8a] font-extrabold text-white hover:bg-[#c43f79]" data-dealer-chat-choice="duplicate-continue" disabled={submitting} onClick={onDuplicateContinue}>
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackagePlus className="h-4 w-4" />} Tiếp tục
             </Button>
             <Button type="button" variant="outline" className="h-11 rounded-xl border-[#d7bdc8] bg-white font-extrabold text-[#704f5e] hover:bg-[#fff0f6]" data-dealer-chat-choice="duplicate-cancel" disabled={submitting} onClick={onDuplicateCancel}>
               Huỷ
