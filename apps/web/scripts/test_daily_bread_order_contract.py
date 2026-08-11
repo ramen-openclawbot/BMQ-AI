@@ -2,6 +2,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "supabase/migrations/20260811120000_daily_bread_order_zalo_tuyet_anh.sql"
+VIETJET_FIX_MIGRATION = ROOT / "supabase/migrations/20260811123000_fix_vietjet_bread_quantity.sql"
 WORKER = ROOT / "supabase/functions/dealer-warehouse-notify/index.ts"
 HELPER = ROOT / "supabase/functions/_shared/daily-bread-order.ts"
 
@@ -23,6 +24,13 @@ def test_daily_bread_order_migration_contract():
     assert "grant execute on function public.upsert_daily_bread_order_notification" in sql
     assert "to service_role" in sql
     assert "to anon" not in sql.split("grant execute on function public.upsert_daily_bread_order_notification", 1)[1]
+
+
+def test_vietjet_fix_uses_postgres_safe_numeric_regex():
+    sql = VIETJET_FIX_MIGRATION.read_text(encoding="utf-8")
+    assert "^[0-9]+([.][0-9]+)?$" in sql
+    assert "\\\\d" not in sql
+    assert "jsonb_typeof(inbox.production_items) = 'array'" in sql
 
 
 def test_worker_routes_only_named_supplier_jobs_to_tuyet_anh():

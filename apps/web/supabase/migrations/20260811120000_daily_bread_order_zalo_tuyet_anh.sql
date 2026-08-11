@@ -122,7 +122,7 @@ begin
   select
     case
       when coalesce(item.value->>'qty', item.value->>'ordered_qty', item.value->>'revenue_qty', '')
-        ~ '^\\d+(\\.\\d+)?$'
+        ~ '^[0-9]+([.][0-9]+)?$'
       then coalesce(item.value->>'qty', item.value->>'ordered_qty', item.value->>'revenue_qty')::numeric
       else 0::numeric
     end as quantity,
