@@ -42,6 +42,11 @@ const quantity = (value: unknown): number => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 };
 
+const signedQuantity = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
 const roundUpToBatch = (value: number, batchSize = 10): number => {
   if (!(value > 0)) return 0;
   return Math.ceil(value / batchSize) * batchSize;
@@ -79,7 +84,7 @@ export function forecastVehicleBread(locations: VehicleBreadLocation[]): {
     }
 
     const peakSoldQuantity = Math.max(...reports.map((report) => quantity(report.soldQuantity)));
-    const latestClosingQuantity = quantity(reports[0].closingQuantity);
+    const latestClosingQuantity = signedQuantity(reports[0].closingQuantity);
     const protectedDemand = Math.round(peakSoldQuantity * 1.1 * 1_000) / 1_000;
     const recommendedQuantity = roundUpToBatch(Math.max(0, protectedDemand - latestClosingQuantity));
 

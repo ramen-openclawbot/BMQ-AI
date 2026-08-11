@@ -170,9 +170,14 @@ const resolveZaloAccessToken = async (supabase: ReturnType<typeof createServiceC
 
 const retryDelaySeconds = (attemptCount: number) => Math.min(3600, 60 * (5 ** Math.max(0, attemptCount - 1)));
 
-const quantity = (value: number | string) => {
+const quantity = (value: number | string | null | undefined) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+};
+
+const signedQuantity = (value: number | string | null | undefined) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 };
 
 type DailyBreadDealerOrderRow = { id: string };
@@ -184,12 +189,12 @@ type DailyBreadDealerItemRow = {
   exchange_quantity: number | string | null;
   makeup_quantity: number | string | null;
 };
-type DailyBreadLocationRow = { id: string; location_code: string };
-type DailyBreadReportRow = { id: string; location_id: string; report_date: string };
-type DailyBreadInventoryRow = {
-  report_id: string;
-  sold_quantity: number | string;
-  closing_quantity: number | string;
+type DailyBreadVehicleHistoryRow = {
+  location_id: string;
+  location_code: string;
+  report_date: string | null;
+  sold_quantity: number | string | null;
+  closing_quantity: number | string | null;
 };
 type DailyBreadVietjetQuantityRow = {
   quantity: number | string;
@@ -232,59 +237,37 @@ const enqueueDailyBreadOrder = async (
     0,
   );
 
-  const { data: locationData, error: locationError } = await supabase
-    .from("kiosk_report_locations")
-    .select("id,location_code")
-    .eq("active", true)
-    .order("location_code", { ascending: true });
-  if (locationError) throw new Error(`Unable to read kiosk locations: ${locationError.message}`);
-  const locations = ((locationData || []) as DailyBreadLocationRow[])
-    .filter((location) => !String(location.location_code || "").toUpperCase().startsWith("TEST"));
-  if (locations.length === 0) throw new Error("No active kiosk locations available for vehicle forecast");
-
-  const { data: reportData, error: reportError } = await supabase
-    .from("kiosk_daily_reports")
-    .select("id,location_id,report_date")
-    .in("location_id", locations.map((location) => location.id))
-    .eq("status", "submitted")
-    .lte("report_date", dayRange.dateKey)
-    .order("report_date", { ascending: false })
-    .limit(500);
-  if (reportError) throw new Error(`Unable to read submitted kiosk reports: ${reportError.message}`);
-  const reports = (reportData || []) as DailyBreadReportRow[];
-
-  let inventoryRows: DailyBreadInventoryRow[] = [];
-  if (reports.length > 0) {
-    const { data, error } = await supabase
-      .from("kiosk_daily_report_inventory_rows")
-      .select("report_id,sold_quantity,closing_quantity")
-      .in("report_id", reports.map((report) => report.id))
-      .eq("product_code", "banh_mi_que");
-    if (error) throw new Error(`Unable to read kiosk bread inventory: ${error.message}`);
-    inventoryRows = (data || []) as DailyBreadInventoryRow[];
+  const { data: vehicleHistoryData, error: vehicleHistoryError } = await supabase.rpc(
+    "get_daily_bread_vehicle_history",
+    { p_cutoff_date: dayRange.dateKey },
+  );
+  if (vehicleHistoryError) {
+    throw new Error(`Unable to read kiosk vehicle history: ${vehicleHistoryError.message}`);
   }
-  const inventoryByReport = new Map(inventoryRows.map((row) => [row.report_id, row]));
-  const reportsByLocation = new Map<string, Array<{
-    reportDate: string;
-    soldQuantity: number;
-    closingQuantity: number;
-  }>>();
-  reports.forEach((report) => {
-    const inventory = inventoryByReport.get(report.id);
-    if (!inventory) return;
-    const rows = reportsByLocation.get(report.location_id) || [];
-    rows.push({
-      reportDate: report.report_date,
-      soldQuantity: quantity(inventory.sold_quantity),
-      closingQuantity: quantity(inventory.closing_quantity),
-    });
-    reportsByLocation.set(report.location_id, rows);
+  const vehicleHistory = (vehicleHistoryData || []) as DailyBreadVehicleHistoryRow[];
+  if (vehicleHistory.length === 0) throw new Error("No active kiosk locations available for vehicle forecast");
+
+  const vehicleLocations = new Map<string, {
+    locationId: string;
+    locationCode: string;
+    reports: Array<{ reportDate: string; soldQuantity: number; closingQuantity: number }>;
+  }>();
+  vehicleHistory.forEach((row) => {
+    const location = vehicleLocations.get(row.location_id) || {
+      locationId: row.location_id,
+      locationCode: row.location_code,
+      reports: [],
+    };
+    if (row.report_date) {
+      location.reports.push({
+        reportDate: row.report_date,
+        soldQuantity: quantity(row.sold_quantity),
+        closingQuantity: signedQuantity(row.closing_quantity),
+      });
+    }
+    vehicleLocations.set(row.location_id, location);
   });
-  const vehicleForecast = forecastVehicleBread(locations.map((location) => ({
-    locationId: location.id,
-    locationCode: location.location_code,
-    reports: reportsByLocation.get(location.id) || [],
-  })));
+  const vehicleForecast = forecastVehicleBread([...vehicleLocations.values()]);
 
   const { data: vietjetData, error: vietjetError } = await supabase.rpc(
     "get_latest_vietjet_bread_quantity",

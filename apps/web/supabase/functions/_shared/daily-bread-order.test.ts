@@ -39,6 +39,17 @@ test("does not create vehicle demand for an active location without submitted br
   assert.deepEqual(result.warnings, ["HCM-NEW:no_submitted_bread_report"]);
 });
 
+test("subtracts an exact negative latest closing so deficits increase the vehicle order", () => {
+  const result = forecastVehicleBread([{
+    locationId: "negative",
+    locationCode: "HCM-NEG",
+    reports: [{ reportDate: "2026-08-10", soldQuantity: 100, closingQuantity: -10 }],
+  }]);
+
+  assert.equal(result.locations[0].latestClosingQuantity, -10);
+  assert.equal(result.totalQuantity, 120);
+});
+
 test("uses exact quantity from the latest VietJet cumulative email for target service date", () => {
   const result = selectLatestVietjetQuantity([
     {
