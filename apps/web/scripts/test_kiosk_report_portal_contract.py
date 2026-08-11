@@ -68,6 +68,8 @@ def test_report_ui_matches_approved_copy_and_shape() -> None:
         ("Pate", "product list"),
         ("Ớt", "product list"),
         ("Bánh mì sấy", "product list"),
+        ("Bao ly", "inventory supply list"),
+        ("túi~0.5kg", "cup-bag inventory unit"),
         ("Khách lẻ", "channel list"),
         ("ShopeeFood", "channel list"),
         ("GrabFood", "channel list"),
@@ -139,6 +141,28 @@ def test_hallmark_redesign_is_compact_clear_and_mobile_safe() -> None:
     assert_not_contains(portal, "Kiểm tra & gửi báo cáo", "two-line-prone submit copy")
     for emoji in ["🥖", "🥫", "🌶️", "🥨"]:
         assert_not_contains(portal, emoji, "platform-dependent product emoji")
+
+
+def test_cup_bags_are_inventory_only_and_show_the_approved_unit() -> None:
+    portal = read(PORTAL)
+    sql = read_report_migrations()
+    for needle, label in [
+        ('{ code: "bao_ly", product_name: "Bao ly", unit: "túi~0.5kg", sale_allowed: false, breadstick_consumption_ratio: 0 }', "cup-bag fallback product"),
+        ('data-kiosk-inventory-unit', "visible inventory unit marker"),
+        ('product?.unit', "unit rendered from server product metadata"),
+        ('row.product_code === "ot"', "manual consumption remains chili-only"),
+        ('row.product_code === "pate"', "automatic consumption remains pate-only"),
+        ('Theo dõi xuất nhập tồn', "generic non-retail inventory guidance"),
+    ]:
+        assert_contains(portal, needle, label)
+    for needle, label in [
+        ("'bao_ly'", "cup-bag product code seed"),
+        ("'Bao ly'", "cup-bag product name seed"),
+        ("'túi~0.5kg'", "approved cup-bag unit seed"),
+        ("sale_allowed = false", "cup-bag retail sale disabled"),
+        ("breadstick_consumption_ratio = 0", "cup-bag auto-consumption disabled"),
+    ]:
+        assert_contains(sql, needle, label)
 
 
 def test_ingredient_consumption_keeps_pate_automatic_and_chili_manually_editable() -> None:

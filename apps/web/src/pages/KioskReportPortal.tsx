@@ -56,6 +56,7 @@ const DEFAULT_PRODUCTS = [
   { code: "pate", product_name: "Pate", unit: "hộp", sale_allowed: false, breadstick_consumption_ratio: 1 / 20 },
   { code: "ot", product_name: "Ớt", unit: "phần", sale_allowed: false, breadstick_consumption_ratio: 0 },
   { code: "banh_mi_say", product_name: "Bánh mì sấy", unit: "gói", sale_allowed: true, breadstick_consumption_ratio: 0 },
+  { code: "bao_ly", product_name: "Bao ly", unit: "túi~0.5kg", sale_allowed: false, breadstick_consumption_ratio: 0 },
 ];
 
 const DEFAULT_CHANNELS = [
@@ -728,7 +729,14 @@ export default function KioskReportPortal() {
                       className="flex w-full items-center gap-2.5 px-1 py-2.5 text-left transition-colors hover:bg-[#fff9fb] sm:gap-3 sm:px-2"
                     >
                       <ProductIcon code={row.product_code} />
-                      <span className="min-w-0 flex-1 truncate text-[16px] font-bold sm:text-[17px]">{row.product_name_snapshot}</span>
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <span className="min-w-0 truncate text-[16px] font-bold sm:text-[17px]">{row.product_name_snapshot}</span>
+                        {product?.unit && (
+                          <span data-kiosk-inventory-unit className="shrink-0 rounded-full bg-[#fff0f5] px-2 py-0.5 text-[10px] font-bold text-[#a64b70] sm:text-xs">
+                            {product.unit}
+                          </span>
+                        )}
+                      </div>
                       {!expanded && (
                         <div className="hidden items-center gap-2 lg:flex">
                           <MetricPill label="Tồn đầu" value={row.opening_quantity} />
@@ -776,7 +784,9 @@ export default function KioskReportPortal() {
                           <div className="mt-3 rounded-xl border border-[#f2d5df] bg-[#fff8fa] px-3 py-2.5 text-sm text-[#80566a]">
                             {row.product_code === "pate"
                               ? <><strong>Tiêu hao tự động: {consumedQuantity.toLocaleString("vi-VN")} hộp</strong><span className="ml-1.5">• 1 hộp = 20 bánh mì que</span></>
-                              : <strong>Nhập lượng ớt sử dụng thực tế trong ngày • Không bán lẻ</strong>}
+                              : row.product_code === "ot"
+                                ? <strong>Nhập lượng ớt sử dụng thực tế trong ngày • Không bán lẻ</strong>
+                                : <strong>Theo dõi xuất nhập tồn • Không bán lẻ</strong>}
                           </div>
                         )}
                         {row.opening_reconciliation_required && !isSubmitted && (
