@@ -8,6 +8,11 @@ import {
   type WarehouseOrderMessageInput,
 } from "../_shared/dealer-warehouse-notification.ts";
 import {
+  buildDailyBreadOrderMessage,
+  forecastVehicleBread,
+  nextVietnamDateKey,
+} from "../_shared/daily-bread-order.ts";
+import {
   isWarehouseDailyDigestTime,
   isWarehouseNotificationWindow,
   warehouseVietnamDayRange,
@@ -170,6 +175,178 @@ const quantity = (value: number | string) => {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 };
 
+type DailyBreadDealerOrderRow = { id: string };
+type DailyBreadDealerItemRow = {
+  id: string;
+  order_id: string;
+  ordered_quantity: number | string | null;
+  quantity: number | string;
+  exchange_quantity: number | string | null;
+  makeup_quantity: number | string | null;
+};
+type DailyBreadLocationRow = { id: string; location_code: string };
+type DailyBreadReportRow = { id: string; location_id: string; report_date: string };
+type DailyBreadInventoryRow = {
+  report_id: string;
+  sold_quantity: number | string;
+  closing_quantity: number | string;
+};
+type DailyBreadVietjetQuantityRow = {
+  quantity: number | string;
+  inbox_id: string;
+  received_at: string;
+};
+
+const enqueueDailyBreadOrder = async (
+  supabase: ReturnType<typeof createServiceClient>,
+  now: Date,
+): Promise<{ id: string; messageBody: string }> => {
+  const dayRange = warehouseVietnamDayRange(now);
+  const orderDate = nextVietnamDateKey(now);
+  if (!dayRange || !orderDate) throw new Error("Unable to resolve Vietnam bread-order date");
+
+  const { data: dealerOrderData, error: dealerOrderError } = await supabase
+    .from("dealer_orders")
+    .select("id")
+    .eq("requested_delivery_date", orderDate)
+    .neq("status", "cancelled");
+  if (dealerOrderError) throw new Error(`Unable to read dealer bread orders: ${dealerOrderError.message}`);
+  const dealerOrders = (dealerOrderData || []) as DailyBreadDealerOrderRow[];
+
+  let dealerItems: DailyBreadDealerItemRow[] = [];
+  if (dealerOrders.length > 0) {
+    const { data, error } = await supabase
+      .from("dealer_order_items")
+      .select("id,order_id,ordered_quantity,quantity,exchange_quantity,makeup_quantity")
+      .in("order_id", dealerOrders.map((order) => order.id))
+      .eq("sku_code", "BMQ-001");
+    if (error) throw new Error(`Unable to read dealer bread-order items: ${error.message}`);
+    dealerItems = (data || []) as DailyBreadDealerItemRow[];
+  }
+  const dealerOrderedQuantity = dealerItems.reduce(
+    (sum, item) => sum + quantity(item.ordered_quantity ?? item.quantity),
+    0,
+  );
+  const dealerExtraQuantity = dealerItems.reduce(
+    (sum, item) => sum + quantity(item.exchange_quantity ?? 0) + quantity(item.makeup_quantity ?? 0),
+    0,
+  );
+
+  const { data: locationData, error: locationError } = await supabase
+    .from("kiosk_report_locations")
+    .select("id,location_code")
+    .eq("active", true)
+    .order("location_code", { ascending: true });
+  if (locationError) throw new Error(`Unable to read kiosk locations: ${locationError.message}`);
+  const locations = ((locationData || []) as DailyBreadLocationRow[])
+    .filter((location) => !String(location.location_code || "").toUpperCase().startsWith("TEST"));
+  if (locations.length === 0) throw new Error("No active kiosk locations available for vehicle forecast");
+
+  const { data: reportData, error: reportError } = await supabase
+    .from("kiosk_daily_reports")
+    .select("id,location_id,report_date")
+    .in("location_id", locations.map((location) => location.id))
+    .eq("status", "submitted")
+    .lte("report_date", dayRange.dateKey)
+    .order("report_date", { ascending: false })
+    .limit(500);
+  if (reportError) throw new Error(`Unable to read submitted kiosk reports: ${reportError.message}`);
+  const reports = (reportData || []) as DailyBreadReportRow[];
+
+  let inventoryRows: DailyBreadInventoryRow[] = [];
+  if (reports.length > 0) {
+    const { data, error } = await supabase
+      .from("kiosk_daily_report_inventory_rows")
+      .select("report_id,sold_quantity,closing_quantity")
+      .in("report_id", reports.map((report) => report.id))
+      .eq("product_code", "banh_mi_que");
+    if (error) throw new Error(`Unable to read kiosk bread inventory: ${error.message}`);
+    inventoryRows = (data || []) as DailyBreadInventoryRow[];
+  }
+  const inventoryByReport = new Map(inventoryRows.map((row) => [row.report_id, row]));
+  const reportsByLocation = new Map<string, Array<{
+    reportDate: string;
+    soldQuantity: number;
+    closingQuantity: number;
+  }>>();
+  reports.forEach((report) => {
+    const inventory = inventoryByReport.get(report.id);
+    if (!inventory) return;
+    const rows = reportsByLocation.get(report.location_id) || [];
+    rows.push({
+      reportDate: report.report_date,
+      soldQuantity: quantity(inventory.sold_quantity),
+      closingQuantity: quantity(inventory.closing_quantity),
+    });
+    reportsByLocation.set(report.location_id, rows);
+  });
+  const vehicleForecast = forecastVehicleBread(locations.map((location) => ({
+    locationId: location.id,
+    locationCode: location.location_code,
+    reports: reportsByLocation.get(location.id) || [],
+  })));
+
+  const { data: vietjetData, error: vietjetError } = await supabase.rpc(
+    "get_latest_vietjet_bread_quantity",
+    { p_order_date: orderDate },
+  );
+  if (vietjetError) throw new Error(`Unable to read VietJet parsed orders: ${vietjetError.message}`);
+  const vietjetRow = ((vietjetData || []) as DailyBreadVietjetQuantityRow[])[0] || null;
+  const vietjet = {
+    quantity: quantity(vietjetRow?.quantity ?? 0),
+    inboxId: vietjetRow?.inbox_id || null,
+    receivedAt: vietjetRow?.received_at || null,
+  };
+
+  const messageBody = buildDailyBreadOrderMessage({
+    orderDate,
+    dealerOrderedQuantity,
+    dealerExtraQuantity,
+    vehicleQuantity: vehicleForecast.totalQuantity,
+    vietjetQuantity: vietjet.quantity,
+  });
+  if (dealerOrderedQuantity + dealerExtraQuantity + vehicleForecast.totalQuantity + vietjet.quantity <= 0) {
+    throw new Error("Daily bread order has no positive quantity");
+  }
+
+  const sourceSnapshot = {
+    cutoff_at: now.toISOString(),
+    cutoff_timezone: "Asia/Ho_Chi_Minh",
+    order_date: orderDate,
+    dealer: {
+      source: "dathang.banhmique.vn",
+      sku_code: "BMQ-001",
+      order_ids: dealerOrders.map((order) => order.id),
+      item_ids: dealerItems.map((item) => item.id),
+      ordered_quantity: dealerOrderedQuantity,
+      extra_quantity: dealerExtraQuantity,
+    },
+    vehicle: {
+      source: "baocao.banhmique.vn",
+      formula_version: vehicleForecast.formulaVersion,
+      total_quantity: vehicleForecast.totalQuantity,
+      locations: vehicleForecast.locations,
+      warnings: vehicleForecast.warnings,
+    },
+    vietjet: {
+      source: "customer_po_inbox",
+      product_code: "40000294",
+      quantity: vietjet.quantity,
+      inbox_id: vietjet.inboxId,
+      received_at: vietjet.receivedAt,
+    },
+    coop: { included: false },
+  };
+
+  const { data: notificationId, error: queueError } = await supabase.rpc("upsert_daily_bread_order_notification", {
+    p_order_date: orderDate,
+    p_message_body: messageBody,
+    p_source_snapshot: sourceSnapshot,
+  });
+  if (queueError) throw new Error(`Unable to queue daily bread order: ${queueError.message}`);
+  return { id: String(notificationId || ""), messageBody };
+};
+
 const enqueueWarehouseDailyDigests = async (
   supabase: ReturnType<typeof createServiceClient>,
   now: Date,
@@ -269,19 +446,29 @@ serve(async (req) => {
     });
   }
 
-  const groupId = Deno.env.get("ZALO_GMF_WAREHOUSE_GROUP_ID");
-  if (!groupId) {
+  const warehouseGroupId = Deno.env.get("ZALO_GMF_WAREHOUSE_GROUP_ID");
+  const tuyetAnhGroupId = Deno.env.get("ZALO_GMF_TUYET_ANH_GROUP_ID");
+  if (!warehouseGroupId) {
     return json({ success: false, error: "zalo_gmf_group_not_configured" }, 503);
   }
 
   let digestsQueued = 0;
   let digestError: string | null = null;
+  let breadOrderQueued = false;
+  let breadOrderError: string | null = null;
   if (isWarehouseDailyDigestTime(now)) {
     try {
       digestsQueued = await enqueueWarehouseDailyDigests(supabase, now);
     } catch (error) {
       digestError = String(error instanceof Error ? error.message : error).slice(0, 500);
       console.error(`[dealer-warehouse-notify] Daily digest queue failed: ${digestError}`);
+    }
+    try {
+      await enqueueDailyBreadOrder(supabase, now);
+      breadOrderQueued = true;
+    } catch (error) {
+      breadOrderError = String(error instanceof Error ? error.message : error).slice(0, 500);
+      console.error(`[dealer-warehouse-notify] Daily bread-order queue failed: ${breadOrderError}`);
     }
   }
 
@@ -318,9 +505,13 @@ serve(async (req) => {
   for (const job of jobs) {
     let result: Awaited<ReturnType<typeof sendZaloGmfText>>;
     try {
+      const targetGroupId = job.group_name === "BMQ - HKD Tuyết Anh"
+        ? tuyetAnhGroupId
+        : warehouseGroupId;
+      if (!targetGroupId) throw new Error(`Zalo GMF group is not configured for ${job.group_name}`);
       result = await sendZaloGmfText({
         accessToken,
-        groupId,
+        groupId: targetGroupId,
         text: job.message_body,
       });
     } catch (error) {
@@ -391,6 +582,11 @@ serve(async (req) => {
       notification_types: ["daily_dealer_digest", "daily_point_digest"],
       queued: digestsQueued,
       error: digestError,
+    },
+    production_bread_order: {
+      notification_type: "production_bread_order",
+      queued: breadOrderQueued,
+      error: breadOrderError,
     },
   });
 });
