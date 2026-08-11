@@ -60,6 +60,11 @@ def test_worker_routes_only_named_supplier_jobs_to_tuyet_anh():
         'Deno.env.get("ZALO_GMF_TUYET_ANH_GROUP_ID")',
         'job.group_name === "BMQ - HKD Tuyết Anh"',
         'supabase.rpc("upsert_daily_bread_order_notification"',
+        'rule: "ceil-to-multiple-10-v1"',
+        "raw_quantity: rawTotalBmq",
+        "sent_quantity: roundedTotalBmq",
+        "raw_quantity: vietjet.quantity",
+        "sent_quantity: roundedVietjet",
     ]
     for marker in required:
         assert marker in source

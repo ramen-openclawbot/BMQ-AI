@@ -11,6 +11,7 @@ import {
   buildDailyBreadOrderMessage,
   forecastVehicleBread,
   nextVietnamDateKey,
+  roundBreadOrderMessageQuantity,
 } from "../_shared/daily-bread-order.ts";
 import {
   isWarehouseDailyDigestTime,
@@ -281,6 +282,9 @@ const enqueueDailyBreadOrder = async (
     receivedAt: vietjetRow?.received_at || null,
   };
 
+  const rawTotalBmq = dealerOrderedQuantity + dealerExtraQuantity + vehicleForecast.totalQuantity;
+  const roundedTotalBmq = roundBreadOrderMessageQuantity(rawTotalBmq);
+  const roundedVietjet = roundBreadOrderMessageQuantity(vietjet.quantity);
   const messageBody = buildDailyBreadOrderMessage({
     orderDate,
     dealerOrderedQuantity,
@@ -296,6 +300,12 @@ const enqueueDailyBreadOrder = async (
     cutoff_at: now.toISOString(),
     cutoff_timezone: "Asia/Ho_Chi_Minh",
     order_date: orderDate,
+    rounding: {
+      rule: "ceil-to-multiple-10-v1",
+      applies_to: ["total_bmq", "vietjet"],
+      total_bmq: { raw_quantity: rawTotalBmq, sent_quantity: roundedTotalBmq },
+      vietjet: { raw_quantity: vietjet.quantity, sent_quantity: roundedVietjet },
+    },
     dealer: {
       source: "dathang.banhmique.vn",
       sku_code: "BMQ-001",

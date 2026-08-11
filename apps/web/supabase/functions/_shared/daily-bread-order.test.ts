@@ -73,21 +73,21 @@ test("uses exact quantity from the latest VietJet cumulative email for target se
   assert.equal(result.inboxId, "latest");
 });
 
-test("formats the approved message without Coop and keeps VietJet outside Total BMQ", () => {
+test("rounds only Total BMQ and VietJet upward to the next 10 while keeping source lines exact", () => {
   const message = buildDailyBreadOrderMessage({
     orderDate: "2026-08-11",
     dealerOrderedQuantity: 1460,
     dealerExtraQuantity: 32,
-    vehicleQuantity: 540,
+    vehicleQuantity: 600,
     vietjetQuantity: 196,
   });
 
   assert.equal(message, [
     "Đặt bánh ngày 11/8/2026",
     "ĐL: 1460+ 32",
-    "Xe: 540",
-    "Tổng BMQ: 2032",
-    "Viet Jet: 196",
+    "Xe: 600",
+    "Tổng BMQ: 2100",
+    "Viet Jet: 200",
   ].join("\n"));
   assert.doesNotMatch(message, /Coop/);
 });

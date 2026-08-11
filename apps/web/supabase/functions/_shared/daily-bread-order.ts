@@ -57,6 +57,8 @@ const formatQuantity = (value: number): string => {
   return Number.isInteger(safe) ? String(safe) : safe.toFixed(3).replace(/\.?0+$/, "");
 };
 
+export const roundBreadOrderMessageQuantity = (value: number): number => roundUpToBatch(quantity(value), 10);
+
 export function forecastVehicleBread(locations: VehicleBreadLocation[]): {
   totalQuantity: number;
   formulaVersion: string;
@@ -139,7 +141,9 @@ export function buildDailyBreadOrderMessage(input: DailyBreadOrderMessageInput):
   const dealerOrdered = quantity(input.dealerOrderedQuantity);
   const dealerExtra = quantity(input.dealerExtraQuantity);
   const vehicle = quantity(input.vehicleQuantity);
-  const vietjet = quantity(input.vietjetQuantity);
+  const rawTotalBmq = dealerOrdered + dealerExtra + vehicle;
+  const roundedTotalBmq = roundBreadOrderMessageQuantity(rawTotalBmq);
+  const roundedVietjet = roundBreadOrderMessageQuantity(input.vietjetQuantity);
   const dealerLine = dealerExtra > 0
     ? `ĐL: ${formatQuantity(dealerOrdered)}+ ${formatQuantity(dealerExtra)}`
     : `ĐL: ${formatQuantity(dealerOrdered)}`;
@@ -148,8 +152,8 @@ export function buildDailyBreadOrderMessage(input: DailyBreadOrderMessageInput):
     `Đặt bánh ngày ${Number(day)}/${Number(month)}/${year}`,
     dealerLine,
     `Xe: ${formatQuantity(vehicle)}`,
-    `Tổng BMQ: ${formatQuantity(dealerOrdered + dealerExtra + vehicle)}`,
-    `Viet Jet: ${formatQuantity(vietjet)}`,
+    `Tổng BMQ: ${formatQuantity(roundedTotalBmq)}`,
+    `Viet Jet: ${formatQuantity(roundedVietjet)}`,
   ].join("\n");
 }
 
