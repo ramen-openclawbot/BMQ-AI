@@ -49,7 +49,8 @@ export async function requireAuth(
 export function requireCronSecret(
   req: Request,
   envKey: string,
-  corsHeaders: Record<string, string>
+  corsHeaders: Record<string, string>,
+  headerName = "x-cron-secret",
 ): void {
   const secret = Deno.env.get(envKey);
   if (!secret) {
@@ -60,7 +61,7 @@ export function requireCronSecret(
     );
   }
 
-  const token = req.headers.get("x-cron-secret");
+  const token = req.headers.get(headerName);
   if (token !== secret) {
     throw new Response(
       JSON.stringify({ error: "Unauthorized: invalid cron secret" }),

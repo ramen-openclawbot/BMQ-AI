@@ -4,9 +4,29 @@ import test from "node:test";
 import {
   buildDailyBreadOrderMessage,
   forecastVehicleBread,
+  isVehicleLocationClosed,
   nextVietnamDateKey,
   selectLatestVietjetQuantity,
 } from "./daily-bread-order.ts";
+
+test("closes BV and PVC only when the target delivery date is lunar day 30", () => {
+  assert.equal(isVehicleLocationClosed("HCM001-BV", "2026-08-12"), true);
+  assert.equal(isVehicleLocationClosed("HCM002-PVC", "2026-08-12"), true);
+  assert.equal(isVehicleLocationClosed("HCM003-BVĐ", "2026-08-12"), false);
+  assert.equal(isVehicleLocationClosed("HCM001-BV", "2026-08-13"), false);
+});
+
+test("forecast marks closed locations as zero and keeps the reason auditable", () => {
+  const result = forecastVehicleBread([{
+    locationId: "bv",
+    locationCode: "HCM001-BV",
+    reports: [{ reportDate: "2026-08-11", soldQuantity: 200, closingQuantity: 0 }],
+  }], "2026-08-12");
+
+  assert.equal(result.totalQuantity, 0);
+  assert.equal(result.locations[0].recommendedQuantity, 0);
+  assert.equal(result.locations[0].closureReason, "lunar_day_30_monthly_off");
+});
 
 test("forecasts every active reporting location from peak recent sales with stock and safety guard", () => {
   const result = forecastVehicleBread([
@@ -30,7 +50,7 @@ test("forecasts every active reporting location from peak recent sales with stoc
     { code: "HCM-A", quantity: 90 },
     { code: "HCM-B", quantity: 60 },
   ]);
-  assert.equal(result.formulaVersion, "peak-7d-plus-10pct-minus-closing-round10-v1");
+  assert.equal(result.formulaVersion, "peak-7d-plus-10pct-minus-closing-round10-lunar-off-v2");
 });
 
 test("does not create vehicle demand for an active location without submitted bread reports", () => {

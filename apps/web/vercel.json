@@ -1,5 +1,6 @@
 {
   "crons": [
+    { "path": "/api/vietjet-order-parser-cron", "schedule": "0 15 * * *" },
     { "path": "/api/po-sync-cron", "schedule": "59 16 * * *" }
   ],
   "rewrites": [

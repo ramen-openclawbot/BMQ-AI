@@ -22,16 +22,16 @@ def assert_contains(text: str, needle: str, label: str) -> None:
     assert needle in text, f"missing {label}: expected to find {needle!r}"
 
 
-def test_vercel_cron_runs_at_2359_and_same_day_recovery_vietnam_time() -> None:
-    assert_contains(vercel, '"schedule": "59 16 * * *"', "23:59 Asia/Ho_Chi_Minh cron in UTC")
-    assert_contains(vercel, '"schedule": "15 8 * * *"', "15:15 Asia/Ho_Chi_Minh same-day recovery cron in UTC")
+def test_vercel_crons_separate_vietjet_2200_from_revenue_2359_vietnam_time() -> None:
+    assert_contains(vercel, '"schedule": "0 15 * * *"', "22:00 Asia/Ho_Chi_Minh VietJet parser cron in UTC")
+    assert_contains(vercel, '"schedule": "59 16 * * *"', "23:59 Asia/Ho_Chi_Minh revenue cron in UTC")
 
 
-def test_vercel_keeps_revenue_crons_on_same_proxy_path() -> None:
+def test_vercel_keeps_vietjet_and_revenue_on_separate_proxy_paths() -> None:
     crons = vercel_config.get("crons", [])
     assert crons == [
+        {"path": "/api/vietjet-order-parser-cron", "schedule": "0 15 * * *"},
         {"path": "/api/po-sync-cron", "schedule": "59 16 * * *"},
-        {"path": "/api/po-sync-cron", "schedule": "15 8 * * *"},
     ]
 
 
