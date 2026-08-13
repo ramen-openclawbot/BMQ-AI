@@ -65,9 +65,13 @@ def test_worker_routes_only_named_supplier_jobs_to_tuyet_anh():
         "sent_quantity: roundedTotalBmq",
         "raw_quantity: vietjet.quantity",
         "sent_quantity: roundedVietjet",
+        'supplier_included: false',
+        'internal_only: true',
     ]
     for marker in required:
         assert marker in source
+    assert "dealerOrderedQuantity + vehicleForecast.totalQuantity" in source
+    assert "dealerOrderedQuantity + dealerExtraQuantity + vehicleForecast.totalQuantity" not in source
 
 
 def test_forecast_contract_is_explainable_and_has_no_sample_constants():

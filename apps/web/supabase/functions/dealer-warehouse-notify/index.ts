@@ -285,17 +285,18 @@ const enqueueDailyBreadOrder = async (
     receivedAt: vietjetRow.received_at,
   };
 
-  const rawTotalBmq = dealerOrderedQuantity + dealerExtraQuantity + vehicleForecast.totalQuantity;
+  // Tuyết Anh is the supplier: exchange/makeup is an internal Tân Tạo dispatch,
+  // not part of the quantity ordered from the supplier.
+  const rawTotalBmq = dealerOrderedQuantity + vehicleForecast.totalQuantity;
   const roundedTotalBmq = roundBreadOrderMessageQuantity(rawTotalBmq);
   const roundedVietjet = roundBreadOrderMessageQuantity(vietjet.quantity);
   const messageBody = buildDailyBreadOrderMessage({
     orderDate,
     dealerOrderedQuantity,
-    dealerExtraQuantity,
     vehicleQuantity: vehicleForecast.totalQuantity,
     vietjetQuantity: vietjet.quantity,
   });
-  if (dealerOrderedQuantity + dealerExtraQuantity + vehicleForecast.totalQuantity + vietjet.quantity <= 0) {
+  if (dealerOrderedQuantity + vehicleForecast.totalQuantity + vietjet.quantity <= 0) {
     throw new Error("Daily bread order has no positive quantity");
   }
 
@@ -316,6 +317,8 @@ const enqueueDailyBreadOrder = async (
       item_ids: dealerItems.map((item) => item.id),
       ordered_quantity: dealerOrderedQuantity,
       extra_quantity: dealerExtraQuantity,
+      supplier_included: false,
+      internal_only: true,
     },
     vehicle: {
       source: "baocao.banhmique.vn",

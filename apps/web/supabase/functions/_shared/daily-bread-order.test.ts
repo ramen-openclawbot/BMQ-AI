@@ -93,30 +93,28 @@ test("uses exact quantity from the latest VietJet cumulative email for target se
   assert.equal(result.inboxId, "latest");
 });
 
-test("rounds only Total BMQ and VietJet upward to the next 10 while keeping source lines exact", () => {
+test("supplier message excludes dealer exchange and makeup from both dealer line and Total BMQ", () => {
   const message = buildDailyBreadOrderMessage({
     orderDate: "2026-08-11",
     dealerOrderedQuantity: 1460,
-    dealerExtraQuantity: 32,
     vehicleQuantity: 600,
     vietjetQuantity: 196,
   });
 
   assert.equal(message, [
     "Đặt bánh ngày 11/8/2026",
-    "ĐL: 1460+ 32",
+    "ĐL: 1460",
     "Xe: 600",
-    "Tổng BMQ: 2100",
+    "Tổng BMQ: 2060",
     "Viet Jet: 200",
   ].join("\n"));
   assert.doesNotMatch(message, /Coop/);
 });
 
-test("omits dealer plus suffix when there is no exchange or makeup quantity", () => {
+test("keeps supplier dealer line exact when there is no internal exchange or makeup", () => {
   const message = buildDailyBreadOrderMessage({
     orderDate: "2026-08-12",
     dealerOrderedQuantity: 100,
-    dealerExtraQuantity: 0,
     vehicleQuantity: 50,
     vietjetQuantity: 0,
   });
