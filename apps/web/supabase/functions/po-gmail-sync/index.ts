@@ -1011,8 +1011,11 @@ serve(async (req) => {
     // Enforce JWT authentication for manual users, or cron secret for the
     // 23:59 controlled revenue parser that must import fresh PO/email first.
     const authHeader = req.headers.get("Authorization");
+    const hasVietjetOrderSecret = Boolean(req.headers.get("x-vietjet-order-secret"));
     const hasCronSecret = Boolean(req.headers.get("x-cron-secret"));
-    if (hasCronSecret) {
+    if (hasVietjetOrderSecret) {
+      requireCronSecret(req, "VIETJET_ORDER_CRON_SECRET", getCorsHeaders(req), "x-vietjet-order-secret");
+    } else if (hasCronSecret) {
       const envKey = Deno.env.get("REVENUE_CRON_SECRET") ? "REVENUE_CRON_SECRET" : "PO_SYNC_CRON_SECRET";
       requireCronSecret(req, envKey, getCorsHeaders(req));
     } else if (!authHeader?.startsWith("Bearer ")) {
@@ -1037,7 +1040,8 @@ serve(async (req) => {
     const includeOnlyCrm = body?.includeOnlyCrm !== false;
     const maxResults = Math.min(Math.max(Number(body?.maxResults || 20), 1), 100);
     const query = String(body?.query || "in:anywhere deliveredto:po@bmq.vn newer_than:30d");
-    if (hasCronSecret && (mode !== "import" || !includeOnlyCrm || !query.toLowerCase().includes("deliveredto:po@bmq.vn"))) {
+    const cronAuthorized = hasCronSecret || hasVietjetOrderSecret;
+    if (cronAuthorized && (mode !== "import" || !includeOnlyCrm || !query.toLowerCase().includes("deliveredto:po@bmq.vn"))) {
       return new Response(JSON.stringify({ error: "Invalid cron Gmail sync request" }), {
         status: 400,
         headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },

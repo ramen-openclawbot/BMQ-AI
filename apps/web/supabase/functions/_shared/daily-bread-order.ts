@@ -1,3 +1,5 @@
+import { LunarDate } from "npm:vietnamese-lunar-calendar@0.0.6";
+
 export type VehicleBreadReport = {
   reportDate: string;
   soldQuantity: number;
@@ -18,6 +20,7 @@ export type VehicleBreadForecastLocation = {
   peakSoldQuantity: number;
   latestClosingQuantity: number;
   recommendedQuantity: number;
+  closureReason: "lunar_day_30_monthly_off" | null;
 };
 
 export type VietjetInboxEvidence = {
@@ -34,8 +37,24 @@ export type DailyBreadOrderMessageInput = {
   vietjetQuantity: number;
 };
 
-const FORMULA_VERSION = "peak-7d-plus-10pct-minus-closing-round10-v1";
+const FORMULA_VERSION = "peak-7d-plus-10pct-minus-closing-round10-lunar-off-v2";
 const VIETNAM_OFFSET_MS = 7 * 60 * 60 * 1000;
+const LUNAR_DAY_30_OFF_CODES = new Set(["HCM001-BV", "HCM002-PVC"]);
+
+const lunarDayForVietnamDate = (dateKey: string): number | null => {
+  const match = dateKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const [, year, month, day] = match;
+  const solarDate = new Date(`${dateKey}T12:00:00+07:00`);
+  if (!Number.isFinite(solarDate.getTime())
+    || solarDate.getUTCFullYear() !== Number(year)
+    || solarDate.getUTCMonth() + 1 !== Number(month)
+    || solarDate.getUTCDate() !== Number(day)) return null;
+  return new LunarDate(Number(year), Number(month), Number(day)).date;
+};
+
+export const isVehicleLocationClosed = (locationCode: string, deliveryDate: string): boolean =>
+  LUNAR_DAY_30_OFF_CODES.has(locationCode.trim().toUpperCase()) && lunarDayForVietnamDate(deliveryDate) === 30;
 
 const quantity = (value: unknown): number => {
   const parsed = Number(value);
@@ -59,7 +78,7 @@ const formatQuantity = (value: number): string => {
 
 export const roundBreadOrderMessageQuantity = (value: number): number => roundUpToBatch(quantity(value), 10);
 
-export function forecastVehicleBread(locations: VehicleBreadLocation[]): {
+export function forecastVehicleBread(locations: VehicleBreadLocation[], deliveryDate?: string): {
   totalQuantity: number;
   formulaVersion: string;
   locations: VehicleBreadForecastLocation[];
@@ -71,6 +90,9 @@ export function forecastVehicleBread(locations: VehicleBreadLocation[]): {
       .filter((report) => /^\d{4}-\d{2}-\d{2}$/.test(report.reportDate))
       .sort((left, right) => right.reportDate.localeCompare(left.reportDate))
       .slice(0, 7);
+    const closureReason = deliveryDate && isVehicleLocationClosed(location.locationCode, deliveryDate)
+      ? "lunar_day_30_monthly_off" as const
+      : null;
 
     if (reports.length === 0) {
       warnings.push(`${location.locationCode}:no_submitted_bread_report`);
@@ -82,13 +104,16 @@ export function forecastVehicleBread(locations: VehicleBreadLocation[]): {
         peakSoldQuantity: 0,
         latestClosingQuantity: 0,
         recommendedQuantity: 0,
+        closureReason,
       };
     }
 
     const peakSoldQuantity = Math.max(...reports.map((report) => quantity(report.soldQuantity)));
     const latestClosingQuantity = signedQuantity(reports[0].closingQuantity);
     const protectedDemand = Math.round(peakSoldQuantity * 1.1 * 1_000) / 1_000;
-    const recommendedQuantity = roundUpToBatch(Math.max(0, protectedDemand - latestClosingQuantity));
+    const recommendedQuantity = closureReason
+      ? 0
+      : roundUpToBatch(Math.max(0, protectedDemand - latestClosingQuantity));
 
     return {
       locationId: location.locationId,
@@ -98,6 +123,7 @@ export function forecastVehicleBread(locations: VehicleBreadLocation[]): {
       peakSoldQuantity,
       latestClosingQuantity,
       recommendedQuantity,
+      closureReason,
     };
   });
 

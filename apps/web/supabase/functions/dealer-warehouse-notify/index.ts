@@ -268,7 +268,7 @@ const enqueueDailyBreadOrder = async (
     }
     vehicleLocations.set(row.location_id, location);
   });
-  const vehicleForecast = forecastVehicleBread([...vehicleLocations.values()]);
+  const vehicleForecast = forecastVehicleBread([...vehicleLocations.values()], orderDate);
 
   const { data: vietjetData, error: vietjetError } = await supabase.rpc(
     "get_latest_vietjet_bread_quantity",
@@ -276,10 +276,13 @@ const enqueueDailyBreadOrder = async (
   );
   if (vietjetError) throw new Error(`Unable to read VietJet parsed orders: ${vietjetError.message}`);
   const vietjetRow = ((vietjetData || []) as DailyBreadVietjetQuantityRow[])[0] || null;
+  if (!vietjetRow?.inbox_id || !vietjetRow?.received_at) {
+    throw new Error("VietJet order parser is not ready for target service date");
+  }
   const vietjet = {
-    quantity: quantity(vietjetRow?.quantity ?? 0),
-    inboxId: vietjetRow?.inbox_id || null,
-    receivedAt: vietjetRow?.received_at || null,
+    quantity: quantity(vietjetRow.quantity),
+    inboxId: vietjetRow.inbox_id,
+    receivedAt: vietjetRow.received_at,
   };
 
   const rawTotalBmq = dealerOrderedQuantity + dealerExtraQuantity + vehicleForecast.totalQuantity;
