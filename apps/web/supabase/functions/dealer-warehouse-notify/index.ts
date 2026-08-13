@@ -430,7 +430,19 @@ serve(async (req) => {
   }
 
   const now = new Date();
-  if (!isWarehouseNotificationWindow(now)) {
+  const correctionJobId = req.headers.get("x-owner-correction-job-id")?.trim() || null;
+  if (correctionJobId) {
+    const { data: correction, error: correctionError } = await supabase
+      .from("dealer_order_notifications")
+      .select("id")
+      .eq("id", correctionJobId)
+      .eq("notification_type", "production_bread_order_correction")
+      .contains("source_snapshot", { approved_by_owner: true })
+      .maybeSingle();
+    if (correctionError || !correction) {
+      return json({ success: false, error: "owner_correction_job_not_authorized" }, 403);
+    }
+  } else if (!isWarehouseNotificationWindow(now)) {
     return json({
       success: true,
       skipped: true,
@@ -485,9 +497,10 @@ serve(async (req) => {
     // Empty body uses the default batch size.
   }
 
-  const { data, error } = await supabase.rpc("claim_dealer_order_notifications", {
-    batch_size: batchSize,
-  });
+  const claimRpc = correctionJobId
+    ? supabase.rpc("claim_dealer_order_notification_by_id", { p_notification_id: correctionJobId })
+    : supabase.rpc("claim_dealer_order_notifications", { batch_size: batchSize });
+  const { data, error } = await claimRpc;
   if (error) {
     console.error("[dealer-warehouse-notify] Claim failed", error.message);
     return json({ success: false, error: "claim_failed" }, 500);
