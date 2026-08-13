@@ -22,6 +22,7 @@ type HistoryRequest = {
   anchor?: unknown;
   page?: unknown;
   page_size?: unknown;
+  order_number?: unknown;
 };
 
 type OrderRow = {
@@ -65,6 +66,35 @@ serve(async (req) => {
 
     if (!sessionContext) {
       return errorResponse(req, "Phiên đại lý đã hết hạn. Vui lòng đăng nhập lại.", 401, "dealer_session_required");
+    }
+
+    const requestedOrderNumber = normalizeOrderNumber(body.order_number);
+    if (body.order_number !== undefined && !requestedOrderNumber) {
+      return errorResponse(req, "Mã đơn hàng không hợp lệ.", 400, "invalid_order_number");
+    }
+
+    if (requestedOrderNumber) {
+      const { data: exactOrderRow, error: exactOrderError } = await supabase
+        .from("dealer_orders")
+        .select("id, order_number, status, currency, total_amount_vnd, requested_delivery_date, delivery_note, customer_note, submitted_at")
+        .eq("customer_id", sessionContext.customer.id)
+        .eq("order_number", requestedOrderNumber)
+        .neq("status", "cancelled")
+        .maybeSingle();
+      if (exactOrderError) throw exactOrderError;
+      if (!exactOrderRow) {
+        return jsonResponse(req, { success: false, code: "order_not_found" }, 404);
+      }
+
+      const exactOrder = exactOrderRow as OrderRow;
+      const { data: exactItemRows, error: exactItemsError } = await supabase
+        .from("dealer_order_items")
+        .select("id, order_id, sku_code, product_name, unit, quantity, ordered_quantity, exchange_quantity, makeup_quantity, physical_quantity, unit_price_vnd, line_total_vnd, route_customer_name, route_note")
+        .eq("order_id", exactOrder.id)
+        .order("created_at", { ascending: true });
+      if (exactItemsError) throw exactItemsError;
+      const exactItems = ((exactItemRows || []) as ItemRow[]).map(publicItem);
+      return jsonResponse(req, { success: true, exact_order: publicOrder(exactOrder, exactItems) });
     }
 
     const granularity = normalizeGranularity(body.granularity);
@@ -137,19 +167,7 @@ serve(async (req) => {
         total_orders: totalOrders,
         total_pages: Math.max(1, Math.ceil(totalOrders / pageSize)),
       },
-      orders: orders.map((order) => ({
-        id: order.id,
-        order_number: order.order_number,
-        status: order.status,
-        currency: order.currency,
-        total_amount_vnd: Number(order.total_amount_vnd || 0),
-        requested_delivery_date: order.requested_delivery_date,
-        delivery_note: order.delivery_note,
-        customer_note: order.customer_note,
-        submitted_at: order.submitted_at,
-        physical_quantity: (itemsByOrder.get(order.id) || []).reduce((sum, item) => sum + item.physical_quantity, 0),
-        items: itemsByOrder.get(order.id) || [],
-      })),
+      orders: orders.map((order) => publicOrder(order, itemsByOrder.get(order.id) || [])),
     });
   } catch (error) {
     console.error("[dealer-order-history] Unexpected error", error);
@@ -179,6 +197,28 @@ function publicItem(item: ItemRow) {
     route_customer_name: item.route_customer_name,
     route_note: item.route_note,
   };
+}
+
+function publicOrder(order: OrderRow, items: ReturnType<typeof publicItem>[]) {
+  return {
+    id: order.id,
+    order_number: order.order_number,
+    status: order.status,
+    currency: order.currency,
+    total_amount_vnd: Number(order.total_amount_vnd || 0),
+    requested_delivery_date: order.requested_delivery_date,
+    delivery_note: order.delivery_note,
+    customer_note: order.customer_note,
+    submitted_at: order.submitted_at,
+    physical_quantity: items.reduce((sum, item) => sum + item.physical_quantity, 0),
+    items,
+  };
+}
+
+function normalizeOrderNumber(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return /^[A-Z0-9-]{6,80}$/i.test(normalized) ? normalized : null;
 }
 
 function normalizeGranularity(value: unknown): Granularity {

@@ -144,6 +144,8 @@ type DealerOrderHistoryOrder = {
 
 type DealerOrderHistoryResponse = {
   success?: boolean;
+  code?: string;
+  exact_order?: DealerOrderHistoryOrder;
   summary?: {
     order_count?: number;
     total_physical_quantity?: number;
@@ -194,8 +196,16 @@ type DealerPublicConfigResponse = {
 const DEALER_SESSION_STORAGE_KEY = "bmq_dealer_session_token";
 const DEALER_PROFILE_CACHE_KEY = "bmq_dealer_profile_cache";
 const DEALER_CATALOG_CACHE_KEY = "bmq_dealer_catalog_cache";
+const DEALER_ORDER_DEEP_LINK_STORAGE_KEY = "bmq_dealer_order_deep_link";
 const DEALER_ORDER_STEP = 10;
 const DEFAULT_DEALER_CHAT_PRODUCT_SKU = "BMQ-001";
+
+function readDealerOrderDeepLink() {
+  const searchParams = new URLSearchParams(window.location.search);
+  const linkedOrder = searchParams.get("view") === "orders" ? searchParams.get("order")?.trim() || "" : "";
+  if (linkedOrder) sessionStorage.setItem(DEALER_ORDER_DEEP_LINK_STORAGE_KEY, linkedOrder);
+  return linkedOrder || sessionStorage.getItem(DEALER_ORDER_DEEP_LINK_STORAGE_KEY) || "";
+}
 
 const DEALER_HALLMARK_TOKENS = {
   "--dealer-paper": "#fff9f5",
@@ -445,6 +455,8 @@ export default function DealerPortal() {
   const [orderHistoryError, setOrderHistoryError] = useState("");
   const [orderHistoryData, setOrderHistoryData] = useState<DealerOrderHistoryResponse | null>(null);
   const [selectedHistoryOrder, setSelectedHistoryOrder] = useState<DealerOrderHistoryOrder | null>(null);
+  const [pendingOrderDeepLink, setPendingOrderDeepLink] = useState(readDealerOrderDeepLink);
+  const [deepLinkedOrderActive, setDeepLinkedOrderActive] = useState(false);
 
   const loadLandingConfig = useCallback(async () => {
     try {
@@ -558,7 +570,7 @@ export default function DealerPortal() {
   }, [loadCatalog, sessionToken]);
 
   const loadOrderHistory = useCallback(async () => {
-    if (!sessionToken || activeNav !== "orders") return;
+    if (!sessionToken || activeNav !== "orders" || pendingOrderDeepLink || deepLinkedOrderActive) return;
     setOrderHistoryStatus("loading");
     setOrderHistoryError("");
 
@@ -586,13 +598,69 @@ export default function DealerPortal() {
 
     setOrderHistoryData(data);
     setOrderHistoryStatus("live");
-  }, [activeNav, orderHistoryAnchor, orderHistoryGranularity, orderHistoryPage, sessionToken]);
+  }, [activeNav, deepLinkedOrderActive, orderHistoryAnchor, orderHistoryGranularity, orderHistoryPage, pendingOrderDeepLink, sessionToken]);
 
   useEffect(() => {
     void loadOrderHistory();
   }, [loadOrderHistory]);
 
+  useEffect(() => {
+    if (!pendingOrderDeepLink) return;
+    setActiveNav("orders");
+    if (!sessionToken) return;
+
+    let cancelled = false;
+    const loadExactOrder = async () => {
+      setOrderHistoryStatus("loading");
+      setOrderHistoryError("");
+      const { data, error, isSessionExpired } = await callEdgeFunction<DealerOrderHistoryResponse>("dealer-order-history", {
+        dealer_token: sessionToken,
+        order_number: pendingOrderDeepLink,
+      }, undefined, 12000);
+      if (cancelled) return;
+      if (error || !data?.exact_order) {
+        if (isSessionExpired) {
+          localStorage.removeItem(DEALER_SESSION_STORAGE_KEY);
+          setSessionToken("");
+          setLoginStep("phone");
+          return;
+        }
+        setOrderHistoryError("Không tìm thấy đơn hàng trong tài khoản này.");
+        setOrderHistoryStatus("error");
+        sessionStorage.removeItem(DEALER_ORDER_DEEP_LINK_STORAGE_KEY);
+        setPendingOrderDeepLink("");
+        return;
+      }
+
+      const exactOrder = data.exact_order;
+      setOrderHistoryData({
+        success: true,
+        summary: {
+          order_count: 1,
+          total_physical_quantity: exactOrder.physical_quantity,
+          total_amount_vnd: exactOrder.total_amount_vnd,
+        },
+        pagination: { page: 1, page_size: 10, total_orders: 1, total_pages: 1 },
+        orders: [exactOrder],
+      });
+      setSelectedHistoryOrder(exactOrder);
+      setOrderHistoryStatus("live");
+      setDeepLinkedOrderActive(true);
+      sessionStorage.removeItem(DEALER_ORDER_DEEP_LINK_STORAGE_KEY);
+      setPendingOrderDeepLink("");
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete("view");
+      cleanUrl.searchParams.delete("order");
+      window.history.replaceState({}, "", `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
+    };
+    void loadExactOrder();
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingOrderDeepLink, sessionToken]);
+
   const handleOrderHistoryGranularityChange = (granularity: DealerOrderHistoryGranularity) => {
+    setDeepLinkedOrderActive(false);
     setOrderHistoryGranularity(granularity);
     setOrderHistoryAnchor(currentDealerHistoryAnchor(granularity));
     setOrderHistoryPage(1);
@@ -600,6 +668,7 @@ export default function DealerPortal() {
   };
 
   const handleOrderHistoryAnchorChange = (anchor: string) => {
+    setDeepLinkedOrderActive(false);
     setOrderHistoryAnchor(anchor);
     setOrderHistoryPage(1);
     setSelectedHistoryOrder(null);
@@ -670,7 +739,7 @@ export default function DealerPortal() {
       setDealerCustomer(data.customer || null);
       setDealerProfileCache((current) => ({ ...current, customer: data.customer || null }));
       setLoginStep("catalog");
-      setActiveNav("messages");
+      setActiveNav(pendingOrderDeepLink ? "orders" : "messages");
       setOtp("");
       setAuthMessage("Đã xác thực đại lý. Quý Khách Hàng có thể gửi đơn thật.");
     } catch (error) {
@@ -705,6 +774,7 @@ export default function DealerPortal() {
     setOrderHistoryError("");
     setOrderHistoryPage(1);
     setSelectedHistoryOrder(null);
+    setDeepLinkedOrderActive(false);
     setLoginStep("phone");
     setOtp("");
     setAuthMessage("");
@@ -1437,7 +1507,10 @@ export default function DealerPortal() {
                 type="button"
                 className="dealer-history-page-button"
                 disabled={orderHistoryPage <= 1}
-                onClick={() => setOrderHistoryPage((page) => Math.max(1, page - 1))}
+                onClick={() => {
+                  setDeepLinkedOrderActive(false);
+                  setOrderHistoryPage((page) => Math.max(1, page - 1));
+                }}
               >
                 <ChevronLeft className="h-4 w-4" />
                 Trước
@@ -1447,7 +1520,10 @@ export default function DealerPortal() {
                 type="button"
                 className="dealer-history-page-button"
                 disabled={orderHistoryPage >= historyTotalPages}
-                onClick={() => setOrderHistoryPage((page) => Math.min(historyTotalPages, page + 1))}
+                onClick={() => {
+                  setDeepLinkedOrderActive(false);
+                  setOrderHistoryPage((page) => Math.min(historyTotalPages, page + 1));
+                }}
               >
                 Sau
                 <ChevronRight className="h-4 w-4" />

@@ -84,6 +84,26 @@ class DealerOrderHistoryTests(unittest.TestCase):
         config_slice = self.config.split("[functions.dealer-order-history]", 1)[1].split("[functions.", 1)[0]
         self.assertIn("verify_jwt = false", config_slice)
 
+    def test_exact_order_lookup_is_session_scoped_and_deep_linked(self) -> None:
+        self.assertIn("order_number?: unknown", self.function)
+        self.assertIn("normalizeOrderNumber", self.function)
+        self.assertIn('.eq("customer_id", sessionContext.customer.id)', self.function)
+        self.assertIn('.eq("order_number", requestedOrderNumber)', self.function)
+        self.assertIn('code: "order_not_found"', self.function)
+        self.assertNotIn("body.customer_id", self.function)
+
+        self.assertIn("DEALER_ORDER_DEEP_LINK_STORAGE_KEY", self.portal)
+        self.assertIn('searchParams.get("view") === "orders"', self.portal)
+        self.assertIn('searchParams.get("order")', self.portal)
+        self.assertIn("sessionStorage.setItem", self.portal)
+        self.assertIn("order_number: pendingOrderDeepLink", self.portal)
+        self.assertIn("setSelectedHistoryOrder(exactOrder)", self.portal)
+        self.assertIn("setDeepLinkedOrderActive(true)", self.portal)
+        self.assertIn("pendingOrderDeepLink || deepLinkedOrderActive", self.portal)
+        self.assertIn("setDeepLinkedOrderActive(false)", self.portal)
+        self.assertIn("sessionStorage.removeItem(DEALER_ORDER_DEEP_LINK_STORAGE_KEY)", self.portal)
+        self.assertIn("Không tìm thấy đơn hàng trong tài khoản này.", self.portal)
+
     def test_dedicated_hallmark_styles_are_scoped_and_mobile_safe(self) -> None:
         self.assertIn("Hallmark · macrostructure: Operational Workbench", self.style)
         self.assertIn('[data-dealer-agent-screen="orders"]', self.style)
