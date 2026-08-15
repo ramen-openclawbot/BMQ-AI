@@ -1053,18 +1053,21 @@ export default function WarehouseDispatch() {
   );
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] space-y-6 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.14),transparent_34%),linear-gradient(135deg,#120d0a,#1f160f_48%,#100b08)] p-4 text-white md:p-6">
+    <div
+      className="min-h-[calc(100vh-4rem)] space-y-4 bg-background pb-8 text-foreground md:space-y-6"
+      data-bmq-warehouse-dispatch-theme="app-light"
+    >
       {/* Header */}
-      <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#1b120e]/90 shadow-2xl shadow-black/30">
+      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
         <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:p-6">
           <div className="space-y-5">
-            <div className="inline-flex items-center gap-2 rounded-full border border-amber-300/25 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-100">
+            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-semibold text-primary">
               <Truck className="h-3.5 w-3.5" />
-              Trang xuất kho mới · giữ nguyên header và sidebar
+              Quản lý kho · Thành phẩm và nguyên vật liệu
             </div>
             <div className="space-y-2">
               <h1 className="font-display text-3xl font-bold tracking-tight md:text-4xl">Xuất kho</h1>
-              <p className="max-w-3xl text-sm leading-6 text-white/65 md:text-base">
+              <p className="max-w-3xl text-sm leading-6 text-muted-foreground md:text-base">
                 Tách rõ phiếu xuất thành phẩm để tính công nợ, phiếu xuất NVL sản xuất và PXK tự động 1:1 từ phiếu nhập để kiểm tra audit.
               </p>
             </div>
@@ -1073,8 +1076,8 @@ export default function WarehouseDispatch() {
                 type="button"
                 onClick={() => setActiveWorkflow("finished")}
                 className={activeWorkflow === "finished"
-                  ? "rounded-2xl bg-amber-500 px-4 py-6 font-bold text-stone-950 hover:bg-amber-400"
-                  : "rounded-2xl border border-white/10 bg-white/5 px-4 py-6 font-bold text-white hover:bg-white/10"}
+                  ? "rounded-xl bg-primary px-4 py-5 font-semibold text-primary-foreground shadow-warm hover:bg-primary/90"
+                  : "rounded-xl border border-border bg-background px-4 py-5 font-semibold text-foreground hover:bg-muted"}
               >
                 <PackageCheck className="mr-2 h-5 w-5" /> Thành phẩm
               </Button>
@@ -1082,8 +1085,8 @@ export default function WarehouseDispatch() {
                 type="button"
                 onClick={() => setActiveWorkflow("materials")}
                 className={activeWorkflow === "materials"
-                  ? "rounded-2xl bg-amber-500 px-4 py-6 font-bold text-stone-950 hover:bg-amber-400"
-                  : "rounded-2xl border border-white/10 bg-white/5 px-4 py-6 font-bold text-white hover:bg-white/10"}
+                  ? "rounded-xl bg-primary px-4 py-5 font-semibold text-primary-foreground shadow-warm hover:bg-primary/90"
+                  : "rounded-xl border border-border bg-background px-4 py-5 font-semibold text-foreground hover:bg-muted"}
               >
                 <PackageSearch className="mr-2 h-5 w-5" /> Nguyên vật liệu
               </Button>
@@ -1091,8 +1094,8 @@ export default function WarehouseDispatch() {
                 type="button"
                 onClick={() => setActiveWorkflow("auto")}
                 className={activeWorkflow === "auto"
-                  ? "rounded-2xl bg-amber-500 px-4 py-6 font-bold text-stone-950 hover:bg-amber-400"
-                  : "rounded-2xl border border-white/10 bg-white/5 px-4 py-6 font-bold text-white hover:bg-white/10"}
+                  ? "rounded-xl bg-primary px-4 py-5 font-semibold text-primary-foreground shadow-warm hover:bg-primary/90"
+                  : "rounded-xl border border-border bg-background px-4 py-5 font-semibold text-foreground hover:bg-muted"}
               >
                 <Bot className="mr-2 h-5 w-5" /> PXK tự động
               </Button>
@@ -1100,21 +1103,21 @@ export default function WarehouseDispatch() {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-              <p className="text-xs text-white/55">Phiếu TP</p>
+            <div className="rounded-2xl border border-border bg-muted/40 p-4">
+              <p className="text-xs text-muted-foreground">Phiếu TP</p>
               <p className="mt-2 text-3xl font-bold">{dispatches.length}</p>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-              <p className="text-xs text-white/55">Chờ xuất</p>
-              <p className="mt-2 text-3xl font-bold text-amber-200">{stats.pending}</p>
+            <div className="rounded-2xl border border-border bg-muted/40 p-4">
+              <p className="text-xs text-muted-foreground">Chờ xuất</p>
+              <p className="mt-2 text-3xl font-bold text-warning-foreground">{stats.pending}</p>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-              <p className="text-xs text-white/55">Đã xuất</p>
-              <p className="mt-2 text-3xl font-bold text-emerald-200">{stats.dispatched}</p>
+            <div className="rounded-2xl border border-border bg-muted/40 p-4">
+              <p className="text-xs text-muted-foreground">Đã xuất</p>
+              <p className="mt-2 text-3xl font-bold text-emerald-700">{stats.dispatched}</p>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-              <p className="text-xs text-white/55">PXK tự động</p>
-              <p className="mt-2 text-3xl font-bold text-sky-200">{autoIssues.length}</p>
+            <div className="rounded-2xl border border-border bg-muted/40 p-4">
+              <p className="text-xs text-muted-foreground">PXK tự động</p>
+              <p className="mt-2 text-3xl font-bold text-primary">{autoIssues.length}</p>
             </div>
           </div>
         </div>
@@ -1123,15 +1126,15 @@ export default function WarehouseDispatch() {
       {activeWorkflow === "finished" ? (
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-5">
-            <Card className="border-white/10 bg-[#1b120e]/90 text-white shadow-xl shadow-black/20">
+            <Card className="border-border bg-card text-foreground shadow-card">
               <CardHeader className="gap-4 pb-3 md:flex-row md:items-center md:justify-between">
                 <div>
                   <CardTitle className="flex items-center gap-2 text-2xl">
-                    <PackageCheck className="h-6 w-6 text-amber-300" /> Phiếu xuất thành phẩm
+                    <PackageCheck className="h-6 w-6 text-primary" /> Phiếu xuất thành phẩm
                   </CardTitle>
-                  <p className="mt-1 text-sm text-white/55">PO bán hàng → số xuất thực tế → số tính công nợ.</p>
+                  <p className="mt-1 text-sm text-muted-foreground">PO bán hàng → số xuất thực tế → số tính công nợ.</p>
                 </div>
-                <Button onClick={() => setCreateOpen(true)} className="rounded-xl bg-amber-500 font-bold text-stone-950 hover:bg-amber-400">
+                <Button onClick={() => setCreateOpen(true)} className="rounded-xl bg-primary font-semibold text-primary-foreground hover:bg-primary/90">
                   <Plus className="mr-2 h-4 w-4" /> Tạo phiếu thành phẩm
                 </Button>
               </CardHeader>
@@ -1141,17 +1144,17 @@ export default function WarehouseDispatch() {
                     <button
                       type="button"
                       key={s}
-                      className={`rounded-2xl border p-4 text-left transition ${activeTab === s ? "border-amber-300/60 bg-amber-500/15" : "border-white/10 bg-white/[0.04] hover:bg-white/[0.07]"}`}
+                      className={`rounded-2xl border p-4 text-left transition ${activeTab === s ? "border-primary bg-primary/10" : "border-border bg-muted/40 hover:bg-muted/70"}`}
                       onClick={() => setActiveTab(s)}
                     >
-                      <p className="text-xs text-white/55">{statusConfig[s].label}</p>
+                      <p className="text-xs text-muted-foreground">{statusConfig[s].label}</p>
                       <p className="mt-2 text-2xl font-bold">{stats[s]}</p>
                     </button>
                   ))}
                 </div>
 
                 <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
-                  <TabsList className="flex h-auto flex-wrap justify-start gap-2 bg-white/5 p-1">
+                  <TabsList className="flex h-auto flex-wrap justify-start gap-2 bg-muted/40 p-1">
                     <TabsTrigger value="all">Tất cả ({dispatches.length})</TabsTrigger>
                     <TabsTrigger value="pending">Chờ xuất ({stats.pending})</TabsTrigger>
                     <TabsTrigger value="picked">Đang lấy ({stats.picked})</TabsTrigger>
@@ -1161,24 +1164,24 @@ export default function WarehouseDispatch() {
                 </Tabs>
 
                 {filtered.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-white/15 py-12 text-center text-white/50">
+                  <div className="rounded-2xl border border-dashed border-border py-12 text-center text-muted-foreground">
                     <Truck className="mx-auto mb-3 h-10 w-10 opacity-40" />
                     <p>Không có phiếu xuất thành phẩm nào</p>
                   </div>
                 ) : (
                   <div className="space-y-3 md:hidden">
                     {filtered.map((d: any) => (
-                      <button key={d.id} type="button" onClick={() => openDetail(d)} className="w-full rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-left">
+                      <button key={d.id} type="button" onClick={() => openDetail(d)} className="w-full rounded-2xl border border-border bg-muted/40 p-4 text-left">
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="font-mono text-sm font-bold text-amber-100">{d.dispatch_number}</p>
-                            <p className="mt-1 text-sm text-white/60">{d.customer_name ?? d.customer_id ?? "Chưa có khách hàng"}</p>
+                            <p className="font-mono text-sm font-bold text-primary">{d.dispatch_number}</p>
+                            <p className="mt-1 text-sm text-muted-foreground">{d.customer_name ?? d.customer_id ?? "Chưa có khách hàng"}</p>
                           </div>
                           <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[d.status as DispatchStatus]}`}>
                             {statusConfig[d.status as DispatchStatus]?.label ?? d.status}
                           </span>
                         </div>
-                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-white/55">
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
                           <span>Ngày xuất: {d.dispatch_date ? format(new Date(d.dispatch_date), "dd/MM/yyyy") : "—"}</span>
                           <span>Ngày giao: {d.delivered_date ? format(new Date(d.delivered_date), "dd/MM/yyyy") : "—"}</span>
                         </div>
@@ -1188,24 +1191,24 @@ export default function WarehouseDispatch() {
                 )}
 
                 {filtered.length > 0 && (
-                  <div className="hidden overflow-hidden rounded-2xl border border-white/10 md:block">
+                  <div className="hidden overflow-hidden rounded-2xl border border-border md:block">
                     <Table>
                       <TableHeader>
-                        <TableRow className="border-white/10 bg-white/[0.04] hover:bg-white/[0.04]">
-                          <TableHead className="text-white/55">Mã phiếu XK</TableHead>
-                          <TableHead className="text-white/55">Khách hàng</TableHead>
-                          <TableHead className="text-white/55">Ngày xuất</TableHead>
-                          <TableHead className="text-white/55">Ngày giao</TableHead>
-                          <TableHead className="text-white/55">Trạng thái</TableHead>
-                          <TableHead className="text-white/55">Ghi chú</TableHead>
-                          <TableHead className="text-right text-white/55">Thao tác</TableHead>
+                        <TableRow className="border-border bg-muted/40 hover:bg-muted/40">
+                          <TableHead className="text-muted-foreground">Mã phiếu XK</TableHead>
+                          <TableHead className="text-muted-foreground">Khách hàng</TableHead>
+                          <TableHead className="text-muted-foreground">Ngày xuất</TableHead>
+                          <TableHead className="text-muted-foreground">Ngày giao</TableHead>
+                          <TableHead className="text-muted-foreground">Trạng thái</TableHead>
+                          <TableHead className="text-muted-foreground">Ghi chú</TableHead>
+                          <TableHead className="text-right text-muted-foreground">Thao tác</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {filtered.map((d: any) => (
-                          <TableRow key={d.id} className="cursor-pointer border-white/10 hover:bg-white/[0.04]" onClick={() => openDetail(d)}>
-                            <TableCell className="font-mono font-medium text-amber-100">{d.dispatch_number}</TableCell>
-                            <TableCell className="text-sm text-white/65">{d.customer_name ?? d.customer_id ?? "—"}</TableCell>
+                          <TableRow key={d.id} className="cursor-pointer border-border hover:bg-muted/40" onClick={() => openDetail(d)}>
+                            <TableCell className="font-mono font-medium text-primary">{d.dispatch_number}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{d.customer_name ?? d.customer_id ?? "—"}</TableCell>
                             <TableCell>{d.dispatch_date ? format(new Date(d.dispatch_date), "dd/MM/yyyy") : "—"}</TableCell>
                             <TableCell>{d.delivered_date ? format(new Date(d.delivered_date), "dd/MM/yyyy") : "—"}</TableCell>
                             <TableCell>
@@ -1213,9 +1216,9 @@ export default function WarehouseDispatch() {
                                 {statusConfig[d.status as DispatchStatus]?.label ?? d.status}
                               </span>
                             </TableCell>
-                            <TableCell className="max-w-[200px] truncate text-sm text-white/55">{d.notes ?? "—"}</TableCell>
+                            <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">{d.notes ?? "—"}</TableCell>
                             <TableCell className="text-right">
-                              <Button variant="ghost" size="sm" className="text-white hover:bg-white/10 hover:text-white" onClick={(e) => { e.stopPropagation(); openDetail(d); }}>Chi tiết</Button>
+                              <Button variant="ghost" size="sm" className="text-foreground hover:bg-muted hover:text-foreground" onClick={(e) => { e.stopPropagation(); openDetail(d); }}>Chi tiết</Button>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -1228,119 +1231,119 @@ export default function WarehouseDispatch() {
           </div>
 
           <div className="space-y-5">
-            <Card className="border-white/10 bg-[#1b120e]/90 text-white shadow-xl shadow-black/20">
+            <Card className="border-border bg-card text-foreground shadow-card">
               <CardHeader>
                 <CardTitle className="text-xl">Nguyên tắc công nợ</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3 text-sm text-white/65">
-                <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-emerald-50">Công nợ lấy theo <b>số tính tiền đã xác nhận</b>, không lấy mù theo PO nếu có thiếu/lỗi.</div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">PO → Phiếu xuất thành phẩm → Xác nhận doanh thu/công nợ → Đối chiếu cuối tháng.</div>
-                <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4 text-amber-50">Nếu thiếu hàng, bắt buộc chọn SKU thiếu và lý do để tránh cộng trùng công nợ.</div>
+              <CardContent className="space-y-3 text-sm text-muted-foreground">
+                <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-emerald-800">Công nợ lấy theo <b>số tính tiền đã xác nhận</b>, không lấy mù theo PO nếu có thiếu/lỗi.</div>
+                <div className="rounded-2xl border border-border bg-muted/40 p-4">PO → Phiếu xuất thành phẩm → Xác nhận doanh thu/công nợ → Đối chiếu cuối tháng.</div>
+                <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4 text-amber-800">Nếu thiếu hàng, bắt buộc chọn SKU thiếu và lý do để tránh cộng trùng công nợ.</div>
               </CardContent>
             </Card>
-            <Card className="border-white/10 bg-[#1b120e]/90 text-white shadow-xl shadow-black/20">
+            <Card className="border-border bg-card text-foreground shadow-card">
               <CardHeader>
                 <CardTitle className="text-xl">Phiếu đang nhập</CardTitle>
               </CardHeader>
               <CardContent className="grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"><p className="text-white/55">Tổng xuất</p><b className="text-2xl">{totalDispatchQty.toLocaleString("vi-VN")}</b></div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"><p className="text-white/55">Tính công nợ</p><b className="text-2xl">{totalBillableQty.toLocaleString("vi-VN")}</b></div>
+                <div className="rounded-2xl border border-border bg-muted/40 p-4"><p className="text-muted-foreground">Tổng xuất</p><b className="text-2xl">{totalDispatchQty.toLocaleString("vi-VN")}</b></div>
+                <div className="rounded-2xl border border-border bg-muted/40 p-4"><p className="text-muted-foreground">Tính công nợ</p><b className="text-2xl">{totalBillableQty.toLocaleString("vi-VN")}</b></div>
               </CardContent>
             </Card>
           </div>
         </div>
       ) : activeWorkflow === "materials" ? (
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-          <Card className="border-white/10 bg-[#1b120e]/90 text-white shadow-xl shadow-black/20">
+          <Card className="border-border bg-card text-foreground shadow-card">
             <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
               <div className="min-w-0">
                 <CardTitle className="flex items-center gap-2 text-xl leading-tight md:text-2xl">
-                  <PackageSearch className="h-6 w-6 text-amber-300" /> Phiếu xuất nguyên vật liệu
+                  <PackageSearch className="h-6 w-6 text-primary" /> Phiếu xuất nguyên vật liệu
                 </CardTitle>
-                  <p className="mt-1 text-sm text-white/55">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     Chọn lệnh sản xuất để xem tổng NVL đã dùng và chi phí, đã gộp theo từng dòng nguyên vật liệu.
                   </p>
               </div>
-              <Badge variant="outline" className={selectedMaterialIssue ? "shrink-0 whitespace-nowrap border-emerald-300/35 bg-emerald-500/10 text-emerald-100" : "shrink-0 whitespace-nowrap border-amber-300/35 bg-amber-500/10 text-amber-100"}>
+              <Badge variant="outline" className={selectedMaterialIssue ? "shrink-0 whitespace-nowrap border-emerald-300/35 bg-emerald-500/10 text-emerald-700" : "shrink-0 whitespace-nowrap border-primary/25 bg-primary/5 text-primary"}>
                 {selectedMaterialIssue ? `Đã có ${selectedMaterialIssue.issue_number}` : "Preview data thật"}
               </Badge>
             </CardHeader>
             <CardContent className="space-y-5">
               {loadingMaterialOrders ? (
-                <div className="flex min-h-[220px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04]">
-                  <Loader2 className="h-8 w-8 animate-spin text-white/45" />
+                <div className="flex min-h-[220px] items-center justify-center rounded-2xl border border-border bg-muted/40">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 </div>
               ) : !selectedMaterialOrder ? (
-                <div className="rounded-2xl border border-dashed border-white/15 py-12 text-center text-white/50">
+                <div className="rounded-2xl border border-dashed border-border py-12 text-center text-muted-foreground">
                   <PackageSearch className="mx-auto mb-3 h-10 w-10 opacity-40" />
                   <p>Chưa có lệnh sản xuất đã xác nhận để tạo PXK NVL.</p>
                 </div>
               ) : (
                 <>
                   <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 md:col-span-2">
-                      <p className="text-xs text-white/55">Lệnh SX đang xem</p>
-                      <p className="mt-2 break-words font-mono text-xl font-bold text-amber-100">{selectedMaterialOrder.production_number}</p>
-                      <p className="mt-1 text-sm text-white/55">
+                    <div className="rounded-2xl border border-border bg-muted/40 p-4 md:col-span-2">
+                      <p className="text-xs text-muted-foreground">Lệnh SX đang xem</p>
+                      <p className="mt-2 break-words font-mono text-xl font-bold text-primary">{selectedMaterialOrder.production_number}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
                         Ngày SX: {selectedMaterialOrder.planned_start_date ? format(new Date(selectedMaterialOrder.planned_start_date), "dd/MM/yyyy") : "—"}
                       </p>
                     </div>
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                      <p className="text-xs text-white/55">Dòng NVL</p>
-                      <p className="mt-2 text-3xl font-bold text-emerald-200">{materialReadyRows.length}</p>
-                      <p className="text-xs text-white/45">{materialMissingRows.length} dòng cần mapping</p>
+                    <div className="rounded-2xl border border-border bg-muted/40 p-4">
+                      <p className="text-xs text-muted-foreground">Dòng NVL</p>
+                      <p className="mt-2 text-3xl font-bold text-emerald-700">{materialReadyRows.length}</p>
+                      <p className="text-xs text-muted-foreground">{materialMissingRows.length} dòng cần mapping</p>
                     </div>
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                      <p className="text-xs text-white/55">Giá trị đã map</p>
-                      <p className="mt-2 break-words text-xl font-bold leading-tight text-sky-200 md:text-2xl">{Math.round(materialStandardAmount).toLocaleString("vi-VN")}đ</p>
-                      <p className="text-xs text-white/45">{materialStandardQty.toLocaleString("vi-VN", { maximumFractionDigits: 2 })} đơn vị đủ mapping</p>
+                    <div className="rounded-2xl border border-border bg-muted/40 p-4">
+                      <p className="text-xs text-muted-foreground">Giá trị đã map</p>
+                      <p className="mt-2 break-words text-xl font-bold leading-tight text-primary md:text-2xl">{Math.round(materialStandardAmount).toLocaleString("vi-VN")}đ</p>
+                      <p className="text-xs text-muted-foreground">{materialStandardQty.toLocaleString("vi-VN", { maximumFractionDigits: 2 })} đơn vị đủ mapping</p>
                     </div>
                   </div>
 
                   <div className="flex flex-wrap gap-3">
                     <Button
                       disabled
-                      className="rounded-xl bg-amber-500/70 font-bold text-stone-950"
+                      className="rounded-xl bg-primary/70 font-semibold text-primary-foreground"
                     >
                       <PackageSearch className="mr-2 h-4 w-4" />
                       Đang xem tổng hợp NVL theo lệnh SX
                     </Button>
-                    <Button variant="outline" className="rounded-xl border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white">
+                    <Button variant="outline" className="rounded-xl border-border bg-background text-foreground hover:bg-muted hover:text-foreground">
                       <Camera className="mr-2 h-4 w-4" /> Nhập tồn kiểm tay
                     </Button>
                   </div>
 
-                  <div className="overflow-x-auto rounded-2xl border border-white/10">
+                  <div className="overflow-x-auto rounded-2xl border border-border">
                     <Table className="min-w-[1120px] table-fixed">
                       <TableHeader>
-                        <TableRow className="border-white/10 bg-white/[0.04] hover:bg-white/[0.04]">
-                          <TableHead className="w-[260px] text-white/55">Nguyên vật liệu</TableHead>
-                          <TableHead className="w-[170px] text-white/55">Mã NVL</TableHead>
-                          <TableHead className="w-[260px] text-white/55">Nguồn tổng hợp</TableHead>
-                          <TableHead className="w-[150px] text-right text-white/55">Cần dùng</TableHead>
-                          <TableHead className="w-[120px] text-right text-white/55">Đơn giá</TableHead>
-                          <TableHead className="w-[150px] text-right text-white/55">Chi phí</TableHead>
-                          <TableHead className="w-[180px] text-white/55">Mapping/cost source</TableHead>
-                          <TableHead className="w-[140px] text-white/55">Trạng thái</TableHead>
+                        <TableRow className="border-border bg-muted/40 hover:bg-muted/40">
+                          <TableHead className="w-[260px] text-muted-foreground">Nguyên vật liệu</TableHead>
+                          <TableHead className="w-[170px] text-muted-foreground">Mã NVL</TableHead>
+                          <TableHead className="w-[260px] text-muted-foreground">Nguồn tổng hợp</TableHead>
+                          <TableHead className="w-[150px] text-right text-muted-foreground">Cần dùng</TableHead>
+                          <TableHead className="w-[120px] text-right text-muted-foreground">Đơn giá</TableHead>
+                          <TableHead className="w-[150px] text-right text-muted-foreground">Chi phí</TableHead>
+                          <TableHead className="w-[180px] text-muted-foreground">Mapping/cost source</TableHead>
+                          <TableHead className="w-[140px] text-muted-foreground">Trạng thái</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {materialStandardRows.slice(0, 120).map((row: any) => {
                           const status = row.status || "ready";
                           return (
-                            <TableRow key={row.id || row.key} className="border-white/10 hover:bg-white/[0.04]">
-                              <TableCell className="whitespace-normal break-words font-medium text-amber-100">{row.ingredient_name}</TableCell>
-                              <TableCell className="break-words font-mono text-xs text-white/70">{row.material_code || "—"}</TableCell>
-                              <TableCell className="whitespace-normal break-words text-sm text-white/60">{row.production_item_name || "Đã post vào PXK"}</TableCell>
+                            <TableRow key={row.id || row.key} className="border-border hover:bg-muted/40">
+                              <TableCell className="whitespace-normal break-words font-medium text-primary">{row.ingredient_name}</TableCell>
+                              <TableCell className="break-words font-mono text-xs text-muted-foreground">{row.material_code || "—"}</TableCell>
+                              <TableCell className="whitespace-normal break-words text-sm text-muted-foreground">{row.production_item_name || "Đã post vào PXK"}</TableCell>
                               <TableCell className="text-right">{Number(row.required_qty || 0).toLocaleString("vi-VN", { maximumFractionDigits: 3 })} {row.unit}</TableCell>
                               <TableCell className="text-right">{Number(row.unit_cost || 0).toLocaleString("vi-VN")}</TableCell>
                               <TableCell className="text-right">{Math.round(Number(row.amount || 0)).toLocaleString("vi-VN")}</TableCell>
-                              <TableCell className="whitespace-normal break-words text-xs text-white/55">{row.source || "—"}</TableCell>
+                              <TableCell className="whitespace-normal break-words text-xs text-muted-foreground">{row.source || "—"}</TableCell>
                               <TableCell>
                                 {status === "ready" ? (
-                                  <Badge variant="outline" className="whitespace-nowrap border-emerald-300/30 bg-emerald-500/10 text-xs text-emerald-100"><CheckCircle2 className="mr-1 h-3 w-3" />Sẵn sàng</Badge>
+                                  <Badge variant="outline" className="whitespace-nowrap border-emerald-300/30 bg-emerald-500/10 text-xs text-emerald-700"><CheckCircle2 className="mr-1 h-3 w-3" />Sẵn sàng</Badge>
                                 ) : (
-                                  <Badge variant="outline" className="whitespace-nowrap border-amber-300/30 bg-amber-500/10 text-xs text-amber-100">
+                                  <Badge variant="outline" className="whitespace-nowrap border-amber-300 bg-amber-50 text-xs text-amber-800">
                                     {status === "missing_finished_sku" ? "Thiếu SKU TP" : status === "missing_formula" ? "Thiếu BOM" : "Thiếu map kho bếp"}
                                   </Badge>
                                 )}
@@ -1353,7 +1356,7 @@ export default function WarehouseDispatch() {
                   </div>
 
                   {materialMissingRows.length > 0 && !selectedMaterialIssue && (
-                    <div className="rounded-2xl border border-amber-300/20 bg-amber-500/10 p-4 text-sm text-amber-50">
+                    <div className="rounded-2xl border border-amber-300/20 bg-amber-500/10 p-4 text-sm text-amber-800">
                       Đã tính preview từ data thật nhưng chưa post/trừ kho vì còn {materialMissingRows.length} dòng thiếu mapping SKU/BOM/kho bếp. Cần hoàn tất mapping trước khi hệ thống ghi ledger NVL để tránh trừ kho sai.
                     </div>
                   )}
@@ -1363,7 +1366,7 @@ export default function WarehouseDispatch() {
           </Card>
 
           <div className="space-y-5">
-            <Card className="border-white/10 bg-[#1b120e]/90 text-white shadow-xl shadow-black/20">
+            <Card className="border-border bg-card text-foreground shadow-card">
               <CardHeader>
                 <CardTitle className="text-xl">Lệnh SX gần nhất</CardTitle>
               </CardHeader>
@@ -1375,14 +1378,14 @@ export default function WarehouseDispatch() {
                       key={order.id}
                       type="button"
                       onClick={() => setSelectedMaterialOrderId(order.id)}
-                      className={`w-full rounded-2xl border p-4 text-left transition ${selectedMaterialOrder?.id === order.id ? "border-amber-300/50 bg-amber-500/10" : "border-white/10 bg-white/[0.04] hover:bg-white/[0.08]"}`}
+                      className={`w-full rounded-2xl border p-4 text-left transition ${selectedMaterialOrder?.id === order.id ? "border-primary/50 bg-primary/10" : "border-border bg-muted/40 hover:bg-muted/70"}`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="font-mono font-bold text-amber-100">{order.production_number}</p>
-                          <p className="text-xs text-white/55">{order.planned_start_date ? format(new Date(order.planned_start_date), "dd/MM/yyyy") : "Chưa có ngày SX"}</p>
+                          <p className="font-mono font-bold text-primary">{order.production_number}</p>
+                          <p className="text-xs text-muted-foreground">{order.planned_start_date ? format(new Date(order.planned_start_date), "dd/MM/yyyy") : "Chưa có ngày SX"}</p>
                         </div>
-                        <Badge variant="outline" className={linkedIssue ? "border-emerald-300/30 bg-emerald-500/10 text-emerald-100" : "border-white/15 bg-white/[0.04] text-white/65"}>
+                        <Badge variant="outline" className={linkedIssue ? "border-emerald-300/30 bg-emerald-500/10 text-emerald-700" : "border-border bg-muted/40 text-muted-foreground"}>
                           {linkedIssue ? linkedIssue.issue_number : selectedMaterialOrder?.id === order.id ? "Đang xem" : "Chưa có PXK"}
                         </Badge>
                       </div>
@@ -1394,38 +1397,38 @@ export default function WarehouseDispatch() {
           </div>
         </div>
       ) : (
-        <Card className="border-white/10 bg-[#1b120e]/90 text-white shadow-xl shadow-black/20">
+        <Card className="border-border bg-card text-foreground shadow-card">
           <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
             <div>
               <CardTitle className="flex items-center gap-2 text-xl md:text-2xl">
-                <Bot className="h-6 w-6 text-sky-300" /> PXK tự động từ phiếu nhập
+                <Bot className="h-6 w-6 text-primary" /> PXK tự động từ phiếu nhập
               </CardTitle>
-              <p className="mt-1 text-sm leading-6 text-white/55">
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
                 Chứng từ 1:1 do hệ thống tạo ngay khi hoàn tất nhập kho. Đây là dữ liệu audit chỉ đọc, không ảnh hưởng luồng xuất thành phẩm giao khách.
               </p>
             </div>
-            <Badge variant="outline" className="shrink-0 whitespace-nowrap border-sky-300/35 bg-sky-500/10 text-sky-100">
+            <Badge variant="outline" className="shrink-0 whitespace-nowrap border-primary/25 bg-primary/5 text-primary">
               <Bot className="mr-1 h-3.5 w-3.5" /> Hệ thống tự động
             </Badge>
           </CardHeader>
           <CardContent className="space-y-4">
             {loadingAutoIssues ? (
-              <div className="flex min-h-[220px] items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04]">
-                <Loader2 className="h-8 w-8 animate-spin text-white/45" />
+              <div className="flex min-h-[220px] items-center justify-center rounded-2xl border border-border bg-muted/40">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               </div>
             ) : autoIssuesError ? (
-              <div className="rounded-2xl border border-red-300/25 bg-red-500/10 px-5 py-10 text-center text-red-50">
-                <AlertTriangle className="mx-auto mb-3 h-9 w-9 text-red-200" />
+              <div className="rounded-2xl border border-red-300/25 bg-red-500/10 px-5 py-10 text-center text-red-800">
+                <AlertTriangle className="mx-auto mb-3 h-9 w-9 text-red-600" />
                 <p className="font-semibold">Không tải được PXK tự động</p>
-                <p className="mt-1 text-sm text-red-100/75">Dữ liệu chưa được kết luận là trống. Vui lòng thử tải lại.</p>
-                <Button type="button" variant="outline" className="mt-4 border-red-200/30 bg-white/5 text-white hover:bg-white/10 hover:text-white" onClick={() => void refetchAutoIssues()}>
+                <p className="mt-1 text-sm text-red-700">Dữ liệu chưa được kết luận là trống. Vui lòng thử tải lại.</p>
+                <Button type="button" variant="outline" className="mt-4 border-red-300 bg-background text-red-700 hover:bg-red-50 hover:text-red-800" onClick={() => void refetchAutoIssues()}>
                   <RefreshCw className="mr-2 h-4 w-4" /> Tải lại
                 </Button>
               </div>
             ) : autoIssues.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-white/15 px-5 py-12 text-center text-white/50">
+              <div className="rounded-2xl border border-dashed border-border px-5 py-12 text-center text-muted-foreground">
                 <Bot className="mx-auto mb-3 h-10 w-10 opacity-40" />
-                <p className="font-medium text-white/70">Chưa có PXK tự động</p>
+                <p className="font-medium text-muted-foreground">Chưa có PXK tự động</p>
                 <p className="mt-1 text-sm">Phiếu đầu tiên sẽ xuất hiện khi một phiếu nhập mới được hoàn tất sau thời điểm triển khai.</p>
               </div>
             ) : (
@@ -1436,17 +1439,17 @@ export default function WarehouseDispatch() {
                       key={issue.id}
                       type="button"
                       onClick={() => setSelectedAutoIssue(issue)}
-                      className="w-full rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-left transition hover:bg-white/[0.07]"
+                      className="w-full rounded-2xl border border-border bg-muted/40 p-4 text-left transition hover:bg-muted/70"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="truncate font-mono text-sm font-bold text-sky-100">{issue.issue_number}</p>
-                          <p className="mt-1 truncate text-sm text-white/65">PNK: {issue.receipt_number}</p>
+                          <p className="truncate font-mono text-sm font-bold text-primary">{issue.issue_number}</p>
+                          <p className="mt-1 truncate text-sm text-muted-foreground">PNK: {issue.receipt_number}</p>
                         </div>
-                        <Badge variant="outline" className="shrink-0 border-emerald-300/30 bg-emerald-500/10 text-emerald-100">Đã ghi sổ</Badge>
+                        <Badge variant="outline" className="shrink-0 border-emerald-300/30 bg-emerald-500/10 text-emerald-700">Đã ghi sổ</Badge>
                       </div>
-                      <p className="mt-3 truncate text-sm text-white/60">{issue.supplier_name}</p>
-                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-white/50">
+                      <p className="mt-3 truncate text-sm text-muted-foreground">{issue.supplier_name}</p>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
                         <span>Ngày giờ tạo: {format(new Date(issue.created_at), "dd/MM/yyyy HH:mm")}</span>
                         <span className="text-right">{issue.line_count} dòng · {issue.total_quantity.toLocaleString("vi-VN", { maximumFractionDigits: 3 })}</span>
                       </div>
@@ -1454,34 +1457,34 @@ export default function WarehouseDispatch() {
                   ))}
                 </div>
 
-                <div data-testid="auto-issue-desktop-table" className="hidden overflow-x-auto rounded-2xl border border-white/10 md:block">
+                <div data-testid="auto-issue-desktop-table" className="hidden overflow-x-auto rounded-2xl border border-border md:block">
                   <Table className="min-w-[1080px]">
                     <TableHeader>
-                      <TableRow className="border-white/10 bg-white/[0.04] hover:bg-white/[0.04]">
-                        <TableHead className="text-white/55">Mã PXK</TableHead>
-                        <TableHead className="text-white/55">Phiếu nhập nguồn</TableHead>
-                        <TableHead className="text-white/55">Nhà cung cấp</TableHead>
-                        <TableHead className="text-white/55">Ngày giờ tạo</TableHead>
-                        <TableHead className="text-right text-white/55">Số dòng</TableHead>
-                        <TableHead className="text-right text-white/55">Tổng số lượng</TableHead>
-                        <TableHead className="text-white/55">Trạng thái</TableHead>
-                        <TableHead className="text-right text-white/55">Thao tác</TableHead>
+                      <TableRow className="border-border bg-muted/40 hover:bg-muted/40">
+                        <TableHead className="text-muted-foreground">Mã PXK</TableHead>
+                        <TableHead className="text-muted-foreground">Phiếu nhập nguồn</TableHead>
+                        <TableHead className="text-muted-foreground">Nhà cung cấp</TableHead>
+                        <TableHead className="text-muted-foreground">Ngày giờ tạo</TableHead>
+                        <TableHead className="text-right text-muted-foreground">Số dòng</TableHead>
+                        <TableHead className="text-right text-muted-foreground">Tổng số lượng</TableHead>
+                        <TableHead className="text-muted-foreground">Trạng thái</TableHead>
+                        <TableHead className="text-right text-muted-foreground">Thao tác</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {autoIssues.map((issue) => (
-                        <TableRow key={issue.id} className="cursor-pointer border-white/10 hover:bg-white/[0.04]" onClick={() => setSelectedAutoIssue(issue)}>
-                          <TableCell className="font-mono font-semibold text-sky-100">{issue.issue_number}</TableCell>
-                          <TableCell className="font-mono text-xs text-white/70">{issue.receipt_number}</TableCell>
-                          <TableCell className="text-sm text-white/70">{issue.supplier_name}</TableCell>
+                        <TableRow key={issue.id} className="cursor-pointer border-border hover:bg-muted/40" onClick={() => setSelectedAutoIssue(issue)}>
+                          <TableCell className="font-mono font-semibold text-primary">{issue.issue_number}</TableCell>
+                          <TableCell className="font-mono text-xs text-muted-foreground">{issue.receipt_number}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{issue.supplier_name}</TableCell>
                           <TableCell className="whitespace-nowrap text-sm">{format(new Date(issue.created_at), "dd/MM/yyyy HH:mm")}</TableCell>
                           <TableCell className="text-right">{issue.line_count}</TableCell>
                           <TableCell className="text-right font-semibold">{issue.total_quantity.toLocaleString("vi-VN", { maximumFractionDigits: 3 })}</TableCell>
                           <TableCell>
-                            <Badge variant="outline" className="whitespace-nowrap border-emerald-300/30 bg-emerald-500/10 text-emerald-100">Hệ thống tự động</Badge>
+                            <Badge variant="outline" className="whitespace-nowrap border-emerald-300/30 bg-emerald-500/10 text-emerald-700">Hệ thống tự động</Badge>
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button variant="ghost" size="sm" className="text-white hover:bg-white/10 hover:text-white" onClick={(event) => { event.stopPropagation(); setSelectedAutoIssue(issue); }}>
+                            <Button variant="ghost" size="sm" className="text-foreground hover:bg-muted hover:text-foreground" onClick={(event) => { event.stopPropagation(); setSelectedAutoIssue(issue); }}>
                               <Eye className="mr-1 h-4 w-4" /> Chi tiết
                             </Button>
                           </TableCell>
