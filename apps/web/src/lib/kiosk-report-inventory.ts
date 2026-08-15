@@ -21,14 +21,22 @@ const nonnegative = (value: unknown) => {
 
 const roundInventoryQuantity = (value: number) => Math.round((value + Number.EPSILON) * 1_000) / 1_000;
 
-export const KIOSK_RETAIL_CUSTOMER_UNIT_PRICE_VND = 12_000;
+export const KIOSK_RETAIL_PRICE_CHANGE_DATE = "2026-08-15";
+export const KIOSK_RETAIL_CUSTOMER_UNIT_PRICE_BEFORE_VND = 12_000;
+export const KIOSK_RETAIL_CUSTOMER_UNIT_PRICE_FROM_CHANGE_VND = 14_000;
+
+export const kioskRetailCustomerUnitPriceVnd = (reportDate: string) =>
+  String(reportDate || "").slice(0, 10) >= KIOSK_RETAIL_PRICE_CHANGE_DATE
+    ? KIOSK_RETAIL_CUSTOMER_UNIT_PRICE_FROM_CHANGE_VND
+    : KIOSK_RETAIL_CUSTOMER_UNIT_PRICE_BEFORE_VND;
 
 export const calculateKioskChannelAmount = (
   channelCode: string,
   quantity: number,
   enteredAmountVnd: number,
+  reportDate: string,
 ) => String(channelCode || "").trim().toLowerCase() === "khach_le"
-  ? Math.round(nonnegative(quantity) * KIOSK_RETAIL_CUSTOMER_UNIT_PRICE_VND)
+  ? Math.round(nonnegative(quantity) * kioskRetailCustomerUnitPriceVnd(reportDate))
   : Math.round(nonnegative(enteredAmountVnd));
 
 export const isRetailSaleAllowed = (product?: ReportInventoryProduct | null) => product?.sale_allowed !== false;

@@ -39,6 +39,7 @@ import {
   deriveBreadstickInventoryRow,
   isNegativeInventoryClosing,
   isRetailSaleAllowed,
+  kioskRetailCustomerUnitPriceVnd,
 } from "@/lib/kiosk-report-inventory";
 import { cn } from "@/lib/utils";
 
@@ -250,7 +251,12 @@ const mergeInventoryRows = (
   }));
 };
 
-const mergeChannelRows = (channels: ReportChannel[], rows: ChannelRow[] = []) => {
+const mergeChannelRows = (
+  channels: ReportChannel[],
+  rows: ChannelRow[] = [],
+  reportDate: string,
+  preserveStoredAmounts = false,
+) => {
   const byCode = new Map(rows.map((row) => [row.channel_code, row]));
   return channels.map((channel) => {
     const merged = {
@@ -261,7 +267,9 @@ const mergeChannelRows = (channels: ReportChannel[], rows: ChannelRow[] = []) =>
     };
     return {
       ...merged,
-      amount_vnd: calculateKioskChannelAmount(channel.code, merged.quantity, merged.amount_vnd),
+      amount_vnd: preserveStoredAmounts && byCode.has(channel.code)
+        ? merged.amount_vnd
+        : calculateKioskChannelAmount(channel.code, merged.quantity, merged.amount_vnd, reportDate),
     };
   });
 };
@@ -307,11 +315,12 @@ export default function KioskReportPortal() {
   const hydrateBootstrap = useCallback((payload: BootstrapResponse) => {
     const nextProducts = normalizeProducts(payload.products?.length ? payload.products : DEFAULT_PRODUCTS);
     const nextChannels = payload.channels?.length ? payload.channels : DEFAULT_CHANNELS;
+    const nextReportDate = payload.report?.report_date || payload.report_date || vietnamToday();
     setProducts(nextProducts);
     setChannels(nextChannels);
     setStaff(payload.staff || null);
     setLocation(payload.location || null);
-    setReportDate(payload.report?.report_date || payload.report_date || vietnamToday());
+    setReportDate(nextReportDate);
     setReportStatus(payload.report?.status === "submitted" ? "submitted" : "draft");
     setSubmittedAt(payload.report?.submitted_at || null);
     setNotes(payload.report?.notes || "");
@@ -322,7 +331,12 @@ export default function KioskReportPortal() {
       nextProducts,
       payload.report?.inventory_rows || payload.opening_inventory_rows || [],
     ));
-    setChannelRows(mergeChannelRows(nextChannels, payload.report?.channel_rows || []));
+    setChannelRows(mergeChannelRows(
+      nextChannels,
+      payload.report?.channel_rows || [],
+      nextReportDate,
+      payload.report?.status === "submitted",
+    ));
   }, []);
 
   const loadReport = useCallback(async (token: string, date: string) => {
@@ -441,7 +455,7 @@ export default function KioskReportPortal() {
         })),
         channel_rows: channelRows.map((row) => ({
           ...row,
-          amount_vnd: calculateKioskChannelAmount(row.channel_code, row.quantity, row.amount_vnd),
+          amount_vnd: calculateKioskChannelAmount(row.channel_code, row.quantity, row.amount_vnd, reportDate),
         })),
       },
       undefined,
@@ -488,7 +502,7 @@ export default function KioskReportPortal() {
         const next = { ...row, [field]: field === "notes" ? value : numberValue(value) };
         return {
           ...next,
-          amount_vnd: calculateKioskChannelAmount(next.channel_code, next.quantity, next.amount_vnd),
+          amount_vnd: calculateKioskChannelAmount(next.channel_code, next.quantity, next.amount_vnd, reportDate),
         };
       }),
     );
@@ -837,7 +851,7 @@ export default function KioskReportPortal() {
                   );
                 })}
               </div>
-              <p className="mt-2 text-xs font-medium text-[#80566a]">Khách lẻ tự tính 12.000đ × số lượng.</p>
+              <p className="mt-2 text-xs font-medium text-[#80566a]">Khách lẻ tự tính {kioskRetailCustomerUnitPriceVnd(reportDate).toLocaleString("vi-VN")}đ × số lượng.</p>
             </section>
 
             <section className="grid grid-cols-2 divide-x divide-[#eadfe3] rounded-[18px] border border-[#f0dfe5] bg-white px-3 py-3.5 text-center shadow-[0_6px_18px_rgba(86,48,63,0.06)]">

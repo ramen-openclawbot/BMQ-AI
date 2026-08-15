@@ -212,11 +212,14 @@ def test_negative_inventory_requires_physical_opening_reconciliation_before_subm
         assert_contains(portal, needle, label)
 
 
-def test_walk_in_revenue_is_derived_from_quantity_at_12000_vnd() -> None:
+def test_walk_in_revenue_uses_effective_dated_unit_price() -> None:
     portal = read(PORTAL)
     assert_contains(portal, 'calculateKioskChannelAmount', "shared channel amount calculation")
+    assert_contains(portal, 'kioskRetailCustomerUnitPriceVnd(reportDate)', "effective-dated walk-in unit price")
     assert_contains(portal, 'disabled={isSubmitted || cashChannel}', "walk-in amount input lock")
-    assert_contains(portal, 'Khách lẻ tự tính 12.000đ × số lượng', "walk-in auto amount explanation")
+    assert_contains(portal, 'kioskRetailCustomerUnitPriceVnd(reportDate).toLocaleString("vi-VN")', "dynamic walk-in auto amount explanation")
+    assert_contains(portal, 'preserveStoredAmounts', "submitted reports preserve audited stored amounts")
+    assert_contains(portal, 'payload.report?.status === "submitted"', "submitted report preservation switch")
     assert_contains(portal, 'channel_rows: channelRows.map', "derived amount save payload")
     assert_not_contains(portal, 'value={placeholder ? "" :', "placeholder masking entered amount")
     assert_contains(portal, 'placeholder && Number(value) === 0', "zero-only non-cash placeholder")

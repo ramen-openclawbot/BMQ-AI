@@ -27,6 +27,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { kioskRetailCustomerUnitPriceVnd } from "@/lib/kiosk-report-inventory";
 import {
   parsePointReportDetail,
   parsePointRevenueRows,
@@ -79,6 +80,10 @@ function formatMoney(value: number) {
 }
 
 function formatNumber(value: number) {
+  return numberFormatter.format(Number.isFinite(value) ? value : 0);
+}
+
+function formatVnd(value: number) {
   return numberFormatter.format(Number.isFinite(value) ? value : 0);
 }
 
@@ -182,6 +187,7 @@ function ChannelEditor({
   amount,
   notes,
   idPrefix,
+  retailUnitPriceLabel,
   disabled,
   onQuantityChange,
   onAmountChange,
@@ -192,6 +198,7 @@ function ChannelEditor({
   amount: number;
   notes: string;
   idPrefix: string;
+  retailUnitPriceLabel: string;
   disabled: boolean;
   onQuantityChange: (channelCode: string, quantity: number) => void;
   onAmountChange: (channelCode: string, amount: number) => void;
@@ -207,7 +214,7 @@ function ChannelEditor({
         </span>
         <div>
           <p className="pr-channel-name">{channel.channel_name || channel.channel_code}</p>
-          {isRetail && <p className="pr-channel-help">Tự tính 12.000đ × số lượng</p>}
+          {isRetail && <p className="pr-channel-help">Tự tính {retailUnitPriceLabel}đ × số lượng</p>}
         </div>
       </div>
       <div className="pr-channel-fields">
@@ -336,6 +343,7 @@ function EditorPanel({
   reportNotes,
   reason,
   idPrefix,
+  retailUnitPriceLabel,
   canEdit,
   saving,
   detailLoading,
@@ -355,6 +363,7 @@ function EditorPanel({
   reportNotes: string;
   reason: string;
   idPrefix: string;
+  retailUnitPriceLabel: string;
   canEdit: boolean;
   saving: boolean;
   detailLoading: boolean;
@@ -428,6 +437,7 @@ function EditorPanel({
                 amount={amounts[channel.channel_code] ?? channel.effective_amount_vnd}
                 notes={channelNotes[channel.channel_code] ?? ""}
                 idPrefix={idPrefix}
+                retailUnitPriceLabel={retailUnitPriceLabel}
                 disabled={!canEdit || saving}
                 onQuantityChange={onQuantityChange}
                 onAmountChange={onAmountChange}
@@ -534,6 +544,12 @@ export default function PointRevenueManagement() {
 
   const selectedReport =
     reports.find((report) => report.report_id === selectedId) ?? rankedReports[0]?.report ?? null;
+  const selectedRetailUnitPriceVnd = selectedReport
+    ? kioskRetailCustomerUnitPriceVnd(selectedReport.report_date)
+    : kioskRetailCustomerUnitPriceVnd(reportDate);
+  const selectedRetailUnitPriceLabel = selectedReport
+    ? formatVnd(kioskRetailCustomerUnitPriceVnd(selectedReport.report_date))
+    : formatVnd(kioskRetailCustomerUnitPriceVnd(reportDate));
   const selectedReportId = selectedReport?.report_id ?? null;
   const { data: detail, isLoading: detailLoading } = usePointReportDetail(selectedReportId);
 
@@ -551,13 +567,13 @@ export default function PointRevenueManagement() {
   }, [selectedReportId]);
 
   useEffect(() => {
-    if (!detail) return;
+    if (!detail || !selectedReport) return;
     setAmounts(
       Object.fromEntries(
         detail.channel_rows.map((channel) => [
           channel.channel_code,
           channel.channel_code.trim().toLowerCase() === "khach_le"
-            ? channel.quantity * 12_000
+            ? channel.quantity * kioskRetailCustomerUnitPriceVnd(selectedReport.report_date)
             : channel.amount_vnd,
         ]),
       ),
@@ -580,7 +596,7 @@ export default function PointRevenueManagement() {
     ));
     setInventoryRows(recalculateInventory(inventoryWithDerivedSales));
     setReportNotes(detail.report_notes);
-  }, [detail]);
+  }, [detail, selectedReport]);
 
   const dailySummary = useMemo(() => {
     const totalQuantity = rankedReports.reduce((sum, row) => sum + row.totalQuantity, 0);
@@ -608,7 +624,7 @@ export default function PointRevenueManagement() {
           quantity,
           amount_vnd:
             channel.channel_code === "khach_le"
-              ? Math.round(quantity * 12_000)
+              ? Math.round(quantity * selectedRetailUnitPriceVnd)
               : Math.max(0, amounts[channel.channel_code] ?? channel.amount_vnd),
           notes: channelNotes[channel.channel_code] ?? "",
         };
@@ -656,7 +672,7 @@ export default function PointRevenueManagement() {
     if (channelCode.trim().toLowerCase() === "khach_le") {
       setAmounts((current) => ({
         ...current,
-        [channelCode]: Math.round(safeQuantity * 12_000),
+        [channelCode]: Math.round(safeQuantity * selectedRetailUnitPriceVnd),
       }));
     }
   };
@@ -688,6 +704,7 @@ export default function PointRevenueManagement() {
       reportNotes={reportNotes}
       reason={reason}
       idPrefix={idPrefix}
+      retailUnitPriceLabel={selectedRetailUnitPriceLabel}
       canEdit={canEdit}
       saving={saveMutation.isPending}
       detailLoading={detailLoading}
