@@ -242,10 +242,13 @@ def test_bootstrap_session_save_and_logout_contracts() -> None:
         ("ingredient_retail_sale_forbidden", "ingredient retail-sale rejection"),
         ("consumed_quantity?: unknown", "manual ingredient consumption input type"),
         ("consumed_quantity: nonnegative(row.consumed_quantity)", "manual ingredient consumption sanitization"),
-        ('KHACH_LE_UNIT_PRICE_VND = 12_000', "server-owned walk-in unit price"),
+        ('KHACH_LE_PRICE_CHANGE_DATE = "2026-08-15"', "server-owned walk-in price change date"),
+        ('KHACH_LE_UNIT_PRICE_BEFORE_VND = 12_000', "historical walk-in unit price"),
+        ('KHACH_LE_UNIT_PRICE_FROM_CHANGE_VND = 14_000', "new walk-in unit price"),
         ('channelCode === "khach_le"', "server-side walk-in channel guard"),
         ('.trim().toLowerCase()', "normalized channel code"),
-        ("quantity * KHACH_LE_UNIT_PRICE_VND", "server-side walk-in amount derivation"),
+        ("quantity * khachLeUnitPriceVnd(reportDate)", "server-side effective-dated amount derivation"),
+        ("channelAmountVnd(channelCode, quantity, row.amount_vnd, reportDate)", "report date passed into price calculation"),
     ]:
         assert_contains(daily_save, needle, label)
     for forbidden in [

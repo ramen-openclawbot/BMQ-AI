@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   calculateKioskChannelAmount,
+  kioskRetailCustomerUnitPriceVnd,
   calculateConsumedQuantity,
   calculateEffectiveConsumedQuantity,
   calculateInventoryClosing,
@@ -51,12 +52,15 @@ assert.equal(calculateEffectiveConsumedQuantity(pate, 106, 99), 5.3);
 assert.equal(calculateEffectiveConsumedQuantity(chili, 106, 2.5), 2.5);
 assert.equal(calculateEffectiveConsumedQuantity(chili, 106, -2.5), 0);
 assert.equal(calculateInventoryClosing(pateRow, calculateEffectiveConsumedQuantity(chili, 106, 2.5)), 5.5);
-assert.equal(calculateKioskChannelAmount("khach_le", 0, 999_999), 0);
-assert.equal(calculateKioskChannelAmount("khach_le", 3, 999_999), 36_000);
-assert.equal(calculateKioskChannelAmount(" KHACH_LE ", 3, 999_999), 36_000);
-assert.equal(calculateKioskChannelAmount("khach_le", 2.5, 0), 30_000);
-assert.equal(calculateKioskChannelAmount("grabfood", 3, 240_000), 240_000);
-assert.equal(calculateKioskChannelAmount("grabfood", 3, -10), 0);
+assert.equal(kioskRetailCustomerUnitPriceVnd("2026-08-14"), 12_000);
+assert.equal(kioskRetailCustomerUnitPriceVnd("2026-08-15"), 14_000);
+assert.equal(kioskRetailCustomerUnitPriceVnd("2026-08-16"), 14_000);
+assert.equal(calculateKioskChannelAmount("khach_le", 0, 999_999, "2026-08-15"), 0);
+assert.equal(calculateKioskChannelAmount("khach_le", 3, 999_999, "2026-08-14"), 36_000);
+assert.equal(calculateKioskChannelAmount(" KHACH_LE ", 3, 999_999, "2026-08-15"), 42_000);
+assert.equal(calculateKioskChannelAmount("khach_le", 2.5, 0, "2026-08-15"), 35_000);
+assert.equal(calculateKioskChannelAmount("grabfood", 3, 240_000, "2026-08-15"), 240_000);
+assert.equal(calculateKioskChannelAmount("grabfood", 3, -10, "2026-08-15"), 0);
 
 const staleBreadstickRow: ReportInventoryRow = {
   openingQuantity: 50,

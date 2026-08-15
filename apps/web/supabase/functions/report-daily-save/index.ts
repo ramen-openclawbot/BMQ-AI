@@ -43,11 +43,18 @@ const toNumber = (value: unknown) => {
 };
 
 const nonnegative = (value: unknown) => Math.max(0, toNumber(value));
-const KHACH_LE_UNIT_PRICE_VND = 12_000;
+const KHACH_LE_PRICE_CHANGE_DATE = "2026-08-15";
+const KHACH_LE_UNIT_PRICE_BEFORE_VND = 12_000;
+const KHACH_LE_UNIT_PRICE_FROM_CHANGE_VND = 14_000;
 
-const channelAmountVnd = (channelCode: string, quantity: number, submittedAmount: unknown) =>
+const khachLeUnitPriceVnd = (reportDate: string) =>
+  reportDate >= KHACH_LE_PRICE_CHANGE_DATE
+    ? KHACH_LE_UNIT_PRICE_FROM_CHANGE_VND
+    : KHACH_LE_UNIT_PRICE_BEFORE_VND;
+
+const channelAmountVnd = (channelCode: string, quantity: number, submittedAmount: unknown, reportDate: string) =>
   channelCode === "khach_le"
-    ? Math.round(quantity * KHACH_LE_UNIT_PRICE_VND)
+    ? Math.round(quantity * khachLeUnitPriceVnd(reportDate))
     : Math.round(nonnegative(submittedAmount));
 
 serve(async (req) => {
@@ -112,7 +119,7 @@ serve(async (req) => {
         return {
           channel_code: channelCode,
           quantity,
-          amount_vnd: channelAmountVnd(channelCode, quantity, row.amount_vnd),
+          amount_vnd: channelAmountVnd(channelCode, quantity, row.amount_vnd, reportDate),
           notes: String(row.notes || "").trim().slice(0, 1000) || null,
         };
       });
