@@ -12,6 +12,12 @@ const MAX_AGGREGATED_ROWS = 200;
 const MAX_REQUIRED_QTY = 1_000_000;
 const CONFLICT_RECOVERY_DELAYS_MS = [50, 100, 200, 400] as const;
 const FONT_BASE = new URL("../_shared/fonts/", import.meta.url);
+const BRAND_BASE = new URL("../_shared/brand/", import.meta.url);
+const PDF_ASSETS_PROMISE = Promise.all([
+  Deno.readFile(new URL("NotoSans-Regular.ttf", FONT_BASE)),
+  Deno.readFile(new URL("NotoSans-Bold.ttf", FONT_BASE)),
+  Deno.readFile(new URL("bmq-logo-192.png", BRAND_BASE)),
+]).then(([regular, bold, logo]) => ({ regular, bold, logo }));
 const CANONICAL_UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
 
 const ISSUE_SELECT = "id,issue_number,issue_date,status,revision,source_hash,immutable_token,pdf_path,pdf_sha256,location_code,production_order_id,production_order:production_orders!inner(production_number)";
@@ -123,8 +129,6 @@ const sha256Hex = async (bytes: Uint8Array) => {
   return Array.from(new Uint8Array(hash)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 };
 
-const readFont = async (name: string) => Deno.readFile(new URL(name, FONT_BASE));
-
 async function hasPdfPermission(admin: any, userId: string) {
   const [{ data: roles, error: rolesError }, { data: permissions, error: permissionsError }] = await Promise.all([
     admin.from("user_roles").select("role").eq("user_id", userId),
@@ -164,8 +168,6 @@ async function signExistingPdf(admin: any, req: Request, issue: SafeIssueRow, ex
   if (!issue.pdf_path || !issue.pdf_sha256) return null;
   if (expectedPdfPath && issue.pdf_path !== expectedPdfPath) return null;
   if (expectedPdfSha256 && issue.pdf_sha256 !== expectedPdfSha256) return null;
-  const { error: downloadError } = await admin.storage.from(BUCKET).download(issue.pdf_path);
-  if (downloadError) return null;
 
   const { data: signed, error: signedError } = await admin.storage
     .from(BUCKET)
@@ -326,8 +328,8 @@ Deno.serve(async (req) => {
       return jsonResponse(req, { error: "Phiếu NVL có quá nhiều dòng tổng hợp để tạo PDF an toàn." }, 413, rateHeaders);
     }
 
-    const [regular, bold] = await Promise.all([readFont("NotoSans-Regular.ttf"), readFont("NotoSans-Bold.ttf")]);
-    const pdfBytes = await buildQ7MaterialIssuePdf(issue, rows, { regular, bold });
+    const assets = await PDF_ASSETS_PROMISE;
+    const pdfBytes = await buildQ7MaterialIssuePdf(issue, rows, assets);
     const pdfSha256 = await sha256Hex(pdfBytes);
     const pdfPath = `q7/${issue.id}/revision-${issue.revision}/original.pdf`;
 

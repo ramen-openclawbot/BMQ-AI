@@ -2,14 +2,15 @@ import { buildQ7MaterialIssuePdf } from "./pdf_builder.ts";
 
 const outputPath = Deno.args[0] || "/tmp/q7-material-issue-sample.pdf";
 const fontBase = new URL("../_shared/fonts/", import.meta.url);
-const [regular, bold] = await Promise.all([
+const brandBase = new URL("../_shared/brand/", import.meta.url);
+const [regular, bold, logo] = await Promise.all([
   Deno.readFile(new URL("NotoSans-Regular.ttf", fontBase)),
   Deno.readFile(new URL("NotoSans-Bold.ttf", fontBase)),
+  Deno.readFile(new URL("bmq-logo-192.png", brandBase)),
 ]);
 
 const pdfBytes = await buildQ7MaterialIssuePdf(
   {
-    id: "11111111-1111-4111-8111-111111111111",
     issue_id: "11111111-1111-4111-8111-111111111111",
     issue_number: "PXK-NVL-Q7-20260816-001",
     issue_date: "2026-08-16",
@@ -24,7 +25,7 @@ const pdfBytes = await buildQ7MaterialIssuePdf(
     { ingredient_name: "Đồ chua cà rốt", required_qty: 4.75, unit: "kg" },
     { ingredient_name: "Sốt bơ trứng", required_qty: 2.125, unit: "kg" },
   ],
-  { regular, bold },
+  { regular, bold, logo },
 );
 
 await Deno.writeFile(outputPath, pdfBytes);

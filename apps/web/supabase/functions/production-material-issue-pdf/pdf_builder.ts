@@ -20,9 +20,10 @@ export type MaterialIssuePdfRow = {
   unit: string;
 };
 
-type FontBytes = {
+export type PdfAssets = {
   regular: Uint8Array;
   bold: Uint8Array;
+  logo: Uint8Array;
 };
 
 const PAGE_WIDTH = 210;
@@ -58,7 +59,7 @@ const shortHash = (value: string) => String(value || "").slice(0, 12);
 export async function buildQ7MaterialIssuePdf(
   header: MaterialIssuePdfHeader,
   rows: MaterialIssuePdfRow[],
-  fonts: FontBytes,
+  assets: PdfAssets,
 ): Promise<Uint8Array> {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
   const deterministicFileId = header.source_hash.slice(0, 32).toUpperCase();
@@ -74,8 +75,8 @@ export async function buildQ7MaterialIssuePdf(
     creator: "BMQ-AI",
   });
 
-  doc.addFileToVFS("NotoSans-Regular.ttf", bytesToBase64(fonts.regular));
-  doc.addFileToVFS("NotoSans-Bold.ttf", bytesToBase64(fonts.bold));
+  doc.addFileToVFS("NotoSans-Regular.ttf", bytesToBase64(assets.regular));
+  doc.addFileToVFS("NotoSans-Bold.ttf", bytesToBase64(assets.bold));
   doc.addFont("NotoSans-Regular.ttf", "NotoSans", "normal");
   doc.addFont("NotoSans-Bold.ttf", "NotoSans", "bold");
   doc.setFont("NotoSans", "normal");
@@ -90,9 +91,8 @@ export async function buildQ7MaterialIssuePdf(
   });
   const qrDataUrl = await QRCode.toDataURL(qrPayload, { margin: 0, width: 120, errorCorrectionLevel: "M" });
 
+  doc.addImage(assets.logo, "PNG", 14, 6, 24, 24);
   doc.setFont("NotoSans", "bold");
-  doc.setFontSize(14);
-  doc.text("BÁNH MÌ QUE", 14, 16);
   doc.setFontSize(17);
   doc.text("PHIẾU XUẤT KHO NGUYÊN VẬT LIỆU", PAGE_WIDTH / 2, 28, { align: "center" });
 

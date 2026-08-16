@@ -17,6 +17,7 @@ EDGE = ROOT / "apps/web/supabase/functions/production-material-issue-pdf/index.t
 BUILDER = ROOT / "apps/web/supabase/functions/production-material-issue-pdf/pdf_builder.ts"
 UI = ROOT / "apps/web/src/pages/ProductionPlanning.tsx"
 FONT_DIR = ROOT / "apps/web/supabase/functions/_shared/fonts"
+BRAND_LOGO = ROOT / "apps/web/supabase/functions/_shared/brand/bmq-logo-192.png"
 
 FORBIDDEN_SAFE_EDGE_FIELDS = (
     "unit_cost",
@@ -185,7 +186,7 @@ def test_edge_caps_source_rows_and_validates_visible_pdf_rows_before_build() -> 
     assert "rows.length > MAX_AGGREGATED_ROWS" in edge
     assert "Dòng NVL chưa hợp lệ" in edge
     assert "await buildQ7MaterialIssuePdf" in edge
-    validation_region = edge[edge.index("const aggregated = new Map"):edge.index("const [regular, bold]")]
+    validation_region = edge[edge.index("const aggregated = new Map"):edge.index("const assets = await PDF_ASSETS_PROMISE")]
     assert validation_region.index("Number.isFinite(requiredQty)") < validation_region.index("await buildQ7MaterialIssuePdf") if "await buildQ7MaterialIssuePdf" in validation_region else True
 
 
@@ -200,6 +201,7 @@ def test_edge_config_auth_permission_user_generator_private_storage_and_safe_res
     assert "static_files" in pdf_config_section, "PDF deployment must bundle its runtime font assets"
     assert "./functions/_shared/fonts/notosans-regular.ttf" in pdf_config_section
     assert "./functions/_shared/fonts/notosans-bold.ttf" in pdf_config_section
+    assert "./functions/_shared/brand/bmq-logo-192.png" in pdf_config_section
     assert "../_shared/cors.ts" in edge and "corsPreflightResponse" in edge
     assert "\"Access-Control-Allow-Origin\"" not in edge
     assert "const getCorsHeaders =" not in edge
@@ -216,6 +218,9 @@ def test_edge_config_auth_permission_user_generator_private_storage_and_safe_res
     assert re.search(r"\[0-9a-fA-F\]\{8\}.*\[0-9a-fA-F\]\{4\}.*\[1-5\]\[0-9a-fA-F\]\{3\}.*\[89abAB\]\[0-9a-fA-F\]\{3\}.*\[0-9a-fA-F\]\{12\}", edge, re.S)
     assert "production-material-issue-documents" in edge
     assert "createSignedUrl" in edge
+    sign_existing_region = edge[edge.index("async function signExistingPdf"):edge.index("async function recoverPdfAfterUploadConflict")]
+    assert ".download(" not in sign_existing_region, "cached PDF open must not download the whole private file before signing it"
+    assert "SIGNED_URL_SECONDS" in sign_existing_region
     assert "300" in edge, "signed URL must expire in <= 5 minutes"
     assert "getPublicUrl" not in edge
     assert "download_url" in edge
@@ -249,6 +254,10 @@ def test_edge_pdf_builder_fonts_labels_qr_and_visible_field_contract() -> None:
     assert (FONT_DIR / "NotoSans-Regular.ttf").exists(), "regular Vietnamese font must be checked in"
     assert (FONT_DIR / "NotoSans-Bold.ttf").exists(), "bold Vietnamese font must be checked in"
     assert (FONT_DIR / "README.md").exists(), "font source/license README must be present"
+    assert BRAND_LOGO.exists(), "approved BMQ logo must be bundled with the PDF function"
+    assert "bmq-logo-192.png" in read(EDGE)
+    assert "logo" in builder and "doc.addImage" in builder
+    assert 'doc.text("BÁNH MÌ QUE"' not in builder, "header must use the BMQ logo instead of the old text"
     for label in (
         "PHIẾU XUẤT KHO NGUYÊN VẬT LIỆU",
         "Kho bếp Q7",

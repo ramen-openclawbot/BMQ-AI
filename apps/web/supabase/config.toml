@@ -92,6 +92,7 @@ verify_jwt = false
 static_files = [
   "./functions/_shared/fonts/NotoSans-Regular.ttf",
   "./functions/_shared/fonts/NotoSans-Bold.ttf",
+  "./functions/_shared/brand/bmq-logo-192.png",
 ]
 
 [functions.production-material-issue-signed-upload]

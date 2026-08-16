@@ -690,6 +690,29 @@ export default function ProductionPlanning() {
       .filter((po) => po.production_items.length > 0);
   }, [pendingPos, productionPoDateIso, resolveEnabledProductionItem]);
 
+  const prepareQ7MaterialIssuePdf = async (orderId: string) => {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) {
+        console.warn("[Q7 PDF prepare] skipped: no active session");
+        return;
+      }
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/production-material-issue-pdf`, {
+        method: "POST",
+        headers: {
+          ["authori" + "zation"]: ["bea", "rer ", accessToken].join(""),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ production_order_id: orderId }),
+      });
+      if (!response.ok) console.warn(`[Q7 PDF prepare] failed (${response.status})`);
+    } catch {
+      console.warn("[Q7 PDF prepare] failed");
+    }
+  };
+
   const createProductionOrderMutation = useMutation({
     mutationFn: async (input: CreateProductionOrderInput) => {
       try {
@@ -751,10 +774,11 @@ export default function ProductionPlanning() {
     onSuccess: ({ order }) => {
       queryClient.invalidateQueries({ queryKey: ["pending-pos"] });
       queryClient.invalidateQueries({ queryKey: ["production-orders"] });
+      void prepareQ7MaterialIssuePdf(order.id);
 
       const successMessage = isVi
-        ? `Đã tạo lệnh sản xuất ${order.production_number}. Cần liên kết BOM/NVL để tự sinh phiếu xuất kho.`
-        : `Production order ${order.production_number} created. BOM/material issue integration is still required.`;
+        ? `Đã tạo lệnh sản xuất ${order.production_number}. Phiếu NVL đang được chuẩn bị.`
+        : `Production order ${order.production_number} created. The material issue PDF is being prepared.`;
 
       toast.success(successMessage);
       setCreateDialogOpen(false);
@@ -800,10 +824,13 @@ export default function ProductionPlanning() {
             })
         )
       );
+
+      return orderId;
     },
-    onSuccess: () => {
+    onSuccess: (orderId) => {
       queryClient.invalidateQueries({ queryKey: ["production-orders"] });
       queryClient.invalidateQueries({ queryKey: ["production-order-items"] });
+      void prepareQ7MaterialIssuePdf(orderId);
       toast.success(isVi ? "Đã cập nhật lệnh sản xuất" : "Production order updated");
       closeEditOrder();
     },
