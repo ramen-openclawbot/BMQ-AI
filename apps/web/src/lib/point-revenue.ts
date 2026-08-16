@@ -26,6 +26,7 @@ export type PointRevenueReport = {
   reviewed_at: string | null;
   reviewed_by_name: string | null;
   review_note: string | null;
+  report_notes: string;
   channels: PointRevenueChannel[];
 };
 
@@ -122,6 +123,7 @@ export function parsePointRevenueRows(rows: unknown[]): PointRevenueReport[] {
     reviewed_at: row.reviewed_at ? String(row.reviewed_at) : null,
     reviewed_by_name: row.reviewed_by_name ? String(row.reviewed_by_name) : null,
     review_note: row.review_note ? String(row.review_note) : null,
+    report_notes: String(row.report_notes ?? "").trim(),
     channels: (Array.isArray(row.channels) ? row.channels : []).map((raw) => {
       const channel = raw as Record<string, unknown>;
       return {

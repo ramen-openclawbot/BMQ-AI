@@ -8,6 +8,7 @@ CSS = ROOT / "src" / "pages" / "point-revenue-management.css"
 ROUTES = ROOT / "src" / "components" / "AppRoutes.tsx"
 SIDEBAR = ROOT / "src" / "components" / "layout" / "Sidebar.tsx"
 LANGUAGE = ROOT / "src" / "contexts" / "LanguageContext.tsx"
+SHIFT_NOTES_MIGRATION = ROOT / "supabase" / "migrations" / "20260816100000_point_revenue_shift_notes.sql"
 
 
 def read(path: Path) -> str:
@@ -45,6 +46,22 @@ def main() -> None:
     assert "update public.kiosk_daily_report_channel_rows" not in sql, "submitted kiosk source must remain immutable"
     assert "delete from public.kiosk_daily_report_channel_rows" not in sql, "submitted kiosk source must remain immutable"
 
+    shift_notes_sql = read(SHIFT_NOTES_MIGRATION).lower()
+    for token in (
+        "create or replace function public.get_kiosk_point_revenue_reviews",
+        "report_notes text",
+        "report.notes",
+        "security definer",
+        "set search_path = public",
+        "has_module_permission",
+        "'finance_revenue'",
+        "revoke all",
+        "from anon",
+        "grant execute",
+        "to authenticated",
+    ):
+        assert token in shift_notes_sql, f"shift-note RPC migration missing contract: {token}"
+
     page = read(PAGE)
     for token in (
         'data-testid="point-revenue-page"',
@@ -62,6 +79,8 @@ def main() -> None:
         'Xếp hạng điểm bán',
         'Bán nhiều nhất',
         'Bán ít nhất',
+        'Ghi chú ca',
+        'row.report.report_notes',
         'Số bánh',
         'Doanh thu',
         'Lý do chỉnh sửa',
@@ -97,6 +116,8 @@ def main() -> None:
         "appearance: none;",
         ".pr-point-revenue {",
         "grid-column: 2 / -1;",
+        ".pr-shift-note {",
+        "overflow-wrap: anywhere;",
     ):
         assert token in css.lower(), f"Hallmark CSS missing: {token}"
     assert "transition-all" not in css

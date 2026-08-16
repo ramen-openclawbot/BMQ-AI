@@ -857,6 +857,11 @@ export default function PointRevenueManagement() {
                     <span className="pr-point-meta">
                       {row.report.staff_name || "Chưa có tên nhân viên"}
                     </span>
+                    {row.report.report_notes && (
+                      <span className="pr-shift-note">
+                        <strong>Ghi chú ca:</strong> {row.report.report_notes}
+                      </span>
+                    )}
                   </span>
                   <span className="pr-point-quantity">
                     <strong>{formatNumber(row.totalQuantity)}</strong>
