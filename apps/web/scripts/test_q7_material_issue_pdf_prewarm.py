@@ -24,6 +24,7 @@ def test_background_prepare_never_opens_a_window_or_blocks_order_success() -> No
     end = source.index("const createProductionOrderMutation", start)
     helper = source[start:end]
 
+    assert '["Bear", "er ", accessToken].join("")' in helper, "prewarm auth must match requireAuth's exact Bearer scheme"
     assert "window.open" not in helper
     assert "throw new Error" not in helper
     assert "console.warn" in helper

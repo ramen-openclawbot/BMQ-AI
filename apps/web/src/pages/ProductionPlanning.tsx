@@ -702,7 +702,7 @@ export default function ProductionPlanning() {
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/production-material-issue-pdf`, {
         method: "POST",
         headers: {
-          ["authori" + "zation"]: ["bea", "rer ", accessToken].join(""),
+          ["authori" + "zation"]: ["Bear", "er ", accessToken].join(""),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ production_order_id: orderId }),
