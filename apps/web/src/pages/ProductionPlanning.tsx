@@ -123,7 +123,9 @@ interface CreateProductionOrderInput {
   po_id: string;
   po_number: string;
   from_name: string;
+  isKingfood: boolean;
   items: Array<{
+    sku_id: string;
     product_name: string;
     original_qty: number;
     planned_qty: number;
@@ -136,6 +138,20 @@ interface CreateProductionOrderInput {
   planned_end_date: string;
   notes: string;
 }
+
+type KfmMaterialIssueStatus = "generated" | "refreshed" | "printed_unchanged" | `blocked_${string}`;
+
+type KfmMaterialIssueResult = {
+  status?: KfmMaterialIssueStatus | string;
+  [key: string]: unknown;
+};
+
+type CreateProductionOrderResult = {
+  order: ProductionOrder;
+  materialIssueAttempted: boolean;
+  materialIssue: KfmMaterialIssueResult | null;
+  materialIssueError: string | null;
+};
 
 type EditProductionOrderForm = {
   planned_start_date: string;
@@ -225,9 +241,13 @@ const resolveSkuMatch = (item: ProductionItem, skus: ProductSkuImageRow[]) => {
 const resolveSkuImageUrl = (productName: string, skus: ProductSkuImageRow[]) =>
   skus.find((sku) => isStrictProductionSkuMatch(productName, sku.product_name))?.image_url || null;
 
+const kfmTokenPattern = /(^|[^a-z0-9])kfm([^a-z0-9]|$)/i;
+
 const isKingfoodPo = (po: Pick<CustomerPoInbox, "from_email" | "email_subject" | "from_name">) => {
   const marker = normalizeSkuText(`${po.from_email || ""} ${po.email_subject || ""} ${po.from_name || ""}`);
-  return marker.includes("kingfoodmart") || marker.includes("kingfood");
+  // KFM token positives: "KFM", "[KFM] order", "KFM-PO".
+  // KFM substring false positives: "akfmart@example.com", "notkfmvendor", "prefixkfm".
+  return marker.includes("kingfoodmart") || marker.includes("kingfood") || kfmTokenPattern.test(marker);
 };
 
 const latestReplacementKeyForPo = (po: CustomerPoInbox) => {
@@ -388,6 +408,7 @@ export default function ProductionPlanning() {
 
   const [formData, setFormData] = useState<{
     items: Array<{
+      sku_id: string;
       product_name: string;
       original_qty: number;
       planned_qty: number;
@@ -697,6 +718,7 @@ export default function ProductionPlanning() {
 
         const itemsToInsert = input.items.map((item) => ({
           production_order_id: newOrder.id,
+          sku_id: item.sku_id,
           product_name: item.product_name,
           ordered_qty: item.original_qty,
           planned_qty: item.planned_qty,
@@ -714,20 +736,67 @@ export default function ProductionPlanning() {
           throw itemsError;
         }
 
-        return newOrder;
+        const materialIssueAttempted = input.isKingfood;
+        let materialIssue: KfmMaterialIssueResult | null = null;
+        let materialIssueError: string | null = null;
+
+        if (input.isKingfood) {
+          try {
+            const { data: issueData, error: issueError } = await (supabase as any).rpc(
+              "upsert_kfm_daily_material_issue",
+              { p_issue_date: productionDateIso }
+            );
+
+            if (issueError) throw issueError;
+            materialIssue = (issueData || null) as KfmMaterialIssueResult | null;
+          } catch (issueError: any) {
+            console.error("Error upserting KFM daily material issue:", issueError);
+            materialIssueError = String(issueError?.message || issueError || "unknown_error");
+          }
+        }
+
+        return { order: newOrder, materialIssueAttempted, materialIssue, materialIssueError } satisfies CreateProductionOrderResult;
       } catch (error) {
         console.error("Error creating production order:", error);
         throw error;
       }
     },
-    onSuccess: (order) => {
+    onSuccess: ({ order, materialIssueAttempted, materialIssue, materialIssueError }) => {
       queryClient.invalidateQueries({ queryKey: ["pending-pos"] });
       queryClient.invalidateQueries({ queryKey: ["production-orders"] });
-      toast.success(
-        isVi
-          ? `Đã tạo lệnh sản xuất ${order.production_number}. Cần liên kết BOM/NVL để tự sinh phiếu xuất kho.`
-          : `Production order ${order.production_number} created. BOM/material issue integration is still required.`
-      );
+
+      const materialIssueStatus = String(materialIssue?.status || "");
+      let successMessage = isVi
+        ? `Đã tạo lệnh sản xuất ${order.production_number}. Cần liên kết BOM/NVL để tự sinh phiếu xuất kho.`
+        : `Production order ${order.production_number} created. BOM/material issue integration is still required.`;
+
+      if (materialIssueError) {
+        successMessage = isVi
+          ? `Đã tạo lệnh sản xuất ${order.production_number}, nhưng đồng bộ PXK NVL lỗi. Kho có thể thử lại thủ công.`
+          : `Production order ${order.production_number} created, but PXK NVL sync failed. Warehouse can retry manually.`;
+      } else if (materialIssueStatus === "generated") {
+        successMessage = isVi
+          ? `Đã tạo lệnh sản xuất ${order.production_number}. PXK NVL đã sẵn sàng.`
+          : `Production order ${order.production_number} created. PXK NVL is ready.`;
+      } else if (materialIssueStatus === "refreshed") {
+        successMessage = isVi
+          ? `Đã tạo lệnh sản xuất ${order.production_number}. PXK NVL đã được cập nhật.`
+          : `Production order ${order.production_number} created. PXK NVL was updated.`;
+      } else if (materialIssueStatus === "printed_unchanged") {
+        successMessage = isVi
+          ? `Đã tạo lệnh sản xuất ${order.production_number}. PXK NVL đã in, giữ nguyên.`
+          : `Production order ${order.production_number} created. PXK NVL was already printed and left unchanged.`;
+      } else if (materialIssueStatus.startsWith("blocked_")) {
+        successMessage = isVi
+          ? `Đã tạo lệnh sản xuất ${order.production_number}, nhưng PXK NVL cần bổ sung dữ liệu: ${materialIssueStatus}.`
+          : `Production order ${order.production_number} created, but PXK NVL needs data: ${materialIssueStatus}.`;
+      } else if (materialIssueAttempted && !["generated", "refreshed", "printed_unchanged"].includes(materialIssueStatus)) {
+        successMessage = isVi
+          ? `Đã tạo lệnh sản xuất ${order.production_number}, nhưng phản hồi đồng bộ PXK NVL không như dự kiến. Kho có thể thử lại thủ công.`
+          : `Production order ${order.production_number} created, but PXK NVL sync returned an unexpected result. Warehouse can retry manually.`;
+      }
+
+      toast.success(successMessage);
       setCreateDialogOpen(false);
       setSelectedPoForCreation(null);
       setFormData({
@@ -946,6 +1015,7 @@ export default function ProductionPlanning() {
       return;
     }
     const items = allowedItems.map((item) => ({
+      sku_id: item.matched_sku.id,
       product_name: item.matched_sku.product_name,
       original_qty: item.qty,
       planned_qty: item.qty,
@@ -1045,6 +1115,7 @@ export default function ProductionPlanning() {
       po_id: selectedPoForCreation.id,
       po_number: selectedPoForCreation.po_number,
       from_name: selectedPoForCreation.from_name,
+      isKingfood: isKingfoodPo(selectedPoForCreation),
       items: formData.items,
       planned_start_date: formData.planned_start_date,
       planned_end_date: formData.planned_end_date,
