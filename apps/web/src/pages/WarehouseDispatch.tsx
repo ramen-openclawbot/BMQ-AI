@@ -1,5 +1,5 @@
  
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -12,9 +12,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Truck, Plus, Loader2, PackageCheck, AlertTriangle, RefreshCw, Camera, PackageSearch, CheckCircle2, Bot, Eye } from "lucide-react";
+import { Truck, Plus, Loader2, PackageCheck, AlertTriangle, RefreshCw, Camera, PackageSearch, CheckCircle2, Bot, Eye, Printer, FileText } from "lucide-react";
 import { format, subDays } from "date-fns";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import "./warehouse-dispatch-print.css";
 
 type DispatchStatus = "pending" | "picked" | "dispatched" | "delivered";
 
@@ -194,6 +195,53 @@ type GoodsReceiptAutoIssue = {
   line_count: number;
 };
 
+type KfmDailyMaterialIssue = {
+  id: string;
+  issue_number: string;
+  issue_date: string;
+  status: "generated" | "printed" | "superseded" | string;
+  printed_at: string | null;
+};
+
+type KfmDailyMaterialIssueItem = {
+  id: string;
+  issue_id: string;
+  ingredient_name: string;
+  required_qty: number;
+  unit: string;
+  sort_order: number | null;
+};
+
+type KfmDailyMaterialIssueSource = {
+  id: string;
+  issue_id: string;
+  production_number: string;
+  po_number: string | null;
+};
+
+type KfmDailyIssueData = {
+  issue: KfmDailyMaterialIssue | null;
+  items: KfmDailyMaterialIssueItem[];
+  sources: KfmDailyMaterialIssueSource[];
+};
+
+type KfmDailyIssueSnapshot = {
+  issue: KfmDailyMaterialIssue;
+  items: KfmDailyMaterialIssueItem[];
+  sources: KfmDailyMaterialIssueSource[];
+};
+
+type KfmDailyIssueUpsertResult = {
+  status?: string | null;
+  issue_number?: string | null;
+  issue_id?: string | null;
+};
+
+type KfmDailyIssuePrintResult = {
+  status?: string | null;
+  printed_at?: string | null;
+};
+
 type MaterialPreviewRow = {
   key: string;
   production_item_name: string;
@@ -229,6 +277,34 @@ const shortageReasons = [
   { value: "other", label: "Khác" },
 ];
 
+const vietnamDateFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Ho_Chi_Minh",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+const getVietnamTodayIso = () => {
+  const parts = vietnamDateFormatter.formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+};
+
+const formatVietnamDateKey = (dateKey: string | null | undefined) => {
+  if (!dateKey) return "—";
+  const [year, month, day] = dateKey.split("-");
+  return year && month && day ? `${day}/${month}/${year}` : dateKey;
+};
+
+const formatKfmDailyIssueQuantity = (value: number | string | null | undefined) =>
+  Number(value || 0).toLocaleString("vi-VN", { maximumFractionDigits: 3 });
+
+const getKfmDailyIssueStatusLabel = (issue: KfmDailyMaterialIssue | null, itemCount = 0) => {
+  if (!issue) return "Cần xử lý";
+  if (issue.status === "printed") return "Đã in";
+  return itemCount > 0 ? "Sẵn sàng in" : "Cần xử lý";
+};
+
 const moneyNumber = (value: string) => {
   const numeric = Number(String(value || "").replace(/,/g, ""));
   return Number.isFinite(numeric) ? numeric : 0;
@@ -263,6 +339,12 @@ export default function WarehouseDispatch() {
   const dispatchReason = params.get("reason") || "";
   const [activeTab, setActiveTab] = useState<DispatchStatus | "all">("all");
   const [activeWorkflow, setActiveWorkflow] = useState<"finished" | "materials" | "auto">("finished");
+  const [materialIssueDate, setMaterialIssueDate] = useState(getVietnamTodayIso);
+  const previousMaterialIssueDateRef = useRef(materialIssueDate);
+  const [selectedKfmDailyIssueSnapshot, setSelectedKfmDailyIssueSnapshot] = useState<KfmDailyIssueSnapshot | null>(null);
+  const [printableKfmDailyIssueSnapshot, setPrintableKfmDailyIssueSnapshot] = useState<KfmDailyIssueSnapshot | null>(null);
+  const [isKfmDailyIssuePrinting, setIsKfmDailyIssuePrinting] = useState(false);
+  const [kfmDailyIssueMessage, setKfmDailyIssueMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [selectedMaterialOrderId, setSelectedMaterialOrderId] = useState("");
   const [selectedAutoIssue, setSelectedAutoIssue] = useState<GoodsReceiptAutoIssue | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -543,6 +625,51 @@ export default function WarehouseDispatch() {
     enabled: activeWorkflow === "materials" && materialIssues.length > 0,
   });
 
+  const kfmDailyIssueQuery = useQuery<KfmDailyIssueData>({
+    queryKey: ["kfm_daily_material_issue", materialIssueDate],
+    queryFn: async () => {
+      const { data: issue, error: issueError } = await (supabase as any)
+        .from("kfm_daily_material_issues")
+        .select("id,issue_number,issue_date,status,printed_at")
+        .eq("issue_date", materialIssueDate)
+        .neq("status", "superseded")
+        .maybeSingle();
+      if (issueError) throw issueError;
+      if (!issue) return { issue: null, items: [], sources: [] };
+
+      const [{ data: items, error: itemError }, { data: sources, error: sourceError }] = await Promise.all([
+        (supabase as any)
+          .from("kfm_daily_material_issue_items")
+          .select("id,issue_id,ingredient_name,required_qty,unit,sort_order")
+          .eq("issue_id", issue.id)
+          .order("sort_order", { ascending: true }),
+        (supabase as any)
+          .from("kfm_daily_material_issue_sources")
+          .select("id,issue_id,production_number,po_number")
+          .eq("issue_id", issue.id)
+          .order("production_number", { ascending: true }),
+      ]);
+      if (itemError) throw itemError;
+      if (sourceError) throw sourceError;
+
+      return {
+        issue: issue as KfmDailyMaterialIssue,
+        items: (items || []) as KfmDailyMaterialIssueItem[],
+        sources: (sources || []) as KfmDailyMaterialIssueSource[],
+      };
+    },
+    enabled: activeWorkflow === "materials",
+  });
+
+  const kfmDailyIssueData = kfmDailyIssueQuery.data || { issue: null, items: [], sources: [] };
+
+  useEffect(() => {
+    if (previousMaterialIssueDateRef.current === materialIssueDate) return;
+    previousMaterialIssueDateRef.current = materialIssueDate;
+    if (isKfmDailyIssuePrinting) return;
+    setSelectedKfmDailyIssueSnapshot(null);
+  }, [isKfmDailyIssuePrinting, materialIssueDate]);
+
   // ── Handlers ─────────────────────────────────────────────────────────────
 
   const handleSelectPO = useCallback((poId: string) => {
@@ -639,7 +766,102 @@ export default function WarehouseDispatch() {
     setFormItems([]);
   };
 
+  const loadKfmDailyIssueSnapshotById = useCallback(async (issueId: string): Promise<KfmDailyIssueSnapshot> => {
+    const { data: issue, error: issueError } = await (supabase as any)
+      .from("kfm_daily_material_issues")
+      .select("id,issue_number,issue_date,status,printed_at")
+      .eq("id", issueId)
+      .neq("status", "superseded")
+      .maybeSingle();
+    if (issueError) throw issueError;
+    if (!issue) throw new Error("Không tìm thấy phiếu KFM đã chọn.");
+
+    const [{ data: items, error: itemError }, { data: sources, error: sourceError }] = await Promise.all([
+      (supabase as any)
+        .from("kfm_daily_material_issue_items")
+        .select("id,issue_id,ingredient_name,required_qty,unit,sort_order")
+        .eq("issue_id", issue.id)
+        .order("sort_order", { ascending: true }),
+      (supabase as any)
+        .from("kfm_daily_material_issue_sources")
+        .select("id,issue_id,production_number,po_number")
+        .eq("issue_id", issue.id)
+        .order("production_number", { ascending: true }),
+    ]);
+    if (itemError) throw itemError;
+    if (sourceError) throw sourceError;
+
+    return { issue: issue as KfmDailyMaterialIssue, items: (items || []) as KfmDailyMaterialIssueItem[], sources: (sources || []) as KfmDailyMaterialIssueSource[] };
+  }, []);
+
+  const handleViewKfmDailyIssue = async (issue: KfmDailyMaterialIssue) => {
+    setKfmDailyIssueMessage(null);
+    try {
+      const snapshot = await loadKfmDailyIssueSnapshotById(issue.id);
+      setSelectedKfmDailyIssueSnapshot(snapshot);
+      setPrintableKfmDailyIssueSnapshot(snapshot);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "vui lòng thử lại";
+      setKfmDailyIssueMessage({ kind: "error", text: `Không tải được phiếu KFM đã chọn: ${message}` });
+    }
+  };
+
+  const waitForKfmPrintDomPaint = () => new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  });
+
   // ── Mutations ─────────────────────────────────────────────────────────────
+
+  const syncKfmDailyIssueMutation = useMutation({
+    mutationFn: async (submittedDate: string) => {
+      setKfmDailyIssueMessage(null);
+      const { data, error } = await (supabase as any).rpc("upsert_kfm_daily_material_issue", { p_issue_date: submittedDate });
+      if (error) throw error;
+      return { result: data as KfmDailyIssueUpsertResult, submittedDate };
+    },
+    onSuccess: ({ result, submittedDate }) => {
+      queryClient.invalidateQueries({ queryKey: ["kfm_daily_material_issue", submittedDate] });
+      const status = String(result?.status || "generated");
+      if (status.startsWith("blocked")) {
+        setKfmDailyIssueMessage({ kind: "error", text: `Phiếu KFM cho ngày ${formatVietnamDateKey(submittedDate)} chưa sẵn sàng: còn dữ liệu cần xử lý trước khi in.` });
+      } else {
+        setKfmDailyIssueMessage({ kind: "success", text: `Đã đồng bộ phiếu KFM ${result?.issue_number || `cho ngày ${formatVietnamDateKey(submittedDate)}`}.` });
+      }
+    },
+    onError: (error: Error, submittedDate) => {
+      setKfmDailyIssueMessage({ kind: "error", text: `Không đồng bộ được phiếu KFM cho ngày ${formatVietnamDateKey(submittedDate)}: ${error.message || "vui lòng thử lại"}` });
+    },
+  });
+
+  const printKfmDailyIssue = async (issue: KfmDailyMaterialIssue) => {
+    const targetIssueId = issue.id;
+    setKfmDailyIssueMessage(null);
+    setIsKfmDailyIssuePrinting(true);
+    try {
+      const { data, error } = await (supabase as any).rpc("mark_kfm_daily_material_issue_printed", { p_issue_id: targetIssueId });
+      if (error) throw error;
+      const printResult = data as KfmDailyIssuePrintResult | null;
+      if (printResult?.status !== "printed") {
+        throw new Error("Phiếu KFM chưa được khóa in. Vui lòng đồng bộ lại trước khi in.");
+      }
+      const refreshedSnapshot = await loadKfmDailyIssueSnapshotById(targetIssueId);
+      if (refreshedSnapshot.issue.status !== "printed") {
+        throw new Error("Đã khóa in nhưng bản tải lại chưa ở trạng thái đã in. Vui lòng tải lại trước khi in.");
+      }
+      setSelectedKfmDailyIssueSnapshot(refreshedSnapshot);
+      setPrintableKfmDailyIssueSnapshot(refreshedSnapshot);
+      queryClient.invalidateQueries({ queryKey: ["kfm_daily_material_issue", refreshedSnapshot.issue.issue_date] });
+      await waitForKfmPrintDomPaint();
+      window.print();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "vui lòng thử lại";
+      setKfmDailyIssueMessage({ kind: "error", text: `Không thể in phiếu KFM: ${message}` });
+    } finally {
+      setIsKfmDailyIssuePrinting(false);
+    }
+  };
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -1038,6 +1260,12 @@ export default function WarehouseDispatch() {
     .reduce((sum, row: any) => sum + Number(row.required_qty || 0), 0);
   const materialStandardAmount = materialStandardRows
     .reduce((sum, row: any) => sum + Number(row.amount || 0), 0);
+  const kfmDailyIssue = kfmDailyIssueData.issue;
+  const kfmDailyIssueItems = kfmDailyIssueData.items;
+  const kfmDailyIssueSources = kfmDailyIssueData.sources;
+  const kfmDailyIssueStatusLabel = getKfmDailyIssueStatusLabel(kfmDailyIssue, kfmDailyIssueItems.length);
+  const canViewCurrentKfmDailyIssue = Boolean(kfmDailyIssue && !kfmDailyIssueQuery.isLoading && !kfmDailyIssueQuery.isFetching);
+  const canPrintCurrentKfmDailyIssue = Boolean(canViewCurrentKfmDailyIssue && kfmDailyIssueItems.length > 0);
 
   const openDetail = (d: any) => {
     setSelected({ ...d, items: allDispatchItems.filter((i: any) => i.dispatch_id === d.id) });
@@ -1253,7 +1481,98 @@ export default function WarehouseDispatch() {
           </div>
         </div>
       ) : activeWorkflow === "materials" ? (
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="space-y-5">
+          <Card data-kfm-daily-material-issue className="border-border bg-card text-foreground shadow-card">
+            <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
+              <div className="min-w-0">
+                <CardTitle className="flex items-center gap-2 text-xl leading-tight md:text-2xl">
+                  <FileText className="h-6 w-6 text-primary" /> Phiếu xuất kho NVL KFM theo ngày
+                </CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">Phiếu in gộp theo ngày cho nguồn Kingfood/KFM, tách riêng với preview theo từng lệnh sản xuất bên dưới.</p>
+              </div>
+              <Badge variant="outline" className={kfmDailyIssue?.status === "printed" ? "shrink-0 whitespace-nowrap border-emerald-300/35 bg-emerald-500/10 text-emerald-700" : kfmDailyIssueItems.length > 0 ? "shrink-0 whitespace-nowrap border-primary/25 bg-primary/5 text-primary" : "shrink-0 whitespace-nowrap border-amber-300 bg-amber-50 text-amber-800"}>
+                {kfmDailyIssueStatusLabel}
+              </Badge>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium" htmlFor="kfm-material-issue-date">Ngày phiếu KFM</label>
+                  <Input id="kfm-material-issue-date" type="date" value={materialIssueDate} onChange={(event) => { setMaterialIssueDate(event.target.value); setKfmDailyIssueMessage(null); }} className="bg-background" />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-2xl border border-border bg-muted/40 p-4">
+                    <p className="text-xs text-muted-foreground">Số phiếu</p>
+                    <p className="mt-2 break-words font-mono text-lg font-bold text-primary">{kfmDailyIssue?.issue_number || "Chưa tạo"}</p>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-muted/40 p-4">
+                    <p className="text-xs text-muted-foreground">Ngày phiếu</p>
+                    <p className="mt-2 text-lg font-bold">{formatVietnamDateKey(kfmDailyIssue?.issue_date || materialIssueDate)}</p>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-muted/40 p-4">
+                    <p className="text-xs text-muted-foreground">Nguồn KFM</p>
+                    <p className="mt-2 text-3xl font-bold text-primary">{kfmDailyIssueSources.length}</p>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-muted/40 p-4">
+                    <p className="text-xs text-muted-foreground">Dòng NVL</p>
+                    <p className="mt-2 text-3xl font-bold text-emerald-700">{kfmDailyIssueItems.length}</p>
+                  </div>
+                </div>
+              </div>
+
+              {kfmDailyIssueMessage && (
+                <div role={kfmDailyIssueMessage.kind === "error" ? "alert" : "status"} aria-live="polite" className={kfmDailyIssueMessage.kind === "error" ? "rounded-2xl border border-red-300/25 bg-red-500/10 p-4 text-sm text-red-800" : "rounded-2xl border border-emerald-300/25 bg-emerald-500/10 p-4 text-sm text-emerald-800"}>
+                  {kfmDailyIssueMessage.text}
+                </div>
+              )}
+
+              {kfmDailyIssueQuery.isLoading ? (
+                <div className="flex min-h-[150px] items-center justify-center rounded-2xl border border-border bg-muted/40">
+                  <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+                </div>
+              ) : kfmDailyIssueQuery.isError ? (
+                <div className="rounded-2xl border border-red-300/25 bg-red-500/10 px-5 py-8 text-center text-red-800">
+                  <AlertTriangle className="mx-auto mb-3 h-9 w-9 text-red-600" />
+                  <p className="font-semibold">Không tải được phiếu KFM</p>
+                  <p className="mt-1 text-sm text-red-700">Dữ liệu chưa được kết luận là trống. Vui lòng thử tải lại hoặc đồng bộ lại.</p>
+                  <Button type="button" variant="outline" className="mt-4 border-red-300 bg-background text-red-700 hover:bg-red-50 hover:text-red-800" onClick={() => void kfmDailyIssueQuery.refetch()}>
+                    <RefreshCw className="mr-2 h-4 w-4" /> Tải lại
+                  </Button>
+                </div>
+              ) : kfmDailyIssueQuery.data.issue ? (
+                <div className="space-y-3">
+                  <div className="flex flex-col gap-3 rounded-2xl border border-border bg-muted/40 p-4 md:flex-row md:items-center md:justify-between">
+                    <div className="min-w-0">
+                      <p className="break-words font-mono text-lg font-bold text-primary">{kfmDailyIssue.issue_number}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">Nguồn: KFM · {kfmDailyIssueSources.length} lệnh SX · {kfmDailyIssueItems.length} dòng NVL</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" variant="outline" className="rounded-xl border-border bg-background text-foreground hover:bg-muted hover:text-foreground" disabled={!kfmDailyIssue || !canViewCurrentKfmDailyIssue || isKfmDailyIssuePrinting} onClick={() => kfmDailyIssue && void handleViewKfmDailyIssue(kfmDailyIssue)}>
+                        <Eye className="mr-2 h-4 w-4" /> Xem phiếu
+                      </Button>
+                      <Button type="button" className="rounded-xl bg-primary font-semibold text-primary-foreground hover:bg-primary/90" disabled={!kfmDailyIssue || !canPrintCurrentKfmDailyIssue || isKfmDailyIssuePrinting} onClick={() => kfmDailyIssue && void printKfmDailyIssue(kfmDailyIssue)}>
+                        {isKfmDailyIssuePrinting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Printer className="mr-2 h-4 w-4" />} In phiếu
+                      </Button>
+                      <Button type="button" variant="outline" className="rounded-xl border-border bg-background text-foreground hover:bg-muted hover:text-foreground" disabled={syncKfmDailyIssueMutation.isPending} onClick={() => syncKfmDailyIssueMutation.mutate(materialIssueDate)}>
+                        {syncKfmDailyIssueMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />} Tạo/đồng bộ phiếu KFM
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-border px-5 py-8 text-center text-muted-foreground">
+                  <FileText className="mx-auto mb-3 h-10 w-10 opacity-40" />
+                  <p className="font-medium text-muted-foreground">Chưa có phiếu KFM cho ngày {formatVietnamDateKey(materialIssueDate)}</p>
+                  <p className="mt-1 text-sm">Bấm đồng bộ để gọi RPC tạo/cập nhật phiếu từ các lệnh sản xuất KFM đã xác nhận.</p>
+                  <Button type="button" className="mt-4 rounded-xl bg-primary font-semibold text-primary-foreground hover:bg-primary/90" disabled={syncKfmDailyIssueMutation.isPending} onClick={() => syncKfmDailyIssueMutation.mutate(materialIssueDate)}>
+                    {syncKfmDailyIssueMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />} Tạo/đồng bộ phiếu KFM
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
           <Card className="border-border bg-card text-foreground shadow-card">
             <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
               <div className="min-w-0">
@@ -1395,6 +1714,7 @@ export default function WarehouseDispatch() {
               </CardContent>
             </Card>
           </div>
+          </div>
         </div>
       ) : (
         <Card className="border-border bg-card text-foreground shadow-card">
@@ -1498,6 +1818,76 @@ export default function WarehouseDispatch() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── KFM daily material issue print/view ───────────────────────────── */}
+      <Dialog open={Boolean(selectedKfmDailyIssueSnapshot)} onOpenChange={(open) => { if (!open && !isKfmDailyIssuePrinting) setSelectedKfmDailyIssueSnapshot(null); }}>
+        <DialogContent role="dialog" aria-modal="true" aria-labelledby="kfm-material-issue-dialog-title" className="max-h-[92vh] max-w-4xl overflow-y-auto p-0">
+          <div className="space-y-4 p-4 sm:p-6">
+            <DialogHeader className="print:hidden">
+              <DialogTitle id="kfm-material-issue-dialog-title" className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-primary" /> Xem phiếu KFM
+              </DialogTitle>
+            </DialogHeader>
+
+            <div data-kfm-material-issue-print className="kfm-material-issue-print mx-auto max-w-[210mm] rounded-2xl border border-border bg-white p-4 text-black shadow-sm sm:p-8">
+              <div className="space-y-2 text-center">
+                <p className="text-sm font-semibold uppercase tracking-wide">BMQ</p>
+                <h2 className="text-xl font-bold uppercase tracking-wide sm:text-2xl">PHIẾU XUẤT KHO NGUYÊN VẬT LIỆU</h2>
+                <p className="text-sm">Nguồn: KFM</p>
+              </div>
+
+              <div className="mt-6 grid gap-3 text-sm sm:grid-cols-2">
+                <div><span className="font-semibold">Số phiếu:</span> <span className="font-mono">{printableKfmDailyIssueSnapshot?.issue.issue_number || "—"}</span></div>
+                <div className="sm:text-right"><span className="font-semibold">Ngày phiếu:</span> {formatVietnamDateKey(printableKfmDailyIssueSnapshot?.issue.issue_date)}</div>
+              </div>
+
+              <div className="mt-5 overflow-x-auto">
+                <table data-kfm-material-issue-print-table className="kfm-material-issue-print-table w-full border-collapse text-sm">
+                  <thead>
+                    <tr>
+                      <th className="w-14 border border-black px-2 py-2 text-center">STT</th>
+                      <th className="border border-black px-2 py-2 text-left">Tên nguyên vật liệu</th>
+                      <th className="w-32 border border-black px-2 py-2 text-right">Số lượng</th>
+                      <th className="w-24 border border-black px-2 py-2 text-left">Đơn vị</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {printableKfmDailyIssueSnapshot?.items.length ? printableKfmDailyIssueSnapshot.items.map((item, index) => (
+                      <tr key={item.id}>
+                        <td className="border border-black px-2 py-2 text-center align-top">{index + 1}</td>
+                        <td className="border border-black px-2 py-2 align-top">{item.ingredient_name}</td>
+                        <td className="border border-black px-2 py-2 text-right align-top">{formatKfmDailyIssueQuantity(item.required_qty)}</td>
+                        <td className="border border-black px-2 py-2 align-top">{item.unit}</td>
+                      </tr>
+                    )) : (
+                      <tr>
+                        <td className="border border-black px-2 py-6 text-center" colSpan={4}>Chưa có dòng nguyên vật liệu để in.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="kfm-material-issue-signatures mt-12 grid grid-cols-3 gap-3 text-center text-sm font-semibold">
+                <div className="min-h-28">Người lập phiếu</div>
+                <div className="min-h-28">Thủ kho</div>
+                <div className="min-h-28">Người nhận</div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-2 print:hidden">
+              <Button type="button" variant="outline" onClick={() => setSelectedKfmDailyIssueSnapshot(null)}>Đóng</Button>
+              {selectedKfmDailyIssueSnapshot && (
+                <Button type="button" className="bg-primary text-primary-foreground hover:bg-primary/90" disabled={isKfmDailyIssuePrinting} onClick={() => void printKfmDailyIssue(selectedKfmDailyIssueSnapshot.issue)}>
+                  {isKfmDailyIssuePrinting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Printer className="mr-2 h-4 w-4" />} In phiếu
+                </Button>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* KFM daily material issue dialog end */}
 
       {/* ── Read-only automatic issue detail ─────────────────────────────── */}
       <Dialog open={Boolean(selectedAutoIssue)} onOpenChange={(open) => { if (!open) setSelectedAutoIssue(null); }}>
