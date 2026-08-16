@@ -1,9 +1,10 @@
  
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,10 +13,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Truck, Plus, Loader2, PackageCheck, AlertTriangle, RefreshCw, Camera, PackageSearch, CheckCircle2, Bot, Eye, Printer, FileText } from "lucide-react";
+import { Truck, Plus, Loader2, PackageCheck, AlertTriangle, RefreshCw, CheckCircle2, Bot, Eye, FileText } from "lucide-react";
 import { format, subDays } from "date-fns";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import "./warehouse-dispatch-print.css";
 
 type DispatchStatus = "pending" | "picked" | "dispatched" | "delivered";
 
@@ -91,93 +91,12 @@ interface Dispatch {
   customer_name?: string;
 }
 
-type ProductionOrderForMaterials = {
-  id: string;
-  production_number: string;
-  source_po_inbox_id: string | null;
-  status: string;
-  planned_start_date: string | null;
-  planned_end_date: string | null;
-  created_at: string;
-  notes: string | null;
-};
-
-type ProductionOrderItemForMaterials = {
-  id: string;
-  production_order_id: string;
-  sku_id: string | null;
-  product_name: string;
-  ordered_qty: number | null;
-  planned_qty: number | null;
-  actual_qty: number | null;
-  unit: string | null;
-  delivery_date: string | null;
-};
-
-type MaterialSkuRow = {
-  id: string;
-  sku_code: string | null;
-  product_name: string;
-  unit: string | null;
-  sku_type?: string | null;
-  finished_output_qty?: number | null;
-  finished_output_unit?: string | null;
-};
-
-type SkuFormulaRow = {
-  id: string;
-  sku_id: string;
-  ingredient_sku_id: string | null;
-  ingredient_name: string;
-  material_code: string | null;
-  unit: string | null;
-  unit_price: number | null;
-  dosage_qty: number | null;
-  wastage_percent: number | null;
-  sort_order: number | null;
-};
-
-type KitchenItemRow = {
-  id: string;
-  product_sku_id: string | null;
-  name: string;
-  unit: string;
-  standard_unit_cost: number | null;
-  active: boolean;
-};
-
-type ProductionMaterialIssue = {
-  id: string;
-  issue_number: string;
-  production_order_id: string;
-  issue_date: string;
-  status: string;
-  total_amount: number;
-  created_at: string;
-};
-
-type ProductionMaterialIssueItem = {
-  id: string;
-  material_issue_id: string;
-  ingredient_name: string;
-  material_code: string | null;
-  planned_finished_qty: number;
-  dosage_qty: number;
-  wastage_percent: number;
-  required_qty: number;
-  unit: string;
-  unit_cost: number;
-  amount: number;
-};
-
 type GoodsReceiptAutoIssueItem = {
   id: string;
   auto_issue_id: string;
   product_name: string;
   quantity: number;
   unit: string;
-  unit_cost: number;
-  amount: number;
 };
 
 type GoodsReceiptAutoIssue = {
@@ -193,67 +112,6 @@ type GoodsReceiptAutoIssue = {
   receipt_number: string;
   supplier_name: string;
   line_count: number;
-};
-
-type KfmDailyMaterialIssue = {
-  id: string;
-  issue_number: string;
-  issue_date: string;
-  status: "generated" | "printed" | "superseded" | string;
-  printed_at: string | null;
-};
-
-type KfmDailyMaterialIssueItem = {
-  id: string;
-  issue_id: string;
-  ingredient_name: string;
-  required_qty: number;
-  unit: string;
-  sort_order: number | null;
-};
-
-type KfmDailyMaterialIssueSource = {
-  id: string;
-  issue_id: string;
-  production_number: string;
-  po_number: string | null;
-};
-
-type KfmDailyIssueData = {
-  issue: KfmDailyMaterialIssue | null;
-  items: KfmDailyMaterialIssueItem[];
-  sources: KfmDailyMaterialIssueSource[];
-};
-
-type KfmDailyIssueSnapshot = {
-  issue: KfmDailyMaterialIssue;
-  items: KfmDailyMaterialIssueItem[];
-  sources: KfmDailyMaterialIssueSource[];
-};
-
-type KfmDailyIssueUpsertResult = {
-  status?: string | null;
-  issue_number?: string | null;
-  issue_id?: string | null;
-};
-
-type KfmDailyIssuePrintResult = {
-  status?: string | null;
-  printed_at?: string | null;
-};
-
-type MaterialPreviewRow = {
-  key: string;
-  production_item_name: string;
-  finished_qty: number;
-  ingredient_name: string;
-  material_code: string | null;
-  required_qty: number;
-  unit: string;
-  unit_cost: number;
-  amount: number;
-  source: string;
-  status: "ready" | "missing_finished_sku" | "missing_formula" | "missing_kitchen_item";
 };
 
 const statusConfig: Record<DispatchStatus, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
@@ -277,50 +135,15 @@ const shortageReasons = [
   { value: "other", label: "Khác" },
 ];
 
-const vietnamDateFormatter = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Asia/Ho_Chi_Minh",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
-
-const getVietnamTodayIso = () => {
-  const parts = vietnamDateFormatter.formatToParts(new Date());
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
-};
-
 const formatVietnamDateKey = (dateKey: string | null | undefined) => {
   if (!dateKey) return "—";
   const [year, month, day] = dateKey.split("-");
   return year && month && day ? `${day}/${month}/${year}` : dateKey;
 };
 
-const formatKfmDailyIssueQuantity = (value: number | string | null | undefined) =>
-  Number(value || 0).toLocaleString("vi-VN", { maximumFractionDigits: 3 });
-
-const getKfmDailyIssueStatusLabel = (issue: KfmDailyMaterialIssue | null, itemCount = 0) => {
-  if (!issue) return "Cần xử lý";
-  if (issue.status === "printed") return "Đã in";
-  return itemCount > 0 ? "Sẵn sàng in" : "Cần xử lý";
-};
-
 const moneyNumber = (value: string) => {
   const numeric = Number(String(value || "").replace(/,/g, ""));
   return Number.isFinite(numeric) ? numeric : 0;
-};
-
-const buildMaterialCode = (name: unknown) => {
-  const normalized = String(name || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/Đ/g, "D")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .replace(/-{2,}/g, "-");
-  return `NVL-${normalized || "CHUA-DAT-TEN"}`;
 };
 
 const amountStatusLabel: Record<string, string> = {
@@ -332,20 +155,14 @@ const amountStatusLabel: Record<string, string> = {
 
 export default function WarehouseDispatch() {
   const { toast } = useToast();
+  const { canEditModule } = useAuth();
   const queryClient = useQueryClient();
   const [params] = useSearchParams();
   const dispatchPoId = params.get("dispatchPoId") || "";
   const dispatchRevenueDate = params.get("revenueDate") || "";
   const dispatchReason = params.get("reason") || "";
   const [activeTab, setActiveTab] = useState<DispatchStatus | "all">("all");
-  const [activeWorkflow, setActiveWorkflow] = useState<"finished" | "materials" | "auto">("finished");
-  const [materialIssueDate, setMaterialIssueDate] = useState(getVietnamTodayIso);
-  const previousMaterialIssueDateRef = useRef(materialIssueDate);
-  const [selectedKfmDailyIssueSnapshot, setSelectedKfmDailyIssueSnapshot] = useState<KfmDailyIssueSnapshot | null>(null);
-  const [printableKfmDailyIssueSnapshot, setPrintableKfmDailyIssueSnapshot] = useState<KfmDailyIssueSnapshot | null>(null);
-  const [isKfmDailyIssuePrinting, setIsKfmDailyIssuePrinting] = useState(false);
-  const [kfmDailyIssueMessage, setKfmDailyIssueMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
-  const [selectedMaterialOrderId, setSelectedMaterialOrderId] = useState("");
+  const [activeWorkflow, setActiveWorkflow] = useState<"finished" | "auto">("finished");
   const [selectedAutoIssue, setSelectedAutoIssue] = useState<GoodsReceiptAutoIssue | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -417,7 +234,7 @@ export default function WarehouseDispatch() {
       const [{ data: itemRows, error: itemError }, { data: receiptRows, error: receiptError }] = await Promise.all([
         (supabase as any)
           .from("goods_receipt_auto_issue_items")
-          .select("id,auto_issue_id,product_name,quantity,unit,unit_cost,amount")
+          .select("id,auto_issue_id,product_name,quantity,unit")
           .in("auto_issue_id", issueIds)
           .order("created_at", { ascending: true }),
         (supabase as any)
@@ -523,153 +340,6 @@ export default function WarehouseDispatch() {
     enabled: createOpen || Boolean(dispatchPoId),
   });
 
-  const { data: materialOrders = [], isLoading: loadingMaterialOrders } = useQuery<ProductionOrderForMaterials[]>({
-    queryKey: ["production_orders_for_material_issue"],
-    queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from("production_orders")
-        .select("id,production_number,source_po_inbox_id,status,planned_start_date,planned_end_date,created_at,notes")
-        .in("status", ["draft", "planned", "in_progress"])
-        .order("created_at", { ascending: false })
-        .limit(8);
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: activeWorkflow === "materials",
-  });
-
-  const materialOrderIds = materialOrders.map((order) => order.id);
-
-  const { data: materialOrderItems = [] } = useQuery<ProductionOrderItemForMaterials[]>({
-    queryKey: ["production_order_items_for_material_issue", materialOrderIds.join(",")],
-    queryFn: async () => {
-      if (!materialOrderIds.length) return [];
-      const { data, error } = await (supabase as any)
-        .from("production_order_items")
-        .select("id,production_order_id,sku_id,product_name,ordered_qty,planned_qty,actual_qty,unit,delivery_date")
-        .in("production_order_id", materialOrderIds)
-        .order("created_at", { ascending: true });
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: activeWorkflow === "materials" && materialOrderIds.length > 0,
-  });
-
-  const { data: materialSkus = [] } = useQuery<MaterialSkuRow[]>({
-    queryKey: ["material_issue_product_skus"],
-    queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from("product_skus")
-        .select("id,sku_code,product_name,unit,sku_type,finished_output_qty,finished_output_unit")
-        .order("product_name", { ascending: true });
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: activeWorkflow === "materials",
-  });
-
-  const { data: skuFormulations = [] } = useQuery<SkuFormulaRow[]>({
-    queryKey: ["material_issue_sku_formulations"],
-    queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from("sku_formulations")
-        .select("id,sku_id,ingredient_sku_id,ingredient_name,material_code,unit,unit_price,dosage_qty,wastage_percent,sort_order")
-        .order("sort_order", { ascending: true });
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: activeWorkflow === "materials",
-  });
-
-  const { data: kitchenItems = [] } = useQuery<KitchenItemRow[]>({
-    queryKey: ["material_issue_kitchen_items"],
-    queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from("kitchen_inventory_items")
-        .select("id,product_sku_id,name,unit,standard_unit_cost,active")
-        .eq("active", true)
-        .order("name", { ascending: true });
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: activeWorkflow === "materials",
-  });
-
-  const { data: materialIssues = [] } = useQuery<ProductionMaterialIssue[]>({
-    queryKey: ["production_material_issues"],
-    queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from("production_material_issues")
-        .select("id,issue_number,production_order_id,issue_date,status,total_amount,created_at")
-        .order("created_at", { ascending: false })
-        .limit(50);
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: activeWorkflow === "materials",
-  });
-
-  const { data: materialIssueItems = [] } = useQuery<ProductionMaterialIssueItem[]>({
-    queryKey: ["production_material_issue_items", materialIssues.map((issue) => issue.id).join(",")],
-    queryFn: async () => {
-      const issueIds = materialIssues.map((issue) => issue.id);
-      if (!issueIds.length) return [];
-      const { data, error } = await (supabase as any)
-        .from("production_material_issue_items")
-        .select("id,material_issue_id,ingredient_name,material_code,planned_finished_qty,dosage_qty,wastage_percent,required_qty,unit,unit_cost,amount")
-        .in("material_issue_id", issueIds)
-        .order("ingredient_name", { ascending: true });
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: activeWorkflow === "materials" && materialIssues.length > 0,
-  });
-
-  const kfmDailyIssueQuery = useQuery<KfmDailyIssueData>({
-    queryKey: ["kfm_daily_material_issue", materialIssueDate],
-    queryFn: async () => {
-      const { data: issue, error: issueError } = await (supabase as any)
-        .from("kfm_daily_material_issues")
-        .select("id,issue_number,issue_date,status,printed_at")
-        .eq("issue_date", materialIssueDate)
-        .neq("status", "superseded")
-        .maybeSingle();
-      if (issueError) throw issueError;
-      if (!issue) return { issue: null, items: [], sources: [] };
-
-      const [{ data: items, error: itemError }, { data: sources, error: sourceError }] = await Promise.all([
-        (supabase as any)
-          .from("kfm_daily_material_issue_items")
-          .select("id,issue_id,ingredient_name,required_qty,unit,sort_order")
-          .eq("issue_id", issue.id)
-          .order("sort_order", { ascending: true }),
-        (supabase as any)
-          .from("kfm_daily_material_issue_sources")
-          .select("id,issue_id,production_number,po_number")
-          .eq("issue_id", issue.id)
-          .order("production_number", { ascending: true }),
-      ]);
-      if (itemError) throw itemError;
-      if (sourceError) throw sourceError;
-
-      return {
-        issue: issue as KfmDailyMaterialIssue,
-        items: (items || []) as KfmDailyMaterialIssueItem[],
-        sources: (sources || []) as KfmDailyMaterialIssueSource[],
-      };
-    },
-    enabled: activeWorkflow === "materials",
-  });
-
-  const kfmDailyIssueData = kfmDailyIssueQuery.data || { issue: null, items: [], sources: [] };
-
-  useEffect(() => {
-    if (previousMaterialIssueDateRef.current === materialIssueDate) return;
-    previousMaterialIssueDateRef.current = materialIssueDate;
-    if (isKfmDailyIssuePrinting) return;
-    setSelectedKfmDailyIssueSnapshot(null);
-  }, [isKfmDailyIssuePrinting, materialIssueDate]);
-
   // ── Handlers ─────────────────────────────────────────────────────────────
 
   const handleSelectPO = useCallback((poId: string) => {
@@ -766,102 +436,7 @@ export default function WarehouseDispatch() {
     setFormItems([]);
   };
 
-  const loadKfmDailyIssueSnapshotById = useCallback(async (issueId: string): Promise<KfmDailyIssueSnapshot> => {
-    const { data: issue, error: issueError } = await (supabase as any)
-      .from("kfm_daily_material_issues")
-      .select("id,issue_number,issue_date,status,printed_at")
-      .eq("id", issueId)
-      .neq("status", "superseded")
-      .maybeSingle();
-    if (issueError) throw issueError;
-    if (!issue) throw new Error("Không tìm thấy phiếu KFM đã chọn.");
-
-    const [{ data: items, error: itemError }, { data: sources, error: sourceError }] = await Promise.all([
-      (supabase as any)
-        .from("kfm_daily_material_issue_items")
-        .select("id,issue_id,ingredient_name,required_qty,unit,sort_order")
-        .eq("issue_id", issue.id)
-        .order("sort_order", { ascending: true }),
-      (supabase as any)
-        .from("kfm_daily_material_issue_sources")
-        .select("id,issue_id,production_number,po_number")
-        .eq("issue_id", issue.id)
-        .order("production_number", { ascending: true }),
-    ]);
-    if (itemError) throw itemError;
-    if (sourceError) throw sourceError;
-
-    return { issue: issue as KfmDailyMaterialIssue, items: (items || []) as KfmDailyMaterialIssueItem[], sources: (sources || []) as KfmDailyMaterialIssueSource[] };
-  }, []);
-
-  const handleViewKfmDailyIssue = async (issue: KfmDailyMaterialIssue) => {
-    setKfmDailyIssueMessage(null);
-    try {
-      const snapshot = await loadKfmDailyIssueSnapshotById(issue.id);
-      setSelectedKfmDailyIssueSnapshot(snapshot);
-      setPrintableKfmDailyIssueSnapshot(snapshot);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "vui lòng thử lại";
-      setKfmDailyIssueMessage({ kind: "error", text: `Không tải được phiếu KFM đã chọn: ${message}` });
-    }
-  };
-
-  const waitForKfmPrintDomPaint = () => new Promise<void>((resolve) => {
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => resolve());
-    });
-  });
-
   // ── Mutations ─────────────────────────────────────────────────────────────
-
-  const syncKfmDailyIssueMutation = useMutation({
-    mutationFn: async (submittedDate: string) => {
-      setKfmDailyIssueMessage(null);
-      const { data, error } = await (supabase as any).rpc("upsert_kfm_daily_material_issue", { p_issue_date: submittedDate });
-      if (error) throw error;
-      return { result: data as KfmDailyIssueUpsertResult, submittedDate };
-    },
-    onSuccess: ({ result, submittedDate }) => {
-      queryClient.invalidateQueries({ queryKey: ["kfm_daily_material_issue", submittedDate] });
-      const status = String(result?.status || "generated");
-      if (status.startsWith("blocked")) {
-        setKfmDailyIssueMessage({ kind: "error", text: `Phiếu KFM cho ngày ${formatVietnamDateKey(submittedDate)} chưa sẵn sàng: còn dữ liệu cần xử lý trước khi in.` });
-      } else {
-        setKfmDailyIssueMessage({ kind: "success", text: `Đã đồng bộ phiếu KFM ${result?.issue_number || `cho ngày ${formatVietnamDateKey(submittedDate)}`}.` });
-      }
-    },
-    onError: (error: Error, submittedDate) => {
-      setKfmDailyIssueMessage({ kind: "error", text: `Không đồng bộ được phiếu KFM cho ngày ${formatVietnamDateKey(submittedDate)}: ${error.message || "vui lòng thử lại"}` });
-    },
-  });
-
-  const printKfmDailyIssue = async (issue: KfmDailyMaterialIssue) => {
-    const targetIssueId = issue.id;
-    setKfmDailyIssueMessage(null);
-    setIsKfmDailyIssuePrinting(true);
-    try {
-      const { data, error } = await (supabase as any).rpc("mark_kfm_daily_material_issue_printed", { p_issue_id: targetIssueId });
-      if (error) throw error;
-      const printResult = data as KfmDailyIssuePrintResult | null;
-      if (printResult?.status !== "printed") {
-        throw new Error("Phiếu KFM chưa được khóa in. Vui lòng đồng bộ lại trước khi in.");
-      }
-      const refreshedSnapshot = await loadKfmDailyIssueSnapshotById(targetIssueId);
-      if (refreshedSnapshot.issue.status !== "printed") {
-        throw new Error("Đã khóa in nhưng bản tải lại chưa ở trạng thái đã in. Vui lòng tải lại trước khi in.");
-      }
-      setSelectedKfmDailyIssueSnapshot(refreshedSnapshot);
-      setPrintableKfmDailyIssueSnapshot(refreshedSnapshot);
-      queryClient.invalidateQueries({ queryKey: ["kfm_daily_material_issue", refreshedSnapshot.issue.issue_date] });
-      await waitForKfmPrintDomPaint();
-      window.print();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "vui lòng thử lại";
-      setKfmDailyIssueMessage({ kind: "error", text: `Không thể in phiếu KFM: ${message}` });
-    } finally {
-      setIsKfmDailyIssuePrinting(false);
-    }
-  };
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -1092,180 +667,6 @@ export default function WarehouseDispatch() {
   const selectedPO = salesPOs.find((p) => p.id === selectedPoId);
   const totalDispatchQty = formItems.reduce((s, i) => s + i.dispatch_qty, 0);
   const totalBillableQty = formItems.reduce((s, i) => s + i.billable_qty, 0);
-  const selectedMaterialOrder = materialOrders.find((order) => order.id === selectedMaterialOrderId) || materialOrders[0] || null;
-  const selectedMaterialIssue = selectedMaterialOrder
-    ? materialIssues.find((issue) => issue.production_order_id === selectedMaterialOrder.id) || null
-    : null;
-  const selectedMaterialIssueItems = selectedMaterialIssue
-    ? materialIssueItems.filter((item) => item.material_issue_id === selectedMaterialIssue.id)
-    : [];
-
-  const normalizeMaterialName = (value: string | null | undefined) => String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/Đ/g, "D")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
-
-  const approvedDirectMaterialMap = (ingredientName: string) => {
-    if (normalizeMaterialName(ingredientName) === "banh mi tuoi") {
-      return {
-        ingredient_name: "Bánh mì tươi / Bánh mì que Tuyết Anh",
-        unit: "cái",
-        unit_cost: 1230,
-        source: "Approved mapping: Tuyết Anh / Bánh mì que / 1.230đ/cái",
-      };
-    }
-    return null;
-  };
-
-  const stripLevel2Prefix = (ingredientName: string) => {
-    const parts = ingredientName.split(">");
-    return parts.length > 1 ? parts.slice(1).join(">").trim() : ingredientName;
-  };
-
-  const aggregateMaterialRows = (rows: MaterialPreviewRow[]): MaterialPreviewRow[] => {
-    const grouped = new Map<string, MaterialPreviewRow & { productNames: Set<string> }>();
-    rows.forEach((row) => {
-      const unitCost = Number(row.unit_cost || 0);
-      const key = [normalizeMaterialName(row.material_code || row.ingredient_name), normalizeMaterialName(row.unit), unitCost.toFixed(4), row.status].join("|");
-      const existing = grouped.get(key);
-      if (!existing) {
-        grouped.set(key, {
-          ...row,
-          key,
-          productNames: new Set(row.production_item_name ? [row.production_item_name] : []),
-        });
-        return;
-      }
-      existing.required_qty += Number(row.required_qty || 0);
-      existing.amount += Number(row.amount || 0);
-      existing.finished_qty += Number(row.finished_qty || 0);
-      if (row.production_item_name) existing.productNames.add(row.production_item_name);
-    });
-
-    return Array.from(grouped.values()).map(({ productNames, ...row }) => ({
-      ...row,
-      production_item_name: productNames.size
-        ? `${productNames.size} SKU: ${Array.from(productNames).slice(0, 3).join(", ")}${productNames.size > 3 ? "…" : ""}`
-        : row.production_item_name,
-    })).sort((a, b) => {
-      if (a.status !== b.status) return a.status === "ready" ? -1 : 1;
-      return b.amount - a.amount;
-    });
-  };
-
-  const materialRawPreviewRows: MaterialPreviewRow[] = selectedMaterialOrder
-    ? materialOrderItems
-        .filter((item) => item.production_order_id === selectedMaterialOrder.id)
-        .flatMap<MaterialPreviewRow>((orderItem) => {
-          const finishedSku = orderItem.sku_id
-            ? materialSkus.find((sku) => sku.id === orderItem.sku_id)
-            : materialSkus.filter((sku) =>
-                sku.sku_type === "finished_good" && normalizeMaterialName(sku.product_name) === normalizeMaterialName(orderItem.product_name)
-              );
-          const resolvedFinishedSku = Array.isArray(finishedSku) ? (finishedSku.length === 1 ? finishedSku[0] : null) : finishedSku;
-          const finishedQty = Number(orderItem.planned_qty || orderItem.ordered_qty || 0);
-
-          if (!resolvedFinishedSku) {
-            return [{
-              key: `${orderItem.id}:missing-sku`,
-              production_item_name: orderItem.product_name,
-              finished_qty: finishedQty,
-              ingredient_name: `Chưa match SKU thành phẩm: ${orderItem.product_name}`,
-              material_code: null,
-              required_qty: 0,
-              unit: orderItem.unit || "",
-              unit_cost: 0,
-              amount: 0,
-              source: "production_order_items → product_skus",
-              status: "missing_finished_sku" as const,
-            }];
-          }
-
-          const formulas = skuFormulations.filter((row) => row.sku_id === resolvedFinishedSku.id);
-          if (!formulas.length) {
-            return [{
-              key: `${orderItem.id}:missing-formula`,
-              production_item_name: orderItem.product_name,
-              finished_qty: finishedQty,
-              ingredient_name: `Chưa có định lượng/BOM: ${resolvedFinishedSku.product_name}`,
-              material_code: null,
-              required_qty: 0,
-              unit: resolvedFinishedSku.unit || orderItem.unit || "",
-              unit_cost: 0,
-              amount: 0,
-              source: "sku_formulations",
-              status: "missing_formula" as const,
-            }];
-          }
-
-          const level2Parents = new Set(
-            formulas
-              .filter((formula) => formulas.some((candidate) => candidate.ingredient_name.startsWith(`${formula.ingredient_name} >`)))
-              .map((formula) => formula.ingredient_name)
-          );
-          const outputQty = Number(resolvedFinishedSku.finished_output_qty || 1) || 1;
-          const multiplier = finishedQty / outputQty;
-
-          return formulas
-            .filter((formula) => !level2Parents.has(formula.ingredient_name))
-            .map((formula) => {
-              const approved = approvedDirectMaterialMap(formula.ingredient_name);
-              const displayIngredientName = approved?.ingredient_name || stripLevel2Prefix(formula.ingredient_name);
-              const materialCode = formula.material_code || buildMaterialCode(displayIngredientName);
-              const kitchenMatch = formula.ingredient_sku_id
-                ? kitchenItems.find((item) => item.product_sku_id === formula.ingredient_sku_id)
-                : kitchenItems.find((item) => normalizeMaterialName(item.name) === normalizeMaterialName(displayIngredientName));
-              const requiredQty = multiplier * Number(formula.dosage_qty || 0) * (1 + Number(formula.wastage_percent || 0) / 100);
-              const unitCost = Number(approved?.unit_cost || formula.unit_price || kitchenMatch?.standard_unit_cost || 0);
-              const hasApprovedOrKitchenMapping = Boolean(approved || kitchenMatch || formula.unit_price);
-              return {
-                key: `${orderItem.id}:${formula.id}`,
-                production_item_name: orderItem.product_name,
-                finished_qty: finishedQty,
-                ingredient_name: displayIngredientName,
-                material_code: materialCode,
-                required_qty: requiredQty,
-                unit: approved?.unit || formula.unit || kitchenMatch?.unit || "",
-                unit_cost: unitCost,
-                amount: requiredQty * unitCost,
-                source: approved?.source || (formula.ingredient_name.includes(">") ? "NVL cấp 2 → công thức con" : kitchenMatch ? "BOM + kho bếp" : "BOM + giá COGS đã duyệt"),
-                status: hasApprovedOrKitchenMapping ? "ready" as const : "missing_kitchen_item" as const,
-              };
-            });
-        })
-    : [];
-
-  const materialPreviewRows = aggregateMaterialRows(materialRawPreviewRows);
-  const selectedMaterialIssueAggregatedItems = aggregateMaterialRows(selectedMaterialIssueItems.map((item) => ({
-    key: item.id,
-    production_item_name: "Đã post vào PXK",
-    finished_qty: Number(item.planned_finished_qty || 0),
-    ingredient_name: stripLevel2Prefix(item.ingredient_name),
-    material_code: item.material_code || buildMaterialCode(item.ingredient_name),
-    required_qty: Number(item.required_qty || 0),
-    unit: item.unit,
-    unit_cost: Number(item.unit_cost || 0),
-    amount: Number(item.amount || 0),
-    source: "PXK NVL đã post",
-    status: "ready" as const,
-  })));
-  const materialReadyRows = selectedMaterialIssue ? selectedMaterialIssueAggregatedItems : materialPreviewRows.filter((row) => row.status === "ready");
-  const materialMissingRows = materialPreviewRows.filter((row) => row.status !== "ready");
-  const materialStandardRows = selectedMaterialIssue ? selectedMaterialIssueAggregatedItems : materialReadyRows;
-  const materialStandardQty = materialStandardRows
-    .reduce((sum, row: any) => sum + Number(row.required_qty || 0), 0);
-  const materialStandardAmount = materialStandardRows
-    .reduce((sum, row: any) => sum + Number(row.amount || 0), 0);
-  const kfmDailyIssue = kfmDailyIssueData.issue;
-  const kfmDailyIssueItems = kfmDailyIssueData.items;
-  const kfmDailyIssueSources = kfmDailyIssueData.sources;
-  const kfmDailyIssueStatusLabel = getKfmDailyIssueStatusLabel(kfmDailyIssue, kfmDailyIssueItems.length);
-  const canViewCurrentKfmDailyIssue = Boolean(kfmDailyIssue && !kfmDailyIssueQuery.isLoading && !kfmDailyIssueQuery.isFetching);
-  const canPrintCurrentKfmDailyIssue = Boolean(canViewCurrentKfmDailyIssue && kfmDailyIssueItems.length > 0);
 
   const openDetail = (d: any) => {
     setSelected({ ...d, items: allDispatchItems.filter((i: any) => i.dispatch_id === d.id) });
@@ -1291,12 +692,12 @@ export default function WarehouseDispatch() {
           <div className="space-y-5">
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-semibold text-primary">
               <Truck className="h-3.5 w-3.5" />
-              Quản lý kho · Thành phẩm và nguyên vật liệu
+              Quản lý kho · Thành phẩm và PXK tự động
             </div>
             <div className="space-y-2">
               <h1 className="font-display text-3xl font-bold tracking-tight md:text-4xl">Xuất kho</h1>
               <p className="max-w-3xl text-sm leading-6 text-muted-foreground md:text-base">
-                Tách rõ phiếu xuất thành phẩm để tính công nợ, phiếu xuất NVL sản xuất và PXK tự động 1:1 từ phiếu nhập để kiểm tra audit.
+                Tách rõ phiếu xuất thành phẩm để tính công nợ và PXK tự động 1:1 từ phiếu nhập để kiểm tra audit.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -1308,15 +709,6 @@ export default function WarehouseDispatch() {
                   : "rounded-xl border border-border bg-background px-4 py-5 font-semibold text-foreground hover:bg-muted"}
               >
                 <PackageCheck className="mr-2 h-5 w-5" /> Thành phẩm
-              </Button>
-              <Button
-                type="button"
-                onClick={() => setActiveWorkflow("materials")}
-                className={activeWorkflow === "materials"
-                  ? "rounded-xl bg-primary px-4 py-5 font-semibold text-primary-foreground shadow-warm hover:bg-primary/90"
-                  : "rounded-xl border border-border bg-background px-4 py-5 font-semibold text-foreground hover:bg-muted"}
-              >
-                <PackageSearch className="mr-2 h-5 w-5" /> Nguyên vật liệu
               </Button>
               <Button
                 type="button"
@@ -1480,242 +872,6 @@ export default function WarehouseDispatch() {
             </Card>
           </div>
         </div>
-      ) : activeWorkflow === "materials" ? (
-        <div className="space-y-5">
-          <Card data-kfm-daily-material-issue className="border-border bg-card text-foreground shadow-card">
-            <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
-              <div className="min-w-0">
-                <CardTitle className="flex items-center gap-2 text-xl leading-tight md:text-2xl">
-                  <FileText className="h-6 w-6 text-primary" /> Phiếu xuất kho NVL KFM theo ngày
-                </CardTitle>
-                <p className="mt-1 text-sm text-muted-foreground">Phiếu in gộp theo ngày cho nguồn Kingfood/KFM, tách riêng với preview theo từng lệnh sản xuất bên dưới.</p>
-              </div>
-              <Badge variant="outline" className={kfmDailyIssue?.status === "printed" ? "shrink-0 whitespace-nowrap border-emerald-300/35 bg-emerald-500/10 text-emerald-700" : kfmDailyIssueItems.length > 0 ? "shrink-0 whitespace-nowrap border-primary/25 bg-primary/5 text-primary" : "shrink-0 whitespace-nowrap border-amber-300 bg-amber-50 text-amber-800"}>
-                {kfmDailyIssueStatusLabel}
-              </Badge>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium" htmlFor="kfm-material-issue-date">Ngày phiếu KFM</label>
-                  <Input id="kfm-material-issue-date" type="date" value={materialIssueDate} onChange={(event) => { setMaterialIssueDate(event.target.value); setKfmDailyIssueMessage(null); }} className="bg-background" />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="rounded-2xl border border-border bg-muted/40 p-4">
-                    <p className="text-xs text-muted-foreground">Số phiếu</p>
-                    <p className="mt-2 break-words font-mono text-lg font-bold text-primary">{kfmDailyIssue?.issue_number || "Chưa tạo"}</p>
-                  </div>
-                  <div className="rounded-2xl border border-border bg-muted/40 p-4">
-                    <p className="text-xs text-muted-foreground">Ngày phiếu</p>
-                    <p className="mt-2 text-lg font-bold">{formatVietnamDateKey(kfmDailyIssue?.issue_date || materialIssueDate)}</p>
-                  </div>
-                  <div className="rounded-2xl border border-border bg-muted/40 p-4">
-                    <p className="text-xs text-muted-foreground">Nguồn KFM</p>
-                    <p className="mt-2 text-3xl font-bold text-primary">{kfmDailyIssueSources.length}</p>
-                  </div>
-                  <div className="rounded-2xl border border-border bg-muted/40 p-4">
-                    <p className="text-xs text-muted-foreground">Dòng NVL</p>
-                    <p className="mt-2 text-3xl font-bold text-emerald-700">{kfmDailyIssueItems.length}</p>
-                  </div>
-                </div>
-              </div>
-
-              {kfmDailyIssueMessage && (
-                <div role={kfmDailyIssueMessage.kind === "error" ? "alert" : "status"} aria-live="polite" className={kfmDailyIssueMessage.kind === "error" ? "rounded-2xl border border-red-300/25 bg-red-500/10 p-4 text-sm text-red-800" : "rounded-2xl border border-emerald-300/25 bg-emerald-500/10 p-4 text-sm text-emerald-800"}>
-                  {kfmDailyIssueMessage.text}
-                </div>
-              )}
-
-              {kfmDailyIssueQuery.isLoading ? (
-                <div className="flex min-h-[150px] items-center justify-center rounded-2xl border border-border bg-muted/40">
-                  <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
-                </div>
-              ) : kfmDailyIssueQuery.isError ? (
-                <div className="rounded-2xl border border-red-300/25 bg-red-500/10 px-5 py-8 text-center text-red-800">
-                  <AlertTriangle className="mx-auto mb-3 h-9 w-9 text-red-600" />
-                  <p className="font-semibold">Không tải được phiếu KFM</p>
-                  <p className="mt-1 text-sm text-red-700">Dữ liệu chưa được kết luận là trống. Vui lòng thử tải lại hoặc đồng bộ lại.</p>
-                  <Button type="button" variant="outline" className="mt-4 border-red-300 bg-background text-red-700 hover:bg-red-50 hover:text-red-800" onClick={() => void kfmDailyIssueQuery.refetch()}>
-                    <RefreshCw className="mr-2 h-4 w-4" /> Tải lại
-                  </Button>
-                </div>
-              ) : kfmDailyIssueQuery.data.issue ? (
-                <div className="space-y-3">
-                  <div className="flex flex-col gap-3 rounded-2xl border border-border bg-muted/40 p-4 md:flex-row md:items-center md:justify-between">
-                    <div className="min-w-0">
-                      <p className="break-words font-mono text-lg font-bold text-primary">{kfmDailyIssue.issue_number}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">Nguồn: KFM · {kfmDailyIssueSources.length} lệnh SX · {kfmDailyIssueItems.length} dòng NVL</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button type="button" variant="outline" className="rounded-xl border-border bg-background text-foreground hover:bg-muted hover:text-foreground" disabled={!kfmDailyIssue || !canViewCurrentKfmDailyIssue || isKfmDailyIssuePrinting} onClick={() => kfmDailyIssue && void handleViewKfmDailyIssue(kfmDailyIssue)}>
-                        <Eye className="mr-2 h-4 w-4" /> Xem phiếu
-                      </Button>
-                      <Button type="button" className="rounded-xl bg-primary font-semibold text-primary-foreground hover:bg-primary/90" disabled={!kfmDailyIssue || !canPrintCurrentKfmDailyIssue || isKfmDailyIssuePrinting} onClick={() => kfmDailyIssue && void printKfmDailyIssue(kfmDailyIssue)}>
-                        {isKfmDailyIssuePrinting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Printer className="mr-2 h-4 w-4" />} In phiếu
-                      </Button>
-                      <Button type="button" variant="outline" className="rounded-xl border-border bg-background text-foreground hover:bg-muted hover:text-foreground" disabled={syncKfmDailyIssueMutation.isPending} onClick={() => syncKfmDailyIssueMutation.mutate(materialIssueDate)}>
-                        {syncKfmDailyIssueMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />} Tạo/đồng bộ phiếu KFM
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-dashed border-border px-5 py-8 text-center text-muted-foreground">
-                  <FileText className="mx-auto mb-3 h-10 w-10 opacity-40" />
-                  <p className="font-medium text-muted-foreground">Chưa có phiếu KFM cho ngày {formatVietnamDateKey(materialIssueDate)}</p>
-                  <p className="mt-1 text-sm">Bấm đồng bộ để gọi RPC tạo/cập nhật phiếu từ các lệnh sản xuất KFM đã xác nhận.</p>
-                  <Button type="button" className="mt-4 rounded-xl bg-primary font-semibold text-primary-foreground hover:bg-primary/90" disabled={syncKfmDailyIssueMutation.isPending} onClick={() => syncKfmDailyIssueMutation.mutate(materialIssueDate)}>
-                    {syncKfmDailyIssueMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />} Tạo/đồng bộ phiếu KFM
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-          <Card className="border-border bg-card text-foreground shadow-card">
-            <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
-              <div className="min-w-0">
-                <CardTitle className="flex items-center gap-2 text-xl leading-tight md:text-2xl">
-                  <PackageSearch className="h-6 w-6 text-primary" /> Phiếu xuất nguyên vật liệu
-                </CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Chọn lệnh sản xuất để xem tổng NVL đã dùng và chi phí, đã gộp theo từng dòng nguyên vật liệu.
-                  </p>
-              </div>
-              <Badge variant="outline" className={selectedMaterialIssue ? "shrink-0 whitespace-nowrap border-emerald-300/35 bg-emerald-500/10 text-emerald-700" : "shrink-0 whitespace-nowrap border-primary/25 bg-primary/5 text-primary"}>
-                {selectedMaterialIssue ? `Đã có ${selectedMaterialIssue.issue_number}` : "Preview data thật"}
-              </Badge>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              {loadingMaterialOrders ? (
-                <div className="flex min-h-[220px] items-center justify-center rounded-2xl border border-border bg-muted/40">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : !selectedMaterialOrder ? (
-                <div className="rounded-2xl border border-dashed border-border py-12 text-center text-muted-foreground">
-                  <PackageSearch className="mx-auto mb-3 h-10 w-10 opacity-40" />
-                  <p>Chưa có lệnh sản xuất đã xác nhận để tạo PXK NVL.</p>
-                </div>
-              ) : (
-                <>
-                  <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
-                    <div className="rounded-2xl border border-border bg-muted/40 p-4 md:col-span-2">
-                      <p className="text-xs text-muted-foreground">Lệnh SX đang xem</p>
-                      <p className="mt-2 break-words font-mono text-xl font-bold text-primary">{selectedMaterialOrder.production_number}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        Ngày SX: {selectedMaterialOrder.planned_start_date ? format(new Date(selectedMaterialOrder.planned_start_date), "dd/MM/yyyy") : "—"}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-border bg-muted/40 p-4">
-                      <p className="text-xs text-muted-foreground">Dòng NVL</p>
-                      <p className="mt-2 text-3xl font-bold text-emerald-700">{materialReadyRows.length}</p>
-                      <p className="text-xs text-muted-foreground">{materialMissingRows.length} dòng cần mapping</p>
-                    </div>
-                    <div className="rounded-2xl border border-border bg-muted/40 p-4">
-                      <p className="text-xs text-muted-foreground">Giá trị đã map</p>
-                      <p className="mt-2 break-words text-xl font-bold leading-tight text-primary md:text-2xl">{Math.round(materialStandardAmount).toLocaleString("vi-VN")}đ</p>
-                      <p className="text-xs text-muted-foreground">{materialStandardQty.toLocaleString("vi-VN", { maximumFractionDigits: 2 })} đơn vị đủ mapping</p>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-3">
-                    <Button
-                      disabled
-                      className="rounded-xl bg-primary/70 font-semibold text-primary-foreground"
-                    >
-                      <PackageSearch className="mr-2 h-4 w-4" />
-                      Đang xem tổng hợp NVL theo lệnh SX
-                    </Button>
-                    <Button variant="outline" className="rounded-xl border-border bg-background text-foreground hover:bg-muted hover:text-foreground">
-                      <Camera className="mr-2 h-4 w-4" /> Nhập tồn kiểm tay
-                    </Button>
-                  </div>
-
-                  <div className="overflow-x-auto rounded-2xl border border-border">
-                    <Table className="min-w-[1120px] table-fixed">
-                      <TableHeader>
-                        <TableRow className="border-border bg-muted/40 hover:bg-muted/40">
-                          <TableHead className="w-[260px] text-muted-foreground">Nguyên vật liệu</TableHead>
-                          <TableHead className="w-[170px] text-muted-foreground">Mã NVL</TableHead>
-                          <TableHead className="w-[260px] text-muted-foreground">Nguồn tổng hợp</TableHead>
-                          <TableHead className="w-[150px] text-right text-muted-foreground">Cần dùng</TableHead>
-                          <TableHead className="w-[120px] text-right text-muted-foreground">Đơn giá</TableHead>
-                          <TableHead className="w-[150px] text-right text-muted-foreground">Chi phí</TableHead>
-                          <TableHead className="w-[180px] text-muted-foreground">Mapping/cost source</TableHead>
-                          <TableHead className="w-[140px] text-muted-foreground">Trạng thái</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {materialStandardRows.slice(0, 120).map((row: any) => {
-                          const status = row.status || "ready";
-                          return (
-                            <TableRow key={row.id || row.key} className="border-border hover:bg-muted/40">
-                              <TableCell className="whitespace-normal break-words font-medium text-primary">{row.ingredient_name}</TableCell>
-                              <TableCell className="break-words font-mono text-xs text-muted-foreground">{row.material_code || "—"}</TableCell>
-                              <TableCell className="whitespace-normal break-words text-sm text-muted-foreground">{row.production_item_name || "Đã post vào PXK"}</TableCell>
-                              <TableCell className="text-right">{Number(row.required_qty || 0).toLocaleString("vi-VN", { maximumFractionDigits: 3 })} {row.unit}</TableCell>
-                              <TableCell className="text-right">{Number(row.unit_cost || 0).toLocaleString("vi-VN")}</TableCell>
-                              <TableCell className="text-right">{Math.round(Number(row.amount || 0)).toLocaleString("vi-VN")}</TableCell>
-                              <TableCell className="whitespace-normal break-words text-xs text-muted-foreground">{row.source || "—"}</TableCell>
-                              <TableCell>
-                                {status === "ready" ? (
-                                  <Badge variant="outline" className="whitespace-nowrap border-emerald-300/30 bg-emerald-500/10 text-xs text-emerald-700"><CheckCircle2 className="mr-1 h-3 w-3" />Sẵn sàng</Badge>
-                                ) : (
-                                  <Badge variant="outline" className="whitespace-nowrap border-amber-300 bg-amber-50 text-xs text-amber-800">
-                                    {status === "missing_finished_sku" ? "Thiếu SKU TP" : status === "missing_formula" ? "Thiếu BOM" : "Thiếu map kho bếp"}
-                                  </Badge>
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-
-                  {materialMissingRows.length > 0 && !selectedMaterialIssue && (
-                    <div className="rounded-2xl border border-amber-300/20 bg-amber-500/10 p-4 text-sm text-amber-800">
-                      Đã tính preview từ data thật nhưng chưa post/trừ kho vì còn {materialMissingRows.length} dòng thiếu mapping SKU/BOM/kho bếp. Cần hoàn tất mapping trước khi hệ thống ghi ledger NVL để tránh trừ kho sai.
-                    </div>
-                  )}
-                </>
-              )}
-            </CardContent>
-          </Card>
-
-          <div className="space-y-5">
-            <Card className="border-border bg-card text-foreground shadow-card">
-              <CardHeader>
-                <CardTitle className="text-xl">Lệnh SX gần nhất</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {materialOrders.slice(0, 5).map((order) => {
-                  const linkedIssue = materialIssues.find((issue) => issue.production_order_id === order.id);
-                  return (
-                    <button
-                      key={order.id}
-                      type="button"
-                      onClick={() => setSelectedMaterialOrderId(order.id)}
-                      className={`w-full rounded-2xl border p-4 text-left transition ${selectedMaterialOrder?.id === order.id ? "border-primary/50 bg-primary/10" : "border-border bg-muted/40 hover:bg-muted/70"}`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-mono font-bold text-primary">{order.production_number}</p>
-                          <p className="text-xs text-muted-foreground">{order.planned_start_date ? format(new Date(order.planned_start_date), "dd/MM/yyyy") : "Chưa có ngày SX"}</p>
-                        </div>
-                        <Badge variant="outline" className={linkedIssue ? "border-emerald-300/30 bg-emerald-500/10 text-emerald-700" : "border-border bg-muted/40 text-muted-foreground"}>
-                          {linkedIssue ? linkedIssue.issue_number : selectedMaterialOrder?.id === order.id ? "Đang xem" : "Chưa có PXK"}
-                        </Badge>
-                      </div>
-                    </button>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          </div>
-          </div>
-        </div>
       ) : (
         <Card className="border-border bg-card text-foreground shadow-card">
           <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
@@ -1819,76 +975,6 @@ export default function WarehouseDispatch() {
         </Card>
       )}
 
-      {/* ── KFM daily material issue print/view ───────────────────────────── */}
-      <Dialog open={Boolean(selectedKfmDailyIssueSnapshot)} onOpenChange={(open) => { if (!open && !isKfmDailyIssuePrinting) setSelectedKfmDailyIssueSnapshot(null); }}>
-        <DialogContent role="dialog" aria-modal="true" aria-labelledby="kfm-material-issue-dialog-title" className="max-h-[92vh] max-w-4xl overflow-y-auto p-0">
-          <div className="space-y-4 p-4 sm:p-6">
-            <DialogHeader className="print:hidden">
-              <DialogTitle id="kfm-material-issue-dialog-title" className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-primary" /> Xem phiếu KFM
-              </DialogTitle>
-            </DialogHeader>
-
-            <div data-kfm-material-issue-print className="kfm-material-issue-print mx-auto max-w-[210mm] rounded-2xl border border-border bg-white p-4 text-black shadow-sm sm:p-8">
-              <div className="space-y-2 text-center">
-                <p className="text-sm font-semibold uppercase tracking-wide">BMQ</p>
-                <h2 className="text-xl font-bold uppercase tracking-wide sm:text-2xl">PHIẾU XUẤT KHO NGUYÊN VẬT LIỆU</h2>
-                <p className="text-sm">Nguồn: KFM</p>
-              </div>
-
-              <div className="mt-6 grid gap-3 text-sm sm:grid-cols-2">
-                <div><span className="font-semibold">Số phiếu:</span> <span className="font-mono">{printableKfmDailyIssueSnapshot?.issue.issue_number || "—"}</span></div>
-                <div className="sm:text-right"><span className="font-semibold">Ngày phiếu:</span> {formatVietnamDateKey(printableKfmDailyIssueSnapshot?.issue.issue_date)}</div>
-              </div>
-
-              <div className="mt-5 overflow-x-auto">
-                <table data-kfm-material-issue-print-table className="kfm-material-issue-print-table w-full border-collapse text-sm">
-                  <thead>
-                    <tr>
-                      <th className="w-14 border border-black px-2 py-2 text-center">STT</th>
-                      <th className="border border-black px-2 py-2 text-left">Tên nguyên vật liệu</th>
-                      <th className="w-32 border border-black px-2 py-2 text-right">Số lượng</th>
-                      <th className="w-24 border border-black px-2 py-2 text-left">Đơn vị</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {printableKfmDailyIssueSnapshot?.items.length ? printableKfmDailyIssueSnapshot.items.map((item, index) => (
-                      <tr key={item.id}>
-                        <td className="border border-black px-2 py-2 text-center align-top">{index + 1}</td>
-                        <td className="border border-black px-2 py-2 align-top">{item.ingredient_name}</td>
-                        <td className="border border-black px-2 py-2 text-right align-top">{formatKfmDailyIssueQuantity(item.required_qty)}</td>
-                        <td className="border border-black px-2 py-2 align-top">{item.unit}</td>
-                      </tr>
-                    )) : (
-                      <tr>
-                        <td className="border border-black px-2 py-6 text-center" colSpan={4}>Chưa có dòng nguyên vật liệu để in.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="kfm-material-issue-signatures mt-12 grid grid-cols-3 gap-3 text-center text-sm font-semibold">
-                <div className="min-h-28">Người lập phiếu</div>
-                <div className="min-h-28">Thủ kho</div>
-                <div className="min-h-28">Người nhận</div>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap justify-end gap-2 print:hidden">
-              <Button type="button" variant="outline" onClick={() => setSelectedKfmDailyIssueSnapshot(null)}>Đóng</Button>
-              {selectedKfmDailyIssueSnapshot && (
-                <Button type="button" className="bg-primary text-primary-foreground hover:bg-primary/90" disabled={isKfmDailyIssuePrinting} onClick={() => void printKfmDailyIssue(selectedKfmDailyIssueSnapshot.issue)}>
-                  {isKfmDailyIssuePrinting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Printer className="mr-2 h-4 w-4" />} In phiếu
-                </Button>
-              )}
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* KFM daily material issue dialog end */}
-
       {/* ── Read-only automatic issue detail ─────────────────────────────── */}
       <Dialog open={Boolean(selectedAutoIssue)} onOpenChange={(open) => { if (!open) setSelectedAutoIssue(null); }}>
         <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
@@ -1920,8 +1006,6 @@ export default function WarehouseDispatch() {
                       <TableHead>Sản phẩm</TableHead>
                       <TableHead className="text-right">Số lượng</TableHead>
                       <TableHead>ĐVT</TableHead>
-                      <TableHead className="text-right">Đơn giá</TableHead>
-                      <TableHead className="text-right">Thành tiền</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1930,10 +1014,13 @@ export default function WarehouseDispatch() {
                         <TableCell className="font-medium">{item.product_name}</TableCell>
                         <TableCell className="text-right font-medium">{Number(item.quantity).toLocaleString("vi-VN", { maximumFractionDigits: 3 })}</TableCell>
                         <TableCell className="text-muted-foreground">{item.unit}</TableCell>
-                        <TableCell className="text-right">{Number(item.unit_cost).toLocaleString("vi-VN")}</TableCell>
-                        <TableCell className="text-right">{Number(item.amount).toLocaleString("vi-VN")}</TableCell>
                       </TableRow>
                     ))}
+                    {!selectedAutoIssueItems.length && (
+                      <TableRow>
+                        <TableCell colSpan={3} className="py-4 text-center text-muted-foreground">Không có sản phẩm</TableCell>
+                      </TableRow>
+                    )}
                   </TableBody>
                 </Table>
               </div>

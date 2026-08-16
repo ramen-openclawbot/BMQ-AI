@@ -8,6 +8,7 @@ import {
   CheckCircle,
   ClipboardCheck,
   Factory,
+  FileDown,
   FilePlus2,
   Download,
   Loader2,
@@ -93,6 +94,7 @@ interface ProductionOrder {
   customer_name?: string;
   po_number?: string;
   status: "draft" | "planned" | "in_progress" | "completed" | "cancelled";
+  location_code: string | null;
   planned_start_date: string | null;
   planned_end_date: string | null;
   completed_at: string | null;
@@ -123,7 +125,6 @@ interface CreateProductionOrderInput {
   po_id: string;
   po_number: string;
   from_name: string;
-  isKingfood: boolean;
   items: Array<{
     sku_id: string;
     product_name: string;
@@ -139,18 +140,20 @@ interface CreateProductionOrderInput {
   notes: string;
 }
 
-type KfmMaterialIssueStatus = "generated" | "refreshed" | "printed_unchanged" | `blocked_${string}`;
-
-type KfmMaterialIssueResult = {
-  status?: KfmMaterialIssueStatus | string;
-  [key: string]: unknown;
-};
-
 type CreateProductionOrderResult = {
   order: ProductionOrder;
-  materialIssueAttempted: boolean;
-  materialIssue: KfmMaterialIssueResult | null;
-  materialIssueError: string | null;
+};
+
+type Q7MaterialIssuePdfResult = {
+  issue_id?: string;
+  issue_number?: string;
+  revision?: number;
+  status?: string;
+  pdf_sha256?: string;
+  download_url?: string;
+  expires_in?: number;
+  error?: string;
+  blockers?: Array<{ status?: string; message?: string }>;
 };
 
 type EditProductionOrderForm = {
@@ -395,6 +398,8 @@ export default function ProductionPlanning() {
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [editingOrder, setEditingOrder] = useState<ProductionOrder | null>(null);
   const [deleteOrder, setDeleteOrder] = useState<ProductionOrder | null>(null);
+  const [materialIssuePdfOrderId, setMaterialIssuePdfOrderId] = useState<string | null>(null);
+  const [materialIssuePdfMessages, setMaterialIssuePdfMessages] = useState<Record<string, string>>({});
   const [editForm, setEditForm] = useState<EditProductionOrderForm>({
     planned_start_date: "",
     planned_end_date: "",
@@ -706,7 +711,8 @@ export default function ProductionPlanning() {
           .insert({
             production_number: productionNumber,
             source_po_inbox_id: input.po_id,
-            status: "draft",
+            status: "planned",
+            location_code: PRODUCTION_LOCATION_CODE,
             planned_start_date: input.planned_start_date || null,
             planned_end_date: input.planned_end_date || null,
             notes: input.notes || null,
@@ -736,65 +742,19 @@ export default function ProductionPlanning() {
           throw itemsError;
         }
 
-        const materialIssueAttempted = input.isKingfood;
-        let materialIssue: KfmMaterialIssueResult | null = null;
-        let materialIssueError: string | null = null;
-
-        if (input.isKingfood) {
-          try {
-            const { data: issueData, error: issueError } = await (supabase as any).rpc(
-              "upsert_kfm_daily_material_issue",
-              { p_issue_date: productionDateIso }
-            );
-
-            if (issueError) throw issueError;
-            materialIssue = (issueData || null) as KfmMaterialIssueResult | null;
-          } catch (issueError: any) {
-            console.error("Error upserting KFM daily material issue:", issueError);
-            materialIssueError = String(issueError?.message || issueError || "unknown_error");
-          }
-        }
-
-        return { order: newOrder, materialIssueAttempted, materialIssue, materialIssueError } satisfies CreateProductionOrderResult;
+        return { order: newOrder } satisfies CreateProductionOrderResult;
       } catch (error) {
         console.error("Error creating production order:", error);
         throw error;
       }
     },
-    onSuccess: ({ order, materialIssueAttempted, materialIssue, materialIssueError }) => {
+    onSuccess: ({ order }) => {
       queryClient.invalidateQueries({ queryKey: ["pending-pos"] });
       queryClient.invalidateQueries({ queryKey: ["production-orders"] });
 
-      const materialIssueStatus = String(materialIssue?.status || "");
-      let successMessage = isVi
+      const successMessage = isVi
         ? `Đã tạo lệnh sản xuất ${order.production_number}. Cần liên kết BOM/NVL để tự sinh phiếu xuất kho.`
         : `Production order ${order.production_number} created. BOM/material issue integration is still required.`;
-
-      if (materialIssueError) {
-        successMessage = isVi
-          ? `Đã tạo lệnh sản xuất ${order.production_number}, nhưng đồng bộ PXK NVL lỗi. Kho có thể thử lại thủ công.`
-          : `Production order ${order.production_number} created, but PXK NVL sync failed. Warehouse can retry manually.`;
-      } else if (materialIssueStatus === "generated") {
-        successMessage = isVi
-          ? `Đã tạo lệnh sản xuất ${order.production_number}. PXK NVL đã sẵn sàng.`
-          : `Production order ${order.production_number} created. PXK NVL is ready.`;
-      } else if (materialIssueStatus === "refreshed") {
-        successMessage = isVi
-          ? `Đã tạo lệnh sản xuất ${order.production_number}. PXK NVL đã được cập nhật.`
-          : `Production order ${order.production_number} created. PXK NVL was updated.`;
-      } else if (materialIssueStatus === "printed_unchanged") {
-        successMessage = isVi
-          ? `Đã tạo lệnh sản xuất ${order.production_number}. PXK NVL đã in, giữ nguyên.`
-          : `Production order ${order.production_number} created. PXK NVL was already printed and left unchanged.`;
-      } else if (materialIssueStatus.startsWith("blocked_")) {
-        successMessage = isVi
-          ? `Đã tạo lệnh sản xuất ${order.production_number}, nhưng PXK NVL cần bổ sung dữ liệu: ${materialIssueStatus}.`
-          : `Production order ${order.production_number} created, but PXK NVL needs data: ${materialIssueStatus}.`;
-      } else if (materialIssueAttempted && !["generated", "refreshed", "printed_unchanged"].includes(materialIssueStatus)) {
-        successMessage = isVi
-          ? `Đã tạo lệnh sản xuất ${order.production_number}, nhưng phản hồi đồng bộ PXK NVL không như dự kiến. Kho có thể thử lại thủ công.`
-          : `Production order ${order.production_number} created, but PXK NVL sync returned an unexpected result. Warehouse can retry manually.`;
-      }
 
       toast.success(successMessage);
       setCreateDialogOpen(false);
@@ -1095,6 +1055,93 @@ export default function ProductionPlanning() {
     [isVi]
   );
 
+  const canGenerateQ7MaterialIssuePdf = useCallback(
+    (order: ProductionOrder) =>
+      order.location_code === PRODUCTION_LOCATION_CODE &&
+      (order.status === "planned" || order.status === "in_progress") &&
+      canEditLocation,
+    [canEditLocation]
+  );
+
+  const q7PdfBlockerMessage = (result: Q7MaterialIssuePdfResult) => {
+    const firstBlocker = result.blockers?.find((blocker) => blocker?.message || blocker?.status);
+    const status = firstBlocker?.status || result.status || "";
+    if (firstBlocker?.message) return firstBlocker.message;
+    const messages: Record<string, string> = {
+      blocked_missing_finished_skus: "Thiếu SKU thành phẩm đã lưu trên dòng sản xuất.",
+      blocked_missing_formulations: "Thiếu BOM/công thức NVL cho SKU thành phẩm.",
+      blocked_missing_q7_mappings: "Thiếu mapping NVL đã duyệt sang Kho bếp Q7.",
+      blocked_non_q7_order: "Lệnh sản xuất không thuộc Xưởng Q7.",
+      blocked_posted_issue_changed: "Phiếu NVL đã chốt/post nhưng dữ liệu nguồn đã thay đổi.",
+      blocked_ineligible_status: "Trạng thái lệnh sản xuất chưa đủ điều kiện tạo Phiếu NVL.",
+    };
+    return messages[status] || result.error || "Không thể tạo Phiếu NVL.";
+  };
+
+  const openQ7MaterialIssuePdf = useCallback(
+    async (order: ProductionOrder, event?: MouseEvent<HTMLElement>) => {
+      event?.preventDefault();
+      event?.stopPropagation();
+
+      if (!canGenerateQ7MaterialIssuePdf(order)) {
+        const message = isVi ? "Chỉ lệnh Q7 đang kế hoạch/đang sản xuất mới tạo Phiếu NVL." : "Only active Q7 orders can generate material issue PDFs.";
+        setMaterialIssuePdfMessages((current) => ({ ...current, [order.id]: message }));
+        toast.error(message);
+        return;
+      }
+
+      const viewerWindow = typeof window !== "undefined" ? window.open("", "_blank") : null;
+      setMaterialIssuePdfOrderId(order.id);
+      setMaterialIssuePdfMessages((current) => ({ ...current, [order.id]: "" }));
+
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData.session?.access_token;
+        if (!accessToken) {
+          viewerWindow?.close();
+          throw new Error(isVi ? "Vui lòng đăng nhập lại để tải Phiếu NVL." : "Please sign in again to download the PDF.");
+        }
+
+        const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/production-material-issue-pdf`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ production_order_id: order.id }),
+        });
+
+        const rawText = await response.text();
+        let result: Q7MaterialIssuePdfResult = {};
+        try {
+          result = rawText ? JSON.parse(rawText) : {};
+        } catch {
+          result = { error: rawText };
+        }
+
+        if (!response.ok || !result.download_url) {
+          viewerWindow?.close();
+          throw new Error(q7PdfBlockerMessage(result));
+        }
+
+        if (viewerWindow) {
+          viewerWindow.opener = null;
+          viewerWindow.location.href = result.download_url;
+        } else {
+          window.open(result.download_url, "_blank", "noopener,noreferrer");
+        }
+        toast.success(isVi ? `Đã tạo Phiếu NVL ${result.issue_number || order.production_number}` : "Material issue PDF is ready.");
+      } catch (error: any) {
+        const message = String(error?.message || (isVi ? "Không thể tạo Phiếu NVL." : "Failed to create material issue PDF."));
+        setMaterialIssuePdfMessages((current) => ({ ...current, [order.id]: message }));
+        toast.error(message);
+      } finally {
+        setMaterialIssuePdfOrderId(null);
+      }
+    },
+    [canGenerateQ7MaterialIssuePdf, isVi]
+  );
+
   const handleSubmitCreate = async () => {
     if (!selectedPoForCreation) return;
     if (!canEditLocation) {
@@ -1115,7 +1162,6 @@ export default function ProductionPlanning() {
       po_id: selectedPoForCreation.id,
       po_number: selectedPoForCreation.po_number,
       from_name: selectedPoForCreation.from_name,
-      isKingfood: isKingfoodPo(selectedPoForCreation),
       items: formData.items,
       planned_start_date: formData.planned_start_date,
       planned_end_date: formData.planned_end_date,
@@ -1566,6 +1612,9 @@ export default function ProductionPlanning() {
             <div className="grid gap-3 lg:grid-cols-2">
               {productionOrders.map((order) => {
                 const totalQty = getProductionOrderTotalQty(order);
+                const canGeneratePdf = canGenerateQ7MaterialIssuePdf(order);
+                const pdfLoading = materialIssuePdfOrderId === order.id;
+                const pdfMessage = materialIssuePdfMessages[order.id];
                 return (
                 <div key={order.id} className="rounded-3xl border border-border/60 bg-card/70 p-4 shadow-card">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1587,13 +1636,33 @@ export default function ProductionPlanning() {
                         <div className="text-[10px] font-black uppercase tracking-[0.16em] text-primary/70">{isVi ? "Tổng số" : "Total qty"}</div>
                         <div className="text-2xl font-black leading-none text-primary">{totalQty.toLocaleString("vi-VN")}</div>
                       </div>
-                      <Button
-                        variant="outline"
-                        className="h-12 rounded-2xl"
-                        onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
-                      >
-                        {isVi ? "Xem hàng" : "Items"} · {order.items_count || 0}
-                      </Button>
+                      <div className="grid w-full grid-cols-1 gap-2 min-[360px]:grid-cols-2">
+                        <Button
+                          variant="outline"
+                          className="h-12 min-w-0 rounded-2xl px-3"
+                          onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
+                        >
+                          {isVi ? "Xem hàng" : "Items"} · {order.items_count || 0}
+                        </Button>
+                        {canGeneratePdf && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-12 min-w-0 rounded-2xl border-primary/30 bg-primary/5 px-3 font-bold text-primary hover:bg-primary/10 hover:text-primary"
+                            data-testid={`q7-material-issue-pdf-${order.id}`}
+                            disabled={pdfLoading}
+                            onClick={(event) => openQ7MaterialIssuePdf(order, event)}
+                          >
+                            {pdfLoading ? <Loader2 className="mr-1 h-4 w-4 shrink-0 animate-spin" /> : <FileDown className="mr-1 h-4 w-4 shrink-0" />}
+                            <span className="truncate">Phiếu NVL</span>
+                          </Button>
+                        )}
+                      </div>
+                      {pdfMessage && (
+                        <p className="max-w-[240px] rounded-2xl border border-warning/30 bg-warning/10 px-3 py-2 text-left text-xs font-semibold text-warning-foreground sm:text-right">
+                          {pdfMessage}
+                        </p>
+                      )}
                       {(canEditLocation || isOwner) && (
                         <div className={`grid w-full gap-2 ${canEditLocation && isOwner ? "grid-cols-2" : "grid-cols-1"}`}>
                           {canEditLocation && (
