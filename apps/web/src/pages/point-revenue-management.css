@@ -440,6 +440,19 @@
   font-size: var(--pr-text-sm);
 }
 
+.pr-shift-note {
+  min-width: 0;
+  color: var(--pr-color-ink-soft);
+  font-size: var(--pr-text-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.pr-shift-note > strong {
+  color: var(--pr-color-ink);
+  font-weight: 700;
+}
+
 .pr-point-quantity {
   display: grid;
   justify-items: end;

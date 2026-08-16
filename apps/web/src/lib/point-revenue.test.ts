@@ -61,6 +61,7 @@ test("parsePointRevenueRows normalizes numeric RPC strings and preserves audit m
       reviewed_at: "2026-08-08T02:00:00Z",
       reviewed_by_name: "Kế toán BMQ",
       review_note: "Đã kiểm tra tiền mặt.",
+      report_notes: "Ca tối hết tương ớt lúc 21h.",
       channels: [{
         channel_code: "khach_le",
         channel_name: "Khách lẻ",
@@ -77,6 +78,19 @@ test("parsePointRevenueRows normalizes numeric RPC strings and preserves audit m
   assert.equal(parsed[0].channels[0].effective_amount_vnd, 240000);
   assert.equal(parsed[0].review_status, "reviewed");
   assert.equal(parsed[0].reviewed_by_name, "Kế toán BMQ");
+  assert.equal(parsed[0].report_notes, "Ca tối hết tương ớt lúc 21h.");
+});
+
+test("parsePointRevenueRows normalizes missing or whitespace-only shift notes to an empty string", () => {
+  const [missing] = parsePointRevenueRows([{ report_id: "report-2", channels: [] }]);
+  const [whitespace] = parsePointRevenueRows([{
+    report_id: "report-3",
+    report_notes: "   \n  ",
+    channels: [],
+  }]);
+
+  assert.equal(missing.report_notes, "");
+  assert.equal(whitespace.report_notes, "");
 });
 
 test("parsePointReportDetail normalizes full inventory and channel correction payloads", () => {
