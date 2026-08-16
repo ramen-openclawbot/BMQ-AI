@@ -196,6 +196,10 @@ def test_edge_config_auth_permission_user_generator_private_storage_and_safe_res
 
     assert "[functions.production-material-issue-pdf]" in config
     assert re.search(r"\[functions\.production-material-issue-pdf\].*?verify_jwt\s*=\s*false", config)
+    pdf_config_section = config.split("[functions.production-material-issue-pdf]", 1)[1].split("[functions.", 1)[0]
+    assert "static_files" in pdf_config_section, "PDF deployment must bundle its runtime font assets"
+    assert "./functions/_shared/fonts/notosans-regular.ttf" in pdf_config_section
+    assert "./functions/_shared/fonts/notosans-bold.ttf" in pdf_config_section
     assert "../_shared/cors.ts" in edge and "corsPreflightResponse" in edge
     assert "\"Access-Control-Allow-Origin\"" not in edge
     assert "const getCorsHeaders =" not in edge

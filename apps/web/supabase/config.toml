@@ -87,6 +87,12 @@ verify_jwt = false
 # verify_jwt disabled: proxy may reject valid ES256 user tokens before the function runs.
 # Auth, permission, and rate checks are enforced inside the function.
 verify_jwt = false
+# The PDF function reads these checked-in fonts at runtime. They must be part of
+# the deployed bundle; TypeScript imports alone do not include binary assets.
+static_files = [
+  "./functions/_shared/fonts/NotoSans-Regular.ttf",
+  "./functions/_shared/fonts/NotoSans-Bold.ttf",
+]
 
 [functions.production-material-issue-signed-upload]
 # verify_jwt disabled: proxy may reject valid ES256 user tokens before the function runs.
