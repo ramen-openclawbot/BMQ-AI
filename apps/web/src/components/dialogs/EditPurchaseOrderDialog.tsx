@@ -32,10 +32,9 @@ import {
 import {
   usePurchaseOrder,
   usePurchaseOrderItems,
-  useUpdatePurchaseOrder,
 } from "@/hooks/usePurchaseOrders";
 import { useSuppliers } from "@/hooks/useSuppliers";
-import { supabase } from "@/integrations/supabase/client";
+import { getCurrentActorId, updateProcurementDocumentWithMaterialController } from "@/lib/material-controller-rpcs";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -67,8 +66,6 @@ export function EditPurchaseOrderDialog({
   const { data: order, isLoading: orderLoading } = usePurchaseOrder(orderId);
   const { data: items, isLoading: itemsLoading } = usePurchaseOrderItems(orderId);
   const { data: suppliers } = useSuppliers();
-  const updatePO = useUpdatePurchaseOrder();
-  
   // Form state
   const [supplierId, setSupplierId] = useState<string>("");
   const [orderDate, setOrderDate] = useState<string>("");
@@ -114,7 +111,7 @@ export function EditPurchaseOrderDialog({
   const total = subtotal + vatAmount;
 
   // Update item row
-  const updateItemRow = (index: number, field: keyof ItemRow, value: any) => {
+  const updateItemRow = (index: number, field: keyof ItemRow, value: string | number) => {
     setItemRows((prev) => {
       const updated = [...prev];
       updated[index] = { ...updated[index], [field]: value };
@@ -162,43 +159,31 @@ export function EditPurchaseOrderDialog({
     setIsSubmitting(true);
 
     try {
-      // 1. Update the PO main record
-      await updatePO.mutateAsync({
-        id: orderId,
-        supplier_id: supplierId || null,
-        order_date: orderDate,
-        expected_date: expectedDate || null,
-        vat_amount: vatAmount,
-        total_amount: total,
-        notes: notes || null,
+      const actorId = await getCurrentActorId();
+      await updateProcurementDocumentWithMaterialController({
+        sourceType: "purchase_order",
+        parentId: orderId,
+        parentPatch: {
+          supplier_id: supplierId || null,
+          order_date: orderDate,
+          expected_date: expectedDate || null,
+          vat_amount: vatAmount,
+          total_amount: total,
+          notes: notes || null,
+        },
+        lines: itemRows.map((item) => ({
+          id: item.id,
+          product_name: item.product_name,
+          quantity: item.quantity,
+          unit: item.unit,
+          unit_price: item.unit_price,
+          line_total: item.line_total,
+          notes: item.notes || null,
+        })),
+        actorId,
       });
 
-      // 2. Delete all existing items
-      const { error: deleteError } = await supabase
-        .from("purchase_order_items")
-        .delete()
-        .eq("purchase_order_id", orderId);
-
-      if (deleteError) throw deleteError;
-
-      // 3. Insert new items
-      const itemsToInsert = itemRows.map((item) => ({
-        purchase_order_id: orderId,
-        product_name: item.product_name,
-        quantity: item.quantity,
-        unit: item.unit,
-        unit_price: item.unit_price,
-        line_total: item.line_total,
-        notes: item.notes || null,
-      }));
-
-      const { error: insertError } = await supabase
-        .from("purchase_order_items")
-        .insert(itemsToInsert);
-
-      if (insertError) throw insertError;
-
-      // 4. Invalidate queries to refresh data
+      // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
       queryClient.invalidateQueries({ queryKey: ["purchase-order", orderId] });
       queryClient.invalidateQueries({ queryKey: ["purchase-order-items", orderId] });
@@ -206,9 +191,14 @@ export function EditPurchaseOrderDialog({
       toast.success("Đã cập nhật đơn đặt hàng");
       onOpenChange(false);
       onSuccess?.();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error updating PO:", error);
-      toast.error("Lỗi khi cập nhật: " + error.message);
+      const message = error instanceof Error ? error.message : "Lỗi không xác định";
+      if (message.includes("identity") || message.includes("supplier") || message.includes("material evidence") || message.includes("23514")) {
+        toast.error("Danh tính NVL/sản phẩm đã được chốt theo lịch sử mua hàng. Vui lòng hủy dòng/chứng từ và tạo dòng mới thay vì đổi tên, mã, ĐVT, SKU hoặc NCC.");
+      } else {
+        toast.error("Lỗi khi cập nhật: " + message);
+      }
     } finally {
       setIsSubmitting(false);
     }

@@ -1,4 +1,4 @@
-import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { SupabaseClient } from "npm:@supabase/supabase-js@2.90.1";
 
 export type MaterialResolutionStatus =
   | "resolved_exact"
@@ -11,8 +11,8 @@ export type MaterialResolutionStatus =
   | "controller_error";
 
 export interface MaterialControllerLineInput {
-  source_type: "match_delivery_note" | "goods_receipt";
-  source_table: "goods_receipt_items";
+  source_type: "match_delivery_note" | "goods_receipt" | "purchase_order" | "payment_request" | "invoice" | "create_invoice_from_pr";
+  source_table: "goods_receipt_items" | "purchase_order_items" | "payment_request_items" | "invoice_items";
   source_id?: string | null;
   source_line_id?: string | null;
   supplier_id?: string | null;
@@ -21,6 +21,7 @@ export interface MaterialControllerLineInput {
   raw_unit?: string | null;
   payload?: Record<string, unknown>;
   applyExactToGoodsReceiptItem?: boolean;
+  applyExactToProcurementLine?: boolean;
 }
 
 export interface MaterialControllerResult {
@@ -192,15 +193,52 @@ export async function resolveCanonicalMaterialForLine(
       requestId = applyRequestId;
     }
 
+    if (resolvedExact && input.applyExactToProcurementLine && input.source_line_id && materialId) {
+      const { data: applyData, error: applyError } = await withTimeout<RpcResult<unknown>>(
+        supabase.rpc("apply_procurement_line_material_resolution", {
+          p_source_table: input.source_table,
+          p_source_line_id: input.source_line_id,
+          p_raw_name: rawName,
+          p_raw_code: rawCode,
+          p_raw_unit: rawUnit,
+          p_supplier_id: input.supplier_id || null,
+          p_source_type: input.source_type,
+          p_reason: "procurement exact approved canonical material",
+        }),
+        8000,
+        "apply_procurement_line_material_resolution",
+      );
+      if (applyError || !isRecord(applyData)) return controllerError("material_controller_procurement_apply_failed", requestId);
+      const applyStatus = stringField(applyData, "status");
+      const applySourceId = stringField(applyData, "source_id");
+      const applyMaterialId = stringField(applyData, "material_id");
+      const applyRequestId = stringField(applyData, "request_id");
+      if (
+        !["linked", "linked_unchanged"].includes(applyStatus || "") ||
+        applySourceId !== input.source_line_id ||
+        applyMaterialId !== materialId ||
+        !applyRequestId
+      ) {
+        return controllerError("material_controller_procurement_apply_failed", requestId);
+      }
+      requestId = applyRequestId;
+    }
+
+    const requestedApplySucceeded =
+      !resolvedExact ||
+      !input.source_line_id ||
+      (((!input.applyExactToGoodsReceiptItem) || !!requestId) &&
+        ((!input.applyExactToProcurementLine) || !!requestId));
+
     return {
-      canonical_material_id: resolvedExact && (!input.applyExactToGoodsReceiptItem || requestId || !input.source_line_id) ? materialId : null,
+      canonical_material_id: resolvedExact && requestedApplySucceeded ? materialId : null,
       canonical_material_code: resolvedExact ? stringField(resolved, "material_code") : null,
       canonical_material_name: resolvedExact ? stringField(resolved, "canonical_name") : null,
       canonical_default_unit: resolvedExact ? stringField(resolved, "default_unit") : null,
       material_resolution_status: status,
       material_resolution_request_id: requestId,
-      resolved_exact: resolvedExact,
-      blockers,
+      resolved_exact: resolvedExact && requestedApplySucceeded,
+      blockers: requestedApplySucceeded ? blockers : [...blockers, "material_controller_apply_incomplete"],
       candidate_material_ids: candidateIds,
       candidate_names: [],
       match_source: stringField(resolved, "match_source"),

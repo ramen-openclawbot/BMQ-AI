@@ -35,11 +35,10 @@ import {
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useSuppliers } from "@/hooks/useSuppliers";
 import { useGoodsReceipts } from "@/hooks/useGoodsReceipts";
-import { supabase } from "@/integrations/supabase/client";
+import { getCurrentActorId, updateProcurementDocumentWithMaterialController } from "@/lib/material-controller-rpcs";
 import {
   usePaymentRequest,
   usePaymentRequestItems,
-  useUpdatePaymentRequest,
 } from "@/hooks/usePaymentRequests";
 import {
   findSKUByCodeOrName,
@@ -105,7 +104,6 @@ export function EditPaymentRequestDialog({
   
   // Filter goods receipts that are confirmed (received)
   const availableGoodsReceipts = goodsReceipts.filter(gr => gr.status === "received");
-  const updateRequest = useUpdatePaymentRequest();
 
   const form = useForm<EditPaymentRequestFormData>({
     resolver: zodResolver(editPaymentRequestSchema),
@@ -137,7 +135,7 @@ export function EditPaymentRequestDialog({
         goods_receipt_id: request.goods_receipt_id || "",
         payment_type: (request.payment_type as "old_order" | "new_order") || "old_order",
         payment_method: (request.payment_method as "bank_transfer" | "cash") || "bank_transfer",
-        vat_amount: (request as any).vat_amount || 0,
+        vat_amount: Number((request as { vat_amount?: number | null }).vat_amount || 0),
         notes: request.notes || "",
         items: existingItems.map((item) => ({
           id: item.id,
@@ -254,50 +252,32 @@ export function EditPaymentRequestDialog({
 
     setIsSaving(true);
     try {
-      // Update payment request with all fields
-      await updateRequest.mutateAsync({
-        id: requestId,
-        title: data.title,
-        description: data.description || null,
-        supplier_id: data.supplier_id || null,
-        goods_receipt_id: data.goods_receipt_id || null,
-        payment_type: data.payment_type,
-        payment_method: data.payment_method,
-        vat_amount: data.vat_amount || 0,
-        total_amount: total,
-        notes: data.notes || null,
+      const actorId = await getCurrentActorId();
+      await updateProcurementDocumentWithMaterialController({
+        sourceType: "payment_request",
+        parentId: requestId,
+        parentPatch: {
+          title: data.title,
+          description: data.description || null,
+          supplier_id: data.supplier_id || null,
+          goods_receipt_id: data.goods_receipt_id || null,
+          payment_type: data.payment_type,
+          payment_method: data.payment_method,
+          vat_amount: data.vat_amount || 0,
+          total_amount: total,
+          notes: data.notes || null,
+        },
+        lines: data.items.map((item) => ({
+          id: item.id,
+          product_code: item.product_code || null,
+          product_name: item.product_name,
+          quantity: item.quantity,
+          unit: item.unit || "kg",
+          unit_price: item.unit_price,
+          line_total: item.quantity * item.unit_price,
+        })),
+        actorId,
       });
-
-      // Delete old items
-      const { error: deleteError } = await supabase
-        .from("payment_request_items")
-        .delete()
-        .eq("payment_request_id", requestId);
-
-      if (deleteError) throw deleteError;
-
-      // Insert new items
-      for (let i = 0; i < data.items.length; i++) {
-        const item = data.items[i];
-        const priceInfo = itemPriceInfos[i];
-
-        const { error: insertError } = await supabase
-          .from("payment_request_items")
-          .insert({
-            payment_request_id: requestId,
-            product_code: item.product_code || null,
-            product_name: item.product_name,
-            quantity: item.quantity,
-            unit: item.unit || "kg",
-            unit_price: item.unit_price,
-            line_total: item.quantity * item.unit_price,
-            last_price: priceInfo?.lastPrice || null,
-            price_change_percent: priceInfo?.priceChangePercent || null,
-            inventory_item_id: priceInfo?.inventoryItemId || null,
-          });
-
-        if (insertError) throw insertError;
-      }
 
       queryClient.invalidateQueries({ queryKey: ["payment-request-items", requestId] });
       queryClient.invalidateQueries({ queryKey: ["payment-stats"] });
@@ -307,7 +287,9 @@ export function EditPaymentRequestDialog({
     } catch (error) {
       console.error("Error updating payment request:", error);
       const errorMessage = error instanceof Error ? error.message : "Lỗi không xác định";
-      if (errorMessage.includes("row-level security") || errorMessage.includes("permission")) {
+      if (errorMessage.includes("identity") || errorMessage.includes("supplier") || errorMessage.includes("material evidence") || errorMessage.includes("23514")) {
+        toast.error("Danh tính NVL/sản phẩm đã được chốt theo lịch sử mua hàng. Vui lòng hủy dòng/chứng từ và tạo dòng mới thay vì đổi tên, mã, ĐVT, SKU hoặc NCC.");
+      } else if (errorMessage.includes("row-level security") || errorMessage.includes("permission")) {
         toast.error("Bạn không có quyền cập nhật đề nghị chi");
       } else {
         toast.error("Không thể cập nhật đề nghị chi. Vui lòng thử lại.");

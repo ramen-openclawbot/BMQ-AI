@@ -2,8 +2,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveImageUrl } from "@/lib/storage-url";
 import type { Database } from "@/integrations/supabase/types";
-import { processPaymentRequestSKUs } from "@/lib/sku-generator";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
+import {
+  approvePaymentRequestWithMaterialController,
+  createProcurementLineWithMaterialResolution,
+  getCurrentActorId,
+} from "@/lib/material-controller-rpcs";
 
 type PaymentRequest = Database["public"]["Tables"]["payment_requests"]["Row"];
 type PaymentRequestItem = Database["public"]["Tables"]["payment_request_items"]["Row"];
@@ -228,10 +232,21 @@ export function useCreatePaymentRequestItem() {
 
   return useMutation({
     mutationFn: async (item: PaymentRequestItemInsert) => {
+      const { raw_product_name: _rawProductName, canonical_material_id: _canonicalMaterialId, material_resolution_status: _materialResolutionStatus, material_resolution_request_id: _materialResolutionRequestId, ...safeItem } = item as PaymentRequestItemInsert & Record<string, unknown>;
+      void _rawProductName; void _canonicalMaterialId; void _materialResolutionStatus; void _materialResolutionRequestId;
+      if (!safeItem.payment_request_id) throw new Error("Payment request ID is required");
+      const actorId = await getCurrentActorId();
+      const result = await createProcurementLineWithMaterialResolution({
+        sourceTable: "payment_request_items",
+        sourceType: "payment_request",
+        parentId: safeItem.payment_request_id,
+        item: { ...safeItem, raw_product_name: String(_rawProductName || safeItem.product_name || "") },
+        actorId,
+      });
       const { data, error } = await supabase
         .from("payment_request_items")
-        .insert(item)
-        .select()
+        .select("*")
+        .eq("id", result.line_id)
         .single();
       if (error) throw error;
       return data;
@@ -250,32 +265,8 @@ export function useApprovePaymentRequest() {
 
   return useMutation({
     mutationFn: async ({ id, paymentMethod }: { id: string; paymentMethod: "bank_transfer" | "cash" }) => {
-      // Get payment request items
-      const { data: items, error: itemsError } = await supabase
-        .from("payment_request_items")
-        .select("*, inventory_items(id, name, quantity)")
-        .eq("payment_request_id", id);
-      
-      if (itemsError) throw itemsError;
-
-      // Update payment request status with payment method
-      const { error: updateError } = await supabase
-        .from("payment_requests")
-        .update({
-          status: "approved",
-          payment_method: paymentMethod,
-          approved_by: null,
-          approved_at: new Date().toISOString(),
-        })
-        .eq("id", id);
-
-      if (updateError) throw updateError;
-
-      // Auto-create SKUs for items that don't have one
-      const skuResult = await processPaymentRequestSKUs(id);
-      console.log("SKU processing result:", skuResult);
-
-      return { items, skuResult };
+      const actorId = await getCurrentActorId();
+      return approvePaymentRequestWithMaterialController({ paymentRequestId: id, paymentMethod, actorId });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payment-requests"] });
@@ -452,25 +443,14 @@ export function useBulkApprovePaymentRequest() {
 
   return useMutation({
     mutationFn: async (ids: string[]) => {
-      const { error: updateError } = await supabase
-        .from("payment_requests")
-        .update({
-          status: "approved",
-          approved_at: new Date().toISOString(),
-        })
-        .in("id", ids);
-
-      if (updateError) throw updateError;
-
-      // Process SKUs in parallel
-      const skuResults = await Promise.all(
-        ids.map(id => processPaymentRequestSKUs(id))
+      const actorId = await getCurrentActorId();
+      const results = await Promise.all(
+        ids.map((id) => approvePaymentRequestWithMaterialController({ paymentRequestId: id, paymentMethod: "bank_transfer", actorId })),
       );
 
-      return { 
-        count: ids.length, 
-        skusCreated: skuResults.reduce((sum, r) => sum + r.created, 0),
-        skusLinked: skuResults.reduce((sum, r) => sum + r.linked, 0),
+      return {
+        count: ids.length,
+        approved: results.filter((result) => result.approved).length,
       };
     },
     onSuccess: () => {

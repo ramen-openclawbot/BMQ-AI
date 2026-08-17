@@ -132,9 +132,14 @@ def test_purchase_order_send_ensures_single_pending_receipt_queue():
     assert "p_purchase_order_id" in queue
 
     po_hook = read(PO_HOOK)
-    assert "ensureReceiptForPurchaseOrder" in po_hook
+    assert "updatePurchaseOrderStatusWithMaterialController" in po_hook
+    assert "ensureReceiptForPurchaseOrder" not in po_hook
+    assert "update_purchase_order_status_with_material_controller" in read(
+        ROOT / "src/lib/material-controller-rpcs.ts"
+    )
     send_section = po_hook.split("export function useSendPurchaseOrder", 1)[1].split("export function useReceivePurchaseOrder", 1)[0]
-    assert "ensureReceiptForPurchaseOrder(id)" in send_section
+    assert "updatePurchaseOrderStatusWithMaterialController" in send_section
+    assert 'status: "sent"' in send_section
 
 
 def test_warehouse_scan_matches_pending_po_receipt_queue_before_legacy_payment_requests():
@@ -470,12 +475,17 @@ def test_invoice_accounting_links_po_receipt_context_without_enterprise_ledger_r
     assert "purchase_orders (id, po_number)" in invoice_hook
     assert "goods_receipts (id, receipt_number)" in invoice_hook
 
-    assert "selectedRequest?.purchase_order_id || null" in add_invoice
-    assert "selectedRequest?.goods_receipt_id || null" in add_invoice
+    assert "data.payment_request_id" in add_invoice
+    assert "createInvoiceFromPaymentRequestWithMaterialController" in add_invoice
+    assert "create_invoice_from_payment_request" in migrations
+    assert "pr_item.canonical_material_id" in migrations
+    assert "pr_item.material_resolution_request_id" in migrations
     assert "paymentRequest.purchase_order_id" in create_from_pr_function
     assert "paymentRequest.goods_receipt_id" in create_from_pr_function
-    assert "purchase_order_id: request.purchase_order_id || null" in create_from_pr_dialog
-    assert "goods_receipt_id: request.goods_receipt_id || null" in create_from_pr_dialog
+    assert "create_invoice_from_payment_request" in create_from_pr_function
+    assert 'supabase.functions.invoke("create-invoice-from-pr"' in create_from_pr_dialog
+    assert '.from("invoices")\n          .insert' not in create_from_pr_dialog
+    assert '.from("invoice_items")\n          .insert' not in create_from_pr_dialog
     assert "Tạo từ đề nghị chi" in create_from_pr_dialog
 
 
@@ -614,8 +624,10 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     chat_widget = read(GLOBAL_AGENT_CHAT_WIDGET)
     user_management_hook = read(USER_MANAGEMENT_HOOK)
 
-    assert "purchase_order_items(id, product_name)" in hook
-    assert "purchase_order_items?: Array<Pick<Tables<\"purchase_order_items\">, \"id\" | \"product_name\">> | null;" in hook
+    assert "purchase_order_items(id, product_name, canonical_material_id, material_resolution_status, material_resolution_request_id, raw_product_name)" in hook
+    assert "export interface PurchaseOrderListItemSummary" in hook
+    assert "canonical_material_id?: string | null" in hook
+    assert "purchase_order_items?: PurchaseOrderListItemSummary[] | null" in hook
 
     assert "  Eye," not in page
     assert "<Eye" not in page

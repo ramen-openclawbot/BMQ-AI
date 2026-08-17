@@ -4,11 +4,15 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAuth } from "@/contexts/AuthContext";
+
 import { useSuppliers } from "@/hooks/useSuppliers";
-import { useCreateInvoice, useCreateInvoiceItem } from "@/hooks/useInvoices";
+import { useCreateInvoiceWithItems } from "@/hooks/useInvoices";
 import { usePaymentRequests, usePaymentRequestItems } from "@/hooks/usePaymentRequests";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  createInvoiceFromPaymentRequestWithMaterialController,
+  getCurrentActorId,
+} from "@/lib/material-controller-rpcs";
 import {
   Dialog,
   DialogContent,
@@ -110,12 +114,11 @@ export function AddInvoiceDialog() {
   const [paymentSlipFile, setPaymentSlipFile] = useState<File | null>(null);
   const [paymentSlipPreview, setPaymentSlipPreview] = useState<string | null>(null);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
-  const { user } = useAuth();
+
   const { data: suppliers } = useSuppliers();
   const { data: paymentRequests } = usePaymentRequests();
   const { data: requestItems } = usePaymentRequestItems(selectedRequestId);
-  const createInvoice = useCreateInvoice();
-  const createInvoiceItem = useCreateInvoiceItem();
+  const createInvoiceWithItems = useCreateInvoiceWithItems();
   const queryClient = useQueryClient();
 
   // Filter to only show approved requests without invoices
@@ -176,7 +179,7 @@ export function AddInvoiceDialog() {
         form.setValue("vat_amount", finalVat);
         
         // Set items from request items
-        const newItems = requestItems.map((item) => ({
+        const newItems: InvoiceFormData["items"] = requestItems.map((item) => ({
           product_code: item.product_code || "",
           product_name: item.product_name,
           unit: item.unit || "kg",
@@ -185,7 +188,7 @@ export function AddInvoiceDialog() {
           raw_product_name: item.raw_product_name || item.product_name,
           suggested_standard_cost_code: item.suggested_standard_cost_code || null,
           confirmed_standard_cost_code: item.confirmed_standard_cost_code || item.suggested_standard_cost_code || null,
-          standard_cost_code_type: item.standard_cost_code_type || null,
+          standard_cost_code_type: item.standard_cost_code_type === "NVL" || item.standard_cost_code_type === "OPEX" || item.standard_cost_code_type === "OTHER" ? item.standard_cost_code_type : null,
           canonical_cost_item_name: item.canonical_cost_item_name || null,
           canonical_cost_item_source: item.canonical_cost_item_source || null,
           cost_category_code: item.cost_category_code || null,
@@ -193,8 +196,8 @@ export function AddInvoiceDialog() {
           cost_allocation_rule: item.cost_allocation_rule || null,
           cost_review_routing: item.cost_review_routing || "none",
           unit_conversion_note: item.unit_conversion_note || null,
-          matched_finished_skus: item.matched_finished_skus || null,
-          ocr_classification_json: item.ocr_classification_json || null,
+          matched_finished_skus: Array.isArray(item.matched_finished_skus) ? item.matched_finished_skus.filter((sku): sku is string => typeof sku === "string") : null,
+          ocr_classification_json: item.ocr_classification_json && typeof item.ocr_classification_json === "object" && !Array.isArray(item.ocr_classification_json) ? item.ocr_classification_json as Record<string, unknown> : null,
         }));
         
         replace(newItems);
@@ -388,108 +391,55 @@ export function AddInvoiceDialog() {
         uploadedPaymentSlipUrl = fileName;
       }
 
-      // Create invoice with optional payment_request_id and payment_slip_url
-      const invoice = await createInvoice.mutateAsync({
-        invoice_number: data.invoice_number,
-        invoice_date: data.invoice_date,
-        supplier_id: data.supplier_id || null,
-        subtotal,
-        vat_amount: vatAmount,
-        total_amount: totalAmount,
-        image_url: uploadedImageUrl,
-        payment_slip_url: uploadedPaymentSlipUrl,
-        notes: data.notes || null,
-        created_by: user?.id || null,
-        payment_request_id: data.payment_request_id || null,
-        purchase_order_id: selectedRequest?.purchase_order_id || null,
-        goods_receipt_id: selectedRequest?.goods_receipt_id || null,
-      });
-
-      // If linked to payment request, update the request
-      if (data.payment_request_id) {
-        await supabase
-          .from("payment_requests")
-          .update({
-            invoice_id: invoice.id,
-            invoice_created: true,
+      const invoiceResult = data.payment_request_id
+        ? await createInvoiceFromPaymentRequestWithMaterialController({
+            paymentRequestId: data.payment_request_id,
+            invoiceNumber: data.invoice_number,
+            invoiceDate: data.invoice_date,
+            vatAmount,
+            notes: data.notes || null,
+            paymentSlipUrl: uploadedPaymentSlipUrl,
+            actorId: await getCurrentActorId(),
           })
-          .eq("id", data.payment_request_id);
-        
-        // Invalidate payment request queries
-        queryClient.invalidateQueries({ queryKey: ["payment-requests"] });
-        queryClient.invalidateQueries({ queryKey: ["pending-invoice-count"] });
-      }
+        : await createInvoiceWithItems.mutateAsync({
+            invoice: {
+              invoice_number: data.invoice_number,
+              invoice_date: data.invoice_date,
+              supplier_id: data.supplier_id || null,
+              subtotal,
+              vat_amount: vatAmount,
+              total_amount: totalAmount,
+              image_url: uploadedImageUrl,
+              payment_slip_url: uploadedPaymentSlipUrl,
+              notes: data.notes || null,
+            },
+            items: data.items.map((item) => ({
+              product_code: item.product_code || null,
+              product_name: item.product_name,
+              unit: item.unit,
+              quantity: item.quantity,
+              unit_price: item.unit_price,
+              inventory_item_id: null,
+              raw_product_name: item.raw_product_name || item.product_name,
+              suggested_standard_cost_code: item.suggested_standard_cost_code || null,
+              confirmed_standard_cost_code: item.confirmed_standard_cost_code || null,
+              standard_cost_code_type: item.standard_cost_code_type || null,
+              canonical_cost_item_name: item.canonical_cost_item_name || null,
+              canonical_cost_item_source: item.canonical_cost_item_source || null,
+              cost_category_code: item.cost_category_code || null,
+              cost_product_line: item.cost_product_line || null,
+              cost_allocation_rule: item.cost_allocation_rule || null,
+              cost_review_routing: item.cost_review_routing || "none",
+              unit_conversion_note: item.unit_conversion_note || null,
+              matched_finished_skus: item.matched_finished_skus || null,
+              ocr_classification_json: item.ocr_classification_json || null,
+            })),
+          });
 
-      // Create invoice items and update/create inventory (only for physical items)
-      const { isPhysicalItem } = await import("@/lib/inventory-utils");
-      
-      for (const item of data.items) {
-        let inventoryItemId: string | null = null;
+      queryClient.invalidateQueries({ queryKey: ["payment-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["pending-invoice-count"] });
 
-        // Only sync to inventory if it's a physical item (not fees/services)
-        if (isPhysicalItem(item.product_name)) {
-          // Check if inventory item exists by name (case-insensitive match)
-          const { data: existingItems } = await supabase
-            .from("inventory_items")
-            .select("id, quantity")
-            .ilike("name", item.product_name)
-            .limit(1);
-
-          if (existingItems && existingItems.length > 0) {
-            // Update existing inventory quantity
-            const existing = existingItems[0];
-            inventoryItemId = existing.id;
-            await supabase
-              .from("inventory_items")
-              .update({ 
-                quantity: (existing.quantity || 0) + item.quantity 
-              })
-              .eq("id", existing.id);
-          } else {
-            // Create new inventory item
-            const { data: newItem } = await supabase
-              .from("inventory_items")
-              .insert({
-                name: item.product_name,
-                quantity: item.quantity,
-                unit: item.unit || "kg",
-                category: "Từ hóa đơn",
-                supplier_id: data.supplier_id || null,
-                created_by: user?.id || null,
-              })
-              .select("id")
-              .single();
-            
-            inventoryItemId = newItem?.id || null;
-          }
-        }
-
-        // Create invoice item (always, regardless of physical/service)
-        await createInvoiceItem.mutateAsync({
-          invoice_id: invoice.id,
-          product_code: item.product_code || null,
-          product_name: item.product_name,
-          unit: item.unit,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          inventory_item_id: inventoryItemId,
-          raw_product_name: item.raw_product_name || item.product_name,
-          suggested_standard_cost_code: item.suggested_standard_cost_code || null,
-          confirmed_standard_cost_code: item.confirmed_standard_cost_code || null,
-          standard_cost_code_type: item.standard_cost_code_type || null,
-          canonical_cost_item_name: item.canonical_cost_item_name || null,
-          canonical_cost_item_source: item.canonical_cost_item_source || null,
-          cost_category_code: item.cost_category_code || null,
-          cost_product_line: item.cost_product_line || null,
-          cost_allocation_rule: item.cost_allocation_rule || null,
-          cost_review_routing: item.cost_review_routing || "none",
-          unit_conversion_note: item.unit_conversion_note || null,
-          matched_finished_skus: item.matched_finished_skus || null,
-          ocr_classification_json: item.ocr_classification_json || null,
-        });
-      }
-
-      toast.success("Đã tạo hóa đơn thành công");
+      toast.success(`Đã tạo hóa đơn thành công (${invoiceResult.items_count} dòng)`);
       form.reset();
       setImageUrl(null);
       setImageFile(null);
@@ -914,8 +864,8 @@ export function AddInvoiceDialog() {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={uploading || createInvoice.isPending}>
-                {(uploading || createInvoice.isPending) && (
+              <Button type="submit" disabled={uploading || createInvoiceWithItems.isPending}>
+                {(uploading || createInvoiceWithItems.isPending) && (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 )}
                 Create Invoice

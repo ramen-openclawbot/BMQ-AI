@@ -196,6 +196,19 @@ export default function PurchaseOrders() {
     return hiddenCount > 0 ? `${visibleNames} +${hiddenCount}` : visibleNames;
   };
 
+  const getMaterialBlockerCount = (order: PurchaseOrder) =>
+    (order.purchase_order_items || []).filter((item) => {
+      const status = item.material_resolution_status || "unknown";
+      const hasExactCanonicalMaterial = status === "resolved_exact" && Boolean(item.canonical_material_id);
+      const doesNotRequireCanonicalMaterial = status === "finished_good" || status === "service_or_non_material";
+      return !hasExactCanonicalMaterial && !doesNotRequireCanonicalMaterial;
+    }).length;
+
+  const getMaterialQueueHref = (order: PurchaseOrder) => {
+    const requestId = (order.purchase_order_items || []).find((item) => item.material_resolution_request_id)?.material_resolution_request_id;
+    return requestId ? `/material-master?request=${encodeURIComponent(requestId)}` : "/material-master";
+  };
+
   const handleOrderRowKeyDown = (event: KeyboardEvent<HTMLTableRowElement>, orderId: string) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -628,7 +641,21 @@ export default function PurchaseOrders() {
                       >
                         <TableCell className="py-2 font-semibold text-slate-950 dark:text-[#f3ece4]">{order.po_number}</TableCell>
                         <TableCell className="max-w-[180px] py-2 text-slate-700 dark:text-[#e8ded2]">{order.suppliers?.name || (order.supplier_id ? supplierMap.get(order.supplier_id) : undefined) || (isVi ? "N/A" : "N/A")}</TableCell>
-                        <TableCell className="max-w-[260px] truncate py-2 text-slate-500 dark:text-[#a99b8c]" title={getOrderProductNames(order)}>{getOrderProductNames(order)}</TableCell>
+                        <TableCell className="max-w-[260px] py-2 text-slate-500 dark:text-[#a99b8c]" title={getOrderProductNames(order)}>
+                          <div className="flex min-w-0 flex-col gap-1">
+                            <span className="truncate">{getOrderProductNames(order)}</span>
+                            {getMaterialBlockerCount(order) > 0 && (
+                              <a
+                                href={getMaterialQueueHref(order)}
+                                onClick={(event) => event.stopPropagation()}
+                                className="inline-flex w-fit items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
+                              >
+                                <SlidersHorizontal className="h-3 w-3" />
+                                {getMaterialBlockerCount(order)} dòng chờ NVL
+                              </a>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell className="whitespace-nowrap py-2 text-slate-600 dark:text-[#d6c8b8]">{formatOptionalDate(order.order_date)}</TableCell>
                         <TableCell className="whitespace-nowrap py-2 text-slate-600 dark:text-[#d6c8b8]">{formatOptionalDate(order.expected_date)}</TableCell>
                         <TableCell className="whitespace-nowrap py-2 text-right font-semibold text-slate-950 dark:text-[#f3ece4]">{formatCurrency(order.total_amount || 0)}</TableCell>
