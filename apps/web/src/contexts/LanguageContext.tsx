@@ -16,6 +16,7 @@ interface Translations {
   skuCostIngredients: string;
   skuCostEmployees: string;
   skuCostOverhead: string;
+  materialMaster: string;
   suppliers: string;
   invoices: string;
   paymentRequests: string;
@@ -212,6 +213,7 @@ const translations: Record<Language, Translations> = {
     skuCostIngredients: "Ingredients",
     skuCostEmployees: "Employees",
     skuCostOverhead: "Overhead",
+    materialMaster: "Canonical materials",
     suppliers: "Suppliers",
     invoices: "Invoices",
     paymentRequests: "Payment Requests",
@@ -406,6 +408,7 @@ const translations: Record<Language, Translations> = {
     skuCostIngredients: "Nguyên liệu",
     skuCostEmployees: "Nhân sự",
     skuCostOverhead: "Chi phí chung",
+    materialMaster: "NVL chuẩn",
     suppliers: "Nhà cung cấp",
     invoices: "Hoá đơn",
     paymentRequests: "Duyệt chi",

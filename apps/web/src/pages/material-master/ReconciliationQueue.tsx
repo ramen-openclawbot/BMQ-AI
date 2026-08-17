@@ -69,7 +69,7 @@ const decisionClass: Record<QueueDecision, string> = {
   blocked: "border-rose-200 bg-rose-50 text-rose-700",
 };
 
-export default function ReconciliationQueue() {
+export default function ReconciliationQueue({ canMutate = false }: { canMutate?: boolean }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [decisionFilter, setDecisionFilter] = useState<QueueDecision | "all">("all");
@@ -220,7 +220,7 @@ export default function ReconciliationQueue() {
                     <p className="mt-1 text-sm text-slate-600">Ứng viên canonical: {row.material?.canonical_name || "Chưa có"} {row.material?.material_code ? `· ${row.material.material_code}` : ""}</p>
                     <p className="mt-1 text-xs text-slate-500">Nguồn: {row.source_table} · audit ID {row.source_id || "chưa có"}</p>
                   </div>
-                  {exactEvidenceReady && (
+                  {exactEvidenceReady && canMutate && (
                     <Button size="sm" onClick={() => linkMutation.mutate(row)} disabled={linkMutation.isPending}>
                       {linkMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                       Ghi link exact
