@@ -62,8 +62,27 @@ def test_snapshot_cards_null_opening_negative_text_and_safe_fields() -> None:
         assert forbidden not in safe_region, f"Q7 inventory source exposes forbidden token {forbidden!r}"
 
 
+def test_mobile_tabs_and_audit_entry_are_clear_and_name_based() -> None:
+    page = read(PAGE)
+    assert 'const [activeTab, setActiveTab] = useState("snapshot")' in page
+    assert '<Tabs value={activeTab} onValueChange={setActiveTab}' in page
+    assert 'overflow-x-auto' in region(page, '<TabsList', '</TabsList>')
+    assert 'flex-nowrap' in region(page, '<TabsList', '</TabsList>')
+    assert 'data-[state=active]:bg-primary' in page
+    assert 'data-[state=active]:text-primary-foreground' in page
+    assert 'value="receipt">Nhập kho<' in page
+    assert 'value="audit">Audit tồn đầu<' in page
+    assert '<TabsContent value="receipt">' in page
+    audit_region = region(page, '<TabsContent value="audit">', '</TabsContent>')
+    assert 'Ghi nhận nhập hôm nay' not in audit_region
+    assert 'Tên NVL Q7' in audit_region
+    assert '<Select value={openingItemId}' in audit_region
+    assert 'Tự động theo NVL đã chọn' in audit_region
+    assert 'ID NVL Q7' not in page
+
+
 def test_receipt_and_opening_forms_call_exact_rpcs_with_no_cost_and_double_submit_guard() -> None:
-    page, hook = read(PAGE), read(HOOK)
+    page, hook, queue = read(PAGE), read(HOOK), read(QUEUE)
     assert 'canEditModule("q7_material_inventory")' in page
     assert 'canEditModule("kitchen_inventory")' in page
     assert 'canEditModule("production_q7")' not in page
@@ -83,6 +102,9 @@ def test_receipt_and_opening_forms_call_exact_rpcs_with_no_cost_and_double_submi
     for control_id in ["q7-as-of-date", "q7-receipt-item", "q7-receipt-qty", "q7-receipt-unit", "q7-receipt-reference", "q7-receipt-note", "q7-opening-item", "q7-opening-qty", "q7-opening-unit", "q7-physical-qty", "q7-physical-date", "q7-opening-note"]:
         assert f'id="{control_id}"' in page
         assert f'htmlFor="{control_id}"' in page
+    assert 'className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:justify-between"' in queue
+    assert 'className="w-full min-w-0 bg-background text-sm' in queue
+    assert 'break-all' in queue and 'sm:break-words' in queue
     assert '!selectedSignedFile?.file' in read(QUEUE)
     for forbidden in ("price", "cost", "unit_cost", "amount", "Đơn giá", "Chi phí", "Thành tiền"):
         assert forbidden not in (page + hook)

@@ -5,6 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -19,6 +20,7 @@ export default function Q7MaterialInventory() {
   const { toast } = useToast();
   const { canEditModule } = useAuth();
   const [asOfDate, setAsOfDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [activeTab, setActiveTab] = useState("snapshot");
   const [receiptItemId, setReceiptItemId] = useState("");
   const [receiptQty, setReceiptQty] = useState("");
   const [receiptUnit, setReceiptUnit] = useState("");
@@ -119,12 +121,13 @@ export default function Q7MaterialInventory() {
 
       {!canWriteQ7 && <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">Bạn không có quyền ghi sổ Q7. Có thể xem snapshot, phiếu và lịch sử.</div>}
 
-      <Tabs defaultValue="snapshot" className="space-y-4">
-        <TabsList className="flex h-auto flex-wrap justify-start gap-2 bg-muted/40 p-1">
-          <TabsTrigger value="snapshot">XNT</TabsTrigger>
-          <TabsTrigger value="queue">Hàng đợi phiếu ký</TabsTrigger>
-          <TabsTrigger value="audit">Audit tồn đầu</TabsTrigger>
-          <TabsTrigger value="history">Lịch sử phát sinh</TabsTrigger>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <TabsList className="flex h-auto w-full flex-nowrap justify-start gap-2 overflow-x-auto bg-muted/40 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <TabsTrigger className="shrink-0 rounded-full border border-transparent px-4 py-2.5 text-sm font-semibold data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm" value="snapshot">XNT</TabsTrigger>
+          <TabsTrigger className="shrink-0 rounded-full border border-transparent px-4 py-2.5 text-sm font-semibold data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm" value="queue">Phiếu ký</TabsTrigger>
+          <TabsTrigger className="shrink-0 rounded-full border border-transparent px-4 py-2.5 text-sm font-semibold data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm" value="receipt">Nhập kho</TabsTrigger>
+          <TabsTrigger className="shrink-0 rounded-full border border-transparent px-4 py-2.5 text-sm font-semibold data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm" value="audit">Audit tồn đầu</TabsTrigger>
+          <TabsTrigger className="shrink-0 rounded-full border border-transparent px-4 py-2.5 text-sm font-semibold data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm" value="history">Lịch sử</TabsTrigger>
         </TabsList>
 
         <TabsContent value="snapshot">
@@ -140,23 +143,29 @@ export default function Q7MaterialInventory() {
 
         <TabsContent value="queue"><Q7SignedMaterialIssueQueue /></TabsContent>
 
-        <TabsContent value="audit">
-          <div className="grid gap-4 lg:grid-cols-2">
+        <TabsContent value="receipt">
+          <div className="mx-auto max-w-2xl">
             <Card>
               <CardHeader><CardTitle className="flex items-center gap-2"><PackagePlus className="h-5 w-5 text-primary" /> Ghi nhận nhập hôm nay</CardTitle></CardHeader>
               <CardContent className="space-y-3">
-                <div className="space-y-1.5"><label htmlFor="q7-receipt-item" className="text-sm font-medium">ID NVL Q7</label><Input id="q7-receipt-item" value={receiptItemId} onChange={(event) => setReceiptItemId(event.target.value)} /></div>
-                <div className="grid gap-3 sm:grid-cols-2"><div className="space-y-1.5"><label htmlFor="q7-receipt-qty" className="text-sm font-medium">Số lượng</label><Input id="q7-receipt-qty" inputMode="decimal" value={receiptQty} onChange={(event) => setReceiptQty(event.target.value)} /></div><div className="space-y-1.5"><label htmlFor="q7-receipt-unit" className="text-sm font-medium">Đơn vị</label><Input id="q7-receipt-unit" value={receiptUnit} onChange={(event) => setReceiptUnit(event.target.value)} /></div></div>
+                <div className="space-y-1.5"><label htmlFor="q7-receipt-item" className="text-sm font-medium">Tên NVL Q7</label><Select value={receiptItemId} onValueChange={(value) => { setReceiptItemId(value); setReceiptUnit(rows.find((row) => row.kitchen_inventory_item_id === value)?.unit || ""); }}><SelectTrigger id="q7-receipt-item" className="min-h-12"><SelectValue placeholder="Chọn nguyên vật liệu" /></SelectTrigger><SelectContent>{rows.map((row) => <SelectItem key={row.kitchen_inventory_item_id} value={row.kitchen_inventory_item_id}>{row.item_name}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-3 sm:grid-cols-2"><div className="space-y-1.5"><label htmlFor="q7-receipt-qty" className="text-sm font-medium">Số lượng</label><Input id="q7-receipt-qty" className="min-h-12" inputMode="decimal" value={receiptQty} onChange={(event) => setReceiptQty(event.target.value)} /></div><div className="space-y-1.5"><label htmlFor="q7-receipt-unit" className="text-sm font-medium">Đơn vị</label><Input id="q7-receipt-unit" className="min-h-12 bg-muted/40" readOnly placeholder="Tự động theo NVL đã chọn" value={receiptUnit} /></div></div>
                 <div className="space-y-1.5"><label htmlFor="q7-receipt-reference" className="text-sm font-medium">Số chứng từ / tham chiếu</label><Input id="q7-receipt-reference" value={receiptReference} onChange={(event) => setReceiptReference(event.target.value)} /></div>
                 <div className="space-y-1.5"><label htmlFor="q7-receipt-note" className="text-sm font-medium">Ghi chú</label><Textarea id="q7-receipt-note" value={receiptNote} onChange={(event) => setReceiptNote(event.target.value)} /></div>
                 <Button className="min-h-12 w-full" disabled={!canWriteQ7 || recordReceiptMutation.isPending} onClick={submitReceipt}>{recordReceiptMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackagePlus className="mr-2 h-4 w-4" />}Ghi nhận nhập Q7</Button>
               </CardContent>
             </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="audit">
+          <div className="mx-auto max-w-2xl">
             <Card>
-              <CardHeader><CardTitle className="flex items-center gap-2"><ClipboardCheck className="h-5 w-5 text-primary" /> Audit tồn đầu</CardTitle><p className="text-sm text-muted-foreground">Tồn đầu có thể để trống để đánh dấu cần audit; chỉ người được phân quyền phù hợp mới ghi.</p></CardHeader>
+              <CardHeader><CardTitle className="flex items-center gap-2"><ClipboardCheck className="h-5 w-5 shrink-0 text-primary" /> Audit tồn đầu</CardTitle><p className="text-sm leading-6 text-muted-foreground">Chọn NVL, nhập tồn đầu đã được kế toán xác nhận. Nếu có kiểm đếm thực tế, nhập thêm số lượng và ngày kiểm đếm để lưu dấu audit.</p></CardHeader>
               <CardContent className="space-y-3">
-                <div className="space-y-1.5"><label htmlFor="q7-opening-item" className="text-sm font-medium">ID NVL Q7</label><Input id="q7-opening-item" value={openingItemId} onChange={(event) => setOpeningItemId(event.target.value)} /></div>
-                <div className="grid gap-3 sm:grid-cols-2"><div className="space-y-1.5"><label htmlFor="q7-opening-qty" className="text-sm font-medium">Tồn đầu (có thể trống)</label><Input id="q7-opening-qty" inputMode="decimal" value={openingQty} onChange={(event) => setOpeningQty(event.target.value)} /></div><div className="space-y-1.5"><label htmlFor="q7-opening-unit" className="text-sm font-medium">Đơn vị</label><Input id="q7-opening-unit" value={openingUnit} onChange={(event) => setOpeningUnit(event.target.value)} /></div></div>
+                <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm leading-6"><span className="font-semibold">Ngày hiệu lực:</span> {asOfDate}. Tồn đầu chưa kiểm xong có thể để trống và bổ sung sau.</div>
+                <div className="space-y-1.5"><label htmlFor="q7-opening-item" className="text-sm font-medium">Tên NVL Q7</label><Select value={openingItemId} onValueChange={(value) => { setOpeningItemId(value); setOpeningUnit(rows.find((row) => row.kitchen_inventory_item_id === value)?.unit || ""); }}><SelectTrigger id="q7-opening-item" className="min-h-12"><SelectValue placeholder="Chọn nguyên vật liệu cần audit" /></SelectTrigger><SelectContent>{rows.map((row) => <SelectItem key={row.kitchen_inventory_item_id} value={row.kitchen_inventory_item_id}>{row.item_name}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-3 sm:grid-cols-2"><div className="space-y-1.5"><label htmlFor="q7-opening-qty" className="text-sm font-medium">Tồn đầu đã xác nhận</label><Input id="q7-opening-qty" className="min-h-12" inputMode="decimal" placeholder="Có thể để trống" value={openingQty} onChange={(event) => setOpeningQty(event.target.value)} /></div><div className="space-y-1.5"><label htmlFor="q7-opening-unit" className="text-sm font-medium">Đơn vị</label><Input id="q7-opening-unit" className="min-h-12 bg-muted/40" readOnly placeholder="Tự động theo NVL đã chọn" value={openingUnit} /></div></div>
                 <div className="grid gap-3 sm:grid-cols-2"><div className="space-y-1.5"><label htmlFor="q7-physical-qty" className="text-sm font-medium">Đếm thực tế</label><Input id="q7-physical-qty" inputMode="decimal" value={physicalQty} onChange={(event) => setPhysicalQty(event.target.value)} /></div><div className="space-y-1.5"><label htmlFor="q7-physical-date" className="text-sm font-medium">Ngày kiểm đếm</label><Input id="q7-physical-date" type="date" value={physicalDate} onChange={(event) => setPhysicalDate(event.target.value)} /></div></div>
                 <div className="space-y-1.5"><label htmlFor="q7-opening-note" className="text-sm font-medium">Ghi chú audit</label><Textarea id="q7-opening-note" value={openingNote} onChange={(event) => setOpeningNote(event.target.value)} /></div>
                 <Button className="min-h-12 w-full" disabled={!canWriteQ7 || backfillOpeningMutation.isPending} onClick={submitOpening}>{backfillOpeningMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ClipboardCheck className="mr-2 h-4 w-4" />}Ghi audit tồn đầu Q7</Button>
