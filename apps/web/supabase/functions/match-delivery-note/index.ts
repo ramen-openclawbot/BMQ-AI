@@ -2,9 +2,13 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
+import { resolveCanonicalMaterialForLine, MaterialControllerResult } from "../_shared/material-controller.ts";
+// Task 5 contract marker: match-delivery-note keeps nameSimilarity for PO quantity assistance,
+// but canonical_material_id/resolved_exact must come from resolve_canonical_material only.
 
 interface ExtractedItem {
   product_name: string;
+  product_code?: string | null;
   quantity: number;
   unit: string;
   unit_price?: number;
@@ -12,12 +16,25 @@ interface ExtractedItem {
 
 interface MatchItem {
   deliveryName: string;
+  raw_product_name?: string;
+  raw_product_code?: string | null;
   deliveryQty: number;
   deliveryUnit: string;
+  matchedItemId?: string;
   matchedName?: string;
   matchedQty?: number;
   matchedUnit?: string;
+  lineIdentityExact?: boolean;
   status: "match" | "mismatch" | "extra" | "missing";
+  canonical_material_id?: string | null;
+  canonical_material_code?: string | null;
+  canonical_material_name?: string | null;
+  canonical_default_unit?: string | null;
+  material_resolution_status?: string | null;
+  material_resolution_request_id?: string | null;
+  resolved_exact?: boolean;
+  blockers?: string[];
+  candidate_names?: string[];
 }
 
 interface CandidateLine {
@@ -183,22 +200,29 @@ function matchExtractedItemsToCandidateLines(
       usedCandidateItemIds.add(bestItemMatch.item.id);
       const normalizedCandidateUnit = normalizeUnit(bestItemMatch.item.unit || "");
       const unitMatch = normalizedExtractedUnit === normalizedCandidateUnit;
+      const lineIdentityExact = normalizedExtracted === removeDiacritics(bestItemMatch.item.product_name) && unitMatch;
       const qtyMatch = quantityMatches(extracted.quantity, Number(bestItemMatch.item.quantity || 0));
 
       matchItems.push({
-        deliveryName: extracted.product_name,
+        deliveryName: extracted.product_name.trim(),
+        raw_product_name: extracted.product_name.trim(),
+        raw_product_code: extracted.product_code || null,
         deliveryQty: extracted.quantity,
         deliveryUnit: extracted.unit,
+        matchedItemId: bestItemMatch.item.id,
         matchedName: bestItemMatch.item.product_name,
         matchedQty: Number(bestItemMatch.item.quantity || 0),
         matchedUnit: bestItemMatch.item.unit || "",
+        lineIdentityExact,
         status: unitMatch && qtyMatch ? "match" : "mismatch",
       });
 
       if (unitMatch && qtyMatch) matchedCount++;
     } else {
       matchItems.push({
-        deliveryName: extracted.product_name,
+        deliveryName: extracted.product_name.trim(),
+        raw_product_name: extracted.product_name.trim(),
+        raw_product_code: extracted.product_code || null,
         deliveryQty: extracted.quantity,
         deliveryUnit: extracted.unit,
         status: "extra",
@@ -279,13 +303,64 @@ function findBestPaymentRequestMatch(
   return bestMatch;
 }
 
+async function attachMaterialResolutionToReceiptMatch(
+  controllerClient: ReturnType<typeof createClient>,
+  receipt: PendingReceiptCandidate,
+  items: MatchItem[],
+): Promise<MatchItem[]> {
+  return Promise.all(items.map(async (item) => {
+    if (!item.matchedItemId || item.status === "missing") return item;
+    // Fuzzy delivery-note line matching is quantity assistance only. Never bind
+    // canonical identity or create a source-line request until name+unit identity
+    // is deterministic against the persisted GR item.
+    if (!item.lineIdentityExact) {
+      return {
+        ...item,
+        canonical_material_id: null,
+        canonical_material_code: null,
+        canonical_material_name: null,
+        canonical_default_unit: null,
+        material_resolution_status: "confirmation_needed",
+        material_resolution_request_id: null,
+        resolved_exact: false,
+        blockers: ["delivery_note_line_identity_not_exact"],
+        candidate_names: [],
+      };
+    }
+    const resolution: MaterialControllerResult = await resolveCanonicalMaterialForLine(controllerClient, {
+      source_type: "match_delivery_note",
+      source_table: "goods_receipt_items",
+      source_id: receipt.id,
+      source_line_id: item.matchedItemId,
+      supplier_id: receipt.supplier_id,
+      raw_name: item.raw_product_name || item.deliveryName,
+      raw_code: item.raw_product_code || null,
+      raw_unit: item.deliveryUnit,
+      payload: { candidate_source: "delivery_note_ocr", confidence: "pending", field_name: "goods_receipt_item_material" },
+      applyExactToGoodsReceiptItem: true,
+    });
+    return {
+      ...item,
+      canonical_material_id: resolution.canonical_material_id,
+      canonical_material_code: resolution.canonical_material_code,
+      canonical_material_name: resolution.canonical_material_name,
+      canonical_default_unit: resolution.canonical_default_unit,
+      material_resolution_status: resolution.material_resolution_status,
+      material_resolution_request_id: resolution.material_resolution_request_id,
+      resolved_exact: resolution.resolved_exact,
+      blockers: resolution.blockers,
+      candidate_names: resolution.candidate_names,
+    };
+  }));
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return corsPreflightResponse(req);
   }
 
   try {
-    const { deliveryImage } = await req.json();
+    const { deliveryImage, receiptId } = await req.json();
 
     if (!deliveryImage) {
       return new Response(
@@ -305,6 +380,7 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
 
     if (!openaiApiKey) {
@@ -315,6 +391,10 @@ serve(async (req) => {
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const userSupabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+      auth: { persistSession: false },
+    }) as unknown as ReturnType<typeof createClient>;
 
     // Verify user token
     const token = authHeader.replace("Bearer ", "");
@@ -324,6 +404,26 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ error: "Invalid token" }),
         { status: 401, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+      );
+    }
+
+    const [{ data: roleRows, error: roleError }, { data: permissionRows, error: permissionError }] = await Promise.all([
+      supabase.from("user_roles").select("role").eq("user_id", user.id),
+      supabase.from("user_module_permissions").select("module_key, can_edit").eq("user_id", user.id).eq("module_key", "goods_receipts"),
+    ]);
+
+    if (roleError || permissionError) {
+      return new Response(
+        JSON.stringify({ error: "Unable to verify goods receipt permissions" }),
+        { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+      );
+    }
+    const isOwner = ((roleRows || []) as Array<{ role: string }>).some((row) => row.role === "owner");
+    const hasGoodsReceiptEdit = ((permissionRows || []) as Array<{ module_key: string; can_edit: boolean }>).some((row) => row.module_key === "goods_receipts" && row.can_edit);
+    if (!isOwner && !hasGoodsReceiptEdit) {
+      return new Response(
+        JSON.stringify({ error: "Forbidden: goods_receipts edit permission required" }),
+        { status: 403, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 
@@ -461,7 +561,7 @@ Important:
     }
 
     const bestReceiptMatch = findBestPendingReceiptMatch(
-      (pendingReceipts || []) as PendingReceiptCandidate[],
+      (pendingReceipts || []) as unknown as PendingReceiptCandidate[],
       supplier_name,
       extractedItems,
     );
@@ -469,6 +569,13 @@ Important:
     if (bestReceiptMatch) {
       const receipt = bestReceiptMatch.candidate;
       const isMatched = bestReceiptMatch.score >= 0.8;
+      if (receiptId && receipt.id !== receiptId) {
+        return new Response(
+          JSON.stringify({ error: "Matched receipt does not match requested receipt" }),
+          { status: 409, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+        );
+      }
+      const resolvedItems = await attachMaterialResolutionToReceiptMatch(userSupabase, receipt, bestReceiptMatch.items);
 
       return new Response(
         JSON.stringify({
@@ -482,8 +589,24 @@ Important:
           poTitle: (receipt.purchase_orders as any)?.title,
           supplierId: receipt.supplier_id,
           supplierName: (receipt.suppliers as any)?.name || supplier_name,
-          items: bestReceiptMatch.items,
-          extractedItems,
+          items: resolvedItems,
+          extractedItems: resolvedItems
+            .filter((item) => item.status !== "missing")
+            .map((item) => ({
+              product_name: item.raw_product_name || item.deliveryName,
+              product_code: item.raw_product_code || null,
+              quantity: item.deliveryQty,
+              unit: item.deliveryUnit,
+              matchedItemId: item.matchedItemId,
+              canonical_material_id: item.canonical_material_id,
+              material_resolution_status: item.material_resolution_status,
+              material_resolution_request_id: item.material_resolution_request_id,
+              resolved_exact: item.resolved_exact,
+              canonical_material_name: item.canonical_material_name,
+              canonical_material_code: item.canonical_material_code,
+              blockers: item.blockers,
+              candidate_names: item.candidate_names,
+            })),
         }),
         { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
@@ -513,7 +636,7 @@ Important:
     }
 
     const bestPaymentRequestMatch = findBestPaymentRequestMatch(
-      (paymentRequests || []) as PaymentRequestCandidate[],
+      (paymentRequests || []) as unknown as PaymentRequestCandidate[],
       supplier_name,
       extractedItems,
     );

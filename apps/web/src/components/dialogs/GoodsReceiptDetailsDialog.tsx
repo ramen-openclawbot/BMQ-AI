@@ -136,10 +136,17 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
   };
 
   const handleOcrPrefill = () => {
+    const safeItemIds = new Set(
+      ocrDelivery.materialResolutions
+        .filter((line) => line.resolved_exact === true || Boolean(line.material_resolution_request_id))
+        .map((line) => line.matchedItemId)
+        .filter(Boolean) as string[],
+    );
     setEditDraft(prev => {
       const next = { ...prev };
       for (const suggestion of ocrDelivery.suggestions) {
         if (!next[suggestion.itemId]) continue;
+        if (safeItemIds.size > 0 && !safeItemIds.has(suggestion.itemId)) continue;
         const item = items.find(i => i.id === suggestion.itemId);
         const orderedQty = Number(item?.ordered_quantity ?? item?.quantity ?? 0);
         next[suggestion.itemId] = {
@@ -149,7 +156,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
       }
       return next;
     });
-    toast.success("Đã điền số lượng từ OCR — kiểm tra và xác nhận trước khi chốt.");
+    toast.success("Đã áp dụng số lượng OCR an toàn — không ghi tên fuzzy vào NVL, kiểm tra trước khi chốt.");
   };
 
   const getStatusBadge = (status: string) => {
@@ -192,6 +199,40 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
     return <Badge variant="outline">-</Badge>;
   };
 
+  const renderMaterialResolution = (item: typeof items[number]) => {
+    const latest = getMaterialResolutionForItem(item);
+    const status = getMaterialStatus(item);
+    const canonicalName = latest?.canonical_material_name || item.canonical_materials?.canonical_name;
+    const canonicalCode = latest?.canonical_material_code || item.canonical_materials?.material_code;
+    const rawName = latest?.product_name || item.raw_product_name || item.product_name;
+    const requestId = latest?.material_resolution_request_id || item.material_resolution_request_id;
+    const blockers = latest?.blockers || [];
+    const candidateNames = latest?.candidate_names || [];
+    const exact = latest?.resolved_exact === true || Boolean(item.canonical_material_id);
+
+    if (exact) {
+      return (
+        <div className="mt-1 space-y-1 text-xs" data-bmq-goods-receipt-material-resolution>
+          <p className="text-muted-foreground">Tên OCR gốc: <span className="font-medium text-foreground">{rawName}</span></p>
+          <p className="text-emerald-700">NVL chuẩn: <span className="font-semibold">{canonicalCode ? `${canonicalCode} · ` : ""}{canonicalName || item.product_name}</span></p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="mt-1 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900" data-bmq-goods-receipt-material-resolution>
+        <p className="font-semibold">Cần xử lý NVL</p>
+        <p>Tên OCR gốc: <span className="font-medium">{rawName}</span></p>
+        <p>Trạng thái: {status}{requestId ? ` · yêu cầu ${requestId.slice(0, 8)}` : ""}</p>
+        {blockers.length > 0 && <p>Blocker: {blockers.join(", ")}</p>}
+        {candidateNames.length > 0 && <p>Gợi ý: {candidateNames.join("; ")}</p>}
+        <a href="/material-master" className="mt-1 inline-flex items-center gap-1 font-medium text-primary hover:underline">
+          Mở hàng đợi /material-master <ExternalLink className="h-3 w-3" />
+        </a>
+      </div>
+    );
+  };
+
   const isLoading = receiptLoading || itemsLoading;
   const isFinalizedWithPayable = receipt?.payable_status === "generated";
   const isReceiveMode = receipt?.status === "confirmed" && !isFinalizedWithPayable;
@@ -211,12 +252,28 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
   const hasDeliveryNoteEvidence = Boolean(deliveryNotePath || receiptImageUrl);
   const hasRequiredReceiptEvidence = !isReceiveMode || hasDeliveryNoteEvidence;
   const hasRequiredVarianceEvidence = !hasShortageItems || hasDeliveryNoteEvidence;
+  const latestMaterialResolutionByItemId = new Map(
+    ocrDelivery.materialResolutions
+      .filter((line) => line.matchedItemId)
+      .map((line) => [line.matchedItemId as string, line]),
+  );
+  const getMaterialResolutionForItem = (item: typeof items[number]) => latestMaterialResolutionByItemId.get(item.id);
+  const getMaterialStatus = (item: typeof items[number]) => {
+    const latest = getMaterialResolutionForItem(item);
+    return latest?.material_resolution_status || item.material_resolution_status || (item.canonical_material_id ? "resolved_exact" : "pending");
+  };
+  const hasMaterialResolutionBlockers = isReceiveMode && items.some((item) => {
+    const latest = getMaterialResolutionForItem(item);
+    const exact = latest?.resolved_exact === true || Boolean(item.canonical_material_id);
+    return !exact;
+  });
 
   const canFinalize =
     isReceiveMode &&
     items.length > 0 &&
     hasRequiredReceiptEvidence &&
     hasRequiredVarianceEvidence &&
+    !hasMaterialResolutionBlockers &&
     items.every(item => {
       const orderedQty = Number(item.ordered_quantity ?? item.quantity ?? 0);
       return validateLine(editDraft[item.id], orderedQty) === null;
@@ -542,6 +599,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                           className="mt-3"
                           onClick={handleOcrPrefill}
                           data-bmq-goods-receipt-ocr-prefill-actuals
+                          data-bmq-goods-receipt-ocr-safe-quantity-only
                         >
                           <Sparkles className="mr-2 h-4 w-4" />
                           Áp dụng OCR vào số thực nhận
@@ -560,6 +618,12 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                     <p className="flex items-center gap-1 text-xs font-medium text-amber-700" data-bmq-goods-receipt-variance-evidence-required>
                       <AlertTriangle className="h-3 w-3" />
                       Thiếu/lệch hàng cần lý do và ảnh chứng từ để kế toán đối soát.
+                    </p>
+                  )}
+                  {hasMaterialResolutionBlockers && (
+                    <p className="flex items-center gap-1 text-xs font-medium text-amber-700">
+                      <AlertTriangle className="h-3 w-3" />
+                      Cần xử lý NVL trong /material-master trước khi Nhập kho + Tạo công nợ.
                     </p>
                   )}
                 </div>
@@ -650,6 +714,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                             <p className="font-medium">{lineStatusLabel(draftStatus)}</p>
                           </div>
                         </div>
+                        {renderMaterialResolution(item)}
                         {isReceiveMode && isShort && (
                           <div className="mt-2" data-bmq-goods-receipt-shortage-reason>
                             <Input
@@ -714,6 +779,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                         <TableRow key={item.id}>
                           <TableCell className="font-medium">
                             {item.product_name}
+                            {renderMaterialResolution(item)}
                             {validationError && (
                               <p className="mt-0.5 flex items-center gap-1 text-xs text-destructive">
                                 <AlertTriangle className="h-3 w-3" />{validationError}
