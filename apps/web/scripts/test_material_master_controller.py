@@ -167,6 +167,109 @@ def statement_writes_table(table: str, statements: list[str]) -> bool:
     return any(dml_re.search(stmt) for stmt in statements)
 
 
+def strip_sql_comments(sql: str) -> str:
+    """Remove SQL comments while preserving quoted/dollar-quoted function bodies."""
+    out: list[str] = []
+    in_single = False
+    in_double = False
+    in_line_comment = False
+    in_block_comment = False
+    dollar_tag: str | None = None
+    i = 0
+    while i < len(sql):
+        ch = sql[i]
+        nxt = sql[i + 1] if i + 1 < len(sql) else ""
+        if in_line_comment:
+            if ch == "\n":
+                out.append(ch)
+                in_line_comment = False
+            i += 1
+            continue
+        if in_block_comment:
+            if ch == "*" and nxt == "/":
+                in_block_comment = False
+                i += 2
+            else:
+                if ch == "\n":
+                    out.append(ch)
+                i += 1
+            continue
+        if dollar_tag:
+            if sql.startswith(dollar_tag, i):
+                out.append(dollar_tag)
+                i += len(dollar_tag)
+                dollar_tag = None
+            else:
+                out.append(ch)
+                i += 1
+            continue
+        if not in_single and not in_double:
+            if ch == "-" and nxt == "-":
+                in_line_comment = True
+                i += 2
+                continue
+            if ch == "/" and nxt == "*":
+                in_block_comment = True
+                i += 2
+                continue
+            match = re.match(r"\$[A-Za-z_][A-Za-z_0-9]*\$|\$\$", sql[i:])
+            if match:
+                dollar_tag = match.group(0)
+                out.append(dollar_tag)
+                i += len(dollar_tag)
+                continue
+        if ch == "'" and not in_double:
+            out.append(ch)
+            if in_single and nxt == "'":
+                out.append(nxt)
+                i += 2
+                continue
+            in_single = not in_single
+            i += 1
+            continue
+        if ch == '"' and not in_single:
+            in_double = not in_double
+            out.append(ch)
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out).lower()
+
+
+
+def sql_function_body(sql: str, function_name: str) -> str:
+    uncommented = strip_sql_comments(sql)
+    pattern = re.compile(
+        rf"create\s+or\s+replace\s+function\s+public\.{re.escape(function_name)}\s*\([\s\S]*?\)[\s\S]*?as\s+(\$[A-Za-z_][A-Za-z_0-9]*\$|\$\$)(?P<body>[\s\S]*?)\1\s*;"
+    )
+    match = pattern.search(uncommented)
+    assert match, f"Missing function body for {function_name}"
+    return strip_sql_comments(match.group("body"))
+
+
+def trigger_function_body(sql: str, function_name: str) -> str:
+    uncommented = strip_sql_comments(sql)
+    pattern = re.compile(
+        rf"create\s+or\s+replace\s+function\s+public\.{re.escape(function_name)}\s*\(\s*\)[\s\S]*?as\s+(\$[A-Za-z_][A-Za-z_0-9]*\$|\$\$)(?P<body>[\s\S]*?)\1\s*;"
+    )
+    match = pattern.search(uncommented)
+    assert match, f"Missing trigger function body for {function_name}"
+    return strip_sql_comments(match.group("body"))
+
+
+def assert_lock_before_overlap_exists(body: str, required_fragments: tuple[str, ...]) -> None:
+    lock_pos = body.find("pg_catalog.pg_advisory_xact_lock")
+    exists_pos = body.find("exists")
+    assert lock_pos >= 0, "overlap trigger must use transaction-scoped advisory lock"
+    assert exists_pos >= 0, "overlap trigger must retain overlap EXISTS check"
+    assert lock_pos < exists_pos, "advisory xact lock must be taken before overlap EXISTS check"
+    assert "pg_advisory_lock" not in body, "session advisory locks must not be used"
+    assert "pg_catalog.hashtextextended" in body
+    for fragment in required_fragments:
+        assert fragment in body
+
+
 def load_audit_module():
     assert AUDIT_SCRIPT.exists(), f"Missing audit utility: {AUDIT_SCRIPT}"
     spec = importlib.util.spec_from_file_location("audit_material_master", AUDIT_SCRIPT)
@@ -414,12 +517,258 @@ def test_controller_only_approved_exact_sources_can_resolve_exact():
 
     assert "resolved_exact" in sql
     assert "approved_supplier_alias" in sql
+    assert "approved_source_alias" in sql
     assert "approved_global_alias" in sql
     assert "normalized_name" in sql
     assert re.search(r"match_source[^;]+(material_code|code)", sql, flags=re.S)
     assert re.search(r"match_source[^;]+normalized_name", sql, flags=re.S)
     assert re.search(r"match_source[^;]+approved_supplier_alias", sql, flags=re.S)
+    assert re.search(r"match_source[^;]+approved_source_alias", sql, flags=re.S)
     assert re.search(r"match_source[^;]+approved_global_alias", sql, flags=re.S)
+
+
+def test_task2_exact_rpc_signatures_and_status_vocabularies_match_approved_brief():
+    sql = future_controller_sql()
+    smoke = read(ROLLBACK_SMOKE).lower()
+
+    exact_signatures = [
+        "public.request_material_resolution(text,text,uuid,uuid,text,text,text,uuid,jsonb)",
+        "public.create_canonical_material(text,text,text,text,text,text,text,uuid)",
+        "public.update_canonical_material(uuid,int,jsonb,text,uuid)",
+        "public.confirm_material_resolution(uuid,text,uuid,jsonb,jsonb,jsonb,text)",
+        "public.assert_material_ready(uuid,text[],uuid,text,date)",
+    ]
+    for signature in exact_signatures:
+        assert signature in sql, f"migration ACL/to_regprocedure must use exact signature {signature}"
+        assert signature in smoke, f"rollback smoke must assert exact signature {signature}"
+
+    for wrong_signature in [
+        "public.request_material_resolution(text, text, text, text, uuid, text, text, text, jsonb)",
+        "public.create_canonical_material(text, text, text, text, jsonb, text, text, text)",
+        "public.confirm_material_resolution(uuid, text, uuid, jsonb, jsonb, text)",
+    ]:
+        assert wrong_signature.replace(" ", "") not in sql.replace(" ", "")
+
+    for status in ("request_created", "request_existing", "already_resolved"):
+        assert status in sql
+    for resolution_status in ("pending", "resolved_existing", "created_new", "rejected"):
+        assert resolution_status in sql
+    for candidate_status in ("confirmation_needed", "ambiguous", "not_found"):
+        assert candidate_status in sql
+    for confirm_status in ("resolved_existing", "created_new", "rejected", "resolution_unchanged"):
+        assert confirm_status in sql
+
+
+def test_task2_root_columns_nullable_no_metadata_and_legacy_version_contract():
+    sql = future_controller_sql()
+
+    assert re.search(r"add\s+column\s+if\s+not\s+exists\s+version\s+integer(?!\s+not\s+null)(?!\s+default)", sql)
+    assert "check (version is null or version > 0)" in sql
+    assert "add column if not exists metadata" not in sql
+    assert "metadata =" not in sql
+    assert "version = coalesce(version, 0) + 1" in sql
+    assert "coalesce(v_old.version, 0) <> p_expected_version" in sql
+    assert "alias_created_for_old_name" in sql
+
+
+def test_task2_effective_dated_prices_and_overlap_guards_match_approved_model():
+    sql = future_controller_sql()
+    smoke = read(ROLLBACK_SMOKE).lower()
+
+    assert "price_type text not null" in sql
+    assert "check (price_type in ('standard_cost','purchase_price'))" in sql
+    assert "price numeric not null" in sql
+    assert "normalized_base_unit_price numeric" in sql
+    assert "source_id uuid" in sql
+    assert not re.search(r"\bstandard_cost\s+numeric\b", sql)
+    assert not re.search(r"\bpurchase_price\s+numeric\b", sql)
+    assert not re.search(r"\bbase_unit_price\s+numeric\b", sql)
+    assert "trg_material_price_history_reject_approved_overlap" in sql
+    assert "trg_material_unit_conversions_reject_approved_overlap" in sql
+    assert "daterange" in sql and "&&" in sql
+
+    conversion_body = trigger_function_body(sql, "trg_material_unit_conversions_reject_approved_overlap")
+    assert_lock_before_overlap_exists(
+        conversion_body,
+        (
+            "material_unit_conversions_overlap:",
+            "new.material_id",
+            "lower(btrim(coalesce(new.from_unit, '')))",
+            "lower(btrim(coalesce(new.to_unit, '')))",
+        ),
+    )
+    price_body = trigger_function_body(sql, "trg_material_price_history_reject_approved_overlap")
+    assert_lock_before_overlap_exists(
+        price_body,
+        (
+            "material_price_history_overlap:",
+            "new.material_id",
+            "coalesce(new.supplier_product_id, '00000000-0000-0000-0000-000000000000'::uuid)",
+            "new.price_type",
+            "lower(btrim(coalesce(new.price_unit, '')))",
+        ),
+    )
+    assert "btree_gist" not in sql
+    assert "pg_advisory_xact_lock" in smoke
+    assert "overlapping approved conversion" in smoke
+    assert "overlapping approved price" in smoke
+
+
+def test_task2_safe_payload_alias_uniqueness_acl_and_sequence_contracts():
+    sql = future_controller_sql()
+    smoke = read(ROLLBACK_SMOKE).lower()
+
+    assert "where key in ('candidate_source','confidence','field_name')" in sql
+    assert "source_column" not in sql and "parser" not in sql and "line_number" not in sql
+    assert "source_type text not null" in sql
+    assert "uq_material_scoped_aliases_source_active_approved" in sql
+    assert "where supplier_id is null and active = true and approved = true" in sql
+    assert "approved scoped alias already belongs to another canonical material" in sql
+    assert "approved source alias already belongs to another canonical material" in sql
+    assert "approved global alias already belongs to another canonical material" in sql
+    assert "select last_value, is_called" in sql
+    assert "setval('public.sku_cogs_materials_nvl_code_seq', greatest(v_max_code, v_last_value), true)" in sql
+    assert "revoke insert, update, delete, truncate on public.sku_cogs_materials from service_role" in sql
+    assert "revoke insert, update, delete, truncate on public.sku_cogs_material_aliases from service_role" in sql
+    for probe in ("approved supplier scoped alias resolves", "approved source-scoped alias resolves", "approved global legacy alias resolves", "sequence collision"):
+        assert probe in smoke
+
+
+def test_confirm_material_resolution_fails_closed_after_alias_conflict_races_and_reuses_same_material_aliases():
+    sql = future_controller_sql()
+    body = sql_function_body(sql, "confirm_material_resolution")
+    smoke = read(ROLLBACK_SMOKE).lower()
+
+    required_messages = (
+        "approved scoped alias conflict after insert race",
+        "approved source alias conflict after insert race",
+        "approved global alias conflict after insert race",
+        "approved alias insert returned no id after conflict re-read",
+    )
+    for message in required_messages:
+        assert message in body, f"confirm_material_resolution must raise fail-closed message: {message}"
+
+    branches = (
+        ("supplier_id = v_req.supplier_id", "material_scoped_aliases"),
+        ("source_type = lower(btrim(v_req.source_type))", "material_scoped_aliases"),
+        ("normalized_alias = v_alias", "sku_cogs_material_aliases"),
+    )
+    for key_fragment, table in branches:
+        returning_pos = body.find("returning id into", body.find(key_fragment))
+        assert returning_pos >= 0, f"{key_fragment} branch must keep conflict RETURNING id"
+        reread_pos = body.find(f"from public.{table}", returning_pos)
+        assert reread_pos > returning_pos, f"{key_fragment} branch must re-read unique key after null RETURNING"
+        raise_pos = body.find("using errcode='23505'", reread_pos)
+        assert raise_pos > reread_pos, f"{key_fragment} branch must raise 23505 after conflict re-read finds other material or no row"
+
+    # The final request update must be guarded so a non-empty alias can never resolve with no alias id.
+    fail_closed_pos = body.find("approved alias insert returned no id after conflict re-read")
+    update_pos = body.rfind("update public.material_resolution_requests")
+    assert 0 <= fail_closed_pos < update_pos
+
+
+def test_confirm_material_resolution_reuses_same_material_supplier_product_business_key_without_broad_catch():
+    sql = future_controller_sql()
+    body = sql_function_body(sql, "confirm_material_resolution")
+    smoke = read(ROLLBACK_SMOKE).lower()
+
+    assert "on conflict (supplier_id, normalized_supplier_product_name, (lower(btrim(purchase_unit)))) where active = true do nothing" in body
+    assert "returning id into v_supplier_product_id" in body
+    insert_pos = body.find("insert into public.material_supplier_products")
+    reread_pos = body.find("from public.material_supplier_products", insert_pos)
+    assert reread_pos > insert_pos, "supplier product business-key conflict must re-read the active row"
+    assert "supplier product normalized name/unit already belongs to another material" in body
+    assert "supplier product insert returned no id after conflict re-read" in body
+    assert "when unique_violation" not in body[insert_pos:], "do not broadly catch unique violations; item-code conflicts must propagate"
+
+    request_update_pos = body.rfind("update public.material_resolution_requests")
+    assert 0 <= reread_pos < request_update_pos
+    assert "resolved_supplier_product_id=v_supplier_product_id" in body
+
+    assert "same-material supplier product normalized name/unit reuses existing id" in smoke
+
+
+def test_task2_final_blockers_static_contracts_for_ready_scope_ids_acl_and_owner_seed():
+    sql = future_controller_sql()
+    smoke = read(ROLLBACK_SMOKE).lower()
+
+    assert "on conflict (user_id, module_key) do nothing" in sql
+    assert "on conflict (user_id, module_key) do update" not in sql
+    assert "resolved_scoped_alias_id" in sql
+    assert "resolved_global_alias_id" in sql
+    assert "resolved_supplier_product_id" in sql
+    assert "resolution_unchanged" in sql
+    assert re.search(r"resolution_unchanged[\s\S]+coalesce\(v_req\.resolved_scoped_alias_id,\s*v_req\.resolved_global_alias_id\)", sql)
+
+    assert "supplier_id uuid references public.suppliers(id) on delete restrict" in sql
+    assert "supplier_id uuid references public.suppliers(id) on delete set null" not in sql
+    uncommented_sql = strip_sql_comments(sql)
+    supplier_product_unique_pattern = re.compile(
+        r"create\s+unique\s+index(?:\s+if\s+not\s+exists)?\s+\S*\s*"
+        r"on\s+public\.material_supplier_products\s*\(\s*"
+        r"supplier_id\s*,\s*normalized_supplier_product_name\s*,\s*lower\s*\(\s*btrim\s*\(\s*purchase_unit\s*\)\s*\)\s*\)"
+        r"[\s\S]*?where\s+active\s*=\s*true",
+        flags=re.S,
+    )
+    assert supplier_product_unique_pattern.search(uncommented_sql), (
+        "active supplier products must have a real partial unique index on "
+        "supplier_id + normalized supplier product name + normalized purchase unit"
+    )
+    assert "duplicate active supplier product normalized name/unit" in smoke
+    assert "different purchase unit may coexist" in smoke
+    assert "supplier product duplicate normalized name/unit should have failed" in smoke
+    assert "23505" in smoke or "unique_violation" in smoke
+    assert "uq_material_supplier_products_active_code" in sql
+    assert "material_scoped_aliases_source_type_normalized" in sql
+    assert "material_resolution_requests_source_type_normalized" in sql
+    assert "check (source_type = lower(btrim(source_type)))" in sql
+    assert "v_source_type text := nullif(lower(btrim(coalesce(p_source_type, ''))), '')" in sql
+    assert "lower(btrim(coalesce(p_source_type, '')))" in sql
+    assert "lower(btrim(v_req.source_type))" in sql
+
+    for blocker in ("missing_standard_cost", "missing_purchase_price", "missing_q7_mapping"):
+        assert blocker in sql
+    assert "standard_cost_unmapped" not in sql
+    assert "purchase_price_unmapped" not in sql
+    assert "q7_material_issue_material_mappings" in sql
+    assert "unsupported_capability" in sql
+    assert "material_id', p_material_id" in sql
+    ready_function = next(
+        stmt for stmt in split_sql_statements(sql)
+        if "create or replace function public.assert_material_ready" in stmt
+    )
+    price_branch = ready_function.split("elsif v_cap in ('price','standard_cost','purchase_price')", 1)[1].split("elsif v_cap = 'q7_mapping'", 1)[0]
+    assert "ph.supplier_product_id is null" in price_branch
+    assert "join public.material_supplier_products sp on sp.id = ph.supplier_product_id" not in price_branch
+    assert re.search(
+        r"ph\.supplier_product_id\s+is\s+null[\s\S]+or[\s\S]+exists\s*\([\s\S]+from\s+public\.material_supplier_products\s+sp[\s\S]+sp\.id\s*=\s*ph\.supplier_product_id[\s\S]+sp\.supplier_id\s*=\s*p_supplier_id[\s\S]+sp\.active\s*=\s*true[\s\S]+sp\.approved\s*=\s*true",
+        price_branch,
+    ), "readiness must accept global price rows and supplier-specific prices only for the requested approved active supplier product"
+
+    for fn in (
+        "trg_material_unit_conversions_reject_approved_overlap()",
+        "trg_material_price_history_reject_approved_overlap()",
+        "trg_material_master_audit_append_only()",
+        "trg_guard_canonical_material_identity()",
+        "trg_validate_canonical_material_fk_active()",
+    ):
+        assert f"revoke execute on function public.{fn} from public, anon, authenticated, service_role" in sql
+        assert f"has_function_privilege('authenticated', 'public.{fn}', 'execute')" in smoke
+        assert f"has_function_privilege('service_role', 'public.{fn}', 'execute')" in smoke
+
+
+def test_task2_final_blockers_rollback_smoke_runtime_probes():
+    smoke = read(ROLLBACK_SMOKE).lower()
+    assert "ready response contract and blockers" in smoke
+    assert "material_id" in smoke and "missing_standard_cost" in smoke and "missing_q7_mapping" in smoke
+    assert "mixed-case source scope normalizes" in smoke
+    assert "duplicate casing cannot create separate approved alias" in smoke
+    assert "idempotent terminal ids" in smoke
+    assert "alias_id" in smoke and "supplier_product_id" in smoke
+    assert "approved global standard cost satisfies readiness" in smoke
+    assert "supplier_product_id, price_type, price, price_unit" in smoke
+    assert "values (v_material_id, null, 'standard_cost'" in smoke
+    assert "missing_standard_cost should clear after approved global standard cost" in smoke
 
 
 def test_controller_never_allows_fuzzy_or_ai_candidate_as_resolved_exact():
