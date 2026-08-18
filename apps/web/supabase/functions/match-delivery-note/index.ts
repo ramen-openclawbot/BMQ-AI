@@ -69,15 +69,6 @@ interface PendingReceiptCandidate {
   }>;
 }
 
-interface PaymentRequestCandidate {
-  id: string;
-  request_number: string;
-  title: string;
-  supplier_id: string | null;
-  suppliers?: { id: string; name: string } | null;
-  payment_request_items?: CandidateLine[];
-}
-
 interface CandidateMatch<T> {
   candidate: T;
   score: number;
@@ -290,25 +281,6 @@ function findBestPendingReceiptMatch(
     const candidateItems = toReceiptCandidateLines(receipt);
     const candidateSupplierName = (receipt.suppliers as any)?.name || "";
     const scored = scoreCandidate(receipt, supplierName, candidateSupplierName, candidateItems, extractedItems);
-    if (scored && (!bestMatch || scored.score > bestMatch.score)) {
-      bestMatch = scored;
-    }
-  }
-
-  return bestMatch;
-}
-
-function findBestPaymentRequestMatch(
-  paymentRequests: PaymentRequestCandidate[],
-  supplierName: string,
-  extractedItems: ExtractedItem[],
-): CandidateMatch<PaymentRequestCandidate> | null {
-  let bestMatch: CandidateMatch<PaymentRequestCandidate> | null = null;
-
-  for (const pr of paymentRequests) {
-    const prItems = pr.payment_request_items || [];
-    const candidateSupplierName = (pr.suppliers as any)?.name || "";
-    const scored = scoreCandidate(pr, supplierName, candidateSupplierName, prItems, extractedItems);
     if (scored && (!bestMatch || scored.score > bestMatch.score)) {
       bestMatch = scored;
     }
@@ -672,77 +644,20 @@ Important:
       );
     }
 
-    // Legacy fallback: approved payment requests that don't have goods_receipt yet.
-    const { data: paymentRequests, error: prError } = await supabase
-      .from("payment_requests")
-      .select(`
-        id,
-        request_number,
-        title,
-        supplier_id,
-        suppliers!inner(id, name),
-        payment_request_items(id, product_name, quantity, unit, unit_price)
-      `)
-      .eq("status", "approved")
-      .is("goods_receipt_id", null)
-      .eq("delivery_status", "pending");
-
-    if (prError) {
-      console.error("Error fetching payment requests:", prError);
-      return new Response(
-        JSON.stringify({ error: "Failed to fetch payment requests" }),
-        { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-      );
-    }
-
-    const bestPaymentRequestMatch = findBestPaymentRequestMatch(
-      (paymentRequests || []) as unknown as PaymentRequestCandidate[],
-      supplier_name,
-      extractedItems,
-    );
-
-    if (!bestPaymentRequestMatch) {
-      return new Response(
-        JSON.stringify({
-          isMatched: false,
-          matchScore: 0,
-          matchSource: "none",
-          items: extractedItems.map(item => ({
-            deliveryName: item.product_name,
-            deliveryQty: item.quantity,
-            deliveryUnit: item.unit,
-            status: "extra" as const,
-          })),
-          supplierName: supplier_name || "Không xác định",
-          error: "Không tìm thấy phiếu chờ nhập kho hoặc đề nghị chi phù hợp"
-        }),
-        { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-      );
-    }
-
-    const pr = bestPaymentRequestMatch.candidate;
-    const isMatched = bestPaymentRequestMatch.score >= 0.8;
-
     return new Response(
       JSON.stringify({
-        isMatched,
-        matchScore: bestPaymentRequestMatch.score,
-        matchSource: "payment_request",
-        paymentRequestId: pr.id,
-        paymentRequestNumber: pr.request_number,
-        paymentRequestTitle: pr.title,
-        supplierId: pr.supplier_id,
-        supplierName: (pr.suppliers as any)?.name || supplier_name,
-        items: bestPaymentRequestMatch.items,
-        extractedItems,
+        isMatched: false,
+        matchScore: 0,
+        matchSource: "none",
+        error: "Không tìm thấy dòng phù hợp trong phiếu nhập đã chọn.",
       }),
-      { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+      { status: 422, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
     );
 
   } catch (error) {
     console.error("Error in match-delivery-note:", error);
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
+      JSON.stringify({ error: "Không thể xử lý phiếu giao hàng. Vui lòng thử lại." }),
       { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
     );
   }
