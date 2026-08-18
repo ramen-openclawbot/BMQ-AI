@@ -16,7 +16,6 @@ import {
   useMaterialMaster,
   useUpdateCanonicalMaterial,
 } from "@/hooks/useMaterialMaster";
-import ControllerDashboard from "./ControllerDashboard";
 import ReconciliationQueue from "./ReconciliationQueue";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -91,20 +90,23 @@ type MutationFormProps = {
   onClose?: () => void;
 };
 
+const materialFormValues = (selected: CanonicalMaterial | null) => selected ? {
+  material_code: selected.material_code || "",
+  canonical_name: selected.canonical_name || "",
+  default_unit: selected.default_unit || "",
+  category: selected.category || "",
+  brand: selected.brand || "",
+  specification: selected.specification || "",
+  activeChoice: selected.active === false ? "inactive" : "active",
+  reason: "",
+} : { ...emptyForm };
+
 function MaterialMutationForm({ canMutate, selected, onClose }: MutationFormProps) {
   const { toast } = useToast();
   const createMutation = useCreateCanonicalMaterial();
   const updateMutation = useUpdateCanonicalMaterial();
-  const [form, setForm] = useState(() => selected ? {
-    material_code: selected.material_code || "",
-    canonical_name: selected.canonical_name || "",
-    default_unit: selected.default_unit || "",
-    category: selected.category || "",
-    brand: selected.brand || "",
-    specification: selected.specification || "",
-    activeChoice: selected.active === false ? "inactive" : "active",
-    reason: "",
-  } : emptyForm);
+  const [form, setForm] = useState(() => materialFormValues(selected));
+
 
   const setField = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }));
   const pending = createMutation.isPending || updateMutation.isPending;
@@ -180,8 +182,8 @@ function MaterialMutationForm({ canMutate, selected, onClose }: MutationFormProp
   );
 }
 
-function ResponsiveMaterialList({ materials, selected, onSelect }: { materials: CanonicalMaterial[]; selected: CanonicalMaterial | null; onSelect: (m: CanonicalMaterial) => void }) {
-  return <Card data-bmq-material-master-no-raw-ids><CardHeader><CardTitle>Tên và đơn vị chuẩn</CardTitle><CardDescription>Chọn một nguyên liệu để sửa tên, mã, đơn vị, nhóm hoặc quy cách dùng chung.</CardDescription></CardHeader><CardContent><div className="hidden overflow-x-auto md:block"><Table><TableHeader><TableRow><TableHead>Mã NVL</TableHead><TableHead>Tên NVL chuẩn</TableHead><TableHead>Đơn vị chuẩn</TableHead><TableHead>Nhóm · Thương hiệu · Quy cách</TableHead><TableHead>Trạng thái</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>{materials.map((row) => <TableRow key={row.id} className={selected?.id === row.id ? "bg-emerald-50" : ""}><TableCell className="font-medium">{row.material_code}</TableCell><TableCell>{row.canonical_name}</TableCell><TableCell>{row.default_unit}</TableCell><TableCell>{[row.category, row.brand, row.specification].filter(Boolean).join(" · ") || "—"}</TableCell><TableCell>{statusBadge(row.active)}</TableCell><TableCell><Button variant="outline" size="sm" onClick={() => onSelect(row)}>Chọn để sửa</Button></TableCell></TableRow>)}</TableBody></Table></div><div className="space-y-3 md:hidden" data-bmq-material-master-mobile-cards>{materials.map((row) => <button key={row.id} type="button" onClick={() => onSelect(row)} className="w-full rounded-2xl border bg-white p-4 text-left shadow-sm"><div className="flex items-center justify-between gap-2"><h3 className="min-w-0 break-words font-semibold text-slate-900">{row.canonical_name}</h3>{statusBadge(row.active)}</div><p className="mt-1 text-sm text-slate-600">{row.material_code} · {row.default_unit || "chưa có đơn vị"}</p><p className="mt-1 text-xs text-slate-500">{[row.category, row.brand, row.specification].filter(Boolean).join(" · ") || "Chưa phân nhóm"}</p></button>)}</div>{materials.length === 0 && <div className="rounded-xl border border-dashed p-6 text-center text-sm text-slate-500">Không có NVL chuẩn phù hợp.</div>}</CardContent></Card>;
+function ResponsiveMaterialList({ materials, selected, onSelect, editable }: { materials: CanonicalMaterial[]; selected: CanonicalMaterial | null; onSelect: (m: CanonicalMaterial) => void; editable: boolean }) {
+  return <Card data-bmq-material-master-no-raw-ids data-bmq-material-master-tap-to-edit><CardHeader><CardTitle>Tên và đơn vị chuẩn</CardTitle><CardDescription>{editable ? "Chạm vào NVL để sửa tên, đơn vị, nhóm hoặc quy cách." : "Chạm vào NVL để xem các liên kết đang sử dụng."}</CardDescription></CardHeader><CardContent><div className="hidden overflow-x-auto md:block"><Table><TableHeader><TableRow><TableHead>Mã NVL</TableHead><TableHead>Tên NVL chuẩn</TableHead><TableHead>Đơn vị chuẩn</TableHead><TableHead>Nhóm · Thương hiệu · Quy cách</TableHead><TableHead>Trạng thái</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>{materials.map((row) => <TableRow key={row.id} onClick={() => onSelect(row)} className={`${selected?.id === row.id ? "bg-emerald-50" : ""} cursor-pointer hover:bg-emerald-50/60`}><TableCell className="font-medium">{row.material_code}</TableCell><TableCell>{row.canonical_name}</TableCell><TableCell>{row.default_unit}</TableCell><TableCell>{[row.category, row.brand, row.specification].filter(Boolean).join(" · ") || "—"}</TableCell><TableCell>{statusBadge(row.active)}</TableCell><TableCell><Button variant="outline" size="sm" onClick={(event) => { event.stopPropagation(); onSelect(row); }}><Edit3 className="mr-2 h-4 w-4" />{editable ? "Sửa" : "Xem"}</Button></TableCell></TableRow>)}</TableBody></Table></div><div className="space-y-3 md:hidden" data-bmq-material-master-mobile-cards>{materials.map((row) => <button key={row.id} type="button" onClick={() => onSelect(row)} className="w-full rounded-2xl border bg-white p-4 text-left shadow-sm transition-colors active:bg-emerald-50"><div className="flex items-start justify-between gap-2"><h3 className="min-w-0 break-words font-semibold text-slate-900">{row.canonical_name}</h3>{statusBadge(row.active)}</div><p className="mt-1 text-sm text-slate-600">{row.material_code} · {row.default_unit || "chưa có đơn vị"}</p><p className="mt-1 text-xs text-slate-500">{[row.category, row.brand, row.specification].filter(Boolean).join(" · ") || "Chưa phân nhóm"}</p><p className="mt-3 flex items-center gap-1.5 text-sm font-medium text-emerald-700"><Edit3 className="h-4 w-4" />{editable ? "Chạm để sửa" : "Chạm để xem liên kết"}</p></button>)}</div>{materials.length === 0 && <div className="rounded-xl border border-dashed p-6 text-center text-sm text-slate-500">Không có NVL chuẩn phù hợp.</div>}</CardContent></Card>;
 }
 
 function ReadOnlyTable<T>({ title, description, rows, render }: { title: string; description: string; rows: T[]; render: (row: T, idx: number) => JSX.Element }) {
@@ -238,8 +240,7 @@ export default function MaterialMasterAdmin() {
   const { canAccessModule, canEditModule } = useAuth();
   const canView = canAccessModule("material_master");
   const canEdit = canEditModule("material_master");
-  const [editMode, setEditMode] = useState(false);
-  const canMutate = canEdit && editMode;
+  const canMutate = canEdit;
   const { data, isLoading, error } = useMaterialMaster();
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -271,30 +272,28 @@ export default function MaterialMasterAdmin() {
     setSourceFilter(source);
     setActiveTab("queue");
   };
+  const openMaterialEditor = (material: CanonicalMaterial) => {
+    setSelectedId(material.id);
+    if (canEdit) setDialog("edit");
+  };
 
   if (!canView) {
     return <div className="p-6"><Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Không có quyền truy cập</AlertTitle><AlertDescription>Trang này yêu cầu quyền xem module Quản trị NVL chuẩn.</AlertDescription></Alert></div>;
   }
 
   return (
-    <div className="min-h-screen bg-slate-50/80 p-3 text-slate-900 sm:p-4 md:p-6" data-bmq-material-master-admin data-bmq-material-master-rbac="material_master" data-bmq-material-master-light-ui data-bmq-material-master-explicit-edit-mode>
+    <div className="min-h-screen bg-slate-50/80 p-3 text-slate-900 sm:p-4 md:p-6" data-bmq-material-master-admin data-bmq-material-master-rbac="material_master" data-bmq-material-master-light-ui>
       <div className="mx-auto max-w-7xl space-y-4 md:space-y-5">
         <section className="rounded-3xl border border-emerald-100 bg-white p-4 shadow-sm sm:p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-sm font-semibold text-emerald-700">BMQ Operations</p>
-              <h1 className="mt-1 text-3xl font-bold tracking-tight">Chuẩn hóa nguyên vật liệu</h1>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Sửa một lần tên và đơn vị chuẩn để dùng thống nhất trong Giá vốn, phiếu xuất kho NVL Q7 và sản phẩm Nhà cung cấp.</p>
+              <h1 className="text-3xl font-bold tracking-tight">Danh mục nguyên vật liệu</h1>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Chạm vào một NVL để sửa tên và đơn vị chuẩn. Thay đổi sẽ dùng chung trong Giá vốn, phiếu xuất kho NVL Q7 và sản phẩm Nhà cung cấp.</p>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-              <Button className="min-h-11" variant={editMode ? "default" : "outline"} onClick={() => setEditMode((value) => !value)} disabled={!canEdit}>
-                {editMode ? <ShieldCheck className="mr-2 h-4 w-4" /> : <Edit3 className="mr-2 h-4 w-4" />}
-                {editMode ? "Đang chỉnh sửa" : "Sửa tên & đơn vị"}
-              </Button>
-              <Button className="min-h-11" variant="outline" onClick={() => setEditMode(false)}>Kết thúc sửa</Button>
+            <div className="flex flex-wrap gap-2">
               <Dialog open={dialog === "create"} onOpenChange={(open) => setDialog(open ? "create" : null)}>
-                <DialogTrigger asChild><Button className="col-span-2 min-h-11 sm:col-span-1" disabled={!canMutate}><Plus className="mr-2 h-4 w-4" />Thêm NVL chuẩn</Button></DialogTrigger>
-                <DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>Thêm NVL chuẩn</DialogTitle><DialogDescription>Tạo tên và đơn vị chuẩn mới để liên kết thống nhất giữa các nghiệp vụ.</DialogDescription></DialogHeader><MaterialMutationForm canMutate={canMutate} selected={null} onClose={() => setDialog(null)} /></DialogContent>
+                <DialogTrigger asChild><Button className="min-h-11 w-full sm:w-auto" disabled={!canMutate}><Plus className="mr-2 h-4 w-4" />Thêm NVL</Button></DialogTrigger>
+                <DialogContent className="max-h-[90dvh] w-[calc(100vw-1.5rem)] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Thêm NVL chuẩn</DialogTitle><DialogDescription>Tạo tên và đơn vị chuẩn mới để liên kết thống nhất giữa các nghiệp vụ.</DialogDescription></DialogHeader><MaterialMutationForm canMutate={canMutate} selected={null} onClose={() => setDialog(null)} /></DialogContent>
               </Dialog>
             </div>
           </div>
@@ -310,7 +309,7 @@ export default function MaterialMasterAdmin() {
             <CardContent className="pt-6">
               <div className="grid gap-3 md:grid-cols-[1fr_auto]">
                 <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm theo mã, tên NVL, đơn vị hoặc nhóm..." />
-                <Select value={selected?.id || "none"} onValueChange={(value) => setSelectedId(value === "none" ? null : value)}>
+                <Select value={selected?.id || "none"} onValueChange={(value) => { if (value === "none") setSelectedId(null); else { const material = materials.find((row) => row.id === value); if (material) openMaterialEditor(material); } }}>
                   <SelectTrigger className="min-w-0 md:w-[360px]"><SelectValue placeholder="Chọn NVL" /></SelectTrigger>
                   <SelectContent><SelectItem value="none">Tất cả NVL</SelectItem>{materials.map((material) => <SelectItem key={material.id} value={material.id}>{displayMaterial(material)}</SelectItem>)}</SelectContent>
                 </Select>
@@ -329,10 +328,9 @@ export default function MaterialMasterAdmin() {
             </TabsList>
 
             <TabsContent value="materials" className="space-y-4">
-              <ResponsiveMaterialList materials={filteredMaterials} selected={selected} onSelect={(material) => setSelectedId(material.id)} />
+              <ResponsiveMaterialList materials={filteredMaterials} selected={selected} onSelect={openMaterialEditor} editable={canEdit} />
               <Dialog open={dialog === "edit"} onOpenChange={(open) => setDialog(open ? "edit" : null)}>
-                <DialogTrigger asChild><Button className="min-h-11 w-full sm:w-auto" disabled={!canMutate || !selected || !(selected.version && selected.version > 0)}><Edit3 className="mr-2 h-4 w-4" />Sửa NVL đang chọn</Button></DialogTrigger>
-                <DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>Sửa tên và đơn vị chuẩn</DialogTitle><DialogDescription>Thay đổi này sẽ được lưu lịch sử để kiểm tra khi cần.</DialogDescription></DialogHeader><MaterialMutationForm canMutate={canMutate} selected={selected} onClose={() => setDialog(null)} /></DialogContent>
+                <DialogContent className="max-h-[90dvh] w-[calc(100vw-1.5rem)] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Sửa tên và đơn vị chuẩn</DialogTitle><DialogDescription>Thay đổi này sẽ được lưu lịch sử để kiểm tra khi cần.</DialogDescription></DialogHeader><MaterialMutationForm key={`edit-${selected?.id}-${selected?.version}`} canMutate={canMutate} selected={selected} onClose={() => setDialog(null)} /></DialogContent>
               </Dialog>
               {selected && !(selected.version && selected.version > 0) && <p className="text-sm text-rose-700">Dữ liệu vừa thay đổi. Vui lòng tải lại trước khi sửa.</p>}
 
@@ -378,10 +376,6 @@ export default function MaterialMasterAdmin() {
             </TabsContent>
           </Tabs>
 
-          <details className="rounded-2xl border border-dashed bg-white p-4">
-            <summary className="cursor-pointer text-sm font-medium text-slate-600">Kiểm tra trạng thái hệ thống</summary>
-            <div className="mt-4"><ControllerDashboard sourceFilter={sourceFilter} onSourceFilterChange={setSourceFilter} canEdit={canEdit} /></div>
-          </details>
         </>}
       </div>
     </div>

@@ -16,6 +16,7 @@ HOOK = SRC / "hooks/useMaterialMaster.ts"
 PAGE = SRC / "pages/material-master/MaterialMasterAdmin.tsx"
 QUEUE = SRC / "pages/material-master/ReconciliationQueue.tsx"
 DASHBOARD = SRC / "pages/material-master/ControllerDashboard.tsx"
+SYSTEM_STATUS_PAGE = SRC / "pages/material-master/MaterialMasterSystemStatus.tsx"
 
 
 def read(path: Path) -> str:
@@ -31,7 +32,9 @@ def test_material_master_route_sidebar_translations_and_rbac_fail_closed():
     auth = read(AUTH)
 
     assert 'const MaterialMasterAdmin = lazy(() => import("@/pages/material-master/MaterialMasterAdmin"));' in routes
+    assert 'const MaterialMasterSystemStatus = lazy(() => import("@/pages/material-master/MaterialMasterSystemStatus"));' in routes
     assert 'path="/material-master"' in routes
+    assert 'path="/material-master/system-status"' in routes
     assert 'moduleKey="material_master"' in routes
     assert "Quản trị NVL chuẩn" in routes
     assert re.search(r"material_master[\s\S]{0,160}<Suspense", routes)
@@ -67,7 +70,7 @@ def test_material_master_page_contract_markers_edit_mode_reason_version_and_queu
         'data-bmq-material-master-rbac="material_master"',
         "data-bmq-material-master-light-ui",
         "data-bmq-material-master-mobile-cards",
-        "data-bmq-material-master-explicit-edit-mode",
+        "data-bmq-material-master-tap-to-edit",
         "data-bmq-material-master-resolution-queue",
         "data-bmq-material-master-no-raw-ids",
         "data-bmq-material-master-audit-timeline",
@@ -77,15 +80,24 @@ def test_material_master_page_contract_markers_edit_mode_reason_version_and_queu
     assert "useAuth()" in page
     assert "canAccessModule(\"material_master\")" in page
     assert "canEditModule(\"material_master\")" in page
-    assert "Sửa tên & đơn vị" in page
-    assert "setEditMode(false)" in page
-    assert re.search(r"const canMutate\s*=\s*canEdit\s*&&\s*editMode", page)
+    assert "Sửa tên & đơn vị" not in page
+    assert "editMode" not in page
+    assert re.search(r"const canMutate\s*=\s*canEdit", page)
+    assert "openMaterialEditor" in page
+    assert 'if (canEdit) setDialog("edit")' in page
+    assert 'setDialog("edit")' in page
+    assert "Chạm vào NVL để sửa" in page
+    assert "max-h-[90dvh]" in page and "overflow-y-auto" in page
+    assert "Sửa NVL đang chọn" not in page
+    assert 'key={`edit-${selected?.id}-${selected?.version}`}' in page
+    assert "materialFormValues(selected)" in page
     assert "reason.trim()" in page
     assert "Lý do thay đổi" in page
     assert "Vui lòng ghi lý do để lưu lịch sử chỉnh sửa." in page
     assert "selected.version" in page
     assert "Mã NVL không đổi" in page
-    assert "Sửa một lần tên và đơn vị chuẩn để dùng thống nhất trong Giá vốn, phiếu xuất kho NVL Q7 và sản phẩm Nhà cung cấp." in page
+    assert "Danh mục nguyên vật liệu" in page
+    assert "Chạm vào một NVL để sửa tên và đơn vị chuẩn." in page
     for business_tab in [
         "Tên & đơn vị chuẩn",
         "Liên kết Giá vốn",
@@ -248,11 +260,16 @@ def test_task9_controller_shadow_dashboard_and_safe_queue_source_filter():
     page = read(PAGE)
     queue = read(QUEUE)
     dashboard = read(DASHBOARD)
+    system_status_page = read(SYSTEM_STATUS_PAGE)
     combined = hook + "\n" + page + "\n" + queue + "\n" + dashboard
 
-    assert "ControllerDashboard" in page
-    assert "Kiểm tra trạng thái hệ thống" in page
-    assert '{canEdit && <details' not in page
+    assert "ControllerDashboard" not in page
+    assert "Kiểm tra trạng thái hệ thống" not in page
+    assert "ControllerDashboard" in system_status_page
+    assert "useAuth()" in system_status_page
+    assert 'canAccessModule("material_master")' in system_status_page
+    assert 'canEditModule("material_master")' in system_status_page
+    assert "Quay lại danh mục NVL" in system_status_page
     assert '<TabsTrigger value="controller">' not in page
     assert 'data-bmq-material-master-controller-shadow-dashboard' in dashboard
     assert 'data-bmq-material-master-source-filter' in dashboard
@@ -276,7 +293,8 @@ def test_task9_controller_shadow_dashboard_and_safe_queue_source_filter():
     assert 'sourceDisplayName("kitchen_inventory")' in dashboard
     assert "Q7 / kho bếp" in dashboard
     assert "q7_config" not in combined.lower(), "must not introduce a second q7 config source"
-    assert 'sourceFilter' in page and 'onSourceFilterChange' in page
+    assert 'sourceFilter' in page
+    assert 'sourceFilter' in system_status_page and 'onSourceFilterChange' in system_status_page
     assert 'sourceFilter={sourceFilter}' in page
     assert 'sourceFilter?: string' in queue
     assert 'row.source_type !== sourceFilter' in queue or 'row.source_table !== sourceFilter' in queue
@@ -295,7 +313,8 @@ def test_task10_guarded_owner_mode_change_ui_contract():
     hook = read(HOOK)
     page = read(PAGE)
     dashboard = read(DASHBOARD)
-    combined = hook + "\n" + page + "\n" + dashboard
+    system_status_page = read(SYSTEM_STATUS_PAGE)
+    combined = hook + "\n" + page + "\n" + dashboard + "\n" + system_status_page
 
     assert "useSetMaterialMasterEnforcementMode" in hook
     assert '.rpc("set_material_master_enforcement_mode"' in hook
@@ -312,8 +331,8 @@ def test_task10_guarded_owner_mode_change_ui_contract():
     assert "validateRpcResponse" in hook
     assert "nonEmptyReason" in hook
 
-    assert "canEditModule(\"material_master\")" in page
-    assert "<ControllerDashboard" in page and "canEdit={canEdit}" in page
+    assert "canEditModule(\"material_master\")" in system_status_page
+    assert "<ControllerDashboard" in system_status_page and "canEdit={canEdit}" in system_status_page
     assert "type ControllerDashboardProps" in dashboard and "canEdit: boolean" in dashboard
     assert "data-bmq-material-master-owner-mode-controls" in dashboard
     assert "data-bmq-material-master-fixed-enforcement" in dashboard

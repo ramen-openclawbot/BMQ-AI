@@ -47,6 +47,7 @@ const SkuCostsDjango = lazy(() => import("@/pages/SkuCostsDjango"));
 const ProductionPlanning = lazy(() => import("@/pages/ProductionPlanning"));
 const Q7MaterialInventory = lazy(() => import("@/pages/Q7MaterialInventory"));
 const MaterialMasterAdmin = lazy(() => import("@/pages/material-master/MaterialMasterAdmin"));
+const MaterialMasterSystemStatus = lazy(() => import("@/pages/material-master/MaterialMasterSystemStatus"));
 const ProductionProducts = lazy(() => import("@/pages/ProductionProducts"));
 const ProductionShifts = lazy(() => import("@/pages/ProductionShifts"));
 const QAInspection = lazy(() => import("@/pages/QAInspection"));
@@ -245,6 +246,7 @@ export function AppRoutes() {
         <Route path="/production/planning/q7" element={<ModuleRoute moduleKey="production_q7"><Suspense fallback={<AppLoadingFallback />}><ProductionPlanning /></Suspense></ModuleRoute>} />
         <Route path="/production/q7/inventory" element={<ModuleRoute moduleKey="q7_material_inventory"><Suspense fallback={<AppLoadingFallback />}><Q7MaterialInventory /></Suspense></ModuleRoute>} />
         <Route path="/material-master" element={<ModuleRoute moduleKey="material_master"><Suspense fallback={<AppLoadingFallback />}><MaterialMasterAdmin /></Suspense></ModuleRoute>} />
+        <Route path="/material-master/system-status" element={<ModuleRoute moduleKey="material_master"><Suspense fallback={<AppLoadingFallback />}><MaterialMasterSystemStatus /></Suspense></ModuleRoute>} />
         <Route path="/production/products" element={<ModuleRoute moduleKey="production_products"><Suspense fallback={<AppLoadingFallback />}><ProductionProducts /></Suspense></ModuleRoute>} />
         <Route path="/production/shifts" element={<ModuleRoute moduleKey="production_shifts"><Suspense fallback={<AppLoadingFallback />}><ProductionShifts /></Suspense></ModuleRoute>} />
         <Route path="/production/qa" element={<ModuleRoute moduleKey="production_qa"><Suspense fallback={<AppLoadingFallback />}><QAInspection /></Suspense></ModuleRoute>} />
