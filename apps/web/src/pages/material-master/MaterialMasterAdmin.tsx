@@ -495,10 +495,6 @@ export default function MaterialMasterAdmin() {
     if (sourceFilter === "all") return requests;
     return requests.filter((row) => row.source_type === sourceFilter || row.source_table === sourceFilter || (sourceFilter === "kitchen_inventory" && row.source_table === "kitchen_inventory_items"));
   }, [data?.resolutionRequests, sourceFilter]);
-  const openConfirmationQueue = (source: string) => {
-    setSourceFilter(source);
-    setActiveTab("queue");
-  };
   const chooseMaterial = (material: CanonicalMaterial) => {
     setSelectedId(material.id);
     setDialog(null);
@@ -581,12 +577,10 @@ export default function MaterialMasterAdmin() {
 
             <TabsContent value="cogs" className="space-y-3">
               <ReadOnlyTable<CogsMaterialLink> title="Sản phẩm đang sử dụng NVL" description="Nguồn Giá vốn xác định NVL này đang được dùng trong những công thức SKU nào." rows={cogsMappings} render={(row, idx) => <div key={`${row.id}-${idx}`} className="rounded-2xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{row.product_skus?.product_name || row.product_skus?.sku_code || "Sản phẩm Giá vốn"}</h3>{linkBadge(Boolean(row.canonical_material_id))}</div><p className="text-sm text-slate-600">{row.product_skus?.sku_code || "chưa có mã SKU"} · {row.dosage_qty ?? "—"} {row.unit || "chưa có đơn vị"}</p></div>} />
-              <Button variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => openConfirmationQueue("sku_cogs")}>Đi tới Cần xác nhận</Button>
             </TabsContent>
 
             <TabsContent value="q7" className="space-y-3">
               <ReadOnlyTable<Q7Mapping> title="Phiếu xuất kho NVL Q7" description="Tên và đơn vị NVL dùng khi lập phiếu xuất kho bếp Q7." rows={q7Mappings} render={(row, idx) => <div key={`${row.id}-${idx}`} className="rounded-2xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{row.name || row.item_code || "NVL kho Q7"}</h3>{linkBadge(Boolean(row.canonical_material_id))}</div><p className="text-sm text-slate-600">Đơn vị: {row.unit || "—"} · NVL chuẩn: {byMaterialName(materials, row.canonical_material_id)}</p></div>} />
-              <Button variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => openConfirmationQueue("kitchen_inventory")}>Đi tới Cần xác nhận</Button>
             </TabsContent>
 
             <TabsContent value="suppliers" className="space-y-3">
