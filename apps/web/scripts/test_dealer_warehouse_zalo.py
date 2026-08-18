@@ -11,6 +11,7 @@ CONFIG = ROOT / "supabase/config.toml"
 SCHEDULE_MIGRATION = ROOT / "supabase/migrations/20260803181500_dealer_warehouse_vietnam_evening_schedule.sql"
 DAILY_DIGEST_MIGRATION = ROOT / "supabase/migrations/20260805170000_dealer_warehouse_daily_digest.sql"
 POINT_DIGEST_PAUSE_MIGRATION = ROOT / "supabase/migrations/20260807005000_pause_warehouse_point_digest.sql"
+KIOSK_BREAD_DISPATCH_MIGRATION = ROOT / "supabase/migrations/20260818235900_warehouse_kiosk_bread_dispatch.sql"
 DUPLICATE_GUARD_MIGRATION = ROOT / "supabase/migrations/20260806224000_dealer_duplicate_order_guard.sql"
 
 
@@ -156,6 +157,34 @@ def test_point_digest_is_paused_without_stopping_dealer_digest_or_kiosk_collecti
         assert needle in sql, f"missing point-digest pause contract: {needle}"
     assert "delete from public.kiosk_daily_reports" not in sql.lower()
     assert "update public.kiosk_daily_reports" not in sql.lower()
+
+
+def test_kiosk_bread_dispatch_is_a_distinct_idempotent_warehouse_message() -> None:
+    helper = (ROOT / "supabase/functions/_shared/daily-bread-order.ts").read_text(encoding="utf-8")
+    worker = WORKER.read_text(encoding="utf-8")
+    sql = KIOSK_BREAD_DISPATCH_MIGRATION.read_text(encoding="utf-8")
+    for needle in [
+        "buildWarehouseKioskBreadDispatchMessage",
+        'product_code", "banh_mi_que"',
+        "shortage_quantity",
+        "returns_quantity",
+        "waste_quantity",
+        'rpc("upsert_warehouse_kiosk_bread_dispatch"',
+    ]:
+        assert needle in helper or needle in worker, f"missing kiosk bread dispatch runtime marker: {needle}"
+    for needle in [
+        "'warehouse_kiosk_bread_dispatch'",
+        "upsert_warehouse_kiosk_bread_dispatch",
+        "auth.role() is distinct from 'service_role'",
+        "'BMQ - Kho Tân Tạo'",
+        "source_snapshot",
+        "on conflict (digest_date, channel, notification_type)",
+        "status in ('pending', 'failed')",
+    ]:
+        assert needle in sql, f"missing kiosk bread dispatch database contract: {needle}"
+    assert "daily_point_digest_enabled" not in sql
+    assert "unit_price" not in helper
+    assert "unit_price" not in worker
 
 
 def test_retry_worker_is_server_only_and_uses_claim_rpc() -> None:

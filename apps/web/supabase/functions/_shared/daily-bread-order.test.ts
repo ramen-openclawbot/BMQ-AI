@@ -3,11 +3,35 @@ import test from "node:test";
 
 import {
   buildDailyBreadOrderMessage,
+  buildWarehouseKioskBreadDispatchMessage,
   forecastVehicleBread,
   isVehicleLocationClosed,
   nextVietnamDateKey,
   selectLatestVietjetQuantity,
 } from "./daily-bread-order.ts";
+
+test("formats the warehouse kiosk bread dispatch from automatic orders plus report shortages and exchanges", () => {
+  const message = buildWarehouseKioskBreadDispatchMessage({
+    orderDate: "2026-08-18",
+    locations: [
+      { locationCode: "HCM001-BV", locationName: "91 Bùi Viện", orderQuantity: 100, shortageQuantity: 6, returnsQuantity: 11, wasteQuantity: 0 },
+      { locationCode: "HCM002-PVC", locationName: "213 Phạm Văn Chí", orderQuantity: 120, shortageQuantity: 4, returnsQuantity: 0, wasteQuantity: 0 },
+      { locationCode: "HCM003-BVĐ", locationName: "323 Bến Vân Đồn", orderQuantity: 100, shortageQuantity: 2, returnsQuantity: 0, wasteQuantity: 1 },
+      { locationCode: "HCM004-BHN", locationName: "276 Bùi Hữu Nghĩa", orderQuantity: 140, shortageQuantity: 0, returnsQuantity: 0, wasteQuantity: 0 },
+      { locationCode: "HCM005-TN", locationName: "230 Thống Nhất", orderQuantity: 80, shortageQuantity: 0, returnsQuantity: 0, wasteQuantity: 0 },
+    ],
+  });
+
+  assert.equal(message, [
+    "Đặt bánh 18/8",
+    "Bùi Viện 100 bù6 đổi11que",
+    "Bùi Hữu Nghĩa 140",
+    "Bến Vân Đồn 100 bù2 đổi1que",
+    "Phạm Văn Chí 120 bù4que",
+    "Thống Nhất 80",
+    "Tc: 540 bù12 đổi12",
+  ].join("\n"));
+});
 
 test("closes BV and PVC only when the target delivery date is lunar day 30", () => {
   assert.equal(isVehicleLocationClosed("HCM001-BV", "2026-08-12"), true);

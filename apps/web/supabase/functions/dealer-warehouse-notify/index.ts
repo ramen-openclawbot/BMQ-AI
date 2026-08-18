@@ -9,6 +9,7 @@ import {
 } from "../_shared/dealer-warehouse-notification.ts";
 import {
   buildDailyBreadOrderMessage,
+  buildWarehouseKioskBreadDispatchMessage,
   forecastVehicleBread,
   nextVietnamDateKey,
   roundBreadOrderMessageQuantity,
@@ -203,6 +204,19 @@ type DailyBreadVietjetQuantityRow = {
   received_at: string;
 };
 
+type KioskDispatchLocationRow = {
+  id: string;
+  location_code: string;
+  location_name: string;
+};
+type KioskDispatchReportRow = { id: string; location_id: string };
+type KioskDispatchInventoryRow = {
+  report_id: string;
+  shortage_quantity: number | string | null;
+  returns_quantity: number | string | null;
+  waste_quantity: number | string | null;
+};
+
 const enqueueDailyBreadOrder = async (
   supabase: ReturnType<typeof createServiceClient>,
   now: Date,
@@ -346,6 +360,123 @@ const enqueueDailyBreadOrder = async (
   return { id: String(notificationId || ""), messageBody };
 };
 
+const enqueueWarehouseKioskBreadDispatch = async (
+  supabase: ReturnType<typeof createServiceClient>,
+  now: Date,
+): Promise<{ id: string; messageBody: string }> => {
+  const dayRange = warehouseVietnamDayRange(now);
+  const orderDate = nextVietnamDateKey(now);
+  if (!dayRange || !orderDate) throw new Error("Unable to resolve Vietnam kiosk bread-dispatch date");
+
+  const { data: historyData, error: historyError } = await supabase.rpc(
+    "get_daily_bread_vehicle_history",
+    { p_cutoff_date: dayRange.dateKey },
+  );
+  if (historyError) throw new Error(`Unable to read kiosk dispatch history: ${historyError.message}`);
+  const history = (historyData || []) as DailyBreadVehicleHistoryRow[];
+  if (history.length === 0) throw new Error("No active kiosk locations available for warehouse dispatch");
+
+  const vehicleLocations = new Map<string, {
+    locationId: string;
+    locationCode: string;
+    reports: Array<{ reportDate: string; soldQuantity: number; closingQuantity: number }>;
+  }>();
+  history.forEach((row) => {
+    const location = vehicleLocations.get(row.location_id) || {
+      locationId: row.location_id,
+      locationCode: row.location_code,
+      reports: [],
+    };
+    if (row.report_date) {
+      location.reports.push({
+        reportDate: row.report_date,
+        soldQuantity: quantity(row.sold_quantity),
+        closingQuantity: signedQuantity(row.closing_quantity),
+      });
+    }
+    vehicleLocations.set(row.location_id, location);
+  });
+  const vehicleForecast = forecastVehicleBread([...vehicleLocations.values()], orderDate);
+  const locationIds = vehicleForecast.locations.map((location) => location.locationId);
+
+  const { data: locationData, error: locationError } = await supabase
+    .from("kiosk_report_locations")
+    .select("id,location_code,location_name")
+    .in("id", locationIds)
+    .eq("active", true);
+  if (locationError) throw new Error(`Unable to read kiosk dispatch locations: ${locationError.message}`);
+  const locationsById = new Map(((locationData || []) as KioskDispatchLocationRow[])
+    .map((location) => [location.id, location]));
+
+  const { data: reportData, error: reportError } = await supabase
+    .from("kiosk_daily_reports")
+    .select("id,location_id")
+    .eq("report_date", dayRange.dateKey)
+    .eq("status", "submitted")
+    .in("location_id", locationIds);
+  if (reportError) throw new Error(`Unable to read kiosk dispatch reports: ${reportError.message}`);
+  const reports = (reportData || []) as KioskDispatchReportRow[];
+  const reportIds = reports.map((report) => report.id);
+
+  let inventoryRows: KioskDispatchInventoryRow[] = [];
+  if (reportIds.length > 0) {
+    const { data, error } = await supabase
+      .from("kiosk_daily_report_inventory_rows")
+      .select("report_id,shortage_quantity,returns_quantity,waste_quantity")
+      .in("report_id", reportIds)
+      .eq("product_code", "banh_mi_que");
+    if (error) throw new Error(`Unable to read kiosk dispatch bread rows: ${error.message}`);
+    inventoryRows = (data || []) as KioskDispatchInventoryRow[];
+  }
+  const reportByLocationId = new Map(reports.map((report) => [report.location_id, report]));
+  const inventoryByReportId = new Map(inventoryRows.map((row) => [row.report_id, row]));
+  const warnings = [...vehicleForecast.warnings];
+  const dispatchLocations = vehicleForecast.locations.map((forecast) => {
+    const location = locationsById.get(forecast.locationId);
+    const report = reportByLocationId.get(forecast.locationId);
+    const inventory = report ? inventoryByReportId.get(report.id) : null;
+    if (!location) warnings.push(`${forecast.locationCode}:location_metadata_missing`);
+    if (!report) warnings.push(`${forecast.locationCode}:current_submitted_report_missing`);
+    else if (!inventory) warnings.push(`${forecast.locationCode}:current_bread_row_missing`);
+    return {
+      locationId: forecast.locationId,
+      locationCode: forecast.locationCode,
+      locationName: location?.location_name || forecast.locationCode,
+      orderQuantity: forecast.recommendedQuantity,
+      shortageQuantity: quantity(inventory?.shortage_quantity),
+      returnsQuantity: quantity(inventory?.returns_quantity),
+      wasteQuantity: quantity(inventory?.waste_quantity),
+      latestReportDate: forecast.latestReportDate,
+      closureReason: forecast.closureReason,
+    };
+  });
+  const messageBody = buildWarehouseKioskBreadDispatchMessage({ orderDate, locations: dispatchLocations });
+  const sourceSnapshot = {
+    cutoff_at: now.toISOString(),
+    cutoff_timezone: "Asia/Ho_Chi_Minh",
+    report_date: dayRange.dateKey,
+    order_date: orderDate,
+    source: "baocao.banhmique.vn",
+    sku_code: "BMQ-001",
+    report_product_code: "banh_mi_que",
+    formula_version: vehicleForecast.formulaVersion,
+    locations: dispatchLocations,
+    warnings,
+    quantity_semantics: {
+      order: "automatic_vehicle_forecast_recommended_quantity",
+      makeup: "kiosk_shortage_quantity",
+      exchange: "kiosk_returns_quantity_plus_waste_quantity",
+    },
+  };
+  const { data: notificationId, error: queueError } = await supabase.rpc("upsert_warehouse_kiosk_bread_dispatch", {
+    p_order_date: orderDate,
+    p_message_body: messageBody,
+    p_source_snapshot: sourceSnapshot,
+  });
+  if (queueError) throw new Error(`Unable to queue warehouse kiosk bread dispatch: ${queueError.message}`);
+  return { id: String(notificationId || ""), messageBody };
+};
+
 const enqueueWarehouseDailyDigests = async (
   supabase: ReturnType<typeof createServiceClient>,
   now: Date,
@@ -467,6 +598,8 @@ serve(async (req) => {
   let digestError: string | null = null;
   let breadOrderQueued = false;
   let breadOrderError: string | null = null;
+  let kioskBreadDispatchQueued = false;
+  let kioskBreadDispatchError: string | null = null;
   if (isWarehouseDailyDigestTime(now)) {
     try {
       digestsQueued = await enqueueWarehouseDailyDigests(supabase, now);
@@ -480,6 +613,13 @@ serve(async (req) => {
     } catch (error) {
       breadOrderError = String(error instanceof Error ? error.message : error).slice(0, 500);
       console.error(`[dealer-warehouse-notify] Daily bread-order queue failed: ${breadOrderError}`);
+    }
+    try {
+      await enqueueWarehouseKioskBreadDispatch(supabase, now);
+      kioskBreadDispatchQueued = true;
+    } catch (error) {
+      kioskBreadDispatchError = String(error instanceof Error ? error.message : error).slice(0, 500);
+      console.error(`[dealer-warehouse-notify] Warehouse kiosk bread dispatch queue failed: ${kioskBreadDispatchError}`);
     }
   }
 
@@ -599,6 +739,11 @@ serve(async (req) => {
       notification_type: "production_bread_order",
       queued: breadOrderQueued,
       error: breadOrderError,
+    },
+    warehouse_kiosk_bread_dispatch: {
+      notification_type: "warehouse_kiosk_bread_dispatch",
+      queued: kioskBreadDispatchQueued,
+      error: kioskBreadDispatchError,
     },
   });
 });
