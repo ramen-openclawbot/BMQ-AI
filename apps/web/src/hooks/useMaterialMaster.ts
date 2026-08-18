@@ -132,6 +132,19 @@ export interface MaterialMasterData {
   sectionErrors: Record<string, string>;
 }
 
+export interface MaterialMasterRolloutDashboardRow {
+  source_type: string | null;
+  mode: string | null;
+  queue_total_count: number | null;
+  queue_pending_count: number | null;
+  queue_resolved_count: number | null;
+  queue_blocked_count: number | null;
+  oldest_queue_created_at: string | null;
+  latest_queue_created_at: string | null;
+  ready_for_enforcement: boolean | null;
+  blockers: string[] | Record<string, unknown> | string | null;
+}
+
 type QueryResult<T> = { data: T[] | null; error: Error | null };
 type RpcResult<T> = Promise<{ data: T | null; error: Error | null }>;
 type QueryBuilder<T> = {
@@ -229,6 +242,17 @@ export function useMaterialMaster() {
         skuMappings: valueAt<Q7Mapping>(10),
         sectionErrors,
       };
+    },
+  });
+}
+
+export function useMaterialMasterRolloutDashboard() {
+  return useQuery({
+    queryKey: ["material-master", "rollout-dashboard"],
+    queryFn: async (): Promise<MaterialMasterRolloutDashboardRow[]> => {
+      const { data, error } = await db.rpc("get_material_master_rollout_dashboard", {});
+      if (error) throw error;
+      return (data || []) as MaterialMasterRolloutDashboardRow[];
     },
   });
 }

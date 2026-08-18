@@ -69,7 +69,7 @@ const decisionClass: Record<QueueDecision, string> = {
   blocked: "border-rose-200 bg-rose-50 text-rose-700",
 };
 
-export default function ReconciliationQueue({ canMutate = false }: { canMutate?: boolean }) {
+export default function ReconciliationQueue({ canMutate = false, sourceFilter = "all" }: { canMutate?: boolean; sourceFilter?: string }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [decisionFilter, setDecisionFilter] = useState<QueueDecision | "all">("all");
@@ -113,13 +113,14 @@ export default function ReconciliationQueue({ canMutate = false }: { canMutate?:
     const needle = searchText.trim().toLowerCase();
     return rows.filter((row) => {
       const decision = decisionForRow(row);
+      if (sourceFilter !== "all" && row.source_type !== sourceFilter && row.source_table !== sourceFilter && !(sourceFilter === "kitchen_inventory" && row.source_table === "kitchen_inventory_items")) return false;
       if (decisionFilter !== "all" && decision !== decisionFilter) return false;
       if (!needle) return true;
       return [row.raw_name, row.raw_code, row.raw_unit, row.material?.canonical_name, row.material?.material_code]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(needle));
     });
-  }, [decisionFilter, rows, searchText]);
+  }, [decisionFilter, rows, searchText, sourceFilter]);
 
   const linkMutation = useMutation({
     mutationFn: async (row: ResolutionRequestRow) => {

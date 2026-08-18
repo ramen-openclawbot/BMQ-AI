@@ -15,6 +15,7 @@ AUTH = SRC / "contexts/AuthContext.tsx"
 HOOK = SRC / "hooks/useMaterialMaster.ts"
 PAGE = SRC / "pages/material-master/MaterialMasterAdmin.tsx"
 QUEUE = SRC / "pages/material-master/ReconciliationQueue.tsx"
+DASHBOARD = SRC / "pages/material-master/ControllerDashboard.tsx"
 
 
 def read(path: Path) -> str:
@@ -225,3 +226,50 @@ def test_material_master_mobile_and_no_raw_uuid_primary_labels():
     primary_label_area = page.split("data-bmq-material-master-no-raw-ids", 1)[1].split("data-bmq-material-master-audit-timeline", 1)[0]
     assert ">{row.id}<" not in primary_label_area
     assert ".id}</" not in primary_label_area
+
+
+def test_task9_controller_shadow_dashboard_and_safe_queue_source_filter():
+    hook = read(HOOK)
+    page = read(PAGE)
+    queue = read(QUEUE)
+    dashboard = read(DASHBOARD)
+    combined = hook + "\n" + page + "\n" + queue + "\n" + dashboard
+
+    assert "ControllerDashboard" in page
+    assert '<TabsTrigger value="controller">Controller shadow</TabsTrigger>' in page
+    assert '<TabsContent value="controller"' in page
+    assert 'data-bmq-material-master-controller-shadow-dashboard' in dashboard
+    assert 'data-bmq-material-master-source-filter' in dashboard
+    assert 'useMaterialMasterRolloutDashboard' in hook
+    assert '.rpc("get_material_master_rollout_dashboard"' in hook
+    assert 'MaterialMasterRolloutDashboardRow' in hook
+    for field in [
+        "source_type",
+        "mode",
+        "queue_total_count",
+        "queue_pending_count",
+        "queue_resolved_count",
+        "queue_blocked_count",
+        "oldest_queue_created_at",
+        "latest_queue_created_at",
+        "ready_for_enforcement",
+        "blockers",
+    ]:
+        assert field in hook, f"missing dashboard RPC field {field}"
+
+    assert 'sourceDisplayName("kitchen_inventory")' in dashboard
+    assert "Q7 / kho bếp" in dashboard
+    assert "q7_config" not in combined.lower(), "must not introduce a second q7 config source"
+    assert 'sourceFilter' in page and 'onSourceFilterChange' in page
+    assert 'sourceFilter={sourceFilter}' in page
+    assert 'sourceFilter?: string' in queue
+    assert 'row.source_type !== sourceFilter' in queue or 'row.source_table !== sourceFilter' in queue
+
+    assert "fuzzy/AI chỉ là gợi ý" in dashboard
+    assert "chỉ exact alias/code/name đã duyệt mới auto-resolve" in dashboard
+    assert "không preselect" in dashboard.lower()
+    assert "read-only" in dashboard.lower() or "chỉ đọc" in dashboard.lower()
+    assert "confirm_material_resolution" in dashboard
+
+    forbidden_dml = re.compile(r'\.from\("(?:sku_cogs_materials|material_resolution_requests|material_scoped_aliases|material_supplier_products)"\)[\s\S]{0,260}\.(?:insert|update|delete|upsert)\(')
+    assert not forbidden_dml.search(dashboard), "dashboard must not write controller/config tables"
