@@ -4,6 +4,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import {
   CanonicalMaterial,
+  CogsMaterialLink,
+  FinishedSkuLite,
   MaterialAlias,
   MaterialAuditLog,
   MaterialPriceHistory,
@@ -11,9 +13,12 @@ import {
   Q7Mapping,
   ResolutionRequest,
   SupplierProduct,
+  SupplierLite,
   useConfirmMaterialResolution,
   useCreateCanonicalMaterial,
   useMaterialMaster,
+  useLinkMaterialSupplier,
+  useLinkMaterialToSkuCogs,
   useUpdateCanonicalMaterial,
 } from "@/hooks/useMaterialMaster";
 import ReconciliationQueue from "./ReconciliationQueue";
@@ -21,6 +26,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -166,7 +172,7 @@ function MaterialMutationForm({ canMutate, selected, onClose }: MutationFormProp
         <div><Label>Quy cách</Label><Input value={form.specification} onChange={(event) => setField("specification", event.target.value)} disabled={!canMutate} /></div>
       </div>
       {selected && <div className="grid gap-2"><Label>Trạng thái</Label><Select value={form.activeChoice} onValueChange={(value) => setField("activeChoice", value)} disabled={!canMutate}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">Đang dùng</SelectItem><SelectItem value="inactive">Ngưng dùng</SelectItem></SelectContent></Select></div>}
-      {selected && !hasPositiveVersion && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Cần tải lại dữ liệu</AlertTitle><AlertDescription>Thông tin NVL vừa thay đổi ở nơi khác. Hãy tải lại trước khi sửa.</AlertDescription></Alert>}
+      {selected && !hasPositiveVersion && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Phiên bản NVL chưa sẵn sàng</AlertTitle><AlertDescription>Đóng cửa sổ rồi mở lại NVL trước khi điều chỉnh.</AlertDescription></Alert>}
       <div className="grid gap-2">
         <Label>Lý do thay đổi</Label>
         <Textarea value={form.reason} onChange={(event) => setField("reason", event.target.value)} disabled={!canMutate} placeholder="VD: Chuẩn hoá tên theo hồ sơ NCC đã duyệt..." />
@@ -178,6 +184,116 @@ function MaterialMutationForm({ canMutate, selected, onClose }: MutationFormProp
           {selected ? "Lưu cập nhật" : "Tạo NVL"}
         </Button>
       </DialogFooter>
+    </div>
+  );
+}
+
+const vietnamToday = () => new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Ho_Chi_Minh",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+}).format(new Date());
+
+type MaterialBusinessControllerProps = {
+  selected: CanonicalMaterial;
+  canMutate: boolean;
+  suppliers: SupplierLite[];
+  supplierProducts: SupplierProduct[];
+  finishedSkus: FinishedSkuLite[];
+  cogsLinks: CogsMaterialLink[];
+  prices: MaterialPriceHistory[];
+  supplierCheckError: boolean;
+  cogsCheckError: boolean;
+};
+
+function MaterialBusinessController({ selected, canMutate, suppliers, supplierProducts, finishedSkus, cogsLinks, prices, supplierCheckError, cogsCheckError }: MaterialBusinessControllerProps) {
+  const { toast } = useToast();
+  const linkSupplier = useLinkMaterialSupplier();
+  const linkCogs = useLinkMaterialToSkuCogs();
+  const [reason, setReason] = useState("");
+  const [supplierId, setSupplierId] = useState("");
+  const [showCogsPicker, setShowCogsPicker] = useState(false);
+  const [skuId, setSkuId] = useState("");
+  const [dosageQty, setDosageQty] = useState("");
+  const [wastagePercent, setWastagePercent] = useState("0");
+  const [standardUnitPrice, setStandardUnitPrice] = useState("");
+  const [effectiveFrom, setEffectiveFrom] = useState(vietnamToday);
+  const supplierNameById = useMemo(() => new Map(suppliers.map((supplier) => [supplier.id, supplier.name || "NCC chưa đặt tên"])), [suppliers]);
+  const linkedSupplierIds = new Set(supplierProducts.map((row) => row.supplier_id).filter(Boolean));
+  const availableSuppliers = suppliers.filter((supplier) => !linkedSupplierIds.has(supplier.id));
+  const linkedSkuIds = new Set(cogsLinks.map((row) => row.sku_id).filter(Boolean));
+  const availableSkus = finishedSkus.filter((sku) => !linkedSkuIds.has(sku.id));
+  const standardCost = prices.find((row) => row.price_type === "standard_cost" && row.approved && !row.supplier_product_id && !row.effective_to);
+  const validVersion = Boolean(selected.version && selected.version > 0);
+  const validReason = reason.trim().length > 0;
+
+  const submitSupplier = async () => {
+    if (!supplierId || !selected.version) return;
+    try {
+      await linkSupplier.mutateAsync({ materialId: selected.id, expectedVersion: selected.version, supplierId, reason });
+      toast({ title: "Đã liên kết Nhà cung cấp", description: "Tên NVL và đơn vị chuẩn đã được dùng cho Nhà cung cấp đã chọn." });
+      setSupplierId("");
+      setReason("");
+    } catch (error) {
+      toast({ title: "Không thể liên kết Nhà cung cấp", description: error instanceof Error ? error.message : "Hệ thống từ chối liên kết.", variant: "destructive" });
+    }
+  };
+
+  const submitCogs = async () => {
+    if (!skuId || !selected.version) return;
+    try {
+      await linkCogs.mutateAsync({
+        materialId: selected.id,
+        expectedVersion: selected.version,
+        skuId,
+        dosageQty: Number(dosageQty),
+        wastagePercent: Number(wastagePercent || 0),
+        standardUnitPrice: standardCost ? null : (standardUnitPrice === "" ? null : Number(standardUnitPrice)),
+        effectiveFrom,
+        reason,
+      });
+      toast({ title: "Đã liên kết Giá vốn", description: "NVL đã được thêm vào phiên bản Giá vốn mới của SKU đã chọn." });
+      setSkuId("");
+      setDosageQty("");
+      setStandardUnitPrice("");
+      setReason("");
+      setShowCogsPicker(false);
+    } catch (error) {
+      toast({ title: "Không thể liên kết Giá vốn", description: error instanceof Error ? error.message : "Hệ thống từ chối liên kết.", variant: "destructive" });
+    }
+  };
+
+  return (
+    <div className="space-y-4" data-bmq-material-business-controller>
+      <div className="grid gap-2">
+        <Label htmlFor="controller-reason">Lý do điều chỉnh</Label>
+        <Textarea id="controller-reason" value={reason} onChange={(event) => setReason(event.target.value)} disabled={!canMutate} placeholder="VD: Xác nhận theo hồ sơ NCC hoặc công thức Giá vốn đã duyệt..." />
+        {!validReason && <p className="text-xs text-amber-700">Nhập lý do trước khi liên kết để lưu lịch sử kiểm tra.</p>}
+      </div>
+
+      <Card data-bmq-material-supplier-check>
+        <CardHeader className="pb-3"><CardTitle className="text-base">Nhà cung cấp</CardTitle><CardDescription>Hệ thống tự kiểm tra NVL này đã có Nhà cung cấp hay chưa.</CardDescription></CardHeader>
+        <CardContent className="space-y-3">
+          {supplierCheckError ? <Alert variant="destructive"><AlertTitle>Chưa kiểm tra được Nhà cung cấp</AlertTitle><AlertDescription>Hệ thống tạm khóa liên kết để tránh ghi trùng. Vui lòng tải lại dữ liệu.</AlertDescription></Alert> : supplierProducts.length > 0 ? <div className="space-y-2"><Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Đã liên kết Nhà cung cấp</Badge>{supplierProducts.map((row) => <div key={row.id} className="rounded-xl bg-emerald-50 p-3 text-sm"><p className="font-medium">{supplierNameById.get(row.supplier_id || "") || "Nhà cung cấp"}</p><p className="text-slate-600">{row.supplier_product_name || selected.canonical_name} · {row.purchase_unit || selected.default_unit}</p></div>)}</div> : <Alert><AlertTitle>Chưa liên kết Nhà cung cấp</AlertTitle><AlertDescription>Chọn một Nhà cung cấp trong danh sách để chuẩn hóa nguồn mua.</AlertDescription></Alert>}
+          {!supplierCheckError && availableSuppliers.length > 0 && <div className="grid gap-2 sm:grid-cols-[1fr_auto]"><Select value={supplierId} onValueChange={setSupplierId} disabled={!canMutate}><SelectTrigger className="min-h-11"><SelectValue placeholder="Chọn Nhà cung cấp" /></SelectTrigger><SelectContent>{availableSuppliers.map((supplier) => <SelectItem key={supplier.id} value={supplier.id}>{supplier.name || "NCC chưa đặt tên"}</SelectItem>)}</SelectContent></Select><Button className="min-h-11" onClick={submitSupplier} disabled={!canMutate || !validVersion || !validReason || !supplierId || linkSupplier.isPending}>{linkSupplier.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}Liên kết NCC</Button></div>}
+        </CardContent>
+      </Card>
+
+      <Card data-bmq-material-cogs-check>
+        <CardHeader className="pb-3"><CardTitle className="text-base">Giá vốn</CardTitle><CardDescription>Kiểm tra NVL đang được sản phẩm SKU nào sử dụng.</CardDescription></CardHeader>
+        <CardContent className="space-y-3">
+          {cogsCheckError ? <Alert variant="destructive"><AlertTitle>Chưa kiểm tra được Giá vốn</AlertTitle><AlertDescription>Hệ thống tạm khóa liên kết SKU để tránh tạo công thức trùng hoặc thiếu.</AlertDescription></Alert> : cogsLinks.length > 0 ? <div className="space-y-2"><Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Đã có trong Giá vốn</Badge>{cogsLinks.map((row) => <div key={row.id} className="rounded-xl bg-emerald-50 p-3 text-sm"><p className="font-medium">{row.product_skus?.product_name || "Sản phẩm chưa đặt tên"}</p><p className="text-slate-600">{row.product_skus?.sku_code || "chưa có mã SKU"} · {row.dosage_qty ?? "—"} {row.unit || selected.default_unit}</p></div>)}</div> : <Alert><AlertTitle>Chưa có trong Giá vốn</AlertTitle><AlertDescription>Nếu NVL có dùng trong sản phẩm, bật lựa chọn bên dưới để liên kết SKU.</AlertDescription></Alert>}
+          {!cogsCheckError && availableSkus.length > 0 && <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border p-3"><Checkbox checked={showCogsPicker} onCheckedChange={(checked) => setShowCogsPicker(checked === true)} disabled={!canMutate} /><span className="text-sm font-medium">NVL này có dùng trong sản phẩm Giá vốn</span></label>}
+          {!cogsCheckError && showCogsPicker && <div className="space-y-3 rounded-xl border bg-slate-50 p-3">
+            <div className="grid gap-2"><Label>Chọn sản phẩm SKU</Label><Select value={skuId} onValueChange={setSkuId} disabled={!canMutate}><SelectTrigger className="min-h-11 bg-white"><SelectValue placeholder="Chọn sản phẩm SKU" /></SelectTrigger><SelectContent>{availableSkus.map((sku) => <SelectItem key={sku.id} value={sku.id}>{sku.sku_code || "chưa có mã"} · {sku.product_name || "chưa đặt tên"}</SelectItem>)}</SelectContent></Select></div>
+            <div className="grid gap-3 sm:grid-cols-2"><div className="grid gap-2"><Label>Định lượng NVL ({selected.default_unit || "đơn vị chuẩn"})</Label><Input inputMode="decimal" value={dosageQty} onChange={(event) => setDosageQty(event.target.value)} disabled={!canMutate} placeholder="VD: 12.5" /></div><div className="grid gap-2"><Label>Hao hụt (%)</Label><Input inputMode="decimal" value={wastagePercent} onChange={(event) => setWastagePercent(event.target.value)} disabled={!canMutate} /></div></div>
+            {standardCost ? <div className="rounded-xl bg-white p-3 text-sm"><p className="font-medium">Giá chuẩn hiện tại</p><p>{standardCost.price ?? "—"} / {standardCost.price_unit || selected.default_unit}</p></div> : <div className="grid gap-2"><Label>Giá chuẩn theo đơn vị ({selected.default_unit || "đơn vị chuẩn"})</Label><Input inputMode="decimal" value={standardUnitPrice} onChange={(event) => setStandardUnitPrice(event.target.value)} disabled={!canMutate} placeholder="Bắt buộc khi chưa có giá chuẩn" /></div>}
+            <div className="grid gap-2"><Label>Ngày hiệu lực</Label><Input type="date" value={effectiveFrom} onChange={(event) => setEffectiveFrom(event.target.value)} disabled={!canMutate} /></div>
+            <Button className="min-h-11 w-full" onClick={submitCogs} disabled={!canMutate || !validVersion || !validReason || !skuId || !dosageQty || (!standardCost && !standardUnitPrice) || linkCogs.isPending}>{linkCogs.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}Liên kết Giá vốn</Button>
+          </div>}
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -257,11 +373,16 @@ export default function MaterialMasterAdmin() {
     return materials.filter((material) => [material.material_code, material.canonical_name, material.default_unit, material.category, material.brand, material.specification].filter(Boolean).some((value) => String(value).toLowerCase().includes(needle)));
   }, [materials, search]);
   const aliases = [...(data?.aliases || []), ...(data?.scopedAliases || [])].filter((row) => !selected || row.material_id === selected.id);
-  const supplierProducts = (data?.supplierProducts || []).filter((row) => !selected || row.material_id === selected.id);
+  const supplierProducts = (data?.supplierProducts || []).filter((row) => {
+    if (!selected) return true;
+    return row.material_id === selected.id
+      && row.active === true
+      && row.approved === true;
+  });
   const prices = (data?.prices || []).filter((row) => !selected || row.material_id === selected.id);
   const conversions = (data?.conversions || []).filter((row) => !selected || row.material_id === selected.id);
   const q7Mappings = (data?.kitchenMappings || []).filter((row) => !selected || row.canonical_material_id === selected.id);
-  const cogsMappings = (data?.skuMappings || []).filter((row) => !selected || row.canonical_material_id === selected.id);
+  const cogsMappings = (data?.cogsLinks || []).filter((row) => !selected || row.canonical_material_id === selected.id);
   const auditLogs = (data?.auditLogs || []).filter((row) => !selected || row.material_id === selected.id);
   const queueRequests = useMemo(() => {
     const requests = data?.resolutionRequests || [];
@@ -330,9 +451,9 @@ export default function MaterialMasterAdmin() {
             <TabsContent value="materials" className="space-y-4">
               <ResponsiveMaterialList materials={filteredMaterials} selected={selected} onSelect={openMaterialEditor} editable={canEdit} />
               <Dialog open={dialog === "edit"} onOpenChange={(open) => setDialog(open ? "edit" : null)}>
-                <DialogContent className="max-h-[90dvh] w-[calc(100vw-1.5rem)] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Sửa tên và đơn vị chuẩn</DialogTitle><DialogDescription>Thay đổi này sẽ được lưu lịch sử để kiểm tra khi cần.</DialogDescription></DialogHeader><MaterialMutationForm key={`edit-${selected?.id}-${selected?.version}`} canMutate={canMutate} selected={selected} onClose={() => setDialog(null)} /></DialogContent>
+                <DialogContent className="max-h-[90dvh] w-[calc(100vw-1.5rem)] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Điều chỉnh NVL</DialogTitle><DialogDescription>Chuẩn hóa thông tin và các liên kết nghiệp vụ của NVL này.</DialogDescription></DialogHeader>{selected && <Tabs defaultValue="info" className="space-y-4"><TabsList className="grid h-auto w-full grid-cols-2"><TabsTrigger className="min-h-11 whitespace-normal" value="info">Thông tin NVL</TabsTrigger><TabsTrigger className="min-h-11 whitespace-normal" value="links">Liên kết nghiệp vụ</TabsTrigger></TabsList><TabsContent value="info"><MaterialMutationForm key={`edit-${selected.id}-${selected.version}`} canMutate={canMutate} selected={selected} onClose={() => setDialog(null)} /></TabsContent><TabsContent value="links"><MaterialBusinessController key={`controller-${selected.id}-${selected.version}`} selected={selected} canMutate={canMutate} suppliers={data?.suppliers || []} supplierProducts={supplierProducts} finishedSkus={data?.finishedSkus || []} cogsLinks={cogsMappings} prices={prices} supplierCheckError={Boolean(data?.sectionErrors.supplierProducts || data?.sectionErrors.suppliers)} cogsCheckError={Boolean(data?.sectionErrors.cogsLinks || data?.sectionErrors.finishedSkus)} /></TabsContent></Tabs>}</DialogContent>
               </Dialog>
-              {selected && !(selected.version && selected.version > 0) && <p className="text-sm text-rose-700">Dữ liệu vừa thay đổi. Vui lòng tải lại trước khi sửa.</p>}
+              {selected && !(selected.version && selected.version > 0) && <p className="text-sm text-rose-700">Phiên bản NVL chưa sẵn sàng để điều chỉnh.</p>}
 
               {selected && <div className="grid gap-3 md:grid-cols-3" data-bmq-material-master-supporting-details>
                 <details className="rounded-2xl border bg-white p-4">
@@ -355,8 +476,8 @@ export default function MaterialMasterAdmin() {
             </TabsContent>
 
             <TabsContent value="cogs" className="space-y-3">
-              <ReadOnlyTable<Q7Mapping> title="Liên kết Giá vốn" description="Tên và đơn vị NVL đang được công thức Giá vốn sử dụng." rows={cogsMappings} render={(row, idx) => <div key={`${row.id}-${idx}`} className="rounded-2xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{row.product_name || row.sku_code || row.item_code || "Dòng Giá vốn"}</h3>{linkBadge(Boolean(row.canonical_material_id))}</div><p className="text-sm text-slate-600">Đơn vị: {row.unit || "—"} · NVL chuẩn: {byMaterialName(materials, row.canonical_material_id)}</p></div>} />
-              <Button variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => openConfirmationQueue("product_skus")}>Đi tới Cần xác nhận</Button>
+              <ReadOnlyTable<CogsMaterialLink> title="Liên kết Giá vốn" description="Các sản phẩm SKU đang sử dụng NVL này trong công thức Giá vốn." rows={cogsMappings} render={(row, idx) => <div key={`${row.id}-${idx}`} className="rounded-2xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{row.product_skus?.product_name || row.product_skus?.sku_code || "Sản phẩm Giá vốn"}</h3>{linkBadge(Boolean(row.canonical_material_id))}</div><p className="text-sm text-slate-600">{row.product_skus?.sku_code || "chưa có mã SKU"} · {row.dosage_qty ?? "—"} {row.unit || "chưa có đơn vị"}</p></div>} />
+              <Button variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => openConfirmationQueue("sku_cogs")}>Đi tới Cần xác nhận</Button>
             </TabsContent>
 
             <TabsContent value="q7" className="space-y-3">
