@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, Clipboard, Download, Edit3, Loader2, Plus, ShieldCheck, XCircle } from "lucide-react";
+import { Check, Edit3, Loader2, Plus, ShieldCheck, XCircle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -62,13 +62,18 @@ function truncateId(id?: string | null) {
 }
 
 function byMaterialName(materials: CanonicalMaterial[], id?: string | null) {
-  return materials.find((material) => material.id === id)?.canonical_name || "Chưa mapping";
+  return materials.find((material) => material.id === id)?.canonical_name || "Chưa liên kết";
 }
 
 function statusBadge(status?: string | boolean | null) {
   const text = typeof status === "boolean" ? (status ? "active" : "inactive") : status || "Chưa rõ";
   const ok = text === "active" || text === "Đã duyệt" || text === "approved";
-  return <Badge variant="outline" className={ok ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}>{text}</Badge>;
+  const label = text === "active" ? "Đang dùng" : text === "inactive" ? "Ngưng dùng" : text === "approved" ? "Đã duyệt" : text;
+  return <Badge variant="outline" className={ok ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}>{label}</Badge>;
+}
+
+function linkBadge(linked: boolean) {
+  return <Badge variant="outline" className={linked ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}>{linked ? "Đã liên kết" : "Chưa liên kết"}</Badge>;
 }
 
 function LoadingState() {
@@ -110,7 +115,7 @@ function MaterialMutationForm({ canMutate, selected, onClose }: MutationFormProp
     if (!canMutate || !validReason) return;
     try {
       if (selected) {
-        if (!(selected.version && selected.version > 0)) throw new Error("Cần tải lại để có version hợp lệ trước khi cập nhật.");
+        if (!(selected.version && selected.version > 0)) throw new Error("Thông tin NVL vừa thay đổi ở nơi khác. Vui lòng tải lại trước khi sửa.");
         const patch: Partial<Pick<CanonicalMaterial, "canonical_name" | "default_unit" | "active" | "category" | "brand" | "specification">> = {};
         if (form.canonical_name.trim() !== (selected.canonical_name || "")) patch.canonical_name = form.canonical_name.trim();
         if (form.default_unit.trim() !== (selected.default_unit || "")) patch.default_unit = form.default_unit.trim();
@@ -136,10 +141,10 @@ function MaterialMutationForm({ canMutate, selected, onClose }: MutationFormProp
           reason: form.reason,
         });
       }
-      toast({ title: selected ? "Đã cập nhật NVL chuẩn" : "Đã tạo NVL chuẩn", description: "Controller RPC đã trả trạng thái hợp lệ và ghi audit với lý do." });
+      toast({ title: selected ? "Đã cập nhật NVL chuẩn" : "Đã tạo NVL chuẩn", description: "Tên, đơn vị và lý do thay đổi đã được lưu." });
       onClose?.();
     } catch (error) {
-      toast({ title: "Không thể ghi thay đổi", description: error instanceof Error ? error.message : "RPC/RLS đã từ chối thao tác.", variant: "destructive" });
+      toast({ title: "Không thể lưu thay đổi", description: error instanceof Error ? error.message : "Hệ thống đã từ chối thao tác không hợp lệ.", variant: "destructive" });
     }
   };
 
@@ -150,20 +155,20 @@ function MaterialMutationForm({ canMutate, selected, onClose }: MutationFormProp
         <Input value={form.material_code} onChange={(event) => setField("material_code", event.target.value)} disabled={!canMutate || Boolean(selected)} placeholder="VD: NVL-DUONG" />
       </div>
       <div className="grid gap-2 md:grid-cols-2">
-        <div><Label>Tên canonical</Label><Input value={form.canonical_name} onChange={(event) => setField("canonical_name", event.target.value)} disabled={!canMutate} /></div>
+        <div><Label>Tên NVL chuẩn</Label><Input value={form.canonical_name} onChange={(event) => setField("canonical_name", event.target.value)} disabled={!canMutate} /></div>
         <div><Label>Đơn vị chuẩn</Label><Input value={form.default_unit} onChange={(event) => setField("default_unit", event.target.value)} disabled={!canMutate} /></div>
       </div>
       <div className="grid gap-2 md:grid-cols-3">
         <div><Label>Nhóm</Label><Input value={form.category} onChange={(event) => setField("category", event.target.value)} disabled={!canMutate} /></div>
-        <div><Label>Brand</Label><Input value={form.brand} onChange={(event) => setField("brand", event.target.value)} disabled={!canMutate} /></div>
-        <div><Label>Quy cách/specification</Label><Input value={form.specification} onChange={(event) => setField("specification", event.target.value)} disabled={!canMutate} /></div>
+        <div><Label>Thương hiệu</Label><Input value={form.brand} onChange={(event) => setField("brand", event.target.value)} disabled={!canMutate} /></div>
+        <div><Label>Quy cách</Label><Input value={form.specification} onChange={(event) => setField("specification", event.target.value)} disabled={!canMutate} /></div>
       </div>
-      {selected && <div className="grid gap-2"><Label>Trạng thái</Label><Select value={form.activeChoice} onValueChange={(value) => setField("activeChoice", value)} disabled={!canMutate}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">active</SelectItem><SelectItem value="inactive">inactive</SelectItem></SelectContent></Select><p className="text-xs text-slate-500">UI status chỉ map sang active boolean. expected_version bắt buộc.</p></div>}
-      {selected && !hasPositiveVersion && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Cần tải lại để có version hợp lệ</AlertTitle><AlertDescription>Không gửi version 0/null; hãy refresh dữ liệu trước khi cập nhật.</AlertDescription></Alert>}
+      {selected && <div className="grid gap-2"><Label>Trạng thái</Label><Select value={form.activeChoice} onValueChange={(value) => setField("activeChoice", value)} disabled={!canMutate}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">Đang dùng</SelectItem><SelectItem value="inactive">Ngưng dùng</SelectItem></SelectContent></Select></div>}
+      {selected && !hasPositiveVersion && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Cần tải lại dữ liệu</AlertTitle><AlertDescription>Thông tin NVL vừa thay đổi ở nơi khác. Hãy tải lại trước khi sửa.</AlertDescription></Alert>}
       <div className="grid gap-2">
-        <Label>Lý do tiếng Việt bắt buộc</Label>
+        <Label>Lý do thay đổi</Label>
         <Textarea value={form.reason} onChange={(event) => setField("reason", event.target.value)} disabled={!canMutate} placeholder="VD: Chuẩn hoá tên theo hồ sơ NCC đã duyệt..." />
-        {!validReason && <p className="text-xs text-amber-700">Lý do bắt buộc cho mọi mutation.</p>}
+        {!validReason && <p className="text-xs text-amber-700">Vui lòng ghi lý do để lưu lịch sử chỉnh sửa.</p>}
       </div>
       <DialogFooter>
         <Button onClick={submit} disabled={!canMutate || !validReason || pending || Boolean(selected && !hasPositiveVersion)}>
@@ -176,7 +181,7 @@ function MaterialMutationForm({ canMutate, selected, onClose }: MutationFormProp
 }
 
 function ResponsiveMaterialList({ materials, selected, onSelect }: { materials: CanonicalMaterial[]; selected: CanonicalMaterial | null; onSelect: (m: CanonicalMaterial) => void }) {
-  return <Card data-bmq-material-master-no-raw-ids><CardHeader><CardTitle>Danh sách NVL</CardTitle><CardDescription>Tên, mã và đơn vị là nhãn chính. Sao chép ID chỉ ở chi tiết audit.</CardDescription></CardHeader><CardContent><div className="hidden overflow-x-auto md:block"><Table><TableHeader><TableRow><TableHead>Mã</TableHead><TableHead>Tên canonical</TableHead><TableHead>Đơn vị</TableHead><TableHead>Nhóm/brand/specification</TableHead><TableHead>Status/version</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>{materials.map((row) => <TableRow key={row.id} className={selected?.id === row.id ? "bg-emerald-50" : ""}><TableCell className="font-medium">{row.material_code}</TableCell><TableCell>{row.canonical_name}</TableCell><TableCell>{row.default_unit}</TableCell><TableCell>{[row.category, row.brand, row.specification].filter(Boolean).join(" · ") || "—"}</TableCell><TableCell>{statusBadge(row.active)}<span className="ml-2 text-xs text-slate-500">v{row.version || "?"}</span></TableCell><TableCell><Button variant="outline" size="sm" onClick={() => onSelect(row)}>Chọn</Button></TableCell></TableRow>)}</TableBody></Table></div><div className="space-y-3 md:hidden" data-bmq-material-master-mobile-cards>{materials.map((row) => <button key={row.id} type="button" onClick={() => onSelect(row)} className="w-full rounded-2xl border bg-white p-4 text-left shadow-sm"><div className="flex items-center justify-between gap-2"><h3 className="font-semibold text-slate-900">{row.canonical_name}</h3>{statusBadge(row.active)}</div><p className="mt-1 text-sm text-slate-600">{row.material_code} · {row.default_unit || "chưa đơn vị"}</p><p className="mt-1 text-xs text-slate-500">{[row.category, row.brand, row.specification].filter(Boolean).join(" · ") || "Chưa phân nhóm"}</p></button>)}</div>{materials.length === 0 && <div className="rounded-xl border border-dashed p-6 text-center text-sm text-slate-500">Không có NVL chuẩn phù hợp.</div>}</CardContent></Card>;
+  return <Card data-bmq-material-master-no-raw-ids><CardHeader><CardTitle>Tên và đơn vị chuẩn</CardTitle><CardDescription>Chọn một nguyên liệu để sửa tên, mã, đơn vị, nhóm hoặc quy cách dùng chung.</CardDescription></CardHeader><CardContent><div className="hidden overflow-x-auto md:block"><Table><TableHeader><TableRow><TableHead>Mã NVL</TableHead><TableHead>Tên NVL chuẩn</TableHead><TableHead>Đơn vị chuẩn</TableHead><TableHead>Nhóm · Thương hiệu · Quy cách</TableHead><TableHead>Trạng thái</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>{materials.map((row) => <TableRow key={row.id} className={selected?.id === row.id ? "bg-emerald-50" : ""}><TableCell className="font-medium">{row.material_code}</TableCell><TableCell>{row.canonical_name}</TableCell><TableCell>{row.default_unit}</TableCell><TableCell>{[row.category, row.brand, row.specification].filter(Boolean).join(" · ") || "—"}</TableCell><TableCell>{statusBadge(row.active)}</TableCell><TableCell><Button variant="outline" size="sm" onClick={() => onSelect(row)}>Chọn để sửa</Button></TableCell></TableRow>)}</TableBody></Table></div><div className="space-y-3 md:hidden" data-bmq-material-master-mobile-cards>{materials.map((row) => <button key={row.id} type="button" onClick={() => onSelect(row)} className="w-full rounded-2xl border bg-white p-4 text-left shadow-sm"><div className="flex items-center justify-between gap-2"><h3 className="min-w-0 break-words font-semibold text-slate-900">{row.canonical_name}</h3>{statusBadge(row.active)}</div><p className="mt-1 text-sm text-slate-600">{row.material_code} · {row.default_unit || "chưa có đơn vị"}</p><p className="mt-1 text-xs text-slate-500">{[row.category, row.brand, row.specification].filter(Boolean).join(" · ") || "Chưa phân nhóm"}</p></button>)}</div>{materials.length === 0 && <div className="rounded-xl border border-dashed p-6 text-center text-sm text-slate-500">Không có NVL chuẩn phù hợp.</div>}</CardContent></Card>;
 }
 
 function ReadOnlyTable<T>({ title, description, rows, render }: { title: string; description: string; rows: T[]; render: (row: T, idx: number) => JSX.Element }) {
@@ -213,15 +218,15 @@ function QueueActions({ requests, materials, canMutate }: { requests: Resolution
       if (action === "reject") await confirm.mutateAsync({ request_id: requestId, action: "reject", reason });
       if (action === "resolve_existing") await confirm.mutateAsync({ request_id: requestId, action: "resolve_existing", material_id: materialId, raw_alias: selectedRequest.raw_name, reason });
       if (action === "create_new") await confirm.mutateAsync({ request_id: requestId, action: "create_new", raw_alias: selectedRequest.raw_name, create_payload: createFields, reason });
-      toast({ title: "Đã gửi xử lý hàng đợi", description: "confirm_material_resolution trả trạng thái/ID hợp lệ; source workflow sẽ retry link khi cần." });
+      toast({ title: "Đã lưu xác nhận", description: "Tên và đơn vị chuẩn sẽ được dùng lại khi chứng từ được xử lý." });
       setReason("");
       setMaterialId("");
     } catch (error) {
-      toast({ title: "Không thể xử lý hàng đợi", description: error instanceof Error ? error.message : "RPC/RLS từ chối thao tác.", variant: "destructive" });
+      toast({ title: "Không thể lưu xác nhận", description: error instanceof Error ? error.message : "Hệ thống đã từ chối thao tác không hợp lệ.", variant: "destructive" });
     }
   };
 
-  return <Card><CardHeader><CardTitle>Thao tác thủ công an toàn</CardTitle><CardDescription>fuzzy candidates never preselected; không tự chọn/không auto-confirm; generic request chỉ gọi confirm_material_resolution.</CardDescription></CardHeader><CardContent className="grid gap-3 md:grid-cols-4"><Select value={requestId} onValueChange={resetForRequest} disabled={!canMutate}><SelectTrigger><SelectValue placeholder="Chọn request theo tên" /></SelectTrigger><SelectContent>{requests.slice(0, 80).map((request) => <SelectItem key={request.id} value={request.id}>{request.raw_name || request.raw_code || truncateId(request.id)} · {request.status}</SelectItem>)}</SelectContent></Select><Select value={materialId} onValueChange={setMaterialId} disabled={!canMutate || action !== "resolve_existing"}><SelectTrigger><SelectValue placeholder="Chọn NVL rõ ràng" /></SelectTrigger><SelectContent>{materials.map((material) => <SelectItem key={material.id} value={material.id}>{displayMaterial(material)}</SelectItem>)}</SelectContent></Select><Select value={action} onValueChange={(value) => changeAction(value as "resolve_existing" | "create_new" | "reject")} disabled={!canMutate}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="resolve_existing">Xác nhận existing</SelectItem><SelectItem value="create_new">Xác nhận tạo mới</SelectItem><SelectItem value="reject">Từ chối</SelectItem></SelectContent></Select><Textarea value={reason} onChange={(event) => setReason(event.target.value)} disabled={!canMutate} placeholder="Lý do tiếng Việt bắt buộc" className="md:col-span-3" />{action === "create_new" && <div className="grid gap-2 md:col-span-4 md:grid-cols-3"><Input value={createFields.material_code} onChange={(event) => setCreateFields((current) => ({ ...current, material_code: event.target.value }))} placeholder="Mã NVL mới (optional)" disabled={!canMutate} /><Input value={createFields.canonical_name} onChange={(event) => setCreateFields((current) => ({ ...current, canonical_name: event.target.value }))} placeholder="Tên canonical mới" disabled={!canMutate} /><Input value={createFields.default_unit} onChange={(event) => setCreateFields((current) => ({ ...current, default_unit: event.target.value }))} placeholder="Đơn vị chuẩn" disabled={!canMutate} /><Input value={createFields.category} onChange={(event) => setCreateFields((current) => ({ ...current, category: event.target.value }))} placeholder="Category optional" disabled={!canMutate} /><Input value={createFields.brand} onChange={(event) => setCreateFields((current) => ({ ...current, brand: event.target.value }))} placeholder="Brand optional" disabled={!canMutate} /><Input value={createFields.specification} onChange={(event) => setCreateFields((current) => ({ ...current, specification: event.target.value }))} placeholder="Specification optional" disabled={!canMutate} /></div>}<Button onClick={run} disabled={!valid || confirm.isPending}>{confirm.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}Gửi RPC</Button></CardContent></Card>;
+  return <Card><CardHeader><CardTitle>Xác nhận tên và đơn vị</CardTitle><CardDescription>Hệ thống có thể gợi ý nhưng không tự chọn. Anh kiểm tra rồi xác nhận NVL chuẩn cần liên kết.</CardDescription></CardHeader><CardContent className="grid gap-3 md:grid-cols-4"><Select value={requestId} onValueChange={resetForRequest} disabled={!canMutate}><SelectTrigger><SelectValue placeholder="Chọn dòng cần xác nhận" /></SelectTrigger><SelectContent>{requests.slice(0, 80).map((request) => <SelectItem key={request.id} value={request.id}>{request.raw_name || request.raw_code || truncateId(request.id)} · {request.status}</SelectItem>)}</SelectContent></Select><Select value={materialId} onValueChange={setMaterialId} disabled={!canMutate || action !== "resolve_existing"}><SelectTrigger><SelectValue placeholder="Chọn NVL chuẩn" /></SelectTrigger><SelectContent>{materials.map((material) => <SelectItem key={material.id} value={material.id}>{displayMaterial(material)}</SelectItem>)}</SelectContent></Select><Select value={action} onValueChange={(value) => changeAction(value as "resolve_existing" | "create_new" | "reject")} disabled={!canMutate}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="resolve_existing">Liên kết với NVL có sẵn</SelectItem><SelectItem value="create_new">Tạo NVL chuẩn mới</SelectItem><SelectItem value="reject">Không liên kết</SelectItem></SelectContent></Select><Textarea value={reason} onChange={(event) => setReason(event.target.value)} disabled={!canMutate} placeholder="Lý do xác nhận" className="md:col-span-3" />{action === "create_new" && <div className="grid gap-2 md:col-span-4 md:grid-cols-3"><Input value={createFields.material_code} onChange={(event) => setCreateFields((current) => ({ ...current, material_code: event.target.value }))} placeholder="Mã NVL mới (không bắt buộc)" disabled={!canMutate} /><Input value={createFields.canonical_name} onChange={(event) => setCreateFields((current) => ({ ...current, canonical_name: event.target.value }))} placeholder="Tên NVL chuẩn mới" disabled={!canMutate} /><Input value={createFields.default_unit} onChange={(event) => setCreateFields((current) => ({ ...current, default_unit: event.target.value }))} placeholder="Đơn vị chuẩn mới" disabled={!canMutate} /><Input value={createFields.category} onChange={(event) => setCreateFields((current) => ({ ...current, category: event.target.value }))} placeholder="Nhóm (không bắt buộc)" disabled={!canMutate} /><Input value={createFields.brand} onChange={(event) => setCreateFields((current) => ({ ...current, brand: event.target.value }))} placeholder="Thương hiệu (không bắt buộc)" disabled={!canMutate} /><Input value={createFields.specification} onChange={(event) => setCreateFields((current) => ({ ...current, specification: event.target.value }))} placeholder="Quy cách (không bắt buộc)" disabled={!canMutate} /></div>}<Button onClick={run} disabled={!valid || confirm.isPending}>{confirm.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Lưu xác nhận</Button></CardContent></Card>;
 }
 
 const jsonSummary = (value: Record<string, unknown> | null | undefined) => {
@@ -240,7 +245,7 @@ export default function MaterialMasterAdmin() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<"create" | "edit" | null>(null);
   const [sourceFilter, setSourceFilter] = useState("all");
-  const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState("materials");
 
   const materials = useMemo(() => data?.materials || [], [data?.materials]);
   const selected = selectedId ? materials.find((material) => material.id === selectedId) || null : null;
@@ -250,58 +255,133 @@ export default function MaterialMasterAdmin() {
     if (!needle) return materials;
     return materials.filter((material) => [material.material_code, material.canonical_name, material.default_unit, material.category, material.brand, material.specification].filter(Boolean).some((value) => String(value).toLowerCase().includes(needle)));
   }, [materials, search]);
-  const copyMaterialId = async () => {
-    if (!selected?.id) return;
-    await navigator.clipboard?.writeText(selected.id);
-    toast({ title: "Đã sao chép ID chi tiết", description: truncateId(selected.id) });
-  };
-
   const aliases = [...(data?.aliases || []), ...(data?.scopedAliases || [])].filter((row) => !selected || row.material_id === selected.id);
   const supplierProducts = (data?.supplierProducts || []).filter((row) => !selected || row.material_id === selected.id);
   const prices = (data?.prices || []).filter((row) => !selected || row.material_id === selected.id);
   const conversions = (data?.conversions || []).filter((row) => !selected || row.material_id === selected.id);
-  const mappings = [...(data?.kitchenMappings || []), ...(data?.skuMappings || [])];
+  const q7Mappings = (data?.kitchenMappings || []).filter((row) => !selected || row.canonical_material_id === selected.id);
+  const cogsMappings = (data?.skuMappings || []).filter((row) => !selected || row.canonical_material_id === selected.id);
   const auditLogs = (data?.auditLogs || []).filter((row) => !selected || row.material_id === selected.id);
   const queueRequests = useMemo(() => {
     const requests = data?.resolutionRequests || [];
     if (sourceFilter === "all") return requests;
     return requests.filter((row) => row.source_type === sourceFilter || row.source_table === sourceFilter || (sourceFilter === "kitchen_inventory" && row.source_table === "kitchen_inventory_items"));
   }, [data?.resolutionRequests, sourceFilter]);
+  const openConfirmationQueue = (source: string) => {
+    setSourceFilter(source);
+    setActiveTab("queue");
+  };
 
   if (!canView) {
     return <div className="p-6"><Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Không có quyền truy cập</AlertTitle><AlertDescription>Trang này yêu cầu quyền xem module Quản trị NVL chuẩn.</AlertDescription></Alert></div>;
   }
 
   return (
-    <div className="min-h-screen bg-slate-50/80 p-4 text-slate-900 md:p-6" data-bmq-material-master-admin data-bmq-material-master-rbac="material_master" data-bmq-material-master-light-ui data-bmq-material-master-explicit-edit-mode>
-      <div className="mx-auto max-w-7xl space-y-5">
-        <section className="rounded-3xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/70 to-amber-50 p-5 shadow-sm">
+    <div className="min-h-screen bg-slate-50/80 p-3 text-slate-900 sm:p-4 md:p-6" data-bmq-material-master-admin data-bmq-material-master-rbac="material_master" data-bmq-material-master-light-ui data-bmq-material-master-explicit-edit-mode>
+      <div className="mx-auto max-w-7xl space-y-4 md:space-y-5">
+        <section className="rounded-3xl border border-emerald-100 bg-white p-4 shadow-sm sm:p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div><p className="text-sm font-semibold text-emerald-700">BMQ Operations · Canonical NVL Master</p><h1 className="mt-1 text-3xl font-bold tracking-tight">Quản trị NVL chuẩn</h1><p className="mt-2 max-w-3xl text-sm text-slate-600">Fail-closed RBAC, đọc qua RLS, ghi chỉ qua audited controller RPC. Không thao tác trực tiếp DML với bảng controller.</p></div>
-            <div className="flex flex-wrap gap-2"><Button variant={editMode ? "default" : "outline"} onClick={() => setEditMode((value) => !value)} disabled={!canEdit}>{editMode ? <ShieldCheck className="mr-2 h-4 w-4" /> : <Edit3 className="mr-2 h-4 w-4" />}{editMode ? "Đang sửa" : "Bật chế độ sửa"}</Button><Button variant="outline" onClick={() => setEditMode(false)}>Thoát sửa</Button><Dialog open={dialog === "create"} onOpenChange={(open) => setDialog(open ? "create" : null)}><DialogTrigger asChild><Button disabled={!canMutate}><Plus className="mr-2 h-4 w-4" />Tạo NVL</Button></DialogTrigger><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>Tạo NVL chuẩn</DialogTitle><DialogDescription>Mã NVL là immutable sau khi tạo; form gọi create_canonical_material qua audited RPC.</DialogDescription></DialogHeader><MaterialMutationForm canMutate={canMutate} selected={null} onClose={() => setDialog(null)} /></DialogContent></Dialog></div>
+            <div>
+              <p className="text-sm font-semibold text-emerald-700">BMQ Operations</p>
+              <h1 className="mt-1 text-3xl font-bold tracking-tight">Chuẩn hóa nguyên vật liệu</h1>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Sửa một lần tên và đơn vị chuẩn để dùng thống nhất trong Giá vốn, phiếu xuất kho NVL Q7 và sản phẩm Nhà cung cấp.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+              <Button className="min-h-11" variant={editMode ? "default" : "outline"} onClick={() => setEditMode((value) => !value)} disabled={!canEdit}>
+                {editMode ? <ShieldCheck className="mr-2 h-4 w-4" /> : <Edit3 className="mr-2 h-4 w-4" />}
+                {editMode ? "Đang chỉnh sửa" : "Sửa tên & đơn vị"}
+              </Button>
+              <Button className="min-h-11" variant="outline" onClick={() => setEditMode(false)}>Kết thúc sửa</Button>
+              <Dialog open={dialog === "create"} onOpenChange={(open) => setDialog(open ? "create" : null)}>
+                <DialogTrigger asChild><Button className="col-span-2 min-h-11 sm:col-span-1" disabled={!canMutate}><Plus className="mr-2 h-4 w-4" />Thêm NVL chuẩn</Button></DialogTrigger>
+                <DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>Thêm NVL chuẩn</DialogTitle><DialogDescription>Tạo tên và đơn vị chuẩn mới để liên kết thống nhất giữa các nghiệp vụ.</DialogDescription></DialogHeader><MaterialMutationForm canMutate={canMutate} selected={null} onClose={() => setDialog(null)} /></DialogContent>
+              </Dialog>
+            </div>
           </div>
         </section>
 
-        {!canEdit && <Alert><ShieldCheck className="h-4 w-4" /><AlertTitle>Chế độ chỉ đọc</AlertTitle><AlertDescription>Bạn có quyền xem nhưng không có quyền sửa material_master. Các tab supplier/alias/price hiện chỉ đọc nếu Task2 chưa có mutation RPC riêng.</AlertDescription></Alert>}
-        {error && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Lỗi tải dữ liệu lõi</AlertTitle><AlertDescription>RLS/RPC trả lỗi cho danh sách NVL chuẩn; không hiển thị trang rỗng gây hiểu nhầm.</AlertDescription></Alert>}
-        {data?.sectionErrors && Object.entries(data.sectionErrors).length > 0 && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Một số section không tải được</AlertTitle><AlertDescription>{Object.entries(data.sectionErrors).map(([section, message]) => `${section}: ${message}`).join(" | ")}</AlertDescription></Alert>}
+        {!canEdit && <Alert><ShieldCheck className="h-4 w-4" /><AlertTitle>Chế độ chỉ xem</AlertTitle><AlertDescription>Anh có thể xem các liên kết nhưng cần quyền chỉnh sửa để đổi tên, đơn vị hoặc xác nhận liên kết.</AlertDescription></Alert>}
+        {error && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Không tải được danh mục NVL</AlertTitle><AlertDescription>Vui lòng tải lại trang. Nếu vẫn lỗi, báo quản trị hệ thống.</AlertDescription></Alert>}
+        {data?.sectionErrors && Object.entries(data.sectionErrors).length > 0 && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Một số thông tin liên kết chưa tải được</AlertTitle><AlertDescription>{Object.entries(data.sectionErrors).map(([section, message]) => `${section}: ${message}`).join(" | ")}</AlertDescription></Alert>}
         {isLoading && <LoadingState />}
 
         {!isLoading && !error && <>
-          <Card><CardContent className="pt-6"><div className="grid gap-3 md:grid-cols-[1fr_auto_auto]"><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm NVL theo mã, tên, đơn vị, nhóm..." /><Select value={selected?.id || "none"} onValueChange={(value) => setSelectedId(value === "none" ? null : value)}><SelectTrigger><SelectValue placeholder="Chọn NVL" /></SelectTrigger><SelectContent><SelectItem value="none">Tất cả NVL</SelectItem>{materials.map((material) => <SelectItem key={material.id} value={material.id}>{displayMaterial(material)}</SelectItem>)}</SelectContent></Select><Button variant="outline" onClick={copyMaterialId} disabled={!selected}><Clipboard className="mr-2 h-4 w-4" />Sao chép ID chi tiết</Button></div>{selected && <p className="mt-2 text-xs text-slate-500">Đang chọn: {displayMaterial(selected)} · audit ID {truncateId(selected.id)}</p>}</CardContent></Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm theo mã, tên NVL, đơn vị hoặc nhóm..." />
+                <Select value={selected?.id || "none"} onValueChange={(value) => setSelectedId(value === "none" ? null : value)}>
+                  <SelectTrigger className="min-w-0 md:w-[360px]"><SelectValue placeholder="Chọn NVL" /></SelectTrigger>
+                  <SelectContent><SelectItem value="none">Tất cả NVL</SelectItem>{materials.map((material) => <SelectItem key={material.id} value={material.id}>{displayMaterial(material)}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              {selected && <p className="mt-2 break-words text-sm text-slate-600">Đang chọn: <span className="font-medium text-slate-900">{displayMaterial(selected)}</span></p>}
+            </CardContent>
+          </Card>
 
-          <Tabs defaultValue="materials" className="space-y-4">
-            <TabsList className="flex h-auto flex-wrap justify-start rounded-2xl bg-white p-1 shadow-sm"><TabsTrigger value="materials">Danh sách NVL</TabsTrigger><TabsTrigger value="controller">Controller shadow</TabsTrigger><TabsTrigger value="suppliers">Sản phẩm NCC</TabsTrigger><TabsTrigger value="aliases">Bí danh</TabsTrigger><TabsTrigger value="prices">Giá</TabsTrigger><TabsTrigger value="conversions">Quy đổi đơn vị</TabsTrigger><TabsTrigger value="q7">Mapping Q7</TabsTrigger><TabsTrigger value="queue">Hàng đợi xử lý</TabsTrigger><TabsTrigger value="audit">Audit</TabsTrigger></TabsList>
-            <TabsContent value="materials" className="space-y-4"><ResponsiveMaterialList materials={filteredMaterials} selected={selected} onSelect={(material) => setSelectedId(material.id)} /><Dialog open={dialog === "edit"} onOpenChange={(open) => setDialog(open ? "edit" : null)}><DialogTrigger asChild><Button disabled={!canMutate || !selected || !(selected.version && selected.version > 0)}><Edit3 className="mr-2 h-4 w-4" />Sửa NVL đang chọn</Button></DialogTrigger><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>Sửa NVL chuẩn</DialogTitle><DialogDescription>update_canonical_material gửi expected_version/p_patch để chống ghi đè.</DialogDescription></DialogHeader><MaterialMutationForm canMutate={canMutate} selected={selected} onClose={() => setDialog(null)} /></DialogContent></Dialog>{selected && !(selected.version && selected.version > 0) && <p className="text-sm text-rose-700">Cần tải lại để có version hợp lệ trước khi sửa.</p>}</TabsContent>
-            <TabsContent value="controller" className="space-y-4"><ControllerDashboard sourceFilter={sourceFilter} onSourceFilterChange={setSourceFilter} canEdit={canEdit} /></TabsContent>
-            <TabsContent value="suppliers"><ReadOnlyTable<SupplierProduct> title="Sản phẩm NCC" description="Read-only: mutation dành cho supplier product/price/alias cần RPC riêng; UI không insert/update/delete trực tiếp." rows={supplierProducts} render={(row) => <div key={row.id} className="rounded-2xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{row.supplier_product_name || row.supplier_product_code || "Sản phẩm NCC chưa tên"}</h3>{statusBadge(row.approved)}</div><p className="text-sm text-slate-600">NCC: {supplierById.get(row.supplier_id || "") || "Chưa rõ"} · Đơn vị mua: {row.purchase_unit || "—"} · base: {row.base_unit || "—"}</p></div>} /></TabsContent>
-            <TabsContent value="aliases"><ReadOnlyTable<MaterialAlias> title="Bí danh" description="Gồm global và scoped aliases, metadata/source hiển thị để operator kiểm tra." rows={aliases} render={(row) => <div key={row.id} className="rounded-2xl border bg-white p-4"><h3 className="font-semibold">{row.alias_name || "Bí danh chưa tên"}</h3><p className="text-sm text-slate-600">Source/metadata: {row.source || row.source_type || jsonSummary(row.metadata) || "—"} · normalized: {row.normalized_alias || "—"}</p></div>} /></TabsContent>
-            <TabsContent value="prices"><ReadOnlyTable<MaterialPriceHistory> title="Giá" description="Giá đọc qua RLS: price/price_unit/normalized_base_unit_price/effective period/supplier product." rows={prices} render={(row) => <div key={row.id} className="rounded-2xl border bg-white p-4"><h3 className="font-semibold">{row.price ?? "—"} / {row.price_unit || "—"}</h3><p className="text-sm text-slate-600">Base normalized: {row.normalized_base_unit_price ?? "—"} · Hiệu lực: {row.effective_from || "—"} → {row.effective_to || "hiện tại"} · NCC product {truncateId(row.supplier_product_id)}</p></div>} /></TabsContent>
-            <TabsContent value="conversions"><ReadOnlyTable<MaterialUnitConversion> title="Quy đổi đơn vị" description="from_unit/to_unit/factor/effective_from/effective_to/approved/active." rows={conversions} render={(row) => <div key={row.id} className="rounded-2xl border bg-white p-4"><h3 className="font-semibold">{row.from_unit || "—"} → {row.to_unit || "—"} × {row.factor ?? "—"}</h3><p className="text-sm text-slate-600">Hiệu lực: {row.effective_from || "—"} → {row.effective_to || "hiện tại"} · {statusBadge(row.approved)} {statusBadge(row.active)}</p></div>} /></TabsContent>
-            <TabsContent value="q7"><ReadOnlyTable<Q7Mapping> title="Mapping Q7" description="Hiển thị mapping approved/missing; tên NVL và đơn vị là nhãn chính, ID chỉ để copy/audit." rows={mappings} render={(row, idx) => <div key={`${row.id}-${idx}`} className="rounded-2xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{row.name || row.product_name || row.item_code || row.sku_code || "Dòng Q7"}</h3>{statusBadge(Boolean(row.canonical_material_id))}</div><p className="text-sm text-slate-600">Đơn vị: {row.unit || "—"} · NVL: {byMaterialName(materials, row.canonical_material_id)}</p></div>} /></TabsContent>
-            <TabsContent value="queue" className="space-y-4" data-bmq-material-master-resolution-queue><QueueActions requests={queueRequests} materials={materials} canMutate={canMutate} /><ReconciliationQueue canMutate={canMutate} sourceFilter={sourceFilter} /></TabsContent>
-            <TabsContent value="audit" data-bmq-material-master-audit-timeline><ReadOnlyTable<MaterialAuditLog> title="Audit timeline" description="Append-only timeline từ controller; old/new/safe summary không dùng ID làm nhãn chính." rows={auditLogs} render={(row) => <div key={row.id} className="rounded-2xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{row.action || "Sự kiện audit"}</h3><span className="text-xs text-slate-500">{row.created_at || "chưa thời gian"}</span></div><p className="mt-1 text-sm text-slate-600">Lý do: {row.reason || "—"}</p><p className="mt-1 text-xs text-slate-500">Old: {jsonSummary(row.old_values)} · New: {jsonSummary(row.new_values)} · Safe: {jsonSummary(row.safe_payload)}</p><p className="mt-1 text-xs text-slate-400">audit ID {truncateId(row.id)}</p></div>} /></TabsContent>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+            <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-2xl bg-white p-1 shadow-sm md:grid-cols-5" data-bmq-material-master-business-tabs>
+              <TabsTrigger className="col-span-2 min-h-11 whitespace-normal md:col-span-1" value="materials">Tên & đơn vị chuẩn</TabsTrigger>
+              <TabsTrigger className="min-h-11 whitespace-normal" value="cogs">Liên kết Giá vốn</TabsTrigger>
+              <TabsTrigger className="min-h-11 whitespace-normal" value="q7">Phiếu xuất kho Q7</TabsTrigger>
+              <TabsTrigger className="min-h-11 whitespace-normal" value="suppliers">Sản phẩm Nhà cung cấp</TabsTrigger>
+              <TabsTrigger className="min-h-11 whitespace-normal" value="queue">Cần xác nhận</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="materials" className="space-y-4">
+              <ResponsiveMaterialList materials={filteredMaterials} selected={selected} onSelect={(material) => setSelectedId(material.id)} />
+              <Dialog open={dialog === "edit"} onOpenChange={(open) => setDialog(open ? "edit" : null)}>
+                <DialogTrigger asChild><Button className="min-h-11 w-full sm:w-auto" disabled={!canMutate || !selected || !(selected.version && selected.version > 0)}><Edit3 className="mr-2 h-4 w-4" />Sửa NVL đang chọn</Button></DialogTrigger>
+                <DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>Sửa tên và đơn vị chuẩn</DialogTitle><DialogDescription>Thay đổi này sẽ được lưu lịch sử để kiểm tra khi cần.</DialogDescription></DialogHeader><MaterialMutationForm canMutate={canMutate} selected={selected} onClose={() => setDialog(null)} /></DialogContent>
+              </Dialog>
+              {selected && !(selected.version && selected.version > 0) && <p className="text-sm text-rose-700">Dữ liệu vừa thay đổi. Vui lòng tải lại trước khi sửa.</p>}
+
+              {selected && <div className="grid gap-3 md:grid-cols-3" data-bmq-material-master-supporting-details>
+                <details className="rounded-2xl border bg-white p-4">
+                  <summary className="cursor-pointer font-semibold">Tên gọi khác</summary>
+                  <div className="mt-3 space-y-2">{aliases.length === 0 ? <p className="text-sm text-slate-500">Chưa có tên gọi khác.</p> : aliases.map((row) => <div key={row.id} className="rounded-xl bg-slate-50 p-3"><p className="font-medium">{row.alias_name || "Chưa đặt tên"}</p><p className="text-xs text-slate-500">Nguồn: {row.source || row.source_type || "—"}</p></div>)}</div>
+                </details>
+                <details className="rounded-2xl border bg-white p-4">
+                  <summary className="cursor-pointer font-semibold">Giá mua & quy đổi</summary>
+                  <div className="mt-3 space-y-3">
+                    {prices.map((row) => <div key={row.id} className="rounded-xl bg-slate-50 p-3"><p className="font-medium">{row.price ?? "—"} / {row.price_unit || "—"}</p><p className="text-xs text-slate-500">Hiệu lực từ {row.effective_from || "—"}</p></div>)}
+                    {conversions.map((row) => <div key={row.id} className="rounded-xl bg-slate-50 p-3"><p className="font-medium">1 {row.from_unit || "—"} = {row.factor ?? "—"} {row.to_unit || "—"}</p><p className="text-xs text-slate-500">{statusBadge(row.approved)}</p></div>)}
+                    {prices.length === 0 && conversions.length === 0 && <p className="text-sm text-slate-500">Chưa có giá mua hoặc quy đổi đơn vị.</p>}
+                  </div>
+                </details>
+                <details className="rounded-2xl border bg-white p-4" data-bmq-material-master-audit-timeline>
+                  <summary className="cursor-pointer font-semibold">Lịch sử chỉnh sửa</summary>
+                  <div className="mt-3 space-y-2">{auditLogs.length === 0 ? <p className="text-sm text-slate-500">Chưa có lịch sử.</p> : auditLogs.map((row) => <div key={row.id} className="rounded-xl bg-slate-50 p-3"><p className="font-medium">{row.action || "Đã cập nhật"}</p><p className="text-xs text-slate-600">{row.reason || "Không có ghi chú"}</p><p className="mt-1 text-xs text-slate-400">{row.created_at || "—"}</p></div>)}</div>
+                </details>
+              </div>}
+            </TabsContent>
+
+            <TabsContent value="cogs" className="space-y-3">
+              <ReadOnlyTable<Q7Mapping> title="Liên kết Giá vốn" description="Tên và đơn vị NVL đang được công thức Giá vốn sử dụng." rows={cogsMappings} render={(row, idx) => <div key={`${row.id}-${idx}`} className="rounded-2xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{row.product_name || row.sku_code || row.item_code || "Dòng Giá vốn"}</h3>{linkBadge(Boolean(row.canonical_material_id))}</div><p className="text-sm text-slate-600">Đơn vị: {row.unit || "—"} · NVL chuẩn: {byMaterialName(materials, row.canonical_material_id)}</p></div>} />
+              <Button variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => openConfirmationQueue("product_skus")}>Đi tới Cần xác nhận</Button>
+            </TabsContent>
+
+            <TabsContent value="q7" className="space-y-3">
+              <ReadOnlyTable<Q7Mapping> title="Phiếu xuất kho NVL Q7" description="Tên và đơn vị NVL dùng khi lập phiếu xuất kho bếp Q7." rows={q7Mappings} render={(row, idx) => <div key={`${row.id}-${idx}`} className="rounded-2xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{row.name || row.item_code || "NVL kho Q7"}</h3>{linkBadge(Boolean(row.canonical_material_id))}</div><p className="text-sm text-slate-600">Đơn vị: {row.unit || "—"} · NVL chuẩn: {byMaterialName(materials, row.canonical_material_id)}</p></div>} />
+              <Button variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => openConfirmationQueue("kitchen_inventory")}>Đi tới Cần xác nhận</Button>
+            </TabsContent>
+
+            <TabsContent value="suppliers" className="space-y-3">
+              <ReadOnlyTable<SupplierProduct> title="Sản phẩm Nhà cung cấp" description="Tên hàng và đơn vị mua của Nhà cung cấp đã liên kết với NVL chuẩn." rows={supplierProducts} render={(row) => <div key={row.id} className="rounded-2xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{row.supplier_product_name || row.supplier_product_code || "Sản phẩm chưa đặt tên"}</h3>{statusBadge(row.approved)}</div><p className="text-sm text-slate-600">Nhà cung cấp: {supplierById.get(row.supplier_id || "") || "Chưa rõ"} · Đơn vị mua: {row.purchase_unit || "—"} · Đơn vị chuẩn: {row.base_unit || "—"}</p></div>} />
+              <Button variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => openConfirmationQueue("all")}>Đi tới Cần xác nhận</Button>
+            </TabsContent>
+
+            <TabsContent value="queue" className="space-y-4" data-bmq-material-master-resolution-queue>
+              <Card><CardContent className="pt-6"><div className="grid gap-2 sm:grid-cols-[220px_1fr] sm:items-center"><Label>Lọc theo nơi sử dụng</Label><Select value={sourceFilter} onValueChange={setSourceFilter}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Tất cả</SelectItem><SelectItem value="product_skus">Giá vốn</SelectItem><SelectItem value="kitchen_inventory">Kho NVL Q7</SelectItem></SelectContent></Select></div></CardContent></Card>
+              <QueueActions requests={queueRequests} materials={materials} canMutate={canMutate} />
+              <ReconciliationQueue canMutate={canMutate} sourceFilter={sourceFilter} />
+            </TabsContent>
           </Tabs>
+
+          <details className="rounded-2xl border border-dashed bg-white p-4">
+            <summary className="cursor-pointer text-sm font-medium text-slate-600">Kiểm tra trạng thái hệ thống</summary>
+            <div className="mt-4"><ControllerDashboard sourceFilter={sourceFilter} onSourceFilterChange={setSourceFilter} canEdit={canEdit} /></div>
+          </details>
         </>}
       </div>
     </div>

@@ -77,21 +77,36 @@ def test_material_master_page_contract_markers_edit_mode_reason_version_and_queu
     assert "useAuth()" in page
     assert "canAccessModule(\"material_master\")" in page
     assert "canEditModule(\"material_master\")" in page
-    assert "Bật chế độ sửa" in page
+    assert "Sửa tên & đơn vị" in page
     assert "setEditMode(false)" in page
     assert re.search(r"const canMutate\s*=\s*canEdit\s*&&\s*editMode", page)
     assert "reason.trim()" in page
-    assert "Lý do" in page and "bắt buộc" in page
-    assert "expected_version" in page
-    assert "update_canonical_material" in page
-    assert "create_canonical_material" in page
+    assert "Lý do thay đổi" in page
+    assert "Vui lòng ghi lý do để lưu lịch sử chỉnh sửa." in page
+    assert "selected.version" in page
     assert "Mã NVL không đổi" in page
-    assert "Không thao tác trực tiếp DML" in page
-    assert "Bí danh" in page and "Sản phẩm NCC" in page and "Mapping Q7" in page and "Audit" in page
+    assert "Sửa một lần tên và đơn vị chuẩn để dùng thống nhất trong Giá vốn, phiếu xuất kho NVL Q7 và sản phẩm Nhà cung cấp." in page
+    for business_tab in [
+        "Tên & đơn vị chuẩn",
+        "Liên kết Giá vốn",
+        "Phiếu xuất kho Q7",
+        "Sản phẩm Nhà cung cấp",
+        "Cần xác nhận",
+    ]:
+        assert business_tab in page
+    assert "data-bmq-material-master-business-tabs" in page
+    assert "data-bmq-material-master-supporting-details" in page
+    assert "row.canonical_material_id === selected.id" in page
+    assert "function linkBadge" in page and '"Đã liên kết"' in page and '"Chưa liên kết"' in page
+    assert "openConfirmationQueue" in page and "setActiveTab(\"queue\")" in page
+    assert "Đi tới Cần xác nhận" in page
+    assert "Tên gọi khác" in page and "Giá mua & quy đổi" in page and "Lịch sử chỉnh sửa" in page
+    for forbidden_user_copy in ["Canonical NVL Master", "Controller shadow", "Mapping Q7", "Audit timeline", "Sao chép ID chi tiết"]:
+        assert forbidden_user_copy not in page
     assert "ReconciliationQueue" in page
-    assert "fuzzy" in page.lower() and "không tự chọn" in page.lower()
+    assert "gợi ý" in page.lower() and "không tự chọn" in page.lower()
     assert "Raw UUID" not in page
-    assert "audit ID" in page or "Sao chép ID" in page
+    assert "audit ID" not in page and "Sao chép ID" not in page
     assert "data-task3-reconciliation-queue" in queue
 
 
@@ -198,13 +213,13 @@ def test_task4_exact_rpc_contracts_and_functional_resolution_queue():
     assert "p_supplier_product_payload" in hook
     assert "validateRpcResponse" in hook
     assert "selected.version" in page and "selected.version > 0" in page
-    assert "Cần tải lại để có version hợp lệ" in page
+    assert "Cần tải lại dữ liệu" in page
     assert "createFields" in page and "material_code" in page and "canonical_name" in page and "default_unit" in page and "specification" in page
     assert "manual_selection" in hook and 'confidence: "confirmed"' in hook
     assert 'field_name: "material_master_admin"' in hook
     assert "setMaterialId(\"\")" in page
     assert "setCreateFields" in page
-    assert "fuzzy candidates never preselected" in page.lower()
+    assert "hệ thống có thể gợi ý nhưng không tự chọn" in page.lower()
 
     queue_match = re.search(r"function ReconciliationQueue\(([^)]*)\)", queue)
     assert queue_match is not None
@@ -221,8 +236,8 @@ def test_material_master_mobile_and_no_raw_uuid_primary_labels():
     assert "canonical_name" in page
     assert "material_code" in page
     assert "default_unit" in page
-    assert "copyMaterialId" in page
     assert "truncateId" in page
+    assert "Sao chép ID chi tiết" not in page
     primary_label_area = page.split("data-bmq-material-master-no-raw-ids", 1)[1].split("data-bmq-material-master-audit-timeline", 1)[0]
     assert ">{row.id}<" not in primary_label_area
     assert ".id}</" not in primary_label_area
@@ -236,8 +251,9 @@ def test_task9_controller_shadow_dashboard_and_safe_queue_source_filter():
     combined = hook + "\n" + page + "\n" + queue + "\n" + dashboard
 
     assert "ControllerDashboard" in page
-    assert '<TabsTrigger value="controller">Controller shadow</TabsTrigger>' in page
-    assert '<TabsContent value="controller"' in page
+    assert "Kiểm tra trạng thái hệ thống" in page
+    assert '{canEdit && <details' not in page
+    assert '<TabsTrigger value="controller">' not in page
     assert 'data-bmq-material-master-controller-shadow-dashboard' in dashboard
     assert 'data-bmq-material-master-source-filter' in dashboard
     assert 'useMaterialMasterRolloutDashboard' in hook
