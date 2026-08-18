@@ -23,13 +23,18 @@ test("formats the warehouse kiosk bread dispatch from automatic orders plus repo
   });
 
   assert.equal(message, [
-    "Đặt bánh 18/8",
-    "Bùi Viện 100 bù6 đổi11que",
-    "Bùi Hữu Nghĩa 140",
-    "Bến Vân Đồn 100 bù2 đổi1que",
-    "Phạm Văn Chí 120 bù4que",
-    "Thống Nhất 80",
-    "Tc: 540 bù12 đổi12",
+    "ĐẶT BÁNH 18/8",
+    "",
+    "Bùi Viện: đặt 100 que | bù 6 | đổi 11",
+    "Bùi Hữu Nghĩa: đặt 140 que",
+    "Bến Vân Đồn: đặt 100 que | bù 2 | đổi 1",
+    "Phạm Văn Chí: đặt 120 que | bù 4",
+    "Thống Nhất: đặt 80 que",
+    "",
+    "Tổng đặt mới: 540 que",
+    "Tổng bù: 12 que",
+    "Tổng đổi: 12 que",
+    "KHO CẦN GIAO: 564 QUE",
   ].join("\n"));
 });
 

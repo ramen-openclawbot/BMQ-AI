@@ -233,16 +233,22 @@ export function buildWarehouseKioskBreadDispatchMessage(input: WarehouseKioskBre
     totalMakeup += makeup;
     totalExchange += exchange;
     const extras: string[] = [];
-    if (makeup > 0) extras.push(`bù${formatQuantity(makeup)}`);
-    if (exchange > 0) extras.push(`đổi${formatQuantity(exchange)}`);
-    const suffix = extras.length > 0 ? ` ${extras.join(" ")}que` : "";
-    return `${warehousePointName(location.locationName, location.locationCode)} ${formatQuantity(ordered)}${suffix}`;
+    if (makeup > 0) extras.push(`bù ${formatQuantity(makeup)}`);
+    if (exchange > 0) extras.push(`đổi ${formatQuantity(exchange)}`);
+    const suffix = extras.length > 0 ? ` | ${extras.join(" | ")}` : "";
+    return `${warehousePointName(location.locationName, location.locationCode)}: đặt ${formatQuantity(ordered)} que${suffix}`;
   });
+  const totalPhysical = totalOrdered + totalMakeup + totalExchange;
 
   return [
-    `Đặt bánh ${Number(day)}/${Number(month)}`,
+    `ĐẶT BÁNH ${Number(day)}/${Number(month)}`,
+    "",
     ...lines,
-    `Tc: ${formatQuantity(totalOrdered)} bù${formatQuantity(totalMakeup)} đổi${formatQuantity(totalExchange)}`,
+    "",
+    `Tổng đặt mới: ${formatQuantity(totalOrdered)} que`,
+    `Tổng bù: ${formatQuantity(totalMakeup)} que`,
+    `Tổng đổi: ${formatQuantity(totalExchange)} que`,
+    `KHO CẦN GIAO: ${formatQuantity(totalPhysical)} QUE`,
   ].join("\n");
 }
 
