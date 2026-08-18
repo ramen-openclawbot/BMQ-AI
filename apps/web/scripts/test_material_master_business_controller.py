@@ -85,40 +85,35 @@ def test_browser_hook_reads_real_supplier_and_cogs_links_and_uses_only_rpcs_for_
     assert 'invalidateQueries({ queryKey: ["material-master"] })' in hook
 
 
-def test_edit_dialog_has_business_controller_checks_and_compact_mobile_tabs():
+def test_supplier_review_replaces_reverse_flow_controller_and_keeps_compact_mobile_ui():
     page = read(PAGE)
     for text in [
-        "Thông tin NVL",
-        "Liên kết nghiệp vụ",
-        "Nhà cung cấp",
-        "Chưa liên kết Nhà cung cấp",
-        "Chọn Nhà cung cấp",
-        "Đã có trong Giá vốn",
-        "Chưa có trong Giá vốn",
-        "Chọn sản phẩm SKU",
-        "Định lượng NVL",
-        "Giá chuẩn theo đơn vị",
-        "Ngày hiệu lực",
+        "NVL từ Giá vốn",
+        "Sản phẩm sử dụng",
+        "Hệ thống gợi ý NCC",
+        "Chọn NCC khác",
+        "Xác nhận và lưu",
+        "NCC & Duyệt chi",
+        "Xác nhận và đồng bộ",
     ]:
         assert text in page
-    assert "MaterialBusinessController" in page
-    assert "useLinkMaterialSupplier" in page
-    assert "useLinkMaterialToSkuCogs" in page
+    assert "MaterialBusinessController" not in page
+    assert "useLinkMaterialSupplier" not in page
+    assert "useLinkMaterialToSkuCogs" not in page
     assert "canMutate={canMutate}" in page
-    assert "data-bmq-material-business-controller" in page
-    assert "data-bmq-material-supplier-check" in page
-    assert "data-bmq-material-cogs-check" in page
-    assert "Chưa kiểm tra được Nhà cung cấp" in page
-    assert "Chưa kiểm tra được Giá vốn" in page
-    assert "supplierCheckError" in page and "cogsCheckError" in page
+    assert "data-bmq-cogs-rooted-material-list" in page
+    assert "data-bmq-material-supplier-review" in page
+    assert "data-bmq-payment-request-bulk-sync" in page
     assert "max-h-[90dvh]" in page
 
 
-def test_controller_actions_require_reason_and_positive_material_version():
+def test_supplier_confirmation_actions_require_reason_and_positive_material_version():
     hook = read(HOOK)
     page = read(PAGE)
     assert "expectedVersion" in hook
     assert "nonEmptyReason(payload.reason)" in hook
     assert "selected.version" in page
-    assert "Lý do điều chỉnh" in page
+    assert "Lý do xác nhận" in page
+    assert "Lý do đồng bộ" in page
+    assert "validReason" in page
     assert "Cần tải lại dữ liệu" not in page
