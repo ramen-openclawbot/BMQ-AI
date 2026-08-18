@@ -42,6 +42,12 @@ import { generatePONumber } from "@/hooks/usePurchaseOrders";
 import { generateShortCode } from "@/components/dialogs/AddSupplierDialog";
 import { AddPaymentRequestDialog, PRPrefillData } from "@/components/dialogs/AddPaymentRequestDialog";
 import { cn } from "@/lib/utils";
+import {
+  approvePaymentRequestWithMaterialController,
+  createInvoiceFromPaymentRequestWithMaterialController,
+  createProcurementLineWithMaterialResolution,
+  getCurrentActorId,
+} from "@/lib/material-controller-rpcs";
 
 interface DriveImportProgressDialogProps {
   open: boolean;
@@ -1558,20 +1564,26 @@ export function DriveImportProgressDialog({
 
     if (poError) throw poError;
 
-    // 5. Create PO items
+    // 5. Create PO items atomically through the material controller.
+    const actorId = await getCurrentActorId();
     if (poData.items && Array.isArray(poData.items)) {
       for (const item of poData.items) {
-        await supabase
-          .from('purchase_order_items')
-          .insert({
+        await createProcurementLineWithMaterialResolution({
+          sourceTable: 'purchase_order_items',
+          sourceType: 'purchase_order',
+          parentId: createdPO.id,
+          actorId,
+          item: {
             purchase_order_id: createdPO.id,
             product_name: item.product_name || 'Sản phẩm',
             quantity: item.quantity || 1,
             unit: item.unit || 'kg',
             unit_price: item.unit_price || 0,
             line_total: (item.quantity || 0) * (item.unit_price || 0),
+            raw_product_name: item.product_name || 'Sản phẩm',
             notes: item.notes,
-          });
+          },
+        });
       }
     }
 
@@ -1631,20 +1643,26 @@ export function DriveImportProgressDialog({
 
     if (prError) throw prError;
 
-    // Create PR items from PO items
+    // Create PR items from PO items through the controller.
+    const prActorId = await getCurrentActorId();
     if (pendingPO.poData.items && Array.isArray(pendingPO.poData.items)) {
       for (const item of pendingPO.poData.items) {
-        await supabase
-          .from('payment_request_items')
-          .insert({
+        await createProcurementLineWithMaterialResolution({
+          sourceTable: 'payment_request_items',
+          sourceType: 'payment_request',
+          parentId: createdPR.id,
+          actorId: prActorId,
+          item: {
             payment_request_id: createdPR.id,
             product_name: item.product_name || 'Sản phẩm',
             quantity: item.quantity || 1,
             unit: item.unit || 'kg',
             unit_price: item.unit_price || 0,
             line_total: item.line_total || (item.quantity * item.unit_price) || 0,
+            raw_product_name: item.product_name || 'Sản phẩm',
             notes: item.notes,
-          });
+          },
+        });
       }
     }
 
@@ -2459,17 +2477,23 @@ export function DriveImportProgressDialog({
           supplier_id: selectedSupplierId,
           total_amount: current.slipData.amount,
           vat_amount: 0,
-          status: 'approved',
-          payment_status: 'paid',
+          status: 'pending',
+          payment_status: 'unpaid',
           payment_method: 'bank_transfer',
           payment_type: 'old_order',
           image_url: imagePath,
-          approved_at: new Date().toISOString(),
         })
         .select()
         .single();
 
       if (prError) throw prError;
+
+      const controllerActorId = await getCurrentActorId();
+      await approvePaymentRequestWithMaterialController({
+        paymentRequestId: prData.id,
+        paymentMethod: 'bank_transfer',
+        actorId: controllerActorId,
+      });
 
       const { error: paymentError } = await supabase.rpc('record_payment_allocations', {
         p_allocations: [{ payment_request_id: prData.id, amount: current.slipData.amount }],
@@ -2481,51 +2505,30 @@ export function DriveImportProgressDialog({
 
       if (paymentError) throw paymentError;
 
-      // 5. Create invoice with payment_slip_url
-      const invoiceNumber = `INV-${format(new Date(), 'yyMMdd')}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
-      const { data: invoiceData, error: invoiceError } = await supabase
-        .from('invoices')
-        .insert({
-          invoice_number: invoiceNumber,
-          invoice_date: current.slipData.transaction_date || new Date().toISOString().split('T')[0],
-          supplier_id: selectedSupplierId,
-          payment_request_id: prData.id,
-          total_amount: current.slipData.amount,
-          payment_slip_url: imagePath,
+      // 5. Fail closed when UNC-only evidence has no procurement lines. If lines exist,
+      // atomically create/carry the invoice through the server controller.
+      const { count: prItemCount, error: prItemCountError } = await supabase
+        .from('payment_request_items')
+        .select('id', { count: 'exact', head: true })
+        .eq('payment_request_id', prData.id);
+      if (prItemCountError) throw prItemCountError;
+
+      let invoiceId: string | null = null;
+      if ((prItemCount || 0) > 0) {
+        const invoiceNumber = `INV-${format(new Date(), 'yyMMdd')}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+        const invoiceData = await createInvoiceFromPaymentRequestWithMaterialController({
+          paymentRequestId: prData.id,
+          invoiceNumber,
+          invoiceDate: current.slipData.transaction_date || new Date().toISOString().split('T')[0],
+          vatAmount: 0,
           notes: `Tạo từ UNC - ${current.slipData.transaction_id || ''}`,
-        })
-        .select()
-        .single();
-
-      if (invoiceError) throw invoiceError;
-
-      // 6. Copy PR items to invoice items
-      const copiedItemCount = await copyPRItemsToInvoice(prData.id, invoiceData.id);
-      if (copiedItemCount === 0) {
-        toast.warning('PR không có sản phẩm để chép sang hoá đơn');
+          paymentSlipUrl: imagePath,
+          actorId: controllerActorId,
+        });
+        invoiceId = invoiceData.invoice_id;
+      } else {
+        toast.warning('UNC chưa có dòng hàng chuẩn; đã tạo đề nghị chi nhưng chưa tạo hóa đơn.');
       }
-
-      // 7. Update PR with invoice_id
-      await supabase
-        .from('payment_requests')
-        .update({ invoice_created: true, invoice_id: invoiceData.id })
-        .eq('id', prData.id);
-
-      // 8. Recompute invoice totals from copied items
-      const { data: insertedItems } = await supabase
-        .from('invoice_items')
-        .select('quantity, unit_price')
-        .eq('invoice_id', invoiceData.id);
-
-      const subtotal = (insertedItems || []).reduce((sum, item: any) => sum + (Number(item.quantity) || 0) * (Number(item.unit_price) || 0), 0);
-      await supabase
-        .from('invoices')
-        .update({
-          subtotal,
-          vat_amount: 0,
-          total_amount: subtotal,
-        })
-        .eq('id', invoiceData.id);
 
       // 7. Update drive_file_index to mark as processed (idempotent)
       await upsertDriveFileIndex({
@@ -2534,7 +2537,7 @@ export function DriveImportProgressDialog({
         processed: true,
         processed_at: new Date().toISOString(),
         payment_request_id: prData.id,
-        invoice_id: invoiceData.id,
+        invoice_id: invoiceId,
       });
 
       // Update file status
@@ -2544,7 +2547,7 @@ export function DriveImportProgressDialog({
           : f
       ));
 
-      toast.success(`Đã tạo ${requestNumber} và hoá đơn từ UNC`);
+      toast.success(invoiceId ? `Đã tạo ${requestNumber} và hoá đơn từ UNC` : `Đã tạo ${requestNumber}; hóa đơn chờ bổ sung dòng hàng chuẩn`);
       setStats(prev => ({ ...prev, created: prev.created + 1 }));
       moveToNextUnmatched();
       
@@ -2584,42 +2587,6 @@ export function DriveImportProgressDialog({
     }
   };
 
-  const copyPRItemsToInvoice = async (paymentRequestId: string, invoiceId: string) => {
-    const { data: prItems, error: prItemsError } = await supabase
-      .from('payment_request_items')
-      .select('product_code, product_name, unit, quantity, unit_price, inventory_item_id, notes')
-      .eq('payment_request_id', paymentRequestId);
-
-    if (prItemsError) {
-      throw prItemsError;
-    }
-
-    if (!prItems || prItems.length === 0) {
-      return 0;
-    }
-
-    const invoiceItems = prItems.map((item) => ({
-      invoice_id: invoiceId,
-      product_code: item.product_code,
-      product_name: item.product_name,
-      unit: item.unit || 'kg',
-      quantity: item.quantity,
-      unit_price: item.unit_price,
-      inventory_item_id: item.inventory_item_id,
-      notes: item.notes,
-    }));
-
-    const { error: insertError } = await supabase
-      .from('invoice_items')
-      .insert(invoiceItems);
-
-    if (insertError) {
-      throw insertError;
-    }
-
-    return invoiceItems.length;
-  };
-
   const toggleDate = (date: string, checked: boolean | 'indeterminate') => {
     if (checked === true) {
       setSelectedDates(prev => [...prev, date]);
@@ -2651,7 +2618,7 @@ export function DriveImportProgressDialog({
 
     const { data: currentPaymentState, error: paymentStateError } = await supabase
       .from('payment_requests')
-      .select('id, total_amount, payment_allocations(amount)')
+      .select('id, total_amount, status, payment_method, payment_allocations(amount)')
       .eq('id', matchedPR.id)
       .single();
 
@@ -2659,8 +2626,18 @@ export function DriveImportProgressDialog({
 
     const paymentState = currentPaymentState as {
       total_amount: number | null;
+      status: string;
+      payment_method: "bank_transfer" | "cash" | null;
       payment_allocations?: Array<{ amount: number | null }>;
     };
+    const controllerActorId = await getCurrentActorId();
+    if (paymentState.status === 'pending') {
+      await approvePaymentRequestWithMaterialController({
+        paymentRequestId: matchedPR.id,
+        paymentMethod: paymentState.payment_method || 'bank_transfer',
+        actorId: controllerActorId,
+      });
+    }
     const allocatedAmount = (paymentState.payment_allocations || []).reduce(
       (sum, allocation) => sum + (Number(allocation.amount) || 0),
       0
@@ -2679,60 +2656,21 @@ export function DriveImportProgressDialog({
       if (paymentError) throw paymentError;
     }
 
-    // Create invoice if not exists
-    let invoiceId: string | null = null;
+    // Create invoice atomically if not already linked. The RPC carries every PR line's
+    // canonical material/request evidence and marks the PR in the same transaction.
+    let invoiceId: string | null = matchedPR.invoice_id || null;
     if (!matchedPR.invoice_created) {
       const invoiceNumber = `INV-${format(new Date(), 'yyMMdd')}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
-
-      const { data: invoiceData } = await supabase
-        .from('invoices')
-        .insert({
-          invoice_number: invoiceNumber,
-          invoice_date: slipData.transaction_date || new Date().toISOString().split('T')[0],
-          supplier_id: matchedPR.supplier_id,
-          payment_request_id: matchedPR.id,
-          total_amount: matchedPR.total_amount,
-          vat_amount: matchedPR.vat_amount || 0,
-          subtotal: (matchedPR.total_amount || 0) - (matchedPR.vat_amount || 0),
-          notes: `Tạo tự động từ UNC - ${slipData.transaction_id || ''}`,
-          payment_slip_url: paymentSlipPath,
-        })
-        .select()
-        .single();
-
-      if (invoiceData) {
-        invoiceId = invoiceData.id;
-
-        const copiedItemCount = await copyPRItemsToInvoice(matchedPR.id, invoiceData.id);
-        if (copiedItemCount === 0) {
-          toast.warning(`PR ${matchedPR.request_number} không có sản phẩm để chép sang hoá đơn`);
-        }
-
-        const { data: insertedItems } = await supabase
-          .from('invoice_items')
-          .select('quantity, unit_price')
-          .eq('invoice_id', invoiceData.id);
-
-        const subtotal = (insertedItems || []).reduce((sum, item: any) => sum + (Number(item.quantity) || 0) * (Number(item.unit_price) || 0), 0);
-        const vatAmount = matchedPR.vat_amount || 0;
-
-        await supabase
-          .from('invoices')
-          .update({
-            subtotal,
-            vat_amount: vatAmount,
-            total_amount: subtotal + vatAmount,
-          })
-          .eq('id', invoiceData.id);
-        
-        await supabase
-          .from('payment_requests')
-          .update({ 
-            invoice_created: true,
-            invoice_id: invoiceData.id,
-          })
-          .eq('id', matchedPR.id);
-      }
+      const invoiceResult = await createInvoiceFromPaymentRequestWithMaterialController({
+        paymentRequestId: matchedPR.id,
+        invoiceNumber,
+        invoiceDate: slipData.transaction_date || new Date().toISOString().split('T')[0],
+        vatAmount: matchedPR.vat_amount || 0,
+        notes: `Tạo tự động từ UNC - ${slipData.transaction_id || ''}`,
+        paymentSlipUrl: paymentSlipPath,
+        actorId: controllerActorId,
+      });
+      invoiceId = invoiceResult.invoice_id;
     }
 
     // Update drive_file_index to mark as processed (idempotent)

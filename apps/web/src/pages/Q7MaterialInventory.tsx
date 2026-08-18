@@ -5,16 +5,85 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { AlertTriangle, ClipboardCheck, Loader2, PackagePlus, RefreshCw, Scale } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Check, ChevronsUpDown, ClipboardCheck, Loader2, PackagePlus, RefreshCw, Scale } from "lucide-react";
 import { Q7SignedMaterialIssueQueue } from "@/components/q7-material-inventory/Q7SignedMaterialIssueQueue";
-import { useQ7InventoryMutations, useQ7InventoryMovements, useQ7InventorySnapshot } from "@/hooks/useQ7MaterialInventory";
+import { type Q7InventoryPickerRow, useQ7InventoryMutations, useQ7InventoryMovements, useQ7InventoryPicker, useQ7InventorySnapshot } from "@/hooks/useQ7MaterialInventory";
+import { cn } from "@/lib/utils";
 
 const numberVi = (value: unknown) => Number(value || 0).toLocaleString("vi-VN", { maximumFractionDigits: 3 });
 const movementLabel: Record<string, string> = { receipt: "Nhập", production_usage: "Xuất dùng", adjustment: "Điều chỉnh" };
+
+function Q7MaterialPicker({
+  id,
+  q7PickerRows,
+  value,
+  selected,
+  placeholder,
+  loading,
+  onChange,
+}: {
+  id: string;
+  q7PickerRows: Q7InventoryPickerRow[];
+  value: string;
+  selected?: Q7InventoryPickerRow;
+  placeholder: string;
+  loading?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          id={id}
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          aria-label={placeholder}
+          className="min-h-12 w-full min-w-0 justify-between text-left font-normal"
+        >
+          <span className="min-w-0 flex-1 break-words text-sm">
+            {selected?.display_label || selected?.canonical_name || "Chọn nguyên vật liệu"}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[min(92vw,640px)] p-0">
+        <Command>
+          <CommandInput placeholder="Tìm theo mã, tên chuẩn, đơn vị location..." />
+          <CommandList className="max-h-[min(70vh,420px)] overflow-y-auto">
+            <CommandEmpty>{loading ? "Đang tải danh mục Q7..." : "Không tìm thấy NVL Q7 đã duyệt."}</CommandEmpty>
+            <CommandGroup heading="Mã · Tên chuẩn · đơn vị location">
+              {q7PickerRows.map((row) => (
+                <CommandItem
+                  key={row.q7_mapping_id || row.kitchen_inventory_item_id}
+                  value={`${row.material_code} ${row.canonical_name} ${row.location_unit} ${row.display_label}`}
+                  onSelect={() => {
+                    onChange(row.kitchen_inventory_item_id);
+                    setOpen(false);
+                  }}
+                  className="min-h-12 items-start gap-2 break-words py-3"
+                >
+                  <Check className={cn("mt-0.5 h-4 w-4 shrink-0", value === row.kitchen_inventory_item_id ? "opacity-100" : "opacity-0")} />
+                  <span className="min-w-0 flex-1 break-words leading-5">
+                    {row.display_label || `${row.material_code} · ${row.canonical_name} · ${row.location_unit}`}
+                  </span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export default function Q7MaterialInventory() {
   const { toast } = useToast();
@@ -37,8 +106,12 @@ export default function Q7MaterialInventory() {
 
   const snapshotQuery = useQ7InventorySnapshot(asOfDate);
   const movementsQuery = useQ7InventoryMovements(asOfDate);
+  const pickerQuery = useQ7InventoryPicker();
   const { recordReceiptMutation, backfillOpeningMutation } = useQ7InventoryMutations();
   const rows = snapshotQuery.data || [];
+  const q7PickerRows = pickerQuery.data || [];
+  const selectedReceiptPickerItem = q7PickerRows.find((row) => row.kitchen_inventory_item_id === receiptItemId);
+  const selectedOpeningPickerItem = q7PickerRows.find((row) => row.kitchen_inventory_item_id === openingItemId);
   const movements = useMemo(() => movementsQuery.data || [], [movementsQuery.data]);
   const canWriteQ7 = canEditModule("q7_material_inventory") || canEditModule("kitchen_inventory");
 
@@ -148,7 +221,7 @@ export default function Q7MaterialInventory() {
             <Card>
               <CardHeader><CardTitle className="flex items-center gap-2"><PackagePlus className="h-5 w-5 text-primary" /> Ghi nhận nhập hôm nay</CardTitle></CardHeader>
               <CardContent className="space-y-3">
-                <div className="space-y-1.5"><label htmlFor="q7-receipt-item" className="text-sm font-medium">Tên NVL Q7</label><Select value={receiptItemId} onValueChange={(value) => { setReceiptItemId(value); setReceiptUnit(rows.find((row) => row.kitchen_inventory_item_id === value)?.unit || ""); }}><SelectTrigger id="q7-receipt-item" className="min-h-12"><SelectValue placeholder="Chọn nguyên vật liệu" /></SelectTrigger><SelectContent>{rows.map((row) => <SelectItem key={row.kitchen_inventory_item_id} value={row.kitchen_inventory_item_id}>{row.item_name}</SelectItem>)}</SelectContent></Select></div>
+                <div className="space-y-1.5"><label htmlFor="q7-receipt-item" className="text-sm font-medium">Tên NVL Q7</label><Q7MaterialPicker id="q7-receipt-item" q7PickerRows={q7PickerRows} value={receiptItemId} selected={selectedReceiptPickerItem} placeholder="Chọn nguyên vật liệu" onChange={(value) => { setReceiptItemId(value); const selected = q7PickerRows.find((row) => row.kitchen_inventory_item_id === value) as Q7InventoryPickerRow; setReceiptUnit(selected.location_unit || ""); }} loading={pickerQuery.isLoading} /></div>
                 <div className="grid gap-3 sm:grid-cols-2"><div className="space-y-1.5"><label htmlFor="q7-receipt-qty" className="text-sm font-medium">Số lượng</label><Input id="q7-receipt-qty" className="min-h-12" inputMode="decimal" value={receiptQty} onChange={(event) => setReceiptQty(event.target.value)} /></div><div className="space-y-1.5"><label htmlFor="q7-receipt-unit" className="text-sm font-medium">Đơn vị</label><Input id="q7-receipt-unit" className="min-h-12 bg-muted/40" readOnly placeholder="Tự động theo NVL đã chọn" value={receiptUnit} /></div></div>
                 <div className="space-y-1.5"><label htmlFor="q7-receipt-reference" className="text-sm font-medium">Số chứng từ / tham chiếu</label><Input id="q7-receipt-reference" value={receiptReference} onChange={(event) => setReceiptReference(event.target.value)} /></div>
                 <div className="space-y-1.5"><label htmlFor="q7-receipt-note" className="text-sm font-medium">Ghi chú</label><Textarea id="q7-receipt-note" value={receiptNote} onChange={(event) => setReceiptNote(event.target.value)} /></div>
@@ -164,7 +237,7 @@ export default function Q7MaterialInventory() {
               <CardHeader><CardTitle className="flex items-center gap-2"><ClipboardCheck className="h-5 w-5 shrink-0 text-primary" /> Audit tồn đầu</CardTitle><p className="text-sm leading-6 text-muted-foreground">Chọn NVL, nhập tồn đầu đã được kế toán xác nhận. Nếu có kiểm đếm thực tế, nhập thêm số lượng và ngày kiểm đếm để lưu dấu audit.</p></CardHeader>
               <CardContent className="space-y-3">
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm leading-6"><span className="font-semibold">Ngày hiệu lực:</span> {asOfDate}. Tồn đầu chưa kiểm xong có thể để trống và bổ sung sau.</div>
-                <div className="space-y-1.5"><label htmlFor="q7-opening-item" className="text-sm font-medium">Tên NVL Q7</label><Select value={openingItemId} onValueChange={(value) => { setOpeningItemId(value); setOpeningUnit(rows.find((row) => row.kitchen_inventory_item_id === value)?.unit || ""); }}><SelectTrigger id="q7-opening-item" className="min-h-12"><SelectValue placeholder="Chọn nguyên vật liệu cần audit" /></SelectTrigger><SelectContent>{rows.map((row) => <SelectItem key={row.kitchen_inventory_item_id} value={row.kitchen_inventory_item_id}>{row.item_name}</SelectItem>)}</SelectContent></Select></div>
+                <div className="space-y-1.5"><label htmlFor="q7-opening-item" className="text-sm font-medium">Tên NVL Q7</label><Q7MaterialPicker id="q7-opening-item" q7PickerRows={q7PickerRows} value={openingItemId} selected={selectedOpeningPickerItem} placeholder="Chọn nguyên vật liệu cần audit" onChange={(value) => { setOpeningItemId(value); const selected = q7PickerRows.find((row) => row.kitchen_inventory_item_id === value) as Q7InventoryPickerRow; setOpeningUnit(selected.location_unit || ""); }} loading={pickerQuery.isLoading} /></div>
                 <div className="grid gap-3 sm:grid-cols-2"><div className="space-y-1.5"><label htmlFor="q7-opening-qty" className="text-sm font-medium">Tồn đầu đã xác nhận</label><Input id="q7-opening-qty" className="min-h-12" inputMode="decimal" placeholder="Có thể để trống" value={openingQty} onChange={(event) => setOpeningQty(event.target.value)} /></div><div className="space-y-1.5"><label htmlFor="q7-opening-unit" className="text-sm font-medium">Đơn vị</label><Input id="q7-opening-unit" className="min-h-12 bg-muted/40" readOnly placeholder="Tự động theo NVL đã chọn" value={openingUnit} /></div></div>
                 <div className="grid gap-3 sm:grid-cols-2"><div className="space-y-1.5"><label htmlFor="q7-physical-qty" className="text-sm font-medium">Đếm thực tế</label><Input id="q7-physical-qty" inputMode="decimal" value={physicalQty} onChange={(event) => setPhysicalQty(event.target.value)} /></div><div className="space-y-1.5"><label htmlFor="q7-physical-date" className="text-sm font-medium">Ngày kiểm đếm</label><Input id="q7-physical-date" type="date" value={physicalDate} onChange={(event) => setPhysicalDate(event.target.value)} /></div></div>
                 <div className="space-y-1.5"><label htmlFor="q7-opening-note" className="text-sm font-medium">Ghi chú audit</label><Textarea id="q7-opening-note" value={openingNote} onChange={(event) => setOpeningNote(event.target.value)} /></div>

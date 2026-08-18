@@ -3,16 +3,30 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Tables, TablesInsert } from "@/integrations/supabase/types";
 import { resolveImageUrl } from "@/lib/storage-url";
 import { getVietnamDayUtcRange } from "@/lib/vietnam-time";
-import { ensureReceiptForPurchaseOrder } from "./usePurchaseReceiptQueue";
+import {
+  createProcurementLineWithMaterialResolution,
+  getCurrentActorId,
+  updatePurchaseOrderStatusWithMaterialController,
+  type PurchaseOrderStatus,
+} from "@/lib/material-controller-rpcs";
 
 // Helper function to get signed URL for PO images
 export async function getPurchaseOrderImageUrl(path: string): Promise<string | null> {
   return resolveImageUrl(path, { preferredBucket: "purchase-orders" });
 }
 
+export interface PurchaseOrderListItemSummary {
+  id: string;
+  product_name: string | null;
+  canonical_material_id?: string | null;
+  material_resolution_status?: string | null;
+  material_resolution_request_id?: string | null;
+  raw_product_name?: string | null;
+}
+
 export type PurchaseOrder = Tables<"purchase_orders"> & {
   suppliers?: { id: string; name: string } | null;
-  purchase_order_items?: Array<Pick<Tables<"purchase_order_items">, "id" | "product_name">> | null;
+  purchase_order_items?: PurchaseOrderListItemSummary[] | null;
 };
 
 export type PurchaseOrderItem = Tables<"purchase_order_items"> & {
@@ -28,11 +42,11 @@ export function usePurchaseOrders() {
     queryFn: async () => {
       const relationQuery = await supabase
         .from("purchase_orders")
-        .select("*, suppliers(id, name), purchase_order_items(id, product_name)")
+        .select("*, suppliers(id, name), purchase_order_items(id, product_name, canonical_material_id, material_resolution_status, material_resolution_request_id, raw_product_name)")
         .order("created_at", { ascending: false });
 
       if (!relationQuery.error) {
-        return relationQuery.data as PurchaseOrder[];
+        return relationQuery.data as unknown as PurchaseOrder[];
       }
 
       console.warn("Falling back to base purchase_orders query", relationQuery.error);
@@ -125,10 +139,21 @@ export function useCreatePurchaseOrderItem() {
 
   return useMutation({
     mutationFn: async (item: PurchaseOrderItemInsert) => {
+      const { raw_product_name: _rawProductName, canonical_material_id: _canonicalMaterialId, material_resolution_status: _materialResolutionStatus, material_resolution_request_id: _materialResolutionRequestId, ...safeItem } = item as PurchaseOrderItemInsert & Record<string, unknown>;
+      void _rawProductName; void _canonicalMaterialId; void _materialResolutionStatus; void _materialResolutionRequestId;
+      if (!safeItem.purchase_order_id) throw new Error("Purchase order ID is required");
+      const actorId = await getCurrentActorId();
+      const result = await createProcurementLineWithMaterialResolution({
+        sourceTable: "purchase_order_items",
+        sourceType: "purchase_order",
+        parentId: safeItem.purchase_order_id,
+        item: { ...safeItem, raw_product_name: String(_rawProductName || safeItem.product_name || "") },
+        actorId,
+      });
       const { data, error } = await supabase
         .from("purchase_order_items")
-        .insert(item)
-        .select()
+        .select("*")
+        .eq("id", result.line_id)
         .single();
       if (error) throw error;
       return data;
@@ -144,6 +169,22 @@ export function useUpdatePurchaseOrder() {
 
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<Tables<"purchase_orders">> & { id: string }) => {
+      if (updates.status === "sent" || updates.status === "in_transit") {
+        const actorId = await getCurrentActorId();
+        await updatePurchaseOrderStatusWithMaterialController({
+          purchaseOrderId: id,
+          status: updates.status as PurchaseOrderStatus,
+          actorId,
+        });
+        const { data, error } = await supabase
+          .from("purchase_orders")
+          .select("*")
+          .eq("id", id)
+          .single();
+        if (error) throw error;
+        return data;
+      }
+
       const { data, error } = await supabase
         .from("purchase_orders")
         .update(updates)
@@ -151,10 +192,6 @@ export function useUpdatePurchaseOrder() {
         .select()
         .single();
       if (error) throw error;
-
-      if (updates.status === "sent" || updates.status === "in_transit") {
-        await ensureReceiptForPurchaseOrder(id);
-      }
 
       return data;
     },
@@ -216,13 +253,12 @@ export function useSendPurchaseOrder() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("purchase_orders")
-        .update({ status: "sent" })
-        .eq("id", id);
-      if (error) throw error;
-
-      await ensureReceiptForPurchaseOrder(id);
+      const actorId = await getCurrentActorId();
+      await updatePurchaseOrderStatusWithMaterialController({
+        purchaseOrderId: id,
+        status: "sent",
+        actorId,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });

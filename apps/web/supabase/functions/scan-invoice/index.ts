@@ -8,6 +8,7 @@ import {
   fetchApprovedCostItemAliasMappings,
   type CostItemAliasMapping,
 } from "../_shared/ocr-cost-classifier.ts";
+import { resolveCanonicalMaterialForLine } from "../_shared/material-controller.ts";
 
 type SupplierLite = { id: string; name: string };
 
@@ -23,7 +24,7 @@ type ScanTemplateRow = {
   id: string;
   supplier_id: string | null;
   supplier_name_key: string;
-  template_json: Record<string, any> | null;
+  template_json: Record<string, unknown> | null;
   active: boolean;
 };
 
@@ -111,10 +112,31 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+    const authHeader = req.headers.get("Authorization") || "";
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+    const userClient = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const { data: permission } = await supabaseAdmin
+      .from("user_module_permissions")
+      .select("can_view,can_edit")
+      .eq("user_id", user.id)
+      .in("module_key", ["payment_requests", "finance_cost"])
+      .or("can_view.eq.true,can_edit.eq.true")
+      .limit(1)
+      .maybeSingle();
+    if (!permission) {
+      return new Response(
+        JSON.stringify({ error: "Bạn không có quyền scan hóa đơn.", code: "FORBIDDEN" }),
+        { status: 403, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+      );
+    }
 
     const { imageBase64, mimeType, suppliers, documentType } = await req.json();
 
@@ -174,7 +196,7 @@ serve(async (req) => {
 
     let costAliasMappings: CostItemAliasMapping[] = [];
     try {
-      costAliasMappings = await fetchApprovedCostItemAliasMappings(supabaseAdmin);
+      costAliasMappings = await fetchApprovedCostItemAliasMappings(supabaseAdmin as any);
     } catch (e) {
       console.warn("[scan-invoice] cost alias mappings unavailable:", e instanceof Error ? e.message : e);
     }
@@ -385,7 +407,7 @@ ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slic
     }
 
     if (Array.isArray(extractedData?.items)) {
-      extractedData.items = extractedData.items.map((item: any) => {
+      extractedData.items = await Promise.all(extractedData.items.map(async (item: any) => {
         const result = classifyOcrCostLineFromMappings(
           {
             rawProductName: String(item?.product_name || ""),
@@ -399,12 +421,38 @@ ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slic
           costAliasMappings,
         );
 
+        const rawName = String(item?.product_name || "").trim();
+        const isExplicitRawMaterial = result.classification?.standard_cost_code_type === "NVL";
+        const materialPreview = rawName
+          ? await resolveCanonicalMaterialForLine(userClient, {
+              source_type: "invoice",
+              source_table: "invoice_items",
+              source_line_id: null,
+              supplier_id: supplierMatch?.id || null,
+              raw_name: rawName,
+              raw_code: item?.product_code || null,
+              raw_unit: item?.unit || null,
+              applyExactToProcurementLine: false,
+              payload: { candidate_source: "scan_invoice_preview", confidence: "preview", field_name: "invoice_items.canonical_material_id" },
+            })
+          : null;
+
         return {
           ...item,
           ocr_cost_classification: result.classification,
           standard_cost_label: result.display_standard_cost_label,
+          material_controller_preview: materialPreview ? {
+            status: materialPreview.resolved_exact ? "resolved_exact_preview" : (isExplicitRawMaterial ? materialPreview.material_resolution_status : "pending_review"),
+            resolved_exact: materialPreview.resolved_exact,
+            canonical_material_id: materialPreview.canonical_material_id,
+            canonical_material_code: materialPreview.canonical_material_code,
+            canonical_material_name: materialPreview.canonical_material_name,
+            material_resolution_request_id: null,
+            stable_line_required: true,
+            blockers: materialPreview.resolved_exact ? [] : (materialPreview.blockers.length ? materialPreview.blockers : [isExplicitRawMaterial ? "material_resolution_required" : "unknown_material_relevance"]),
+          } : { status: "pending_review", resolved_exact: false, canonical_material_id: null, material_resolution_request_id: null, stable_line_required: true, blockers: ["raw_name_required"] },
         };
-      });
+      }));
     }
 
     // Learn/update template for future scans

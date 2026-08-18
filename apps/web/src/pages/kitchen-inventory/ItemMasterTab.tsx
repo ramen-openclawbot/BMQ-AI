@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import type { KitchenItem } from "@/hooks/useKitchenInventory";
-import { money } from "@/lib/kitchen-inventory/calculations";
 import { normalizeKitchenText } from "@/lib/kitchen-inventory/normalize";
 
 interface ItemMasterTabProps {
@@ -16,8 +15,9 @@ export function ItemMasterTab({ items, loading }: ItemMasterTabProps) {
   const filteredItems = useMemo(() => {
     const normalizedSearch = normalizeKitchenText(search);
     return items.filter((item) => {
+      const canonical = canonicalFor(item);
       const matchesType = type === "all" || item.item_type === type;
-      const matchesSearch = !normalizedSearch || normalizeKitchenText(`${item.item_code} ${item.name} ${item.unit}`).includes(normalizedSearch);
+      const matchesSearch = !normalizedSearch || normalizeKitchenText(`${item.item_code} ${item.name} ${item.unit} ${canonical?.material_code || ""} ${canonical?.canonical_name || ""} ${canonical?.default_unit || ""}`).includes(normalizedSearch);
       return matchesType && matchesSearch;
     });
   }, [items, search, type]);
@@ -27,9 +27,9 @@ export function ItemMasterTab({ items, loading }: ItemMasterTabProps) {
       <div className="rounded-xl border bg-card p-4 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="text-lg font-semibold">Danh mục chuẩn kho bếp</h2>
+            <h2 className="text-lg font-semibold">Danh mục liên kết chuẩn kho bếp</h2>
             <p className="text-sm text-muted-foreground">
-              Tên, đơn vị và giá chuẩn được ghi đè từ dòng APPROVE của file kế toán.
+              Chỉ đọc: mỗi dòng là link kho bếp tới vật tư chuẩn trung tâm; vận hành chỉ dùng để chọn đúng tên và đơn vị location.
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -38,8 +38,8 @@ export function ItemMasterTab({ items, loading }: ItemMasterTabProps) {
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search..."
-                className="h-9 rounded-md border bg-background pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Tìm theo mã, tên chuẩn, đơn vị..."
+                className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring sm:w-[260px]"
               />
             </label>
             <select
@@ -56,12 +56,14 @@ export function ItemMasterTab({ items, loading }: ItemMasterTabProps) {
       </div>
 
       <div className="grid gap-3 md:hidden">
-        {filteredItems.map((item) => (
-          <div key={item.id} className="rounded-xl border bg-card p-4 shadow-sm">
+        {filteredItems.map((item) => {
+          const canonical = canonicalFor(item);
+          return <div key={item.id} className="rounded-xl border bg-card p-4 shadow-sm">
             <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-xs text-muted-foreground">{item.item_code}</div>
-                <div className="font-semibold">{item.name}</div>
+              <div className="min-w-0">
+                <div className="text-xs text-muted-foreground">{canonical?.material_code || item.item_code}</div>
+                <div className="break-words font-semibold">{canonical?.canonical_name || "Chưa liên kết chuẩn"}</div>
+                <div className="mt-1 break-words text-xs text-muted-foreground">Location: {item.name}</div>
               </div>
               <span className="rounded-full bg-muted px-2 py-1 text-xs">
                 {item.item_type === "ingredient" ? "NVL" : "CCDC"}
@@ -69,56 +71,67 @@ export function ItemMasterTab({ items, loading }: ItemMasterTabProps) {
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
               <div>
-                <div className="text-muted-foreground">ĐVT</div>
+                <div className="text-muted-foreground">Đơn vị chuẩn</div>
+                <div>{canonical?.default_unit || "—"}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Đơn vị location</div>
                 <div>{item.unit}</div>
               </div>
               <div>
-                <div className="text-muted-foreground">Giá chuẩn</div>
-                <div>{money(item.standard_unit_cost)}</div>
+                <div className="text-muted-foreground">Trạng thái</div>
+                <div>{item.active ? "Đang dùng" : "Ngưng dùng"}</div>
               </div>
             </div>
           </div>
-        ))}
+        })}
       </div>
 
       <div className="hidden overflow-hidden rounded-xl border bg-card shadow-sm md:block">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
+          <table className="w-full min-w-[860px] text-sm">
             <thead className="bg-muted/60 text-left text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="px-4 py-3">Mã</th>
+                <th className="px-4 py-3">Mã chuẩn</th>
                 <th className="px-4 py-3">Nhóm</th>
-                <th className="px-4 py-3">Tên chuẩn</th>
-                <th className="px-4 py-3">ĐVT</th>
-                <th className="px-4 py-3 text-right">Giá chuẩn</th>
+                <th className="px-4 py-3">Tên chuẩn trung tâm</th>
+                <th className="px-4 py-3">Tên location</th>
+                <th className="px-4 py-3">Đơn vị chuẩn</th>
+                <th className="px-4 py-3">Đơn vị location</th>
                 <th className="px-4 py-3">Trạng thái</th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {loading && (
                 <tr>
-                  <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>Đang tải danh mục...</td>
+                  <td className="px-4 py-8 text-center text-muted-foreground" colSpan={7}>Đang tải danh mục...</td>
                 </tr>
               )}
               {!loading && filteredItems.length === 0 && (
                 <tr>
-                  <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>Chưa có item chuẩn.</td>
+                  <td className="px-4 py-8 text-center text-muted-foreground" colSpan={7}>Chưa có item chuẩn.</td>
                 </tr>
               )}
-              {!loading && filteredItems.map((item) => (
-                <tr key={item.id} className="hover:bg-muted/40">
-                  <td className="px-4 py-3 font-medium">{item.item_code}</td>
+              {!loading && filteredItems.map((item) => {
+                const canonical = canonicalFor(item);
+                return <tr key={item.id} className="hover:bg-muted/40">
+                  <td className="px-4 py-3 font-medium">{canonical?.material_code || item.item_code}</td>
                   <td className="px-4 py-3">{item.item_type === "ingredient" ? "Nguyên liệu" : "CCDC/Vật tư"}</td>
-                  <td className="px-4 py-3">{item.name}</td>
+                  <td className="px-4 py-3"><div className="max-w-[260px] break-words">{canonical?.canonical_name || "Chưa liên kết chuẩn"}</div></td>
+                  <td className="px-4 py-3"><div className="max-w-[240px] break-words">{item.name}</div></td>
+                  <td className="px-4 py-3">{canonical?.default_unit || "—"}</td>
                   <td className="px-4 py-3">{item.unit}</td>
-                  <td className="px-4 py-3 text-right">{money(item.standard_unit_cost)}</td>
-                  <td className="px-4 py-3">{item.active ? "Active" : "Inactive"}</td>
+                  <td className="px-4 py-3">{item.active ? "Đang dùng" : "Ngưng dùng"}</td>
                 </tr>
-              ))}
+              })}
             </tbody>
           </table>
         </div>
       </div>
     </div>
   );
+}
+
+function canonicalFor(item: KitchenItem) {
+  return Array.isArray(item.canonical_materials) ? item.canonical_materials[0] : item.canonical_materials;
 }

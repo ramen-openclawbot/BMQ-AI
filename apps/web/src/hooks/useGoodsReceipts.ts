@@ -17,10 +17,33 @@ export type GoodsReceipt = Tables<"goods_receipts"> & {
 };
 
 export type GoodsReceiptItem = Tables<"goods_receipt_items"> & {
+  canonical_material_id?: string | null;
+  material_resolution_status?: string | null;
+  material_resolution_request_id?: string | null;
+  raw_product_name?: string | null;
   product_skus?: { id: string; sku_code: string; product_name: string } | null;
   inventory_items?: { id: string; name: string; quantity: number } | null;
   purchase_order_items?: { id: string; product_name: string | null; quantity: number | null; unit_price: number | null } | null;
+  canonical_materials?: { id: string; material_code: string | null; canonical_name: string | null; default_unit: string | null } | null;
 };
+
+export type DeliveryNoteMaterialResolution = {
+  matchedItemId?: string;
+  product_name: string;
+  product_code?: string | null;
+  quantity: number;
+  unit: string;
+  canonical_material_id?: string | null;
+  canonical_material_name?: string | null;
+  canonical_material_code?: string | null;
+  material_resolution_status?: string | null;
+  material_resolution_request_id?: string | null;
+  resolved_exact?: boolean;
+  blockers?: string[];
+  candidate_names?: string[];
+};
+
+const useServerMaterialResolutionOnly = true;
 
 export type PaidHistoricalPaymentRequest = Pick<
   Tables<"payment_requests">,
@@ -141,12 +164,12 @@ export function useGoodsReceiptItems(receiptId: string | null) {
       if (!receiptId) throw new Error("No receipt ID provided");
       const relationQuery = await supabase
         .from("goods_receipt_items")
-        .select("*, product_skus(id, sku_code, product_name), inventory_items(id, name, quantity), purchase_order_items(id, product_name, quantity, unit_price)")
+        .select("*, product_skus(id, sku_code, product_name), inventory_items(id, name, quantity), purchase_order_items(id, product_name, quantity, unit_price), canonical_materials:sku_cogs_materials!goods_receipt_items_canonical_material_id_fkey(id, material_code, canonical_name, default_unit)")
         .eq("goods_receipt_id", receiptId)
         .order("created_at", { ascending: true });
 
       if (!relationQuery.error) {
-        return relationQuery.data as GoodsReceiptItem[];
+        return relationQuery.data as unknown as GoodsReceiptItem[];
       }
 
       console.warn("Falling back to base goods_receipt_items query", relationQuery.error);
@@ -444,6 +467,7 @@ export function useDeliveryNoteOcr() {
   const [status, setStatus] = useState<"idle" | "uploading" | "ocr" | "done" | "error">("idle");
   const [suggestions, setSuggestions] = useState<OcrMatchResult[]>([]);
   const [extractedLines, setExtractedLines] = useState<OcrLineCandidate[]>([]);
+  const [materialResolutions, setMaterialResolutions] = useState<DeliveryNoteMaterialResolution[]>([]);
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [uploadedPath, setUploadedPath] = useState<string | null>(null);
 
@@ -456,6 +480,7 @@ export function useDeliveryNoteOcr() {
     setOcrError(null);
     setSuggestions([]);
     setExtractedLines([]);
+    setMaterialResolutions([]);
 
     try {
       const deliveryNotePath = await uploadDeliveryNoteImage(file, receiptId);
@@ -468,11 +493,18 @@ export function useDeliveryNoteOcr() {
 
       const response = await callEdgeFunction<{
         isMatched: boolean;
-        extractedItems?: Array<{ product_name: string; quantity: number; unit: string }>;
+        extractedItems?: DeliveryNoteMaterialResolution[];
+        items?: DeliveryNoteMaterialResolution[];
         error?: string;
-      }>("match-delivery-note", { deliveryImage }, session?.access_token, 60000);
+      }>("match-delivery-note", { deliveryImage, receiptId, useServerMaterialResolutionOnly }, session?.access_token, 60000);
 
-      const extracted = (response.data?.extractedItems || []) as OcrLineCandidate[];
+      const materialLines = (response.data?.extractedItems || response.data?.items || []) as DeliveryNoteMaterialResolution[];
+      setMaterialResolutions(materialLines);
+      const extracted = materialLines.map((line) => ({
+        product_name: line.product_name,
+        quantity: line.quantity,
+        unit: line.unit,
+      })) as OcrLineCandidate[];
       if (extracted.length > 0) {
         setExtractedLines(extracted);
         setSuggestions(matchOcrLinesToPoLines(extracted, poLines));
@@ -489,9 +521,10 @@ export function useDeliveryNoteOcr() {
     setStatus("idle");
     setSuggestions([]);
     setExtractedLines([]);
+    setMaterialResolutions([]);
     setOcrError(null);
     setUploadedPath(null);
   };
 
-  return { status, suggestions, extractedLines, ocrError, uploadedPath, process, reset };
+  return { status, suggestions, extractedLines, materialResolutions, ocrError, uploadedPath, process, reset };
 }

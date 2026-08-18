@@ -193,82 +193,9 @@ export function CreateInvoiceFromRequestDialog({
       }
 
       if (result.error || !result.data?.success) {
-        // Deep fallback: create invoice directly from client-side flow to avoid edge-function specific failures.
-        // This is best-effort and keeps UX working for manual invoice creation.
-        const { data: createdInvoice, error: createInvoiceError } = await supabase
-          .from("invoices")
-          .insert({
-            invoice_number: invoiceNumber,
-            invoice_date: invoiceDate,
-            supplier_id: request.supplier_id,
-            subtotal,
-            vat_amount: vatAmount || 0,
-            total_amount: totalAmount,
-            notes: notes || `Tạo từ đề nghị chi ${request.request_number}`,
-            image_url: request.image_url || null,
-            payment_slip_url: uploadedPaymentSlipUrl || null,
-            payment_request_id: request.id,
-            purchase_order_id: request.purchase_order_id || null,
-            goods_receipt_id: request.goods_receipt_id || null,
-          })
-          .select("id")
-          .single();
-
-        if (createInvoiceError || !createdInvoice?.id) {
-          const edgeErr = String(result.error || "").trim();
-          const directErr = String(createInvoiceError?.message || "").trim();
-          toast.error(
-            `Không thể tạo hóa đơn. ${directErr || edgeErr || "Vui lòng thử lại."}`
-          );
-          return;
-        }
-
-        const directInvoiceItems = (items || []).map((item) => ({
-          invoice_id: createdInvoice.id,
-          product_code: item.product_code,
-          product_name: item.product_name,
-          unit: item.unit || "kg",
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          inventory_item_id: item.inventory_item_id,
-          notes: item.notes,
-          raw_product_name: item.raw_product_name || item.product_name,
-          suggested_standard_cost_code: item.suggested_standard_cost_code || null,
-          confirmed_standard_cost_code: item.confirmed_standard_cost_code || item.suggested_standard_cost_code || null,
-          standard_cost_code_type: item.standard_cost_code_type || null,
-          canonical_cost_item_name: item.canonical_cost_item_name || null,
-          canonical_cost_item_source: item.canonical_cost_item_source || null,
-          cost_category_code: item.cost_category_code || null,
-          cost_product_line: item.cost_product_line || null,
-          cost_allocation_rule: item.cost_allocation_rule || null,
-          cost_review_routing: item.cost_review_routing || "none",
-          unit_conversion_note: item.unit_conversion_note || null,
-          matched_finished_skus: item.matched_finished_skus || null,
-          ocr_classification_json: item.ocr_classification_json || null,
-        }));
-
-        const { error: createItemsError } = await supabase
-          .from("invoice_items")
-          .insert(directInvoiceItems);
-
-        if (createItemsError) {
-          await supabase.from("invoices").delete().eq("id", createdInvoice.id);
-          toast.error(`Không thể tạo dòng hóa đơn: ${createItemsError.message}`);
-          return;
-        }
-
-        await supabase
-          .from("payment_requests")
-          .update({ invoice_id: createdInvoice.id, invoice_created: true })
-          .eq("id", request.id);
-
-        result = {
-          data: {
-            success: true,
-            invoice_id: createdInvoice.id,
-            items_count: directInvoiceItems.length,
-          },
-        };
+        const edgeErr = String(result.error || "").trim();
+        toast.error(`Không thể tạo hóa đơn qua RPC chuẩn NVL. ${edgeErr || "Vui lòng thử lại."}`);
+        return;
       }
 
       console.log(`Invoice created: ${result.data.invoice_id} with ${result.data.items_count} items`);

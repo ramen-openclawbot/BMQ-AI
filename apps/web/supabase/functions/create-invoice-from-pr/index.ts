@@ -1,202 +1,123 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 
 interface CreateInvoiceRequest {
   payment_request_id: string;
   invoice_number: string;
   invoice_date: string;
-  vat_amount: number;
+  vat_amount?: number;
   notes?: string;
   payment_slip_url?: string;
 }
 
+type RpcInvoiceResult = {
+  status?: string;
+  invoice_id?: string;
+  items_count?: number;
+  copied_material_items_count?: number;
+  pending_material_items_count?: number;
+  material_master?: unknown;
+};
+
+function json(req: Request, status: number, body: Record<string, unknown>) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+  });
+}
+
 Deno.serve(async (req) => {
-  // Handle CORS preflight
-  if (req.method === "OPTIONS") {
-    return corsPreflightResponse(req);
-  }
+  if (req.method === "OPTIONS") return corsPreflightResponse(req);
+  if (req.method !== "POST") return json(req, 405, { error: "Method not allowed" });
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    if (!supabaseUrl || !anonKey) return json(req, 503, { error: "Invoice service is not configured" });
 
-    // Get user token from header
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "Missing Authorization header" }),
-        { status: 401, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-      );
-    }
+    if (!authHeader) return json(req, 401, { error: "Missing Authorization header" });
 
-    // Create client with service role for transaction capability
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    // Validate user token
-    const userClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+    const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
+      auth: { persistSession: false, autoRefreshToken: false },
     });
-    const { data: { user }, error: authError } = await userClient.auth.getUser();
-    if (authError || !user) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-      );
-    }
 
-    const body: CreateInvoiceRequest = await req.json();
-    const { payment_request_id, invoice_number, invoice_date, vat_amount, notes, payment_slip_url } = body;
+    const { data: { user }, error: authError } = await userClient.auth.getUser();
+    if (authError || !user) return json(req, 401, { error: "Unauthorized" });
+
+    const body = (await req.json()) as Partial<CreateInvoiceRequest>;
+    const payment_request_id = typeof body.payment_request_id === "string" ? body.payment_request_id.trim() : "";
+    const invoice_number = typeof body.invoice_number === "string" ? body.invoice_number.trim() : "";
+    const invoice_date = typeof body.invoice_date === "string" ? body.invoice_date.trim() : "";
+    const vat_amount = Number.isFinite(Number(body.vat_amount)) ? Number(body.vat_amount) : 0;
 
     if (!payment_request_id || !invoice_number || !invoice_date) {
-      return new Response(
-        JSON.stringify({ error: "Missing required fields: payment_request_id, invoice_number, invoice_date" }),
-        { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-      );
+      return json(req, 400, { error: "Missing required fields: payment_request_id, invoice_number, invoice_date" });
     }
 
-    // 1. Fetch payment request with items
-    const { data: paymentRequest, error: prError } = await supabase
+    const { data: paymentRequest, error: paymentRequestError } = await userClient
       .from("payment_requests")
-      .select("id, supplier_id, total_amount, vat_amount, image_url, invoice_created, purchase_order_id, goods_receipt_id")
+      .select("id, purchase_order_id, goods_receipt_id")
       .eq("id", payment_request_id)
       .single();
-
-    if (prError || !paymentRequest) {
-      return new Response(
-        JSON.stringify({ error: "Payment request not found" }),
-        { status: 404, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-      );
+    if (paymentRequestError || !paymentRequest) {
+      return json(req, 404, { error: "Payment request not found" });
     }
 
-    if (paymentRequest.invoice_created) {
-      return new Response(
-        JSON.stringify({ error: "Invoice already created for this payment request" }),
-        { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-      );
+    const { data: invoiceResult, error: invoiceRpcError } = await userClient.rpc("create_invoice_from_payment_request", {
+      p_payment_request_id: payment_request_id,
+      p_invoice_number: invoice_number,
+      p_invoice_date: invoice_date,
+      p_vat_amount: vat_amount,
+      p_notes: typeof body.notes === "string" ? body.notes : null,
+      p_payment_slip_url: typeof body.payment_slip_url === "string" ? body.payment_slip_url : null,
+      p_created_by: user.id,
+    });
+
+    if (invoiceRpcError) {
+      const code = invoiceRpcError.code === "42501" ? 403 : invoiceRpcError.code === "23514" ? 422 : invoiceRpcError.code === "23505" ? 409 : 500;
+      console.error("create_invoice_from_payment_request failed", { code: invoiceRpcError.code, message: invoiceRpcError.message });
+      return json(req, code, { error: code === 500 ? "Failed to create invoice" : invoiceRpcError.message });
     }
 
-    // 2. Fetch payment request items
-    const { data: prItems, error: itemsError } = await supabase
-      .from("payment_request_items")
-      .select("product_code, product_name, unit, quantity, unit_price, inventory_item_id, notes, raw_product_name, suggested_standard_cost_code, confirmed_standard_cost_code, standard_cost_code_type, canonical_cost_item_name, canonical_cost_item_source, cost_category_code, cost_product_line, cost_allocation_rule, cost_review_routing, unit_conversion_note, matched_finished_skus, ocr_classification_json")
-      .eq("payment_request_id", payment_request_id);
-
-    if (itemsError) {
-      return new Response(
-        JSON.stringify({ error: "Failed to fetch payment request items" }),
-        { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-      );
+    if (!invoiceResult || typeof invoiceResult !== "object" || Array.isArray(invoiceResult)) {
+      return json(req, 500, { error: "Invalid invoice creation response" });
     }
 
-    if (!prItems || prItems.length === 0) {
-      return new Response(
-        JSON.stringify({ error: "Payment request has no items" }),
-        { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-      );
+    const result = invoiceResult as RpcInvoiceResult;
+    if (result.status !== "created" || !result.invoice_id || typeof result.items_count !== "number" || result.items_count <= 0) {
+      return json(req, 500, { error: "Invalid invoice creation status" });
     }
 
-    // Calculate subtotal from items
-    const subtotal = prItems.reduce((sum, item) => {
-      return sum + (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
-    }, 0);
-    const totalAmount = subtotal + (vat_amount || 0);
-
-    // 3. Create invoice
-    const { data: newInvoice, error: invoiceError } = await supabase
+    const { data: createdInvoice, error: createdInvoiceError } = await userClient
       .from("invoices")
-      .insert({
-        invoice_number,
-        invoice_date,
-        supplier_id: paymentRequest.supplier_id,
-        subtotal,
-        vat_amount: vat_amount || 0,
-        total_amount: totalAmount,
-        notes: notes || `Tạo từ đề nghị chi`,
-        image_url: paymentRequest.image_url,
-        payment_slip_url: payment_slip_url || null,
-        payment_request_id,
-        purchase_order_id: paymentRequest.purchase_order_id,
-        goods_receipt_id: paymentRequest.goods_receipt_id,
-        created_by: user.id,
-      })
-      .select("id")
+      .select("purchase_order_id, goods_receipt_id")
+      .eq("id", result.invoice_id)
       .single();
-
-    if (invoiceError || !newInvoice) {
-      console.error("Invoice creation error:", invoiceError);
-      return new Response(
-        JSON.stringify({ error: `Failed to create invoice: ${invoiceError?.message}` }),
-        { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-      );
+    if (
+      createdInvoiceError || !createdInvoice ||
+      createdInvoice.purchase_order_id !== paymentRequest.purchase_order_id ||
+      createdInvoice.goods_receipt_id !== paymentRequest.goods_receipt_id
+    ) {
+      console.error("create_invoice_from_payment_request context validation failed", {
+        paymentRequestId: payment_request_id,
+        invoiceId: result.invoice_id,
+      });
+      return json(req, 500, { error: "Invoice procurement context validation failed" });
     }
 
-    // 4. Bulk insert invoice items (DO NOT include line_total - it's GENERATED ALWAYS)
-    const invoiceItems = prItems.map((item) => ({
-      invoice_id: newInvoice.id,
-      product_code: item.product_code,
-      product_name: item.product_name,
-      unit: item.unit || "kg",
-      quantity: item.quantity,
-      unit_price: item.unit_price,
-      inventory_item_id: item.inventory_item_id,
-      notes: item.notes,
-      raw_product_name: item.raw_product_name || item.product_name,
-      suggested_standard_cost_code: item.suggested_standard_cost_code || null,
-      confirmed_standard_cost_code: item.confirmed_standard_cost_code || item.suggested_standard_cost_code || null,
-      standard_cost_code_type: item.standard_cost_code_type || null,
-      canonical_cost_item_name: item.canonical_cost_item_name || null,
-      canonical_cost_item_source: item.canonical_cost_item_source || null,
-      cost_category_code: item.cost_category_code || null,
-      cost_product_line: item.cost_product_line || null,
-      cost_allocation_rule: item.cost_allocation_rule || null,
-      cost_review_routing: item.cost_review_routing || "none",
-      unit_conversion_note: item.unit_conversion_note || null,
-      matched_finished_skus: item.matched_finished_skus || null,
-      ocr_classification_json: item.ocr_classification_json || null,
-    }));
-
-    const { error: itemsInsertError } = await supabase
-      .from("invoice_items")
-      .insert(invoiceItems);
-
-    if (itemsInsertError) {
-      console.error("Invoice items insert error:", itemsInsertError);
-      // Rollback: delete the invoice we just created
-      await supabase.from("invoices").delete().eq("id", newInvoice.id);
-      return new Response(
-        JSON.stringify({ error: `Failed to create invoice items: ${itemsInsertError.message}` }),
-        { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-      );
-    }
-
-    // 5. Update payment request
-    const { error: updateError } = await supabase
-      .from("payment_requests")
-      .update({
-        invoice_id: newInvoice.id,
-        invoice_created: true,
-      })
-      .eq("id", payment_request_id);
-
-    if (updateError) {
-      console.error("Payment request update error:", updateError);
-      // Don't rollback here - invoice and items are already created successfully
-      // Just log the error and continue
-    }
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        invoice_id: newInvoice.id,
-        items_count: invoiceItems.length,
-      }),
-      { status: 200, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-    );
+    return json(req, 200, {
+      success: true,
+      status: result.status,
+      invoice_id: result.invoice_id,
+      items_count: result.items_count,
+      copied_material_items_count: result.copied_material_items_count ?? 0,
+      pending_material_items_count: result.pending_material_items_count ?? 0,
+      material_master: result.material_master ?? null,
+    });
   } catch (error) {
-    console.error("Unexpected error:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-    );
+    console.error("create-invoice-from-pr unexpected error", error);
+    return json(req, 500, { error: "Unexpected invoice creation error" });
   }
 });

@@ -132,9 +132,14 @@ def test_purchase_order_send_ensures_single_pending_receipt_queue():
     assert "p_purchase_order_id" in queue
 
     po_hook = read(PO_HOOK)
-    assert "ensureReceiptForPurchaseOrder" in po_hook
+    assert "updatePurchaseOrderStatusWithMaterialController" in po_hook
+    assert "ensureReceiptForPurchaseOrder" not in po_hook
+    assert "update_purchase_order_status_with_material_controller" in read(
+        ROOT / "src/lib/material-controller-rpcs.ts"
+    )
     send_section = po_hook.split("export function useSendPurchaseOrder", 1)[1].split("export function useReceivePurchaseOrder", 1)[0]
-    assert "ensureReceiptForPurchaseOrder(id)" in send_section
+    assert "updatePurchaseOrderStatusWithMaterialController" in send_section
+    assert 'status: "sent"' in send_section
 
 
 def test_warehouse_scan_matches_pending_po_receipt_queue_before_legacy_payment_requests():
@@ -470,12 +475,17 @@ def test_invoice_accounting_links_po_receipt_context_without_enterprise_ledger_r
     assert "purchase_orders (id, po_number)" in invoice_hook
     assert "goods_receipts (id, receipt_number)" in invoice_hook
 
-    assert "selectedRequest?.purchase_order_id || null" in add_invoice
-    assert "selectedRequest?.goods_receipt_id || null" in add_invoice
+    assert "data.payment_request_id" in add_invoice
+    assert "createInvoiceFromPaymentRequestWithMaterialController" in add_invoice
+    assert "create_invoice_from_payment_request" in migrations
+    assert "pr_item.canonical_material_id" in migrations
+    assert "pr_item.material_resolution_request_id" in migrations
     assert "paymentRequest.purchase_order_id" in create_from_pr_function
     assert "paymentRequest.goods_receipt_id" in create_from_pr_function
-    assert "purchase_order_id: request.purchase_order_id || null" in create_from_pr_dialog
-    assert "goods_receipt_id: request.goods_receipt_id || null" in create_from_pr_dialog
+    assert "create_invoice_from_payment_request" in create_from_pr_function
+    assert 'supabase.functions.invoke("create-invoice-from-pr"' in create_from_pr_dialog
+    assert '.from("invoices")\n          .insert' not in create_from_pr_dialog
+    assert '.from("invoice_items")\n          .insert' not in create_from_pr_dialog
     assert "Tạo từ đề nghị chi" in create_from_pr_dialog
 
 
@@ -528,7 +538,10 @@ def test_invoices_page_matches_approved_stitch_dashboard_handoff():
 
 def test_light_theme_uses_stitch_mediterranean_glass_tokens():
     css = read(ROOT / "src/index.css")
-    tailwind = read(ROOT.parent / "tailwind.config.ts")
+    tailwind_path = ROOT / "tailwind.config.ts"
+    if not tailwind_path.exists():
+        tailwind_path = ROOT.parent / "tailwind.config.ts"
+    tailwind = read(tailwind_path)
     sidebar = read(SIDEBAR)
     header = read(ROOT / "src/components/layout/Header.tsx")
 
@@ -611,8 +624,10 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     chat_widget = read(GLOBAL_AGENT_CHAT_WIDGET)
     user_management_hook = read(USER_MANAGEMENT_HOOK)
 
-    assert "purchase_order_items(id, product_name)" in hook
-    assert "purchase_order_items?: Array<Pick<Tables<\"purchase_order_items\">, \"id\" | \"product_name\">> | null;" in hook
+    assert "purchase_order_items(id, product_name, canonical_material_id, material_resolution_status, material_resolution_request_id, raw_product_name)" in hook
+    assert "export interface PurchaseOrderListItemSummary" in hook
+    assert "canonical_material_id?: string | null" in hook
+    assert "purchase_order_items?: PurchaseOrderListItemSummary[] | null" in hook
 
     assert "  Eye," not in page
     assert "<Eye" not in page
@@ -741,6 +756,123 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert "Đã kiểm tra NCC" in detail_dialog
     assert "Từ chối" in detail_dialog
     assert "bg-[#D97706]" in detail_dialog
+
+
+def test_task5_goods_receipt_canonical_controller_contracts_are_server_side():
+    hook = read(GOODS_RECEIPTS_HOOK)
+    details = read(GOODS_RECEIPT_DETAILS)
+    edge = read(MATCH_DELIVERY_FUNCTION)
+    finalize_edge = read(FINALIZE_RECEIPT_FUNCTION)
+    migrations = "\n".join(read(path) for path in sorted(MIGRATIONS.glob("*.sql")))
+    shared_controller = ROOT / "supabase/functions/_shared/material-controller.ts"
+    controller = read(shared_controller)
+
+    assert "resolveCanonicalMaterialForLine" in controller
+    assert "resolve_canonical_material" in controller
+    assert "request_material_resolution" in controller
+    assert "source_type: \"match_delivery_note\"" in edge
+    assert "source_table: \"goods_receipt_items\"" in edge
+    assert "source_line_id" in edge
+    assert "raw_product_name" in edge
+    assert "resolved_exact" in edge
+    assert "canonical_material_id" in edge
+    assert "material_resolution_status" in edge
+    assert "material_resolution_request_id" in edge
+    assert "nameSimilarity" in edge and "resolve_canonical_material" in edge
+    assert "resolve_canonical_material" in edge.split("nameSimilarity", 1)[1]
+    assert "useServerMaterialResolutionOnly" in hook
+    assert "canonical_materials" in hook
+    assert "Cần xử lý NVL" in details
+    assert "/material-master" in details
+    assert "Tên OCR gốc" in details
+    assert "data-bmq-goods-receipt-material-resolution" in details
+    assert "data-bmq-goods-receipt-ocr-safe-quantity-only" in details
+    assert "material_resolution_status" in details
+    assert "material_resolution_request_id" in details
+    assert "apply_goods_receipt_item_material_resolution" in migrations
+    assert "guard_goods_receipt_item_material_resolution_update" in migrations
+    assert "direct goods receipt material resolution DML is not allowed" in migrations
+    assert "assert_goods_receipt_materials_ready" in migrations
+    assert "assert_material_ready" in migrations
+    assert "material_master_enforcement_config" in migrations
+    assert "source_type = 'goods_receipt'" in migrations
+    assert "stock/payable mutation" in migrations
+    assert "assert_goods_receipt_materials_ready" in migrations
+    assert "assert_goods_receipt_materials_ready" not in finalize_edge.split('rpc("finalize_goods_receipt"', 1)[0]
+
+
+def test_task5_grn_controller_hardening_contracts_are_strict_and_fail_closed():
+    edge = read(MATCH_DELIVERY_FUNCTION)
+    finalize_edge = read(FINALIZE_RECEIPT_FUNCTION)
+    controller = read(ROOT / "supabase/functions/_shared/material-controller.ts")
+    task5 = read(MIGRATIONS / "20260817150000_task5_goods_receipt_material_controller.sql").lower()
+    smoke = read(ROOT / "scripts/material_master/goods_receipt_material_rollback_smoke.sql").lower()
+
+    guard = task5.split("create or replace function public.guard_goods_receipt_item_material_resolution_update", 1)[1].split("create or replace function public.apply_goods_receipt_item_material_resolution", 1)[0]
+    assert "security invoker" in guard
+    assert "pg_get_userbyid(p.proowner)" in guard
+    assert "'public.apply_goods_receipt_item_material_resolution(uuid, uuid, text, text, text, uuid, text, text)'::regprocedure" in guard
+    assert "pg_get_functiondef('public.apply_goods_receipt_item_material_resolution" in guard
+    assert "current_user <> v_apply_owner" in guard
+    assert "current_setting('material_master.goods_receipt_item_resolution'" in guard
+    assert "using errcode = '42501'" in guard
+
+    apply_body = task5.split("create or replace function public.apply_goods_receipt_item_material_resolution", 1)[1].split("revoke execute on function public.apply_goods_receipt_item_material_resolution", 1)[0]
+    assert "coalesce(public.material_master_jwt_role(), '') = 'service_role'" in apply_body
+    assert "public.has_module_permission((select auth.uid()), 'goods_receipts', 'edit')" in apply_body
+    assert "public.has_role((select auth.uid()), 'owner')" in apply_body
+    assert "reason required" in apply_body
+    assert "v_request_status" in apply_body and "v_request_resolution_status" in apply_body
+    assert "terminal exact request evidence required" in apply_body
+    assert "v_required_caps := array['unit']" in apply_body
+    assert "if p_supplier_id is not null then" in apply_body and "array['unit','supplier_product']" in apply_body
+    assert "coalesce(v_item.raw_product_name, v_item.product_name)" not in apply_body
+    assert "set product_name" not in apply_body
+
+    ready_acl = task5.split("create or replace function public.assert_goods_receipt_materials_ready", 1)[1].split("alter function public.finalize_goods_receipt", 1)[0]
+    assert "goods receipt not found" in ready_acl
+    assert "revoke execute on function public.assert_goods_receipt_materials_ready(uuid, uuid) from public, anon, authenticated" in ready_acl
+    assert "grant execute on function public.assert_goods_receipt_materials_ready(uuid, uuid) to service_role" in ready_acl
+    assert "grant execute on function public.assert_goods_receipt_materials_ready(uuid, uuid) to authenticated" not in ready_acl
+    assert "v_required_caps := array['unit']" in ready_acl
+
+    finalize_wrapper = task5.split("create or replace function public.finalize_goods_receipt", 1)[1]
+    assert "to_regprocedure('public.finalize_goods_receipt_stock_payable_unchecked_20260817(uuid, uuid)')" in task5
+    assert "pg_get_function_result('public.finalize_goods_receipt(uuid, uuid)'::regprocedure) <> 'jsonb'" in task5
+    assert "comment on function public.finalize_goods_receipt(uuid, uuid)" in task5
+    wrapper_runtime = finalize_wrapper.split("-- must run before any stock/payable mutation", 1)[1]
+    assert wrapper_runtime.index("assert_goods_receipt_materials_ready") < wrapper_runtime.index("finalize_goods_receipt_stock_payable_unchecked_20260817")
+
+    assert "createClient(supabaseUrl, supabaseAnonKey" in edge
+    assert "global: { headers:" in edge and "authHeader" in edge
+    assert "user_module_permissions" in edge and "goods_receipts" in edge and "can_edit" in edge
+    assert "attachMaterialResolutionToReceiptMatch(userSupabase" in edge
+    assert "resolveCanonicalMaterialForLine(supabase," not in edge
+    assert "lineIdentityExact" in edge
+    assert "delivery_note_line_identity_not_exact" in edge
+    fuzzy_guard = edge.split("if (!item.lineIdentityExact)", 1)[1].split("resolveCanonicalMaterialForLine", 1)[0]
+    assert "canonical_material_id: null" in fuzzy_guard
+    assert "resolved_exact: false" in fuzzy_guard
+    assert "material_resolution_request_id: null" in fuzzy_guard
+
+    assert "applyStatus" in controller and "controller_error" in controller
+    assert "material_controller_apply_failed" in controller
+    assert "material_controller_request_failed" in controller
+    assert 'p_required_capabilities: input.supplier_id ? ["unit", "supplier_product"] : ["unit"]' in controller
+    assert "any" not in controller
+
+    assert "assert_goods_receipt_materials_ready" not in finalize_edge.split('rpc("finalize_goods_receipt"', 1)[0]
+
+    for marker in (
+        "task5 exact grn link idempotent",
+        "task5 spoofed guc authenticated 42501",
+        "task5 spoofed guc service_role 42501",
+        "task5 enforced unresolved finalization blocked before mutation",
+        "task5 shadow readiness reports blockers",
+        "task5 protected history/q7/ledger counts unchanged",
+        "rollback",
+    ):
+        assert marker in smoke
 
 
 def test_goods_receipt_receiving_edit_mode():

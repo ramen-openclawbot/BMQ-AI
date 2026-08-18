@@ -59,12 +59,12 @@ export async function checkAndRecordRateLimit(
       const windowEnd = existing.window_end;
 
       // Increment counter (non-blocking)
-      admin
-        .from("ai_function_rate_limits")
-        .update({ usage_count: newCount, updated_at: now.toISOString() })
-        .eq("id", existing.id)
-        .then(() => {})
-        .catch((e: any) => console.error("[rate-limiter] Update failed:", e));
+      void (async () => {
+        await admin
+          .from("ai_function_rate_limits")
+          .update({ usage_count: newCount, updated_at: now.toISOString() })
+          .eq("id", existing.id);
+      })().catch((e: any) => console.error("[rate-limiter] Update failed:", e));
 
       const retryAfterSeconds = allowed
         ? null
