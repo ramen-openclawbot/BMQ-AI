@@ -51,6 +51,7 @@ export interface MaterialPriceHistory {
   id: string;
   material_id: string | null;
   supplier_product_id: string | null;
+  price_type: string | null;
   price: number | null;
   price_unit: string | null;
   normalized_base_unit_price: number | null;
@@ -117,6 +118,23 @@ export interface Q7Mapping {
   canonical_material_id: string | null;
 }
 
+export interface FinishedSkuLite {
+  id: string;
+  sku_code: string | null;
+  product_name: string | null;
+  unit: string | null;
+  sku_type: string | null;
+}
+
+export interface CogsMaterialLink {
+  id: string;
+  sku_id: string | null;
+  canonical_material_id: string | null;
+  dosage_qty: number | null;
+  unit: string | null;
+  product_skus: { sku_code: string | null; product_name: string | null; sku_type: string | null } | null;
+}
+
 export interface MaterialMasterData {
   materials: CanonicalMaterial[];
   aliases: MaterialAlias[];
@@ -128,7 +146,8 @@ export interface MaterialMasterData {
   auditLogs: MaterialAuditLog[];
   suppliers: SupplierLite[];
   kitchenMappings: Q7Mapping[];
-  skuMappings: Q7Mapping[];
+  finishedSkus: FinishedSkuLite[];
+  cogsLinks: CogsMaterialLink[];
   sectionErrors: Record<string, string>;
 }
 
@@ -162,6 +181,7 @@ type QueryBuilder<T> = {
   select: (columns: string) => QueryBuilder<T>;
   order: (column: string, options?: { ascending?: boolean }) => QueryBuilder<T>;
   limit: (count: number) => QueryBuilder<T>;
+  range: (from: number, to: number) => QueryBuilder<T>;
   eq: (column: string, value: string) => QueryBuilder<T>;
   then: Promise<QueryResult<T>>["then"];
 };
@@ -187,7 +207,7 @@ const materialSelect = "id, material_code, canonical_name, normalized_name, defa
 const aliasSelect = "id, material_id, alias_name, normalized_alias, source, active, created_by, created_at";
 const scopedAliasSelect = "id, material_id, supplier_id, source_type, alias_name, normalized_alias, approved, active, metadata, created_at";
 const supplierProductSelect = "id, material_id, supplier_id, supplier_product_code, supplier_product_name, purchase_unit, base_unit, approved, active, created_at";
-const priceSelect = "id, material_id, supplier_product_id, price, price_unit, normalized_base_unit_price, effective_from, effective_to, approved, created_at";
+const priceSelect = "id, material_id, supplier_product_id, price_type, price, price_unit, normalized_base_unit_price, effective_from, effective_to, approved, created_at";
 const conversionSelect = "id, material_id, from_unit, to_unit, factor, effective_from, effective_to, approved, active, created_at";
 const requestSelect = "id, source_type, source_table, source_id, supplier_id, raw_name, raw_code, raw_unit, status, candidate_status, resolved_material_id, reviewer_reason, safe_payload, created_at";
 const auditSelect = "id, material_id, action, reason, actor_id, old_values, new_values, safe_payload, created_at";
@@ -197,6 +217,26 @@ async function readTable<T>(table: string, columns: string, order = "created_at"
   const { data, error } = await db.from<T>(table).select(columns).order(order, { ascending: false }).limit(limit);
   if (error) throw error;
   return { data, error };
+}
+
+async function readAllTable<T>(
+  table: string,
+  columns: string,
+  order: string,
+  filters: Array<{ column: string; value: string }>,
+  pageSize = 500,
+): Promise<QueryResult<T>> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += pageSize) {
+    let query = db.from<T>(table).select(columns).order(order, { ascending: true }).order("id", { ascending: true }).range(from, from + pageSize - 1);
+    for (const filter of filters) query = query.eq(filter.column, filter.value);
+    const { data, error } = await query;
+    if (error) throw error;
+    const page = (data || []) as T[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return { data: rows, error: null };
 }
 
 function validateRpcResponse(data: unknown, allowedStatuses: string[], requiredStringKeys: string[] = []) {
@@ -215,20 +255,21 @@ export function useMaterialMaster() {
     queryKey: ["material-master", "admin"],
     queryFn: async (): Promise<MaterialMasterData> => {
       const reads = await Promise.allSettled([
-        readTable<CanonicalMaterial>("sku_cogs_materials", materialSelect, "canonical_name"),
+        readAllTable<CanonicalMaterial>("sku_cogs_materials", materialSelect, "canonical_name", []),
         readTable<MaterialAlias>("sku_cogs_material_aliases", aliasSelect, "created_at"),
         readTable<MaterialAlias>("material_scoped_aliases", scopedAliasSelect, "created_at"),
-        readTable<SupplierProduct>("material_supplier_products", supplierProductSelect, "created_at"),
-        readTable<MaterialPriceHistory>("material_price_history", priceSelect, "effective_from"),
+        readAllTable<SupplierProduct>("material_supplier_products", supplierProductSelect, "created_at", [{ column: "active", value: "true" }, { column: "approved", value: "true" }]),
+        readAllTable<MaterialPriceHistory>("material_price_history", priceSelect, "effective_from", []),
         readTable<MaterialUnitConversion>("material_unit_conversions", conversionSelect, "created_at"),
         readTable<ResolutionRequest>("material_resolution_requests", requestSelect, "created_at"),
         readTable<MaterialAuditLog>("material_master_audit_logs", auditSelect, "created_at"),
-        readTable<SupplierLite>("suppliers", supplierSelect, "name"),
+        readAllTable<SupplierLite>("suppliers", supplierSelect, "name", []),
         readTable<Q7Mapping>("kitchen_inventory_items", "id, item_code, name, unit, canonical_material_id", "name"),
-        readTable<Q7Mapping>("product_skus", "id, sku_code, product_name, unit, canonical_material_id", "product_name"),
+        readAllTable<FinishedSkuLite>("product_skus", "id, sku_code, product_name, unit, sku_type", "product_name", [{ column: "sku_type", value: "finished_good" }]),
+        readAllTable<CogsMaterialLink>("sku_formulations", "id, sku_id, canonical_material_id, dosage_qty, unit, product_skus!inner(sku_code, product_name, sku_type)", "created_at", [{ column: "product_skus.sku_type", value: "finished_good" }]),
       ]);
 
-      const names = ["materials", "aliases", "scopedAliases", "supplierProducts", "prices", "conversions", "resolutionRequests", "auditLogs", "suppliers", "kitchenMappings", "skuMappings"] as const;
+      const names = ["materials", "aliases", "scopedAliases", "supplierProducts", "prices", "conversions", "resolutionRequests", "auditLogs", "suppliers", "kitchenMappings", "finishedSkus", "cogsLinks"] as const;
       const sectionErrors: Record<string, string> = {};
       const valueAt = <T,>(index: number): T[] => {
         const result = reads[index];
@@ -250,7 +291,8 @@ export function useMaterialMaster() {
         auditLogs: valueAt<MaterialAuditLog>(7),
         suppliers: valueAt<SupplierLite>(8),
         kitchenMappings: valueAt<Q7Mapping>(9),
-        skuMappings: valueAt<Q7Mapping>(10),
+        finishedSkus: valueAt<FinishedSkuLite>(10).filter((sku) => sku.sku_type === "finished_good"),
+        cogsLinks: valueAt<CogsMaterialLink>(11).filter((link) => link.product_skus?.sku_type === "finished_good"),
         sectionErrors,
       };
     },
@@ -403,6 +445,61 @@ export function useConfirmMaterialResolution() {
         throw new Error("RPC không trả material ID sau khi xác nhận.");
       }
       if (payload.action === "resolve_existing" && result.material_id !== payload.material_id) throw new Error("RPC trả sai material đã chọn.");
+      return result;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["material-master"] }),
+  });
+}
+
+export function useLinkMaterialSupplier() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { materialId: string; expectedVersion: number; supplierId: string; reason: string }) => {
+      if (!Number.isInteger(payload.expectedVersion) || payload.expectedVersion <= 0) throw new Error("Cần tải lại phiên bản NVL trước khi liên kết Nhà cung cấp.");
+      const { data, error } = await db.rpc("link_material_supplier", {
+        p_material_id: payload.materialId,
+        p_expected_version: payload.expectedVersion,
+        p_supplier_id: payload.supplierId,
+        p_reason: nonEmptyReason(payload.reason),
+      });
+      if (error) throw error;
+      const result = validateRpcResponse(data, ["supplier_linked", "supplier_link_unchanged"], ["material_id", "supplier_id", "supplier_product_id"]);
+      if (result.material_id !== payload.materialId || result.supplier_id !== payload.supplierId) throw new Error("RPC trả sai liên kết Nhà cung cấp đã chọn.");
+      return result;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["material-master"] }),
+  });
+}
+
+export function useLinkMaterialToSkuCogs() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      materialId: string;
+      expectedVersion: number;
+      skuId: string;
+      dosageQty: number;
+      wastagePercent: number;
+      standardUnitPrice: number | null;
+      effectiveFrom: string;
+      reason: string;
+    }) => {
+      if (!Number.isInteger(payload.expectedVersion) || payload.expectedVersion <= 0) throw new Error("Cần tải lại phiên bản NVL trước khi liên kết Giá vốn.");
+      if (!Number.isFinite(payload.dosageQty) || payload.dosageQty <= 0) throw new Error("Định lượng NVL phải lớn hơn 0.");
+      if (!Number.isFinite(payload.wastagePercent) || payload.wastagePercent < 0 || payload.wastagePercent > 100) throw new Error("Hao hụt phải từ 0% đến 100%.");
+      const { data, error } = await db.rpc("link_material_to_sku_cogs", {
+        p_material_id: payload.materialId,
+        p_expected_version: payload.expectedVersion,
+        p_sku_id: payload.skuId,
+        p_dosage_qty: payload.dosageQty,
+        p_wastage_percent: payload.wastagePercent,
+        p_standard_unit_price: payload.standardUnitPrice,
+        p_effective_from: payload.effectiveFrom,
+        p_reason: nonEmptyReason(payload.reason),
+      });
+      if (error) throw error;
+      const result = validateRpcResponse(data, ["cogs_linked", "cogs_link_unchanged"], ["material_id", "sku_id", "formulation_id"]);
+      if (result.material_id !== payload.materialId || result.sku_id !== payload.skuId) throw new Error("RPC trả sai liên kết SKU Giá vốn đã chọn.");
       return result;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["material-master"] }),

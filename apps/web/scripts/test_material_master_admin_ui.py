@@ -89,7 +89,7 @@ def test_material_master_page_contract_markers_edit_mode_reason_version_and_queu
     assert "Chạm vào NVL để sửa" in page
     assert "max-h-[90dvh]" in page and "overflow-y-auto" in page
     assert "Sửa NVL đang chọn" not in page
-    assert 'key={`edit-${selected?.id}-${selected?.version}`}' in page
+    assert 'key={`edit-${selected.id}-${selected.version}`}' in page
     assert "materialFormValues(selected)" in page
     assert "reason.trim()" in page
     assert "Lý do thay đổi" in page
@@ -181,7 +181,7 @@ def test_task4_uses_exact_task2_schema_columns_and_rejects_removed_columns():
         '"id, material_id, alias_name, normalized_alias, source, active, created_by, created_at"',
         '"id, material_id, supplier_id, source_type, alias_name, normalized_alias, approved, active, metadata, created_at"',
         '"id, material_id, supplier_id, supplier_product_code, supplier_product_name, purchase_unit, base_unit, approved, active, created_at"',
-        '"id, material_id, supplier_product_id, price, price_unit, normalized_base_unit_price, effective_from, effective_to, approved, created_at"',
+        '"id, material_id, supplier_product_id, price_type, price, price_unit, normalized_base_unit_price, effective_from, effective_to, approved, created_at"',
         '"id, material_id, from_unit, to_unit, factor, effective_from, effective_to, approved, active, created_at"',
         '"id, material_id, action, reason, actor_id, old_values, new_values, safe_payload, created_at"',
         '"id, name"',
@@ -225,7 +225,7 @@ def test_task4_exact_rpc_contracts_and_functional_resolution_queue():
     assert "p_supplier_product_payload" in hook
     assert "validateRpcResponse" in hook
     assert "selected.version" in page and "selected.version > 0" in page
-    assert "Cần tải lại dữ liệu" in page
+    assert "Phiên bản NVL chưa sẵn sàng" in page
     assert "createFields" in page and "material_code" in page and "canonical_name" in page and "default_unit" in page and "specification" in page
     assert "manual_selection" in hook and 'confidence: "confirmed"' in hook
     assert 'field_name: "material_master_admin"' in hook
