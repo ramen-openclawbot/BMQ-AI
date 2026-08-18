@@ -135,6 +135,25 @@ export interface CogsMaterialLink {
   product_skus: { sku_code: string | null; product_name: string | null; sku_type: string | null } | null;
 }
 
+export interface MaterialPaymentRequestLink {
+  payment_request_item_id: string;
+  payment_request_id: string;
+  request_number: string | null;
+  request_status: string | null;
+  request_created_at: string | null;
+  supplier_id: string | null;
+  vendor_display_name: string | null;
+  product_name: string | null;
+  product_code: string | null;
+  quantity: number | null;
+  unit: string | null;
+  unit_price: number | null;
+  line_total: number | null;
+  link_state: "linked" | "candidate";
+  candidate_source: "linked" | "approved_supplier_product" | "legacy_raw_sku_exact" | null;
+  canonical_material_id: string | null;
+}
+
 export interface MaterialMasterData {
   materials: CanonicalMaterial[];
   aliases: MaterialAlias[];
@@ -295,6 +314,22 @@ export function useMaterialMaster() {
         cogsLinks: valueAt<CogsMaterialLink>(11).filter((link) => link.product_skus?.sku_type === "finished_good"),
         sectionErrors,
       };
+    },
+  });
+}
+
+export function useMaterialPaymentRequestLinks(materialId: string | null) {
+  return useQuery({
+    queryKey: ["material-master", "payment-request-links", materialId],
+    enabled: Boolean(materialId),
+    queryFn: async (): Promise<MaterialPaymentRequestLink[]> => {
+      if (!materialId) return [];
+      const { data, error } = await db.rpc<MaterialPaymentRequestLink[]>("get_material_payment_request_links", {
+        p_material_id: materialId,
+      });
+      if (error) throw error;
+      if (!Array.isArray(data)) throw new Error("RPC Duyệt chi không trả danh sách hợp lệ.");
+      return data;
     },
   });
 }
@@ -503,5 +538,28 @@ export function useLinkMaterialToSkuCogs() {
       return result;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["material-master"] }),
+  });
+}
+
+export function useLinkMaterialPaymentRequestItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { materialId: string; expectedVersion: number; paymentRequestItemId: string; reason: string }) => {
+      if (!Number.isInteger(payload.expectedVersion) || payload.expectedVersion <= 0) throw new Error("Cần tải lại phiên bản NVL trước khi liên kết Duyệt chi.");
+      const { data, error } = await db.rpc("link_material_payment_request_item", {
+        p_material_id: payload.materialId,
+        p_expected_material_version: payload.expectedVersion,
+        p_payment_request_item_id: payload.paymentRequestItemId,
+        p_reason: nonEmptyReason(payload.reason),
+      });
+      if (error) throw error;
+      const result = validateRpcResponse(data, ["payment_request_linked", "payment_request_link_unchanged"], ["material_id", "payment_request_item_id", "request_id"]);
+      if (result.material_id !== payload.materialId || result.payment_request_item_id !== payload.paymentRequestItemId) throw new Error("RPC trả sai dòng Duyệt chi đã chọn.");
+      return result;
+    },
+    onSuccess: (_result, payload) => {
+      queryClient.invalidateQueries({ queryKey: ["material-master"] });
+      queryClient.invalidateQueries({ queryKey: ["material-master", "payment-request-links", payload.materialId] });
+    },
   });
 }

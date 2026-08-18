@@ -8,6 +8,7 @@ import {
   FinishedSkuLite,
   MaterialAlias,
   MaterialAuditLog,
+  MaterialPaymentRequestLink,
   MaterialPriceHistory,
   MaterialUnitConversion,
   Q7Mapping,
@@ -16,7 +17,9 @@ import {
   SupplierLite,
   useConfirmMaterialResolution,
   useCreateCanonicalMaterial,
+  useLinkMaterialPaymentRequestItem,
   useMaterialMaster,
+  useMaterialPaymentRequestLinks,
   useLinkMaterialSupplier,
   useLinkMaterialToSkuCogs,
   useUpdateCanonicalMaterial,
@@ -298,6 +301,56 @@ function MaterialBusinessController({ selected, canMutate, suppliers, supplierPr
   );
 }
 
+const formatVnd = (value: number | null) => value == null ? "—" : new Intl.NumberFormat("vi-VN").format(value);
+
+function MaterialPaymentRequestLinks({ selected, canMutate }: { selected: CanonicalMaterial | null; canMutate: boolean }) {
+  const { toast } = useToast();
+  const { data: paymentLinks = [], isLoading, error: paymentLinksError } = useMaterialPaymentRequestLinks(selected?.id || null);
+  const linkPaymentRequest = useLinkMaterialPaymentRequestItem();
+  const [reason, setReason] = useState("");
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const linkedRows = paymentLinks.filter((row) => row.link_state === "linked");
+  const candidates = paymentLinks.filter((row) => row.link_state === "candidate");
+  const canConfirm = Boolean(canMutate && !paymentLinksError && selected?.version && selected.version > 0 && reason.trim());
+
+  const submit = async (row: MaterialPaymentRequestLink) => {
+    if (!selected?.version || !canConfirm) return;
+    setActiveItemId(row.payment_request_item_id);
+    try {
+      await linkPaymentRequest.mutateAsync({
+        materialId: selected.id,
+        expectedVersion: selected.version,
+        paymentRequestItemId: row.payment_request_item_id,
+        reason,
+      });
+      toast({ title: "Đã liên kết Duyệt chi", description: `${row.request_number || "Duyệt chi"} đã dùng NVL chuẩn này.` });
+      setReason("");
+    } catch (error) {
+      toast({ title: "Không thể liên kết Duyệt chi", description: error instanceof Error ? error.message : "Hệ thống từ chối liên kết không chính xác.", variant: "destructive" });
+    } finally {
+      setActiveItemId(null);
+    }
+  };
+
+  if (!selected) return <Card data-bmq-material-payment-request-links><CardContent className="p-6 text-sm text-slate-600">Chọn một NVL để xem Duyệt chi liên quan.</CardContent></Card>;
+
+  return <Card data-bmq-material-payment-request-links>
+    <CardHeader><CardTitle>Duyệt chi liên quan</CardTitle><CardDescription>Chỉ hiển thị dòng đã liên kết hoặc có bằng chứng chính xác theo Nhà cung cấp/SKU cũ. Không tự ghép tên gần giống.</CardDescription></CardHeader>
+    <CardContent className="space-y-4">
+      {paymentLinksError && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Không tải được Duyệt chi liên quan</AlertTitle><AlertDescription>Hệ thống đã khóa nút xác nhận để tránh liên kết sai. Vui lòng tải lại trang.</AlertDescription></Alert>}
+      {isLoading && <div className="space-y-2"><Skeleton className="h-24" /><Skeleton className="h-24" /></div>}
+      {!isLoading && !paymentLinksError && linkedRows.length === 0 && candidates.length === 0 && <Alert><AlertTitle>Chưa liên kết Duyệt chi</AlertTitle><AlertDescription>Chưa có dòng Duyệt chi nào khớp chính xác với NVL này. Hãy chuẩn hóa Nhà cung cấp hoặc đơn vị trước.</AlertDescription></Alert>}
+      {linkedRows.length > 0 && <section className="space-y-2"><h3 className="font-semibold">Đã liên kết NVL</h3>{linkedRows.map((row) => <PaymentRequestLinkCard key={row.payment_request_item_id} row={row} />)}</section>}
+      {candidates.length > 0 && <section className="space-y-3"><div><h3 className="font-semibold">Chờ xác nhận</h3><p className="text-sm text-slate-600">Kiểm tra tên hàng, đơn vị và Duyệt chi trước khi liên kết.</p></div>{candidates.map((row) => <div key={row.payment_request_item_id} className="rounded-2xl border bg-white p-4"><PaymentRequestLinkCard row={row} /><div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><Badge variant="outline" className="w-fit">{row.candidate_source === "approved_supplier_product" ? "Khớp chính xác Nhà cung cấp" : "Gợi ý theo SKU cũ"}</Badge>{canMutate && !paymentLinksError && <Button className="min-h-11 w-full sm:w-auto" onClick={() => submit(row)} disabled={!canConfirm || linkPaymentRequest.isPending}>{activeItemId === row.payment_request_item_id && linkPaymentRequest.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}Liên kết Duyệt chi</Button>}</div></div>)}</section>}
+      {canMutate && !paymentLinksError && candidates.length > 0 && <div className="grid gap-2"><Label htmlFor="payment-link-reason">Lý do xác nhận</Label><Textarea id="payment-link-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="VD: Đã đối chiếu NCC, tên hàng và đơn vị trên Duyệt chi..." /><p className="text-xs text-slate-500">Lý do được lưu trong lịch sử NVL; số tiền và trạng thái Duyệt chi không thay đổi.</p></div>}
+    </CardContent>
+  </Card>;
+}
+
+function PaymentRequestLinkCard({ row }: { row: MaterialPaymentRequestLink }) {
+  return <div className="min-w-0 rounded-xl bg-slate-50 p-3 text-sm"><div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><p className="break-words font-medium">{row.product_name || row.product_code || "Dòng hàng chưa đặt tên"}</p><p className="break-words text-slate-600">{row.request_number || "Duyệt chi"} · {row.vendor_display_name || "Chưa rõ Nhà cung cấp"}</p></div>{row.link_state === "linked" && <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Đã liên kết NVL</Badge>}</div><p className="mt-2 break-words text-slate-600">{row.quantity ?? "—"} {row.unit || "—"} · Đơn giá {formatVnd(row.unit_price)}đ · Thành tiền {formatVnd(row.line_total)}đ</p><p className="mt-1 text-xs text-slate-500">Trạng thái Duyệt chi: {row.request_status || "—"}</p></div>;
+}
+
 function ResponsiveMaterialList({ materials, selected, onSelect, editable }: { materials: CanonicalMaterial[]; selected: CanonicalMaterial | null; onSelect: (m: CanonicalMaterial) => void; editable: boolean }) {
   return <Card data-bmq-material-master-no-raw-ids data-bmq-material-master-tap-to-edit><CardHeader><CardTitle>Tên và đơn vị chuẩn</CardTitle><CardDescription>{editable ? "Chạm vào NVL để sửa tên, đơn vị, nhóm hoặc quy cách." : "Chạm vào NVL để xem các liên kết đang sử dụng."}</CardDescription></CardHeader><CardContent><div className="hidden overflow-x-auto md:block"><Table><TableHeader><TableRow><TableHead>Mã NVL</TableHead><TableHead>Tên NVL chuẩn</TableHead><TableHead>Đơn vị chuẩn</TableHead><TableHead>Nhóm · Thương hiệu · Quy cách</TableHead><TableHead>Trạng thái</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>{materials.map((row) => <TableRow key={row.id} onClick={() => onSelect(row)} className={`${selected?.id === row.id ? "bg-emerald-50" : ""} cursor-pointer hover:bg-emerald-50/60`}><TableCell className="font-medium">{row.material_code}</TableCell><TableCell>{row.canonical_name}</TableCell><TableCell>{row.default_unit}</TableCell><TableCell>{[row.category, row.brand, row.specification].filter(Boolean).join(" · ") || "—"}</TableCell><TableCell>{statusBadge(row.active)}</TableCell><TableCell><Button variant="outline" size="sm" onClick={(event) => { event.stopPropagation(); onSelect(row); }}><Edit3 className="mr-2 h-4 w-4" />{editable ? "Sửa" : "Xem"}</Button></TableCell></TableRow>)}</TableBody></Table></div><div className="space-y-3 md:hidden" data-bmq-material-master-mobile-cards>{materials.map((row) => <button key={row.id} type="button" onClick={() => onSelect(row)} className="w-full rounded-2xl border bg-white p-4 text-left shadow-sm transition-colors active:bg-emerald-50"><div className="flex items-start justify-between gap-2"><h3 className="min-w-0 break-words font-semibold text-slate-900">{row.canonical_name}</h3>{statusBadge(row.active)}</div><p className="mt-1 text-sm text-slate-600">{row.material_code} · {row.default_unit || "chưa có đơn vị"}</p><p className="mt-1 text-xs text-slate-500">{[row.category, row.brand, row.specification].filter(Boolean).join(" · ") || "Chưa phân nhóm"}</p><p className="mt-3 flex items-center gap-1.5 text-sm font-medium text-emerald-700"><Edit3 className="h-4 w-4" />{editable ? "Chạm để sửa" : "Chạm để xem liên kết"}</p></button>)}</div>{materials.length === 0 && <div className="rounded-xl border border-dashed p-6 text-center text-sm text-slate-500">Không có NVL chuẩn phù hợp.</div>}</CardContent></Card>;
 }
@@ -409,7 +462,7 @@ export default function MaterialMasterAdmin() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h1 className="text-3xl font-bold tracking-tight">Danh mục nguyên vật liệu</h1>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Chạm vào một NVL để sửa tên và đơn vị chuẩn. Thay đổi sẽ dùng chung trong Giá vốn, phiếu xuất kho NVL Q7 và sản phẩm Nhà cung cấp.</p>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Chạm vào một NVL để sửa tên và đơn vị chuẩn. Thay đổi sẽ dùng chung trong Giá vốn, Duyệt chi, phiếu xuất kho NVL Q7 và sản phẩm Nhà cung cấp.</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Dialog open={dialog === "create"} onOpenChange={(open) => setDialog(open ? "create" : null)}>
@@ -440,11 +493,12 @@ export default function MaterialMasterAdmin() {
           </Card>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-            <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-2xl bg-white p-1 shadow-sm md:grid-cols-5" data-bmq-material-master-business-tabs>
+            <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-2xl bg-white p-1 shadow-sm md:grid-cols-6" data-bmq-material-master-business-tabs>
               <TabsTrigger className="col-span-2 min-h-11 whitespace-normal md:col-span-1" value="materials">Tên & đơn vị chuẩn</TabsTrigger>
               <TabsTrigger className="min-h-11 whitespace-normal" value="cogs">Liên kết Giá vốn</TabsTrigger>
               <TabsTrigger className="min-h-11 whitespace-normal" value="q7">Phiếu xuất kho Q7</TabsTrigger>
               <TabsTrigger className="min-h-11 whitespace-normal" value="suppliers">Sản phẩm Nhà cung cấp</TabsTrigger>
+              <TabsTrigger className="min-h-11 whitespace-normal" value="payments">Duyệt chi liên quan</TabsTrigger>
               <TabsTrigger className="min-h-11 whitespace-normal" value="queue">Cần xác nhận</TabsTrigger>
             </TabsList>
 
@@ -490,8 +544,12 @@ export default function MaterialMasterAdmin() {
               <Button variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => openConfirmationQueue("all")}>Đi tới Cần xác nhận</Button>
             </TabsContent>
 
+            <TabsContent value="payments" className="space-y-3">
+              <MaterialPaymentRequestLinks selected={selected} canMutate={canMutate} />
+            </TabsContent>
+
             <TabsContent value="queue" className="space-y-4" data-bmq-material-master-resolution-queue>
-              <Card><CardContent className="pt-6"><div className="grid gap-2 sm:grid-cols-[220px_1fr] sm:items-center"><Label>Lọc theo nơi sử dụng</Label><Select value={sourceFilter} onValueChange={setSourceFilter}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Tất cả</SelectItem><SelectItem value="product_skus">Giá vốn</SelectItem><SelectItem value="kitchen_inventory">Kho NVL Q7</SelectItem></SelectContent></Select></div></CardContent></Card>
+              <Card><CardContent className="pt-6"><div className="grid gap-2 sm:grid-cols-[220px_1fr] sm:items-center"><Label>Lọc theo nơi sử dụng</Label><Select value={sourceFilter} onValueChange={setSourceFilter}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Tất cả</SelectItem><SelectItem value="product_skus">Giá vốn</SelectItem><SelectItem value="payment_request">Duyệt chi</SelectItem><SelectItem value="kitchen_inventory">Kho NVL Q7</SelectItem></SelectContent></Select></div></CardContent></Card>
               <QueueActions requests={queueRequests} materials={materials} canMutate={canMutate} />
               <ReconciliationQueue canMutate={canMutate} sourceFilter={sourceFilter} />
             </TabsContent>
