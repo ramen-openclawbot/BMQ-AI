@@ -208,11 +208,24 @@ function MaterialSupplierReview({ selected, suppliers, canMutate }: { selected: 
   const [manualSupplierId, setManualSupplierId] = useState("");
   const [manualProductName, setManualProductName] = useState(selected?.canonical_name || "");
   const [manualPurchaseUnit, setManualPurchaseUnit] = useState(selected?.default_unit || "");
+  const [pendingConfirmedSelection, setPendingConfirmedSelection] = useState<{ key: string; supplierProductId: string } | null>(null);
   const [reason, setReason] = useState(defaultReason);
   const activeSuggestion = selectedKey
     ? suggestions.find((row) => materialSuggestionKey(row) === selectedKey)
     : manualSupplierId ? undefined : suggestions[0];
-  const confirmedSuggestion = suggestions.find((row) => row.confirmed && row.supplier_product_id);
+  const confirmedSuggestions = suggestions
+    .filter((row) => row.confirmed && row.supplier_product_id)
+    .sort((left, right) => right.payment_candidate_count - left.payment_candidate_count);
+  const optimisticConfirmedSuggestion = activeSuggestion
+    && pendingConfirmedSelection?.key === materialSuggestionKey(activeSuggestion)
+    ? { ...activeSuggestion, confirmed: true, supplier_product_id: pendingConfirmedSelection.supplierProductId }
+    : undefined;
+  const confirmedSuggestion = optimisticConfirmedSuggestion || (activeSuggestion?.confirmed && activeSuggestion.supplier_product_id
+    ? activeSuggestion
+    : confirmedSuggestions[0]);
+  const manualSupplierSuggestions = manualSupplierId
+    ? suggestions.filter((row) => row.supplier_id === manualSupplierId && !row.confirmed)
+    : [];
   const confirmationSupplierId = activeSuggestion?.supplier_id || manualSupplierId;
   const confirmationProductName = activeSuggestion?.product_name || manualProductName.trim();
   const confirmationPurchaseUnit = activeSuggestion?.purchase_unit || manualPurchaseUnit.trim();
@@ -222,6 +235,7 @@ function MaterialSupplierReview({ selected, suppliers, canMutate }: { selected: 
   const chooseSuggestion = (value: string) => {
     setSelectedKey(value);
     setManualSupplierId("");
+    setPendingConfirmedSelection(null);
   };
 
   const chooseManualSupplier = (value: string) => {
@@ -229,12 +243,13 @@ function MaterialSupplierReview({ selected, suppliers, canMutate }: { selected: 
     setSelectedKey("");
     setManualProductName(selected?.canonical_name || "");
     setManualPurchaseUnit(selected?.default_unit || "");
+    setPendingConfirmedSelection(null);
   };
 
   const submit = async () => {
     if (!selected?.version || !canConfirm) return;
     try {
-      await confirmSupplier.mutateAsync({
+      const confirmedResult = await confirmSupplier.mutateAsync({
         materialId: selected.id,
         expectedVersion: selected.version,
         supplierId: confirmationSupplierId,
@@ -243,8 +258,14 @@ function MaterialSupplierReview({ selected, suppliers, canMutate }: { selected: 
         purchaseUnit: confirmationPurchaseUnit,
         reason,
       });
+      if (activeSuggestion && typeof confirmedResult.supplier_product_id === "string") {
+        setPendingConfirmedSelection({
+          key: materialSuggestionKey(activeSuggestion),
+          supplierProductId: confirmedResult.supplier_product_id,
+        });
+      }
       toast({ title: "Đã xác nhận NCC", description: "Lựa chọn đã được lưu và ghi lịch sử; gợi ý trước đó không tự liên kết." });
-      setSelectedKey("");
+      if (!activeSuggestion) setSelectedKey("");
       setManualSupplierId("");
       setReason(defaultReason);
     } catch (submitError) {
@@ -273,6 +294,7 @@ function MaterialSupplierReview({ selected, suppliers, canMutate }: { selected: 
         <div className="grid gap-2"><Label htmlFor="manual-supplier-product-name">Tên hàng tại NCC</Label><Input id="manual-supplier-product-name" value={manualProductName} onChange={(event) => setManualProductName(event.target.value)} disabled={!canMutate || !manualSupplierId} /></div>
         <div className="grid gap-2"><Label htmlFor="manual-supplier-purchase-unit">Đơn vị mua</Label><Input id="manual-supplier-purchase-unit" value={manualPurchaseUnit} onChange={(event) => setManualPurchaseUnit(event.target.value)} disabled={!canMutate || !manualSupplierId} /></div>
       </div>
+      {manualSupplierSuggestions.length > 0 && <div className="grid gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-4"><Label>Chọn tên hàng từ Duyệt chi</Label><p className="text-sm text-slate-600">NCC này có dữ liệu Duyệt chi. Chọn đúng tên hàng và đơn vị để bản xem trước lấy được các phiếu liên quan.</p><Select onValueChange={chooseSuggestion} disabled={!canMutate}><SelectTrigger className="min-h-11 min-w-0 bg-white"><SelectValue placeholder="Chọn tên hàng và đơn vị" /></SelectTrigger><SelectContent>{manualSupplierSuggestions.map((row) => <SelectItem key={materialSuggestionKey(row)} value={materialSuggestionKey(row)}>{row.product_name} · {row.purchase_unit || "—"} · {row.payment_candidate_count || 0} Duyệt chi</SelectItem>)}</SelectContent></Select></div>}
       {canMutate && <div className="grid gap-2"><Label htmlFor="supplier-confirm-reason">Lý do xác nhận</Label><Textarea id="supplier-confirm-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="VD: Đã đối chiếu NCC gợi ý với Giá vốn và Duyệt chi..." /></div>}
       {canMutate && <Button className="min-h-11 w-full sm:w-auto" onClick={submit} disabled={!canConfirm || confirmSupplier.isPending}>{confirmSupplier.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}Xác nhận và lưu</Button>}
       {confirmedSuggestion && <PaymentRequestBulkSync selected={selected} suggestion={confirmedSuggestion} canMutate={canMutate} />}
@@ -305,6 +327,7 @@ function PaymentRequestBulkSync({ selected, suggestion, canMutate }: { selected:
   const syncPaymentRequests = useSyncMaterialSupplierPaymentRequests();
   const {
     isLoading: paymentPreviewLoading,
+    isFetching: paymentPreviewFetching,
     error: paymentPreviewError,
   } = useMaterialPaymentRequestLinks(selected.id);
   const [reason, setReason] = useState(defaultReason);
@@ -316,6 +339,7 @@ function PaymentRequestBulkSync({ selected, suggestion, canMutate }: { selected:
       && suggestion.supplier_product_id
       && validReason
       && !paymentPreviewLoading
+      && !paymentPreviewFetching
       && !paymentPreviewError,
   );
 
@@ -333,7 +357,7 @@ function PaymentRequestBulkSync({ selected, suggestion, canMutate }: { selected:
 
   return <div className="space-y-3 rounded-2xl border bg-white p-4" data-bmq-payment-request-bulk-sync>
     <div className="min-w-0"><h3 className="font-semibold">Xem trước đồng bộ Duyệt chi</h3><p className="break-words text-sm text-slate-600">NCC đã xác nhận: {suggestion.supplier_display_name || "NCC chưa đặt tên"} · {suggestion.product_name} · {suggestion.purchase_unit || selected.default_unit || "—"}</p><p className="text-sm text-slate-600">Dự kiến cập nhật chính xác: {suggestion.payment_candidate_count || 0} dòng; đã có bằng chứng: {suggestion.evidence_count || 0} dòng.</p></div>
-    {paymentPreviewLoading && <div className="space-y-2"><Skeleton className="h-16" /><p className="text-sm text-slate-600">Đang tải bản xem trước Duyệt chi…</p></div>}
+    {(paymentPreviewLoading || paymentPreviewFetching) && <div className="space-y-2"><Skeleton className="h-16" /><p className="text-sm text-slate-600">Đang tải bản xem trước Duyệt chi…</p></div>}
     {paymentPreviewError && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Không tải được bản xem trước Duyệt chi</AlertTitle><AlertDescription>Nút đồng bộ đã được khóa. Vui lòng tải lại trang trước khi tiếp tục.</AlertDescription></Alert>}
     {canMutate && <div className="grid gap-2"><Label htmlFor="payment-bulk-sync-reason">Lý do đồng bộ</Label><Textarea id="payment-bulk-sync-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="VD: NCC đã xác nhận, đồng bộ các dòng Duyệt chi khớp chính xác..." /></div>}
     {canMutate && <Button className="min-h-11 w-full sm:w-auto" onClick={submit} disabled={!canSync || syncPaymentRequests.isPending}>{syncPaymentRequests.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}Xác nhận và đồng bộ</Button>}

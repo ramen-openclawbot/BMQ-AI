@@ -54,3 +54,18 @@ def test_ui_always_offers_supplier_dropdown_and_manual_product_fields():
     assert '"payment_history_name_contains"' in hook
     assert "useEffect" not in page
     assert "useConfirmMaterialSupplierProduct" in page
+
+
+def test_confirmed_exact_variant_drives_payment_preview_after_manual_supplier_selection():
+    page = PAGE.read_text()
+    assert "manualSupplierSuggestions" in page
+    assert "Chọn tên hàng từ Duyệt chi" in page
+    assert "activeSuggestion?.confirmed && activeSuggestion.supplier_product_id" in page
+    assert "pendingConfirmedSelection?.key === materialSuggestionKey(activeSuggestion)" in page
+    assert "supplier_product_id: pendingConfirmedSelection.supplierProductId" in page
+    assert "const confirmedSuggestion = optimisticConfirmedSuggestion ||" in page
+    assert "supplierProductId: confirmedResult.supplier_product_id" in page
+    assert "right.payment_candidate_count - left.payment_candidate_count" in page
+    assert "if (!activeSuggestion) setSelectedKey(\"\");" in page
+    assert "isFetching: paymentPreviewFetching" in page
+    assert "&& !paymentPreviewFetching" in page
