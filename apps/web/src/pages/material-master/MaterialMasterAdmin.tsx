@@ -193,6 +193,7 @@ const materialSuggestionKey = (row: MaterialSupplierSuggestion) =>
 
 const suggestionSourceLabel = (source: MaterialSupplierSuggestion["candidate_source"]) => {
   if (source === "confirmed_supplier_product") return "Đã xác nhận trước đó";
+  if (source === "supplier_delivery_note_scan") return "Gợi ý từ phiếu xuất hàng NCC";
   if (source === "cogs_product_sku_exact") return "Khớp SKU trong Giá vốn";
   if (source === "payment_history_sku_exact") return "Khớp mã hàng Duyệt chi";
   if (source === "payment_history_name_contains") return "Tên Duyệt chi có chứa tên NVL";
@@ -208,6 +209,7 @@ function MaterialSupplierReview({ selected, suppliers, canMutate }: { selected: 
   const [manualSupplierId, setManualSupplierId] = useState("");
   const [manualProductName, setManualProductName] = useState(selected?.canonical_name || "");
   const [manualPurchaseUnit, setManualPurchaseUnit] = useState(selected?.default_unit || "");
+  const [baseQuantityOverride, setBaseQuantityOverride] = useState<{ key: string; value: string } | null>(null);
   const [pendingConfirmedSelection, setPendingConfirmedSelection] = useState<{ key: string; supplierProductId: string } | null>(null);
   const [reason, setReason] = useState(defaultReason);
   const activeSuggestion = selectedKey
@@ -229,13 +231,22 @@ function MaterialSupplierReview({ selected, suppliers, canMutate }: { selected: 
   const confirmationSupplierId = activeSuggestion?.supplier_id || manualSupplierId;
   const confirmationProductName = activeSuggestion?.product_name || manualProductName.trim();
   const confirmationPurchaseUnit = activeSuggestion?.purchase_unit || manualPurchaseUnit.trim();
+  const activeConversionKey = activeSuggestion && selected ? `${selected.id}:${materialSuggestionKey(activeSuggestion)}` : "";
+  const confirmedBaseQuantity = baseQuantityOverride?.key === activeConversionKey
+    ? baseQuantityOverride.value
+    : activeSuggestion?.candidate_source === "supplier_delivery_note_scan" && activeSuggestion.suggested_base_quantity
+      ? String(activeSuggestion.suggested_base_quantity)
+      : "";
+  const parsedBaseQuantity = confirmedBaseQuantity.trim() ? Number(confirmedBaseQuantity) : null;
+  const validBaseQuantity = parsedBaseQuantity == null || (Number.isFinite(parsedBaseQuantity) && parsedBaseQuantity > 0);
   const validReason = reason.trim().length > 0;
-  const canConfirm = Boolean(canMutate && selected?.version && selected.version > 0 && confirmationSupplierId && confirmationProductName && confirmationPurchaseUnit && validReason);
+  const canConfirm = Boolean(canMutate && selected?.version && selected.version > 0 && confirmationSupplierId && confirmationProductName && confirmationPurchaseUnit && validReason && validBaseQuantity);
 
   const chooseSuggestion = (value: string) => {
     setSelectedKey(value);
     setManualSupplierId("");
     setPendingConfirmedSelection(null);
+    setBaseQuantityOverride(null);
   };
 
   const chooseManualSupplier = (value: string) => {
@@ -244,6 +255,7 @@ function MaterialSupplierReview({ selected, suppliers, canMutate }: { selected: 
     setManualProductName(selected?.canonical_name || "");
     setManualPurchaseUnit(selected?.default_unit || "");
     setPendingConfirmedSelection(null);
+    setBaseQuantityOverride(null);
   };
 
   const submit = async () => {
@@ -256,6 +268,9 @@ function MaterialSupplierReview({ selected, suppliers, canMutate }: { selected: 
         productSkuId: activeSuggestion?.product_sku_id || null,
         productName: confirmationProductName,
         purchaseUnit: confirmationPurchaseUnit,
+        scanEvidenceId: activeSuggestion?.scan_evidence_id || null,
+        confirmedBaseQuantity: parsedBaseQuantity,
+        confirmedBaseUnit: parsedBaseQuantity ? selected.default_unit : null,
         reason,
       });
       if (activeSuggestion && typeof confirmedResult.supplier_product_id === "string") {
@@ -276,17 +291,19 @@ function MaterialSupplierReview({ selected, suppliers, canMutate }: { selected: 
   if (!selected) return <Card data-bmq-material-supplier-review><CardContent className="p-6 text-sm text-slate-600">Chọn một NVL từ Giá vốn để xem Hệ thống gợi ý NCC.</CardContent></Card>;
 
   return <Card data-bmq-material-supplier-review>
-    <CardHeader><CardTitle>Hệ thống gợi ý NCC</CardTitle><CardDescription>Gợi ý để tham khảo — chưa tự liên kết. Anh có thể chọn gợi ý hoặc chọn trực tiếp Nhà cung cấp rồi chuẩn hóa tên hàng và đơn vị trước khi xác nhận.</CardDescription></CardHeader>
+    <CardHeader><CardTitle>Hệ thống gợi ý NCC</CardTitle><CardDescription>Gợi ý để tham khảo — chưa tự liên kết. Đơn vị Giá vốn lấy từ Giá vốn; đơn vị mua được ưu tiên gợi ý từ phiếu xuất hàng NCC đã scan và chỉ ghi sau khi anh xác nhận.</CardDescription></CardHeader>
     <CardContent className="space-y-4">
       {error && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Không tải được gợi ý NCC</AlertTitle><AlertDescription>Anh vẫn có thể chọn Nhà cung cấp thủ công bên dưới; hệ thống chỉ ghi khi anh bấm xác nhận.</AlertDescription></Alert>}
       {isLoading && <div className="space-y-2"><Skeleton className="h-24" /><Skeleton className="h-24" /></div>}
       {!isLoading && !error && suggestions.length === 0 && <Alert><AlertTitle>Chưa có gợi ý NCC</AlertTitle><AlertDescription>Chọn Nhà cung cấp bên dưới, sau đó nhập tên hàng tại NCC và đơn vị mua để xác nhận.</AlertDescription></Alert>}
       {activeSuggestion && <div className="min-w-0 rounded-2xl border bg-emerald-50 p-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0"><p className="text-xs font-semibold uppercase text-emerald-700">Gợi ý ưu tiên — chưa liên kết</p><h3 className="break-words text-lg font-semibold">{activeSuggestion.supplier_display_name || "NCC chưa đặt tên"}</h3><p className="break-words text-sm text-slate-700">{activeSuggestion.product_code ? `${activeSuggestion.product_code} · ` : ""}{activeSuggestion.product_name} · {activeSuggestion.purchase_unit || selected.default_unit || "—"}</p></div>
+          <div className="min-w-0"><p className="text-xs font-semibold uppercase text-emerald-700">Gợi ý ưu tiên — chưa liên kết</p><h3 className="break-words text-lg font-semibold">{activeSuggestion.supplier_display_name || "NCC chưa đặt tên"}</h3><p className="break-words text-sm text-slate-700">{activeSuggestion.product_code ? `${activeSuggestion.product_code} · ` : ""}{activeSuggestion.product_name}</p><p className="text-sm text-slate-700">Đơn vị mua: <span className="font-semibold">{activeSuggestion.purchase_unit || "—"}</span> · Đơn vị Giá vốn: <span className="font-semibold">{selected.default_unit || "—"}</span></p></div>
           <Badge className="w-fit bg-white text-emerald-800 hover:bg-white">{suggestionSourceLabel(activeSuggestion.candidate_source)}</Badge>
         </div>
         <p className="mt-2 text-sm text-slate-600">Bằng chứng: {activeSuggestion.evidence_count || 0} dòng · Dự kiến đồng bộ Duyệt chi: {activeSuggestion.payment_candidate_count || 0} dòng</p>
+        {activeSuggestion.source_reference && <p className="mt-1 break-words text-sm text-slate-600">Nguồn scan: {activeSuggestion.source_reference}</p>}
+        {activeSuggestion.package_quantity && activeSuggestion.package_unit && <p className="mt-1 text-sm text-slate-700">Quy cách OCR: {activeSuggestion.package_quantity} {activeSuggestion.package_unit} / {activeSuggestion.purchase_unit}</p>}
       </div>}
       {suggestions.length > 0 && <div className="grid gap-2"><Label>Chọn NCC khác trong gợi ý</Label><Select value={activeSuggestion ? materialSuggestionKey(activeSuggestion) : ""} onValueChange={chooseSuggestion} disabled={!canMutate}><SelectTrigger className="min-h-11 min-w-0"><SelectValue placeholder="Chọn NCC khác" /></SelectTrigger><SelectContent>{suggestions.map((row) => <SelectItem key={materialSuggestionKey(row)} value={materialSuggestionKey(row)}>{row.supplier_display_name || "NCC chưa đặt tên"} · {row.product_name} · {row.purchase_unit || "—"}</SelectItem>)}</SelectContent></Select></div>}
       <div className="grid gap-3 rounded-2xl border bg-slate-50 p-4 md:grid-cols-3">
@@ -294,7 +311,11 @@ function MaterialSupplierReview({ selected, suppliers, canMutate }: { selected: 
         <div className="grid gap-2"><Label htmlFor="manual-supplier-product-name">Tên hàng tại NCC</Label><Input id="manual-supplier-product-name" value={manualProductName} onChange={(event) => setManualProductName(event.target.value)} disabled={!canMutate || !manualSupplierId} /></div>
         <div className="grid gap-2"><Label htmlFor="manual-supplier-purchase-unit">Đơn vị mua</Label><Input id="manual-supplier-purchase-unit" value={manualPurchaseUnit} onChange={(event) => setManualPurchaseUnit(event.target.value)} disabled={!canMutate || !manualSupplierId} /></div>
       </div>
-      {manualSupplierSuggestions.length > 0 && <div className="grid gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-4"><Label>Chọn tên hàng từ Duyệt chi</Label><p className="text-sm text-slate-600">NCC này có dữ liệu Duyệt chi. Chọn đúng tên hàng và đơn vị để bản xem trước lấy được các phiếu liên quan.</p><Select onValueChange={chooseSuggestion} disabled={!canMutate}><SelectTrigger className="min-h-11 min-w-0 bg-white"><SelectValue placeholder="Chọn tên hàng và đơn vị" /></SelectTrigger><SelectContent>{manualSupplierSuggestions.map((row) => <SelectItem key={materialSuggestionKey(row)} value={materialSuggestionKey(row)}>{row.product_name} · {row.purchase_unit || "—"} · {row.payment_candidate_count || 0} Duyệt chi</SelectItem>)}</SelectContent></Select></div>}
+      {manualSupplierSuggestions.length > 0 && <div className="grid gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-4"><Label>Chọn tên hàng từ Duyệt chi hoặc phiếu NCC</Label><p className="text-sm text-slate-600">Ưu tiên đơn vị mua đọc từ phiếu xuất hàng NCC; dữ liệu Duyệt chi chỉ hỗ trợ đối chiếu. Chọn đúng tên hàng và đơn vị trước khi xác nhận.</p><Select onValueChange={chooseSuggestion} disabled={!canMutate}><SelectTrigger className="min-h-11 min-w-0 bg-white"><SelectValue placeholder="Chọn tên hàng và đơn vị" /></SelectTrigger><SelectContent>{manualSupplierSuggestions.map((row) => <SelectItem key={materialSuggestionKey(row)} value={materialSuggestionKey(row)}>{row.product_name} · {row.purchase_unit || "—"} · {suggestionSourceLabel(row.candidate_source)}</SelectItem>)}</SelectContent></Select></div>}
+      {activeSuggestion?.candidate_source === "supplier_delivery_note_scan" && <div className="grid gap-3 rounded-2xl border border-sky-200 bg-sky-50 p-4 sm:grid-cols-2" data-bmq-supplier-scan-conversion>
+        <div className="min-w-0"><p className="font-semibold text-sky-950">Xác nhận quy đổi mua hàng</p><p className="text-sm text-slate-600">OCR chỉ gợi ý. Kiểm tra phiếu NCC trước khi lưu; để trống nếu phiếu không ghi rõ quy cách.</p></div>
+        <div className="grid gap-2"><Label htmlFor="supplier-scan-base-quantity">1 đơn vị mua ({activeSuggestion.purchase_unit}) = bao nhiêu {selected.default_unit}?</Label><Input id="supplier-scan-base-quantity" inputMode="decimal" value={confirmedBaseQuantity} onChange={(event) => setBaseQuantityOverride({ key: activeConversionKey, value: event.target.value })} placeholder={`VD: 25000 ${selected.default_unit}`} disabled={!canMutate} /><p className="text-xs text-slate-600">Đơn vị Giá vốn cố định: {selected.default_unit}. Không tự đổi Duyệt chi hoặc số tiền.</p></div>
+      </div>}
       {canMutate && <div className="grid gap-2"><Label htmlFor="supplier-confirm-reason">Lý do xác nhận</Label><Textarea id="supplier-confirm-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="VD: Đã đối chiếu NCC gợi ý với Giá vốn và Duyệt chi..." /></div>}
       {canMutate && <Button className="min-h-11 w-full sm:w-auto" onClick={submit} disabled={!canConfirm || confirmSupplier.isPending}>{confirmSupplier.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}Xác nhận và lưu</Button>}
       {confirmedSuggestion && <PaymentRequestBulkSync selected={selected} suggestion={confirmedSuggestion} canMutate={canMutate} />}

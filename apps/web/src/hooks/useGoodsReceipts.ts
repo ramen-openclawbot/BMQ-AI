@@ -33,6 +33,8 @@ export type DeliveryNoteMaterialResolution = {
   product_code?: string | null;
   quantity: number;
   unit: string;
+  package_quantity?: number | null;
+  package_unit?: string | null;
   canonical_material_id?: string | null;
   canonical_material_name?: string | null;
   canonical_material_code?: string | null;
@@ -485,6 +487,11 @@ export function useDeliveryNoteOcr() {
     try {
       const deliveryNotePath = await uploadDeliveryNoteImage(file, receiptId);
       setUploadedPath(deliveryNotePath);
+      const { error: persistEvidenceError } = await supabase
+        .from("goods_receipts")
+        .update({ image_url: deliveryNotePath })
+        .eq("id", receiptId);
+      if (persistEvidenceError) throw persistEvidenceError;
       setStatus("ocr");
 
       const { imageBase64, mimeType } = await normalizeUploadImage(file);
@@ -496,7 +503,7 @@ export function useDeliveryNoteOcr() {
         extractedItems?: DeliveryNoteMaterialResolution[];
         items?: DeliveryNoteMaterialResolution[];
         error?: string;
-      }>("match-delivery-note", { deliveryImage, receiptId, useServerMaterialResolutionOnly }, session?.access_token, 60000);
+      }>("match-delivery-note", { deliveryImage, deliveryNotePath, receiptId, useServerMaterialResolutionOnly }, session?.access_token, 60000);
 
       const materialLines = (response.data?.extractedItems || response.data?.items || []) as DeliveryNoteMaterialResolution[];
       setMaterialResolutions(materialLines);

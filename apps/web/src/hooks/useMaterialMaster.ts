@@ -162,11 +162,17 @@ export interface MaterialSupplierSuggestion {
   product_name: string;
   product_code: string | null;
   purchase_unit: string;
-  candidate_source: "confirmed_supplier_product" | "cogs_product_sku_exact" | "payment_history_sku_exact" | "payment_history_name_unit" | "payment_history_name_contains";
+  candidate_source: "confirmed_supplier_product" | "supplier_delivery_note_scan" | "cogs_product_sku_exact" | "payment_history_sku_exact" | "payment_history_name_unit" | "payment_history_name_contains";
   evidence_count: number;
   latest_request_at: string | null;
   confirmed: boolean;
   payment_candidate_count: number;
+  scan_evidence_id: string | null;
+  source_reference: string | null;
+  package_quantity: number | null;
+  package_unit: string | null;
+  suggested_base_quantity: number | null;
+  suggested_base_unit: string | null;
 }
 
 export interface MaterialMasterData {
@@ -375,6 +381,9 @@ export function useConfirmMaterialSupplierProduct() {
       productSkuId: string | null;
       productName: string;
       purchaseUnit: string;
+      scanEvidenceId?: string | null;
+      confirmedBaseQuantity?: number | null;
+      confirmedBaseUnit?: string | null;
       reason: string;
     }) => {
       if (!Number.isInteger(payload.expectedVersion) || payload.expectedVersion <= 0) throw new Error("Cần tải lại phiên bản NVL trước khi xác nhận Nhà cung cấp.");
@@ -385,6 +394,9 @@ export function useConfirmMaterialSupplierProduct() {
         p_product_sku_id: payload.productSkuId,
         p_supplier_product_name: payload.productName.trim(),
         p_purchase_unit: payload.purchaseUnit.trim(),
+        p_scan_evidence_id: payload.scanEvidenceId || null,
+        p_confirmed_base_quantity: payload.confirmedBaseQuantity || null,
+        p_confirmed_base_unit: payload.confirmedBaseUnit?.trim() || null,
         p_reason: nonEmptyReason(payload.reason),
       });
       if (error) throw error;
