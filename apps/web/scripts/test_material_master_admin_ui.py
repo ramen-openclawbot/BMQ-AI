@@ -172,6 +172,18 @@ def test_material_master_hook_uses_read_only_queries_and_audited_rpcs_only():
     assert "throw new Error" in hook
 
 
+def test_cogs_links_use_explicit_fk_and_section_errors_are_business_safe():
+    hook = read(HOOK)
+    page = read(PAGE)
+
+    assert "product_skus!sku_formulations_sku_id_fkey(sku_code, product_name, sku_type)" in hook
+    assert 'product_skus!inner(sku_code, product_name, sku_type)' not in hook
+    assert "sectionErrorLabels" in page
+    assert 'cogsLinks: "Sản phẩm sử dụng"' in page
+    assert '`${section}: ${message}`' not in page
+    assert "Không tải được dữ liệu" in page
+
+
 def test_task4_uses_exact_task2_schema_columns_and_rejects_removed_columns():
     hook = read(HOOK)
     page = read(PAGE)

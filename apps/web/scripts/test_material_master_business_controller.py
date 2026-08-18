@@ -74,7 +74,7 @@ def test_browser_hook_reads_real_supplier_and_cogs_links_and_uses_only_rpcs_for_
     assert "readAllTable<SupplierProduct>" in hook
     assert "readAllTable<SupplierLite>" in hook
     assert "readAllTable<CogsMaterialLink>" in hook
-    assert "product_skus!inner(sku_code, product_name, sku_type)" in hook
+    assert "product_skus!sku_formulations_sku_id_fkey(sku_code, product_name, sku_type)" in hook
     assert '{ column: "sku_type", value: "finished_good" }' in hook
     assert '{ column: "product_skus.sku_type", value: "finished_good" }' in hook
     assert ".range(from, from + pageSize - 1)" in hook

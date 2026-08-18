@@ -306,7 +306,7 @@ export function useMaterialMaster() {
         readAllTable<SupplierLite>("suppliers", supplierSelect, "name", []),
         readTable<Q7Mapping>("kitchen_inventory_items", "id, item_code, name, unit, canonical_material_id", "name"),
         readAllTable<FinishedSkuLite>("product_skus", "id, sku_code, product_name, unit, sku_type", "product_name", [{ column: "sku_type", value: "finished_good" }]),
-        readAllTable<CogsMaterialLink>("sku_formulations", "id, sku_id, canonical_material_id, dosage_qty, unit, product_skus!inner(sku_code, product_name, sku_type)", "created_at", [{ column: "product_skus.sku_type", value: "finished_good" }]),
+        readAllTable<CogsMaterialLink>("sku_formulations", "id, sku_id, canonical_material_id, dosage_qty, unit, product_skus!sku_formulations_sku_id_fkey(sku_code, product_name, sku_type)", "created_at", [{ column: "product_skus.sku_type", value: "finished_good" }]),
       ]);
 
       const names = ["materials", "aliases", "scopedAliases", "supplierProducts", "prices", "conversions", "resolutionRequests", "auditLogs", "suppliers", "kitchenMappings", "finishedSkus", "cogsLinks"] as const;
