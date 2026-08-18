@@ -54,6 +54,21 @@ const emptyCreateFields = {
   specification: "",
 };
 
+const sectionErrorLabels: Record<string, string> = {
+  materials: "Danh mục NVL",
+  aliases: "Tên gọi khác",
+  scopedAliases: "Tên gọi theo nguồn",
+  supplierProducts: "Sản phẩm Nhà cung cấp",
+  prices: "Giá mua",
+  conversions: "Quy đổi đơn vị",
+  resolutionRequests: "Cần xác nhận",
+  auditLogs: "Lịch sử chỉnh sửa",
+  suppliers: "Nhà cung cấp",
+  kitchenMappings: "Phiếu xuất kho Q7",
+  finishedSkus: "SKU thành phẩm",
+  cogsLinks: "Sản phẩm sử dụng",
+};
+
 function displayMaterial(material?: CanonicalMaterial | null) {
   if (!material) return "Chưa chọn NVL";
   return `${material.canonical_name || "Chưa đặt tên"} · ${material.material_code || "chưa có mã"} · ${material.default_unit || "chưa có đơn vị"}`;
@@ -511,7 +526,7 @@ export default function MaterialMasterAdmin() {
 
         {!canEdit && <Alert><ShieldCheck className="h-4 w-4" /><AlertTitle>Chế độ chỉ xem</AlertTitle><AlertDescription>Anh có thể xem các liên kết nhưng cần quyền chỉnh sửa để đổi tên, đơn vị hoặc xác nhận liên kết.</AlertDescription></Alert>}
         {error && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Không tải được danh mục NVL</AlertTitle><AlertDescription>Vui lòng tải lại trang. Nếu vẫn lỗi, báo quản trị hệ thống.</AlertDescription></Alert>}
-        {data?.sectionErrors && Object.entries(data.sectionErrors).length > 0 && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Một số thông tin liên kết chưa tải được</AlertTitle><AlertDescription>{Object.entries(data.sectionErrors).map(([section, message]) => `${section}: ${message}`).join(" | ")}</AlertDescription></Alert>}
+        {data?.sectionErrors && Object.keys(data.sectionErrors).length > 0 && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Một số thông tin liên kết chưa tải được</AlertTitle><AlertDescription>{Object.keys(data.sectionErrors).map((section) => `${sectionErrorLabels[section] || "Thông tin liên kết"}: Không tải được dữ liệu`).join(" | ")}</AlertDescription></Alert>}
         {isLoading && <LoadingState />}
 
         {!isLoading && !error && <>
