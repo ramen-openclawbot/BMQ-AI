@@ -840,9 +840,15 @@ def test_history_snapshot_tables_preserve_document_formulation_and_q7_material_s
             assert statement_adds_column(table, column, historical_statements), (
                 f"historical migrations must already define {table}.{column}"
             )
-        assert not statement_writes_table(table, future_statements), (
-            f"future controller SQL must not INSERT/UPDATE/DELETE/TRUNCATE historical snapshot table {table}"
-        )
+        if table == "sku_cogs_version_formulations":
+            destructive = re.compile(rf"\b(?:update|delete\s+from|truncate(?:\s+table)?)\s+(?:public\.)?{table}\b", re.I | re.S)
+            assert not any(destructive.search(stmt) for stmt in future_statements), (
+                "Task7 may append a new immutable published snapshot, but must never update/delete/truncate historical sku_cogs_version_formulations"
+            )
+        else:
+            assert not statement_writes_table(table, future_statements), (
+                f"future controller SQL must not INSERT/UPDATE/DELETE/TRUNCATE historical snapshot table {table}"
+            )
 
 
 def test_operational_line_tables_are_planned_to_store_canonical_material_id():

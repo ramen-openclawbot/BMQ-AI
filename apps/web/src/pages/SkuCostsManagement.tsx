@@ -199,8 +199,11 @@ const normalizeScannedIngredient = (row: any) => {
     ingredient_name: row.ingredient_name || row.name || row.product_name || "",
     canonical_material_id: row.canonical_material_id || "",
     canonical_material_name: row.canonical_material_name || "",
+    canonical_default_unit: row.canonical_default_unit || row.unit || "",
     material_code: row.material_code || "",
     ingredient_sku_id: row.ingredient_sku_id || "",
+    material_resolution_status: row.material_resolution_status || (row.canonical_material_id ? "resolved_exact" : "pending_resolution"),
+    material_resolution_request_id: row.material_resolution_request_id || "",
     raw_ocr_name: row.raw_ocr_name || row.ingredient_name || row.name || row.product_name || "",
     unit,
     unit_price: unitPrice,
@@ -234,6 +237,9 @@ const toDraftRow = (row: any, overrides: Record<string, any> = {}) => {
     level1_sku_id: overrides.level1_sku_id ?? row?.ingredient_sku_id ?? "",
     ingredient_sku_id: overrides.ingredient_sku_id ?? row?.ingredient_sku_id ?? "",
     canonical_material_id: overrides.canonical_material_id ?? row?.canonical_material_id ?? "",
+    canonical_default_unit: overrides.canonical_default_unit ?? row?.canonical_default_unit ?? row?.unit ?? "",
+    material_resolution_status: overrides.material_resolution_status ?? row?.material_resolution_status ?? (row?.canonical_material_id ? "resolved_exact" : "pending_resolution"),
+    material_resolution_request_id: overrides.material_resolution_request_id ?? row?.material_resolution_request_id ?? "",
     raw_ocr_name: overrides.raw_ocr_name ?? row?.raw_ocr_name ?? "",
     level1_name: overrides.level1_name ?? row?.ingredient_name ?? "",
     level2_name: overrides.level2_name ?? "",
@@ -320,6 +326,7 @@ export default function SkuCostsManagement() {
   const [importedFormulaDraft, setImportedFormulaDraft] = useState<any[]>([]);
   const [isSavingSku, setIsSavingSku] = useState(false);
   const [saveSkuError, setSaveSkuError] = useState<string>("");
+  const [zeroCostApproval, setZeroCostApproval] = useState(false);
   const skuImageInputRef = useRef<HTMLInputElement | null>(null);
 
   const [skuForm, setSkuForm] = useState<any>({
@@ -504,6 +511,19 @@ export default function SkuCostsManagement() {
     return missing;
   }, [skuForm, importedFormulaDraft]);
 
+  const blockedCogsMaterialRows = useMemo(() => importedFormulaDraft.filter((row) => {
+    const name = String(row.level1_name || row.level2_name || row.ingredient_name || "").trim();
+    if (!name) return false;
+    if (!row.canonical_material_id) return true;
+    if (row.material_resolution_status && row.material_resolution_status !== "resolved_exact") return true;
+    return false;
+  }), [importedFormulaDraft]);
+
+  const zeroCostRows = useMemo(() => importedFormulaDraft.filter((row) =>
+    String(row.level1_name || row.level2_name || row.ingredient_name || "").trim()
+    && toNumber(row.unit_price, 0) === 0
+  ), [importedFormulaDraft]);
+
   const costing = useMemo(() => {
     const outputQty = Math.max(1, Number(activeSku.finished_output_qty || FORMULA_BASE_QTY));
     const totalMaterialCostBatch = formulaComputed.reduce((sum, row) => sum + row.lineCost, 0);
@@ -561,7 +581,7 @@ export default function SkuCostsManagement() {
     };
   }, [activeSku.finished_output_qty, formulaComputed]);
 
-  const openCreateSku = () => { setScanSkuMessage(""); setSaveSkuError(""); setImportedFormulaDraft([]); setCogsEffectiveFrom(new Date().toISOString().slice(0, 10)); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: FORMULA_BASE_QTY, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {}, hide_from_dealer_portal: false }); setDialogOpen(true); };
+  const openCreateSku = () => { setScanSkuMessage(""); setSaveSkuError(""); setZeroCostApproval(false); setImportedFormulaDraft([]); setCogsEffectiveFrom(new Date().toISOString().slice(0, 10)); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: FORMULA_BASE_QTY, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {}, hide_from_dealer_portal: false }); setDialogOpen(true); };
   const openSkuDetail = (sku: SKU) => { setActiveSkuId(sku.id); setDetailOpen(true); };
 
   const buildFormulaRowsFromDraft = (skuId: string) => {
@@ -587,11 +607,14 @@ export default function SkuCostsManagement() {
           ingredient_name: level1,
           raw_ocr_name: r.raw_ocr_name || null,
           material_code: level1Material.material_code,
-          unit: "g",
+          unit: level1Material.default_unit || "g",
           unit_price: parentUnitPrice,
           dosage_qty: parseDosageGramInput(r.dosage_input ?? r.dosage_qty, 0),
           wastage_percent: 0,
           sort_order: rows.length + 1,
+          canonical_default_unit: r.canonical_default_unit || level1Material.default_unit || "g",
+          material_resolution_status: r.material_resolution_status || "resolved_exact",
+          material_resolution_request_id: r.material_resolution_request_id || null,
         });
 
         childRows.forEach((child: any) => {
@@ -603,11 +626,14 @@ export default function SkuCostsManagement() {
             ingredient_name: `${level1}${LEVEL2_SEPARATOR}${childMaterial.canonical_name}`,
             raw_ocr_name: child.raw_ocr_name || null,
             material_code: childMaterial.material_code,
-            unit: "g",
+            unit: childMaterial.default_unit || "g",
             unit_price: toNumber(child.unit_price, 0),
             dosage_qty: parseDosageGramInput(child.dosage_input ?? child.dosage_qty, 0),
             wastage_percent: 0,
             sort_order: rows.length + 1,
+            canonical_default_unit: child.canonical_default_unit || childMaterial.default_unit || "g",
+            material_resolution_status: child.material_resolution_status || "resolved_exact",
+            material_resolution_request_id: child.material_resolution_request_id || null,
           });
         });
         return;
@@ -619,11 +645,14 @@ export default function SkuCostsManagement() {
         ingredient_name: level1,
         raw_ocr_name: r.raw_ocr_name || null,
         material_code: level1Material.material_code,
-        unit: "g",
+        unit: level1Material.default_unit || "g",
         unit_price: toNumber(r.unit_price, 0),
         dosage_qty: parseDosageGramInput(r.dosage_input ?? r.dosage_qty, 0),
         wastage_percent: 0,
         sort_order: rows.length + 1,
+        canonical_default_unit: r.canonical_default_unit || level1Material.default_unit || "g",
+        material_resolution_status: r.material_resolution_status || "resolved_exact",
+        material_resolution_request_id: r.material_resolution_request_id || null,
       });
     });
 
@@ -632,6 +661,7 @@ export default function SkuCostsManagement() {
 
   const openEditSku = async (sku: SKU) => {
     setSaveSkuError("");
+    setZeroCostApproval(false);
     setCogsEffectiveFrom(new Date().toISOString().slice(0, 10));
     setSkuForm({ ...sku, hide_from_dealer_portal: Boolean(sku.hide_from_dealer_portal), cost_template: parseCostTemplate(sku.cost_template), cost_values: parseCostValues(sku.cost_values), cost_widgets: parseWidgets(sku.cost_widgets) });
     const { data } = await sb.from("sku_formulations").select("*").eq("sku_id", sku.id).order("sort_order");
@@ -657,14 +687,18 @@ export default function SkuCostsManagement() {
       return;
     }
 
-    const invalidMaterialRows = importedFormulaDraft.filter((row) =>
-      String(row.level1_name || row.level2_name || row.ingredient_name || "").trim()
-      && !row.canonical_material_id
-    );
+    const invalidMaterialRows = blockedCogsMaterialRows;
     if (invalidMaterialRows.length > 0) {
-      const msg = "NVL phải được chọn từ danh mục Giá vốn. Vui lòng liên hệ bộ phận quản trị nếu chưa có NVL cần dùng.";
+      const msg = "NVL phải được chuẩn hóa bằng danh mục NVL chuẩn trước khi lưu. Vui lòng xử lý các yêu cầu phân giải NVL còn chờ duyệt.";
       setSaveSkuError(msg);
       toast({ title: "NVL chưa được chuẩn hóa", description: msg, variant: "destructive" });
+      return;
+    }
+
+    if (zeroCostRows.length > 0 && !zeroCostApproval) {
+      const msg = "Có NVL giá 0. Cần tick xác nhận chính sách zero-cost trước khi lưu.";
+      setSaveSkuError(msg);
+      toast({ title: "Cần xác nhận zero-cost", description: msg, variant: "destructive" });
       return;
     }
 
@@ -683,6 +717,7 @@ export default function SkuCostsManagement() {
         cost_values: skuForm.cost_values,
         cost_widgets: skuForm.cost_widgets,
         hide_from_dealer_portal: Boolean(skuForm.hide_from_dealer_portal),
+        zeroCostApproval,
       };
 
       const rows = buildFormulaRowsFromDraft(skuForm.id || "");
@@ -862,6 +897,7 @@ export default function SkuCostsManagement() {
           ingredient_name: x.ingredient_name,
           canonical_material_id: x.canonical_material_id,
           canonical_material_name: x.canonical_material_name,
+          canonical_default_unit: x.canonical_default_unit,
           material_code: x.material_code,
           ingredient_sku_id: x.ingredient_sku_id,
           raw_ocr_name: x.raw_ocr_name,
@@ -869,8 +905,18 @@ export default function SkuCostsManagement() {
           unit_price: x.unit_price,
           dosage_qty: x.dosage_qty,
           line_cost: x.line_cost,
+          material_resolution_status: x.material_resolution_status,
+          material_resolution_request_id: x.material_resolution_request_id,
         })),
       });
+      if (edge.data.material_resolution_status === "blocked") {
+        const blockedCount = Number(edge.data.blocked_materials?.length || 0);
+        const message = `Đã đọc ảnh; ${blockedCount} NVL cần chuẩn hóa trước khi lưu COGS.`;
+        setScanSkuMessage(message);
+        toast({ title: "COGS đang bị chặn", description: message, variant: "destructive" });
+      } else {
+        setScanSkuMessage("Đã đọc ảnh và xác nhận toàn bộ NVL exact theo danh mục chuẩn.");
+      }
     } catch (e: any) {
       const raw = String(e?.message || "Lỗi không xác định");
       const msg = raw.includes("CONFIG_MISSING_OPENAI_API_KEY") || raw.includes("OPENAI_API_KEY")
@@ -884,34 +930,27 @@ export default function SkuCostsManagement() {
   };
 
   const removeSku = async (sku: any) => {
-    if (!window.confirm(`Xóa SKU ${sku.sku_code} - ${sku.product_name}?`)) return;
-    await sb.from("sku_formulations").delete().eq("sku_id", sku.id);
-    await sb.from("sku_trace_documents").insert({
-      sku_id: sku.id,
-      document_type: "audit",
-      document_name: `DELETE_SKU_${new Date().toISOString()}`,
-      document_url: `audit://sku/${sku.id}/delete`,
+    toast({
+      title: "Không thể xóa SKU đã có lịch sử giá vốn",
+      description: `${sku.sku_code} được giữ lại để bảo toàn phiên bản COGS. Hãy dùng trạng thái ẩn/ngừng sử dụng thay vì xóa.`,
+      variant: "destructive",
     });
-    await sb.from("product_skus").delete().eq("id", sku.id);
-    toast({ title: "Đã xóa SKU" });
-    loadAll();
   };
 
-  const updateCostValue = async (key: string, value: number) => {
-    if (!activeSkuId) return;
-    const next = { ...costValues, [key]: value };
-    await sb.from("product_skus").update({ cost_values: next }).eq("id", activeSkuId);
-    setSkus((prev) => prev.map((sku) => (sku.id === activeSkuId ? { ...sku, cost_values: next } : sku)));
+  const updateCostValue = async (_key: string, _value: number) => {
+    toast({
+      title: "Cần tạo phiên bản COGS mới",
+      description: "Mở Chỉnh sửa SKU và lưu qua controller; thay đổi nhanh không được ghi đè lịch sử.",
+      variant: "destructive",
+    });
   };
 
-  const syncWidgetToMain = async (widgetKey: string, lines: WidgetLine[]) => {
-    const conf = WIDGET_CONFIG.find((w) => w.key === widgetKey);
-    if (!conf || !activeSkuId) return;
-    const sum = lines.reduce((s, x) => s + toNumber(x.amount), 0);
-    const nextWidgets = { ...widgetValues, [widgetKey]: lines };
-    const nextCostValues = { ...costValues, [conf.targetCostKey]: sum };
-    await sb.from("product_skus").update({ cost_widgets: nextWidgets, cost_values: nextCostValues }).eq("id", activeSkuId);
-    setSkus((prev) => prev.map((sku) => sku.id === activeSkuId ? { ...sku, cost_widgets: nextWidgets, cost_values: nextCostValues } : sku));
+  const syncWidgetToMain = async (_widgetKey: string, _lines: WidgetLine[]) => {
+    toast({
+      title: "Cần tạo phiên bản COGS mới",
+      description: "Mở Chỉnh sửa SKU và lưu qua controller; widget không được ghi trực tiếp vào phiên bản đã công bố.",
+      variant: "destructive",
+    });
   };
 
   return (
@@ -1148,6 +1187,9 @@ export default function SkuCostsManagement() {
                                   ingredient_name: picked.canonical_name,
                                   material_code: picked.material_code,
                                   unit: picked.default_unit || "g",
+                                  canonical_default_unit: picked.default_unit || "g",
+                                  material_resolution_status: "resolved_exact",
+                                  material_resolution_request_id: "",
                                 };
                                 next.forEach((child, childIndex) => {
                                   if (child.is_level2 && String(child.level1_name || "").trim() === oldLevel1Name) {
@@ -1163,6 +1205,9 @@ export default function SkuCostsManagement() {
                                   ingredient_name: `${next[idx].level1_name || ""}${LEVEL2_SEPARATOR}${picked.canonical_name}`,
                                   material_code: picked.material_code,
                                   unit: picked.default_unit || "g",
+                                  canonical_default_unit: picked.default_unit || "g",
+                                  material_resolution_status: "resolved_exact",
+                                  material_resolution_request_id: "",
                                 };
                               }
 
@@ -1240,6 +1285,9 @@ export default function SkuCostsManagement() {
                                 ingredient_name: picked.canonical_name,
                                 material_code: picked.material_code,
                                 unit: picked.default_unit || "g",
+                                canonical_default_unit: picked.default_unit || "g",
+                                material_resolution_status: "resolved_exact",
+                                material_resolution_request_id: "",
                               };
                               next.forEach((child, childIndex) => {
                                 if (child.is_level2 && String(child.level1_name || "").trim() === oldLevel1Name) {
@@ -1255,6 +1303,9 @@ export default function SkuCostsManagement() {
                                 ingredient_name: `${next[idx].level1_name || ""}${LEVEL2_SEPARATOR}${picked.canonical_name}`,
                                 material_code: picked.material_code,
                                 unit: picked.default_unit || "g",
+                                canonical_default_unit: picked.default_unit || "g",
+                                material_resolution_status: "resolved_exact",
+                                material_resolution_request_id: "",
                               };
                             }
 
@@ -1316,6 +1367,24 @@ export default function SkuCostsManagement() {
               <div className="p-3 rounded border bg-sky-50 text-sky-700">Net profit/cái: <b>{vnd(toNumber(skuForm.cost_values?.selling_price, 0) - ((importedMaterialSummary.perUnit || 0) * (1 + toNumber(skuForm.cost_values?.material_provision_percent, 0) / 100) + toNumber(skuForm.cost_values?.packaging_cost, 0) + toNumber(skuForm.cost_values?.labor_cost, 0) + toNumber(skuForm.cost_values?.delivery_cost, 0) + toNumber(skuForm.cost_values?.other_production_cost, 0) + toNumber(skuForm.cost_values?.sga_cost, 0)))}</b></div>
             </div>
           </div>
+
+          {blockedCogsMaterialRows.length > 0 && (
+            <div className="text-sm rounded border border-red-300 bg-red-50 text-red-700 px-3 py-2">
+              Có {blockedCogsMaterialRows.length} dòng NVL chưa được chuẩn hóa hoặc đang chờ resolution request; server sẽ chặn publish COGS cho đến khi exact approved canonical/code/alias sẵn sàng.
+            </div>
+          )}
+
+          {zeroCostRows.length > 0 && (
+            <label className="flex items-start gap-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 accent-primary"
+                checked={zeroCostApproval}
+                onChange={(event) => setZeroCostApproval(event.target.checked)}
+              />
+              <span>Xác nhận chính sách zero-cost: {zeroCostRows.length} dòng NVL đang có đơn giá 0 và chỉ được lưu khi server chấp nhận zeroCostApproval.</span>
+            </label>
+          )}
 
           {saveSkuError && (
             <div className="text-sm rounded border border-red-300 bg-red-50 text-red-700 px-3 py-2">

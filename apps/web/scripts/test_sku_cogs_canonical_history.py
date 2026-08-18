@@ -4,6 +4,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "supabase/migrations/20260803024055_sku_cogs_canonical_history_peerless.sql"
 PAGE = ROOT / "src/pages/SkuCostsManagement.tsx"
 SCAN = ROOT / "supabase/functions/scan-sku-cost-sheet/index.ts"
+SHARED_CONTROLLER = ROOT / "supabase/functions/_shared/material-controller.ts"
 
 
 def test_migration_creates_canonical_material_registry_and_cogs_history():
@@ -61,16 +62,21 @@ def test_sku_cost_editor_uses_closed_material_picker_and_atomic_rpc():
     assert 'SelectValue placeholder="Chọn NVL đã khai báo"' in source
     assert 'sb.rpc("save_sku_cogs"' in source
     assert 'sb.from("product_skus").insert' not in source
-    assert "NVL phải được chọn từ danh mục Giá vốn" in source
+    assert "NVL phải được chuẩn hóa bằng danh mục NVL chuẩn trước khi lưu." in source
     assert "<datalist" not in source
 
 
 def test_sku_cost_ocr_blocks_unknown_materials_and_returns_canonical_identity():
     source = SCAN.read_text(encoding="utf-8")
+    shared = SHARED_CONTROLLER.read_text(encoding="utf-8")
 
-    assert 'from("sku_cogs_material_aliases")' in source
-    assert 'from("sku_cogs_materials")' in source
-    assert 'code: "SKU_COGS_MATERIAL_NOT_FOUND"' in source
-    assert "Vui lòng liên hệ bộ phận quản trị" in source
+    assert "resolveCanonicalMaterialForLine" in source
+    assert 'source_type: "sku_cogs"' in source
+    assert 'source_table: "sku_formulations"' in source
+    assert 'input.source_type === "sku_cogs" ? ["unit", "standard_cost"]' in shared
+    assert 'input.source_line_id || input.source_type === "sku_cogs"' in shared
+    assert "SKU_COGS_MATERIAL_NOT_FOUND" not in source
+    assert "material_resolution_request_id" in source
+    assert "material_resolution_status" in source
     assert "canonical_material_id" in source
     assert "canonical_material_name" in source

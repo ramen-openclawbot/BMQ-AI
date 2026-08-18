@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/auth.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
+import { resolveCanonicalMaterialForLine } from "../_shared/material-controller.ts";
 
 type SkuCogsMaterial = {
   id: string;
@@ -167,82 +168,67 @@ Quy tắc bắt buộc:
       auth: { persistSession: false },
     });
 
-    const [materialsResult, aliasesResult] = await Promise.all([
-      supabase
-        .from("sku_cogs_materials")
-        .select("id,material_code,canonical_name,normalized_name,default_unit,ingredient_sku_id")
-        .eq("active", true),
-      supabase
-        .from("sku_cogs_material_aliases")
-        .select("material_id,alias_name,normalized_alias")
-        .eq("active", true),
-    ]);
-
-    if (materialsResult.error || aliasesResult.error) {
-      throw new Error(`Không đọc được danh mục NVL Giá vốn: ${materialsResult.error?.message || aliasesResult.error?.message}`);
-    }
-
-    const materialRows = (materialsResult.data || []) as SkuCogsMaterial[];
-    const aliasRows = (aliasesResult.data || []) as SkuCogsMaterialAlias[];
-    if (materialRows.length === 0) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: "Danh mục NVL SKU COGS chưa được khai báo. Vui lòng liên hệ bộ phận quản trị.",
-        code: "SKU_COGS_MATERIAL_NOT_FOUND",
-        unknown_materials: [],
-      }), {
-        status: 422,
-        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
-      });
-    }
-
-    const materialsById = new Map<string, SkuCogsMaterial>(materialRows.map((material) => [material.id, material]));
-    const materialIdByName = new Map<string, string>();
-    for (const material of materialRows) {
-      materialIdByName.set(normalizeMaterialName(material.canonical_name), material.id);
-      materialIdByName.set(String(material.normalized_name || ""), material.id);
-    }
-    for (const alias of aliasRows) {
-      if (materialsById.has(alias.material_id)) {
-        materialIdByName.set(String(alias.normalized_alias || normalizeMaterialName(alias.alias_name)), alias.material_id);
-      }
-    }
-
-    const unknownMaterialNames: string[] = [];
-    const canonicalIngredients = scannedIngredients.map((ingredient: Record<string, unknown>) => {
+    const canonicalIngredients = await Promise.all(scannedIngredients.map(async (ingredient: Record<string, unknown>, index: number) => {
       const rawOcrName = String(ingredient.ingredient_name || "").trim();
-      const materialId = materialIdByName.get(normalizeMaterialName(rawOcrName));
-      const material = materialId ? materialsById.get(materialId) : null;
-      if (!material) {
-        if (rawOcrName) unknownMaterialNames.push(rawOcrName);
-        return ingredient;
+      const unit = String(ingredient.unit || "").trim() || null;
+      // Shared helper calls the authoritative public.resolve_canonical_material RPC and
+      // creates an idempotent resolution request; OCR text is never canonical authority.
+      const preview = rawOcrName
+        ? await resolveCanonicalMaterialForLine(supabase as any, {
+          source_type: "sku_cogs",
+          source_table: "sku_formulations",
+          source_id: null,
+          source_line_id: null,
+          raw_name: rawOcrName,
+          raw_code: typeof ingredient.material_code === "string" ? ingredient.material_code : null,
+          raw_unit: unit,
+          effective_date: new Date().toISOString().slice(0, 10),
+          payload: { candidate_source: "scan_sku_cost_sheet", confidence: "ocr", field_name: "sku_formulations.canonical_material_id", row_index: index },
+        })
+        : null;
+
+      if (!preview?.resolved_exact) {
+        return {
+          ...ingredient,
+          raw_ocr_name: rawOcrName,
+          canonical_material_id: null,
+          canonical_material_name: null,
+          canonical_default_unit: preview?.canonical_default_unit || null,
+          material_code: null,
+          material_resolution_status: preview?.material_resolution_status || "not_found",
+          material_resolution_request_id: preview?.material_resolution_request_id || null,
+          material_resolution_blockers: preview?.blockers?.length ? preview.blockers : ["material_resolution_required"],
+        };
       }
+
       return {
         ...ingredient,
         raw_ocr_name: rawOcrName,
-        ingredient_name: material.canonical_name,
-        canonical_material_id: material.id,
-        canonical_material_name: material.canonical_name,
-        material_code: material.material_code,
-        ingredient_sku_id: material.ingredient_sku_id,
-        unit: ingredient.unit || material.default_unit,
+        ingredient_name: preview.canonical_material_name,
+        canonical_material_id: preview.canonical_material_id,
+        canonical_material_name: preview.canonical_material_name,
+        canonical_default_unit: preview.canonical_default_unit,
+        material_code: preview.canonical_material_code,
+        ingredient_sku_id: null,
+        unit: preview.canonical_default_unit || unit || ingredient.unit,
+        material_resolution_status: preview.material_resolution_status,
+        material_resolution_request_id: preview.material_resolution_request_id,
+        material_resolution_blockers: preview.blockers,
       };
-    });
+    }));
 
-    if (unknownMaterialNames.length > 0) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: `NVL không có trong SKU COGS: ${[...new Set(unknownMaterialNames)].join(", ")}. Vui lòng liên hệ bộ phận quản trị vì tên NVL không đúng với Giá vốn đã khai báo.`,
-        code: "SKU_COGS_MATERIAL_NOT_FOUND",
-        unknown_materials: [...new Set(unknownMaterialNames)],
-      }), {
-        status: 422,
-        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
-      });
-    }
-
+    const blockedMaterials = canonicalIngredients.filter((ingredient: Record<string, unknown>) => ingredient.material_resolution_status !== "resolved_exact");
     extracted.ingredients = canonicalIngredients;
-    return new Response(JSON.stringify({ success: true, data: extracted }), { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({
+      success: true,
+      data: extracted,
+      material_resolution_status: blockedMaterials.length === 0 ? "ready" : "blocked",
+      blocked_materials: blockedMaterials,
+      error: blockedMaterials.length ? `Có ${blockedMaterials.length} NVL cần chuẩn hóa trước khi lưu COGS.` : undefined,
+    }), {
+      status: 200,
+      headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+    });
   } catch (error) {
     if (error instanceof Response) return error;
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } });

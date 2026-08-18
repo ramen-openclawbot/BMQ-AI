@@ -11,14 +11,15 @@ export type MaterialResolutionStatus =
   | "controller_error";
 
 export interface MaterialControllerLineInput {
-  source_type: "match_delivery_note" | "goods_receipt" | "purchase_order" | "payment_request" | "invoice" | "create_invoice_from_pr";
-  source_table: "goods_receipt_items" | "purchase_order_items" | "payment_request_items" | "invoice_items";
+  source_type: "match_delivery_note" | "goods_receipt" | "purchase_order" | "payment_request" | "invoice" | "create_invoice_from_pr" | "sku_cogs";
+  source_table: "goods_receipt_items" | "purchase_order_items" | "payment_request_items" | "invoice_items" | "sku_formulations";
   source_id?: string | null;
   source_line_id?: string | null;
   supplier_id?: string | null;
   raw_name: string;
   raw_code?: string | null;
   raw_unit?: string | null;
+  effective_date?: string | null;
   payload?: Record<string, unknown>;
   applyExactToGoodsReceiptItem?: boolean;
   applyExactToProcurementLine?: boolean;
@@ -117,8 +118,8 @@ export async function resolveCanonicalMaterialForLine(
         p_raw_unit: rawUnit,
         p_supplier_id: input.supplier_id || null,
         p_source_type: input.source_type,
-        p_effective_date: new Date().toISOString().slice(0, 10),
-        p_required_capabilities: input.supplier_id ? ["unit", "supplier_product"] : ["unit"],
+        p_effective_date: input.effective_date || new Date().toISOString().slice(0, 10),
+        p_required_capabilities: input.source_type === "sku_cogs" ? ["unit", "standard_cost"] : (input.supplier_id ? ["unit", "supplier_product"] : ["unit"]),
       }),
       8000,
       "resolve_canonical_material",
@@ -133,13 +134,13 @@ export async function resolveCanonicalMaterialForLine(
     const candidateIds = asStringArray(resolved.candidates);
 
     let requestId: string | null = null;
-    if (!resolvedExact && input.source_line_id) {
+    if (!resolvedExact && (input.source_line_id || input.source_type === "sku_cogs")) {
       const { data: requestData, error: requestError } = await withTimeout<RpcResult<unknown>>(
         supabase.rpc("request_material_resolution", {
           p_source_type: input.source_type,
           p_source_table: input.source_table,
           p_source_id: input.source_id || null,
-          p_source_line_id: input.source_line_id,
+          p_source_line_id: input.source_line_id || null,
           p_raw_name: rawName,
           p_raw_code: rawCode,
           p_raw_unit: rawUnit,
@@ -197,7 +198,7 @@ export async function resolveCanonicalMaterialForLine(
       const { data: applyData, error: applyError } = await withTimeout<RpcResult<unknown>>(
         supabase.rpc("apply_procurement_line_material_resolution", {
           p_source_table: input.source_table,
-          p_source_line_id: input.source_line_id,
+          p_source_line_id: input.source_line_id || null,
           p_raw_name: rawName,
           p_raw_code: rawCode,
           p_raw_unit: rawUnit,
