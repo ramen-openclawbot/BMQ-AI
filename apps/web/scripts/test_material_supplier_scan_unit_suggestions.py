@@ -81,6 +81,14 @@ def test_delivery_note_ocr_persists_only_source_evidence_after_receipt_image_is_
     assert "useServerMaterialResolutionOnly" in hook
 
 
+def test_edge_is_bounded_to_selected_receipt_and_hides_internal_errors():
+    edge = EDGE.read_text()
+    assert '.from("payment_requests")' not in edge
+    assert "Không tìm thấy dòng phù hợp trong phiếu nhập đã chọn." in edge
+    assert "Không thể xử lý phiếu giao hàng. Vui lòng thử lại." in edge
+    assert "error instanceof Error ? error.message" not in edge
+
+
 def test_material_master_shows_scan_source_cogs_unit_and_explicit_factor_confirmation():
     hook = MATERIAL_HOOK.read_text()
     page = PAGE.read_text()
