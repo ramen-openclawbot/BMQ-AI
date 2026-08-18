@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
 import { resolveCanonicalMaterialForLine, MaterialControllerResult } from "../_shared/material-controller.ts";
@@ -11,6 +11,8 @@ interface ExtractedItem {
   product_code?: string | null;
   quantity: number;
   unit: string;
+  package_quantity?: number | null;
+  package_unit?: string | null;
   unit_price?: number;
 }
 
@@ -20,6 +22,8 @@ interface MatchItem {
   raw_product_code?: string | null;
   deliveryQty: number;
   deliveryUnit: string;
+  raw_package_quantity?: number | null;
+  raw_package_unit?: string | null;
   matchedItemId?: string;
   matchedName?: string;
   matchedQty?: number;
@@ -49,8 +53,9 @@ interface CandidateLine {
 interface PendingReceiptCandidate {
   id: string;
   receipt_number: string;
-  purchase_order_id: string;
+  purchase_order_id: string | null;
   supplier_id: string | null;
+  image_url: string | null;
   suppliers?: { id: string; name: string } | null;
   purchase_orders?: { id: string; po_number: string; title?: string | null } | null;
   goods_receipt_items?: Array<{
@@ -88,6 +93,11 @@ function removeDiacritics(str: string): string {
     .replace(/Đ/g, "D")
     .toLowerCase()
     .trim();
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 // Normalize unit for comparison
@@ -209,6 +219,8 @@ function matchExtractedItemsToCandidateLines(
         raw_product_code: extracted.product_code || null,
         deliveryQty: extracted.quantity,
         deliveryUnit: extracted.unit,
+        raw_package_quantity: extracted.package_quantity ?? null,
+        raw_package_unit: extracted.package_unit ?? null,
         matchedItemId: bestItemMatch.item.id,
         matchedName: bestItemMatch.item.product_name,
         matchedQty: Number(bestItemMatch.item.quantity || 0),
@@ -225,6 +237,8 @@ function matchExtractedItemsToCandidateLines(
         raw_product_code: extracted.product_code || null,
         deliveryQty: extracted.quantity,
         deliveryUnit: extracted.unit,
+        raw_package_quantity: extracted.package_quantity ?? null,
+        raw_package_unit: extracted.package_unit ?? null,
         status: "extra",
       });
     }
@@ -360,11 +374,17 @@ serve(async (req) => {
   }
 
   try {
-    const { deliveryImage, receiptId } = await req.json();
+    const { deliveryImage, deliveryNotePath, receiptId } = await req.json();
 
     if (!deliveryImage) {
       return new Response(
         JSON.stringify({ error: "Missing delivery image" }),
+        { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+      );
+    }
+    if (!receiptId || !deliveryNotePath) {
+      return new Response(
+        JSON.stringify({ error: "Receipt and persisted delivery-note path are required" }),
         { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
@@ -456,13 +476,13 @@ serve(async (req) => {
             content: `You are an expert at extracting information from Vietnamese delivery notes and invoices.
 Extract the following information from the image:
 1. Supplier name (nhà cung cấp)
-2. List of items with: product name, quantity, unit, unit price (if visible)
+2. List of items with: product name, quantity, purchase unit, package size printed on the document, and unit price (if visible)
 
 Return ONLY valid JSON in this exact format:
 {
   "supplier_name": "string",
   "items": [
-    {"product_name": "string", "quantity": number, "unit": "string", "unit_price": number or null}
+    {"product_name": "string", "quantity": number, "unit": "string", "package_quantity": number or null, "package_unit": "string or null", "unit_price": number or null}
   ]
 }
 
@@ -470,6 +490,9 @@ Important:
 - Keep product names in Vietnamese
 - Convert all quantities to numbers
 - Common units: kg, g, con, cái, hộp, thùng, chai, lon, gói, bịch, túi, lít, ml
+- unit is the purchase unit printed for the line (for example Bao, Thùng, kg)
+- package_quantity/package_unit are only the explicitly visible size per one purchase unit (for example 25 and kg for "25kg/bao" or a product explicitly named "(25kg)")
+- Never infer a package size that is not visibly printed; return null for both package fields when unclear
 - If unit price is not visible, set to null
 - If supplier name is not clear, set to empty string`
           },
@@ -536,7 +559,7 @@ Important:
       );
     }
 
-    // Prefer pending PO receipt queue so warehouse starts from PO/receipt, not payable.
+    // The caller selects the receipt explicitly. Never let OCR choose another receipt.
     const { data: pendingReceipts, error: receiptError } = await supabase
       .from("goods_receipts")
       .select(`
@@ -544,11 +567,12 @@ Important:
         receipt_number,
         purchase_order_id,
         supplier_id,
+        image_url,
         suppliers(id, name),
         purchase_orders(id, po_number, title),
         goods_receipt_items(id, product_name, ordered_quantity, quantity, unit, unit_price, purchase_order_item_id)
       `)
-      .not("purchase_order_id", "is", null)
+      .eq("id", receiptId)
       .in("status", ["draft", "confirmed"])
       .order("created_at", { ascending: true });
 
@@ -575,7 +599,41 @@ Important:
           { status: 409, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
         );
       }
+      if (receipt.image_url !== deliveryNotePath) {
+        return new Response(
+          JSON.stringify({ error: "Persisted delivery-note evidence does not match requested receipt" }),
+          { status: 409, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+        );
+      }
       const resolvedItems = await attachMaterialResolutionToReceiptMatch(userSupabase, receipt, bestReceiptMatch.items);
+      const documentChecksum = await sha256Hex(deliveryImage);
+      const evidenceLines = resolvedItems
+        .filter((item) => item.matchedItemId && item.status !== "missing" && item.lineIdentityExact)
+        .map((item) => ({
+          goods_receipt_item_id: item.matchedItemId,
+          raw_product_name: item.raw_product_name || item.deliveryName,
+          raw_product_code: item.raw_product_code || null,
+          raw_purchase_unit: item.deliveryUnit,
+          raw_quantity: item.deliveryQty,
+          package_quantity: item.raw_package_quantity ?? null,
+          package_unit: item.raw_package_unit ?? null,
+        }));
+      if (evidenceLines.length > 0) {
+        const { error: evidenceError } = await supabase.rpc("record_material_supplier_unit_scan_evidence", {
+          p_receipt_id: receipt.id,
+          p_document_path: deliveryNotePath,
+          p_document_checksum: documentChecksum,
+          p_actor_id: user.id,
+          p_lines: evidenceLines,
+        });
+        if (evidenceError) {
+          console.error("Failed to persist delivery-note unit evidence", evidenceError);
+          return new Response(
+            JSON.stringify({ error: "Failed to persist delivery-note unit evidence" }),
+            { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+          );
+        }
+      }
 
       return new Response(
         JSON.stringify({
@@ -597,6 +655,8 @@ Important:
               product_code: item.raw_product_code || null,
               quantity: item.deliveryQty,
               unit: item.deliveryUnit,
+              package_quantity: item.raw_package_quantity ?? null,
+              package_unit: item.raw_package_unit ?? null,
               matchedItemId: item.matchedItemId,
               canonical_material_id: item.canonical_material_id,
               material_resolution_status: item.material_resolution_status,
