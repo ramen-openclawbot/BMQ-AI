@@ -594,7 +594,6 @@ export default function MaterialMasterAdmin() {
               <MaterialSupplierReview key={selected?.id || "none"} selected={selected} suppliers={data?.suppliers || []} canMutate={canMutate} />
               <MaterialPaymentRequestLinks selected={selected} canMutate={canMutate} />
               <ReadOnlyTable<SupplierProduct> title="Sản phẩm Nhà cung cấp" description="Tên hàng và đơn vị mua của Nhà cung cấp đã liên kết với NVL chuẩn." rows={supplierProducts} render={(row) => <div key={row.id} className="rounded-2xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{row.supplier_product_name || row.supplier_product_code || "Sản phẩm chưa đặt tên"}</h3>{statusBadge(row.approved)}</div><p className="text-sm text-slate-600">Nhà cung cấp: {supplierById.get(row.supplier_id || "") || "Chưa rõ"} · Đơn vị mua: {row.purchase_unit || "—"} · Đơn vị chuẩn: {row.base_unit || "—"}</p></div>} />
-              <Button variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => openConfirmationQueue("all")}>Đi tới Cần xác nhận</Button>
             </TabsContent>
 
             <TabsContent value="queue" className="space-y-4" data-bmq-material-master-resolution-queue>

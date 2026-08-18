@@ -113,6 +113,7 @@ def test_material_master_page_contract_markers_edit_mode_reason_version_and_queu
     assert "function linkBadge" in page and '"Đã liên kết"' in page and '"Chưa liên kết"' in page
     assert "openConfirmationQueue" in page and "setActiveTab(\"queue\")" in page
     assert "Đi tới Cần xác nhận" in page
+    assert 'openConfirmationQueue("all")' not in page
     assert "Tên gọi khác" in page and "Giá mua & quy đổi" in page and "Lịch sử chỉnh sửa" in page
     for forbidden_user_copy in ["Canonical NVL Master", "Controller shadow", "Mapping Q7", "Audit timeline", "Sao chép ID chi tiết"]:
         assert forbidden_user_copy not in page
