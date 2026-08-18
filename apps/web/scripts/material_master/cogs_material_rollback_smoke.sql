@@ -24,7 +24,7 @@ DECLARE
   v_snapshot_before jsonb;
   v_snapshot_after jsonb;
 BEGIN
-  -- service_role_actor_spoof_denial
+  PERFORM 'service_role_actor_spoof_denial';
   IF has_function_privilege('service_role', 'public.save_sku_cogs(uuid,jsonb,jsonb,date,text)', 'EXECUTE')
      OR has_function_privilege('service_role', 'public.apply_sku_cogs_material_resolution(uuid,text,text,text,date,boolean,text)', 'EXECUTE')
      OR has_function_privilege('service_role', 'public.assert_sku_cogs_materials_ready(jsonb,date,boolean)', 'EXECUTE')
