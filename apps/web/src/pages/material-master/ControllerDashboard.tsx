@@ -1,31 +1,73 @@
-import { AlertTriangle, CheckCircle2, Clock3, ShieldCheck, SlidersHorizontal, XCircle } from "lucide-react";
-import { useMemo } from "react";
+import { AlertTriangle, CheckCircle2, Clock3, Loader2, ShieldCheck, SlidersHorizontal, XCircle } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { MaterialMasterRolloutDashboardRow, useMaterialMasterRolloutDashboard } from "@/hooks/useMaterialMaster";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
+import {
+  MaterialMasterEnforcementMode,
+  MaterialMasterRolloutDashboardRow,
+  useMaterialMasterRolloutDashboard,
+  useSetMaterialMasterEnforcementMode,
+} from "@/hooks/useMaterialMaster";
 
 type ControllerDashboardProps = {
   sourceFilter: string;
   onSourceFilterChange: (source: string) => void;
+  canEdit: boolean;
+};
+
+type ModeChangeDraft = {
+  row: MaterialMasterRolloutDashboardRow;
+  newMode: MaterialMasterEnforcementMode;
+  title: string;
+  destructive?: boolean;
+  emergency?: boolean;
 };
 
 const ALL_SOURCES = "all";
+const FIXED_EXACT_CONTROLLER_SOURCES = new Set(["sku_cogs", "scan_sku_cost_sheet", "kitchen_inventory"]);
 
 const numberValue = (value: number | null | undefined) => Number(value || 0);
+
+const normalizeMode = (mode: string | null | undefined): MaterialMasterEnforcementMode => {
+  if (mode === "enforced" || mode === "disabled") return mode;
+  return "shadow";
+};
+
+const modeIs = (mode: string | null | undefined, expected: MaterialMasterEnforcementMode) => normalizeMode(mode) === expected;
 
 const formatTime = (value: string | null | undefined) => {
   if (!value) return "—";
   return value.replace("T", " ").replace(/\.\d+Z?$/, "");
 };
 
+const hasNoBlockers = (blockers: MaterialMasterRolloutDashboardRow["blockers"]) => {
+  if (!blockers) return true;
+  if (Array.isArray(blockers)) return blockers.length === 0;
+  if (typeof blockers === "string") return blockers.trim().length === 0;
+  return Object.values(blockers).every((value) => value === null || value === undefined || value === false || value === 0 || value === "");
+};
+
 const formatBlockers = (blockers: MaterialMasterRolloutDashboardRow["blockers"]) => {
-  if (!blockers) return "Không có blocker được báo cáo.";
-  if (Array.isArray(blockers)) return blockers.length ? blockers.join(" · ") : "Không có blocker được báo cáo.";
+  if (hasNoBlockers(blockers)) return "Không có blocker được báo cáo.";
+  if (Array.isArray(blockers)) return blockers.join(" · ");
   if (typeof blockers === "string") return blockers.trim() || "Không có blocker được báo cáo.";
-  const entries = Object.entries(blockers).filter(([, value]) => value !== null && value !== undefined && value !== false && value !== 0);
+  const entries = Object.entries(blockers).filter(([, value]) => value !== null && value !== undefined && value !== false && value !== 0 && value !== "");
   return entries.length ? entries.map(([key, value]) => `${key}: ${String(value)}`).join(" · ") : "Không có blocker được báo cáo.";
 };
 
@@ -43,8 +85,34 @@ function statusBadge(row: MaterialMasterRolloutDashboardRow) {
   return <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">Shadow / còn blocker</Badge>;
 }
 
-export default function ControllerDashboard({ sourceFilter, onSourceFilterChange }: ControllerDashboardProps) {
+function canPromoteToEnforced(row: MaterialMasterRolloutDashboardRow) {
+  return row.ready_for_enforcement === true && numberValue(row.queue_pending_count) === 0 && hasNoBlockers(row.blockers);
+}
+
+function readinessSnapshot(row: MaterialMasterRolloutDashboardRow, newMode: MaterialMasterEnforcementMode): Record<string, unknown> {
+  return {
+    source_type: row.source_type,
+    mode: normalizeMode(row.mode),
+    queue_total_count: numberValue(row.queue_total_count),
+    queue_pending_count: numberValue(row.queue_pending_count),
+    queue_resolved_count: numberValue(row.queue_resolved_count),
+    queue_blocked_count: numberValue(row.queue_blocked_count),
+    ready_for_enforcement: row.ready_for_enforcement === true,
+    blockers: row.blockers || [],
+    oldest_queue_created_at: row.oldest_queue_created_at,
+    latest_queue_created_at: row.latest_queue_created_at,
+    mode_updated_at: row.mode_updated_at,
+    reason_code: newMode === "disabled" ? "emergency_disable" : "owner_mode_change",
+  };
+}
+
+export default function ControllerDashboard({ sourceFilter, onSourceFilterChange, canEdit }: ControllerDashboardProps) {
   const { data: rows = [], isLoading, error } = useMaterialMasterRolloutDashboard();
+  const setMode = useSetMaterialMasterEnforcementMode();
+  const { toast } = useToast();
+  const [draft, setDraft] = useState<ModeChangeDraft | null>(null);
+  const [reason, setReason] = useState("");
+  const [emergencyAck, setEmergencyAck] = useState(false);
 
   const sourceOptions = useMemo(() => {
     const keys = new Set(rows.map((row) => row.source_type).filter(Boolean) as string[]);
@@ -67,6 +135,39 @@ export default function ControllerDashboard({ sourceFilter, onSourceFilterChange
     }),
     { total: 0, pending: 0, resolved: 0, blocked: 0, readySources: 0 }
   ), [filteredRows]);
+
+  const openModeDialog = (row: MaterialMasterRolloutDashboardRow, newMode: MaterialMasterEnforcementMode, title: string, options: Pick<ModeChangeDraft, "destructive" | "emergency"> = {}) => {
+    if (!canEdit || !row.source_type) return;
+    setReason("");
+    setEmergencyAck(false);
+    setDraft({ row, newMode, title, ...options });
+  };
+
+  const closeModeDialog = () => {
+    if (setMode.isPending) return;
+    setDraft(null);
+    setReason("");
+    setEmergencyAck(false);
+  };
+
+  const confirmModeChange = async () => {
+    if (!draft || !reason.trim() || (draft.emergency && !emergencyAck)) return;
+    try {
+      await setMode.mutateAsync({
+        source_type: draft.row.source_type || "",
+        expected_mode: normalizeMode(draft.row.mode),
+        new_mode: draft.newMode,
+        reason,
+        readiness_snapshot: readinessSnapshot(draft.row, draft.newMode),
+      });
+      toast({ title: "Đã cập nhật chế độ nguồn NVL", description: `${sourceDisplayName(draft.row.source_type)}: ${normalizeMode(draft.row.mode)} → ${draft.newMode}. Dashboard đã refetch/invalidate.` });
+      closeModeDialog();
+    } catch (error) {
+      toast({ title: "Không thể đổi chế độ nguồn NVL", description: error instanceof Error ? error.message : "RPC/RLS từ chối thao tác set_material_master_enforcement_mode.", variant: "destructive" });
+    }
+  };
+
+  const confirmDisabled = !draft || !reason.trim() || setMode.isPending || Boolean(draft.emergency && !emergencyAck);
 
   return (
     <div className="space-y-5" data-bmq-material-master-controller-shadow-dashboard>
@@ -102,10 +203,12 @@ export default function ControllerDashboard({ sourceFilter, onSourceFilterChange
         </AlertDescription>
       </Alert>
 
+      {!canEdit && <Alert><ShieldCheck className="h-4 w-4" /><AlertTitle>Controller chỉ đọc</AlertTitle><AlertDescription>Bạn không có quyền sửa material_master nên các nút đổi mode nguồn không render; dashboard vẫn chỉ đọc.</AlertDescription></Alert>}
+
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
+            <div className="min-w-0">
               <CardTitle className="flex items-center gap-2"><SlidersHorizontal className="h-5 w-5" /> Bộ lọc nguồn shadow</CardTitle>
               <CardDescription>Chọn nguồn ở đây để xem dashboard và drill/filter queue bằng local UI state; không ghi config.</CardDescription>
             </div>
@@ -148,10 +251,66 @@ export default function ControllerDashboard({ sourceFilter, onSourceFilterChange
                 {row.ready_for_enforcement ? <CheckCircle2 className="mr-2 inline h-4 w-4 text-emerald-600" /> : <AlertTriangle className="mr-2 inline h-4 w-4 text-amber-600" />}
                 Blockers: {formatBlockers(row.blockers)}
               </div>
+              {canEdit && row.source_type && FIXED_EXACT_CONTROLLER_SOURCES.has(row.source_type) && (
+                <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800" data-bmq-material-master-fixed-enforcement>
+                  Controller exact-approved cố định; không cho rollback/disable bằng config vì đường ghi server luôn fail-closed.
+                </div>
+              )}
+              {canEdit && (!row.source_type || !FIXED_EXACT_CONTROLLER_SOURCES.has(row.source_type)) && (
+                <div className="mt-4 flex flex-col gap-2 rounded-xl border border-slate-100 bg-white p-3 sm:flex-row sm:flex-wrap" data-bmq-material-master-owner-mode-controls>
+                  <Button type="button" className="w-full sm:w-auto" disabled={!canPromoteToEnforced(row) || modeIs(row.mode, "enforced") || !row.source_type} onClick={() => openModeDialog(row, "enforced", "Promote nguồn sang enforced")}>Promote enforced</Button>
+                  <Button type="button" variant="outline" className="w-full sm:w-auto" disabled={!modeIs(row.mode, "enforced") || !row.source_type} onClick={() => openModeDialog(row, "shadow", "Rollback enforced → shadow")}>Rollback shadow</Button>
+                  <Button type="button" variant="destructive" className="w-full sm:w-auto" disabled={modeIs(row.mode, "disabled") || !row.source_type} onClick={() => openModeDialog(row, "disabled", "Emergency disable nguồn", { destructive: true, emergency: true })}>Emergency disable</Button>
+                </div>
+              )}
             </div>
           ))}
         </CardContent>
       </Card>
+
+      <AlertDialog open={Boolean(draft)} onOpenChange={(open) => !open && closeModeDialog()}>
+        <AlertDialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-2xl overflow-y-auto">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{draft?.title || "Xác nhận đổi mode nguồn"}</AlertDialogTitle>
+            <AlertDialogDescription>
+              Không có preselection/automatic promotion: owner phải nhập lý do và xác nhận snapshot trước khi gọi RPC set_material_master_enforcement_mode.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {draft && (
+            <div className="space-y-4 text-sm">
+              <div className="grid gap-2 rounded-xl border bg-slate-50 p-3 sm:grid-cols-2">
+                <div><span className="font-medium">Nguồn</span><p>{sourceDisplayName(draft.row.source_type)} · {draft.row.source_type}</p></div>
+                <div><span className="font-medium">Mode hiện tại</span><p>{normalizeMode(draft.row.mode)}</p></div>
+                <div><span className="font-medium">Mode mới</span><p>{draft.newMode}</p></div>
+                <div><span className="font-medium">Pending</span><p>{numberValue(draft.row.queue_pending_count)}</p></div>
+              </div>
+              <div className="rounded-xl border bg-white p-3">
+                <p className="font-medium">Readiness snapshot</p>
+                <p className="mt-1 text-slate-600">ready_for_enforcement: {draft.row.ready_for_enforcement ? "true" : "false"} · total {numberValue(draft.row.queue_total_count)} · resolved {numberValue(draft.row.queue_resolved_count)} · blocked {numberValue(draft.row.queue_blocked_count)}</p>
+                <p className="mt-1 text-slate-600">Blockers: {formatBlockers(draft.row.blockers)}</p>
+              </div>
+              {draft.emergency && (
+                <label className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-rose-800">
+                  <input type="checkbox" className="mt-1 h-4 w-4" checked={emergencyAck} onChange={(event) => setEmergencyAck(event.target.checked)} />
+                  <span>Tôi hiểu đây là emergency disable: nguồn sẽ dừng enforcement và cần audit follow-up.</span>
+                </label>
+              )}
+              <div className="grid gap-2">
+                <label className="font-medium" htmlFor="material-master-mode-reason">Lý do tiếng Việt bắt buộc</label>
+                <Textarea id="material-master-mode-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="VD: Đã xử lý hết pending và kiểm tra blocker trước khi promote..." />
+                {!reason.trim() && <p className="text-xs text-amber-700">Phải nhập lý do rõ ràng để ghi audit.</p>}
+              </div>
+            </div>
+          )}
+          <AlertDialogFooter className="gap-2 sm:gap-0">
+            <AlertDialogCancel disabled={setMode.isPending}>Huỷ</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmModeChange} disabled={confirmDisabled} className={draft?.destructive ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : undefined}>
+              {setMode.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Xác nhận đổi mode
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -33,6 +33,8 @@ def test_task9_migration_is_additive_readonly_dashboard_and_preserves_existing_m
  for f in ('source_type','mode','queue_total_count','queue_pending_count','queue_resolved_count','queue_blocked_count','queue_buckets','oldest_queue_created_at','latest_queue_created_at','ready_for_enforcement','blockers','pending','confirmation_needed','ambiguous','not_found','unit_unmapped','supplier_unmapped','controller_error','resolved_exact','fail-closed'): assert f in low
  assert "coalesce(req.queue_buckets, jsonb_build_object" in low
  assert re.search(r"case[\s\S]+when[\s\S]+mode\s*=\s*'disabled'[\s\S]+then\s+false", low)
+ assert "queue_blocked_count = 0" in low
+ assert "rejected_resolution_queue" in low
  assert re.search(r"when[\s\S]+queue_pending_count\s*=\s*0[\s\S]+then\s+true", low)
 def test_task9_report_script_is_offline_safe_and_renders_json_markdown_without_raw_payloads(tmp_path,capsys):
  r=load_report(); d=tmp_path/'export'; d.mkdir(); (d/'material_master_shadow_rollout_dashboard.json').write_text(json.dumps([{'source_type':'kitchen_inventory','mode':'shadow','queue_total_count':3,'queue_pending_count':2,'queue_resolved_count':1,'queue_blocked_count':0,'queue_buckets':{'pending':2,'resolved_exact':1},'oldest_queue_created_at':'2026-08-01T00:00:00Z','latest_queue_created_at':'2026-08-02T00:00:00Z','ready_for_enforcement':False,'blockers':['pending_resolution_queue'],'raw_payload':{'secret':'must-not-print'}},{'source_type':'sku_cogs','mode':'enforced','queue_total_count':1,'queue_pending_count':0,'queue_resolved_count':1,'queue_blocked_count':0,'queue_buckets':{},'oldest_queue_created_at':None,'latest_queue_created_at':'2026-08-02T00:00:00Z','ready_for_enforcement':True,'blockers':[]}]),encoding='utf-8')

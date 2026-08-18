@@ -273,3 +273,64 @@ def test_task9_controller_shadow_dashboard_and_safe_queue_source_filter():
 
     forbidden_dml = re.compile(r'\.from\("(?:sku_cogs_materials|material_resolution_requests|material_scoped_aliases|material_supplier_products)"\)[\s\S]{0,260}\.(?:insert|update|delete|upsert)\(')
     assert not forbidden_dml.search(dashboard), "dashboard must not write controller/config tables"
+
+
+def test_task10_guarded_owner_mode_change_ui_contract():
+    hook = read(HOOK)
+    page = read(PAGE)
+    dashboard = read(DASHBOARD)
+    combined = hook + "\n" + page + "\n" + dashboard
+
+    assert "useSetMaterialMasterEnforcementMode" in hook
+    assert '.rpc("set_material_master_enforcement_mode"' in hook
+    for param in [
+        "p_source_type",
+        "p_expected_mode",
+        "p_new_mode",
+        "p_reason",
+        "p_readiness_snapshot",
+    ]:
+        assert param in hook, f"missing Task10 RPC param {param}"
+    assert 'invalidateQueries({ queryKey: ["material-master", "rollout-dashboard"] })' in hook
+    assert 'invalidateQueries({ queryKey: ["material-master"] })' in hook
+    assert "validateRpcResponse" in hook
+    assert "nonEmptyReason" in hook
+
+    assert "canEditModule(\"material_master\")" in page
+    assert "<ControllerDashboard" in page and "canEdit={canEdit}" in page
+    assert "type ControllerDashboardProps" in dashboard and "canEdit: boolean" in dashboard
+    assert "data-bmq-material-master-owner-mode-controls" in dashboard
+    assert "data-bmq-material-master-fixed-enforcement" in dashboard
+    assert "FIXED_EXACT_CONTROLLER_SOURCES" in dashboard
+    assert "reason_code: newMode === \"disabled\" ? \"emergency_disable\"" in dashboard
+    assert "set_material_master_enforcement_mode" in dashboard
+    assert "reason.trim()" in dashboard
+    assert "Lý do tiếng Việt bắt buộc" in dashboard
+    assert "useState<ModeChangeDraft | null>(null)" in dashboard, "mode change must start with no preselection"
+    assert "newMode: null" not in dashboard and "mode: \"enforced\"" not in dashboard, "must not auto-promote or preselect a target mode"
+
+    for token in [
+        "AlertDialog",
+        "AlertDialogTitle",
+        "AlertDialogDescription",
+        "Nguồn",
+        "Mode hiện tại",
+        "Mode mới",
+        "Readiness snapshot",
+        "Blockers",
+        "Pending",
+        "Tôi hiểu đây là emergency disable",
+    ]:
+        assert token in dashboard, f"confirmation dialog missing {token}"
+
+    assert "canPromoteToEnforced(row)" in dashboard
+    assert "row.ready_for_enforcement === true" in dashboard
+    assert "numberValue(row.queue_pending_count) === 0" in dashboard
+    assert "hasNoBlockers(row.blockers)" in dashboard
+    assert "modeIs(row.mode, \"enforced\")" in dashboard and 'openModeDialog(row, "shadow"' in dashboard
+    assert 'openModeDialog(row, "disabled"' in dashboard and "destructive" in dashboard
+    assert "Đã cập nhật chế độ nguồn NVL" in dashboard
+    assert "w-full sm:w-auto" in dashboard and "min-w-0" in dashboard
+    assert "q7_config" not in combined.lower(), "must not introduce q7 config source"
+    assert "source_type: draft.row.source_type" in dashboard
+    assert "kitchen_inventory" in dashboard and "Q7 / kho bếp" in dashboard

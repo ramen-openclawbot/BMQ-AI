@@ -3,6 +3,13 @@
 -- canonical resolver for manual Q7 receipt/opening writes. No historical backfill,
 -- no kitchen_inventory_movements DML, and Q7 location/unit rows remain independent.
 
+-- Q7 exact-approved writes are fail-closed by this controller in every runtime
+-- path. Keep the shared source key truthful; `q7` must never become a competing
+-- source or a price/shared-ledger workflow.
+insert into public.material_master_enforcement_config (source_type, mode)
+values ('kitchen_inventory', 'enforced')
+on conflict (source_type) do update set mode = 'enforced', updated_at = now();
+
 alter table public.kitchen_inventory_items
   add column if not exists canonical_material_id uuid references public.sku_cogs_materials(id) on delete restrict,
   add column if not exists material_resolution_status text;

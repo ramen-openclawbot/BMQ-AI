@@ -143,6 +143,17 @@ export interface MaterialMasterRolloutDashboardRow {
   latest_queue_created_at: string | null;
   ready_for_enforcement: boolean | null;
   blockers: string[] | Record<string, unknown> | string | null;
+  mode_updated_at?: string | null;
+}
+
+export type MaterialMasterEnforcementMode = "shadow" | "enforced" | "disabled";
+
+export interface SetMaterialMasterEnforcementModePayload {
+  source_type: string;
+  expected_mode: string;
+  new_mode: MaterialMasterEnforcementMode;
+  reason: string;
+  readiness_snapshot: Record<string, unknown>;
 }
 
 type QueryResult<T> = { data: T[] | null; error: Error | null };
@@ -253,6 +264,31 @@ export function useMaterialMasterRolloutDashboard() {
       const { data, error } = await db.rpc("get_material_master_rollout_dashboard", {});
       if (error) throw error;
       return (data || []) as MaterialMasterRolloutDashboardRow[];
+    },
+  });
+}
+
+export function useSetMaterialMasterEnforcementMode() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: SetMaterialMasterEnforcementModePayload) => {
+      const source = payload.source_type.trim();
+      if (!source) throw new Error("Thiếu source_type để đổi chế độ controller.");
+      const { data, error } = await db.rpc("set_material_master_enforcement_mode", {
+        p_source_type: source,
+        p_expected_mode: payload.expected_mode,
+        p_new_mode: payload.new_mode,
+        p_reason: nonEmptyReason(payload.reason),
+        p_readiness_snapshot: payload.readiness_snapshot,
+      });
+      if (error) throw error;
+      const result = validateRpcResponse(data, ["updated", "mode_changed", "ok"], ["source_type"]);
+      if (result.source_type !== source) throw new Error("RPC trả sai source_type sau khi đổi chế độ.");
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["material-master", "rollout-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["material-master"] });
     },
   });
 }

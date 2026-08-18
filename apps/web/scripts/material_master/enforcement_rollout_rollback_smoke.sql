@@ -1846,59 +1846,370 @@ revoke all on function public.get_material_master_rollout_dashboard() from publi
 grant execute on function public.get_material_master_rollout_dashboard() to authenticated, service_role;
 -- Inline Task9 migration ends.
 
-do $$ begin
-  if to_regprocedure('public.get_material_master_rollout_dashboard()') is null then raise exception 'missing get_material_master_rollout_dashboard signature'; end if;
-  if has_function_privilege('anon', 'public.get_material_master_rollout_dashboard()', 'execute') then raise exception 'anon must not execute rollout dashboard'; end if;
-  if not has_function_privilege('authenticated', 'public.get_material_master_rollout_dashboard()', 'execute') then raise exception 'authenticated rollout dashboard execute missing'; end if;
-  if exists (select 1 from public.material_master_enforcement_config where source_type = 'q7') then raise exception 'competing q7 source_type must not exist'; end if;
-end; $$;
+-- Inline Task10 migration begins.
+-- Task 10: audited per-source material-master enforcement-mode controller.
+-- Additive RPC only. No mode seed/update, no historical/master/ledger DML.
 
-do $$
+create or replace function public.set_material_master_enforcement_mode(
+  p_source_type text,
+  p_expected_mode text,
+  p_new_mode text,
+  p_reason text,
+  p_readiness_snapshot jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_actor uuid := auth.uid();
+  v_source_type text := nullif(lower(btrim(coalesce(p_source_type, ''))), '');
+  v_new_mode text := nullif(lower(btrim(coalesce(p_new_mode, ''))), '');
+  v_expected_mode text := nullif(lower(btrim(coalesce(p_expected_mode, ''))), '');
+  v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
+  v_old_mode text;
+  v_dashboard record;
+  v_safe_caller_snapshot jsonb := '{}'::jsonb;
+  v_server_snapshot jsonb := '{}'::jsonb;
+  v_old_snapshot jsonb := '{}'::jsonb;
+  v_new_snapshot jsonb := '{}'::jsonb;
+  v_audit_id uuid;
 begin
-  perform set_config('request.jwt.claim.role', 'authenticated', true);
-  perform set_config('request.jwt.claims', jsonb_build_object('role', 'authenticated')::text, true);
-  begin
-    perform public.get_material_master_rollout_dashboard();
-    raise exception 'rollout_dashboard_permission_denial was not enforced';
-  exception
-    when insufficient_privilege then null;
-  end;
-end; $$;
-
-select set_config('request.jwt.claim.role', 'service_role', true);
-select set_config('request.jwt.claims', jsonb_build_object('role', 'service_role')::text, true);
-
-select 'task9_shadow_rollout_config_rollback' as marker;
-insert into public.material_master_enforcement_config(source_type, mode) values ('task9_shadow_rollout_config_rollback', 'shadow') on conflict (source_type) do nothing;
-update public.material_master_enforcement_config set mode = 'disabled', updated_at = now() where source_type = 'task9_shadow_rollout_config_rollback';
-
-select 'synthetic pending queue rows' as marker;
-insert into public.material_resolution_requests(request_key, source_type, source_table, source_line_id, raw_name, raw_code, raw_unit, normalized_name, status, candidate_status, safe_payload) values
-(repeat('a',64), 'kitchen_inventory', 'kitchen_inventory_items', '00000000-0000-0000-0000-000000000901', 'Task9 pending material', 'T9-PEND', 'kg', public.material_master_normalize('Task9 pending material'), 'pending', 'not_found', jsonb_build_object('candidate_source','fixture','confidence','pending','field_name','canonical_material_id')),
-(repeat('b',64), 'kitchen_inventory', 'kitchen_inventory_items', '00000000-0000-0000-0000-000000000902', 'Task9 ambiguous material', 'T9-AMB', 'kg', public.material_master_normalize('Task9 ambiguous material'), 'pending', 'ambiguous', jsonb_build_object('candidate_source','fixture','confidence','pending','field_name','canonical_material_id'));
-
-do $$
-declare v_row record;
-begin
-  select * into v_row from public.get_material_master_rollout_dashboard() where source_type='kitchen_inventory';
-  if v_row.ready_for_enforcement is true then raise exception 'pending synthetic queue should block readiness'; end if;
-  if not (v_row.blockers ? 'pending_resolution_queue') then raise exception 'pending_resolution_queue blocker missing: %', v_row.blockers; end if;
-  if coalesce((v_row.queue_buckets->>'not_found')::int,0)<1 or coalesce((v_row.queue_buckets->>'ambiguous')::int,0)<1 then raise exception 'synthetic pending buckets missing: %', v_row.queue_buckets; end if;
-  if v_row.queue_total_count < 2 or v_row.queue_pending_count < 2 then raise exception 'synthetic queue counts missing: %', row_to_json(v_row); end if;
-end; $$;
-
-delete from public.material_resolution_requests where request_key in (repeat('a',64), repeat('b',64));
-do $$
-begin
-  if exists (select 1 from public.material_resolution_requests where request_key in (repeat('a',64), repeat('b',64))) then
-    raise exception 'synthetic_queue_residue_absent assertion failed';
+  if v_actor is null then
+    raise exception 'authentication required' using errcode = '42501';
   end if;
-end; $$;
+  if public.material_master_jwt_role() = 'service_role' then
+    raise exception 'service_role actor spoofing is not allowed' using errcode = '42501';
+  end if;
+  if not (public.has_role(v_actor, 'owner') or public.has_module_permission(v_actor, 'material_master', 'edit')) then
+    raise exception 'insufficient_privilege' using errcode = '42501';
+  end if;
+  if v_reason is null then
+    raise exception 'reason required' using errcode = '22023';
+  end if;
+  if v_source_type is null or not (v_source_type = any(array[
+    'sku_cogs',
+    'scan_sku_cost_sheet',
+    'purchase_order',
+    'goods_receipt',
+    'payment_request',
+    'invoice',
+    'create_invoice_from_pr',
+    'match_delivery_note',
+    'kitchen_inventory'
+  ])) then
+    raise exception 'source type is not allowed; use kitchen_inventory for Q7 material issue rollout' using errcode = '22023';
+  end if;
+  if v_new_mode not in ('disabled', 'shadow', 'enforced') then
+    raise exception 'unsupported enforcement mode' using errcode = '22023';
+  end if;
+  if v_expected_mode not in ('disabled', 'shadow', 'enforced') then
+    raise exception 'expected enforcement mode required' using errcode = '22023';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('material_master_enforcement_mode:' || v_source_type, 0));
+
+  select cfg.mode into v_old_mode
+  from public.material_master_enforcement_config cfg
+  where cfg.source_type = v_source_type
+  for update;
+  if not found then
+    raise exception 'source enforcement config row not found' using errcode = 'P0002';
+  end if;
+  if v_old_mode is distinct from v_expected_mode then
+    raise exception 'material master enforcement mode conflict' using errcode = '40001';
+  end if;
+
+  v_safe_caller_snapshot := public.material_master_safe_payload(
+    coalesce(p_readiness_snapshot, '{}'::jsonb),
+    array['source_type','mode','ready_for_enforcement','queue_pending_count','queue_blocked_count','blockers','mode_updated_at','reason_code','requested_by']
+  );
+
+  if v_old_mode = v_new_mode then
+    return jsonb_build_object(
+      'status', 'mode_unchanged',
+      'source_type', v_source_type,
+      'mode', v_old_mode,
+      'audit_id', null,
+      'safe_payload', jsonb_build_object('caller_snapshot', v_safe_caller_snapshot)
+    );
+  end if;
+
+  -- These exact-approved controllers are intrinsically fail-closed rather than
+  -- mode-switched wrappers. Never permit a cosmetic rollback/disable.
+  if v_source_type in ('sku_cogs','scan_sku_cost_sheet','kitchen_inventory') then
+    raise exception 'fixed exact-approved controller mode cannot be changed' using errcode = '23514';
+  end if;
+
+  if v_new_mode = 'disabled'
+     and coalesce(v_safe_caller_snapshot->>'reason_code', '') <> 'emergency_disable' then
+    raise exception 'emergency disable acknowledgement required' using errcode = '22023';
+  end if;
+
+  if not (
+    (v_old_mode = 'shadow' and v_new_mode = 'enforced')
+    or (v_old_mode = 'enforced' and v_new_mode = 'shadow')
+    or (v_old_mode = 'disabled' and v_new_mode = 'shadow')
+    or (v_old_mode in ('shadow','enforced') and v_new_mode = 'disabled')
+  ) then
+    raise exception 'unsupported enforcement mode transition' using errcode = '22023';
+  end if;
+
+  if v_old_mode = 'shadow' and v_new_mode = 'enforced' then
+    select * into v_dashboard
+    from public.get_material_master_rollout_dashboard()
+    where source_type = v_source_type;
+
+    if not found then
+      raise exception 'rollout dashboard row required before enforcement' using errcode = '23514';
+    end if;
+
+    v_server_snapshot := jsonb_build_object(
+      'source_type', v_dashboard.source_type,
+      'mode', v_dashboard.mode,
+      'ready_for_enforcement', v_dashboard.ready_for_enforcement,
+      'queue_pending_count', v_dashboard.queue_pending_count,
+      'queue_blocked_count', v_dashboard.queue_blocked_count,
+      'blockers', coalesce(v_dashboard.blockers, '[]'::jsonb),
+      'mode_updated_at', v_dashboard.mode_updated_at
+    );
+
+    if v_dashboard.ready_for_enforcement is not true then
+      raise exception 'source is not ready_for_enforcement' using errcode = '23514';
+    end if;
+    if v_dashboard.queue_pending_count <> 0 then
+      raise exception 'source has pending material resolution queue' using errcode = '23514';
+    end if;
+    if v_dashboard.queue_blocked_count <> 0 then
+      raise exception 'source has rejected material resolution queue' using errcode = '23514';
+    end if;
+    if jsonb_array_length(coalesce(v_dashboard.blockers, '[]'::jsonb)) <> 0 then
+      raise exception 'source has rollout blockers' using errcode = '23514';
+    end if;
+    if coalesce(v_safe_caller_snapshot->>'source_type', '') <> v_dashboard.source_type
+       or coalesce(v_safe_caller_snapshot->>'mode', '') <> v_dashboard.mode
+       or coalesce((v_safe_caller_snapshot->>'ready_for_enforcement')::boolean, false) is distinct from v_dashboard.ready_for_enforcement then
+      raise exception 'caller rollout snapshot is stale' using errcode = '40001';
+    end if;
+  else
+    v_server_snapshot := jsonb_build_object(
+      'source_type', v_source_type,
+      'mode', v_old_mode,
+      'ready_for_enforcement', null,
+      'queue_pending_count', null,
+      'queue_blocked_count', null,
+      'blockers', '[]'::jsonb
+    );
+  end if;
+
+  v_old_snapshot := jsonb_build_object('source_type', v_source_type, 'mode', v_old_mode, 'metadata', (select metadata from public.material_master_enforcement_config where source_type = v_source_type));
+
+  update public.material_master_enforcement_config
+  set mode = v_new_mode,
+      updated_by = v_actor,
+      updated_at = now()
+  where source_type = v_source_type;
+
+  v_new_snapshot := jsonb_build_object('source_type', v_source_type, 'mode', v_new_mode, 'metadata', (select metadata from public.material_master_enforcement_config where source_type = v_source_type));
+
+  v_audit_id := public.material_master_audit_append(
+    'set_material_master_enforcement_mode',
+    null,
+    null,
+    v_reason,
+    v_old_snapshot,
+    v_new_snapshot,
+    jsonb_build_object(
+      'source_type', v_source_type,
+      'mode', v_new_mode,
+      'ready_for_enforcement', v_server_snapshot->'ready_for_enforcement',
+      'queue_pending_count', v_server_snapshot->'queue_pending_count',
+      'queue_blocked_count', v_server_snapshot->'queue_blocked_count',
+      'blockers', v_server_snapshot->'blockers',
+      'reason_code', v_safe_caller_snapshot->'reason_code',
+      'requested_by', v_actor,
+      'caller_snapshot', v_safe_caller_snapshot,
+      'server_snapshot', v_server_snapshot
+    )
+  );
+
+  return jsonb_build_object(
+    'status', 'mode_changed',
+    'source_type', v_source_type,
+    'old_mode', v_old_mode,
+    'mode', v_new_mode,
+    'audit_id', v_audit_id,
+    'safe_payload', jsonb_build_object(
+      'source_type', v_source_type,
+      'mode', v_new_mode,
+      'server_snapshot', v_server_snapshot
+    )
+  );
+end;
+$$;
+
+revoke all on function public.set_material_master_enforcement_mode(text, text, text, text, jsonb) from public, anon, authenticated, service_role;
+grant execute on function public.set_material_master_enforcement_mode(text, text, text, text, jsonb) to authenticated;
+-- Inline Task10 migration ends.
+
+select 'task10_enforcement_rollout_rollback_smoke' as marker;
+select 'synthetic readiness fixtures' as marker;
+
+-- Synthetic readiness fixtures. Direct fixture DML is rollback-only and cleaned before protected-count assertions.
+savepoint task10_all_fixtures;
+insert into auth.users (id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at) values
+  ('cccccccc-cccc-4ccc-8ccc-cccccccccc01', 'authenticated', 'authenticated', 'task10-owner@example.invalid', '', now(), now(), now()),
+  ('cccccccc-cccc-4ccc-8ccc-cccccccccc02', 'authenticated', 'authenticated', 'task10-viewer@example.invalid', '', now(), now(), now())
+on conflict (id) do nothing;
+insert into public.user_roles(user_id, role) values ('cccccccc-cccc-4ccc-8ccc-cccccccccc01', 'owner') on conflict do nothing;
+insert into public.sku_cogs_materials
+  (id, material_code, canonical_name, normalized_name, default_unit, active, created_by)
+values
+  ('cccccccc-cccc-4ccc-8ccc-cccccccccc31', 'NVL-T10-READY', 'Task10 Ready Canonical', 'task10 ready canonical', 'kg', true, 'cccccccc-cccc-4ccc-8ccc-cccccccccc01');
+insert into public.material_master_enforcement_config(source_type, mode) values
+  ('create_invoice_from_pr', 'shadow'),
+  ('payment_request', 'shadow'),
+  ('invoice', 'enforced'),
+  ('goods_receipt', 'disabled'),
+  ('purchase_order', 'shadow'),
+  ('match_delivery_note', 'shadow')
+on conflict (source_type) do update set mode = excluded.mode, updated_at = now();
+
+-- Optional Q7-shaped fixtures prove Q7 remains represented as kitchen_inventory, not q7.
+savepoint task10_q7_fixture;
+insert into public.sku_cogs_materials (id, material_code, canonical_name, normalized_name, default_unit, active, created_by)
+values ('cccccccc-cccc-4ccc-8ccc-cccccccccc21', 'NVL-T10-Q7', 'Task10 Q7 Canonical', 'task10 q7 canonical', 'kg', true, 'cccccccc-cccc-4ccc-8ccc-cccccccccc01')
+on conflict (id) do nothing;
+
+insert into public.kitchen_inventory_items (id, item_code, normalized_key, item_type, name, unit, active, canonical_material_id, material_resolution_status)
+values ('cccccccc-cccc-4ccc-8ccc-cccccccccc22', 'T10-Q7-KITCHEN', 'task10-q7-kitchen', 'ingredient', 'Task10 Q7 Kitchen', 'kg', true, 'cccccccc-cccc-4ccc-8ccc-cccccccccc21', 'linked')
+on conflict (id) do nothing;
+insert into public.q7_material_issue_material_mappings (id, canonical_material_id, source_unit, kitchen_inventory_item_id, kitchen_unit, conversion_factor, approval_status, approved_by, approved_at, created_by)
+values ('cccccccc-cccc-4ccc-8ccc-cccccccccc23', 'cccccccc-cccc-4ccc-8ccc-cccccccccc21', 'kg', 'cccccccc-cccc-4ccc-8ccc-cccccccccc22', 'kg', 1, 'approved', 'cccccccc-cccc-4ccc-8ccc-cccccccccc01', now(), 'cccccccc-cccc-4ccc-8ccc-cccccccccc01')
+on conflict (id) do nothing;
+rollback to savepoint task10_q7_fixture;
+release savepoint task10_q7_fixture;
+
+
+insert into public.material_resolution_requests(request_key, source_type, source_table, source_line_id, raw_name, raw_code, raw_unit, normalized_name, status, candidate_status, resolved_material_id, safe_payload, created_by) values
+  (repeat('c',64), 'create_invoice_from_pr', 'payment_request_items', 'cccccccc-cccc-4ccc-8ccc-cccccccccc11', 'Task10 ready material', 'T10-READY', 'kg', public.material_master_normalize('Task10 ready material'), 'resolved_existing', null, 'cccccccc-cccc-4ccc-8ccc-cccccccccc31', jsonb_build_object('candidate_source','fixture','confidence','exact','field_name','canonical_material_id'), 'cccccccc-cccc-4ccc-8ccc-cccccccccc01'),
+  (repeat('d',64), 'payment_request', 'payment_request_items', 'cccccccc-cccc-4ccc-8ccc-cccccccccc12', 'Task10 pending material', 'T10-PEND', 'kg', public.material_master_normalize('Task10 pending material'), 'pending', 'not_found', null, jsonb_build_object('candidate_source','fixture','confidence','pending','field_name','canonical_material_id'), 'cccccccc-cccc-4ccc-8ccc-cccccccccc01'),
+  (repeat('e',64), 'match_delivery_note', 'goods_receipt_items', 'cccccccc-cccc-4ccc-8ccc-cccccccccc13', 'Task10 stale ready material', 'T10-STALE', 'kg', public.material_master_normalize('Task10 stale ready material'), 'resolved_existing', null, 'cccccccc-cccc-4ccc-8ccc-cccccccccc31', jsonb_build_object('candidate_source','fixture','confidence','exact','field_name','canonical_material_id'), 'cccccccc-cccc-4ccc-8ccc-cccccccccc01')
+on conflict (request_key) do nothing;
+
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-4ccc-8ccc-cccccccccc01', true);
+select set_config('request.jwt.claims', jsonb_build_object('role','authenticated','sub','cccccccc-cccc-4ccc-8ccc-cccccccccc01')::text, true);
+
+select 'blocked_shadow_to_enforced' as marker;
+do $$
+declare v_snap record;
+begin
+  select * into v_snap from public.get_material_master_rollout_dashboard() where source_type = 'payment_request';
+  if v_snap.ready_for_enforcement is true then raise exception 'payment_request pending fixture should block enforcement'; end if;
+  begin
+    perform public.set_material_master_enforcement_mode('payment_request', 'shadow', 'enforced', 'Task10 blocked smoke', jsonb_build_object('source_type', v_snap.source_type, 'mode', v_snap.mode, 'ready_for_enforcement', v_snap.ready_for_enforcement, 'raw_payload', 'must_not_persist'));
+    raise exception 'blocked_shadow_to_enforced unexpectedly succeeded';
+  exception when check_violation then null; end;
+end $$;
+
+select 'passing_shadow_to_enforced' as marker;
+create temp table task10_ready_snapshot as select * from public.get_material_master_rollout_dashboard() where source_type = 'create_invoice_from_pr';
+create temp table task10_pass_response as
+select public.set_material_master_enforcement_mode(
+  'create_invoice_from_pr', 'shadow', 'enforced', 'Task10 passing smoke',
+  jsonb_build_object('source_type', source_type, 'mode', mode, 'ready_for_enforcement', ready_for_enforcement, 'raw_payload', 'must_not_persist', 'reason_code', 'rollout_ready')
+) as response
+from task10_ready_snapshot;
+
+do $$
+declare v_response jsonb; v_cfg record;
+begin
+  select response into v_response from task10_pass_response;
+  if v_response->>'status' <> 'mode_changed' or v_response->>'mode' <> 'enforced' then raise exception 'passing enforcement failed: %', v_response; end if;
+  select * into v_cfg from public.material_master_enforcement_config where source_type = 'create_invoice_from_pr';
+  if v_cfg.mode <> 'enforced' or v_cfg.updated_by <> 'cccccccc-cccc-4ccc-8ccc-cccccccccc01' then raise exception 'config update mismatch: %', row_to_json(v_cfg); end if;
+end $$;
+
+select 'stale_snapshot_rejected' as marker;
+do $$
+begin
+  begin
+    perform public.set_material_master_enforcement_mode('match_delivery_note', 'shadow', 'enforced', 'Task10 stale smoke', jsonb_build_object('source_type','match_delivery_note','mode','shadow','ready_for_enforcement', false));
+    raise exception 'stale_snapshot_rejected unexpectedly succeeded';
+  exception when serialization_failure then null; end;
+end $$;
+
+select 'rollback_enforced_to_shadow' as marker;
+select public.set_material_master_enforcement_mode('invoice', 'enforced', 'shadow', 'Task10 rollback smoke', jsonb_build_object('source_type','invoice','mode','enforced','ready_for_enforcement', false));
+
+select 'emergency_disable_from_shadow' as marker;
+select public.set_material_master_enforcement_mode('purchase_order', 'shadow', 'disabled', 'Task10 emergency disable smoke', jsonb_build_object('source_type','purchase_order','mode','shadow','ready_for_enforcement', false, 'reason_code', 'emergency_disable'));
+
+select 'disabled_to_shadow_reenable' as marker;
+select public.set_material_master_enforcement_mode('goods_receipt', 'disabled', 'shadow', 'Task10 re-enable smoke', jsonb_build_object('source_type','goods_receipt','mode','disabled','ready_for_enforcement', false));
+
+select 'unknown_source_rejected' as marker;
+do $$ begin
+  begin
+    perform public.set_material_master_enforcement_mode('unknown', 'shadow', 'shadow', 'Task10 unknown smoke', '{}'::jsonb);
+    raise exception 'unknown source unexpectedly accepted';
+  exception when invalid_parameter_value then null; end;
+end $$;
+
+select 'q7_source_rejected' as marker;
+do $$ begin
+  begin
+    perform public.set_material_master_enforcement_mode('q7', 'shadow', 'shadow', 'Task10 q7 smoke', '{}'::jsonb);
+    raise exception 'q7 source unexpectedly accepted';
+  exception when invalid_parameter_value then null; end;
+end $$;
+
+select 'unauthorized_user_rejected' as marker;
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-4ccc-8ccc-cccccccccc02', true);
+select set_config('request.jwt.claims', jsonb_build_object('role','authenticated','sub','cccccccc-cccc-4ccc-8ccc-cccccccccc02')::text, true);
+do $$ begin
+  begin
+    perform public.set_material_master_enforcement_mode('invoice', 'shadow', 'enforced', 'Task10 unauthorized smoke', jsonb_build_object('source_type','invoice','mode','shadow','ready_for_enforcement', false));
+    raise exception 'unauthorized user unexpectedly accepted';
+  exception when insufficient_privilege then null; end;
+end $$;
+
+select 'service_role_actor_spoof_rejected' as marker;
+select set_config('request.jwt.claim.role', 'service_role', true);
+select set_config('request.jwt.claim.sub', 'cccccccc-cccc-4ccc-8ccc-cccccccccc01', true);
+select set_config('request.jwt.claims', jsonb_build_object('role','service_role','sub','cccccccc-cccc-4ccc-8ccc-cccccccccc01')::text, true);
+do $$ begin
+  begin
+    perform public.set_material_master_enforcement_mode('invoice', 'shadow', 'enforced', 'Task10 service spoof smoke', jsonb_build_object('source_type','invoice','mode','shadow','ready_for_enforcement', false));
+    raise exception 'service role actor spoof unexpectedly accepted';
+  exception when insufficient_privilege then null; end;
+end $$;
+
+select 'audit_snapshot_safe_payload' as marker;
+do $$
+declare v_log record;
+begin
+  select * into v_log from public.material_master_audit_logs where action = 'set_material_master_enforcement_mode' and reason = 'Task10 passing smoke' order by created_at desc limit 1;
+  if not found then raise exception 'Task10 audit log missing'; end if;
+  if v_log.actor_id <> 'cccccccc-cccc-4ccc-8ccc-cccccccccc01' then raise exception 'Task10 audit actor mismatch: %', row_to_json(v_log); end if;
+  if v_log.safe_payload::text like '%must_not_persist%' or v_log.safe_payload ? 'raw_payload' then raise exception 'unsafe caller payload leaked into audit: %', v_log.safe_payload; end if;
+  if v_log.safe_payload->>'source_type' <> 'create_invoice_from_pr' or v_log.safe_payload->>'mode' <> 'enforced' then raise exception 'audit actual server snapshot mismatch: %', v_log.safe_payload; end if;
+  if not (v_log.safe_payload ? 'server_snapshot') then raise exception 'audit server snapshot missing: %', v_log.safe_payload; end if;
+end $$;
+
+-- Roll back every synthetic config/audit/master/queue/auth fixture before comparing
+-- protected counts. The Task10 migration itself remains in the outer transaction.
+rollback to savepoint task10_all_fixtures;
+release savepoint task10_all_fixtures;
+
 select 'protected_table_counts_unchanged' as marker;
 do $$ declare before_row record; after_row record; begin select * into before_row from task9_protected_counts_before; select (select count(*) from public.sku_cogs_materials) as sku_cogs_materials,(select count(*) from public.sku_cogs_material_aliases) as sku_cogs_material_aliases,(select count(*) from public.material_scoped_aliases) as material_scoped_aliases,(select count(*) from public.material_resolution_requests) as material_resolution_requests,(select count(*) from public.sku_formulations) as sku_formulations,(select count(*) from public.sku_cogs_versions) as sku_cogs_versions,(select count(*) from public.sku_cogs_version_formulations) as sku_cogs_version_formulations,(select count(*) from public.kitchen_inventory_items) as kitchen_inventory_items,(select count(*) from public.q7_material_issue_material_mappings) as q7_material_issue_material_mappings,(select count(*) from public.q7_inventory_movements) as q7_inventory_movements,(select count(*) from public.q7_inventory_openings) as q7_inventory_openings,(select count(*) from public.q7_inventory_opening_audit_logs) as q7_inventory_opening_audit_logs,(select count(*) from public.kitchen_inventory_movements) as kitchen_inventory_movements into after_row; if to_jsonb(before_row) <> to_jsonb(after_row) then raise exception 'protected table counts changed: before %, after %', to_jsonb(before_row), to_jsonb(after_row); end if; end; $$;
 
 rollback;
 
 select 'post_rollback_zero_residue' as marker,
-       to_regclass('public.material_master_enforcement_config') as config_relation_after_rollback,
-       to_regclass('public.material_resolution_requests') as queue_relation_after_rollback;
+  to_regclass('public.material_resolution_requests') as material_resolution_requests_after_rollback,
+  to_regclass('public.kitchen_inventory_items') as kitchen_inventory_items_after_rollback,
+  to_regclass('public.q7_material_issue_material_mappings') as q7_material_issue_material_mappings_after_rollback;

@@ -128,6 +128,7 @@ select
     when mode = 'disabled' then false
     when evaluated_count = 0 then false
     when queue_pending_count = 0
+      and queue_blocked_count = 0
       and missing_canonical_material_id = 0
       and missing_exact_approved_link = 0 then true
     else false
@@ -135,6 +136,7 @@ select
   (case when mode = 'disabled' then jsonb_build_array('source_disabled') else '[]'::jsonb end
    || case when evaluated_count = 0 then jsonb_build_array('no_evaluation_evidence') else '[]'::jsonb end
    || case when queue_pending_count > 0 then jsonb_build_array('pending_resolution_queue') else '[]'::jsonb end
+   || case when queue_blocked_count > 0 then jsonb_build_array('rejected_resolution_queue') else '[]'::jsonb end
    || case when missing_canonical_material_id > 0 then jsonb_build_array('missing_canonical_material_id') else '[]'::jsonb end
    || case when missing_exact_approved_link > 0 then jsonb_build_array('missing_exact_approved_link') else '[]'::jsonb end) as blockers,
   mode_updated_at

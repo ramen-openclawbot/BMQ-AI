@@ -78,6 +78,8 @@ def test_task8_migration_is_additive_q7_only_and_has_no_shared_kitchen_ledger_dm
     assert "alter table public.q7_inventory_movements add column if not exists q7_mapping_id" in sql
     assert "alter table public.q7_inventory_openings add column if not exists q7_mapping_id" in sql
     assert "alter table public.q7_inventory_opening_audit_logs add column if not exists q7_mapping_id" in sql
+    assert "values ('kitchen_inventory', 'enforced')" in sql
+    assert "on conflict (source_type) do update set mode = 'enforced'" in sql
     assert "update public.q7_inventory" not in sql
     assert "insert into public.q7_inventory" not in sql.split("create or replace function", 1)[0]
 
