@@ -154,6 +154,21 @@ export interface MaterialPaymentRequestLink {
   canonical_material_id: string | null;
 }
 
+export interface MaterialSupplierSuggestion {
+  supplier_id: string;
+  supplier_display_name: string | null;
+  product_sku_id: string | null;
+  supplier_product_id: string | null;
+  product_name: string;
+  product_code: string | null;
+  purchase_unit: string;
+  candidate_source: "confirmed_supplier_product" | "cogs_product_sku_exact" | "payment_history_sku_exact" | "payment_history_name_unit";
+  evidence_count: number;
+  latest_request_at: string | null;
+  confirmed: boolean;
+  payment_candidate_count: number;
+}
+
 export interface MaterialMasterData {
   materials: CanonicalMaterial[];
   aliases: MaterialAlias[];
@@ -330,6 +345,81 @@ export function useMaterialPaymentRequestLinks(materialId: string | null) {
       if (error) throw error;
       if (!Array.isArray(data)) throw new Error("RPC Duyệt chi không trả danh sách hợp lệ.");
       return data;
+    },
+  });
+}
+
+export function useMaterialSupplierSuggestions(materialId: string | null) {
+  return useQuery({
+    queryKey: ["material-master", "supplier-suggestions", materialId],
+    enabled: Boolean(materialId),
+    queryFn: async (): Promise<MaterialSupplierSuggestion[]> => {
+      if (!materialId) return [];
+      const { data, error } = await db.rpc<MaterialSupplierSuggestion[]>("get_material_supplier_suggestions", {
+        p_material_id: materialId,
+      });
+      if (error) throw error;
+      if (!Array.isArray(data)) throw new Error("RPC gợi ý Nhà cung cấp không trả danh sách hợp lệ.");
+      return data;
+    },
+  });
+}
+
+export function useConfirmMaterialSupplierProduct() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      materialId: string;
+      expectedVersion: number;
+      supplierId: string;
+      productSkuId: string | null;
+      productName: string;
+      purchaseUnit: string;
+      reason: string;
+    }) => {
+      if (!Number.isInteger(payload.expectedVersion) || payload.expectedVersion <= 0) throw new Error("Cần tải lại phiên bản NVL trước khi xác nhận Nhà cung cấp.");
+      const { data, error } = await db.rpc("confirm_material_supplier_product", {
+        p_material_id: payload.materialId,
+        p_expected_version: payload.expectedVersion,
+        p_supplier_id: payload.supplierId,
+        p_product_sku_id: payload.productSkuId,
+        p_supplier_product_name: payload.productName.trim(),
+        p_purchase_unit: payload.purchaseUnit.trim(),
+        p_reason: nonEmptyReason(payload.reason),
+      });
+      if (error) throw error;
+      const result = validateRpcResponse(data, ["supplier_product_confirmed", "supplier_product_unchanged"], ["material_id", "supplier_id", "supplier_product_id"]);
+      if (result.material_id !== payload.materialId || result.supplier_id !== payload.supplierId) throw new Error("RPC trả sai sản phẩm Nhà cung cấp đã chọn.");
+      return result;
+    },
+    onSuccess: (_result, payload) => {
+      queryClient.invalidateQueries({ queryKey: ["material-master"] });
+      queryClient.invalidateQueries({ queryKey: ["material-master", "supplier-suggestions", payload.materialId] });
+      queryClient.invalidateQueries({ queryKey: ["material-master", "payment-request-links", payload.materialId] });
+    },
+  });
+}
+
+export function useSyncMaterialSupplierPaymentRequests() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { materialId: string; expectedVersion: number; supplierProductId: string; reason: string }) => {
+      if (!Number.isInteger(payload.expectedVersion) || payload.expectedVersion <= 0) throw new Error("Cần tải lại phiên bản NVL trước khi đồng bộ Duyệt chi.");
+      const { data, error } = await db.rpc("sync_material_supplier_payment_requests", {
+        p_material_id: payload.materialId,
+        p_expected_version: payload.expectedVersion,
+        p_supplier_product_id: payload.supplierProductId,
+        p_reason: nonEmptyReason(payload.reason),
+      });
+      if (error) throw error;
+      const result = validateRpcResponse(data, ["payment_requests_synced", "payment_requests_sync_unchanged"], ["material_id", "supplier_product_id"]);
+      if (result.material_id !== payload.materialId || result.supplier_product_id !== payload.supplierProductId) throw new Error("RPC trả sai phạm vi đồng bộ Duyệt chi.");
+      return result;
+    },
+    onSuccess: (_result, payload) => {
+      queryClient.invalidateQueries({ queryKey: ["material-master"] });
+      queryClient.invalidateQueries({ queryKey: ["material-master", "supplier-suggestions", payload.materialId] });
+      queryClient.invalidateQueries({ queryKey: ["material-master", "payment-request-links", payload.materialId] });
     },
   });
 }

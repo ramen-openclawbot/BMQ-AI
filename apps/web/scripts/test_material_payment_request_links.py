@@ -102,24 +102,26 @@ def test_hook_reads_selected_material_on_demand_and_uses_audited_rpc_only():
     assert '.from("payment_request_items").update' not in hook
 
 
-def test_page_has_business_facing_payment_request_tab_and_fail_closed_controls():
+def test_page_has_supplier_confirmed_bulk_payment_sync_and_fail_closed_controls():
     page = read(PAGE)
     for text in [
+        "NCC & Duyệt chi",
         "Duyệt chi liên quan",
-        "Chưa liên kết Duyệt chi",
         "Đã liên kết NVL",
-        "Gợi ý theo SKU cũ",
-        "Khớp chính xác Nhà cung cấp",
+        "Hệ thống gợi ý NCC",
         "Lý do xác nhận",
-        "Liên kết Duyệt chi",
+        "Xác nhận và lưu",
+        "Xác nhận và đồng bộ",
         "Không tải được Duyệt chi liên quan",
     ]:
         assert text in page
     assert "data-bmq-material-payment-request-links" in page
+    assert "data-bmq-material-supplier-review" in page
+    assert "data-bmq-payment-request-bulk-sync" in page
     assert "useMaterialPaymentRequestLinks" in page
-    assert "useLinkMaterialPaymentRequestItem" in page
+    assert "useSyncMaterialSupplierPaymentRequests" in page
+    assert "useLinkMaterialPaymentRequestItem" not in page
     assert "paymentLinksError" in page
-    assert "canMutate && !paymentLinksError" in page
     assert "selected.version" in page
     assert "min-h-11" in page
     assert "break-words" in page

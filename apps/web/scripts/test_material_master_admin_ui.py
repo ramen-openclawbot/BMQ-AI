@@ -86,7 +86,8 @@ def test_material_master_page_contract_markers_edit_mode_reason_version_and_queu
     assert "openMaterialEditor" in page
     assert 'if (canEdit) setDialog("edit")' in page
     assert 'setDialog("edit")' in page
-    assert "Chạm vào NVL để sửa" in page
+    assert "Chọn NVL để xác nhận NCC" in page
+    assert "Điều chỉnh thông tin NVL" in page
     assert "max-h-[90dvh]" in page and "overflow-y-auto" in page
     assert "Sửa NVL đang chọn" not in page
     assert 'key={`edit-${selected.id}-${selected.version}`}' in page
@@ -96,13 +97,13 @@ def test_material_master_page_contract_markers_edit_mode_reason_version_and_queu
     assert "Vui lòng ghi lý do để lưu lịch sử chỉnh sửa." in page
     assert "selected.version" in page
     assert "Mã NVL không đổi" in page
-    assert "Danh mục nguyên vật liệu" in page
-    assert "Chạm vào một NVL để sửa tên và đơn vị chuẩn." in page
+    assert "Danh mục nguyên vật liệu từ Giá vốn" in page
+    assert "Giá vốn là nguồn gốc của danh mục NVL." in page
     for business_tab in [
-        "Tên & đơn vị chuẩn",
-        "Liên kết Giá vốn",
+        "NVL từ Giá vốn",
+        "Sản phẩm sử dụng",
         "Phiếu xuất kho Q7",
-        "Sản phẩm Nhà cung cấp",
+        "NCC & Duyệt chi",
         "Cần xác nhận",
     ]:
         assert business_tab in page
@@ -196,7 +197,6 @@ def test_task4_uses_exact_task2_schema_columns_and_rejects_removed_columns():
         "price_value",
         "currency",
         "supplier_name",
-        "evidence",
         "changes:",
         "p_spec:",
         "p_status",
