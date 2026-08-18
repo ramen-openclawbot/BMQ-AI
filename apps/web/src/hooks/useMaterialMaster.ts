@@ -162,7 +162,7 @@ export interface MaterialSupplierSuggestion {
   product_name: string;
   product_code: string | null;
   purchase_unit: string;
-  candidate_source: "confirmed_supplier_product" | "cogs_product_sku_exact" | "payment_history_sku_exact" | "payment_history_name_unit";
+  candidate_source: "confirmed_supplier_product" | "cogs_product_sku_exact" | "payment_history_sku_exact" | "payment_history_name_unit" | "payment_history_name_contains";
   evidence_count: number;
   latest_request_at: string | null;
   confirmed: boolean;

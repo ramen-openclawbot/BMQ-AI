@@ -9,6 +9,7 @@ import {
   MaterialSupplierSuggestion,
   Q7Mapping,
   ResolutionRequest,
+  SupplierLite,
   SupplierProduct,
   useConfirmMaterialResolution,
   useConfirmMaterialSupplierProduct,
@@ -194,36 +195,57 @@ const suggestionSourceLabel = (source: MaterialSupplierSuggestion["candidate_sou
   if (source === "confirmed_supplier_product") return "Đã xác nhận trước đó";
   if (source === "cogs_product_sku_exact") return "Khớp SKU trong Giá vốn";
   if (source === "payment_history_sku_exact") return "Khớp mã hàng Duyệt chi";
+  if (source === "payment_history_name_contains") return "Tên Duyệt chi có chứa tên NVL";
   return "Khớp tên và đơn vị Duyệt chi";
 };
 
-function MaterialSupplierReview({ selected, canMutate }: { selected: CanonicalMaterial | null; canMutate: boolean }) {
+function MaterialSupplierReview({ selected, suppliers, canMutate }: { selected: CanonicalMaterial | null; suppliers: SupplierLite[]; canMutate: boolean }) {
   const { toast } = useToast();
   const { data: suggestions = [], isLoading, error } = useMaterialSupplierSuggestions(selected?.id || null);
   const confirmSupplier = useConfirmMaterialSupplierProduct();
-  const defaultReason = "Xác nhận sản phẩm Nhà cung cấp theo Giá vốn và dữ liệu mua hàng đã đối chiếu.";
+  const defaultReason = "Xác nhận sản phẩm Nhà cung cấp theo lựa chọn của người dùng.";
   const [selectedKey, setSelectedKey] = useState("");
+  const [manualSupplierId, setManualSupplierId] = useState("");
+  const [manualProductName, setManualProductName] = useState(selected?.canonical_name || "");
+  const [manualPurchaseUnit, setManualPurchaseUnit] = useState(selected?.default_unit || "");
   const [reason, setReason] = useState(defaultReason);
-  const activeSuggestion = suggestions.find((row) => materialSuggestionKey(row) === selectedKey) || suggestions[0];
-  const confirmedSuggestion = activeSuggestion?.confirmed && activeSuggestion.supplier_product_id
-    ? activeSuggestion
-    : undefined;
+  const activeSuggestion = selectedKey
+    ? suggestions.find((row) => materialSuggestionKey(row) === selectedKey)
+    : manualSupplierId ? undefined : suggestions[0];
+  const confirmedSuggestion = suggestions.find((row) => row.confirmed && row.supplier_product_id);
+  const confirmationSupplierId = activeSuggestion?.supplier_id || manualSupplierId;
+  const confirmationProductName = activeSuggestion?.product_name || manualProductName.trim();
+  const confirmationPurchaseUnit = activeSuggestion?.purchase_unit || manualPurchaseUnit.trim();
   const validReason = reason.trim().length > 0;
-  const canConfirm = Boolean(canMutate && selected?.version && selected.version > 0 && activeSuggestion && validReason && !error);
+  const canConfirm = Boolean(canMutate && selected?.version && selected.version > 0 && confirmationSupplierId && confirmationProductName && confirmationPurchaseUnit && validReason);
+
+  const chooseSuggestion = (value: string) => {
+    setSelectedKey(value);
+    setManualSupplierId("");
+  };
+
+  const chooseManualSupplier = (value: string) => {
+    setManualSupplierId(value === "none" ? "" : value);
+    setSelectedKey("");
+    setManualProductName(selected?.canonical_name || "");
+    setManualPurchaseUnit(selected?.default_unit || "");
+  };
 
   const submit = async () => {
-    if (!selected?.version || !activeSuggestion || !canConfirm) return;
+    if (!selected?.version || !canConfirm) return;
     try {
       await confirmSupplier.mutateAsync({
         materialId: selected.id,
         expectedVersion: selected.version,
-        supplierId: activeSuggestion.supplier_id,
-        productSkuId: activeSuggestion.product_sku_id,
-        productName: activeSuggestion.product_name,
-        purchaseUnit: activeSuggestion.purchase_unit,
+        supplierId: confirmationSupplierId,
+        productSkuId: activeSuggestion?.product_sku_id || null,
+        productName: confirmationProductName,
+        purchaseUnit: confirmationPurchaseUnit,
         reason,
       });
-      toast({ title: "Đã xác nhận NCC", description: "Sản phẩm Nhà cung cấp đã được lưu cho NVL từ Giá vốn." });
+      toast({ title: "Đã xác nhận NCC", description: "Lựa chọn đã được lưu và ghi lịch sử; gợi ý trước đó không tự liên kết." });
+      setSelectedKey("");
+      setManualSupplierId("");
       setReason(defaultReason);
     } catch (submitError) {
       toast({ title: "Không thể xác nhận NCC", description: submitError instanceof Error ? submitError.message : "Hệ thống từ chối gợi ý đã chọn.", variant: "destructive" });
@@ -233,19 +255,24 @@ function MaterialSupplierReview({ selected, canMutate }: { selected: CanonicalMa
   if (!selected) return <Card data-bmq-material-supplier-review><CardContent className="p-6 text-sm text-slate-600">Chọn một NVL từ Giá vốn để xem Hệ thống gợi ý NCC.</CardContent></Card>;
 
   return <Card data-bmq-material-supplier-review>
-    <CardHeader><CardTitle>Hệ thống gợi ý NCC</CardTitle><CardDescription>Gợi ý được rooted từ dòng Giá vốn và bằng chứng Duyệt chi chính xác; anh chọn một NCC rồi xác nhận lưu mapping.</CardDescription></CardHeader>
+    <CardHeader><CardTitle>Hệ thống gợi ý NCC</CardTitle><CardDescription>Gợi ý để tham khảo — chưa tự liên kết. Anh có thể chọn gợi ý hoặc chọn trực tiếp Nhà cung cấp rồi chuẩn hóa tên hàng và đơn vị trước khi xác nhận.</CardDescription></CardHeader>
     <CardContent className="space-y-4">
-      {error && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Không tải được gợi ý NCC</AlertTitle><AlertDescription>Hệ thống tạm khóa xác nhận để tránh lưu sai Nhà cung cấp.</AlertDescription></Alert>}
+      {error && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Không tải được gợi ý NCC</AlertTitle><AlertDescription>Anh vẫn có thể chọn Nhà cung cấp thủ công bên dưới; hệ thống chỉ ghi khi anh bấm xác nhận.</AlertDescription></Alert>}
       {isLoading && <div className="space-y-2"><Skeleton className="h-24" /><Skeleton className="h-24" /></div>}
-      {!isLoading && !error && suggestions.length === 0 && <Alert><AlertTitle>Chưa có gợi ý NCC</AlertTitle><AlertDescription>NVL này chưa có bằng chứng NCC đủ chính xác từ Giá vốn hoặc Duyệt chi.</AlertDescription></Alert>}
+      {!isLoading && !error && suggestions.length === 0 && <Alert><AlertTitle>Chưa có gợi ý NCC</AlertTitle><AlertDescription>Chọn Nhà cung cấp bên dưới, sau đó nhập tên hàng tại NCC và đơn vị mua để xác nhận.</AlertDescription></Alert>}
       {activeSuggestion && <div className="min-w-0 rounded-2xl border bg-emerald-50 p-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0"><p className="text-xs font-semibold uppercase text-emerald-700">Gợi ý ưu tiên</p><h3 className="break-words text-lg font-semibold">{activeSuggestion.supplier_display_name || "NCC chưa đặt tên"}</h3><p className="break-words text-sm text-slate-700">{activeSuggestion.product_code ? `${activeSuggestion.product_code} · ` : ""}{activeSuggestion.product_name} · {activeSuggestion.purchase_unit || selected.default_unit || "—"}</p></div>
+          <div className="min-w-0"><p className="text-xs font-semibold uppercase text-emerald-700">Gợi ý ưu tiên — chưa liên kết</p><h3 className="break-words text-lg font-semibold">{activeSuggestion.supplier_display_name || "NCC chưa đặt tên"}</h3><p className="break-words text-sm text-slate-700">{activeSuggestion.product_code ? `${activeSuggestion.product_code} · ` : ""}{activeSuggestion.product_name} · {activeSuggestion.purchase_unit || selected.default_unit || "—"}</p></div>
           <Badge className="w-fit bg-white text-emerald-800 hover:bg-white">{suggestionSourceLabel(activeSuggestion.candidate_source)}</Badge>
         </div>
         <p className="mt-2 text-sm text-slate-600">Bằng chứng: {activeSuggestion.evidence_count || 0} dòng · Dự kiến đồng bộ Duyệt chi: {activeSuggestion.payment_candidate_count || 0} dòng</p>
       </div>}
-      {suggestions.length > 1 && <div className="grid gap-2"><Label>Chọn NCC khác</Label><Select value={selectedKey} onValueChange={setSelectedKey} disabled={!canMutate}><SelectTrigger className="min-h-11 min-w-0"><SelectValue placeholder="Chọn NCC khác" /></SelectTrigger><SelectContent>{suggestions.map((row) => <SelectItem key={materialSuggestionKey(row)} value={materialSuggestionKey(row)}>{row.supplier_display_name || "NCC chưa đặt tên"} · {row.product_name} · {row.purchase_unit || "—"}</SelectItem>)}</SelectContent></Select></div>}
+      {suggestions.length > 0 && <div className="grid gap-2"><Label>Chọn NCC khác trong gợi ý</Label><Select value={activeSuggestion ? materialSuggestionKey(activeSuggestion) : ""} onValueChange={chooseSuggestion} disabled={!canMutate}><SelectTrigger className="min-h-11 min-w-0"><SelectValue placeholder="Chọn NCC khác" /></SelectTrigger><SelectContent>{suggestions.map((row) => <SelectItem key={materialSuggestionKey(row)} value={materialSuggestionKey(row)}>{row.supplier_display_name || "NCC chưa đặt tên"} · {row.product_name} · {row.purchase_unit || "—"}</SelectItem>)}</SelectContent></Select></div>}
+      <div className="grid gap-3 rounded-2xl border bg-slate-50 p-4 md:grid-cols-3">
+        <div className="grid gap-2"><Label>Chọn nhà cung cấp</Label><Select value={manualSupplierId || "none"} onValueChange={chooseManualSupplier} disabled={!canMutate}><SelectTrigger className="min-h-11 min-w-0"><SelectValue placeholder="Chọn nhà cung cấp" /></SelectTrigger><SelectContent><SelectItem value="none">Chưa chọn</SelectItem>{suppliers.map((supplier) => <SelectItem key={supplier.id} value={supplier.id}>{supplier.name || "NCC chưa đặt tên"}</SelectItem>)}</SelectContent></Select></div>
+        <div className="grid gap-2"><Label htmlFor="manual-supplier-product-name">Tên hàng tại NCC</Label><Input id="manual-supplier-product-name" value={manualProductName} onChange={(event) => setManualProductName(event.target.value)} disabled={!canMutate || !manualSupplierId} /></div>
+        <div className="grid gap-2"><Label htmlFor="manual-supplier-purchase-unit">Đơn vị mua</Label><Input id="manual-supplier-purchase-unit" value={manualPurchaseUnit} onChange={(event) => setManualPurchaseUnit(event.target.value)} disabled={!canMutate || !manualSupplierId} /></div>
+      </div>
       {canMutate && <div className="grid gap-2"><Label htmlFor="supplier-confirm-reason">Lý do xác nhận</Label><Textarea id="supplier-confirm-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="VD: Đã đối chiếu NCC gợi ý với Giá vốn và Duyệt chi..." /></div>}
       {canMutate && <Button className="min-h-11 w-full sm:w-auto" onClick={submit} disabled={!canConfirm || confirmSupplier.isPending}>{confirmSupplier.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}Xác nhận và lưu</Button>}
       {confirmedSuggestion && <PaymentRequestBulkSync selected={selected} suggestion={confirmedSuggestion} canMutate={canMutate} />}
@@ -504,7 +531,7 @@ export default function MaterialMasterAdmin() {
 
             <TabsContent value="suppliers" className="space-y-3">
               {selected && canMutate && <Button variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => openMaterialEditor(selected)}><Edit3 className="mr-2 h-4 w-4" />Điều chỉnh thông tin NVL</Button>}
-              <MaterialSupplierReview selected={selected} canMutate={canMutate} />
+              <MaterialSupplierReview key={selected?.id || "none"} selected={selected} suppliers={data?.suppliers || []} canMutate={canMutate} />
               <MaterialPaymentRequestLinks selected={selected} canMutate={canMutate} />
               <ReadOnlyTable<SupplierProduct> title="Sản phẩm Nhà cung cấp" description="Tên hàng và đơn vị mua của Nhà cung cấp đã liên kết với NVL chuẩn." rows={supplierProducts} render={(row) => <div key={row.id} className="rounded-2xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{row.supplier_product_name || row.supplier_product_code || "Sản phẩm chưa đặt tên"}</h3>{statusBadge(row.approved)}</div><p className="text-sm text-slate-600">Nhà cung cấp: {supplierById.get(row.supplier_id || "") || "Chưa rõ"} · Đơn vị mua: {row.purchase_unit || "—"} · Đơn vị chuẩn: {row.base_unit || "—"}</p></div>} />
               <Button variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => openConfirmationQueue("all")}>Đi tới Cần xác nhận</Button>
