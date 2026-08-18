@@ -64,8 +64,16 @@ export interface KitchenItem {
   unit: string;
   standard_unit_cost: number;
   active: boolean;
+  canonical_material_id?: string | null;
+  canonical_materials?: KitchenCanonicalMaterial | KitchenCanonicalMaterial[] | null;
   trusted_source_batch_id: string | null;
   updated_at: string;
+}
+
+export interface KitchenCanonicalMaterial {
+  material_code: string | null;
+  canonical_name: string | null;
+  default_unit: string | null;
 }
 
 export interface KitchenMovement {
@@ -132,7 +140,7 @@ export function useKitchenInventory(periodMonth: string) {
     queryFn: async () => {
       const { data, error } = await kitchenDb
         .from("kitchen_inventory_items")
-        .select("id,item_code,item_type,name,unit,standard_unit_cost,active,trusted_source_batch_id,updated_at")
+        .select("id,item_code,item_type,name,unit,standard_unit_cost,active,canonical_material_id,canonical_materials:sku_cogs_materials!kitchen_inventory_items_canonical_material_id_fkey(material_code,canonical_name,default_unit),trusted_source_batch_id,updated_at")
         .order("item_code", { ascending: true });
       if (error) throw error;
       return (data || []) as KitchenItem[];

@@ -7,6 +7,8 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 PAGE = ROOT / "src/pages/Q7MaterialInventory.tsx"
 HOOK = ROOT / "src/hooks/useQ7MaterialInventory.ts"
+KITCHEN_HOOK = ROOT / "src/hooks/useKitchenInventory.ts"
+KITCHEN_ITEM_MASTER = ROOT / "src/pages/kitchen-inventory/ItemMasterTab.tsx"
 QUEUE = ROOT / "src/components/q7-material-inventory/Q7SignedMaterialIssueQueue.tsx"
 ROUTES = ROOT / "src/components/AppRoutes.tsx"
 SIDEBAR = ROOT / "src/components/layout/Sidebar.tsx"
@@ -16,7 +18,7 @@ PLANNING = ROOT / "src/pages/ProductionPlanning.tsx"
 
 FORBIDDEN_SAFE_SOURCE = (
   "unit_cost", "standard_unit_cost", "total_amount", "amount", "price", "unit_price", "line_total",
-  "material_code", "sku_code", "BOM", "bom", "pdf_path", "signed_file_path", "pdf_sha256",
+  "sku_code", "BOM", "bom", "pdf_path", "signed_file_path", "pdf_sha256",
   "signed_file_sha256", "storage_path", "download_url", "source_ref_id", "hash",
 )
 
@@ -76,7 +78,7 @@ def test_mobile_tabs_and_audit_entry_are_clear_and_name_based() -> None:
     audit_region = region(page, '<TabsContent value="audit">', '</TabsContent>')
     assert 'Ghi nhận nhập hôm nay' not in audit_region
     assert 'Tên NVL Q7' in audit_region
-    assert '<Select value={openingItemId}' in audit_region
+    assert 'Q7MaterialPicker id="q7-opening-item"' in audit_region
     assert 'Tự động theo NVL đã chọn' in audit_region
     assert 'ID NVL Q7' not in page
 
@@ -108,6 +110,52 @@ def test_receipt_and_opening_forms_call_exact_rpcs_with_no_cost_and_double_submi
     assert '!selectedSignedFile?.file' in read(QUEUE)
     for forbidden in ("price", "cost", "unit_cost", "amount", "Đơn giá", "Chi phí", "Thành tiền"):
         assert forbidden not in (page + hook)
+
+
+def test_q7_picker_uses_approved_canonical_rpc_and_shared_searchable_labels() -> None:
+    page, hook = read(PAGE), read(HOOK)
+    assert 'rpc("get_q7_inventory_picker")' in hook
+    for field in [
+        "kitchen_inventory_item_id", "canonical_material_id", "q7_mapping_id", "material_code",
+        "canonical_name", "canonical_default_unit", "location_unit", "display_label", "active",
+    ]:
+        assert field in hook
+    assert 'useQ7InventoryPicker' in page
+    assert 'q7PickerRows' in page
+    assert 'const selectedReceiptPickerItem = q7PickerRows.find((row) => row.kitchen_inventory_item_id === receiptItemId)' in page
+    assert 'const selectedOpeningPickerItem = q7PickerRows.find((row) => row.kitchen_inventory_item_id === openingItemId)' in page
+    assert 'setReceiptUnit(selected.location_unit || "")' in page
+    assert 'setOpeningUnit(selected.location_unit || "")' in page
+    assert 'Q7MaterialPicker' in page
+    assert 'placeholder="Tìm theo mã, tên chuẩn, đơn vị location..."' in page
+    assert 'Mã · Tên chuẩn · đơn vị location' in page
+    assert 'selected?.display_label || selected?.canonical_name || "Chọn nguyên vật liệu"' in page
+    assert 'max-h-[min(70vh,420px)] overflow-y-auto' in page
+    assert 'break-words' in page and 'min-w-0' in page
+    receipt_region = region(page, '<TabsContent value="receipt">', '</TabsContent>')
+    audit_region = region(page, '<TabsContent value="audit">', '</TabsContent>')
+    assert 'Q7MaterialPicker' in receipt_region and 'Q7MaterialPicker' in audit_region
+    assert 'q7PickerRows.map' in page
+    assert 'rows.map((row) => <SelectItem' not in page
+
+
+def test_kitchen_item_master_is_read_only_canonical_link_view_not_second_master_crud() -> None:
+    kitchen_hook, item_master = read(KITCHEN_HOOK), read(KITCHEN_ITEM_MASTER)
+    assert 'canonical_material_id?: string | null;' in kitchen_hook
+    assert 'canonical_materials?: KitchenCanonicalMaterial | KitchenCanonicalMaterial[] | null;' in kitchen_hook
+    assert 'canonical_materials:sku_cogs_materials!kitchen_inventory_items_canonical_material_id_fkey(material_code,canonical_name,default_unit)' in kitchen_hook
+    assert 'Danh mục liên kết chuẩn kho bếp' in item_master
+    assert 'Chỉ đọc: mỗi dòng là link kho bếp tới vật tư chuẩn trung tâm' in item_master
+    assert 'Mã chuẩn' in item_master and 'Tên chuẩn trung tâm' in item_master and 'Đơn vị location' in item_master
+    assert 'Chưa liên kết chuẩn' in item_master
+    assert 'Active' not in item_master and 'Inactive' not in item_master
+    assert 'Đang dùng' in item_master and 'Ngưng dùng' in item_master
+    assert 'Search...' not in item_master
+    assert 'placeholder="Tìm theo mã, tên chuẩn, đơn vị..."' in item_master
+    assert 'money(' not in item_master
+    assert 'Giá chuẩn' not in item_master
+    for crud_token in ("onSubmit", "handleCreate", "handleUpdate", "handleDelete", "Thêm", "Xóa", "Sửa"):
+        assert crud_token not in item_master
 
 
 def test_movement_history_safe_selects_and_actual_review_loaded_before_confirm() -> None:

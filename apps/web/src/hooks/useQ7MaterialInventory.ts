@@ -26,6 +26,18 @@ export type Q7InventoryMovementRow = {
   kitchen_inventory_items?: { name?: string | null } | { name?: string | null }[] | null;
 };
 
+export type Q7InventoryPickerRow = {
+  kitchen_inventory_item_id: string;
+  canonical_material_id: string;
+  q7_mapping_id: string;
+  material_code: string;
+  canonical_name: string;
+  canonical_default_unit: string;
+  location_unit: string;
+  display_label: string;
+  active: boolean;
+};
+
 export function useQ7InventorySnapshot(asOfDate: string) {
   return useQuery<Q7InventorySnapshotRow[]>({
     queryKey: ["q7_inventory_snapshot", asOfDate],
@@ -50,6 +62,17 @@ export function useQ7InventoryMovements(asOfDate: string) {
         .limit(200);
       if (error) throw error;
       return (data || []) as Q7InventoryMovementRow[];
+    },
+  });
+}
+
+export function useQ7InventoryPicker() {
+  return useQuery<Q7InventoryPickerRow[]>({
+    queryKey: ["q7_inventory_picker"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc("get_q7_inventory_picker");
+      if (error) throw error;
+      return (data || []) as Q7InventoryPickerRow[];
     },
   });
 }
