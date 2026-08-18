@@ -36,6 +36,20 @@ export type DailyBreadOrderMessageInput = {
   vietjetQuantity: number;
 };
 
+export type WarehouseKioskBreadDispatchLocation = {
+  locationCode: string;
+  locationName: string;
+  orderQuantity: number;
+  shortageQuantity: number;
+  returnsQuantity: number;
+  wasteQuantity: number;
+};
+
+export type WarehouseKioskBreadDispatchInput = {
+  orderDate: string;
+  locations: WarehouseKioskBreadDispatchLocation[];
+};
+
 const FORMULA_VERSION = "peak-7d-plus-10pct-minus-closing-round10-lunar-off-v2";
 const VIETNAM_OFFSET_MS = 7 * 60 * 60 * 1000;
 const LUNAR_DAY_30_OFF_CODES = new Set(["HCM001-BV", "HCM002-PVC"]);
@@ -176,6 +190,59 @@ export function buildDailyBreadOrderMessage(input: DailyBreadOrderMessageInput):
     `Xe: ${formatQuantity(vehicle)}`,
     `Tổng BMQ: ${formatQuantity(roundedTotalBmq)}`,
     `Viet Jet: ${formatQuantity(roundedVietjet)}`,
+  ].join("\n");
+}
+
+const WAREHOUSE_DISPATCH_LOCATION_ORDER = [
+  "HCM001-BV",
+  "HCM004-BHN",
+  "HCM003-BVĐ",
+  "HCM002-PVC",
+  "HCM005-TN",
+];
+
+const warehouseDispatchOrder = (locationCode: string): number => {
+  const index = WAREHOUSE_DISPATCH_LOCATION_ORDER.indexOf(locationCode.trim().toUpperCase());
+  return index >= 0 ? index : WAREHOUSE_DISPATCH_LOCATION_ORDER.length;
+};
+
+const warehousePointName = (value: string, fallback: string): string => {
+  const name = value.trim().replace(/^\d+\s+/, "").trim();
+  return name || fallback.trim() || "Điểm bán";
+};
+
+export function buildWarehouseKioskBreadDispatchMessage(input: WarehouseKioskBreadDispatchInput): string {
+  const match = input.orderDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) throw new Error("invalid_warehouse_kiosk_bread_dispatch_date");
+  const [, , month, day] = match;
+  const locations = [...input.locations].sort((left, right) => {
+    const orderDifference = warehouseDispatchOrder(left.locationCode) - warehouseDispatchOrder(right.locationCode);
+    if (orderDifference !== 0) return orderDifference;
+    return left.locationCode.localeCompare(right.locationCode, "vi");
+  });
+  if (locations.length === 0) throw new Error("warehouse_kiosk_bread_dispatch_has_no_locations");
+
+  let totalOrdered = 0;
+  let totalMakeup = 0;
+  let totalExchange = 0;
+  const lines = locations.map((location) => {
+    const ordered = quantity(location.orderQuantity);
+    const makeup = quantity(location.shortageQuantity);
+    const exchange = quantity(location.returnsQuantity) + quantity(location.wasteQuantity);
+    totalOrdered += ordered;
+    totalMakeup += makeup;
+    totalExchange += exchange;
+    const extras: string[] = [];
+    if (makeup > 0) extras.push(`bù${formatQuantity(makeup)}`);
+    if (exchange > 0) extras.push(`đổi${formatQuantity(exchange)}`);
+    const suffix = extras.length > 0 ? ` ${extras.join(" ")}que` : "";
+    return `${warehousePointName(location.locationName, location.locationCode)} ${formatQuantity(ordered)}${suffix}`;
+  });
+
+  return [
+    `Đặt bánh ${Number(day)}/${Number(month)}`,
+    ...lines,
+    `Tc: ${formatQuantity(totalOrdered)} bù${formatQuantity(totalMakeup)} đổi${formatQuantity(totalExchange)}`,
   ].join("\n");
 }
 
