@@ -11,7 +11,9 @@ import {
   hashReportSessionToken,
   jsonResponse,
   normalizeDealerPhone,
+  publicVerifiedReportOtpPayload,
   readJsonBody,
+  resolvePostOtpAttendanceEnabled,
 } from "../_shared/report.ts";
 
 serve(async (req) => {
@@ -112,9 +114,11 @@ serve(async (req) => {
 
     const result = verification as {
       status?: string;
+      actor_type?: "report_staff" | "delivery_staff";
       expires_at?: string;
       staff?: Record<string, unknown>;
-      location?: Record<string, unknown>;
+      delivery_staff?: Record<string, unknown>;
+      location?: Record<string, unknown> | null;
     } | null;
 
     if (result?.status === "otp_max_attempts") {
@@ -125,20 +129,24 @@ serve(async (req) => {
       return errorResponse(req, "Nhân viên hoặc điểm bán đang tạm ngưng. Vui lòng liên hệ quản lý.", 403, "report_staff_inactive");
     }
 
-    if (result?.status !== "verified" || !result.expires_at || !result.staff || !result.location) {
+    const isVerifiedReportStaff = result?.actor_type === "report_staff" && result.staff && result.location;
+    const isVerifiedDeliveryStaff = result?.actor_type === "delivery_staff" && result.delivery_staff;
+    if (result?.status !== "verified" || !result.expires_at || (!isVerifiedReportStaff && !isVerifiedDeliveryStaff)) {
       return errorResponse(req, "Mã OTP không đúng hoặc đã hết hạn.", 401, "otp_invalid_or_expired");
     }
+
+    const attendanceEnabled = await resolvePostOtpAttendanceEnabled(supabase, result);
+    const publicActor = publicVerifiedReportOtpPayload(result);
 
     return jsonResponse(req, {
       success: true,
       report_token: sessionToken,
       expires_at: result.expires_at,
-      staff: result.staff,
-      location: result.location,
+      ...publicActor,
+      attendance_enabled: attendanceEnabled === true,
     });
   } catch (error) {
     console.error("[report-auth-verify] Unexpected error", error);
-    const message = error instanceof Error ? error.message : "Không thể xác thực OTP";
-    return errorResponse(req, message, 500, "report_auth_verify_failed");
+    return errorResponse(req, "Không thể xác thực OTP. Vui lòng thử lại sau.", 500, "report_auth_verify_failed");
   }
 });

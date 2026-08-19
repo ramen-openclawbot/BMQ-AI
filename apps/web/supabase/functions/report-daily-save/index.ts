@@ -11,6 +11,7 @@ import {
   jsonResponse,
   publicReportStaffProfile,
   readJsonBody,
+  requireKioskReportStaffSession,
   resolveReportSession,
   vietnamToday,
 } from "../_shared/report.ts";
@@ -95,14 +96,23 @@ serve(async (req) => {
     if (!sessionContext) {
       return errorResponse(req, "Phiên báo cáo đã hết hạn. Vui lòng đăng nhập lại.", 401, "report_session_invalid");
     }
+    const reportSession = requireKioskReportStaffSession(sessionContext);
+    if (!reportSession) {
+      return errorResponse(
+        req,
+        "Nhân viên giao hàng không có quyền gửi báo cáo điểm bán.",
+        403,
+        "delivery_staff_forbidden",
+      );
+    }
 
-    const currentLocationId = sessionContext.session.location_id;
+    const currentLocationId = reportSession.session.location_id;
     if (!currentLocationId) {
       return errorResponse(req, "Không xác định được current location/date của nhân viên.", 403, "report_location_required");
     }
 
     const notes = String(body.notes || "").trim() || null;
-    const profile = publicReportStaffProfile(sessionContext.staff, sessionContext.location);
+    const profile = publicReportStaffProfile(reportSession.staff, reportSession.location);
     const { data: activeChannels, error: activeChannelsError } = await supabase
       .from("kiosk_report_channels")
       .select("code")
@@ -160,12 +170,12 @@ serve(async (req) => {
       "save_kiosk_daily_report_atomic",
       {
         p_location_id: currentLocationId,
-        p_staff_id: sessionContext.session.staff_id,
+        p_staff_id: reportSession.session.staff_id,
         p_report_date: reportDate,
         p_status: status,
         p_notes: notes?.slice(0, 2000) || null,
         p_staff_name_snapshot: profile.staff.full_name || "Nhân viên",
-        p_staff_phone_normalized_snapshot: sessionContext.staff.phone_normalized || "",
+        p_staff_phone_normalized_snapshot: reportSession.staff.phone_normalized || "",
         p_location_code_snapshot: profile.location.code || null,
         p_location_name_snapshot: profile.location.name || "Điểm bán",
         p_location_address_snapshot: profile.location.address || null,
@@ -207,7 +217,6 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error("[report-daily-save] Unexpected error", error);
-    const message = error instanceof Error ? error.message : "Không thể lưu báo cáo";
-    return errorResponse(req, message, 500, "report_daily_save_failed");
+    return errorResponse(req, "Không thể lưu báo cáo. Vui lòng thử lại sau.", 500, "report_daily_save_failed");
   }
 });

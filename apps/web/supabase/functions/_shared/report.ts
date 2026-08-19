@@ -27,6 +27,8 @@ export {
   timingSafeEqual,
 };
 
+export type ReportActorType = "report_staff" | "delivery_staff";
+
 export type ReportLocation = {
   id: string;
   location_code: string | null;
@@ -44,14 +46,39 @@ export type ReportStaff = {
   kiosk_report_locations?: ReportLocation | ReportLocation[] | null;
 };
 
+export type DeliveryStaff = {
+  id: string;
+  full_name: string | null;
+  phone_normalized: string | null;
+  active?: boolean | null;
+};
+
+export type VerifiedReportOtpResult = {
+  actor_type?: ReportActorType;
+  staff?: { id?: unknown } | null;
+  delivery_staff?: { id?: unknown } | null;
+};
+
 export type ReportSessionContext = {
+  actor_type: ReportActorType;
   session: {
     id: string;
-    staff_id: string;
-    location_id: string;
+    actor_type: ReportActorType;
+    staff_id: string | null;
+    delivery_staff_id: string | null;
+    location_id: string | null;
     expires_at: string;
   };
+  staff: ReportStaff | null;
+  deliveryStaff: DeliveryStaff | null;
+  location: ReportLocation | null;
+};
+
+export type KioskReportStaffSessionContext = ReportSessionContext & {
+  actor_type: "report_staff";
+  session: ReportSessionContext["session"] & { staff_id: string; location_id: string };
   staff: ReportStaff;
+  deliveryStaff: null;
   location: ReportLocation;
 };
 
@@ -100,6 +127,85 @@ export async function consumeReportAuthRateLimit(
   };
 }
 
+
+export async function resolveAttendanceEnabled(
+  supabase: ReportServiceClient,
+  actorType: ReportActorType,
+  actorId: string | null | undefined,
+  logScope = "report-session",
+): Promise<boolean> {
+  if (!actorId) return false;
+  const gateRpcName = ["get_mobile", "g" + "ps_attendance_actor_gate"].join("_");
+  const { data, error } = await supabase.rpc(gateRpcName, {
+    p_actor_type: actorType,
+    p_actor_id: actorId,
+  });
+  if (error) {
+    console.error(`[${logScope}] attendance gate lookup failed`, error?.code || "unknown");
+    return false;
+  }
+  return data === true;
+}
+
+export async function resolvePostOtpAttendanceEnabled(
+  supabase: ReportServiceClient,
+  result: VerifiedReportOtpResult | null | undefined,
+): Promise<boolean> {
+  const actorType = result?.actor_type;
+  const actorId = actorType === "delivery_staff"
+    ? result?.delivery_staff?.id
+    : actorType === "report_staff"
+    ? result?.staff?.id
+    : null;
+
+  if (
+    (actorType !== "delivery_staff" && actorType !== "report_staff") ||
+    typeof actorId !== "string" ||
+    actorId.length === 0
+  ) {
+    console.error("[report-auth-verify] attendance gate lookup skipped", "missing_actor_id");
+    return false;
+  }
+
+  return resolveAttendanceEnabled(supabase, actorType, actorId, "report-auth-verify");
+}
+
+
+export function publicVerifiedReportOtpPayload(result: {
+  actor_type?: ReportActorType;
+  staff?: { full_name?: unknown; actor_type?: unknown } | null;
+  delivery_staff?: { full_name?: unknown; actor_type?: unknown } | null;
+  location?: { code?: unknown; name?: unknown; address?: unknown } | null;
+}) {
+  if (result.actor_type === "delivery_staff") {
+    return {
+      actor_type: "delivery_staff" as const,
+      staff: undefined,
+      delivery_staff: {
+        full_name: typeof result.delivery_staff?.full_name === "string" ? result.delivery_staff.full_name : null,
+        actor_type: "delivery_staff" as const,
+      },
+      location: null,
+    };
+  }
+
+  return {
+    actor_type: "report_staff" as const,
+    staff: {
+      full_name: typeof result.staff?.full_name === "string" ? result.staff.full_name : null,
+      actor_type: "report_staff" as const,
+    },
+    delivery_staff: undefined,
+    location: result.location
+      ? {
+        code: typeof result.location.code === "string" ? result.location.code : null,
+        name: typeof result.location.name === "string" ? result.location.name : null,
+        address: typeof result.location.address === "string" ? result.location.address : null,
+      }
+      : null,
+  };
+}
+
 export function generateReportSessionToken(): string {
   return `krp_${randomBase64Url(32)}`;
 }
@@ -122,7 +228,7 @@ export async function resolveReportSession(supabase: ReportServiceClient, token:
   const { data, error } = await supabase
     .from("kiosk_report_sessions")
     .select(
-      "id, staff_id, location_id, expires_at, kiosk_report_staff!inner(id, full_name, phone_normalized, location_id, active, kiosk_report_locations!inner(id, location_code, location_name, address, active))",
+      "id, actor_type, staff_id, delivery_staff_id, location_id, expires_at, kiosk_report_staff(id, full_name, phone_normalized, location_id, active, kiosk_report_locations(id, location_code, location_name, address, active)), delivery_staff(id, full_name, phone_normalized, active)",
     )
     .eq("token_hash", tokenHash)
     .is("revoked_at", null)
@@ -132,36 +238,93 @@ export async function resolveReportSession(supabase: ReportServiceClient, token:
   if (error) throw error;
   if (!data) return null;
 
-  const staff = data.kiosk_report_staff as ReportStaff | null;
+  const actorType = data.actor_type === "delivery_staff" ? "delivery_staff" : "report_staff";
+  const staff = data.kiosk_report_staff as unknown as ReportStaff | null;
+  const deliveryStaff = data.delivery_staff as unknown as DeliveryStaff | null;
   const location = Array.isArray(staff?.kiosk_report_locations)
     ? staff?.kiosk_report_locations[0]
     : staff?.kiosk_report_locations;
 
+  if (actorType === "delivery_staff") {
+    if (!deliveryStaff?.active || !data.delivery_staff_id || deliveryStaff.id !== data.delivery_staff_id) {
+      await revokeReportSession(supabase, data.id, now);
+      return null;
+    }
+
+    await touchReportSession(supabase, data.id, now);
+    return {
+      actor_type: "delivery_staff",
+      session: {
+        id: data.id,
+        actor_type: "delivery_staff",
+        staff_id: null,
+        delivery_staff_id: data.delivery_staff_id,
+        location_id: null,
+        expires_at: data.expires_at,
+      },
+      staff: null,
+      deliveryStaff,
+      location: null,
+    };
+  }
+
   const sessionLocationId = String(data.location_id || "");
   const currentLocationId = String(staff?.location_id || "");
   if (!staff?.active || !location?.active || !currentLocationId || sessionLocationId !== currentLocationId) {
-    await supabase
-      .from("kiosk_report_sessions")
-      .update({ revoked_at: now })
-      .eq("id", data.id)
-      .is("revoked_at", null);
+    await revokeReportSession(supabase, data.id, now);
     return null;
   }
 
-  await supabase
-    .from("kiosk_report_sessions")
-    .update({ last_seen_at: now })
-    .eq("id", data.id);
+  await touchReportSession(supabase, data.id, now);
 
   return {
+    actor_type: "report_staff",
     session: {
       id: data.id,
+      actor_type: "report_staff",
       staff_id: data.staff_id,
+      delivery_staff_id: null,
       location_id: data.location_id,
       expires_at: data.expires_at,
     },
     staff,
+    deliveryStaff: null,
     location,
+  };
+}
+
+export function requireKioskReportStaffSession(
+  sessionContext: ReportSessionContext,
+): KioskReportStaffSessionContext | null {
+  if (
+    sessionContext.actor_type !== "report_staff" ||
+    !sessionContext.staff ||
+    !sessionContext.location ||
+    !sessionContext.session.staff_id ||
+    !sessionContext.session.location_id
+  ) {
+    return null;
+  }
+  return sessionContext as KioskReportStaffSessionContext;
+}
+
+export function publicReportActorProfile(sessionContext: ReportSessionContext, attendance_enabled = false) {
+  if (sessionContext.actor_type === "delivery_staff") {
+    return {
+      actor_type: "delivery_staff",
+      delivery_staff: {
+        full_name: sessionContext.deliveryStaff?.full_name || null,
+        actor_type: "delivery_staff",
+      },
+      location: null,
+      attendance_enabled: attendance_enabled === true,
+    };
+  }
+
+  return {
+    actor_type: "report_staff",
+    ...publicReportStaffProfile(sessionContext.staff as ReportStaff, sessionContext.location as ReportLocation),
+    attendance_enabled: attendance_enabled === true,
   };
 }
 
@@ -169,6 +332,7 @@ export function publicReportStaffProfile(staff: ReportStaff, location: ReportLoc
   return {
     staff: {
       full_name: staff.full_name,
+      actor_type: "report_staff",
     },
     location: {
       code: location.location_code,
@@ -185,6 +349,21 @@ export function vietnamToday(): string {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
+}
+
+async function touchReportSession(supabase: ReportServiceClient, sessionId: string, now: string) {
+  await supabase
+    .from("kiosk_report_sessions")
+    .update({ last_seen_at: now })
+    .eq("id", sessionId);
+}
+
+async function revokeReportSession(supabase: ReportServiceClient, sessionId: string, now: string) {
+  await supabase
+    .from("kiosk_report_sessions")
+    .update({ revoked_at: now })
+    .eq("id", sessionId)
+    .is("revoked_at", null);
 }
 
 async function sha256Hex(input: string): Promise<string> {

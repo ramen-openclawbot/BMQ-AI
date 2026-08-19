@@ -1,0 +1,6 @@
+-- Attach manual override linked-evidence validation trigger.
+
+drop trigger if exists mobile_gps_attendance_manual_overrides_insert_validate on public.mobile_gps_attendance_manual_overrides;
+create trigger mobile_gps_attendance_manual_overrides_insert_validate
+before insert on public.mobile_gps_attendance_manual_overrides
+for each row execute function public.validate_mobile_gps_attendance_manual_override_insert();

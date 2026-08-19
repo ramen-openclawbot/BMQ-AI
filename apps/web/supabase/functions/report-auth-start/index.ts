@@ -25,6 +25,24 @@ const genericAuthStartResponse = (req: Request) =>
     message: GENERIC_AUTH_START_MESSAGE,
   });
 
+const edgeRuntime = (globalThis as typeof globalThis & {
+  EdgeRuntime?: { waitUntil?: (promise: Promise<unknown>) => void };
+}).EdgeRuntime;
+
+function scheduleReportOtpDelivery(createTask: () => Promise<unknown>) {
+  const waitUntil = edgeRuntime?.waitUntil;
+  if (!waitUntil) {
+    console.error("[report-auth-start] EdgeRuntime.waitUntil is unavailable; OTP delivery not scheduled");
+    return false;
+  }
+
+  const task = createTask();
+  task.catch((error) => console.error("[report-auth-start] Background OTP delivery failed", error));
+  const EdgeRuntime = { waitUntil };
+  EdgeRuntime.waitUntil(task);
+  return true;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return corsPreflightResponse(req);
@@ -80,42 +98,38 @@ serve(async (req) => {
       }, 429);
     }
 
-    const { data: staffRows, error: staffError } = await supabase
-      .from("kiosk_report_staff")
-      .select(
-        "id, full_name, phone_normalized, location_id, active, kiosk_report_locations!inner(id, location_code, location_name, address, active)",
-      )
-      .eq("phone_normalized", phoneNormalized)
-      .eq("active", true)
-      .eq("kiosk_report_locations.active", true)
-      .limit(2);
+    const [staffRes, deliveryRes] = await Promise.all([
+      supabase
+        .from("kiosk_report_staff")
+        .select(
+          "id, full_name, phone_normalized, location_id, active, kiosk_report_locations!inner(id, location_code, location_name, address, active)",
+        )
+        .eq("phone_normalized", phoneNormalized)
+        .eq("active", true)
+        .eq("kiosk_report_locations.active", true)
+        .limit(2),
+      supabase
+        .from("delivery_staff")
+        .select("id, full_name, phone_normalized, active")
+        .eq("phone_normalized", phoneNormalized)
+        .eq("active", true)
+        .limit(2),
+    ]);
 
-    if (staffError) throw staffError;
+    if (staffRes.error) throw staffRes.error;
+    if (deliveryRes.error) throw deliveryRes.error;
 
-    if (!staffRows?.length) {
+    const staffRows = staffRes.data || [];
+    const deliveryRows = deliveryRes.data || [];
+    if (staffRows.length + deliveryRows.length !== 1) {
       return genericAuthStartResponse(req);
     }
 
-    if (staffRows.length > 1) {
-      return genericAuthStartResponse(req);
-    }
-
-    const cooldownSince = new Date(Date.now() - OTP_RESEND_COOLDOWN_SECONDS * 1000).toISOString();
-    const { data: recentChallenge, error: cooldownError } = await supabase
-      .from("kiosk_report_otp_challenges")
-      .select("id")
-      .eq("phone_normalized", phoneNormalized)
-      .gte("created_at", cooldownSince)
-      .limit(1)
-      .maybeSingle();
-
-    if (cooldownError) throw cooldownError;
-
-    if (recentChallenge) {
-      return genericAuthStartResponse(req);
-    }
-
-    const staff = staffRows[0];
+    const staff = staffRows[0] || null;
+    const deliveryStaff = deliveryRows[0] || null;
+    const reportChallengeActor = { actor_type: "report_staff" as const };
+    const deliveryChallengeActor = { actor_type: "delivery_staff" as const };
+    const actorPayload = staff ? reportChallengeActor : deliveryChallengeActor;
 
     // Dealer auth may allow log-only OTP delivery during local development.
     // The public report portal always fails closed so an accidental production
@@ -125,76 +139,113 @@ serve(async (req) => {
       return genericAuthStartResponse(req);
     }
 
-    const challengeId = crypto.randomUUID();
-    const otp = generateDealerOtp();
-    const expiresAt = getOtpExpiresAt();
-    const otpHash = await hashReportOtp(challengeId, phoneNormalized, otp);
+    scheduleReportOtpDelivery(() => sendEligibleReportOtpChallenge({
+      supabase,
+      phoneNormalized,
+      requestMeta,
+      staff,
+      deliveryStaff,
+      actorPayload,
+    }));
+
+    return genericAuthStartResponse(req);
+  } catch (error) {
+    console.error("[report-auth-start] Unexpected error", error);
+    return errorResponse(
+      req,
+      "Không thể bắt đầu xác thực báo cáo. Vui lòng thử lại sau.",
+      500,
+      "report_auth_start_failed",
+    );
+  }
+});
+
+async function sendEligibleReportOtpChallenge({
+  supabase,
+  phoneNormalized,
+  requestMeta,
+  staff,
+  deliveryStaff,
+  actorPayload,
+}: {
+  supabase: ReturnType<typeof createServiceClient>;
+  phoneNormalized: string;
+  requestMeta: ReturnType<typeof getRequestMetadata>;
+  staff: { id: string; location_id: string | null } | null;
+  deliveryStaff: { id: string } | null;
+  actorPayload: { actor_type: "report_staff" } | { actor_type: "delivery_staff" };
+}) {
+  const challengeId = crypto.randomUUID();
+  const otp = generateDealerOtp();
+  const expiresAt = getOtpExpiresAt();
+  const otpHash = await hashReportOtp(challengeId, phoneNormalized, otp);
+  const { data: challengeResult, error: challengeError } = await supabase
+    .rpc("create_kiosk_report_otp_challenge_atomic", {
+      p_challenge_id: challengeId,
+      p_phone_normalized: phoneNormalized,
+      p_otp_hash: otpHash,
+      p_expires_at: expiresAt,
+      p_request_ip: requestMeta.request_ip,
+      p_user_agent: requestMeta.user_agent,
+      p_actor_type: actorPayload.actor_type,
+      p_staff_id: staff?.id ?? null,
+      p_location_id: staff?.location_id ?? null,
+      p_delivery_staff_id: deliveryStaff?.id ?? null,
+    });
+
+  if (challengeError) throw challengeError;
+
+  const status = typeof challengeResult === "object" && challengeResult !== null && "status" in challengeResult
+    ? String((challengeResult as { status?: unknown }).status || "")
+    : "";
+
+  if (status === "cooldown") {
+    console.info(`[report-auth-start] OTP cooldown active (${OTP_RESEND_COOLDOWN_SECONDS}s)`);
+    return;
+  }
+
+  if (status === "created") {
+    // Only the transaction that acquired a send lease reaches the provider call below.
+  } else {
+    throw new Error("unexpected_report_otp_challenge_status");
+  }
+
+  try {
+    const sendResult = await sendDealerOtpZns({
+      phoneNormalized,
+      otp,
+      challengeId,
+    });
+
+    await supabase
+      .from("kiosk_report_otp_challenges")
+      .update({
+        sent_at: new Date().toISOString(),
+        send_provider: sendResult.provider,
+        send_status: sendResult.skipped ? "dev_skipped" : "sent",
+      })
+      .eq("id", challengeId)
+      .eq("send_status", "pending");
+
+    if (sendResult.skipped) {
+      await supabase
+        .from("kiosk_report_otp_challenges")
+        .update({ consumed_at: new Date().toISOString() })
+        .eq("id", challengeId)
+        .eq("send_status", "dev_skipped");
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Không gửi được Zalo ZNS OTP";
+    console.error("[report-auth-start] ZNS send failed", message);
+
     await supabase
       .from("kiosk_report_otp_challenges")
       .update({
         consumed_at: new Date().toISOString(),
-        send_status: "superseded",
+        send_status: "failed",
+        send_error: message,
       })
-      .eq("phone_normalized", phoneNormalized)
-      .is("consumed_at", null);
-
-    const { error: insertError } = await supabase
-      .from("kiosk_report_otp_challenges")
-      .insert({
-        id: challengeId,
-        staff_id: staff.id,
-        location_id: staff.location_id,
-        phone_normalized: phoneNormalized,
-        otp_hash: otpHash,
-        expires_at: expiresAt,
-        request_ip: requestMeta.request_ip,
-        user_agent: requestMeta.user_agent,
-      });
-
-    if (insertError) throw insertError;
-
-    try {
-      const sendResult = await sendDealerOtpZns({
-        phoneNormalized,
-        otp,
-        challengeId,
-      });
-
-      await supabase
-        .from("kiosk_report_otp_challenges")
-        .update({
-          sent_at: new Date().toISOString(),
-          send_provider: sendResult.provider,
-          send_status: sendResult.skipped ? "dev_skipped" : "sent",
-        })
-        .eq("id", challengeId);
-
-      if (sendResult.skipped) {
-        await supabase
-          .from("kiosk_report_otp_challenges")
-          .update({ consumed_at: new Date().toISOString() })
-          .eq("id", challengeId);
-      }
-
-      return genericAuthStartResponse(req);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Không gửi được Zalo ZNS OTP";
-      console.error("[report-auth-start] ZNS send failed", message);
-
-      await supabase
-        .from("kiosk_report_otp_challenges")
-        .update({
-          consumed_at: new Date().toISOString(),
-          send_status: "failed",
-          send_error: message,
-        })
-        .eq("id", challengeId);
-
-      return genericAuthStartResponse(req);
-    }
-  } catch (error) {
-    console.error("[report-auth-start] Unexpected error", error);
-    const message = error instanceof Error ? error.message : "Không thể bắt đầu xác thực báo cáo";
-    return errorResponse(req, message, 500, "report_auth_start_failed");
+      .eq("id", challengeId)
+      .eq("send_status", "pending");
   }
-});
+}

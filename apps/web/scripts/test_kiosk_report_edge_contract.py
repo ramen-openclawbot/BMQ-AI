@@ -6,6 +6,8 @@ ROOT = Path(__file__).resolve().parents[1]
 FUNCTIONS = ROOT / "supabase/functions"
 SHARED = FUNCTIONS / "_shared/report.ts"
 MIGRATION_GLOB = "202608*_kiosk_report*.sql"
+LEGACY_DUAL_PORTAL_EXEMPTION = "20260806215245_kiosk_report_dual_portal_test_access.sql"
+LEGACY_DUAL_PORTAL_EXPECTED_PLPGSQL_COUNT = 2
 
 REPORT_FUNCTIONS = [
     "report-auth-start",
@@ -35,6 +37,11 @@ def test_report_plpgsql_migrations_are_supabase_parser_safe() -> None:
     for path in paths:
         source = read(path)
         function_count = source.lower().count("language plpgsql")
+        if path.name == LEGACY_DUAL_PORTAL_EXEMPTION:
+            assert function_count == LEGACY_DUAL_PORTAL_EXPECTED_PLPGSQL_COUNT, (
+                f"Historical parser exemption drifted in {path.name}"
+            )
+            continue
         assert function_count <= 1, f"Multiple PL/pgSQL functions in {path.name}"
         if function_count:
             function_start = source.lower().index("create or replace function")
@@ -48,6 +55,15 @@ def test_report_plpgsql_migrations_are_supabase_parser_safe() -> None:
                 f"Supabase CLI may group statements after PL/pgSQL function in {path.name}"
             )
 
+
+
+def test_legacy_dual_portal_parser_exemption_is_exact_and_documented() -> None:
+    path = ROOT / "supabase/migrations" / LEGACY_DUAL_PORTAL_EXEMPTION
+    assert path.exists(), f"Missing documented historical exemption: {LEGACY_DUAL_PORTAL_EXEMPTION}"
+    source = read(path).lower()
+    assert source.count("language plpgsql") == LEGACY_DUAL_PORTAL_EXPECTED_PLPGSQL_COUNT
+    newest_paths = [p.name for p in (ROOT / "supabase/migrations").glob(MIGRATION_GLOB) if p.name != LEGACY_DUAL_PORTAL_EXEMPTION]
+    assert LEGACY_DUAL_PORTAL_EXEMPTION not in newest_paths
 
 def assert_contains(text: str, needle: str, label: str) -> None:
     assert needle in text, f"Missing {label}: {needle!r}"
@@ -93,8 +109,8 @@ def test_report_auth_functions_use_report_tables_and_never_expose_salary() -> No
     for needle, label in [
         ('from("kiosk_report_otp_challenges")', "OTP verify table"),
         ("verify_kiosk_report_otp_atomic", "atomic report session creation"),
-        ("staff: result.staff", "public staff payload"),
-        ("location: result.location", "public location payload"),
+        ("publicVerifiedReportOtpPayload(result)", "sanitized public actor payload"),
+        ("...publicActor", "public response uses sanitized actor payload"),
     ]:
         assert_contains(auth_verify, needle, label)
     for source in [auth_start, auth_verify]:
@@ -222,7 +238,7 @@ def test_bootstrap_session_save_and_logout_contracts() -> None:
     logout = read(FUNCTIONS / "report-auth-logout/index.ts")
     for needle, label in [
         ("resolveReportSession", "session resolver"),
-        ("publicReportStaffProfile", "public staff response"),
+        ("publicReportActorProfile", "public actor response"),
     ]:
         assert_contains(session, needle, label)
     for needle, label in [

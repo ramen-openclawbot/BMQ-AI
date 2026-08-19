@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { CalendarClock, QrCode, Loader2, Users, PencilLine, Lock, LockOpen, CircleCheckBig, CalendarRange } from "lucide-react";
+import { CalendarClock, QrCode, Loader2, Users, PencilLine, Lock, LockOpen, CircleCheckBig, CalendarRange, Radar } from "lucide-react";
 import ShiftPlannerGrid from "@/components/attendance/ShiftPlannerGrid";
 
 interface AttendanceRecordRow {
@@ -27,6 +27,11 @@ interface AttendanceRecordRow {
   missing_check_in: boolean;
   missing_check_out: boolean;
   locked_by_hr: boolean;
+  source_type: string | null;
+  source_event_id: string | null;
+  source_actor_type: string | null;
+  source_distance_m: number | null;
+  source_accuracy_m: number | null;
 }
 
 interface AttendanceEventRow {
@@ -67,6 +72,75 @@ interface AttendancePeriodRow {
   notes: string | null;
 }
 
+interface PilotAttendanceEventRow {
+  id: string;
+  actor_type: "report_staff" | "delivery_staff";
+  employee_code: string;
+  employee_name: string | null;
+  work_date: string;
+  decision: "accepted" | "rejected";
+  reason_code: string;
+  distance_m_rounded: number | null;
+  accuracy_m_rounded: number | null;
+  geofence_code: string | null;
+  geofence_name: string | null;
+  geofence_location_type: string | null;
+  geofence_radius_m: number | null;
+  has_override: boolean;
+  created_at: string;
+}
+
+interface PilotAttendanceMetrics {
+  event_count: number;
+  accepted_count: number;
+  rejected_count: number;
+  low_accuracy_count: number;
+  outside_radius_count: number;
+  duplicate_count: number;
+  override_count: number;
+  success_rate: number;
+}
+
+interface PilotAttendanceDashboard {
+  metrics: PilotAttendanceMetrics;
+  events: PilotAttendanceEventRow[];
+  pagination: {
+    limit: number;
+    offset: number;
+    returned_count: number;
+    total_count: number;
+    has_next_page: boolean;
+  };
+}
+
+function isPostgrestUndefinedColumn(error: any) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || error?.details || "").toLowerCase();
+  const referencesProvenanceColumn = [
+    "source_type",
+    "source_event_id",
+    "source_actor_type",
+    "source_distance_m",
+    "source_accuracy_m",
+  ].some((column) => message.includes(column));
+  const isMissingSchemaMessage = message.includes("could not find")
+    || message.includes("schema cache")
+    || message.includes("does not exist");
+  return code === "42703"
+    || code === "PGRST204"
+    || (referencesProvenanceColumn && isMissingSchemaMessage);
+}
+
+function isPostgrestMissingRpc(error: any) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || error?.details || "").toLowerCase();
+  return code === "PGRST202" || code === "42883" || message.includes("could not find the function") || message.includes("function") && message.includes("schema cache");
+}
+
+const LEGACY_ATTENDANCE_RECORD_SELECT = "id, employee_code, employee_name, work_date, status, actual_check_in, actual_check_out, minutes_late, minutes_early_leave, missing_check_in, missing_check_out, locked_by_hr";
+const PROVENANCE_ATTENDANCE_RECORD_SELECT = `${LEGACY_ATTENDANCE_RECORD_SELECT}, source_type, source_event_id, source_actor_type, source_distance_m, source_accuracy_m`;
+
+
 export default function AttendanceManagement() {
   const { language } = useLanguage();
   const { canEditModule } = useAuth();
@@ -84,6 +158,13 @@ export default function AttendanceManagement() {
   const [periodTo, setPeriodTo] = useState(workDate);
   const [periodName, setPeriodName] = useState("");
   const [periodNotes, setPeriodNotes] = useState("");
+  const [pilotDateFrom, setPilotDateFrom] = useState(workDate);
+  const [pilotDateTo, setPilotDateTo] = useState(workDate);
+  const [pilotEmployeeQuery, setPilotEmployeeQuery] = useState("");
+  const [pilotActorType, setPilotActorType] = useState<"" | "report_staff" | "delivery_staff">("");
+  const [pilotGeofenceQuery, setPilotGeofenceQuery] = useState("");
+  const [pilotDecision, setPilotDecision] = useState<"" | "accepted" | "rejected">("");
+  const [pilotOffset, setPilotOffset] = useState(0);
 
   const copy = useMemo(() => ({
     title: isVi ? "Chấm công" : "Attendance",
@@ -120,6 +201,23 @@ export default function AttendanceManagement() {
     periodBlockedCapture: isVi ? "Ngày này thuộc kỳ đã khóa/chốt, không thể ghi nhận sự kiện." : "Selected date is in a locked/closed period, event capture is disabled.",
     periodBlockedAdjust: isVi ? "Ngày này thuộc kỳ đã khóa/chốt, không thể chỉnh công." : "Selected date is in a locked/closed period, attendance adjustment is disabled.",
     periodRequired: isVi ? "Cần tạo kỳ công trước khi thao tác." : "Create a period first before operations.",
+    pilotDashboard: isVi ? "Pilot GPS" : "GPS pilot",
+    pilotDashboardDesc: isVi ? "Theo dõi chất lượng chấm công GPS, đối soát ngoại lệ và không hiển thị tọa độ thô." : "Monitor GPS attendance quality, reconcile exceptions, and avoid raw coordinate exposure.",
+    dateRange: isVi ? "Khoảng ngày" : "Date range",
+    actorType: isVi ? "Loại nhân sự" : "Actor type",
+    geofence: isVi ? "Địa điểm/geofence" : "Location/geofence",
+    decision: isVi ? "Kết quả" : "Decision",
+    allActors: isVi ? "Tất cả nhân sự" : "All actors",
+    allDecisions: isVi ? "Tất cả kết quả" : "All decisions",
+    reportStaff: isVi ? "Nhân viên điểm bán" : "Kiosk staff",
+    deliveryStaff: isVi ? "Nhân viên giao hàng" : "Delivery staff",
+    accepted: isVi ? "Đạt" : "Accepted",
+    rejected: isVi ? "Từ chối" : "Rejected",
+    successRate: isVi ? "Tỷ lệ đạt" : "Success rate",
+    lowAccuracy: isVi ? "GPS yếu" : "Low accuracy",
+    outsideRadius: isVi ? "Ngoài bán kính" : "Outside radius",
+    overrides: isVi ? "Override" : "Overrides",
+    duplicate: isVi ? "Đã chấm công" : "Already checked in",
   }), [isVi]);
 
   useEffect(() => {
@@ -127,16 +225,33 @@ export default function AttendanceManagement() {
     setPeriodTo((prev) => prev || workDate);
   }, [workDate]);
 
+  useEffect(() => {
+    setPilotOffset(0);
+  }, [pilotDateFrom, pilotDateTo, pilotEmployeeQuery, pilotActorType, pilotGeofenceQuery, pilotDecision]);
+
   const { data: records = [], isLoading: recordsLoading } = useQuery({
     queryKey: ["attendance-records", workDate],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const queryRecords = (columns: string) => (supabase as any)
         .from("attendance_records")
-        .select("id, employee_code, employee_name, work_date, status, actual_check_in, actual_check_out, minutes_late, minutes_early_leave, missing_check_in, missing_check_out, locked_by_hr")
+        .select(columns)
         .eq("work_date", workDate)
         .order("employee_code", { ascending: true });
-      if (error) throw error;
-      return (data || []) as AttendanceRecordRow[];
+
+      const { data, error } = await queryRecords(PROVENANCE_ATTENDANCE_RECORD_SELECT);
+      if (!error) return (data || []) as AttendanceRecordRow[];
+      if (!isPostgrestUndefinedColumn(error)) throw error;
+
+      const legacy = await queryRecords(LEGACY_ATTENDANCE_RECORD_SELECT);
+      if (legacy.error) throw legacy.error;
+      return (legacy.data || []).map((row: any) => ({
+        ...row,
+        source_type: null,
+        source_event_id: null,
+        source_actor_type: null,
+        source_distance_m: null,
+        source_accuracy_m: null,
+      })) as AttendanceRecordRow[];
     },
   });
 
@@ -194,6 +309,52 @@ export default function AttendanceManagement() {
     },
   });
 
+  const { data: pilotAttendanceDashboard, isLoading: pilotAttendanceLoading, isError: pilotAttendanceIsError, error: pilotAttendanceError } = useQuery({
+    queryKey: [
+      "mobile-gps-attendance-pilot-dashboard",
+      pilotDateFrom,
+      pilotDateTo,
+      pilotEmployeeQuery,
+      pilotActorType,
+      pilotGeofenceQuery,
+      pilotDecision,
+      pilotOffset,
+    ],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc("get_mobile_gps_attendance_pilot_dashboard", {
+        p_date_from: pilotDateFrom || null,
+        p_date_to: pilotDateTo || pilotDateFrom || null,
+        p_employee_query: pilotEmployeeQuery.trim() || null,
+        p_actor_type: pilotActorType || null,
+        p_geofence_query: pilotGeofenceQuery.trim() || null,
+        p_decision: pilotDecision || null,
+        p_limit: 50,
+        p_offset: pilotOffset,
+      });
+      if (error) {
+        if (isPostgrestMissingRpc(error)) {
+          return { capability_unavailable: true, metrics: null, events: [], pagination: null } as unknown as PilotAttendanceDashboard & { capability_unavailable: true };
+        }
+        throw error;
+      }
+      return data as PilotAttendanceDashboard;
+    },
+  });
+
+  const pilotCapabilityUnavailable = (pilotAttendanceDashboard as any)?.capability_unavailable === true;
+  const pilotMetrics = pilotAttendanceDashboard?.metrics || {
+    event_count: 0,
+    accepted_count: 0,
+    rejected_count: 0,
+    low_accuracy_count: 0,
+    outside_radius_count: 0,
+    duplicate_count: 0,
+    override_count: 0,
+    success_rate: 0,
+  };
+  const pilotAttendanceEvents = pilotAttendanceDashboard?.events || [];
+  const pilotPagination = pilotAttendanceDashboard?.pagination;
+
   const currentPeriodLocked = !!currentPeriod && currentPeriod.status !== "open";
   const canOperateForDate = canEdit && !currentPeriodLocked;
 
@@ -201,6 +362,13 @@ export default function AttendanceManagement() {
     if (status === "open") return <Badge className="bg-emerald-600 hover:bg-emerald-600">{copy.open}</Badge>;
     if (status === "locked") return <Badge variant="secondary">{copy.locked}</Badge>;
     return <Badge variant="destructive">{copy.close}</Badge>;
+  };
+
+  const formatPilotReason = (reasonCode: string) => {
+    if (reasonCode === "already_checked_in" || reasonCode === "duplicate_accepted") return copy.duplicate;
+    if (reasonCode === "low_accuracy") return copy.lowAccuracy;
+    if (reasonCode === "outside_radius") return copy.outsideRadius;
+    return reasonCode.replace(/_/g, " ");
   };
 
   const recomputeRecordForEmployee = async (employeeCodeValue: string) => {
@@ -646,6 +814,7 @@ export default function AttendanceManagement() {
         <TabsList>
           <TabsTrigger value="records" className="gap-2"><Users className="h-4 w-4" />{copy.records}</TabsTrigger>
           <TabsTrigger value="events" className="gap-2"><CalendarClock className="h-4 w-4" />{copy.events}</TabsTrigger>
+          <TabsTrigger value="pilot" className="gap-2"><Radar className="h-4 w-4" />{copy.pilotDashboard}</TabsTrigger>
           <TabsTrigger value="planner" className="gap-2"><CalendarRange className="h-4 w-4" />{copy.planner}</TabsTrigger>
         </TabsList>
 
@@ -662,12 +831,13 @@ export default function AttendanceManagement() {
                       <TableHead>Status</TableHead>
                       <TableHead>{copy.checkIn}</TableHead>
                       <TableHead>{copy.checkOut}</TableHead>
+                      <TableHead>Source</TableHead>
                       <TableHead>{isVi ? "Cảnh báo" : "Flags"}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {records.length === 0 ? (
-                      <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground">{copy.noData}</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground">{copy.noData}</TableCell></TableRow>
                     ) : records.map((row) => (
                       <TableRow key={row.id}>
                         <TableCell className="font-medium">{row.employee_code}</TableCell>
@@ -676,6 +846,20 @@ export default function AttendanceManagement() {
                         <TableCell><Badge variant="outline">{row.status}</Badge></TableCell>
                         <TableCell>{row.actual_check_in ? format(new Date(row.actual_check_in), "HH:mm") : "-"}</TableCell>
                         <TableCell>{row.actual_check_out ? format(new Date(row.actual_check_out), "HH:mm") : "-"}</TableCell>
+                        <TableCell>
+                          {row.source_type === "mobile_gps" ? (
+                            <div className="flex flex-col gap-1 text-xs">
+                              <Badge variant="outline">GPS · {row.source_actor_type || "mobile"}</Badge>
+                              <span className="text-muted-foreground">
+                                {row.source_distance_m !== null ? `${Math.round(Number(row.source_distance_m))}m` : "-"}
+                                {" / "}
+                                {row.source_accuracy_m !== null ? `±${Math.round(Number(row.source_accuracy_m))}m` : "±-"}
+                              </span>
+                            </div>
+                          ) : row.source_type ? (
+                            <Badge variant="outline">{row.source_type}</Badge>
+                          ) : "-"}
+                        </TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-1 items-center">
                             {(row.missing_check_in || row.missing_check_out) && <Badge variant="destructive">{copy.missing}</Badge>}
@@ -726,6 +910,117 @@ export default function AttendanceManagement() {
                   </TableBody>
                 </Table>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="pilot">
+          <Card data-testid="attendance-pilot-dashboard">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><Radar className="h-5 w-5" /> {copy.pilotDashboard}</CardTitle>
+              <CardDescription>{copy.pilotDashboardDesc}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">{copy.dateFrom}</label>
+                  <Input type="date" value={pilotDateFrom} onChange={(e) => setPilotDateFrom(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">{copy.dateTo}</label>
+                  <Input type="date" value={pilotDateTo} onChange={(e) => setPilotDateTo(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">{copy.employeeName}</label>
+                  <Input placeholder={`${copy.employeeCode} / ${copy.employeeName}`} value={pilotEmployeeQuery} onChange={(e) => setPilotEmployeeQuery(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">{copy.actorType}</label>
+                  <select className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={pilotActorType} onChange={(e) => setPilotActorType(e.target.value as typeof pilotActorType)}>
+                    <option value="">{copy.allActors}</option>
+                    <option value="report_staff">{copy.reportStaff}</option>
+                    <option value="delivery_staff">{copy.deliveryStaff}</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">{copy.geofence}</label>
+                  <Input placeholder={copy.geofence} value={pilotGeofenceQuery} onChange={(e) => setPilotGeofenceQuery(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">{copy.decision}</label>
+                  <select className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={pilotDecision} onChange={(e) => setPilotDecision(e.target.value as typeof pilotDecision)}>
+                    <option value="">{copy.allDecisions}</option>
+                    <option value="accepted">{copy.accepted}</option>
+                    <option value="rejected">{copy.rejected}</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{isVi ? "Tổng sự kiện GPS" : "GPS events"}</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{pilotMetrics.event_count}</div></CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{copy.accepted} / {copy.rejected}</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{pilotMetrics.accepted_count} / {pilotMetrics.rejected_count}</div><div className="text-xs text-muted-foreground">{copy.successRate}: {pilotMetrics.success_rate}%</div></CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{copy.lowAccuracy} / {copy.outsideRadius}</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{pilotMetrics.low_accuracy_count} / {pilotMetrics.outside_radius_count}</div></CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{copy.duplicate} / {copy.overrides}</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{pilotMetrics.duplicate_count} / {pilotMetrics.override_count}</div></CardContent></Card>
+              </div>
+
+              {pilotCapabilityUnavailable ? (
+                <div role="status" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                  {isVi ? "GPS pilot đang chờ backend migration; các tab bảng công/sự kiện/xếp ca vẫn hoạt động." : "GPS pilot is awaiting backend migration; records, events, and planner tabs remain available."}
+                </div>
+              ) : pilotAttendanceIsError ? (
+                <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                  {isVi ? "Không tải được dashboard GPS pilot" : "Unable to load GPS pilot dashboard"}: {pilotAttendanceError instanceof Error ? pilotAttendanceError.message : "unknown_error"}
+                </div>
+              ) : pilotAttendanceLoading ? (
+                <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div>
+              ) : (
+                <div className="overflow-x-auto rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{copy.workDate}</TableHead>
+                        <TableHead>{copy.employeeName}</TableHead>
+                        <TableHead>{copy.actorType}</TableHead>
+                        <TableHead>{copy.geofence}</TableHead>
+                        <TableHead>{copy.decision}</TableHead>
+                        <TableHead>{isVi ? "Lý do" : "Reason"}</TableHead>
+                        <TableHead>{isVi ? "Khoảng cách / độ chính xác" : "Distance / accuracy"}</TableHead>
+                        <TableHead>{isVi ? "Dấu hiệu" : "Indicators"}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {pilotAttendanceEvents.length === 0 ? (
+                        <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground">{copy.noData}</TableCell></TableRow>
+                      ) : pilotAttendanceEvents.map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell className="whitespace-nowrap">{row.work_date}</TableCell>
+                          <TableCell><div className="font-medium">{row.employee_name || "-"}</div><div className="text-xs text-muted-foreground">{row.employee_code}</div></TableCell>
+                          <TableCell><Badge variant="outline">{row.actor_type === "report_staff" ? copy.reportStaff : copy.deliveryStaff}</Badge></TableCell>
+                          <TableCell><div>{row.geofence_name || row.geofence_code || "-"}</div><div className="text-xs text-muted-foreground">{row.geofence_location_type || "-"}{row.geofence_radius_m !== null ? ` · ${Math.round(Number(row.geofence_radius_m))}m` : ""}</div></TableCell>
+                          <TableCell><Badge variant={row.decision === "accepted" ? "default" : "destructive"}>{row.decision === "accepted" ? copy.accepted : copy.rejected}</Badge></TableCell>
+                          <TableCell>{formatPilotReason(row.reason_code)}</TableCell>
+                          <TableCell>{row.distance_m_rounded !== null ? `${Math.round(Number(row.distance_m_rounded))}m` : "-"} / {row.accuracy_m_rounded !== null ? `±${Math.round(Number(row.accuracy_m_rounded))}m` : "±-"}</TableCell>
+                          <TableCell><div className="flex flex-wrap gap-1">{formatPilotReason("already_checked_in") === formatPilotReason(row.reason_code) && <Badge variant="secondary">{copy.duplicate}</Badge>}{row.has_override && <Badge variant="outline">{copy.overrides}</Badge>}</div></TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  {isVi ? "Hiển thị" : "Showing"} {pilotPagination?.returned_count || 0} / {pilotPagination?.total_count || 0}
+                </div>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setPilotOffset(Math.max(0, pilotOffset - (pilotPagination?.limit || 50)))} disabled={pilotOffset === 0 || pilotAttendanceLoading}>
+                    {isVi ? "Trước" : "Previous"}
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setPilotOffset(pilotOffset + (pilotPagination?.limit || 50))} disabled={!pilotPagination?.has_next_page || pilotAttendanceLoading}>
+                    {isVi ? "Sau" : "Next"}
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

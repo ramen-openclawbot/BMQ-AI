@@ -7,6 +7,7 @@ import {
   jsonResponse,
   publicReportStaffProfile,
   readJsonBody,
+  requireKioskReportStaffSession,
   resolveReportSession,
   vietnamToday,
 } from "../_shared/report.ts";
@@ -40,6 +41,15 @@ serve(async (req) => {
     if (!sessionContext) {
       return errorResponse(req, "Phiên báo cáo đã hết hạn. Vui lòng đăng nhập lại.", 401, "report_session_invalid");
     }
+    const reportSession = requireKioskReportStaffSession(sessionContext);
+    if (!reportSession) {
+      return errorResponse(
+        req,
+        "Nhân viên giao hàng không có quyền gửi báo cáo điểm bán.",
+        403,
+        "delivery_staff_forbidden",
+      );
+    }
 
     const [productsRes, channelsRes, reportRes] = await Promise.all([
       supabase
@@ -55,7 +65,7 @@ serve(async (req) => {
       supabase
         .from("kiosk_daily_reports")
         .select("id, report_date, status, notes, submitted_at, updated_at, opening_source_report_date")
-        .eq("location_id", sessionContext.session.location_id)
+        .eq("location_id", reportSession.session.location_id)
         .eq("report_date", reportDate)
         .maybeSingle(),
     ]);
@@ -92,7 +102,7 @@ serve(async (req) => {
       const previousReportRes = await supabase
         .from("kiosk_daily_reports")
         .select("id, report_date")
-        .eq("location_id", sessionContext.session.location_id)
+        .eq("location_id", reportSession.session.location_id)
         .eq("status", "submitted")
         .lt("report_date", reportDate)
         .order("report_date", { ascending: false })
@@ -123,7 +133,7 @@ serve(async (req) => {
     return jsonResponse(req, {
       success: true,
       report_date: reportDate,
-      ...publicReportStaffProfile(sessionContext.staff, sessionContext.location),
+      ...publicReportStaffProfile(reportSession.staff, reportSession.location),
       products: productsRes.data || [],
       channels: channelsRes.data || [],
       opening_inventory_rows: openingInventoryRows,
@@ -143,7 +153,6 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error("[report-bootstrap] Unexpected error", error);
-    const message = error instanceof Error ? error.message : "Không thể tải báo cáo";
-    return errorResponse(req, message, 500, "report_bootstrap_failed");
+    return errorResponse(req, "Không thể tải báo cáo. Vui lòng thử lại sau.", 500, "report_bootstrap_failed");
   }
 });

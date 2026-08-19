@@ -5,8 +5,9 @@ import {
   errorResponse,
   extractReportSessionToken,
   jsonResponse,
-  publicReportStaffProfile,
+  publicReportActorProfile,
   readJsonBody,
+  resolveAttendanceEnabled,
   resolveReportSession,
 } from "../_shared/report.ts";
 
@@ -32,14 +33,23 @@ serve(async (req) => {
       return errorResponse(req, "Phiên báo cáo đã hết hạn. Vui lòng đăng nhập lại.", 401, "report_session_invalid");
     }
 
+    const attendanceEnabled = await resolveAttendanceEnabled(
+      supabase,
+      sessionContext.actor_type,
+      sessionContext.actor_type === "delivery_staff"
+        ? sessionContext.session.delivery_staff_id
+        : sessionContext.session.staff_id,
+    );
+    const profile = publicReportActorProfile(sessionContext, attendanceEnabled) as Record<string, unknown>;
     return jsonResponse(req, {
       success: true,
+      ...profile,
+      actor_type: sessionContext.actor_type,
       expires_at: sessionContext.session.expires_at,
-      ...publicReportStaffProfile(sessionContext.staff, sessionContext.location),
+      attendance_enabled: attendanceEnabled === true,
     });
   } catch (error) {
     console.error("[report-session] Unexpected error", error);
-    const message = error instanceof Error ? error.message : "Không thể tải phiên báo cáo";
-    return errorResponse(req, message, 500, "report_session_failed");
+    return errorResponse(req, "Không thể tải phiên báo cáo. Vui lòng thử lại sau.", 500, "report_session_failed");
   }
 });

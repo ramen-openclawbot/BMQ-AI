@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
@@ -32,6 +32,7 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
+import AttendanceCheckInCard from "@/components/kiosk/AttendanceCheckInCard";
 import {
   calculateKioskChannelAmount,
   calculateEffectiveConsumedQuantity,
@@ -107,6 +108,10 @@ type PublicStaff = {
   full_name?: string | null;
 };
 
+type PublicDeliveryStaff = {
+  full_name?: string | null;
+};
+
 type PublicLocation = {
   code?: string | null;
   name?: string | null;
@@ -147,8 +152,21 @@ type AuthVerifyResponse = {
   success?: boolean;
   report_token?: string;
   expires_at?: string;
+  actor_type?: "report_staff" | "delivery_staff";
   staff?: PublicStaff | null;
+  delivery_staff?: PublicDeliveryStaff | null;
   location?: PublicLocation | null;
+  attendance_enabled?: boolean;
+};
+
+type ReportSessionResponse = {
+  success?: boolean;
+  actor_type?: "report_staff" | "delivery_staff";
+  staff?: PublicStaff | null;
+  delivery_staff?: PublicDeliveryStaff | null;
+  location?: PublicLocation | null;
+  expires_at?: string;
+  attendance_enabled?: boolean;
 };
 
 const vietnamToday = () => {
@@ -281,6 +299,9 @@ export default function KioskReportPortal() {
   const [reportToken, setReportToken] = useState(() => localStorage.getItem(REPORT_SESSION_STORAGE_KEY) || "");
   const [reportDate, setReportDate] = useState(vietnamToday);
   const [staff, setStaff] = useState<PublicStaff | null>(null);
+  const [deliveryStaff, setDeliveryStaff] = useState<PublicDeliveryStaff | null>(null);
+  const [actorType, setActorType] = useState<"report_staff" | "delivery_staff">("report_staff");
+  const [attendanceEnabled, setAttendanceEnabled] = useState(false);
   const [location, setLocation] = useState<PublicLocation | null>(null);
   const [products, setProducts] = useState<ReportProduct[]>(DEFAULT_PRODUCTS);
   const [channels, setChannels] = useState<ReportChannel[]>(DEFAULT_CHANNELS);
@@ -296,6 +317,20 @@ export default function KioskReportPortal() {
   const [loading, setLoading] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(Boolean(reportToken));
   const [expandedProductCode, setExpandedProductCode] = useState<string | null>("banh_mi_que");
+  const mountedRef = useRef(true);
+  const latestReportTokenRef = useRef(reportToken);
+  const loadRequestIdRef = useRef(0);
+
+  const invalidateActiveLoads = useCallback((nextToken = latestReportTokenRef.current) => {
+    latestReportTokenRef.current = nextToken;
+    loadRequestIdRef.current += 1;
+  }, []);
+
+  useEffect(() => () => {
+    mountedRef.current = false;
+    latestReportTokenRef.current = "";
+    loadRequestIdRef.current += 1;
+  }, []);
 
   const isSubmitted = reportStatus === "submitted";
   const totalAmount = useMemo(
@@ -319,6 +354,8 @@ export default function KioskReportPortal() {
     setProducts(nextProducts);
     setChannels(nextChannels);
     setStaff(payload.staff || null);
+    setDeliveryStaff(null);
+    setActorType("report_staff");
     setLocation(payload.location || null);
     setReportDate(nextReportDate);
     setReportStatus(payload.report?.status === "submitted" ? "submitted" : "draft");
@@ -341,17 +378,43 @@ export default function KioskReportPortal() {
 
   const loadReport = useCallback(async (token: string, date: string) => {
     if (!token) return;
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
+    latestReportTokenRef.current = token;
+    const isCurrentLoad = (requestId: number, token: string) =>
+      mountedRef.current &&
+      loadRequestIdRef.current === requestId &&
+      latestReportTokenRef.current === token;
+
     setBootstrapping(true);
     setErrorMessage("");
-    const sessionResult = await callEdgeFunction<{ success?: boolean }>("report-session", { report_token: token }, undefined, 30000);
-    if (sessionResult.error) {
+    const sessionResult = await callEdgeFunction<ReportSessionResponse>("report-session", { report_token: token }, undefined, 30000);
+    if (!isCurrentLoad(requestId, token)) return;
+    if (sessionResult.error || !sessionResult.data) {
       localStorage.removeItem(REPORT_SESSION_STORAGE_KEY);
+      invalidateActiveLoads("");
       setReportToken("");
+      setAttendanceEnabled(false);
       setStep("phone");
       setErrorMessage("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
       setBootstrapping(false);
       return;
     }
+
+    setActorType(sessionResult.data.actor_type === "delivery_staff" ? "delivery_staff" : "report_staff");
+    setAttendanceEnabled(sessionResult.data.attendance_enabled === true);
+    if (sessionResult.data.actor_type === "delivery_staff") {
+      setDeliveryStaff(sessionResult.data.delivery_staff || null);
+      setStaff(null);
+      setLocation(null);
+      setStep("report");
+      setStatusMessage("");
+      setBootstrapping(false);
+      return;
+    }
+    setStaff(sessionResult.data.staff || null);
+    setDeliveryStaff(null);
+    setLocation(sessionResult.data.location || null);
 
     const bootstrapResult = await callEdgeFunction<BootstrapResponse>(
       "report-bootstrap",
@@ -359,16 +422,18 @@ export default function KioskReportPortal() {
       undefined,
       30000,
     );
+    if (!isCurrentLoad(requestId, token)) return;
     if (bootstrapResult.error || !bootstrapResult.data) {
       setErrorMessage("Chưa tải được báo cáo. Vui lòng thử lại.");
       setBootstrapping(false);
       return;
     }
+    if (!isCurrentLoad(requestId, token)) return;
     hydrateBootstrap(bootstrapResult.data);
     setStep("report");
     setStatusMessage("");
     setBootstrapping(false);
-  }, [hydrateBootstrap]);
+  }, [hydrateBootstrap, invalidateActiveLoads]);
 
   useEffect(() => {
     if (reportToken) {
@@ -407,10 +472,14 @@ export default function KioskReportPortal() {
     }
 
     localStorage.setItem(REPORT_SESSION_STORAGE_KEY, result.data.report_token);
+    invalidateActiveLoads(result.data.report_token);
     setReportToken(result.data.report_token);
+    setActorType(result.data.actor_type === "delivery_staff" ? "delivery_staff" : "report_staff");
+    setAttendanceEnabled(result.data.attendance_enabled === true);
     setStaff(result.data.staff || null);
+    setDeliveryStaff(result.data.delivery_staff || null);
     setLocation(result.data.location || null);
-    setStatusMessage("Đã xác thực. Anh/chị có thể nhập báo cáo.");
+    setStatusMessage(result.data.actor_type === "delivery_staff" ? "Đã xác thực. Anh/chị có thể chấm công." : "Đã xác thực. Anh/chị có thể nhập báo cáo.");
     await loadReport(result.data.report_token, reportDate);
   };
 
@@ -478,15 +547,24 @@ export default function KioskReportPortal() {
   };
 
   const logout = async () => {
-    if (reportToken) {
-      await callEdgeFunction("report-auth-logout", { report_token: reportToken }, undefined, 15000);
-    }
+    const capturedReportToken = reportToken;
     localStorage.removeItem(REPORT_SESSION_STORAGE_KEY);
+    latestReportTokenRef.current = "";
+    loadRequestIdRef.current += 1;
     setReportToken("");
+    setActorType("report_staff");
+    setAttendanceEnabled(false);
+    setStaff(null);
+    setDeliveryStaff(null);
+    setLocation(null);
     setStep("phone");
     setOtp("");
     setStatusMessage("");
     setErrorMessage("");
+    if (capturedReportToken) {
+      void callEdgeFunction("report-auth-logout", { report_token: capturedReportToken }, undefined, 15000)
+        .catch(() => undefined);
+    }
   };
 
   const updateInventoryRow = (productCode: string, field: keyof InventoryRow, value: string) => {
@@ -617,9 +695,15 @@ export default function KioskReportPortal() {
     );
   }
 
+  const headerTitle = actorType === "delivery_staff" ? "Chấm công giao hàng" : "Báo cáo ngày";
+  const headerDescription = actorType === "report_staff" ? "Nhập và gửi báo cáo vận hành tại điểm bán" : "Chấm công và quản lý tài khoản giao hàng";
+  const headerFullName = actorType === "delivery_staff" ? deliveryStaff?.full_name : staff?.full_name;
+  const headerNameFallback = actorType === "delivery_staff" ? "Nhân viên giao hàng" : "Nhân viên";
+  const headerLocationLabel = actorType === "delivery_staff" ? null : (location?.name || "Điểm bán BMQ");
+
   return (
-    <main data-testid="report-shell" data-hallmark="compact-operational" className="min-h-screen bg-[#fff8fa] text-[#20212d] lg:pl-[238px]">
-      <ReportSidebar staffName={staff?.full_name} onLogout={logout} />
+    <main data-testid="report-shell" data-hallmark="compact-operational" className={cn("min-h-screen bg-[#fff8fa] text-[#20212d]", actorType === "report_staff" && "lg:pl-[238px]")}>
+      {actorType === "report_staff" && <ReportSidebar staffName={staff?.full_name} onLogout={logout} />}
 
       <div className="mx-auto min-h-screen max-w-[1440px] px-3.5 pb-24 pt-3.5 min-[375px]:px-4 sm:px-6 lg:px-8 lg:pb-8 lg:pt-6 xl:px-10">
         <header className="mb-3.5 lg:mb-5">
@@ -630,7 +714,7 @@ export default function KioskReportPortal() {
               className="row-span-2 h-auto w-[88px] shrink-0 object-contain"
             />
             <div className="min-w-0 pt-1">
-              <h1 className="whitespace-nowrap text-[23px] font-extrabold leading-tight tracking-[-0.025em]">Báo cáo ngày</h1>
+              <h1 className="whitespace-nowrap text-[23px] font-extrabold leading-tight tracking-[-0.025em]">{headerTitle}</h1>
             </div>
             <button
               type="button"
@@ -638,27 +722,29 @@ export default function KioskReportPortal() {
               aria-label="Đăng xuất"
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#ec5b91] text-base font-bold text-white shadow-sm"
             >
-              {getInitials(staff?.full_name)}
+              {getInitials(headerFullName)}
             </button>
-            <div className="col-span-2 col-start-2 row-start-2 inline-flex max-w-full items-center gap-1 justify-self-start rounded-lg bg-[#fdeaf1] px-2.5 py-1 text-xs font-medium text-[#b93667]">
-              <MapPin className="h-4 w-4 shrink-0 fill-[#ec5b91] text-[#ec5b91]" />
-              <span className="truncate">{location?.name || "Điểm bán BMQ"}</span>
-            </div>
+            {headerLocationLabel && (
+              <div className="col-span-2 col-start-2 row-start-2 inline-flex max-w-full items-center gap-1 justify-self-start rounded-lg bg-[#fdeaf1] px-2.5 py-1 text-xs font-medium text-[#b93667]">
+                <MapPin className="h-4 w-4 shrink-0 fill-[#ec5b91] text-[#ec5b91]" />
+                <span className="truncate">{headerLocationLabel}</span>
+              </div>
+            )}
           </div>
 
           <div className="hidden items-center justify-between gap-6 lg:flex">
             <div>
-              <h1 className="text-[30px] font-extrabold tracking-[-0.02em]">Báo cáo ngày</h1>
-              <p className="mt-1 text-sm text-[#74717a]">Nhập và gửi báo cáo vận hành tại điểm bán</p>
+              <h1 className="text-[30px] font-extrabold tracking-[-0.02em]">{headerTitle}</h1>
+              <p className="mt-1 text-sm text-[#74717a]">{headerDescription}</p>
             </div>
             <div className="flex items-center gap-3">
               <div aria-label="Thông tin nhân viên" className="flex items-center gap-3 rounded-2xl border border-[#eadfe3] bg-white px-3 py-2 shadow-[0_8px_24px_rgba(78,44,58,0.06)]">
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-[#f7a4c1] to-[#e96998] text-sm font-bold text-white">
-                  {getInitials(staff?.full_name)}
+                  {getInitials(headerFullName)}
                 </div>
                 <div className="max-w-[220px]">
-                  <div className="truncate text-sm font-semibold">{staff?.full_name || "Nhân viên"}</div>
-                  <div className="truncate text-xs text-[#85808a]">{location?.name || "Điểm bán BMQ"}</div>
+                  <div className="truncate text-sm font-semibold">{headerFullName || headerNameFallback}</div>
+                  {headerLocationLabel && <div className="truncate text-xs text-[#85808a]">{headerLocationLabel}</div>}
                 </div>
               </div>
               <Button variant="outline" className="h-12 rounded-2xl border-[#eadfe3] bg-white px-4 text-[#4d4850]" onClick={logout}>
@@ -668,31 +754,6 @@ export default function KioskReportPortal() {
             </div>
           </div>
         </header>
-
-        <section className="relative mb-4 flex min-h-[68px] items-center justify-between gap-3 overflow-hidden rounded-[18px] border border-[#f0dfe5] bg-white px-3.5 py-3 shadow-[0_6px_18px_rgba(86,48,63,0.07)] sm:px-5">
-          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-            <CalendarDays className="h-6 w-6 shrink-0 text-[#ec5b91]" strokeWidth={2.2} />
-            <div className="relative">
-              <span className="text-[18px] font-extrabold sm:text-[20px]">{formatReportDate(reportDate)}</span>
-              <Input
-                aria-label="Ngày báo cáo"
-                type="date"
-                value={reportDate}
-                onChange={(event) => setReportDate(event.target.value)}
-                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-              />
-            </div>
-          </div>
-          <div className={cn(
-            "inline-flex shrink-0 items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs font-semibold sm:px-3 sm:text-sm",
-            isSubmitted
-              ? "border-[#bfead0] bg-[#edfbf2] text-[#28995a]"
-              : "border-[#ffd5a6] bg-[#fff7eb] text-[#f28a24]",
-          )}>
-            {isSubmitted ? <CheckCircle2 className="h-4 w-4" /> : <Clock3 className="h-4 w-4" />}
-            {isSubmitted ? "Đã gửi" : "Chưa gửi"}
-          </div>
-        </section>
 
         {isSubmitted && (
           <div className="mb-4 rounded-2xl border border-[#bfead0] bg-[#edfbf2] px-4 py-3 text-sm text-[#247d4b]">
@@ -714,7 +775,62 @@ export default function KioskReportPortal() {
           </div>
         )}
 
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.22fr)_minmax(390px,0.78fr)]">
+        {actorType === "delivery_staff" && (
+          <div className="mx-auto max-w-md space-y-4">
+            {attendanceEnabled && (
+              <AttendanceCheckInCard reportToken={reportToken} actorLabel="Nhân viên giao hàng" />
+            )}
+            <section className="rounded-[20px] border border-[#f0dfe5] bg-white p-4 shadow-[0_8px_22px_rgba(86,48,63,0.07)] sm:p-5">
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#ec5b91] text-sm font-bold text-white">
+                  {getInitials(deliveryStaff?.full_name)}
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-base font-extrabold text-[#20212d]">{deliveryStaff?.full_name || "Nhân viên giao hàng"}</div>
+                  <div className="text-sm text-[#74717a]">Nhân viên giao hàng</div>
+                </div>
+              </div>
+              <p className="mt-4 rounded-2xl bg-[#fff8fa] px-3 py-2.5 text-sm leading-6 text-[#80566a]">
+                Không cần nhập báo cáo điểm bán cho tài khoản giao hàng.
+              </p>
+              <Button variant="outline" className="mt-4 h-12 w-full rounded-2xl border-[#eadfe3] bg-white text-[#4d4850]" onClick={logout}>
+                <LogOut className="mr-2 h-4 w-4" />
+                Đăng xuất
+              </Button>
+            </section>
+          </div>
+        )}
+
+        {actorType === "report_staff" && (
+          <div>
+            {attendanceEnabled && <AttendanceCheckInCard reportToken={reportToken} actorLabel="Nhân viên điểm bán" className="mb-4" />}
+
+            <section className="relative mb-4 flex min-h-[68px] items-center justify-between gap-3 overflow-hidden rounded-[18px] border border-[#f0dfe5] bg-white px-3.5 py-3 shadow-[0_6px_18px_rgba(86,48,63,0.07)] sm:px-5">
+              <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+                <CalendarDays className="h-6 w-6 shrink-0 text-[#ec5b91]" strokeWidth={2.2} />
+                <div className="relative">
+                  <span className="text-[18px] font-extrabold sm:text-[20px]">{formatReportDate(reportDate)}</span>
+                  <Input
+                    aria-label="Ngày báo cáo"
+                    type="date"
+                    value={reportDate}
+                    onChange={(event) => setReportDate(event.target.value)}
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                  />
+                </div>
+              </div>
+              <div className={cn(
+                "inline-flex shrink-0 items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs font-semibold sm:px-3 sm:text-sm",
+                isSubmitted
+                  ? "border-[#bfead0] bg-[#edfbf2] text-[#28995a]"
+                  : "border-[#ffd5a6] bg-[#fff7eb] text-[#f28a24]",
+              )}>
+                {isSubmitted ? <CheckCircle2 className="h-4 w-4" /> : <Clock3 className="h-4 w-4" />}
+                {isSubmitted ? "Đã gửi" : "Chưa gửi"}
+              </div>
+            </section>
+
+            <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.22fr)_minmax(390px,0.78fr)]">
           <section
             data-testid="inventory-section"
             className="overflow-hidden rounded-[20px] border border-[#f0dfe5] bg-white p-3.5 shadow-[0_8px_22px_rgba(86,48,63,0.07)] sm:p-5"
@@ -886,12 +1002,16 @@ export default function KioskReportPortal() {
               <ActionButtons loading={loading} disabled={isSubmitted} onSaveDraft={() => saveReport("draft")} onSubmit={() => saveReport("submitted")} />
             </div>
           </div>
-        </div>
+          </div>
+          </div>
+        )}
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[#f1dfe6] bg-white/95 px-3 pt-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-8px_22px_rgba(86,48,63,0.09)] backdrop-blur lg:hidden">
-        <ActionButtons loading={loading} disabled={isSubmitted} onSaveDraft={() => saveReport("draft")} onSubmit={() => saveReport("submitted")} />
-      </div>
+      {actorType === "report_staff" && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[#f1dfe6] bg-white/95 px-3 pt-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-8px_22px_rgba(86,48,63,0.09)] backdrop-blur lg:hidden">
+          <ActionButtons loading={loading} disabled={isSubmitted} onSaveDraft={() => saveReport("draft")} onSubmit={() => saveReport("submitted")} />
+        </div>
+      )}
     </main>
   );
 }

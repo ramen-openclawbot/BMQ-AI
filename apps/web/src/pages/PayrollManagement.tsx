@@ -81,6 +81,45 @@ interface PayrollLine {
   notes: string | null;
 }
 
+interface GpsPayrollPreviewMetrics {
+  employee_count: number;
+  gps_valid_days: number;
+  attendance_present_days: number;
+  payroll_total_days_present: number;
+  discrepancy_employee_count: number;
+  attendance_locked_days: number;
+  attendance_manual_days: number;
+  override_days: number;
+  not_calculated_employee_count: number;
+}
+
+interface GpsPayrollPreviewRow {
+  employee_code: string;
+  actor_type: "report_staff" | "delivery_staff";
+  employee_name: string | null;
+  gps_valid_days: number;
+  gps_event_count: number;
+  gps_accepted_events: number;
+  gps_rejected_events: number;
+  attendance_present_days: number;
+  attendance_gps_source_days: number;
+  payroll_total_days_present: number;
+  gps_vs_attendance_days_delta: number;
+  gps_vs_payroll_days_delta: number | null;
+  attendance_locked_days: number;
+  attendance_manual_days: number;
+  override_days: number;
+  payroll_status: "persisted_result" | "not_calculated" | string;
+  has_persisted_payroll_result: boolean;
+}
+
+interface GpsPayrollPreviewPayload {
+  preview_only: true;
+  warning: string;
+  metrics: GpsPayrollPreviewMetrics;
+  rows: GpsPayrollPreviewRow[];
+}
+
 const emptyProfile: Partial<WageProfile> = {
   employee_code: "",
   employee_name: "",
@@ -101,6 +140,12 @@ const emptyProfile: Partial<WageProfile> = {
 function formatCurrency(value: number, locale: string) {
   if (!Number.isFinite(value)) return "-";
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(value);
+}
+
+function isPostgrestMissingRpc(error: any) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || error?.details || "").toLowerCase();
+  return code === "PGRST202" || code === "42883" || message.includes("could not find the function") || (message.includes("function") && message.includes("schema cache"));
 }
 
 export default function PayrollManagement() {
@@ -172,6 +217,17 @@ export default function PayrollManagement() {
       approved: isVi ? "Đã duyệt" : "Approved",
       calculated: isVi ? "Đã tính" : "Calculated",
       draft: isVi ? "Nháp" : "Draft",
+      gpsPreviewTitle: isVi ? "Xem trước GPS — chưa tính/chốt lương" : "GPS payroll preview — no payroll action",
+      gpsPreviewDescription: isVi
+        ? "So sánh ngày công GPS với attendance_records và dòng lương đã lưu. Chỉ xem trước, không tính lại, không chốt, không đổi net pay."
+        : "Compare GPS days with attendance_records and persisted payroll lines. Preview only: no recalculation, no close, no net pay change.",
+      gpsPreviewEmpty: isVi ? "Chưa có dữ liệu GPS/KIOSK/DELIVERY cho kỳ này." : "No GPS/KIOSK/DELIVERY preview rows for this run.",
+      gpsValidDays: isVi ? "Ngày GPS hợp lệ" : "Valid GPS days",
+      attendanceDays: isVi ? "Ngày attendance_records" : "attendance_records days",
+      payrollDays: isVi ? "Ngày payroll đã lưu" : "Persisted payroll days",
+      discrepancy: isVi ? "Chênh lệch" : "Discrepancy",
+      context: isVi ? "Ngữ cảnh" : "Context",
+      notCalculated: isVi ? "not_calculated — chưa có dòng lương đã lưu" : "not_calculated — no persisted payroll line",
     }),
     [isVi],
   );
@@ -203,6 +259,28 @@ export default function PayrollManagement() {
       return (data || []) as PayrollLine[];
     },
   });
+
+  const { data: gpsPreview, isLoading: gpsPreviewLoading, error: gpsPreviewError } = useQuery({
+    queryKey: ["payroll-gps-preview", selectedRunId],
+    enabled: !!selectedRunId,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc("get_payroll_gps_attendance_preview", {
+        p_payroll_run_id: selectedRunId!,
+        p_preview_only: true,
+      });
+      if (error) {
+        if (isPostgrestMissingRpc(error)) {
+          return { capability_unavailable: true, preview_only: true, warning: "payroll_gps_preview_unavailable", metrics: null, rows: [] } as unknown as GpsPayrollPreviewPayload & { capability_unavailable: true };
+        }
+        throw error;
+      }
+      return data as GpsPayrollPreviewPayload;
+    },
+  });
+
+  const gpsPreviewCapabilityUnavailable = (gpsPreview as any)?.capability_unavailable === true;
+  const gpsPreviewMetrics = gpsPreview?.metrics || null;
+  const gpsPreviewRows = gpsPreview?.rows || [];
 
   const { data: profiles = [], isLoading: profilesLoading } = useQuery({
     queryKey: ["employee-wage-profiles"],
@@ -538,7 +616,95 @@ export default function PayrollManagement() {
                   </div>
                 ) : null}
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
+                {selectedRun ? (
+                  <Card data-testid="payroll-gps-preview" className="border-blue-500/30 bg-blue-50/40 dark:bg-blue-950/10">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm">{copy.gpsPreviewTitle}</CardTitle>
+                      <CardDescription>{copy.gpsPreviewDescription}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {gpsPreviewLoading ? (
+                        <div className="flex justify-center py-4">
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                        </div>
+                      ) : gpsPreviewCapabilityUnavailable ? (
+                        <div role="status" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                          {isVi ? "Xem trước GPS đang chờ backend migration; các thao tác lương hiện có vẫn hoạt động." : "GPS preview is awaiting backend migration; existing payroll actions remain available."}
+                        </div>
+                      ) : gpsPreviewError ? (
+                        <div className="text-sm text-destructive">{(gpsPreviewError as Error).message}</div>
+                      ) : gpsPreviewRows.length === 0 ? (
+                        <div className="text-sm text-muted-foreground">{copy.gpsPreviewEmpty}</div>
+                      ) : (
+                        <>
+                          {gpsPreviewMetrics ? (
+                            <div className="grid gap-2 text-xs md:grid-cols-4">
+                              <div className="rounded border bg-background p-2">
+                                <div className="text-muted-foreground">{copy.gpsValidDays}</div>
+                                <div className="font-semibold">{gpsPreviewMetrics.gps_valid_days}</div>
+                              </div>
+                              <div className="rounded border bg-background p-2">
+                                <div className="text-muted-foreground">{copy.attendanceDays}</div>
+                                <div className="font-semibold">{gpsPreviewMetrics.attendance_present_days}</div>
+                              </div>
+                              <div className="rounded border bg-background p-2">
+                                <div className="text-muted-foreground">{copy.discrepancy}</div>
+                                <div className="font-semibold">{gpsPreviewMetrics.discrepancy_employee_count}</div>
+                              </div>
+                              <div className="rounded border bg-background p-2">
+                                <div className="text-muted-foreground">{copy.context}</div>
+                                <div className="font-semibold">
+                                  {isVi ? "Khóa" : "Locked"}: {gpsPreviewMetrics.attendance_locked_days} · {isVi ? "Manual" : "Manual"}: {gpsPreviewMetrics.attendance_manual_days} · {isVi ? "Override" : "Override"}: {gpsPreviewMetrics.override_days}
+                                </div>
+                              </div>
+                            </div>
+                          ) : null}
+                          <div className="overflow-x-auto">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>{copy.employeeCode}</TableHead>
+                                  <TableHead>{copy.employeeName}</TableHead>
+                                  <TableHead className="text-right">{copy.gpsValidDays}</TableHead>
+                                  <TableHead className="text-right">{copy.attendanceDays}</TableHead>
+                                  <TableHead className="text-right">{copy.payrollDays}</TableHead>
+                                  <TableHead className="text-right">{copy.discrepancy}</TableHead>
+                                  <TableHead>{copy.context}</TableHead>
+                                  <TableHead>{copy.status}</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {gpsPreviewRows.map((row) => (
+                                  <TableRow key={row.employee_code}>
+                                    <TableCell className="font-medium">{row.employee_code}</TableCell>
+                                    <TableCell>{row.employee_name || "-"}</TableCell>
+                                    <TableCell className="text-right">{row.gps_valid_days}</TableCell>
+                                    <TableCell className="text-right">{row.attendance_present_days}</TableCell>
+                                    <TableCell className="text-right">{row.payroll_total_days_present}</TableCell>
+                                    <TableCell className="text-right">
+                                      {row.gps_vs_attendance_days_delta} / {row.gps_vs_payroll_days_delta ?? "-"}
+                                    </TableCell>
+                                    <TableCell className="text-xs text-muted-foreground">
+                                      {isVi ? "Khóa" : "Locked"}: {row.attendance_locked_days} · {isVi ? "Manual" : "Manual"}: {row.attendance_manual_days} · {isVi ? "Override" : "Override"}: {row.override_days}
+                                    </TableCell>
+                                    <TableCell>
+                                      {row.payroll_status === "not_calculated" ? (
+                                        <Badge variant="outline">{copy.notCalculated}</Badge>
+                                      ) : (
+                                        <Badge variant="secondary">{row.payroll_status}</Badge>
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
+                ) : null}
                 {!selectedRun ? (
                   <div className="text-sm text-muted-foreground">{copy.selectRun}</div>
                 ) : linesLoading ? (

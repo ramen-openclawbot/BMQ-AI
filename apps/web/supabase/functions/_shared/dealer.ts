@@ -157,8 +157,8 @@ export async function resolveDealerSession(supabase: DealerServiceClient, token:
   if (error) throw error;
   if (!data) return null;
 
-  const customer = data.mini_crm_customers as DealerCustomerProfile | null;
-  const contact = data.dealer_customer_contacts as DealerSessionContext["contact"] & { is_active?: boolean | null };
+  const customer = data.mini_crm_customers as unknown as DealerCustomerProfile | null;
+  const contact = data.dealer_customer_contacts as unknown as DealerSessionContext["contact"] & { is_active?: boolean | null };
 
   if (!customer?.is_active || contact?.is_active === false) return null;
 

@@ -225,6 +225,183 @@ def test_walk_in_revenue_uses_effective_dated_unit_price() -> None:
     assert_contains(portal, 'placeholder && Number(value) === 0', "zero-only non-cash placeholder")
 
 
+def test_mobile_attendance_card_requests_gps_only_after_explicit_tap_and_sends_minimal_payload() -> None:
+    portal = read(PORTAL)
+    card = read(ROOT / "src/components/kiosk/AttendanceCheckInCard.tsx")
+    source = portal + "\n" + card
+    for needle, label in [
+        ("function AttendanceCheckInCard", "reusable attendance card component"),
+        ("onClick={handleCheckIn}", "explicit check-in tap handler"),
+        ("Chấm công hôm nay", "attendance CTA copy"),
+        ("Vị trí chỉ dùng để xác nhận anh/chị đang ở đúng điểm làm việc khi chấm công", "privacy purpose copy"),
+        ("không theo dõi nền", "no background tracking privacy copy"),
+        ("Trình duyệt có thể báo vị trí sai nếu GPS/Wi‑Fi yếu hoặc thiết bị bị can thiệp", "browser GPS limitation copy"),
+        ("navigator.geolocation.getCurrentPosition", "browser geolocation API"),
+        ("enableHighAccuracy: true", "high accuracy option"),
+        ("maximumAge: 0", "fresh GPS option"),
+        ("timeout: GEOLOCATION_TIMEOUT_MS", "bounded GPS timeout"),
+        ('callEdgeFunction<AttendanceCheckInResponse>("attendance-check-in"', "attendance endpoint call"),
+        ("report_token: reportToken", "opaque session token payload"),
+        ("latitude: position.coords.latitude", "latitude payload"),
+        ("longitude: position.coords.longitude", "longitude payload"),
+        ("accuracy: position.coords.accuracy", "accuracy payload"),
+        ("captured_at: capturedAt", "captured timestamp payload"),
+        ('aria-live="polite"', "accessible live status"),
+        ("Đã chấm công hôm nay – 1 ngày công", "accepted copy"),
+        ("Anh/chị đã chấm công hôm nay rồi", "already checked-in copy"),
+        ("Bạn đang ở ngoài phạm vi chấm công", "outside-radius copy"),
+        ("GPS chưa đủ chính xác", "low-accuracy copy"),
+        ("Chưa cấp quyền vị trí hoặc GPS đang tắt", "permission/GPS copy"),
+        ("Định vị quá lâu", "timeout copy"),
+        ("Cấu hình điểm chấm công chưa sẵn sàng", "geofence config copy"),
+        ("Thao tác quá nhanh", "rate-limit copy"),
+        ("Mở bằng Safari hoặc Chrome", "embedded browser guidance"),
+      ]:
+        assert_contains(source, needle, label)
+
+    render_before_handler = card.split("const handleCheckIn", 1)[0]
+    assert_not_contains(render_before_handler, "navigator.geolocation.getCurrentPosition", "geolocation on render/page load")
+    payload_body = card.split('callEdgeFunction<AttendanceCheckInResponse>("attendance-check-in"', 1)[1].split("},", 1)[0]
+    for forbidden in ["actor_type", "staff_id", "delivery_staff_id", "location_id", "radius", "distance"]:
+        assert_not_contains(payload_body, forbidden, f"client-supplied {forbidden}")
+    assert_not_contains(card, "result.error", "raw attendance provider/internal error rendering")
+
+
+def test_attendance_card_ignores_stale_geolocation_and_api_callbacks() -> None:
+    card = read(ROOT / "src/components/kiosk/AttendanceCheckInCard.tsx")
+    for needle, label in [
+        ('import { useLayoutEffect, useMemo, useRef, useState } from "react";', "layout/ref lifecycle imports"),
+        ("const mountedRef = useRef(false);", "mounted lifecycle guard"),
+        ("const latestReportTokenRef = useRef(reportToken);", "latest token guard"),
+        ("const requestIdRef = useRef(0);", "monotonic request id guard"),
+        ("mountedRef.current = false;", "unmount marks component inactive"),
+        ("requestIdRef.current += 1;", "cleanup invalidates pending requests"),
+        ("const isActiveRequest = (requestId: number, capturedReportToken: string) =>", "single stale callback predicate"),
+        ("latestReportTokenRef.current === capturedReportToken", "token-change/logout guard"),
+        ("const requestId = requestIdRef.current + 1;", "new check-in creates request id"),
+        ("requestIdRef.current = requestId;", "new check-in cancels prior request"),
+        ("const capturedReportToken = reportToken;", "callbacks use captured token only"),
+        ("if (!isActiveRequest(requestId, capturedReportToken)) return;", "stale callbacks return"),
+        ("report_token: capturedReportToken", "network uses captured valid token"),
+    ]:
+        assert_contains(card, needle, label)
+
+    geolocation_success = card.split("async (position) => {", 1)[1].split("const capturedAt", 1)[0]
+    assert_contains(geolocation_success, "if (!isActiveRequest(requestId, capturedReportToken)) return;", "stale GPS success exits before building payload/network")
+    network_response = card.split('callEdgeFunction<AttendanceCheckInResponse>("attendance-check-in"', 1)[1].split("if (response.isSessionExpired)", 1)[0]
+    assert_contains(network_response, "if (!isActiveRequest(requestId, capturedReportToken)) return;", "stale API response exits before state updates")
+    geolocation_error = card.split("(error) => {", 1)[1].split("},", 1)[0]
+    assert_contains(geolocation_error, "if (!isActiveRequest(requestId, capturedReportToken)) return;", "stale GPS error exits before state updates")
+
+
+def test_report_logout_invalidates_session_locally_before_network_logout() -> None:
+    portal = read(PORTAL)
+    logout_body = portal.split("const logout = async () => {", 1)[1].split("\n  };", 1)[0]
+    for needle, label in [
+        ("const capturedReportToken = reportToken;", "logout captures old token for best-effort revoke"),
+        ("localStorage.removeItem(REPORT_SESSION_STORAGE_KEY);", "logout clears stored session"),
+        ('setReportToken("");', "logout clears token state to unmount attendance immediately"),
+        ('setActorType("report_staff");', "logout resets actor UI locally"),
+        ('setStep("phone");', "logout returns to phone step locally"),
+        ('if (capturedReportToken) {', "logout only revokes captured token"),
+        ('void callEdgeFunction("report-auth-logout", { report_token: capturedReportToken }, undefined, 15000)', "logout revoke is best-effort after local invalidation"),
+        (".catch(() => undefined);", "logout revoke failure is ignored after local invalidation"),
+    ]:
+        assert_contains(logout_body, needle, label)
+
+    local_clear_index = logout_body.index('setReportToken("");')
+    network_index = logout_body.index('callEdgeFunction("report-auth-logout"')
+    assert local_clear_index < network_index, "local token/session must clear before awaiting/calling network logout"
+    assert_not_contains(logout_body, "await callEdgeFunction", "logout must not wait before unmounting attendance/session UI")
+
+
+def test_report_load_ignores_stale_session_bootstrap_and_superseded_callbacks() -> None:
+    portal = read(PORTAL)
+    for needle, label in [
+        ("const mountedRef = useRef(true);", "portal mounted guard ref"),
+        ("const latestReportTokenRef = useRef(reportToken);", "portal latest token ref"),
+        ("const loadRequestIdRef = useRef(0);", "portal monotonic load request id ref"),
+        ("const invalidateActiveLoads = useCallback((nextToken = latestReportTokenRef.current) => {", "central load invalidation helper"),
+        ("loadRequestIdRef.current += 1;", "load invalidation increments request id"),
+        ("latestReportTokenRef.current = nextToken;", "token ref is synchronously updated"),
+        ("const requestId = loadRequestIdRef.current + 1;", "new report load supersedes previous load"),
+        ("loadRequestIdRef.current = requestId;", "load request id captured as current"),
+        ("const isCurrentLoad = (requestId: number, token: string) =>", "single report load stale predicate"),
+        ("if (!isCurrentLoad(requestId, token)) return;", "stale callbacks return before state"),
+    ]:
+        assert_contains(portal, needle, label)
+
+    after_session = portal.split('callEdgeFunction<ReportSessionResponse>("report-session"', 1)[1].split("if (sessionResult.error", 1)[0]
+    assert_contains(after_session, "if (!isCurrentLoad(requestId, token)) return;", "session callback guarded immediately after await")
+    bootstrap_await = portal.split('callEdgeFunction<BootstrapResponse>(\n      "report-bootstrap"', 1)[1].split("if (bootstrapResult.error", 1)[0]
+    assert_contains(bootstrap_await, "if (!isCurrentLoad(requestId, token)) return;", "bootstrap callback guarded immediately after await")
+    before_hydrate = portal.split("hydrateBootstrap(bootstrapResult.data);", 1)[0].rsplit("\n", 6)[0]
+    assert_contains(before_hydrate, "if (!isCurrentLoad(requestId, token)) return;", "bootstrap guard occurs before hydrate/state transition")
+
+
+def test_report_logout_synchronously_invalidates_pending_loads_before_state_or_network() -> None:
+    portal = read(PORTAL)
+    logout_body = portal.split("const logout = async () => {", 1)[1].split("\n  };", 1)[0]
+    for needle, label in [
+        ('latestReportTokenRef.current = "";', "logout synchronously clears current token ref"),
+        ("loadRequestIdRef.current += 1;", "logout synchronously invalidates pending loads"),
+        ('setReportToken("");', "logout clears token state"),
+        ('void callEdgeFunction("report-auth-logout", { report_token: capturedReportToken }, undefined, 15000)', "logout network remains best-effort"),
+    ]:
+        assert_contains(logout_body, needle, label)
+    invalidate_index = logout_body.index('latestReportTokenRef.current = "";')
+    state_index = logout_body.index('setReportToken("");')
+    network_index = logout_body.index('callEdgeFunction("report-auth-logout"')
+    assert invalidate_index < state_index < network_index, "load invalidation must precede local state and network logout"
+
+
+def test_attendance_cleanup_uses_layout_effect_for_synchronous_token_invalidation() -> None:
+    card = read(ROOT / "src/components/kiosk/AttendanceCheckInCard.tsx")
+    assert_contains(card, 'import { useLayoutEffect, useMemo, useRef, useState } from "react";', "layout effect lifecycle import")
+    assert_not_contains(card, "useEffect", "attendance must not rely on passive effect cleanup for stale GPS callbacks")
+    mounted_effect = card.split("useLayoutEffect(() => {", 1)[1].split("}, []);", 1)[0]
+    assert_contains(mounted_effect, "mountedRef.current = true;", "layout mount marks active")
+    assert_contains(mounted_effect, "mountedRef.current = false;", "layout unmount synchronously marks inactive")
+    token_effect = card.split("useLayoutEffect(() => {", 2)[2].split("}, [reportToken]);", 1)[0]
+    assert_contains(token_effect, "latestReportTokenRef.current = reportToken;", "layout token effect records current token")
+    assert_contains(token_effect, 'latestReportTokenRef.current = "";', "layout cleanup clears old token before stale GPS callback")
+    assert_contains(token_effect, "requestIdRef.current += 1;", "layout cleanup invalidates previous request id")
+
+
+def test_delivery_staff_session_gets_attendance_shell_without_report_bootstrap_or_form() -> None:
+    portal = read(PORTAL)
+    for needle, label in [
+        ('actor_type?: "report_staff" | "delivery_staff"', "session actor type in response"),
+        ('actorType === "delivery_staff"', "delivery actor render branch"),
+        ("setActorType(sessionResult.data.actor_type === \"delivery_staff\" ? \"delivery_staff\" : \"report_staff\")", "session actor state from report-session"),
+        ("if (sessionResult.data.actor_type === \"delivery_staff\")", "delivery bootstrap skip branch"),
+        ("setDeliveryStaff(sessionResult.data.delivery_staff || null)", "delivery profile state"),
+        ("Nhân viên giao hàng", "delivery profile copy"),
+        ("Không cần nhập báo cáo điểm bán cho tài khoản giao hàng.", "delivery no-report copy"),
+        ("<AttendanceCheckInCard reportToken={reportToken}", "attendance card integrated after auth/session"),
+      ]:
+        assert_contains(portal, needle, label)
+
+    delivery_branch = portal.split('if (sessionResult.data.actor_type === "delivery_staff")', 1)[1].split("return;", 1)[0]
+    assert_not_contains(delivery_branch, "report-bootstrap", "delivery session restoration must not bootstrap report")
+    assert_not_contains(delivery_branch, "hydrateBootstrap", "delivery session restoration must not render report data")
+
+
+def test_authenticated_header_is_actor_aware_for_delivery_staff_and_preserves_report_staff() -> None:
+    portal = read(PORTAL)
+    assert_contains(portal, 'actorType === "delivery_staff" ? "Chấm công giao hàng" : "Báo cáo ngày"', "actor-aware mobile authenticated title")
+    assert_contains(portal, 'actorType === "delivery_staff" ? "Chấm công giao hàng" : "Báo cáo ngày"', "actor-aware desktop authenticated title")
+    assert_contains(portal, 'actorType === "delivery_staff" ? deliveryStaff?.full_name : staff?.full_name', "actor-aware authenticated name")
+    assert_contains(portal, 'actorType === "delivery_staff" ? null : (location?.name || "Điểm bán BMQ")', "delivery header must not use kiosk location fallback")
+    assert_contains(portal, 'actorType === "report_staff" ? "Nhập và gửi báo cáo vận hành tại điểm bán"', "report staff keeps report operations copy")
+    assert_contains(portal, '{headerLocationLabel && (', "authenticated location renders only when safely supplied")
+
+    header_source = portal.split('<header className="mb-3.5 lg:mb-5">', 1)[1].split("</header>", 1)[0]
+    assert_not_contains(header_source, '<h1 className="whitespace-nowrap text-[23px] font-extrabold leading-tight tracking-[-0.025em]">Báo cáo ngày</h1>', "mobile header must not unconditionally render report title")
+    assert_not_contains(header_source, '<h1 className="text-[30px] font-extrabold tracking-[-0.02em]">Báo cáo ngày</h1>', "desktop header must not unconditionally render report title")
+    assert_not_contains(header_source, '<div className="truncate text-xs text-[#85808a]">{location?.name || "Điểm bán BMQ"}</div>', "desktop header must not unconditionally render kiosk location fallback")
+
+
 def test_breadstick_inventory_sales_are_derived_from_channel_quantities() -> None:
     portal = read(PORTAL)
     daily_save = read(DAILY_SAVE)
