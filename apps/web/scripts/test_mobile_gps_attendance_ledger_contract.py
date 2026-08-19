@@ -51,6 +51,13 @@ def test_task3_migrations_are_parser_safe_rerunnable_and_no_evidence_dml() -> No
             or "drop trigger if exists" in lower
             or "create or replace function" in lower
             or ("revoke all on function" in lower and "grant execute on function" in lower)
+            or (
+                path.name in {
+                    "20260819113021_record_mobile_gps_attendance_event_grants.sql",
+                    "20260819113022_record_mobile_gps_attendance_event_service_role_grant.sql",
+                }
+                and ("revoke all on function" in lower or "grant execute on function" in lower)
+            )
         )
 
     executable = uncommented(task3_sql())

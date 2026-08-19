@@ -1,5 +1,4 @@
--- Explicit browser-role revoke for the Task3 attendance event insert RPC.
-revoke all on function public.record_mobile_gps_attendance_event(
+grant execute on function public.record_mobile_gps_attendance_event(
   text,
   uuid,
   uuid,
@@ -20,4 +19,4 @@ revoke all on function public.record_mobile_gps_attendance_event(
   uuid,
   text,
   text
-) from public, anon, authenticated;
+) to service_role;
