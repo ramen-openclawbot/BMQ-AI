@@ -19,6 +19,8 @@ import { getDocument, GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mj
 import { SalesPoQuickViewEditor } from "@/components/mini-crm/SalesPoQuickViewEditor";
 import { KnowledgeBaseProfileEditor } from "@/components/mini-crm/KnowledgeBaseProfileEditor";
 import { KioskReportAdminPanel } from "@/components/mini-crm/KioskReportAdminPanel";
+import { DeliveryStaffAdminPanel } from "@/components/mini-crm/DeliveryStaffAdminPanel";
+import { AttendanceGeofenceAdminPanel } from "@/components/mini-crm/AttendanceGeofenceAdminPanel";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   buildManualSummaryMessage,
@@ -517,7 +519,7 @@ export default function MiniCrm() {
   const [setupModalOpen, setSetupModalOpen] = useState(false);
   const [setupDealerPhone, setSetupDealerPhone] = useState("");
   const [viewCustomer, setViewCustomer] = useState<any | null>(null);
-  const [miniCrmSection, setMiniCrmSection] = useState<"customers" | "locations" | "staff">("customers");
+  const [miniCrmSection, setMiniCrmSection] = useState<"customers" | "locations" | "staff" | "delivery_staff" | "attendance_geofences">("customers");
   const [setupContractFile, setSetupContractFile] = useState<File | null>(null);
   const [setupPriceRows, setSetupPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
   const [setupEmailBodyTemplate, setSetupEmailBodyTemplate] = useState("");
@@ -3192,14 +3194,16 @@ export default function MiniCrm() {
 
       <Tabs
         value={miniCrmSection}
-        onValueChange={(value) => setMiniCrmSection(value as "customers" | "locations" | "staff")}
+        onValueChange={(value) => setMiniCrmSection(value as "customers" | "locations" | "staff" | "delivery_staff" | "attendance_geofences")}
         className="w-full"
         data-kiosk-report-admin-function="kiosk-report-admin"
       >
-        <TabsList className="grid w-full grid-cols-3 md:w-auto">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 md:w-auto md:grid-cols-5">
           <TabsTrigger value="customers">Khách hàng</TabsTrigger>
           <TabsTrigger value="locations">Điểm bán</TabsTrigger>
           <TabsTrigger value="staff">Nhân viên bán hàng</TabsTrigger>
+          <TabsTrigger value="delivery_staff">Nhân viên giao hàng</TabsTrigger>
+          <TabsTrigger value="attendance_geofences">GPS chấm công</TabsTrigger>
         </TabsList>
       </Tabs>
 
@@ -3548,6 +3552,14 @@ export default function MiniCrm() {
 
       {miniCrmSection === "staff" && (
         <KioskReportAdminPanel mode="staff" canView={canViewKioskAdmin} canEdit={canEditKioskAdmin} />
+      )}
+
+      {miniCrmSection === "delivery_staff" && (
+        <DeliveryStaffAdminPanel canView={canViewKioskAdmin} canEdit={canEditKioskAdmin} />
+      )}
+
+      {miniCrmSection === "attendance_geofences" && (
+        <AttendanceGeofenceAdminPanel canView={canViewKioskAdmin} canEdit={canEditKioskAdmin} />
       )}
 
       </>
