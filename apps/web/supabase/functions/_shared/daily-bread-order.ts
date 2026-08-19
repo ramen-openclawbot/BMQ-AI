@@ -32,6 +32,7 @@ export type VietjetInboxEvidence = {
 export type DailyBreadOrderMessageInput = {
   orderDate: string;
   dealerOrderedQuantity: number;
+  dealerExtraQuantity?: number;
   vehicleQuantity: number;
   vietjetQuantity: number;
 };
@@ -178,11 +179,15 @@ export function buildDailyBreadOrderMessage(input: DailyBreadOrderMessageInput):
   if (!match) throw new Error("invalid_daily_bread_order_date");
   const [, year, month, day] = match;
   const dealerOrdered = quantity(input.dealerOrderedQuantity);
+  const dealerExtra = quantity(input.dealerExtraQuantity);
+  const dealerPhysical = dealerOrdered + dealerExtra;
   const vehicle = quantity(input.vehicleQuantity);
-  const rawTotalBmq = dealerOrdered + vehicle;
+  const rawTotalBmq = dealerPhysical + vehicle;
   const roundedTotalBmq = roundBreadOrderMessageQuantity(rawTotalBmq);
   const roundedVietjet = roundBreadOrderMessageQuantity(input.vietjetQuantity);
-  const dealerLine = `ĐL: ${formatQuantity(dealerOrdered)}`;
+  const dealerLine = dealerExtra > 0
+    ? `ĐL: ${formatQuantity(dealerPhysical)} (đặt ${formatQuantity(dealerOrdered)} + đổi/bù ${formatQuantity(dealerExtra)})`
+    : `ĐL: ${formatQuantity(dealerOrdered)}`;
 
   return [
     `Đặt bánh ngày ${Number(day)}/${Number(month)}/${year}`,

@@ -299,14 +299,13 @@ const enqueueDailyBreadOrder = async (
     receivedAt: vietjetRow.received_at,
   };
 
-  // Tuyết Anh is the supplier: exchange/makeup is an internal Tân Tạo dispatch,
-  // not part of the quantity ordered from the supplier.
-  const rawTotalBmq = dealerOrderedQuantity + vehicleForecast.totalQuantity;
+  const rawTotalBmq = dealerOrderedQuantity + dealerExtraQuantity + vehicleForecast.totalQuantity;
   const roundedTotalBmq = roundBreadOrderMessageQuantity(rawTotalBmq);
   const roundedVietjet = roundBreadOrderMessageQuantity(vietjet.quantity);
   const messageBody = buildDailyBreadOrderMessage({
     orderDate,
     dealerOrderedQuantity,
+    dealerExtraQuantity,
     vehicleQuantity: vehicleForecast.totalQuantity,
     vietjetQuantity: vietjet.quantity,
   });
@@ -331,8 +330,9 @@ const enqueueDailyBreadOrder = async (
       item_ids: dealerItems.map((item) => item.id),
       ordered_quantity: dealerOrderedQuantity,
       extra_quantity: dealerExtraQuantity,
-      supplier_included: false,
-      internal_only: true,
+      physical_quantity: dealerOrderedQuantity + dealerExtraQuantity,
+      supplier_included: true,
+      internal_only: false,
     },
     vehicle: {
       source: "baocao.banhmique.vn",

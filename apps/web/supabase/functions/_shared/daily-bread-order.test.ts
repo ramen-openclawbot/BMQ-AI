@@ -122,19 +122,20 @@ test("uses exact quantity from the latest VietJet cumulative email for target se
   assert.equal(result.inboxId, "latest");
 });
 
-test("supplier message excludes dealer exchange and makeup from both dealer line and Total BMQ", () => {
+test("supplier message includes dealer exchange and makeup in dealer line and Total BMQ", () => {
   const message = buildDailyBreadOrderMessage({
     orderDate: "2026-08-11",
     dealerOrderedQuantity: 1460,
+    dealerExtraQuantity: 32,
     vehicleQuantity: 600,
     vietjetQuantity: 196,
   });
 
   assert.equal(message, [
     "Đặt bánh ngày 11/8/2026",
-    "ĐL: 1460",
+    "ĐL: 1492 (đặt 1460 + đổi/bù 32)",
     "Xe: 600",
-    "Tổng BMQ: 2060",
+    "Tổng BMQ: 2100",
     "Viet Jet: 200",
   ].join("\n"));
   assert.doesNotMatch(message, /Coop/);
