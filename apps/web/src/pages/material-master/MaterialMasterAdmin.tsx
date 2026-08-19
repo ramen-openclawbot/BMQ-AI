@@ -227,12 +227,12 @@ function MaterialSupplierReview({ selected, suppliers, canMutate }: { selected: 
   const [baseQuantityOverride, setBaseQuantityOverride] = useState<{ key: string; value: string } | null>(null);
   const [pendingConfirmedSelection, setPendingConfirmedSelection] = useState<{ key: string; supplierProductId: string } | null>(null);
   const [reason, setReason] = useState(defaultReason);
-  const activeSuggestion = selectedKey
-    ? suggestions.find((row) => materialSuggestionKey(row) === selectedKey)
-    : manualSupplierId ? undefined : suggestions[0];
   const confirmedSuggestions = suggestions
     .filter((row) => row.confirmed && row.supplier_product_id)
     .sort((left, right) => right.payment_candidate_count - left.payment_candidate_count);
+  const activeSuggestion = selectedKey
+    ? suggestions.find((row) => materialSuggestionKey(row) === selectedKey)
+    : manualSupplierId ? undefined : confirmedSuggestions[0] || suggestions[0];
   const optimisticConfirmedSuggestion = activeSuggestion
     && pendingConfirmedSelection?.key === materialSuggestionKey(activeSuggestion)
     ? { ...activeSuggestion, confirmed: true, supplier_product_id: pendingConfirmedSelection.supplierProductId }
@@ -240,6 +240,8 @@ function MaterialSupplierReview({ selected, suppliers, canMutate }: { selected: 
   const confirmedSuggestion = optimisticConfirmedSuggestion || (activeSuggestion?.confirmed && activeSuggestion.supplier_product_id
     ? activeSuggestion
     : confirmedSuggestions[0]);
+  const activeSuggestionConfirmed = Boolean(activeSuggestion && confirmedSuggestion && materialSuggestionKey(activeSuggestion) === materialSuggestionKey(confirmedSuggestion));
+  const supplierActionLabel = activeSuggestionConfirmed ? "Chỉnh sửa NCC" : "Xác nhận và lưu";
   const manualSupplierSuggestions = manualSupplierId
     ? suggestions.filter((row) => row.supplier_id === manualSupplierId && !row.confirmed)
     : [];
@@ -294,7 +296,7 @@ function MaterialSupplierReview({ selected, suppliers, canMutate }: { selected: 
           supplierProductId: confirmedResult.supplier_product_id,
         });
       }
-      toast({ title: "Đã xác nhận NCC", description: "Lựa chọn đã được lưu và ghi lịch sử; gợi ý trước đó không tự liên kết." });
+      toast({ title: activeSuggestionConfirmed ? "Đã cập nhật NCC" : "Đã xác nhận NCC", description: "Lựa chọn đã được lưu và ghi lịch sử; gợi ý trước đó không tự liên kết." });
       if (!activeSuggestion) setSelectedKey("");
       setManualSupplierId("");
       setReason(defaultReason);
@@ -313,7 +315,7 @@ function MaterialSupplierReview({ selected, suppliers, canMutate }: { selected: 
       {!isLoading && !error && suggestions.length === 0 && <Alert><AlertTitle>Chưa có gợi ý NCC</AlertTitle><AlertDescription>Chọn Nhà cung cấp bên dưới, sau đó nhập tên hàng tại NCC và đơn vị mua để xác nhận.</AlertDescription></Alert>}
       {activeSuggestion && <div className="min-w-0 rounded-2xl border bg-emerald-50 p-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0"><p className="text-xs font-semibold uppercase text-emerald-700">Gợi ý ưu tiên — chưa liên kết</p><h3 className="break-words text-lg font-semibold">{activeSuggestion.supplier_display_name || "NCC chưa đặt tên"}</h3><p className="break-words text-sm text-slate-700">{activeSuggestion.product_code ? `${activeSuggestion.product_code} · ` : ""}{activeSuggestion.product_name}</p><p className="text-sm text-slate-700">Đơn vị mua: <span className="font-semibold">{activeSuggestion.purchase_unit || "—"}</span> · Đơn vị Giá vốn: <span className="font-semibold">{selected.default_unit || "—"}</span></p></div>
+          <div className="min-w-0"><p className="text-xs font-semibold uppercase text-emerald-700">{activeSuggestionConfirmed ? "NCC đã xác nhận" : "Gợi ý ưu tiên — chưa liên kết"}</p><h3 className="break-words text-lg font-semibold">{activeSuggestion.supplier_display_name || "NCC chưa đặt tên"}</h3><p className="break-words text-sm text-slate-700">{activeSuggestion.product_code ? `${activeSuggestion.product_code} · ` : ""}{activeSuggestion.product_name}</p><p className="text-sm text-slate-700">Đơn vị mua: <span className="font-semibold">{activeSuggestion.purchase_unit || "—"}</span> · Đơn vị Giá vốn: <span className="font-semibold">{selected.default_unit || "—"}</span></p></div>
           <Badge className="w-fit bg-white text-emerald-800 hover:bg-white">{suggestionSourceLabel(activeSuggestion.candidate_source)}</Badge>
         </div>
         <p className="mt-2 text-sm text-slate-600">Bằng chứng: {activeSuggestion.evidence_count || 0} dòng · Dự kiến đồng bộ Duyệt chi: {activeSuggestion.payment_candidate_count || 0} dòng</p>
@@ -332,7 +334,7 @@ function MaterialSupplierReview({ selected, suppliers, canMutate }: { selected: 
         <div className="grid gap-2"><Label htmlFor="supplier-scan-base-quantity">1 đơn vị mua ({activeSuggestion.purchase_unit}) = bao nhiêu {selected.default_unit}?</Label><Input id="supplier-scan-base-quantity" inputMode="decimal" value={confirmedBaseQuantity} onChange={(event) => setBaseQuantityOverride({ key: activeConversionKey, value: event.target.value })} placeholder={`VD: 25000 ${selected.default_unit}`} disabled={!canMutate} /><p className="text-xs text-slate-600">Đơn vị Giá vốn cố định: {selected.default_unit}. Không tự đổi Duyệt chi hoặc số tiền.</p></div>
       </div>}
       {canMutate && <div className="grid gap-2"><Label htmlFor="supplier-confirm-reason">Lý do xác nhận</Label><Textarea id="supplier-confirm-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="VD: Đã đối chiếu NCC gợi ý với Giá vốn và Duyệt chi..." /></div>}
-      {canMutate && <Button className="min-h-11 w-full sm:w-auto" onClick={submit} disabled={!canConfirm || confirmSupplier.isPending}>{confirmSupplier.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}Xác nhận và lưu</Button>}
+      {canMutate && <Button className="min-h-11 w-full sm:w-auto" onClick={submit} disabled={!canConfirm || confirmSupplier.isPending}>{confirmSupplier.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}{supplierActionLabel}</Button>}
       {confirmedSuggestion && <PaymentRequestBulkSync selected={selected} suggestion={confirmedSuggestion} canMutate={canMutate} />}
     </CardContent>
   </Card>;

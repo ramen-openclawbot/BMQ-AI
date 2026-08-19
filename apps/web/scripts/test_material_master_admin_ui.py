@@ -263,6 +263,10 @@ def test_material_master_mobile_and_no_raw_uuid_primary_labels():
     assert "default_unit" in page
     assert "supplierProductCountByMaterialId" in page
     assert "Đã xác nhận NCC" in page
+    assert "NCC đã xác nhận" in page
+    assert "Chỉnh sửa NCC" in page
+    assert "activeSuggestionConfirmed" in page
+    assert "confirmedSuggestions[0] || suggestions[0]" in page
     assert "Đã chuẩn hoá đơn vị" in page
     assert "Thiếu đơn vị chuẩn" in page
     assert "Đã lưu NCC - chạm để xem" in page
