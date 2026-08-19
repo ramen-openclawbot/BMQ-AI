@@ -261,6 +261,10 @@ def test_material_master_mobile_and_no_raw_uuid_primary_labels():
     assert "canonical_name" in page
     assert "material_code" in page
     assert "default_unit" in page
+    assert "supplierProductCountByMaterialId" in page
+    assert "Đã xác nhận NCC" in page
+    assert "Chưa xác nhận NCC" in page
+    assert "Đã lưu NCC - chạm để xem" in page
     assert "truncateId" in page
     assert "Sao chép ID chi tiết" not in page
     primary_label_area = page.split("data-bmq-material-master-no-raw-ids", 1)[1].split("data-bmq-material-master-audit-timeline", 1)[0]

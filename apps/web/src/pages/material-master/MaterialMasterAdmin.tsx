@@ -404,8 +404,30 @@ function PaymentRequestLinkCard({ row }: { row: MaterialPaymentRequestLink }) {
   return <div className="min-w-0 rounded-xl bg-slate-50 p-3 text-sm"><div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><p className="break-words font-medium">{row.product_name || row.product_code || "Dòng hàng chưa đặt tên"}</p><p className="break-words text-slate-600">{row.request_number || "Duyệt chi"} · {row.vendor_display_name || "Chưa rõ Nhà cung cấp"}</p></div>{row.link_state === "linked" && <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Đã liên kết NVL</Badge>}</div><p className="mt-2 break-words text-slate-600">{row.quantity ?? "—"} {row.unit || "—"} · Đơn giá {formatVnd(row.unit_price)}đ · Thành tiền {formatVnd(row.line_total)}đ</p><p className="mt-1 text-xs text-slate-500">Trạng thái Duyệt chi: {row.request_status || "—"}</p></div>;
 }
 
-function ResponsiveMaterialList({ materials, selected, onSelect, onEdit, editable }: { materials: CanonicalMaterial[]; selected: CanonicalMaterial | null; onSelect: (m: CanonicalMaterial) => void; onEdit: (m: CanonicalMaterial) => void; editable: boolean }) {
-  return <Card data-bmq-cogs-rooted-material-list data-bmq-material-master-no-raw-ids data-bmq-material-master-tap-to-edit><CardHeader><CardTitle>NVL từ Giá vốn</CardTitle><CardDescription>{editable ? "Chọn NVL để xác nhận NCC; dùng nút Sửa để điều chỉnh thông tin chuẩn." : "Chạm vào NVL từ Giá vốn để xem các liên kết đang sử dụng."}</CardDescription></CardHeader><CardContent><div className="hidden overflow-x-auto md:block"><Table><TableHeader><TableRow><TableHead>Mã NVL</TableHead><TableHead>Tên NVL chuẩn</TableHead><TableHead>Đơn vị chuẩn</TableHead><TableHead>Nhóm · Thương hiệu · Quy cách</TableHead><TableHead>Trạng thái</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>{materials.map((row) => <TableRow key={row.id} onClick={() => onSelect(row)} className={`${selected?.id === row.id ? "bg-emerald-50" : ""} cursor-pointer hover:bg-emerald-50/60`}><TableCell className="font-medium">{row.material_code}</TableCell><TableCell>{row.canonical_name}</TableCell><TableCell>{row.default_unit}</TableCell><TableCell>{[row.category, row.brand, row.specification].filter(Boolean).join(" · ") || "—"}</TableCell><TableCell>{statusBadge(row.active)}</TableCell><TableCell><Button variant="outline" size="sm" onClick={(event) => { event.stopPropagation(); onEdit(row); }}><Edit3 className="mr-2 h-4 w-4" />{editable ? "Sửa" : "Xem"}</Button></TableCell></TableRow>)}</TableBody></Table></div><div className="space-y-3 md:hidden" data-bmq-material-master-mobile-cards>{materials.map((row) => <button key={row.id} type="button" onClick={() => onSelect(row)} className="w-full rounded-2xl border bg-white p-4 text-left shadow-sm transition-colors active:bg-emerald-50"><div className="flex items-start justify-between gap-2"><h3 className="min-w-0 break-words font-semibold text-slate-900">{row.canonical_name}</h3>{statusBadge(row.active)}</div><p className="mt-1 text-sm text-slate-600">{row.material_code} · {row.default_unit || "chưa có đơn vị"}</p><p className="mt-1 text-xs text-slate-500">{[row.category, row.brand, row.specification].filter(Boolean).join(" · ") || "Chưa phân nhóm"}</p><p className="mt-3 flex items-center gap-1.5 text-sm font-medium text-emerald-700"><Edit3 className="h-4 w-4" />{editable ? "Chạm để xác nhận NCC" : "Chạm để xem liên kết"}</p></button>)}</div>{materials.length === 0 && <div className="rounded-xl border border-dashed p-6 text-center text-sm text-slate-500">Không có NVL chuẩn phù hợp.</div>}</CardContent></Card>;
+function ResponsiveMaterialList({
+  materials,
+  selected,
+  supplierProductCountByMaterialId,
+  onSelect,
+  onEdit,
+  editable,
+}: {
+  materials: CanonicalMaterial[];
+  selected: CanonicalMaterial | null;
+  supplierProductCountByMaterialId: Map<string, number>;
+  onSelect: (m: CanonicalMaterial) => void;
+  onEdit: (m: CanonicalMaterial) => void;
+  editable: boolean;
+}) {
+  const supplierStatusBadge = (materialId: string) => {
+    const supplierProductCount = supplierProductCountByMaterialId.get(materialId) || 0;
+    return <Badge variant="outline" className={supplierProductCount > 0 ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}>{supplierProductCount > 0 ? "Đã xác nhận NCC" : "Chưa xác nhận NCC"}</Badge>;
+  };
+
+  return <Card data-bmq-cogs-rooted-material-list data-bmq-material-master-no-raw-ids data-bmq-material-master-tap-to-edit><CardHeader><CardTitle>NVL từ Giá vốn</CardTitle><CardDescription>{editable ? "Chọn NVL để xác nhận NCC; dùng nút Sửa để điều chỉnh thông tin chuẩn." : "Chạm vào NVL từ Giá vốn để xem các liên kết đang sử dụng."}</CardDescription></CardHeader><CardContent><div className="hidden overflow-x-auto md:block"><Table><TableHeader><TableRow><TableHead>Mã NVL</TableHead><TableHead>Tên NVL chuẩn</TableHead><TableHead>Đơn vị chuẩn</TableHead><TableHead>Nhóm · Thương hiệu · Quy cách</TableHead><TableHead>Trạng thái</TableHead><TableHead>NCC</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>{materials.map((row) => <TableRow key={row.id} onClick={() => onSelect(row)} className={`${selected?.id === row.id ? "bg-emerald-50" : ""} cursor-pointer hover:bg-emerald-50/60`}><TableCell className="font-medium">{row.material_code}</TableCell><TableCell>{row.canonical_name}</TableCell><TableCell>{row.default_unit}</TableCell><TableCell>{[row.category, row.brand, row.specification].filter(Boolean).join(" · ") || "—"}</TableCell><TableCell>{statusBadge(row.active)}</TableCell><TableCell>{supplierStatusBadge(row.id)}</TableCell><TableCell><Button variant="outline" size="sm" onClick={(event) => { event.stopPropagation(); onEdit(row); }}><Edit3 className="mr-2 h-4 w-4" />{editable ? "Sửa" : "Xem"}</Button></TableCell></TableRow>)}</TableBody></Table></div><div className="space-y-3 md:hidden" data-bmq-material-master-mobile-cards>{materials.map((row) => {
+    const hasSupplierProduct = (supplierProductCountByMaterialId.get(row.id) || 0) > 0;
+    return <button key={row.id} type="button" onClick={() => onSelect(row)} className="w-full rounded-2xl border bg-white p-4 text-left shadow-sm transition-colors active:bg-emerald-50"><div className="flex items-start justify-between gap-2"><h3 className="min-w-0 break-words font-semibold text-slate-900">{row.canonical_name}</h3>{statusBadge(row.active)}</div><p className="mt-1 text-sm text-slate-600">{row.material_code} · {row.default_unit || "chưa có đơn vị"}</p><p className="mt-1 text-xs text-slate-500">{[row.category, row.brand, row.specification].filter(Boolean).join(" · ") || "Chưa phân nhóm"}</p><div className="mt-3">{supplierStatusBadge(row.id)}</div><p className={`mt-3 flex items-center gap-1.5 text-sm font-medium ${hasSupplierProduct ? "text-emerald-700" : "text-amber-700"}`}><Edit3 className="h-4 w-4" />{hasSupplierProduct ? "Đã lưu NCC - chạm để xem" : editable ? "Chạm để xác nhận NCC" : "Chạm để xem liên kết"}</p></button>;
+  })}</div>{materials.length === 0 && <div className="rounded-xl border border-dashed p-6 text-center text-sm text-slate-500">Không có NVL chuẩn phù hợp.</div>}</CardContent></Card>;
 }
 
 function ReadOnlyTable<T>({ title, description, rows, render }: { title: string; description: string; rows: T[]; render: (row: T, idx: number) => JSX.Element }) {
@@ -479,7 +501,16 @@ export default function MaterialMasterAdmin() {
     return materials.filter((material) => [material.material_code, material.canonical_name, material.default_unit, material.category, material.brand, material.specification].filter(Boolean).some((value) => String(value).toLowerCase().includes(needle)));
   }, [materials, search]);
   const aliases = [...(data?.aliases || []), ...(data?.scopedAliases || [])].filter((row) => !selected || row.material_id === selected.id);
-  const supplierProducts = (data?.supplierProducts || []).filter((row) => {
+  const allSupplierProducts = useMemo(() => data?.supplierProducts || [], [data?.supplierProducts]);
+  const supplierProductCountByMaterialId = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of allSupplierProducts) {
+      if (!row.material_id || row.active !== true || row.approved !== true) continue;
+      counts.set(row.material_id, (counts.get(row.material_id) || 0) + 1);
+    }
+    return counts;
+  }, [allSupplierProducts]);
+  const supplierProducts = allSupplierProducts.filter((row) => {
     if (!selected) return true;
     return row.material_id === selected.id
       && row.active === true
@@ -549,7 +580,7 @@ export default function MaterialMasterAdmin() {
             </TabsList>
 
             <TabsContent value="materials" className="space-y-4">
-              <ResponsiveMaterialList materials={filteredMaterials} selected={selected} onSelect={chooseMaterial} onEdit={openMaterialEditor} editable={canEdit} />
+              <ResponsiveMaterialList materials={filteredMaterials} selected={selected} supplierProductCountByMaterialId={supplierProductCountByMaterialId} onSelect={chooseMaterial} onEdit={openMaterialEditor} editable={canEdit} />
               <Dialog open={dialog === "edit"} onOpenChange={(open) => setDialog(open ? "edit" : null)}>
                 <DialogContent className="max-h-[90dvh] w-[calc(100vw-1.5rem)] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Điều chỉnh NVL</DialogTitle><DialogDescription>Chỉ điều chỉnh thông tin chuẩn của NVL từ Giá vốn; liên kết NCC và Duyệt chi được xác nhận tại tab nghiệp vụ riêng.</DialogDescription></DialogHeader>{selected && <MaterialMutationForm key={`edit-${selected.id}-${selected.version}`} canMutate={canMutate} selected={selected} onClose={() => setDialog(null)} />}</DialogContent>
               </Dialog>
