@@ -167,6 +167,10 @@ verify_jwt = false
 [functions.report-auth-logout]
 verify_jwt = false
 
+[functions.attendance-check-in]
+# Public report-token endpoint; actor/session authorization is enforced inside the function.
+verify_jwt = false
+
 [functions.kiosk-report-admin]
 verify_jwt = false
 

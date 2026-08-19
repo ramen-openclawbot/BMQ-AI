@@ -56,7 +56,7 @@ function getAllowedOrigins(deps: AttendanceHandlerDeps): string[] {
 function exactCorsHeaders(req: Request, deps: AttendanceHandlerDeps, methods = "POST, OPTIONS"): Record<string, string> {
   const origin = req.headers.get("origin") || "";
   const headers: Record<string, string> = {
-    "Access-Control-Allow-Headers": "content-type, x-report-session, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+    "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-report-session, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
     "Access-Control-Allow-Methods": methods,
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin",

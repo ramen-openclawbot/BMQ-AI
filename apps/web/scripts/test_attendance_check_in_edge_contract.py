@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FUNCTION = ROOT / "supabase/functions/attendance-check-in/handler.ts"
 HELPER = ROOT / "supabase/functions/_shared/attendance.ts"
 INDEX = ROOT / "supabase/functions/attendance-check-in/index.ts"
+CONFIG = ROOT / "supabase/config.toml"
 
 
 def read(path: Path) -> str:
@@ -100,3 +101,9 @@ def test_ledger_rpc_idempotency_rate_limit_and_cors_contract() -> None:
     ]:
         assert needle.lower() in source, f"Missing Edge contract marker: {needle}"
     assert "serve((req) => handleattendancecheckin(req))" in index
+    for required_header in ["authorization", "apikey", "x-client-info", "content-type"]:
+        assert required_header in source, f"Missing browser preflight header: {required_header}"
+    config = read(CONFIG).lower()
+    assert "[functions.attendance-check-in]" in config
+    attendance_config = config.split("[functions.attendance-check-in]", 1)[1].split("[functions.", 1)[0]
+    assert "verify_jwt = false" in attendance_config, "Report-token auth endpoint must reach its internal session checks"
