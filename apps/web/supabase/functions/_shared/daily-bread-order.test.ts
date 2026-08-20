@@ -122,7 +122,7 @@ test("uses exact quantity from the latest VietJet cumulative email for target se
   assert.equal(result.inboxId, "latest");
 });
 
-test("supplier message includes dealer exchange and makeup in dealer line and Total BMQ", () => {
+test("supplier message rounds new BMQ bread to complete 20-stick pate batches and keeps dealer extras internal", () => {
   const message = buildDailyBreadOrderMessage({
     orderDate: "2026-08-11",
     dealerOrderedQuantity: 1460,
@@ -133,12 +133,31 @@ test("supplier message includes dealer exchange and makeup in dealer line and To
 
   assert.equal(message, [
     "Đặt bánh ngày 11/8/2026",
-    "ĐL: 1492 (đặt 1460 + đổi/bù 32)",
+    "ĐL: 1460 (đổi/bù 32 dùng tồn nội bộ)",
     "Xe: 600",
-    "Tổng BMQ: 2100",
+    "Tổng BMQ: 2060",
     "Viet Jet: 200",
   ].join("\n"));
   assert.doesNotMatch(message, /Coop/);
+});
+
+test("rounds BMQ totals upward to complete 20-stick pate batches", () => {
+  const cases = [
+    { raw: 230, expected: 240 },
+    { raw: 250, expected: 260 },
+    { raw: 260, expected: 260 },
+  ];
+
+  for (const { raw, expected } of cases) {
+    const message = buildDailyBreadOrderMessage({
+      orderDate: "2026-08-12",
+      dealerOrderedQuantity: raw,
+      dealerExtraQuantity: 7,
+      vehicleQuantity: 0,
+      vietjetQuantity: 0,
+    });
+    assert.match(message, new RegExp(`Tổng BMQ: ${expected}$`, "m"));
+  }
 });
 
 test("keeps supplier dealer line exact when there is no internal exchange or makeup", () => {
@@ -149,7 +168,7 @@ test("keeps supplier dealer line exact when there is no internal exchange or mak
     vietjetQuantity: 0,
   });
   assert.match(message, /^Đặt bánh ngày 12\/8\/2026\nĐL: 100\n/m);
-  assert.match(message, /Tổng BMQ: 150/);
+  assert.match(message, /Tổng BMQ: 160/);
 });
 
 test("locks at 23:59 Vietnam and targets the next Vietnam calendar day", () => {

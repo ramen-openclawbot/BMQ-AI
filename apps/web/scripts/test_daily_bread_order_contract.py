@@ -60,18 +60,22 @@ def test_worker_routes_only_named_supplier_jobs_to_tuyet_anh():
         'Deno.env.get("ZALO_GMF_TUYET_ANH_GROUP_ID")',
         'job.group_name === "BMQ - HKD Tuyết Anh"',
         'supabase.rpc("upsert_daily_bread_order_notification"',
-        'rule: "ceil-to-multiple-10-v1"',
+        'rule: "ceil-to-multiple-20-pate-batch-v1"',
+        "batch_size: 20",
+        "pate_boxes: roundedTotalBmq / 20",
         "raw_quantity: rawTotalBmq",
         "sent_quantity: roundedTotalBmq",
         "raw_quantity: vietjet.quantity",
         "sent_quantity: roundedVietjet",
-        'supplier_included: true',
-        'internal_only: false',
+        'extra_supplier_included: false',
+        'extra_handling: "warehouse_bread_stock_and_point_pate_stock"',
+        "supplier_order_quantity: dealerOrderedQuantity",
         "physical_quantity: dealerOrderedQuantity + dealerExtraQuantity",
     ]
     for marker in required:
         assert marker in source
-    assert "dealerOrderedQuantity + dealerExtraQuantity + vehicleForecast.totalQuantity" in source
+    assert "dealerOrderedQuantity + vehicleForecast.totalQuantity" in source
+    assert "dealerOrderedQuantity + dealerExtraQuantity + vehicleForecast.totalQuantity" not in source
 
 
 def test_forecast_contract_is_explainable_and_has_no_sample_constants():

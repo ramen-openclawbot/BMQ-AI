@@ -13,6 +13,7 @@ import {
   forecastVehicleBread,
   nextVietnamDateKey,
   roundBreadOrderMessageQuantity,
+  roundTotalBmqForPateBatch,
 } from "../_shared/daily-bread-order.ts";
 import {
   isWarehouseDailyDigestTime,
@@ -299,8 +300,8 @@ const enqueueDailyBreadOrder = async (
     receivedAt: vietjetRow.received_at,
   };
 
-  const rawTotalBmq = dealerOrderedQuantity + dealerExtraQuantity + vehicleForecast.totalQuantity;
-  const roundedTotalBmq = roundBreadOrderMessageQuantity(rawTotalBmq);
+  const rawTotalBmq = dealerOrderedQuantity + vehicleForecast.totalQuantity;
+  const roundedTotalBmq = roundTotalBmqForPateBatch(rawTotalBmq);
   const roundedVietjet = roundBreadOrderMessageQuantity(vietjet.quantity);
   const messageBody = buildDailyBreadOrderMessage({
     orderDate,
@@ -318,10 +319,18 @@ const enqueueDailyBreadOrder = async (
     cutoff_timezone: "Asia/Ho_Chi_Minh",
     order_date: orderDate,
     rounding: {
-      rule: "ceil-to-multiple-10-v1",
-      applies_to: ["total_bmq", "vietjet"],
-      total_bmq: { raw_quantity: rawTotalBmq, sent_quantity: roundedTotalBmq },
-      vietjet: { raw_quantity: vietjet.quantity, sent_quantity: roundedVietjet },
+      total_bmq: {
+        rule: "ceil-to-multiple-20-pate-batch-v1",
+        batch_size: 20,
+        pate_boxes: roundedTotalBmq / 20,
+        raw_quantity: rawTotalBmq,
+        sent_quantity: roundedTotalBmq,
+      },
+      vietjet: {
+        rule: "ceil-to-multiple-10-v1",
+        raw_quantity: vietjet.quantity,
+        sent_quantity: roundedVietjet,
+      },
     },
     dealer: {
       source: "dathang.banhmique.vn",
@@ -331,8 +340,9 @@ const enqueueDailyBreadOrder = async (
       ordered_quantity: dealerOrderedQuantity,
       extra_quantity: dealerExtraQuantity,
       physical_quantity: dealerOrderedQuantity + dealerExtraQuantity,
-      supplier_included: true,
-      internal_only: false,
+      supplier_order_quantity: dealerOrderedQuantity,
+      extra_supplier_included: false,
+      extra_handling: "warehouse_bread_stock_and_point_pate_stock",
     },
     vehicle: {
       source: "baocao.banhmique.vn",

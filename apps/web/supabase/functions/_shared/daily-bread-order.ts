@@ -91,6 +91,7 @@ const formatQuantity = (value: number): string => {
 };
 
 export const roundBreadOrderMessageQuantity = (value: number): number => roundUpToBatch(quantity(value), 10);
+export const roundTotalBmqForPateBatch = (value: number): number => roundUpToBatch(quantity(value), 20);
 
 export function forecastVehicleBread(locations: VehicleBreadLocation[], deliveryDate?: string): {
   totalQuantity: number;
@@ -180,13 +181,12 @@ export function buildDailyBreadOrderMessage(input: DailyBreadOrderMessageInput):
   const [, year, month, day] = match;
   const dealerOrdered = quantity(input.dealerOrderedQuantity);
   const dealerExtra = quantity(input.dealerExtraQuantity);
-  const dealerPhysical = dealerOrdered + dealerExtra;
   const vehicle = quantity(input.vehicleQuantity);
-  const rawTotalBmq = dealerPhysical + vehicle;
-  const roundedTotalBmq = roundBreadOrderMessageQuantity(rawTotalBmq);
+  const rawTotalBmq = dealerOrdered + vehicle;
+  const roundedTotalBmq = roundTotalBmqForPateBatch(rawTotalBmq);
   const roundedVietjet = roundBreadOrderMessageQuantity(input.vietjetQuantity);
   const dealerLine = dealerExtra > 0
-    ? `ĐL: ${formatQuantity(dealerPhysical)} (đặt ${formatQuantity(dealerOrdered)} + đổi/bù ${formatQuantity(dealerExtra)})`
+    ? `ĐL: ${formatQuantity(dealerOrdered)} (đổi/bù ${formatQuantity(dealerExtra)} dùng tồn nội bộ)`
     : `ĐL: ${formatQuantity(dealerOrdered)}`;
 
   return [
