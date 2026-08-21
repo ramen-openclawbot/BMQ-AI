@@ -64,8 +64,17 @@ export type PointReportDetail = {
   location_name: string;
   staff_name: string;
   status: string;
+  bread_closing_quantity: number | null;
   inventory_rows: PointReportInventoryRow[];
   channel_rows: PointReportChannelRow[];
+};
+
+export type PointReportEditDraft = {
+  amounts: Record<string, number>;
+  quantities: Record<string, number>;
+  channelNotes: Record<string, string>;
+  inventoryRows: PointReportInventoryRow[];
+  reportNotes: string;
 };
 
 const finiteNumber = (value: unknown) => {
@@ -140,6 +149,13 @@ export function parsePointRevenueRows(rows: unknown[]): PointRevenueReport[] {
 
 export function parsePointReportDetail(raw: unknown): PointReportDetail {
   const row = (raw ?? {}) as Record<string, unknown>;
+  const rawInventoryRows = Array.isArray(row.inventory_rows) ? row.inventory_rows : [];
+  const rawBreadRow = rawInventoryRows.find((rawInventory) => {
+    const inventory = rawInventory as Record<string, unknown>;
+    return String(inventory.product_code ?? "") === "banh_mi_que";
+  }) as Record<string, unknown> | undefined;
+  const rawBreadClosing = rawBreadRow?.closing_quantity;
+  const breadClosingNumber = Number(rawBreadClosing);
   return {
     report_id: String(row.report_id ?? ""),
     report_date: String(row.report_date ?? ""),
@@ -147,7 +163,11 @@ export function parsePointReportDetail(raw: unknown): PointReportDetail {
     location_name: String(row.location_name ?? ""),
     staff_name: String(row.staff_name ?? ""),
     status: String(row.status ?? ""),
-    inventory_rows: (Array.isArray(row.inventory_rows) ? row.inventory_rows : []).map((rawInventory) => {
+    bread_closing_quantity:
+      rawBreadClosing !== null && rawBreadClosing !== undefined && rawBreadClosing !== "" && Number.isFinite(breadClosingNumber)
+        ? breadClosingNumber
+        : null,
+    inventory_rows: rawInventoryRows.map((rawInventory) => {
       const inventory = rawInventory as Record<string, unknown>;
       return {
         product_code: String(inventory.product_code ?? ""),
@@ -179,4 +199,63 @@ export function parsePointReportDetail(raw: unknown): PointReportDetail {
       };
     }),
   };
+}
+
+export function getBreadClosingQuantity(detail: PointReportDetail | null | undefined) {
+  return detail?.bread_closing_quantity ?? null;
+}
+
+export function recalculatePointInventory(rows: PointReportInventoryRow[]) {
+  const breadstickSold = Math.max(
+    0,
+    rows.find((row) => row.product_code === "banh_mi_que")?.sold_quantity ?? 0,
+  );
+  return rows.map((row) => {
+    const consumed = row.consumption_is_manual
+      ? Math.max(0, row.consumed_quantity)
+      : Math.round(breadstickSold * row.breadstick_consumption_ratio * 1000) / 1000;
+    const closing =
+      row.opening_quantity +
+      row.received_quantity -
+      row.shortage_quantity +
+      row.transfer_quantity -
+      row.waste_quantity -
+      row.returns_quantity -
+      row.sold_quantity -
+      consumed;
+    return { ...row, consumed_quantity: consumed, closing_quantity: closing };
+  });
+}
+
+export function createPointReportEditDraft(
+  detail: PointReportDetail,
+  retailUnitPriceVnd: number,
+): PointReportEditDraft {
+  const amounts = Object.fromEntries(
+    detail.channel_rows.map((channel) => [
+      channel.channel_code,
+      channel.channel_code.trim().toLowerCase() === "khach_le"
+        ? channel.quantity * retailUnitPriceVnd
+        : channel.amount_vnd,
+    ]),
+  );
+  const quantities = Object.fromEntries(
+    detail.channel_rows.map((channel) => [channel.channel_code, channel.quantity]),
+  );
+  const channelNotes = Object.fromEntries(
+    detail.channel_rows.map((channel) => [channel.channel_code, channel.notes]),
+  );
+  const breadstickSoldQuantity = detail.channel_rows.reduce(
+    (sum, channel) => sum + channel.quantity,
+    0,
+  );
+  const inventoryRows = recalculatePointInventory(
+    detail.inventory_rows.map((row) => (
+      row.product_code === "banh_mi_que"
+        ? { ...row, sold_quantity: breadstickSoldQuantity }
+        : row
+    )),
+  );
+
+  return { amounts, quantities, channelNotes, inventoryRows, reportNotes: detail.report_notes };
 }

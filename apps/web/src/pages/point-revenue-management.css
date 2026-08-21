@@ -17,6 +17,8 @@
   --pr-color-high-soft: oklch(0.92 0.05 150);
   --pr-color-low: oklch(0.55 0.12 55);
   --pr-color-low-soft: oklch(0.93 0.055 70);
+  --pr-color-star: oklch(0.72 0.15 82);
+  --pr-color-star-soft: oklch(0.95 0.07 88);
   --pr-color-danger: oklch(0.52 0.17 27);
   --pr-color-danger-soft: oklch(0.94 0.045 27);
   --pr-color-disabled: oklch(0.72 0.012 210);
@@ -371,11 +373,26 @@
 }
 
 .pr-rank {
+  display: inline-grid;
   width: 2rem;
+  height: 2rem;
+  place-items: center;
   color: var(--pr-color-ink-soft);
   font-family: var(--pr-font-data);
   font-size: var(--pr-text-sm);
   font-weight: 600;
+}
+
+.pr-rank--highest {
+  border-radius: 999px;
+  background: var(--pr-color-star-soft);
+  color: var(--pr-color-star);
+}
+
+.pr-rank--highest svg {
+  width: 1rem;
+  height: 1rem;
+  fill: currentColor;
 }
 
 .pr-point-copy {
@@ -440,6 +457,11 @@
   font-size: var(--pr-text-sm);
 }
 
+.pr-point-stock {
+  color: var(--pr-color-accent);
+  font-weight: 700;
+}
+
 .pr-shift-note {
   min-width: 0;
   color: var(--pr-color-ink-soft);
@@ -483,6 +505,66 @@
 .pr-open-report {
   width: 100%;
   justify-content: center;
+}
+
+.pr-inventory-overview {
+  display: grid;
+  gap: var(--pr-space-md);
+  padding-top: var(--pr-space-lg);
+}
+
+.pr-inventory-overview > header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--pr-space-md);
+}
+
+.pr-inventory-overview h3,
+.pr-inventory-overview p {
+  margin: 0;
+}
+
+.pr-inventory-overview h3 {
+  font-family: var(--pr-font-display);
+  font-size: var(--pr-text-md);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+.pr-inventory-overview p,
+.pr-inventory-overview small {
+  color: var(--pr-color-ink-soft);
+  font-size: var(--pr-text-xs);
+}
+
+.pr-inventory-overview > header strong,
+.pr-inventory-overview-grid article > strong {
+  color: var(--pr-color-accent);
+  font-family: var(--pr-font-data);
+}
+
+.pr-inventory-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--pr-space-xs);
+}
+
+.pr-inventory-overview-grid article {
+  display: grid;
+  min-width: 0;
+  gap: var(--pr-space-2xs);
+  border: 1px solid var(--pr-color-rule);
+  border-radius: var(--pr-radius-control);
+  background: var(--pr-color-paper-raised);
+  padding: var(--pr-space-sm);
+}
+
+.pr-inventory-overview-grid article > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--pr-text-sm);
+  font-weight: 800;
 }
 
 .pr-error,
@@ -703,7 +785,9 @@
 }
 
 .pr-editor-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr);
+  gap: var(--pr-space-xs);
   justify-content: flex-end;
 }
 
@@ -712,12 +796,20 @@
 }
 
 .pr-mobile-dialog {
-  max-height: min(92dvh, 58rem);
+  top: 0 !important;
+  left: 0 !important;
+  width: 100%;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  transform: none !important;
   overflow-y: auto;
+  border: 0;
+  border-radius: 0;
   background: var(--pr-color-paper-raised);
   color: var(--pr-color-ink);
   font-family: var(--pr-font-body);
-  padding-top: var(--pr-space-xl);
+  padding: var(--pr-space-xl) var(--pr-space-md) calc(6rem + env(safe-area-inset-bottom));
 }
 
 .pr-mobile-dialog .pr-editor {
@@ -725,6 +817,18 @@
   border-radius: 0;
   padding: 0;
   box-shadow: none;
+}
+
+.pr-mobile-dialog .pr-editor-actions {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--pr-z-sticky);
+  border-top: 1px solid var(--pr-color-rule);
+  background: var(--pr-color-paper-raised);
+  padding: var(--pr-space-sm) var(--pr-space-md) calc(var(--pr-space-sm) + env(safe-area-inset-bottom));
+  box-shadow: 0 -12px 30px oklch(0.25 0.025 215 / 0.08);
 }
 
 .pr-dialog-close {
@@ -812,6 +916,31 @@
 
   .pr-editor-actions button {
     width: auto;
+  }
+
+  .pr-mobile-dialog {
+    top: 50% !important;
+    left: 50% !important;
+    width: min(calc(100% - 2rem), 42rem);
+    max-width: 42rem;
+    height: auto;
+    max-height: min(92dvh, 58rem);
+    transform: translate(-50%, -50%) !important;
+    border: 1px solid var(--pr-color-rule);
+    border-radius: var(--pr-radius-large);
+    padding: var(--pr-space-xl);
+  }
+
+  .pr-mobile-dialog .pr-editor-actions {
+    position: static;
+    border-top: 0;
+    background: transparent;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  .pr-inventory-overview-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

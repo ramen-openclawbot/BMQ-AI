@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   ArrowRight,
@@ -9,6 +9,7 @@ import {
   Loader2,
   PencilLine,
   Save,
+  Star,
   Store,
   X,
 } from "lucide-react";
@@ -29,11 +30,14 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { kioskRetailCustomerUnitPriceVnd } from "@/lib/kiosk-report-inventory";
 import {
+  createPointReportEditDraft,
+  getBreadClosingQuantity,
   parsePointReportDetail,
   parsePointRevenueRows,
   PointReportInventoryRow,
   PointRevenueChannel,
   PointRevenueReport,
+  recalculatePointInventory,
   summarizePointRevenue,
 } from "@/lib/point-revenue";
 import "./point-revenue-management.css";
@@ -119,28 +123,6 @@ function parseMoneyInput(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function recalculateInventory(rows: PointReportInventoryRow[]) {
-  const breadstickSold = Math.max(
-    0,
-    rows.find((row) => row.product_code === "banh_mi_que")?.sold_quantity ?? 0,
-  );
-  return rows.map((row) => {
-    const consumed = row.consumption_is_manual
-      ? Math.max(0, row.consumed_quantity)
-      : Math.round(breadstickSold * row.breadstick_consumption_ratio * 1000) / 1000;
-    const closing =
-      row.opening_quantity +
-      row.received_quantity -
-      row.shortage_quantity +
-      row.transfer_quantity -
-      row.waste_quantity -
-      row.returns_quantity -
-      row.sold_quantity -
-      consumed;
-    return { ...row, consumed_quantity: consumed, closing_quantity: closing };
-  });
-}
-
 function currentAmountsFor(report: PointRevenueReport | null, edits: ChannelAmounts) {
   return (report?.channels ?? []).map((channel) => ({
     ...channel,
@@ -167,17 +149,19 @@ function usePointRevenueReports(reportDate: string) {
   });
 }
 
+async function fetchPointReportDetail(reportId: string) {
+  const { data, error } = await supabase.rpc("get_kiosk_point_report_detail" as never, {
+    p_report_id: reportId,
+  } as never);
+  if (error) throw error;
+  return parsePointReportDetail(data);
+}
+
 function usePointReportDetail(reportId: string | null) {
   return useQuery({
     queryKey: ["point-report-detail", reportId],
     enabled: Boolean(reportId),
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc("get_kiosk_point_report_detail" as never, {
-        p_report_id: reportId,
-      } as never);
-      if (error) throw error;
-      return parsePointReportDetail(data);
-    },
+    queryFn: () => fetchPointReportDetail(reportId as string),
   });
 }
 
@@ -353,6 +337,7 @@ function EditorPanel({
   onInventoryChange,
   onReportNotesChange,
   onReasonChange,
+  onCancel,
   onSave,
 }: {
   report: PointRevenueReport | null;
@@ -377,6 +362,7 @@ function EditorPanel({
   ) => void;
   onReportNotesChange: (notes: string) => void;
   onReasonChange: (reason: string) => void;
+  onCancel?: () => void;
   onSave: () => void;
 }) {
   const adjustedChannels = useMemo(() => currentAmountsFor(report, amounts), [report, amounts]);
@@ -481,6 +467,17 @@ function EditorPanel({
 
           {canEdit && (
             <div className="pr-editor-actions">
+              {onCancel && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="pr-editor-cancel"
+                  onClick={onCancel}
+                  disabled={saving}
+                >
+                  Hủy
+                </Button>
+              )}
               <Button
                 type="button"
                 onClick={onSave}
@@ -542,6 +539,31 @@ export default function PointRevenueManagement() {
     }));
   }, [reports]);
 
+  const pointDetailQueries = useQueries({
+    queries: rankedReports.map(({ report }) => ({
+      queryKey: ["point-report-detail", report.report_id],
+      queryFn: () => fetchPointReportDetail(report.report_id),
+      staleTime: 30_000,
+    })),
+  });
+  const breadClosingByReportId = useMemo(
+    () => new Map(
+      rankedReports.map((row, index) => [
+        row.report.report_id,
+        getBreadClosingQuantity(pointDetailQueries[index]?.data),
+      ]),
+    ),
+    [pointDetailQueries, rankedReports],
+  );
+  const inventoryOverviewLoading = pointDetailQueries.some((query) => query.isLoading);
+  const inventoryOverviewIncomplete = pointDetailQueries.some(
+    (query) => query.isError || !query.data || getBreadClosingQuantity(query.data) === null,
+  );
+  const totalBreadClosing = Array.from(breadClosingByReportId.values()).reduce<number>(
+    (sum, quantity) => sum + (quantity ?? 0),
+    0,
+  );
+
   const selectedReport =
     reports.find((report) => report.report_id === selectedId) ?? rankedReports[0]?.report ?? null;
   const selectedRetailUnitPriceVnd = selectedReport
@@ -568,34 +590,15 @@ export default function PointRevenueManagement() {
 
   useEffect(() => {
     if (!detail || !selectedReport) return;
-    setAmounts(
-      Object.fromEntries(
-        detail.channel_rows.map((channel) => [
-          channel.channel_code,
-          channel.channel_code.trim().toLowerCase() === "khach_le"
-            ? channel.quantity * kioskRetailCustomerUnitPriceVnd(selectedReport.report_date)
-            : channel.amount_vnd,
-        ]),
-      ),
+    const draft = createPointReportEditDraft(
+      detail,
+      kioskRetailCustomerUnitPriceVnd(selectedReport.report_date),
     );
-    setQuantities(
-      Object.fromEntries(
-        detail.channel_rows.map((channel) => [channel.channel_code, channel.quantity]),
-      ),
-    );
-    setChannelNotes(
-      Object.fromEntries(
-        detail.channel_rows.map((channel) => [channel.channel_code, channel.notes]),
-      ),
-    );
-    const breadstickSoldQuantity = detail.channel_rows.reduce((sum, channel) => sum + channel.quantity, 0);
-    const inventoryWithDerivedSales = detail.inventory_rows.map((row) => (
-      row.product_code === "banh_mi_que"
-        ? { ...row, sold_quantity: breadstickSoldQuantity }
-        : row
-    ));
-    setInventoryRows(recalculateInventory(inventoryWithDerivedSales));
-    setReportNotes(detail.report_notes);
+    setAmounts(draft.amounts);
+    setQuantities(draft.quantities);
+    setChannelNotes(draft.channelNotes);
+    setInventoryRows(draft.inventoryRows);
+    setReportNotes(draft.reportNotes);
   }, [detail, selectedReport]);
 
   const dailySummary = useMemo(() => {
@@ -683,10 +686,26 @@ export default function PointRevenueManagement() {
     value: number | string,
   ) => {
     setInventoryRows((current) =>
-      recalculateInventory(
+      recalculatePointInventory(
         current.map((row) => (row.product_code === productCode ? { ...row, [field]: value } : row)),
       ),
     );
+  };
+
+  const closeMobileEditor = () => {
+    if (detail && selectedReport) {
+      const draft = createPointReportEditDraft(
+        detail,
+        kioskRetailCustomerUnitPriceVnd(selectedReport.report_date),
+      );
+      setAmounts(draft.amounts);
+      setQuantities(draft.quantities);
+      setChannelNotes(draft.channelNotes);
+      setInventoryRows(draft.inventoryRows);
+      setReportNotes(draft.reportNotes);
+    }
+    setReason("");
+    setMobileEditorOpen(false);
   };
 
   const openReport = (reportId: string, mobile = false) => {
@@ -694,7 +713,7 @@ export default function PointRevenueManagement() {
     if (mobile) setMobileEditorOpen(true);
   };
 
-  const renderEditor = (idPrefix: string) => (
+  const renderEditor = (idPrefix: string, onCancel?: () => void) => (
     <EditorPanel
       report={selectedReport}
       amounts={amounts}
@@ -716,6 +735,7 @@ export default function PointRevenueManagement() {
       onInventoryChange={handleInventoryChange}
       onReportNotesChange={setReportNotes}
       onReasonChange={setReason}
+      onCancel={onCancel}
       onSave={() => saveMutation.mutate()}
     />
   );
@@ -724,7 +744,7 @@ export default function PointRevenueManagement() {
     <main
       className="point-revenue-page"
       data-testid="point-revenue-page"
-      data-point-revenue-version="daily-ranking-v1"
+      data-point-revenue-version="mobile-ranking-edit-v2"
     >
       <header className="pr-page-header">
         <div className="pr-title-line">
@@ -833,6 +853,7 @@ export default function PointRevenueManagement() {
             const isHighest = index === 0 && rankedReports.length > 1;
             const isLowest = index === rankedReports.length - 1 && rankedReports.length > 1;
             const selected = row.report.report_id === selectedReportId;
+            const breadClosing = breadClosingByReportId.get(row.report.report_id);
             return (
               <article
                 key={row.report.report_id}
@@ -844,11 +865,13 @@ export default function PointRevenueManagement() {
                   onClick={() => openReport(row.report.report_id)}
                   aria-label={`Mở báo cáo ${row.report.location_name}`}
                 >
-                  <span className="pr-rank">{String(row.rank).padStart(2, "0")}</span>
+                  <span className={`pr-rank${isHighest ? " pr-rank--highest" : ""}`}>
+                    {isHighest ? <Star aria-label="Tốt nhất hôm nay" /> : String(row.rank).padStart(2, "0")}
+                  </span>
                   <span className="pr-point-copy">
                     <span className="pr-point-title-line">
                       <strong>{row.report.location_name}</strong>
-                      {isHighest && <span className="pr-rank-note">Bán nhiều nhất</span>}
+                      {isHighest && <span className="pr-rank-note">Tốt nhất hôm nay</span>}
                       {isLowest && <span className="pr-rank-note pr-rank-note--low">Bán ít nhất</span>}
                     </span>
                     <span className="pr-volume-track" aria-hidden="true">
@@ -856,6 +879,9 @@ export default function PointRevenueManagement() {
                     </span>
                     <span className="pr-point-meta">
                       {row.report.staff_name || "Chưa có tên nhân viên"}
+                      {breadClosing !== null && breadClosing !== undefined && (
+                        <span className="pr-point-stock"> · Tồn cuối {formatInventoryQuantity(breadClosing)} bánh</span>
+                      )}
                     </span>
                     {row.report.report_notes && (
                       <span className="pr-shift-note">
@@ -882,13 +908,49 @@ export default function PointRevenueManagement() {
             );
           })}
         </div>
+
+        {rankedReports.length > 0 && (
+          <section className="pr-inventory-overview" aria-labelledby="point-inventory-title">
+            <header>
+              <div>
+                <h3 id="point-inventory-title">Tồn bánh hiện tại</h3>
+                <p>Tồn cuối Bánh mì que theo báo cáo đã gửi.</p>
+              </div>
+              <strong>
+                {inventoryOverviewLoading
+                  ? "Đang tải…"
+                  : inventoryOverviewIncomplete
+                    ? "Chưa đủ dữ liệu"
+                    : `${formatInventoryQuantity(totalBreadClosing)} bánh`}
+              </strong>
+            </header>
+            <div className="pr-inventory-overview-grid">
+              {rankedReports.map((row, index) => {
+                const closing = breadClosingByReportId.get(row.report.report_id);
+                const detailQuery = pointDetailQueries[index];
+                return (
+                  <article key={row.report.report_id}>
+                    <span>{row.report.location_name}</span>
+                    <strong>{closing === null || closing === undefined ? "—" : formatInventoryQuantity(closing)}</strong>
+                    <small>{detailQuery?.isError ? "Không tải được" : "bánh tồn cuối"}</small>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        )}
       </section>
 
       <section className="pr-desktop-editor" aria-label="Báo cáo điểm bán được chọn">
         {renderEditor("desktop")}
       </section>
 
-      <Dialog open={mobileEditorOpen} onOpenChange={setMobileEditorOpen}>
+      <Dialog
+        open={mobileEditorOpen}
+        onOpenChange={(open) => {
+          if (!open) closeMobileEditor();
+        }}
+      >
         <DialogContent className="pr-mobile-dialog">
           <DialogHeader>
             <DialogTitle>Báo cáo điểm bán</DialogTitle>
@@ -902,12 +964,12 @@ export default function PointRevenueManagement() {
             className="pr-dialog-close"
             variant="ghost"
             size="icon"
-            onClick={() => setMobileEditorOpen(false)}
+            onClick={closeMobileEditor}
             aria-label="Đóng"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </Button>
-          {renderEditor("mobile")}
+          {renderEditor("mobile", closeMobileEditor)}
         </DialogContent>
       </Dialog>
     </main>

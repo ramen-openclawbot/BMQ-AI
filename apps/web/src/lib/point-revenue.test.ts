@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  createPointReportEditDraft,
   detectPointRevenueIssues,
+  getBreadClosingQuantity,
   parsePointReportDetail,
   parsePointRevenueRows,
   summarizePointRevenue,
@@ -124,4 +126,67 @@ test("parsePointReportDetail normalizes full inventory and channel correction pa
   assert.equal(parsed.channel_rows[0].quantity, 3);
   assert.equal(parsed.channel_rows[0].amount_vnd, 36000);
   assert.equal(parsed.channel_rows[0].source_amount_vnd, 96);
+  assert.equal(getBreadClosingQuantity(parsed), 12);
+});
+
+test("getBreadClosingQuantity returns null when a report has no bread inventory row", () => {
+  const parsed = parsePointReportDetail({
+    report_id: "report-no-bread",
+    inventory_rows: [{ product_code: "pate", closing_quantity: "2.5" }],
+    channel_rows: [],
+  });
+
+  assert.equal(getBreadClosingQuantity(parsed), null);
+});
+
+test("getBreadClosingQuantity rejects incomplete or invalid bread closing values", () => {
+  for (const closingQuantity of [null, "", "không hợp lệ"]) {
+    const parsed = parsePointReportDetail({
+      report_id: "report-incomplete-bread",
+      inventory_rows: [{ product_code: "banh_mi_que", closing_quantity: closingQuantity }],
+      channel_rows: [],
+    });
+
+    assert.equal(getBreadClosingQuantity(parsed), null);
+  }
+});
+
+test("createPointReportEditDraft restores persisted values and recalculates derived inventory", () => {
+  const detail = parsePointReportDetail({
+    report_id: "report-draft",
+    report_notes: "Ghi chú nguồn",
+    inventory_rows: [
+      {
+        product_code: "banh_mi_que",
+        opening_quantity: 100,
+        received_quantity: 50,
+        sold_quantity: 1,
+        closing_quantity: 149,
+      },
+      {
+        product_code: "pate",
+        opening_quantity: 10,
+        received_quantity: 2,
+        consumed_quantity: 0,
+        closing_quantity: 12,
+        breadstick_consumption_ratio: 0.05,
+      },
+    ],
+    channel_rows: [
+      { channel_code: "khach_le", quantity: 30, amount_vnd: 1, notes: "Tiền mặt" },
+      { channel_code: "grabfood", quantity: 10, amount_vnd: 400000, notes: "Đối soát" },
+    ],
+  });
+
+  const draft = createPointReportEditDraft(detail, 12000);
+
+  assert.equal(draft.amounts.khach_le, 360000);
+  assert.equal(draft.amounts.grabfood, 400000);
+  assert.equal(draft.quantities.grabfood, 10);
+  assert.equal(draft.channelNotes.khach_le, "Tiền mặt");
+  assert.equal(draft.inventoryRows[0].sold_quantity, 40);
+  assert.equal(draft.inventoryRows[0].closing_quantity, 110);
+  assert.equal(draft.inventoryRows[1].consumed_quantity, 2);
+  assert.equal(draft.inventoryRows[1].closing_quantity, 10);
+  assert.equal(draft.reportNotes, "Ghi chú nguồn");
 });
