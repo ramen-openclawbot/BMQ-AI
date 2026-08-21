@@ -80,7 +80,11 @@ def test_worker_routes_only_named_supplier_jobs_to_tuyet_anh():
 
 def test_forecast_contract_is_explainable_and_has_no_sample_constants():
     source = HELPER.read_text(encoding="utf-8")
-    assert "peak-7d-plus-10pct-minus-closing-round10-lunar-off-v2" in source
+    assert "peak-7d-plus-10pct-minus-closing-smart-round20-lunar-off-v3" in source
+    assert "PATE_BATCH_SIZE = 20" in source
+    assert "round_up_to_prevent_peak_stockout" in source
+    assert "round_down_existing_stock_buffer" in source
+    assert "round_up_to_preserve_low_stock_safety" in source
     assert "lunar_day_30_monthly_off" in source
     assert 'new LunarDate(Number(year), Number(month), Number(day)).date' in source
     assert "1600" not in source

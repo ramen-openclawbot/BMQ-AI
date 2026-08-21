@@ -74,12 +74,69 @@ test("forecasts every active reporting location from peak recent sales with stoc
     },
   ]);
 
-  assert.equal(result.totalQuantity, 150);
-  assert.deepEqual(result.locations.map((row) => ({ code: row.locationCode, quantity: row.recommendedQuantity })), [
-    { code: "HCM-A", quantity: 90 },
-    { code: "HCM-B", quantity: 60 },
+  assert.equal(result.totalQuantity, 140);
+  assert.deepEqual(result.locations.map((row) => ({
+    code: row.locationCode,
+    quantity: row.recommendedQuantity,
+    decision: row.roundingDecision,
+  })), [
+    { code: "HCM-A", quantity: 80, decision: "round_down_existing_stock_buffer" },
+    { code: "HCM-B", quantity: 60, decision: "round_up_to_prevent_peak_stockout" },
   ]);
-  assert.equal(result.formulaVersion, "peak-7d-plus-10pct-minus-closing-round10-lunar-off-v2");
+  assert.equal(result.formulaVersion, "peak-7d-plus-10pct-minus-closing-smart-round20-lunar-off-v3");
+});
+
+test("rounds a 100-versus-120 decision up only when stock is too low", () => {
+  const result = forecastVehicleBread([
+    {
+      locationId: "low-stock",
+      locationCode: "HCM-LOW",
+      reports: [{ reportDate: "2026-08-20", soldQuantity: 100, closingQuantity: 0 }],
+    },
+    {
+      locationId: "has-stock",
+      locationCode: "HCM-STOCK",
+      reports: [{ reportDate: "2026-08-20", soldQuantity: 100, closingQuantity: 10 }],
+    },
+    {
+      locationId: "some-stock",
+      locationCode: "HCM-SOME",
+      reports: [{ reportDate: "2026-08-20", soldQuantity: 100, closingQuantity: 5 }],
+    },
+  ]);
+
+  assert.deepEqual(result.locations.map((row) => ({
+    code: row.locationCode,
+    closing: row.latestClosingQuantity,
+    net: row.netDemandQuantity,
+    lower: row.lowerBatchQuantity,
+    upper: row.upperBatchQuantity,
+    quantity: row.recommendedQuantity,
+    decision: row.roundingDecision,
+  })), [
+    { code: "HCM-LOW", closing: 0, net: 110, lower: 100, upper: 120, quantity: 120, decision: "round_up_to_preserve_low_stock_safety" },
+    { code: "HCM-STOCK", closing: 10, net: 100, lower: 100, upper: 100, quantity: 100, decision: "exact_20_stick_batch" },
+    { code: "HCM-SOME", closing: 5, net: 105, lower: 100, upper: 120, quantity: 120, decision: "round_up_to_preserve_low_stock_safety" },
+  ]);
+});
+
+test("rounds down from 120 to 100 when existing stock already protects peak sales", () => {
+  const result = forecastVehicleBread([{
+    locationId: "bhn",
+    locationCode: "HCM004-BHN",
+    reports: [
+      { reportDate: "2026-08-20", soldQuantity: 148, closingQuantity: 89 },
+      { reportDate: "2026-08-16", soldQuantity: 183, closingQuantity: 19 },
+    ],
+  }]);
+
+  assert.equal(result.locations[0].peakSoldQuantity, 183);
+  assert.equal(result.locations[0].protectedDemandQuantity, 201.3);
+  assert.ok(Math.abs(result.locations[0].netDemandQuantity - 112.3) < 1e-9);
+  assert.equal(result.locations[0].lowerBatchQuantity, 100);
+  assert.equal(result.locations[0].upperBatchQuantity, 120);
+  assert.equal(result.locations[0].recommendedQuantity, 100);
+  assert.equal(result.locations[0].roundingDecision, "round_down_existing_stock_buffer");
 });
 
 test("does not create vehicle demand for an active location without submitted bread reports", () => {

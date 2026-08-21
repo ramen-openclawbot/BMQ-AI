@@ -19,7 +19,19 @@ export type VehicleBreadForecastLocation = {
   latestReportDate: string | null;
   peakSoldQuantity: number;
   latestClosingQuantity: number;
+  protectedDemandQuantity: number;
+  netDemandQuantity: number;
+  lowerBatchQuantity: number;
+  upperBatchQuantity: number;
   recommendedQuantity: number;
+  roundingDecision:
+    | "no_submitted_report"
+    | "lunar_day_30_monthly_off"
+    | "no_new_order_needed"
+    | "exact_20_stick_batch"
+    | "round_up_to_prevent_peak_stockout"
+    | "round_up_to_preserve_low_stock_safety"
+    | "round_down_existing_stock_buffer";
   closureReason: "lunar_day_30_monthly_off" | null;
 };
 
@@ -51,8 +63,10 @@ export type WarehouseKioskBreadDispatchInput = {
   locations: WarehouseKioskBreadDispatchLocation[];
 };
 
-const FORMULA_VERSION = "peak-7d-plus-10pct-minus-closing-round10-lunar-off-v2";
+const FORMULA_VERSION = "peak-7d-plus-10pct-minus-closing-smart-round20-lunar-off-v3";
 const VIETNAM_OFFSET_MS = 7 * 60 * 60 * 1000;
+const VEHICLE_BREAD_SAFETY_FACTOR = 1.1;
+const PATE_BATCH_SIZE = 20;
 const LUNAR_DAY_30_OFF_CODES = new Set(["HCM001-BV", "HCM002-PVC"]);
 
 const lunarDayForVietnamDate = (dateKey: string): number | null => {
@@ -91,7 +105,77 @@ const formatQuantity = (value: number): string => {
 };
 
 export const roundBreadOrderMessageQuantity = (value: number): number => roundUpToBatch(quantity(value), 10);
-export const roundTotalBmqForPateBatch = (value: number): number => roundUpToBatch(quantity(value), 20);
+export const roundTotalBmqForPateBatch = (value: number): number => roundUpToBatch(quantity(value), PATE_BATCH_SIZE);
+
+const selectSmartPateBatchQuantity = (peakSoldQuantity: number, latestClosingQuantity: number): {
+  protectedDemandQuantity: number;
+  netDemandQuantity: number;
+  lowerBatchQuantity: number;
+  upperBatchQuantity: number;
+  recommendedQuantity: number;
+  roundingDecision: VehicleBreadForecastLocation["roundingDecision"];
+} => {
+  const protectedDemandQuantity = Math.round(
+    peakSoldQuantity * VEHICLE_BREAD_SAFETY_FACTOR * 1_000,
+  ) / 1_000;
+  const netDemandQuantity = Math.max(0, protectedDemandQuantity - latestClosingQuantity);
+  const lowerBatchQuantity = Math.floor(netDemandQuantity / PATE_BATCH_SIZE) * PATE_BATCH_SIZE;
+  const upperBatchQuantity = Math.ceil(netDemandQuantity / PATE_BATCH_SIZE) * PATE_BATCH_SIZE;
+
+  if (!(netDemandQuantity > 0)) {
+    return {
+      protectedDemandQuantity,
+      netDemandQuantity,
+      lowerBatchQuantity: 0,
+      upperBatchQuantity: 0,
+      recommendedQuantity: 0,
+      roundingDecision: "no_new_order_needed",
+    };
+  }
+  if (lowerBatchQuantity === upperBatchQuantity) {
+    return {
+      protectedDemandQuantity,
+      netDemandQuantity,
+      lowerBatchQuantity,
+      upperBatchQuantity,
+      recommendedQuantity: lowerBatchQuantity,
+      roundingDecision: "exact_20_stick_batch",
+    };
+  }
+
+  const lowerProjectedAvailable = latestClosingQuantity + lowerBatchQuantity;
+  if (lowerProjectedAvailable < peakSoldQuantity) {
+    return {
+      protectedDemandQuantity,
+      netDemandQuantity,
+      lowerBatchQuantity,
+      upperBatchQuantity,
+      recommendedQuantity: upperBatchQuantity,
+      roundingDecision: "round_up_to_prevent_peak_stockout",
+    };
+  }
+
+  const safetyTargetClosing = protectedDemandQuantity - peakSoldQuantity;
+  if (latestClosingQuantity < safetyTargetClosing) {
+    return {
+      protectedDemandQuantity,
+      netDemandQuantity,
+      lowerBatchQuantity,
+      upperBatchQuantity,
+      recommendedQuantity: upperBatchQuantity,
+      roundingDecision: "round_up_to_preserve_low_stock_safety",
+    };
+  }
+
+  return {
+    protectedDemandQuantity,
+    netDemandQuantity,
+    lowerBatchQuantity,
+    upperBatchQuantity,
+    recommendedQuantity: lowerBatchQuantity,
+    roundingDecision: "round_down_existing_stock_buffer",
+  };
+};
 
 export function forecastVehicleBread(locations: VehicleBreadLocation[], deliveryDate?: string): {
   totalQuantity: number;
@@ -118,17 +202,19 @@ export function forecastVehicleBread(locations: VehicleBreadLocation[], delivery
         latestReportDate: null,
         peakSoldQuantity: 0,
         latestClosingQuantity: 0,
+        protectedDemandQuantity: 0,
+        netDemandQuantity: 0,
+        lowerBatchQuantity: 0,
+        upperBatchQuantity: 0,
         recommendedQuantity: 0,
+        roundingDecision: "no_submitted_report" as const,
         closureReason,
       };
     }
 
     const peakSoldQuantity = Math.max(...reports.map((report) => quantity(report.soldQuantity)));
     const latestClosingQuantity = signedQuantity(reports[0].closingQuantity);
-    const protectedDemand = Math.round(peakSoldQuantity * 1.1 * 1_000) / 1_000;
-    const recommendedQuantity = closureReason
-      ? 0
-      : roundUpToBatch(Math.max(0, protectedDemand - latestClosingQuantity));
+    const batchSelection = selectSmartPateBatchQuantity(peakSoldQuantity, latestClosingQuantity);
 
     return {
       locationId: location.locationId,
@@ -137,7 +223,9 @@ export function forecastVehicleBread(locations: VehicleBreadLocation[], delivery
       latestReportDate: reports[0].reportDate,
       peakSoldQuantity,
       latestClosingQuantity,
-      recommendedQuantity,
+      ...batchSelection,
+      recommendedQuantity: closureReason ? 0 : batchSelection.recommendedQuantity,
+      roundingDecision: closureReason ? "lunar_day_30_monthly_off" as const : batchSelection.roundingDecision,
       closureReason,
     };
   });

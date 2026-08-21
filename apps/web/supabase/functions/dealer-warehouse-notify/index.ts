@@ -457,6 +457,13 @@ const enqueueWarehouseKioskBreadDispatch = async (
       returnsQuantity: quantity(inventory?.returns_quantity),
       wasteQuantity: quantity(inventory?.waste_quantity),
       latestReportDate: forecast.latestReportDate,
+      peakSoldQuantity: forecast.peakSoldQuantity,
+      latestClosingQuantity: forecast.latestClosingQuantity,
+      protectedDemandQuantity: forecast.protectedDemandQuantity,
+      netDemandQuantity: forecast.netDemandQuantity,
+      lowerBatchQuantity: forecast.lowerBatchQuantity,
+      upperBatchQuantity: forecast.upperBatchQuantity,
+      roundingDecision: forecast.roundingDecision,
       closureReason: forecast.closureReason,
     };
   });
@@ -473,7 +480,7 @@ const enqueueWarehouseKioskBreadDispatch = async (
     locations: dispatchLocations,
     warnings,
     quantity_semantics: {
-      order: "automatic_vehicle_forecast_recommended_quantity",
+      order: "smart_20_stick_pate_batch_after_peak_demand_safety_and_latest_closing_stock",
       makeup: "kiosk_shortage_quantity",
       exchange: "kiosk_returns_quantity_plus_waste_quantity",
     },
