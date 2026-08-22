@@ -2,6 +2,11 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireAuth, requireCronSecret } from "../_shared/auth.ts";
+import {
+  buildKioskPointRevenuePreviewLines,
+  kioskReportedDates,
+  type KioskPointReportRow,
+} from "./kiosk-point-revenue.ts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -871,6 +876,24 @@ async function fetchDealerPortalOrders(
   return Array.from(rowsById.values());
 }
 
+async function fetchKioskPointReports(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  window: ParseWindow,
+) {
+  const { data, error } = await supabaseAdmin
+    .from("kiosk_daily_reports")
+    .select(
+      "id, report_date, location_id, location_name_snapshot, submitted_at, kiosk_daily_report_channel_rows(id, channel_code, channel_name_snapshot, quantity, amount_vnd, notes)",
+    )
+    .eq("status", "submitted")
+    .gte("report_date", window.revenueDateFrom)
+    .lte("report_date", window.revenueDateTo)
+    .order("report_date", { ascending: true })
+    .order("location_name_snapshot", { ascending: true });
+  if (error) throw error;
+  return (data || []) as KioskPointReportRow[];
+}
+
 const buildDealerPortalPreviewLines = (
   runId: string,
   period: string,
@@ -1675,6 +1698,7 @@ async function runCurrentMonthPreview(
     const dealerPortalOrders = dealerParseSource === "dealer_portal"
       ? await fetchDealerPortalOrders(supabaseAdmin, window, receivedFrom, receivedTo)
       : [];
+    const kioskPointReports = await fetchKioskPointReports(supabaseAdmin, window);
     const dealerEmailReplacement = dealerParseSource === "dealer_portal"
       ? filterDirectDealerEmailLinesReplacedByPortal(
           rows,
@@ -1729,6 +1753,31 @@ async function runCurrentMonthPreview(
       sourceTab: options.sourceTab,
       linePayloadMetadata: options.linePayloadMetadata,
     });
+    const replacedRetailKioskDates = kioskReportedDates(kioskPointReports);
+    const emailLinesAfterKioskReplacement = emailLines.filter((line) =>
+      !(line.channel === "Retail Kiosk" && replacedRetailKioskDates.has(line.revenue_date))
+    );
+    const excludedRetailKioskEmailLines = emailLines.length - emailLinesAfterKioskReplacement.length;
+    const kioskPointLines = buildKioskPointRevenuePreviewLines(
+      String(run.id),
+      window.period,
+      window.revenueDateFrom,
+      window.revenueDateTo,
+      kioskPointReports,
+      {
+        monthly_parse_kind: options.monthlyParseKind || "manual_current_month_to_yesterday",
+        ...(options.linePayloadMetadata || {}),
+      },
+    );
+    emit?.({
+      type: "progress",
+      stage: "kiosk_point_revenue",
+      channel: "Retail Kiosk",
+      reportCount: kioskPointReports.length,
+      lineCount: kioskPointLines.length,
+      excludedRetailKioskEmailLines,
+      message: `Điểm bán: ${kioskPointReports.length} báo cáo / ${kioskPointLines.length} dòng; thay ${excludedRetailKioskEmailLines} dòng Retail Kiosk từ PO/email`,
+    });
     const dealerPortalLines = dealerParseSource === "dealer_portal"
       ? buildDealerPortalPreviewLines(String(run.id), window.period, window.revenueDateFrom, window.revenueDateTo, dealerPortalOrders, emit, {
           monthlyParseKind: options.monthlyParseKind,
@@ -1739,7 +1788,8 @@ async function runCurrentMonthPreview(
           },
         })
       : [];
-    const lines = [...emailLines, ...dealerPortalLines].map((line, index) => ({ ...line, source_row_number: index + 1 }));
+    const lines = [...emailLinesAfterKioskReplacement, ...dealerPortalLines, ...kioskPointLines]
+      .map((line, index) => ({ ...line, source_row_number: index + 1 }));
     const summary = {
       ...summarizeLines(lines, window),
       monthly_parse_kind: options.monthlyParseKind || "manual_current_month_to_yesterday",
@@ -1748,6 +1798,9 @@ async function runCurrentMonthPreview(
       dealerParseSource,
       dealerPortalOrders: dealerPortalOrders.length,
       dealerPortalLines: dealerPortalLines.length,
+      kioskPointReports: kioskPointReports.length,
+      kioskPointLines: kioskPointLines.length,
+      excludedRetailKioskEmailLines,
       excludedDealerEmailRows: dealerParseSource === "dealer_portal"
         ? dealerEmailReplacement.excludedTonyEmailRows + dealerEmailReplacement.excludedDirectDealerEmailRows
         : 0,
