@@ -652,7 +652,10 @@ async function ensureRevenueViewer(supabaseAdmin: ReturnType<typeof createClient
 
 async function syncGmailInboxForPreview(req: Request, window: ParseWindow, emit?: ProgressEmitter) {
   const authHeader = req.headers.get("Authorization") || "";
-  const cronSecret = req.headers.get("x-cron-secret") || "";
+  const cronSecret = req.headers.get("x-cron-secret")
+    || Deno.env.get(REVENUE_CRON_SECRET_ENV_KEY)
+    || Deno.env.get(LEGACY_PO_CRON_SECRET_ENV_KEY)
+    || "";
   if (!authHeader.startsWith("Bearer ") && !cronSecret) {
     throw new Error("Missing Authorization header or cron secret for PO/email Gmail sync");
   }

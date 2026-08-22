@@ -92,6 +92,7 @@ def test_auto_daily_window_and_metadata() -> None:
         ("owner_approval_required: false", "no owner approval metadata"),
         ("auto_daily_no_double_count_key", "no double count metadata"),
         ("syncGmail: true", "cron path imports fresh PO/email before parsing"),
+        ("Deno.env.get(REVENUE_CRON_SECRET_ENV_KEY)", "service-role recovery forwards the server cron secret to Gmail sync"),
         ('...(cronSecret ? { "x-cron-secret": cronSecret } : {})', "cron secret forwarded to Gmail sync"),
     ]:
         assert_contains(monthly, needle, label)
