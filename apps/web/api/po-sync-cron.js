@@ -70,6 +70,13 @@ function cronIntendedRevenueDate(now = new Date()) {
   return localMinute >= 23 * 60 ? shiftIsoDate(vn.date, 1) : vn.date;
 }
 
+const AUTO_DAILY_RECOVERY_DAYS = 14;
+
+function scheduledRevenueDates(targetDate, recoveryDays = AUTO_DAILY_RECOVERY_DAYS) {
+  return Array.from({ length: recoveryDays }, (_, index) =>
+    shiftIsoDate(targetDate, index - recoveryDays + 1));
+}
+
 function safeReportSummary(upstreamPayload) {
   if (!upstreamPayload || typeof upstreamPayload !== "object" || Array.isArray(upstreamPayload)) return null;
   const postResult = upstreamPayload.postResult || {};
@@ -173,38 +180,48 @@ export default async function handler(req, res) {
     return;
   }
   const scheduledRevenueDate = parsedRevenueDate.revenueDate || cronIntendedRevenueDate();
-  const upstreamBody = {
-    action: "auto_daily_post",
-    revenueDate: scheduledRevenueDate,
-    trigger: parsedRevenueDate.explicit ? "manual_cron_proxy" : "vercel_cron",
-    cronScheduledAttempt: !parsedRevenueDate.explicit,
-  };
+  const revenueDates = parsedRevenueDate.explicit
+    ? [scheduledRevenueDate]
+    : scheduledRevenueDates(scheduledRevenueDate);
 
   try {
-    const upstream = await fetch(targetUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-cron-secret": supabaseCronSecret,
-      },
-      body: JSON.stringify(upstreamBody),
-    });
-
-    const raw = await upstream.text();
-    const contentType = upstream.headers.get("content-type") || "application/json";
-    const parsed = parseJsonIfPossible(raw);
-    const reporting = upstream.ok
-      ? await reportComposioRevenueCron(parsed || { raw })
-      : { configured: false, attempted: false };
-
-    res.status(upstream.status);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      res.setHeader("content-type", "application/json");
-      res.send(JSON.stringify({ ...parsed, reporting }));
-      return;
+    const results = [];
+    for (const revenueDate of revenueDates) {
+      const upstreamBody = {
+        action: "auto_daily_post",
+        revenueDate,
+        trigger: parsedRevenueDate.explicit ? "manual_cron_proxy" : "vercel_cron_recovery_window",
+        cronScheduledAttempt: !parsedRevenueDate.explicit,
+      };
+      const upstream = await fetch(targetUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-cron-secret": supabaseCronSecret,
+        },
+        body: JSON.stringify(upstreamBody),
+      });
+      const raw = await upstream.text();
+      const parsed = parseJsonIfPossible(raw);
+      results.push({
+        revenueDate,
+        ok: upstream.ok,
+        status: upstream.status,
+        result: parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : { raw },
+      });
     }
-    res.setHeader("content-type", contentType);
-    res.send(raw);
+
+    const targetResult = results.find((result) => result.revenueDate === scheduledRevenueDate)?.result || null;
+    const reporting = await reportComposioRevenueCron(targetResult || {});
+    const failed = results.filter((result) => !result.ok);
+    res.status(failed.length > 0 ? 502 : 200).json({
+      success: failed.length === 0,
+      action: parsedRevenueDate.explicit ? "auto_daily_post" : "auto_daily_recovery_window",
+      revenueDate: scheduledRevenueDate,
+      recoveryDays: parsedRevenueDate.explicit ? 1 : AUTO_DAILY_RECOVERY_DAYS,
+      results,
+      reporting,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     res.status(500).json({ error: `Cron proxy failed: ${message}` });

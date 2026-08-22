@@ -25,12 +25,10 @@ def assert_contains(text: str, needle: str, label: str) -> None:
     assert needle in text, f"missing {label}: expected to find {needle!r}"
 
 
-def test_vercel_crons_seed_next_day_and_recover_same_day_vietnam_time() -> None:
+def test_vercel_uses_one_daily_revenue_cron() -> None:
     crons = vercel.get("crons", [])
-    assert crons == [
-        {"path": "/api/po-sync-cron", "schedule": "59 16 * * *"},
-        {"path": "/api/po-sync-cron", "schedule": "15 8 * * *"},
-    ]
+    assert {"path": "/api/po-sync-cron", "schedule": "59 16 * * *"} in crons
+    assert sum(1 for cron in crons if cron.get("path") == "/api/po-sync-cron") == 1
 
 
 def test_proxy_uses_intended_vietnam_business_date() -> None:
@@ -39,8 +37,8 @@ def test_proxy_uses_intended_vietnam_business_date() -> None:
         ("localMinute >= 23 * 60", "late-night cron targets next service date"),
         ("shiftIsoDate(vn.date, 1)", "before-midnight attempts target tomorrow"),
         ("return localMinute >= 23 * 60 ? shiftIsoDate(vn.date, 1) : vn.date", "after-midnight attempts target current date"),
-        ("revenueDate: scheduledRevenueDate", "proxy always passes explicit date to edge function"),
-        ('trigger: parsedRevenueDate.explicit ? "manual_cron_proxy" : "vercel_cron"', "proxy distinguishes manual vs scheduled trigger"),
+        ("revenueDate,", "proxy passes each validated date to edge function"),
+        ('trigger: parsedRevenueDate.explicit ? "manual_cron_proxy" : "vercel_cron_recovery_window"', "proxy distinguishes manual vs scheduled trigger"),
         ("cronScheduledAttempt: !parsedRevenueDate.explicit", "scheduled attempt marker"),
     ]:
         assert_contains(cron_api, needle, label)
@@ -56,6 +54,10 @@ def test_proxy_calls_revenue_auto_daily_action() -> None:
         ("reportComposioRevenueCron", "optional Composio report hook"),
         ("tam@bmq.vn", "report recipient"),
         ("temporary controlled revenue", "report controlled revenue wording"),
+        ("AUTO_DAILY_RECOVERY_DAYS = 14", "fourteen-day rolling recovery window"),
+        ("scheduledRevenueDates(scheduledRevenueDate)", "scheduled run includes recovery dates"),
+        ('action: parsedRevenueDate.explicit ? "auto_daily_post" : "auto_daily_recovery_window"', "batch recovery response"),
+        ("for (const revenueDate of revenueDates)", "every recovery date is attempted"),
     ]:
         assert_contains(cron_api, needle, label)
     assert "po-sync-scheduler-run" not in cron_api, "proxy must not call legacy scheduler"
@@ -63,9 +65,9 @@ def test_proxy_calls_revenue_auto_daily_action() -> None:
 
 def test_revenue_function_cron_secret_before_owner_auth() -> None:
     for needle, label in [
-        ("requireCronSecret", "cron secret helper import/use"),
+        ("requireRevenueAutomationAuth", "cron or service-role automation auth"),
         ('if (action === "auto_daily_post")', "auto daily branch"),
-        ("requireRevenueCronSecret(req, corsHeaders)", "cron secret validation"),
+        ("constantTimeTextEqual(token, serviceRoleKey)", "service-role recovery uses constant-time comparison"),
         ("return await autoDailyPost(req, supabaseAdmin, body)", "cron branch returns before owner auth"),
         ("const { user } = await requireAuth(req, corsHeaders)", "manual owner auth still present"),
         ("await ensureOwner(supabaseAdmin, user.id)", "manual owner check still present"),
@@ -121,7 +123,7 @@ def test_explicit_revenue_date_cron_window_and_metadata() -> None:
         ("manual_recovery: manualRecovery", "line payload manual recovery metadata"),
     ]:
         assert_contains(monthly, needle, label)
-    assert monthly.index("requireRevenueCronSecret(req, corsHeaders)") < monthly.index("return await autoDailyPost(req, supabaseAdmin, body)")
+    assert monthly.index("requireRevenueAutomationAuth(req, corsHeaders)") < monthly.index("return await autoDailyPost(req, supabaseAdmin, body)")
     assert "new URL(req.url)" not in monthly, "Supabase function must not read explicit date from query params"
 
 
@@ -134,7 +136,7 @@ def test_proxy_revenue_date_query_validation_and_pass_through() -> None:
         ("query.revenueDate !== undefined ? query.revenueDate : query?.date", "revenueDate preferred over date alias"),
         ("Array.isArray(value)", "array query values handled"),
         ("res.status(400).json({ error: parsedRevenueDate.error })", "invalid date returns 400"),
-        ("revenueDate: scheduledRevenueDate", "validated date upstream pass-through"),
+        ("revenueDate,", "validated date upstream pass-through"),
         ("JSON.stringify(upstreamBody)", "upstream uses validated body"),
         ("revenueDateSource: upstreamPayload.revenueDateSource", "report summary includes explicit source"),
         ("noDoubleCountKey: upstreamPayload.noDoubleCountKey", "report summary includes no-double-count key"),

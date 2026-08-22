@@ -2081,6 +2081,32 @@ function requireRevenueCronSecret(req: Request, corsHeaders: Record<string, stri
   requireCronSecret(req, envKey, corsHeaders);
 }
 
+const constantTimeTextEqual = (left: string, right: string) => {
+  const leftBytes = new TextEncoder().encode(left);
+  const rightBytes = new TextEncoder().encode(right);
+  let mismatch = leftBytes.length ^ rightBytes.length;
+  const length = Math.max(leftBytes.length, rightBytes.length);
+  for (let index = 0; index < length; index += 1) {
+    mismatch |= (leftBytes[index] || 0) ^ (rightBytes[index] || 0);
+  }
+  return mismatch === 0;
+};
+
+function requireRevenueAutomationAuth(req: Request, corsHeaders: Record<string, string>) {
+  if (req.headers.get("x-cron-secret")) {
+    requireRevenueCronSecret(req, corsHeaders);
+    return "cron_secret";
+  }
+
+  const authorization = req.headers.get("authorization") || "";
+  const token = authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length).trim() : "";
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  if (!token || !serviceRoleKey || !constantTimeTextEqual(token, serviceRoleKey)) {
+    throw jsonResponse(req, { error: "Unauthorized revenue automation request" }, 401);
+  }
+  return "service_role";
+}
+
 async function upsertAutoDailyParseLog(
   supabaseAdmin: ReturnType<typeof createClient>,
   payload: {
@@ -2320,7 +2346,7 @@ serve(async (req) => {
     const action = String(body?.action || "preview_current_month");
 
     if (action === "auto_daily_post") {
-      requireRevenueCronSecret(req, corsHeaders);
+      requireRevenueAutomationAuth(req, corsHeaders);
       return await autoDailyPost(req, supabaseAdmin, body);
     }
 
