@@ -67,7 +67,9 @@ def test_revenue_function_cron_secret_before_owner_auth() -> None:
     for needle, label in [
         ("requireRevenueAutomationAuth", "cron or service-role automation auth"),
         ('if (action === "auto_daily_post")', "auto daily branch"),
-        ("constantTimeTextEqual(token, serviceRoleKey)", "service-role recovery uses constant-time comparison"),
+        ("constantTimeTextEqual(token, serviceRoleKey)", "current service-role recovery uses constant-time comparison"),
+        ("await supabaseAdmin.auth.getClaims(token)", "legacy service-role token signature validation"),
+        ('jwtRole(token) === "service_role"', "validated legacy token must carry service-role claim"),
         ("return await autoDailyPost(req, supabaseAdmin, body)", "cron branch returns before owner auth"),
         ("const { user } = await requireAuth(req, corsHeaders)", "manual owner auth still present"),
         ("await ensureOwner(supabaseAdmin, user.id)", "manual owner check still present"),
@@ -123,7 +125,7 @@ def test_explicit_revenue_date_cron_window_and_metadata() -> None:
         ("manual_recovery: manualRecovery", "line payload manual recovery metadata"),
     ]:
         assert_contains(monthly, needle, label)
-    assert monthly.index("requireRevenueAutomationAuth(req, corsHeaders)") < monthly.index("return await autoDailyPost(req, supabaseAdmin, body)")
+    assert monthly.index("await requireRevenueAutomationAuth(req, corsHeaders, supabaseAdmin)") < monthly.index("return await autoDailyPost(req, supabaseAdmin, body)")
     assert "new URL(req.url)" not in monthly, "Supabase function must not read explicit date from query params"
 
 

@@ -2092,7 +2092,21 @@ const constantTimeTextEqual = (left: string, right: string) => {
   return mismatch === 0;
 };
 
-function requireRevenueAutomationAuth(req: Request, corsHeaders: Record<string, string>) {
+const jwtRole = (token: string) => {
+  try {
+    const payload = token.split(".")[1] || "";
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(payload.length / 4) * 4, "=");
+    return String(asRecord(JSON.parse(atob(normalized))).role || "");
+  } catch {
+    return "";
+  }
+};
+
+async function requireRevenueAutomationAuth(
+  req: Request,
+  corsHeaders: Record<string, string>,
+  supabaseAdmin: ReturnType<typeof createClient>,
+) {
   if (req.headers.get("x-cron-secret")) {
     requireRevenueCronSecret(req, corsHeaders);
     return "cron_secret";
@@ -2101,10 +2115,16 @@ function requireRevenueAutomationAuth(req: Request, corsHeaders: Record<string, 
   const authorization = req.headers.get("authorization") || "";
   const token = authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length).trim() : "";
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-  if (!token || !serviceRoleKey || !constantTimeTextEqual(token, serviceRoleKey)) {
+  if (token && serviceRoleKey && constantTimeTextEqual(token, serviceRoleKey)) return "service_role_env";
+
+  const claimsResult = token ? await supabaseAdmin.auth.getClaims(token) : null;
+  const verifiedLegacyServiceRole = claimsResult?.error?.code === "bad_jwt"
+    && claimsResult.error.message === "invalid claim: missing sub claim"
+    && jwtRole(token) === "service_role";
+  if (!verifiedLegacyServiceRole) {
     throw jsonResponse(req, { error: "Unauthorized revenue automation request" }, 401);
   }
-  return "service_role";
+  return "service_role_legacy";
 }
 
 async function upsertAutoDailyParseLog(
@@ -2346,7 +2366,7 @@ serve(async (req) => {
     const action = String(body?.action || "preview_current_month");
 
     if (action === "auto_daily_post") {
-      requireRevenueAutomationAuth(req, corsHeaders);
+      await requireRevenueAutomationAuth(req, corsHeaders, supabaseAdmin);
       return await autoDailyPost(req, supabaseAdmin, body);
     }
 
