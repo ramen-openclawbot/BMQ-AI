@@ -117,6 +117,20 @@ function channelMark(channelCode: string) {
   return marks[channelCode] ?? channelCode.slice(0, 2).toUpperCase();
 }
 
+function isSpecificCorrectionReason(value: string) {
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  const genericReasons = new Set([
+    "đã kiểm",
+    "đã kiểm tra",
+    "da kiem",
+    "da kiem tra",
+    "chỉnh sửa",
+    "update data",
+    "checked data",
+  ]);
+  return trimmed.length >= 10 && !genericReasons.has(trimmed.toLocaleLowerCase("vi-VN"));
+}
+
 function parseMoneyInput(value: string) {
   const normalized = value.replace(/[^0-9]/g, "");
   const parsed = Number(normalized || 0);
@@ -287,6 +301,8 @@ function InventoryEditor({
               {INVENTORY_FIELDS.map((field) => {
                 const derivedConsumption =
                   field.key === "consumed_quantity" && !row.consumption_is_manual;
+                const derivedBreadSold =
+                  field.key === "sold_quantity" && row.product_code === "banh_mi_que";
                 return (
                   <Label key={field.key}>
                     <span>{field.label}</span>
@@ -294,11 +310,13 @@ function InventoryEditor({
                       type="number"
                       step="0.001"
                       value={String(row[field.key] ?? 0)}
-                      disabled={disabled || derivedConsumption}
+                      disabled={disabled || derivedConsumption || derivedBreadSold}
+                      title={derivedBreadSold ? "Bánh bán tự tính từ tổng các kênh" : undefined}
                       onChange={(event) =>
                         onChange(row.product_code, field.key, Number(event.target.value || 0))
                       }
                     />
+                    {derivedBreadSold && <small>Bánh bán tự tính từ tổng các kênh</small>}
                   </Label>
                 );
               })}
@@ -461,7 +479,7 @@ function EditorPanel({
                 onChange={(event) => onReasonChange(event.target.value)}
                 placeholder="Ví dụ: cập nhật số bánh bán thực tế cuối ca"
               />
-              <p className="pr-field-help">Lý do được lưu cùng người sửa và dữ liệu trước/sau.</p>
+              <p className="pr-field-help">Lý do phải cụ thể (không dùng “Đã kiểm”) và được lưu cùng người sửa/dữ liệu trước-sau.</p>
             </div>
           )}
 
@@ -481,8 +499,8 @@ function EditorPanel({
               <Button
                 type="button"
                 onClick={onSave}
-                disabled={saving || !reason.trim()}
-                aria-disabled={saving || !reason.trim()}
+                disabled={saving || !isSpecificCorrectionReason(reason)}
+                aria-disabled={saving || !isSpecificCorrectionReason(reason)}
               >
                 {saving ? (
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -574,6 +592,7 @@ export default function PointRevenueManagement() {
     : formatVnd(kioskRetailCustomerUnitPriceVnd(reportDate));
   const selectedReportId = selectedReport?.report_id ?? null;
   const { data: detail, isLoading: detailLoading } = usePointReportDetail(selectedReportId);
+  const breadstickSoldQuantity = Object.values(quantities).reduce((sum, value) => sum + Math.max(0, value), 0);
 
   useEffect(() => {
     if (selectedReportId && selectedReportId !== selectedId) setSelectedId(selectedReportId);
@@ -619,7 +638,9 @@ export default function PointRevenueManagement() {
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!selectedReport || !detail) throw new Error("Chưa tải đủ chi tiết báo cáo điểm bán.");
-      if (!reason.trim()) throw new Error("Vui lòng nhập lý do chỉnh sửa.");
+      if (!isSpecificCorrectionReason(reason)) {
+        throw new Error("Vui lòng nhập lý do chỉnh sửa cụ thể hơn.");
+      }
       const channelRows = detail.channel_rows.map((channel) => {
         const quantity = Math.max(0, quantities[channel.channel_code] ?? channel.quantity);
         return {
@@ -637,7 +658,9 @@ export default function PointRevenueManagement() {
         {
           p_report_id: selectedReport.report_id,
           p_report_notes: reportNotes.trim() || null,
-          p_inventory_rows: inventoryRows,
+          p_inventory_rows: inventoryRows.map((row) => (
+            row.product_code === "banh_mi_que" ? { ...row, sold_quantity: breadstickSoldQuantity } : row
+          )),
           p_channel_rows: channelRows,
           p_review_status:
             selectedReport.review_status === "reviewed" ? "reviewed" : "in_review",
@@ -671,7 +694,14 @@ export default function PointRevenueManagement() {
 
   const handleQuantityChange = (channelCode: string, quantity: number) => {
     const safeQuantity = Math.max(0, Number.isFinite(quantity) ? quantity : 0);
-    setQuantities((current) => ({ ...current, [channelCode]: safeQuantity }));
+    setQuantities((current) => {
+      const next = { ...current, [channelCode]: safeQuantity };
+      const nextBreadstickSoldQuantity = Object.values(next).reduce((sum, value) => sum + Math.max(0, value), 0);
+      setInventoryRows((rows) => recalculatePointInventory(rows.map((row) => (
+        row.product_code === "banh_mi_que" ? { ...row, sold_quantity: nextBreadstickSoldQuantity } : row
+      ))));
+      return next;
+    });
     if (channelCode.trim().toLowerCase() === "khach_le") {
       setAmounts((current) => ({
         ...current,

@@ -1,7 +1,9 @@
 import { LunarDate } from "npm:vietnamese-lunar-calendar@0.0.6";
 
 export type VehicleBreadReport = {
+  reportId?: string | null;
   reportDate: string;
+  reportUpdatedAt?: string | null;
   soldQuantity: number;
   closingQuantity: number;
 };
@@ -32,6 +34,7 @@ export type VehicleBreadForecastLocation = {
     | "round_up_to_prevent_peak_stockout"
     | "round_up_to_preserve_low_stock_safety"
     | "round_down_existing_stock_buffer";
+  latestReportSource: { reportId: string | null; reportUpdatedAt: string | null } | null;
   closureReason: "lunar_day_30_monthly_off" | null;
 };
 
@@ -208,6 +211,7 @@ export function forecastVehicleBread(locations: VehicleBreadLocation[], delivery
         upperBatchQuantity: 0,
         recommendedQuantity: 0,
         roundingDecision: "no_submitted_report" as const,
+        latestReportSource: null,
         closureReason,
       };
     }
@@ -226,6 +230,7 @@ export function forecastVehicleBread(locations: VehicleBreadLocation[], delivery
       ...batchSelection,
       recommendedQuantity: closureReason ? 0 : batchSelection.recommendedQuantity,
       roundingDecision: closureReason ? "lunar_day_30_monthly_off" as const : batchSelection.roundingDecision,
+      latestReportSource: { reportId: reports[0].reportId ?? null, reportUpdatedAt: reports[0].reportUpdatedAt ?? null },
       closureReason,
     };
   });
@@ -342,6 +347,39 @@ export function buildWarehouseKioskBreadDispatchMessage(input: WarehouseKioskBre
     `Tổng bù: ${formatQuantity(totalMakeup)} que`,
     `Tổng đổi: ${formatQuantity(totalExchange)} que`,
     `KHO CẦN GIAO: ${formatQuantity(totalPhysical)} QUE`,
+  ].join("\n");
+}
+
+export type DailyBreadOrderCorrectionInput = DailyBreadOrderMessageInput & {
+  affectedLocationName: string;
+  affectedDeltaQuantity: number;
+};
+
+export type WarehouseKioskBreadDispatchCorrectionInput = WarehouseKioskBreadDispatchInput & {
+  affectedLocationName: string;
+  previousAffectedQuantity: number;
+  correctedAffectedQuantity: number;
+};
+
+export function buildDailyBreadOrderCorrectionMessage(input: DailyBreadOrderCorrectionInput): string {
+  const replacement = buildDailyBreadOrderMessage(input);
+  const delta = signedQuantity(input.affectedDeltaQuantity);
+  return [
+    "ĐIỀU CHỈNH ĐẶT BÁNH - THAY THẾ TOÀN BỘ",
+    `Chênh lệch điểm bị sửa (${input.affectedLocationName}): ${formatQuantity(Math.abs(delta))} que ${delta >= 0 ? "tăng" : "giảm"}`,
+    "Tổng đúng sau chỉnh sửa:",
+    replacement,
+  ].join("\n");
+}
+
+export function buildWarehouseKioskBreadDispatchCorrectionMessage(input: WarehouseKioskBreadDispatchCorrectionInput): string {
+  const replacement = buildWarehouseKioskBreadDispatchMessage(input);
+  const delta = signedQuantity(input.correctedAffectedQuantity) - signedQuantity(input.previousAffectedQuantity);
+  return [
+    "ĐIỀU CHỈNH GIAO BÁNH KHO - THAY THẾ TOÀN BỘ",
+    `Chênh lệch điểm bị sửa (${input.affectedLocationName}): ${formatQuantity(Math.abs(delta))} que ${delta >= 0 ? "tăng" : "giảm"}`,
+    "Tổng đúng sau chỉnh sửa:",
+    replacement,
   ].join("\n");
 }
 

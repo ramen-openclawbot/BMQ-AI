@@ -193,9 +193,11 @@ type DailyBreadDealerItemRow = {
   makeup_quantity: number | string | null;
 };
 type DailyBreadVehicleHistoryRow = {
+  report_id: string | null;
   location_id: string;
   location_code: string;
   report_date: string | null;
+  report_updated_at: string | null;
   sold_quantity: number | string | null;
   closing_quantity: number | string | null;
 };
@@ -257,6 +259,7 @@ const enqueueDailyBreadOrder = async (
     "get_daily_bread_vehicle_history",
     { p_cutoff_date: dayRange.dateKey },
   );
+  // The service-role SQL returns report_id,location_id,location_code,report_date,updated_at,sold_quantity,closing_quantity.
   if (vehicleHistoryError) {
     throw new Error(`Unable to read kiosk vehicle history: ${vehicleHistoryError.message}`);
   }
@@ -266,7 +269,7 @@ const enqueueDailyBreadOrder = async (
   const vehicleLocations = new Map<string, {
     locationId: string;
     locationCode: string;
-    reports: Array<{ reportDate: string; soldQuantity: number; closingQuantity: number }>;
+    reports: Array<{ reportId?: string | null; reportDate: string; reportUpdatedAt?: string | null; soldQuantity: number; closingQuantity: number }>;
   }>();
   vehicleHistory.forEach((row) => {
     const location = vehicleLocations.get(row.location_id) || {
@@ -276,7 +279,9 @@ const enqueueDailyBreadOrder = async (
     };
     if (row.report_date) {
       location.reports.push({
+        reportId: row.report_id,
         reportDate: row.report_date,
+        reportUpdatedAt: row.report_updated_at,
         soldQuantity: quantity(row.sold_quantity),
         closingQuantity: signedQuantity(row.closing_quantity),
       });
@@ -349,6 +354,11 @@ const enqueueDailyBreadOrder = async (
       formula_version: vehicleForecast.formulaVersion,
       total_quantity: vehicleForecast.totalQuantity,
       locations: vehicleForecast.locations,
+      report_sources: vehicleForecast.locations.map((forecast) => ({
+        location_id: forecast.locationId,
+        location_code: forecast.locationCode,
+        source_report: forecast.latestReportSource,
+      })),
       warnings: vehicleForecast.warnings,
     },
     vietjet: {
@@ -389,7 +399,7 @@ const enqueueWarehouseKioskBreadDispatch = async (
   const vehicleLocations = new Map<string, {
     locationId: string;
     locationCode: string;
-    reports: Array<{ reportDate: string; soldQuantity: number; closingQuantity: number }>;
+    reports: Array<{ reportId?: string | null; reportDate: string; reportUpdatedAt?: string | null; soldQuantity: number; closingQuantity: number }>;
   }>();
   history.forEach((row) => {
     const location = vehicleLocations.get(row.location_id) || {
@@ -399,7 +409,9 @@ const enqueueWarehouseKioskBreadDispatch = async (
     };
     if (row.report_date) {
       location.reports.push({
+        reportId: row.report_id,
         reportDate: row.report_date,
+        reportUpdatedAt: row.report_updated_at,
         soldQuantity: quantity(row.sold_quantity),
         closingQuantity: signedQuantity(row.closing_quantity),
       });
@@ -464,6 +476,7 @@ const enqueueWarehouseKioskBreadDispatch = async (
       lowerBatchQuantity: forecast.lowerBatchQuantity,
       upperBatchQuantity: forecast.upperBatchQuantity,
       roundingDecision: forecast.roundingDecision,
+      latestReportSource: forecast.latestReportSource,
       closureReason: forecast.closureReason,
     };
   });

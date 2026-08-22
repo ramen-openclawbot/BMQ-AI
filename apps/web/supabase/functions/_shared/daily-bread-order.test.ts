@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildDailyBreadOrderCorrectionMessage,
   buildDailyBreadOrderMessage,
+  buildWarehouseKioskBreadDispatchCorrectionMessage,
   buildWarehouseKioskBreadDispatchMessage,
   forecastVehicleBread,
   isVehicleLocationClosed,
@@ -226,6 +228,84 @@ test("keeps supplier dealer line exact when there is no internal exchange or mak
   });
   assert.match(message, /^Đặt bánh ngày 12\/8\/2026\nĐL: 100\n/m);
   assert.match(message, /Tổng BMQ: 160/);
+});
+
+test("formats supplier correction as full replacement with corrected totals", () => {
+  const message = buildDailyBreadOrderCorrectionMessage({
+    orderDate: "2026-08-20",
+    dealerOrderedQuantity: 100,
+    dealerExtraQuantity: 20,
+    vehicleQuantity: 220,
+    vietjetQuantity: 196,
+    affectedLocationName: "Bùi Hữu Nghĩa",
+    affectedDeltaQuantity: 150,
+  });
+
+  assert.equal(message, [
+    "ĐIỀU CHỈNH ĐẶT BÁNH - THAY THẾ TOÀN BỘ",
+    "Chênh lệch điểm bị sửa (Bùi Hữu Nghĩa): 150 que tăng",
+    "Tổng đúng sau chỉnh sửa:",
+    "Đặt bánh ngày 20/8/2026",
+    "ĐL: 100 (đổi/bù 20 dùng tồn nội bộ)",
+    "Xe: 220",
+    "Tổng BMQ: 320",
+    "Viet Jet: 200",
+  ].join("\n"));
+});
+
+test("formats warehouse correction as full replacement with affected point adjustment", () => {
+  const message = buildWarehouseKioskBreadDispatchCorrectionMessage({
+    orderDate: "2026-08-20",
+    affectedLocationName: "Bùi Hữu Nghĩa",
+    previousAffectedQuantity: 0,
+    correctedAffectedQuantity: 220,
+    locations: [
+      { locationCode: "HCM004-BHN", locationName: "276 Bùi Hữu Nghĩa", orderQuantity: 220, shortageQuantity: 0, returnsQuantity: 0, wasteQuantity: 0 },
+    ],
+  });
+
+  assert.equal(message, [
+    "ĐIỀU CHỈNH GIAO BÁNH KHO - THAY THẾ TOÀN BỘ",
+    "Chênh lệch điểm bị sửa (Bùi Hữu Nghĩa): 220 que tăng",
+    "Tổng đúng sau chỉnh sửa:",
+    "ĐẶT BÁNH 20/8",
+    "",
+    "Bùi Hữu Nghĩa: đặt 220 que",
+    "",
+    "Tổng đặt mới: 220 que",
+    "Tổng bù: 0 que",
+    "Tổng đổi: 0 que",
+    "KHO CẦN GIAO: 220 QUE",
+  ].join("\n"));
+});
+
+test("formats supplier correction decrease as full replacement", () => {
+  const message = buildDailyBreadOrderCorrectionMessage({
+    orderDate: "2026-08-20",
+    dealerOrderedQuantity: 100,
+    vehicleQuantity: 60,
+    vietjetQuantity: 0,
+    affectedLocationName: "Điểm A",
+    affectedDeltaQuantity: -40,
+  });
+
+  assert.match(message, /40 que giảm/);
+  assert.match(message, /Tổng BMQ: 160/);
+});
+
+test("formats warehouse correction decrease as full replacement", () => {
+  const message = buildWarehouseKioskBreadDispatchCorrectionMessage({
+    orderDate: "2026-08-20",
+    affectedLocationName: "Điểm A",
+    previousAffectedQuantity: 80,
+    correctedAffectedQuantity: 40,
+    locations: [
+      { locationCode: "HCM-A", locationName: "Điểm A", orderQuantity: 40, shortageQuantity: 0, returnsQuantity: 0, wasteQuantity: 0 },
+    ],
+  });
+
+  assert.match(message, /40 que giảm/);
+  assert.match(message, /KHO CẦN GIAO: 40 QUE/);
 });
 
 test("locks at 23:59 Vietnam and targets the next Vietnam calendar day", () => {
