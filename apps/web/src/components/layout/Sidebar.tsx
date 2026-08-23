@@ -106,12 +106,19 @@ const navItems: NavItem[] = [
 
   { icon: ScanLine, labelKey: "attendance", path: "/attendance", section: "operations", moduleKey: "attendance" },
   { icon: Wallet, labelKey: "payroll", path: "/payroll", section: "operations", moduleKey: "payroll" },
-  { icon: Package, labelKey: "inventory", path: "/inventory", section: "operations", moduleKey: "inventory" },
-  { icon: Boxes, labelKey: "tanTaoWarehouse", path: "/warehouse/tan-tao", section: "operations", moduleKey: "inventory" },
-  { icon: CookingPot, labelKey: "kitchenInventory", path: "/kitchen-inventory", section: "operations", moduleKey: "kitchen_inventory" },
-  { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts", section: "operations", moduleKey: "goods_receipts" },
-  { icon: Truck, labelKey: "warehouseDispatch", path: "/warehouse/dispatch", section: "operations", moduleKey: "inventory" },
-  { icon: BarChart4, labelKey: "stockReport", path: "/warehouse/stock-report", section: "operations", moduleKey: "inventory" },
+  {
+    icon: Package,
+    labelKey: "inventory",
+    section: "operations",
+    children: [
+      { icon: Package, labelKey: "inventoryOverview", path: "/inventory", section: "operations", moduleKey: "inventory" },
+      { icon: Boxes, labelKey: "tanTaoWarehouse", path: "/warehouse/tan-tao", section: "operations", moduleKey: "inventory" },
+      { icon: CookingPot, labelKey: "kitchenInventory", path: "/kitchen-inventory", section: "operations", moduleKey: "kitchen_inventory" },
+      { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts", section: "operations", moduleKey: "goods_receipts" },
+      { icon: Truck, labelKey: "warehouseDispatch", path: "/warehouse/dispatch", section: "operations", moduleKey: "inventory" },
+      { icon: BarChart4, labelKey: "stockReport", path: "/warehouse/stock-report", section: "operations", moduleKey: "inventory" },
+    ],
+  },
   { icon: Barcode, labelKey: "skuCosts", path: "/sku-costs", section: "operations", moduleKey: "sku_costs" },
   { icon: Boxes, labelKey: "materialMaster", path: "/material-master", section: "operations", moduleKey: "material_master" },
   { icon: Users, labelKey: "suppliers", path: "/suppliers", section: "operations", moduleKey: "suppliers" },
@@ -292,6 +299,7 @@ export function Sidebar() {
           {visibleItems.map((item, idx) => {
             const prevItem = idx > 0 ? visibleItems[idx - 1] : null;
             const showSectionHeader = !prevItem || prevItem.section !== item.section;
+            const groupActive = item.children ? item.children.some(isChildActive) : false;
             return (
               <div key={item.path || item.labelKey}>
                 {!collapsed && showSectionHeader && (
@@ -305,12 +313,22 @@ export function Sidebar() {
 
                 {item.children ? (
                   <div>
-                    <div className="group relative flex h-10 items-center gap-2.5 rounded-lg border border-transparent px-3 text-[13px] font-bold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-bold md:text-black md:drop-shadow-none">
+                    <button
+                      type="button"
+                      data-sidebar-active={collapsed && groupActive ? "true" : undefined}
+                      aria-expanded={!collapsed}
+                      aria-label={collapsed ? `${t[item.labelKey]}: mở submenu` : undefined}
+                      onClick={() => collapsed && setCollapsed(false)}
+                      className={cn(
+                        "group relative flex h-10 w-full items-center gap-2.5 rounded-lg border border-transparent px-3 text-left text-[13px] font-bold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-bold md:text-black md:drop-shadow-none",
+                        collapsed && groupActive && activeNavItemClass
+                      )}
+                    >
                       <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-sidebar-accent/30 transition-colors md:h-8 md:w-8">
                         <item.icon className="h-4 w-4" />
                       </span>
                       {!collapsed && <span className="flex-1">{t[item.labelKey]}</span>}
-                    </div>
+                    </button>
                     {!collapsed && (
                       <div className="ml-8 mt-0.5 space-y-0.5 md:ml-10 md:mt-1 md:space-y-1">
                         {item.children.map((child) => {
