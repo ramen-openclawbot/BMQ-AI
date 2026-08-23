@@ -53,6 +53,7 @@ const ProductionShifts = lazy(() => import("@/pages/ProductionShifts"));
 const QAInspection = lazy(() => import("@/pages/QAInspection"));
 const WarehouseDispatch = lazy(() => import("@/pages/WarehouseDispatch"));
 const StockReport = lazy(() => import("@/pages/StockReport"));
+const TanTaoWarehouse = lazy(() => import("@/pages/TanTaoWarehouse"));
 const AttendanceManagement = lazy(() => import("@/pages/AttendanceManagement"));
 const PayrollManagement = lazy(() => import("@/pages/PayrollManagement"));
 
@@ -253,6 +254,7 @@ export function AppRoutes() {
         <Route path="/attendance" element={<Suspense fallback={<AppLoadingFallback />}><AttendanceManagement /></Suspense>} />
         <Route path="/payroll" element={<Suspense fallback={<AppLoadingFallback />}><PayrollManagement /></Suspense>} />
         {/* Warehouse extension routes */}
+        <Route path="/warehouse/tan-tao" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><TanTaoWarehouse /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/dispatch" element={<Suspense fallback={<AppLoadingFallback />}><WarehouseDispatch /></Suspense>} />
         <Route path="/warehouse/stock-report" element={<Suspense fallback={<AppLoadingFallback />}><StockReport /></Suspense>} />
         <Route path="/settings" element={<Settings />} />
