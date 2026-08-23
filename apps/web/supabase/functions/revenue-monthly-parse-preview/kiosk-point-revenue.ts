@@ -46,6 +46,11 @@ export type KioskPointRevenuePreviewLine = {
   raw_payload: JsonRecord;
 };
 
+export type KioskPointRevenueEvidenceLine = Pick<
+  KioskPointRevenuePreviewLine,
+  "source_ref" | "quantity" | "gross_revenue"
+>;
+
 export const KIOSK_POINT_PRICE_CHANGE_DATE = "2026-08-15";
 export const KIOSK_POINT_PRICE_BEFORE_VND = 12_000;
 export const KIOSK_POINT_PRICE_FROM_CHANGE_VND = 14_000;
@@ -142,3 +147,15 @@ export const kioskReportedDates = (reports: KioskPointReportRow[]) =>
       .map((report) => String(report.report_date || "").slice(0, 10))
       .filter(Boolean),
   );
+
+export const kioskPointRevenueEvidenceFingerprint = (
+  lines: KioskPointRevenueEvidenceLine[],
+) =>
+  lines
+    .map((line) => [
+      String(line.source_ref || ""),
+      Number(line.quantity || 0),
+      Number(line.gross_revenue || 0),
+    ].join("|"))
+    .sort((left, right) => left.localeCompare(right))
+    .join(";");

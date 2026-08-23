@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 import {
   buildKioskPointRevenuePreviewLines,
+  kioskPointRevenueEvidenceFingerprint,
   kioskPointUnitPriceVnd,
   kioskReportedDates,
 } from "./kiosk-point-revenue.ts";
@@ -57,10 +58,22 @@ assert.deepEqual(
   ])).sort(),
   ["2026-08-14", "2026-08-15"],
 );
+assert.equal(
+  kioskPointRevenueEvidenceFingerprint(lines),
+  kioskPointRevenueEvidenceFingerprint([...lines].reverse()),
+);
+assert.notEqual(
+  kioskPointRevenueEvidenceFingerprint(lines),
+  kioskPointRevenueEvidenceFingerprint([
+    ...lines.slice(0, -1),
+    { ...lines.at(-1)!, quantity: 6, gross_revenue: 84_000 },
+  ]),
+);
 
 const indexSource = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 assert.match(indexSource, /line\.channel === "Retail Kiosk" && replacedRetailKioskDates\.has\(line\.revenue_date\)/);
 assert.match(indexSource, /\.eq\("status", "submitted"\)/);
 assert.match(indexSource, /\.\.\.emailLinesAfterKioskReplacement, \.\.\.dealerPortalLines, \.\.\.kioskPointLines/);
+assert.match(indexSource, /recoveryReason: "kiosk_point_evidence_changed"/);
 
 console.log("PASS kiosk point revenue ledger integration");

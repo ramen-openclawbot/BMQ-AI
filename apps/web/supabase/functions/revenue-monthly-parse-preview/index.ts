@@ -4,6 +4,7 @@ import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireAuth, requireCronSecret } from "../_shared/auth.ts";
 import {
   buildKioskPointRevenuePreviewLines,
+  kioskPointRevenueEvidenceFingerprint,
   kioskReportedDates,
   type KioskPointReportRow,
 } from "./kiosk-point-revenue.ts";
@@ -1974,6 +1975,47 @@ async function fetchExistingAutoDailyReport(supabaseAdmin: ReturnType<typeof cre
   return data ? await summarizeSourceDocument(supabaseAdmin, data as JsonRecord) : null;
 }
 
+async function fetchCurrentKioskPointEvidence(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  window: ParseWindow,
+) {
+  const reports = await fetchKioskPointReports(supabaseAdmin, window);
+  const lines = buildKioskPointRevenuePreviewLines(
+    "evidence-check",
+    window.period,
+    window.revenueDateFrom,
+    window.revenueDateTo,
+    reports,
+  );
+  return {
+    reportCount: reports.length,
+    lineCount: lines.length,
+    fingerprint: kioskPointRevenueEvidenceFingerprint(lines),
+  };
+}
+
+async function fetchPostedKioskPointEvidence(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  sourceDocumentId: string,
+) {
+  const { data, error } = await supabaseAdmin
+    .from("revenue_ledger_lines")
+    .select("source_ref,quantity,gross_revenue")
+    .eq("source_document_id", sourceDocumentId)
+    .eq("approval_status", "approved")
+    .eq("raw_payload->>source", "kiosk_point_report");
+  if (error) throw error;
+  const lines = (data || []).map((line) => ({
+    source_ref: String(line.source_ref || ""),
+    quantity: Number(line.quantity || 0),
+    gross_revenue: Number(line.gross_revenue || 0),
+  }));
+  return {
+    lineCount: lines.length,
+    fingerprint: kioskPointRevenueEvidenceFingerprint(lines),
+  };
+}
+
 const normalizeSummaryForCompare = (summary: JsonRecord = {}) => ({
   rowCount: Number(summary.rowCount || summary.row_count || summary.postedRows || summary.posted_rows || summary.ledgerRows || 0),
   lineCount: Number(summary.lineCount || summary.rowCount || summary.row_count || summary.ledgerRows || 0),
@@ -2202,22 +2244,40 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
     if (cronScheduledAttempt && !sameLocalDayScheduledRecovery) {
       const existingReport = await fetchExistingAutoDailyReport(supabaseAdmin, window.revenueDateFrom);
       if (existingReport) {
-        return jsonResponse(req, {
-          success: true,
-          action: "auto_daily_post",
-          skipped: true,
-          reason: "auto_daily_already_posted_for_revenue_date",
-          revenueDate: window.revenueDateFrom,
-          revenueDateSource,
-          cronScheduledAttempt,
-          manualRecovery,
-          noDoubleCountKey,
-          poReceivedFrom: window.poReceivedFrom,
-          poReceivedTo: window.poReceivedTo,
-          existingReport,
-        });
+        const currentKioskEvidence = await fetchCurrentKioskPointEvidence(supabaseAdmin, window);
+        const postedKioskEvidence = await fetchPostedKioskPointEvidence(
+          supabaseAdmin,
+          String(asRecord(existingReport).sourceDocumentId || ""),
+        );
+        const kioskPointEvidenceChanged = currentKioskEvidence.fingerprint !== postedKioskEvidence.fingerprint;
+        if (!kioskPointEvidenceChanged) {
+          return jsonResponse(req, {
+            success: true,
+            action: "auto_daily_post",
+            skipped: true,
+            reason: "auto_daily_already_posted_for_revenue_date",
+            revenueDate: window.revenueDateFrom,
+            revenueDateSource,
+            cronScheduledAttempt,
+            manualRecovery,
+            noDoubleCountKey,
+            poReceivedFrom: window.poReceivedFrom,
+            poReceivedTo: window.poReceivedTo,
+            currentKioskEvidence,
+            postedKioskEvidence,
+            existingReport,
+          });
+        }
+        body = {
+          ...body,
+          recoveryReason: "kiosk_point_evidence_changed",
+          currentKioskEvidence,
+          postedKioskEvidence,
+        };
       }
     }
+
+    const recoveryReason = String(body?.recoveryReason || "");
 
     await upsertAutoDailyParseLog(supabaseAdmin, {
       revenueDate: window.revenueDateFrom,
@@ -2226,7 +2286,7 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
       startedAt,
       poReceivedFrom: window.poReceivedFrom,
       poReceivedTo: window.poReceivedTo,
-      metadata: { revenueDateSource, manualRecovery, cronScheduledAttempt, sameLocalDayScheduledRecovery, noDoubleCountKey, trigger },
+      metadata: { revenueDateSource, manualRecovery, cronScheduledAttempt, sameLocalDayScheduledRecovery, recoveryReason, noDoubleCountKey, trigger },
     });
 
     const preview = await runCurrentMonthPreview(req, supabaseAdmin, null, undefined, {
@@ -2245,6 +2305,7 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
         explicit_revenue_date: explicitRevenueDate,
         manual_recovery: manualRecovery,
         cron_scheduled_attempt: cronScheduledAttempt,
+        recovery_reason: recoveryReason || null,
       },
       linePayloadMetadata: {
         controlled_kind: "auto_daily_temporary_controlled_parse",
@@ -2257,6 +2318,7 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
         explicit_revenue_date: explicitRevenueDate,
         manual_recovery: manualRecovery,
         cron_scheduled_attempt: cronScheduledAttempt,
+        recovery_reason: recoveryReason || null,
       },
     });
 
@@ -2288,7 +2350,7 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
       rowCount,
       grossTotal,
       reviewFlaggedLineCount,
-      metadata: { revenueDateSource, manualRecovery, cronScheduledAttempt, sameLocalDayScheduledRecovery, noDoubleCountKey, gmailSyncSummary, postResult },
+      metadata: { revenueDateSource, manualRecovery, cronScheduledAttempt, sameLocalDayScheduledRecovery, recoveryReason, noDoubleCountKey, gmailSyncSummary, postResult },
     });
 
     return jsonResponse(req, {
@@ -2303,6 +2365,7 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
       poReceivedFrom: window.poReceivedFrom,
       poReceivedTo: window.poReceivedTo,
       sameLocalDayScheduledRecovery,
+      recoveryReason: recoveryReason || null,
       stagingRunId: String(asRecord(preview.run).id || ""),
       previewSummary: preview.summary,
       postResult: data,
@@ -2319,7 +2382,7 @@ async function autoDailyPost(req: Request, supabaseAdmin: ReturnType<typeof crea
       poReceivedFrom: window.poReceivedFrom,
       poReceivedTo: window.poReceivedTo,
       errorMessage: message,
-      metadata: { revenueDateSource, manualRecovery, cronScheduledAttempt, sameLocalDayScheduledRecovery, noDoubleCountKey },
+      metadata: { revenueDateSource, manualRecovery, cronScheduledAttempt, sameLocalDayScheduledRecovery, recoveryReason: String(body?.recoveryReason || ""), noDoubleCountKey },
     });
     throw error;
   }
