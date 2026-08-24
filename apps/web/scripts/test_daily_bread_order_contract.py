@@ -6,6 +6,7 @@ VIETJET_FIX_MIGRATION = ROOT / "supabase/migrations/20260811123000_fix_vietjet_b
 VEHICLE_HISTORY_MIGRATION = ROOT / "supabase/migrations/20260811130000_daily_bread_vehicle_history.sql"
 WORKER = ROOT / "supabase/functions/dealer-warehouse-notify/index.ts"
 HELPER = ROOT / "supabase/functions/_shared/daily-bread-order.ts"
+SUPPLIER_CREDIT_MIGRATION = ROOT / "supabase/migrations/20260824100000_bread_exchange_makeup_supplier_credit.sql"
 
 
 def test_daily_bread_order_migration_contract():
@@ -52,7 +53,7 @@ def test_vehicle_history_is_per_location_service_only_and_unbounded_by_global_li
     assert '.limit(500)' not in source
 
 
-def test_worker_routes_only_named_supplier_jobs_to_tuyet_anh():
+def test_worker_routes_all_dealer_exchange_and_makeup_to_tuyet_anh():
     source = WORKER.read_text(encoding="utf-8")
     required = [
         'from "../_shared/daily-bread-order.ts"',
@@ -67,15 +68,44 @@ def test_worker_routes_only_named_supplier_jobs_to_tuyet_anh():
         "sent_quantity: roundedTotalBmq",
         "raw_quantity: vietjet.quantity",
         "sent_quantity: roundedVietjet",
-        'extra_supplier_included: false',
-        'extra_handling: "warehouse_bread_stock_and_point_pate_stock"',
-        "supplier_order_quantity: dealerOrderedQuantity",
-        "physical_quantity: dealerOrderedQuantity + dealerExtraQuantity",
+        'extra_supplier_included: true',
+        'extra_handling: "ordered_from_supplier_and_credited_to_bakery_payable"',
+        "supplier_order_quantity: dealerOrderedQuantity + dealerExchangeQuantity + dealerMakeupQuantity",
+        "supplier_credit_quantity: dealerExchangeQuantity + dealerMakeupQuantity",
+        "supplier_billable_quantity: roundedTotalBmq - dealerExchangeQuantity - dealerMakeupQuantity",
+        "physical_quantity: dealerOrderedQuantity + dealerExchangeQuantity + dealerMakeupQuantity",
     ]
     for marker in required:
         assert marker in source
-    assert "dealerOrderedQuantity + vehicleForecast.totalQuantity" in source
-    assert "dealerOrderedQuantity + dealerExtraQuantity + vehicleForecast.totalQuantity" not in source
+    assert "dealerOrderedQuantity + dealerExchangeQuantity + dealerMakeupQuantity + vehicleForecast.totalQuantity" in source
+
+
+def test_tan_tao_supplier_document_preserves_physical_billable_and_credit_quantities():
+    sql = SUPPLIER_CREDIT_MIGRATION.read_text(encoding="utf-8")
+    required = [
+        "supplier_billable_quantity",
+        "supplier_credit_quantity",
+        "supplier_exchange_quantity",
+        "supplier_makeup_quantity",
+        "ordered_from_supplier_and_credited_to_bakery_payable",
+        "source_snapshot #>> '{supplier,billable_quantity}'",
+        "source_snapshot #>> '{supplier,credit_quantity}'",
+    ]
+    for marker in required:
+        assert marker in sql
+    for correction_marker in [
+        "create or replace function public.queue_late_kiosk_bread_order_corrections",
+        "v_dealer_exchange",
+        "v_dealer_makeup",
+        "v_supplier_billable",
+        "'Tổng BMQ giao: '",
+        "'Khấu trừ công nợ lò: '",
+        "'Lò tính tiền: '",
+        "'ordered_from_supplier_and_credited_to_bakery_payable'",
+    ]:
+        assert correction_marker in sql
+    assert " / 20) * 20" in sql
+    assert "dùng tồn nội bộ" not in sql
 
 
 def test_forecast_contract_is_explainable_and_has_no_sample_constants():

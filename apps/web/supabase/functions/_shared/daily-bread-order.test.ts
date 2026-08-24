@@ -181,23 +181,27 @@ test("uses exact quantity from the latest VietJet cumulative email for target se
   assert.equal(result.inboxId, "latest");
 });
 
-test("supplier message rounds new BMQ bread to complete 20-stick pate batches and keeps dealer extras internal", () => {
+test("supplier message orders dealer exchange and makeup from the bakery and audits the credit", () => {
   const message = buildDailyBreadOrderMessage({
     orderDate: "2026-08-11",
     dealerOrderedQuantity: 1460,
-    dealerExtraQuantity: 32,
+    dealerExchangeQuantity: 12,
+    dealerMakeupQuantity: 20,
     vehicleQuantity: 600,
     vietjetQuantity: 196,
   });
 
   assert.equal(message, [
     "Đặt bánh ngày 11/8/2026",
-    "ĐL: 1460 (đổi/bù 32 dùng tồn nội bộ)",
+    "ĐL: 1460 | Đổi: 12 | Bù: 20 | Giao: 1492",
     "Xe: 600",
-    "Tổng BMQ: 2060",
+    "Tổng BMQ giao: 2100",
+    "Khấu trừ công nợ lò: 32",
+    "Lò tính tiền: 2068",
     "Viet Jet: 200",
   ].join("\n"));
   assert.doesNotMatch(message, /Coop/);
+  assert.doesNotMatch(message, /tồn nội bộ/i);
 });
 
 test("rounds BMQ totals upward to complete 20-stick pate batches", () => {
@@ -211,11 +215,12 @@ test("rounds BMQ totals upward to complete 20-stick pate batches", () => {
     const message = buildDailyBreadOrderMessage({
       orderDate: "2026-08-12",
       dealerOrderedQuantity: raw,
-      dealerExtraQuantity: 7,
+      dealerExchangeQuantity: 0,
+      dealerMakeupQuantity: 0,
       vehicleQuantity: 0,
       vietjetQuantity: 0,
     });
-    assert.match(message, new RegExp(`Tổng BMQ: ${expected}$`, "m"));
+    assert.match(message, new RegExp(`Tổng BMQ giao: ${expected}$`, "m"));
   }
 });
 
@@ -227,14 +232,15 @@ test("keeps supplier dealer line exact when there is no internal exchange or mak
     vietjetQuantity: 0,
   });
   assert.match(message, /^Đặt bánh ngày 12\/8\/2026\nĐL: 100\n/m);
-  assert.match(message, /Tổng BMQ: 160/);
+  assert.match(message, /Tổng BMQ giao: 160/);
 });
 
 test("formats supplier correction as full replacement with corrected totals", () => {
   const message = buildDailyBreadOrderCorrectionMessage({
     orderDate: "2026-08-20",
     dealerOrderedQuantity: 100,
-    dealerExtraQuantity: 20,
+    dealerExchangeQuantity: 8,
+    dealerMakeupQuantity: 12,
     vehicleQuantity: 220,
     vietjetQuantity: 196,
     affectedLocationName: "Bùi Hữu Nghĩa",
@@ -246,9 +252,11 @@ test("formats supplier correction as full replacement with corrected totals", ()
     "Chênh lệch điểm bị sửa (Bùi Hữu Nghĩa): 150 que tăng",
     "Tổng đúng sau chỉnh sửa:",
     "Đặt bánh ngày 20/8/2026",
-    "ĐL: 100 (đổi/bù 20 dùng tồn nội bộ)",
+    "ĐL: 100 | Đổi: 8 | Bù: 12 | Giao: 120",
     "Xe: 220",
-    "Tổng BMQ: 320",
+    "Tổng BMQ giao: 340",
+    "Khấu trừ công nợ lò: 20",
+    "Lò tính tiền: 320",
     "Viet Jet: 200",
   ].join("\n"));
 });
@@ -290,7 +298,7 @@ test("formats supplier correction decrease as full replacement", () => {
   });
 
   assert.match(message, /40 que giảm/);
-  assert.match(message, /Tổng BMQ: 160/);
+  assert.match(message, /Tổng BMQ giao: 160/);
 });
 
 test("formats warehouse correction decrease as full replacement", () => {

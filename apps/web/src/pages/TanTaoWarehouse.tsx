@@ -21,6 +21,10 @@ interface WarehouseDocument {
   exchange_quantity: number;
   makeup_quantity: number;
   physical_quantity: number;
+  supplier_billable_quantity: number;
+  supplier_credit_quantity: number;
+  supplier_exchange_quantity: number;
+  supplier_makeup_quantity: number;
   reference_label?: string | null;
   note?: string | null;
   created_at: string;
@@ -278,6 +282,12 @@ export default function TanTaoWarehouse() {
                     <div><span className="text-[#817278]">Nguồn</span><div className="truncate font-bold">{document.reference_label || "BMQ Agent"}</div></div>
                   </div>
                   {document.document_type === "outbound_order" ? <div className="mt-2 text-xs text-[#817278]">Đặt {qty(document.ordered_quantity)} · Đổi {qty(document.exchange_quantity)} · Bù {qty(document.makeup_quantity)}</div> : null}
+                  {document.document_type === "supplier_order" && number(document.supplier_credit_quantity) > 0 ? (
+                    <div className="mt-2 text-xs text-[#817278]">
+                      Lò tính tiền {qty(document.supplier_billable_quantity)} · Khấu trừ công nợ lò {qty(document.supplier_credit_quantity)}{" "}
+                      (Đổi {qty(document.supplier_exchange_quantity)} · Bù {qty(document.supplier_makeup_quantity)})
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
