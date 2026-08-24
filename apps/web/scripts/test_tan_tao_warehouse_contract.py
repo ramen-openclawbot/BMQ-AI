@@ -142,6 +142,8 @@ def test_chat_first_page_and_navigation_are_reviewable() -> None:
     assert 'path: "/warehouse/tan-tao"' in sidebar
     assert "tanTaoWarehouse" in language
     assert "physicalQuantity" in parser
+    assert "Lò tính tiền" in page
+    assert "Khấu trừ công nợ lò" in page
 
 
 if __name__ == "__main__":

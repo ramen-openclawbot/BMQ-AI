@@ -47,7 +47,8 @@ export type VietjetInboxEvidence = {
 export type DailyBreadOrderMessageInput = {
   orderDate: string;
   dealerOrderedQuantity: number;
-  dealerExtraQuantity?: number;
+  dealerExchangeQuantity?: number;
+  dealerMakeupQuantity?: number;
   vehicleQuantity: number;
   vietjetQuantity: number;
 };
@@ -273,22 +274,33 @@ export function buildDailyBreadOrderMessage(input: DailyBreadOrderMessageInput):
   if (!match) throw new Error("invalid_daily_bread_order_date");
   const [, year, month, day] = match;
   const dealerOrdered = quantity(input.dealerOrderedQuantity);
-  const dealerExtra = quantity(input.dealerExtraQuantity);
+  const dealerExchange = quantity(input.dealerExchangeQuantity);
+  const dealerMakeup = quantity(input.dealerMakeupQuantity);
+  const dealerExtra = dealerExchange + dealerMakeup;
+  const dealerPhysical = dealerOrdered + dealerExtra;
   const vehicle = quantity(input.vehicleQuantity);
-  const rawTotalBmq = dealerOrdered + vehicle;
+  const rawTotalBmq = dealerPhysical + vehicle;
   const roundedTotalBmq = roundTotalBmqForPateBatch(rawTotalBmq);
+  const supplierBillableQuantity = roundedTotalBmq - dealerExtra;
   const roundedVietjet = roundBreadOrderMessageQuantity(input.vietjetQuantity);
   const dealerLine = dealerExtra > 0
-    ? `ĐL: ${formatQuantity(dealerOrdered)} (đổi/bù ${formatQuantity(dealerExtra)} dùng tồn nội bộ)`
+    ? `ĐL: ${formatQuantity(dealerOrdered)} | Đổi: ${formatQuantity(dealerExchange)} | Bù: ${formatQuantity(dealerMakeup)} | Giao: ${formatQuantity(dealerPhysical)}`
     : `ĐL: ${formatQuantity(dealerOrdered)}`;
 
-  return [
+  const lines = [
     `Đặt bánh ngày ${Number(day)}/${Number(month)}/${year}`,
     dealerLine,
     `Xe: ${formatQuantity(vehicle)}`,
-    `Tổng BMQ: ${formatQuantity(roundedTotalBmq)}`,
-    `Viet Jet: ${formatQuantity(roundedVietjet)}`,
-  ].join("\n");
+    `Tổng BMQ giao: ${formatQuantity(roundedTotalBmq)}`,
+  ];
+  if (dealerExtra > 0) {
+    lines.push(
+      `Khấu trừ công nợ lò: ${formatQuantity(dealerExtra)}`,
+      `Lò tính tiền: ${formatQuantity(supplierBillableQuantity)}`,
+    );
+  }
+  lines.push(`Viet Jet: ${formatQuantity(roundedVietjet)}`);
+  return lines.join("\n");
 }
 
 const WAREHOUSE_DISPATCH_LOCATION_ORDER = [

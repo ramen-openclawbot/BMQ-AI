@@ -250,10 +250,15 @@ const enqueueDailyBreadOrder = async (
     (sum, item) => sum + quantity(item.ordered_quantity ?? item.quantity),
     0,
   );
-  const dealerExtraQuantity = dealerItems.reduce(
-    (sum, item) => sum + quantity(item.exchange_quantity ?? 0) + quantity(item.makeup_quantity ?? 0),
+  const dealerExchangeQuantity = dealerItems.reduce(
+    (sum, item) => sum + quantity(item.exchange_quantity ?? 0),
     0,
   );
+  const dealerMakeupQuantity = dealerItems.reduce(
+    (sum, item) => sum + quantity(item.makeup_quantity ?? 0),
+    0,
+  );
+  const dealerExtraQuantity = dealerExchangeQuantity + dealerMakeupQuantity;
 
   const { data: vehicleHistoryData, error: vehicleHistoryError } = await supabase.rpc(
     "get_daily_bread_vehicle_history",
@@ -305,17 +310,19 @@ const enqueueDailyBreadOrder = async (
     receivedAt: vietjetRow.received_at,
   };
 
-  const rawTotalBmq = dealerOrderedQuantity + vehicleForecast.totalQuantity;
+  const rawTotalBmq = dealerOrderedQuantity + dealerExchangeQuantity + dealerMakeupQuantity + vehicleForecast.totalQuantity;
   const roundedTotalBmq = roundTotalBmqForPateBatch(rawTotalBmq);
+  const supplierBillableQuantity = roundedTotalBmq - dealerExchangeQuantity - dealerMakeupQuantity;
   const roundedVietjet = roundBreadOrderMessageQuantity(vietjet.quantity);
   const messageBody = buildDailyBreadOrderMessage({
     orderDate,
     dealerOrderedQuantity,
-    dealerExtraQuantity,
+    dealerExchangeQuantity,
+    dealerMakeupQuantity,
     vehicleQuantity: vehicleForecast.totalQuantity,
     vietjetQuantity: vietjet.quantity,
   });
-  if (dealerOrderedQuantity + vehicleForecast.totalQuantity + vietjet.quantity <= 0) {
+  if (dealerOrderedQuantity + dealerExchangeQuantity + dealerMakeupQuantity + vehicleForecast.totalQuantity + vietjet.quantity <= 0) {
     throw new Error("Daily bread order has no positive quantity");
   }
 
@@ -343,11 +350,15 @@ const enqueueDailyBreadOrder = async (
       order_ids: dealerOrders.map((order) => order.id),
       item_ids: dealerItems.map((item) => item.id),
       ordered_quantity: dealerOrderedQuantity,
+      exchange_quantity: dealerExchangeQuantity,
+      makeup_quantity: dealerMakeupQuantity,
       extra_quantity: dealerExtraQuantity,
-      physical_quantity: dealerOrderedQuantity + dealerExtraQuantity,
-      supplier_order_quantity: dealerOrderedQuantity,
-      extra_supplier_included: false,
-      extra_handling: "warehouse_bread_stock_and_point_pate_stock",
+      physical_quantity: dealerOrderedQuantity + dealerExchangeQuantity + dealerMakeupQuantity,
+      supplier_order_quantity: dealerOrderedQuantity + dealerExchangeQuantity + dealerMakeupQuantity,
+      supplier_credit_quantity: dealerExchangeQuantity + dealerMakeupQuantity,
+      supplier_billable_quantity: roundedTotalBmq - dealerExchangeQuantity - dealerMakeupQuantity,
+      extra_supplier_included: true,
+      extra_handling: "ordered_from_supplier_and_credited_to_bakery_payable",
     },
     vehicle: {
       source: "baocao.banhmique.vn",
@@ -369,6 +380,15 @@ const enqueueDailyBreadOrder = async (
       received_at: vietjet.receivedAt,
     },
     coop: { included: false },
+    supplier: {
+      name: "BMQ - HKD Tuyết Anh",
+      physical_quantity: roundedTotalBmq,
+      billable_quantity: supplierBillableQuantity,
+      credit_quantity: dealerExtraQuantity,
+      exchange_quantity: dealerExchangeQuantity,
+      makeup_quantity: dealerMakeupQuantity,
+      credit_handling: "ordered_from_supplier_and_credited_to_bakery_payable",
+    },
   };
 
   const { data: notificationId, error: queueError } = await supabase.rpc("upsert_daily_bread_order_notification", {
