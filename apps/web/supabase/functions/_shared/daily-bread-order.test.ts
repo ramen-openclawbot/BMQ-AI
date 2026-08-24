@@ -204,6 +204,29 @@ test("supplier message orders dealer exchange and makeup from the bakery and aud
   assert.doesNotMatch(message, /tồn nội bộ/i);
 });
 
+test("includes kiosk exchange and makeup in bakery payable credit", () => {
+  const message = buildDailyBreadOrderMessage({
+    orderDate: "2026-08-25",
+    dealerOrderedQuantity: 1760,
+    dealerExchangeQuantity: 70,
+    dealerMakeupQuantity: 23,
+    vehicleQuantity: 360,
+    vehicleExchangeQuantity: 2,
+    vehicleMakeupQuantity: 0,
+    vietjetQuantity: 180,
+  });
+
+  assert.equal(message, [
+    "Đặt bánh ngày 25/8/2026",
+    "ĐL: 1760 | Đổi: 70 | Bù: 23 | Giao: 1853",
+    "Xe: 360",
+    "Tổng BMQ giao: 2220",
+    "Khấu trừ công nợ lò: 95",
+    "Lò tính tiền: 2125",
+    "Viet Jet: 180",
+  ].join("\n"));
+});
+
 test("rounds BMQ totals upward to complete 20-stick pate batches", () => {
   const cases = [
     { raw: 230, expected: 240 },

@@ -71,13 +71,16 @@ def test_worker_routes_all_dealer_exchange_and_makeup_to_tuyet_anh():
         'extra_supplier_included: true',
         'extra_handling: "ordered_from_supplier_and_credited_to_bakery_payable"',
         "supplier_order_quantity: dealerOrderedQuantity + dealerExchangeQuantity + dealerMakeupQuantity",
-        "supplier_credit_quantity: dealerExchangeQuantity + dealerMakeupQuantity",
-        "supplier_billable_quantity: roundedTotalBmq - dealerExchangeQuantity - dealerMakeupQuantity",
+        "supplier_credit_quantity: supplierCreditQuantity",
+        "supplier_billable_quantity: supplierBillableQuantity",
         "physical_quantity: dealerOrderedQuantity + dealerExchangeQuantity + dealerMakeupQuantity",
+        "vehicleExchangeQuantity",
+        "vehicleMakeupQuantity",
+        "vehicle_credit_quantity: vehicleExtraQuantity",
     ]
     for marker in required:
         assert marker in source
-    assert "dealerOrderedQuantity + dealerExchangeQuantity + dealerMakeupQuantity + vehicleForecast.totalQuantity" in source
+    assert "+ vehicleForecast.totalQuantity + vehicleExtraQuantity" in source
 
 
 def test_tan_tao_supplier_document_preserves_physical_billable_and_credit_quantities():

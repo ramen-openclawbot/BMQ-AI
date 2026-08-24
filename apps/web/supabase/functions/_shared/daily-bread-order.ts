@@ -50,6 +50,8 @@ export type DailyBreadOrderMessageInput = {
   dealerExchangeQuantity?: number;
   dealerMakeupQuantity?: number;
   vehicleQuantity: number;
+  vehicleExchangeQuantity?: number;
+  vehicleMakeupQuantity?: number;
   vietjetQuantity: number;
 };
 
@@ -279,9 +281,12 @@ export function buildDailyBreadOrderMessage(input: DailyBreadOrderMessageInput):
   const dealerExtra = dealerExchange + dealerMakeup;
   const dealerPhysical = dealerOrdered + dealerExtra;
   const vehicle = quantity(input.vehicleQuantity);
-  const rawTotalBmq = dealerPhysical + vehicle;
+  const vehicleExchange = quantity(input.vehicleExchangeQuantity);
+  const vehicleMakeup = quantity(input.vehicleMakeupQuantity);
+  const totalSupplierCredit = dealerExtra + vehicleExchange + vehicleMakeup;
+  const rawTotalBmq = dealerPhysical + vehicle + vehicleExchange + vehicleMakeup;
   const roundedTotalBmq = roundTotalBmqForPateBatch(rawTotalBmq);
-  const supplierBillableQuantity = roundedTotalBmq - dealerExtra;
+  const supplierBillableQuantity = roundedTotalBmq - totalSupplierCredit;
   const roundedVietjet = roundBreadOrderMessageQuantity(input.vietjetQuantity);
   const dealerLine = dealerExtra > 0
     ? `ĐL: ${formatQuantity(dealerOrdered)} | Đổi: ${formatQuantity(dealerExchange)} | Bù: ${formatQuantity(dealerMakeup)} | Giao: ${formatQuantity(dealerPhysical)}`
@@ -293,9 +298,9 @@ export function buildDailyBreadOrderMessage(input: DailyBreadOrderMessageInput):
     `Xe: ${formatQuantity(vehicle)}`,
     `Tổng BMQ giao: ${formatQuantity(roundedTotalBmq)}`,
   ];
-  if (dealerExtra > 0) {
+  if (totalSupplierCredit > 0) {
     lines.push(
-      `Khấu trừ công nợ lò: ${formatQuantity(dealerExtra)}`,
+      `Khấu trừ công nợ lò: ${formatQuantity(totalSupplierCredit)}`,
       `Lò tính tiền: ${formatQuantity(supplierBillableQuantity)}`,
     );
   }

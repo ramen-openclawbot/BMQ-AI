@@ -295,6 +295,28 @@ const enqueueDailyBreadOrder = async (
   });
   const vehicleForecast = forecastVehicleBread([...vehicleLocations.values()], orderDate);
 
+  const currentVehicleReportIds = vehicleForecast.locations
+    .filter((location) => location.latestReportDate === dayRange.dateKey)
+    .map((location) => location.latestReportSource?.reportId)
+    .filter((reportId): reportId is string => Boolean(reportId));
+  let vehicleExchangeQuantity = 0;
+  let vehicleMakeupQuantity = 0;
+  if (currentVehicleReportIds.length > 0) {
+    const { data: vehicleExtraData, error: vehicleExtraError } = await supabase
+      .from("kiosk_daily_report_inventory_rows")
+      .select("shortage_quantity,returns_quantity,waste_quantity")
+      .in("report_id", currentVehicleReportIds)
+      .eq("product_code", "banh_mi_que");
+    if (vehicleExtraError) {
+      throw new Error(`Unable to read kiosk bread exchange/makeup: ${vehicleExtraError.message}`);
+    }
+    ((vehicleExtraData || []) as Array<Omit<KioskDispatchInventoryRow, "report_id">>).forEach((row) => {
+      vehicleMakeupQuantity += quantity(row.shortage_quantity);
+      vehicleExchangeQuantity += quantity(row.returns_quantity) + quantity(row.waste_quantity);
+    });
+  }
+  const vehicleExtraQuantity = vehicleExchangeQuantity + vehicleMakeupQuantity;
+
   const { data: vietjetData, error: vietjetError } = await supabase.rpc(
     "get_latest_vietjet_bread_quantity",
     { p_order_date: orderDate },
@@ -310,9 +332,11 @@ const enqueueDailyBreadOrder = async (
     receivedAt: vietjetRow.received_at,
   };
 
-  const rawTotalBmq = dealerOrderedQuantity + dealerExchangeQuantity + dealerMakeupQuantity + vehicleForecast.totalQuantity;
+  const rawTotalBmq = dealerOrderedQuantity + dealerExchangeQuantity + dealerMakeupQuantity
+    + vehicleForecast.totalQuantity + vehicleExtraQuantity;
   const roundedTotalBmq = roundTotalBmqForPateBatch(rawTotalBmq);
-  const supplierBillableQuantity = roundedTotalBmq - dealerExchangeQuantity - dealerMakeupQuantity;
+  const supplierCreditQuantity = dealerExtraQuantity + vehicleExtraQuantity;
+  const supplierBillableQuantity = roundedTotalBmq - supplierCreditQuantity;
   const roundedVietjet = roundBreadOrderMessageQuantity(vietjet.quantity);
   const messageBody = buildDailyBreadOrderMessage({
     orderDate,
@@ -320,9 +344,12 @@ const enqueueDailyBreadOrder = async (
     dealerExchangeQuantity,
     dealerMakeupQuantity,
     vehicleQuantity: vehicleForecast.totalQuantity,
+    vehicleExchangeQuantity,
+    vehicleMakeupQuantity,
     vietjetQuantity: vietjet.quantity,
   });
-  if (dealerOrderedQuantity + dealerExchangeQuantity + dealerMakeupQuantity + vehicleForecast.totalQuantity + vietjet.quantity <= 0) {
+  if (dealerOrderedQuantity + dealerExchangeQuantity + dealerMakeupQuantity
+    + vehicleForecast.totalQuantity + vehicleExtraQuantity + vietjet.quantity <= 0) {
     throw new Error("Daily bread order has no positive quantity");
   }
 
@@ -355,8 +382,8 @@ const enqueueDailyBreadOrder = async (
       extra_quantity: dealerExtraQuantity,
       physical_quantity: dealerOrderedQuantity + dealerExchangeQuantity + dealerMakeupQuantity,
       supplier_order_quantity: dealerOrderedQuantity + dealerExchangeQuantity + dealerMakeupQuantity,
-      supplier_credit_quantity: dealerExchangeQuantity + dealerMakeupQuantity,
-      supplier_billable_quantity: roundedTotalBmq - dealerExchangeQuantity - dealerMakeupQuantity,
+      supplier_credit_quantity: supplierCreditQuantity,
+      supplier_billable_quantity: supplierBillableQuantity,
       extra_supplier_included: true,
       extra_handling: "ordered_from_supplier_and_credited_to_bakery_payable",
     },
@@ -364,6 +391,9 @@ const enqueueDailyBreadOrder = async (
       source: "baocao.banhmique.vn",
       formula_version: vehicleForecast.formulaVersion,
       total_quantity: vehicleForecast.totalQuantity,
+      exchange_quantity: vehicleExchangeQuantity,
+      makeup_quantity: vehicleMakeupQuantity,
+      extra_quantity: vehicleExtraQuantity,
       locations: vehicleForecast.locations,
       report_sources: vehicleForecast.locations.map((forecast) => ({
         location_id: forecast.locationId,
@@ -384,9 +414,11 @@ const enqueueDailyBreadOrder = async (
       name: "BMQ - HKD Tuyết Anh",
       physical_quantity: roundedTotalBmq,
       billable_quantity: supplierBillableQuantity,
-      credit_quantity: dealerExtraQuantity,
-      exchange_quantity: dealerExchangeQuantity,
-      makeup_quantity: dealerMakeupQuantity,
+      credit_quantity: supplierCreditQuantity,
+      exchange_quantity: dealerExchangeQuantity + vehicleExchangeQuantity,
+      makeup_quantity: dealerMakeupQuantity + vehicleMakeupQuantity,
+      dealer_credit_quantity: dealerExtraQuantity,
+      vehicle_credit_quantity: vehicleExtraQuantity,
       credit_handling: "ordered_from_supplier_and_credited_to_bakery_payable",
     },
   };
