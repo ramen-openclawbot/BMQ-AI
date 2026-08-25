@@ -7,6 +7,7 @@ VEHICLE_HISTORY_MIGRATION = ROOT / "supabase/migrations/20260811130000_daily_bre
 WORKER = ROOT / "supabase/functions/dealer-warehouse-notify/index.ts"
 HELPER = ROOT / "supabase/functions/_shared/daily-bread-order.ts"
 SUPPLIER_CREDIT_MIGRATION = ROOT / "supabase/migrations/20260824100000_bread_exchange_makeup_supplier_credit.sql"
+SUPPLIER_TEMPLATE_MIGRATION = ROOT / "supabase/migrations/20260825110000_tuyet_anh_zalo_order_template.sql"
 
 
 def test_daily_bread_order_migration_contract():
@@ -109,6 +110,27 @@ def test_tan_tao_supplier_document_preserves_physical_billable_and_credit_quanti
         assert correction_marker in sql
     assert " / 20) * 20" in sql
     assert "dùng tồn nội bộ" not in sql
+
+
+def test_late_correction_uses_approved_two_sku_supplier_template():
+    sql = SUPPLIER_TEMPLATE_MIGRATION.read_text(encoding="utf-8")
+    required = [
+        "create or replace function public.queue_late_kiosk_bread_order_corrections",
+        "📦 ĐƠN ĐẶT HÀNG BMQ",
+        "1️⃣ BÁNH MÌ QUE BMQ",
+        "2️⃣ BÁNH MÌ VIETJET — SKU RIÊNG",
+        "ĐỔI / BÙ / TRẢ",
+        "GHI NHẬN CÔNG NỢ NCC",
+        "không cộng gộp số lượng",
+        "v_supplier_exchange",
+        "v_supplier_makeup",
+        "v_total_credit",
+        "v_rounding_adjustment",
+        "v_total_makeup + v_total_exchange",
+        "array_to_string(array[",
+    ]
+    for marker in required:
+        assert marker in sql
 
 
 def test_forecast_contract_is_explainable_and_has_no_sample_constants():
