@@ -191,15 +191,14 @@ test("supplier message orders dealer exchange and makeup from the bakery and aud
     vietjetQuantity: 196,
   });
 
-  assert.equal(message, [
-    "Đặt bánh ngày 11/8/2026",
-    "ĐL: 1460 | Đổi: 12 | Bù: 20 | Giao: 1492",
-    "Xe: 600",
-    "Tổng BMQ giao: 2100",
-    "Khấu trừ công nợ lò: 32",
-    "Lò tính tiền: 2068",
-    "Viet Jet: 200",
-  ].join("\n"));
+  assert.match(message, /• Đại lý: 1\.460 que/);
+  assert.match(message, /• Điểm bán: 600 que/);
+  assert.match(message, /• Đổi, trả: 12 que/);
+  assert.match(message, /• Bù: 20 que/);
+  assert.match(message, /• Tổng khấu trừ: 32 que/);
+  assert.match(message, /• Số lượng tính tiền: 2\.068 que/);
+  assert.match(message, /2️⃣ BÁNH MÌ VIETJET — SKU RIÊNG/);
+  assert.match(message, /• Ghi nhận công nợ: 200/);
   assert.doesNotMatch(message, /Coop/);
   assert.doesNotMatch(message, /tồn nội bộ/i);
 });
@@ -217,13 +216,45 @@ test("includes kiosk exchange and makeup in bakery payable credit", () => {
   });
 
   assert.equal(message, [
-    "Đặt bánh ngày 25/8/2026",
-    "ĐL: 1760 | Đổi: 70 | Bù: 23 | Giao: 1853",
-    "Xe: 360",
-    "Tổng BMQ giao: 2220",
-    "Khấu trừ công nợ lò: 95",
-    "Lò tính tiền: 2125",
-    "Viet Jet: 180",
+    "📦 ĐƠN ĐẶT HÀNG BMQ",
+    "Ngày giao: 25/08/2026",
+    "NCC: BMQ - HKD Tuyết Anh",
+    "",
+    "━━━━━━━━━━━━━━",
+    "1️⃣ BÁNH MÌ QUE BMQ",
+    "━━━━━━━━━━━━━━",
+    "",
+    "ĐẶT MỚI",
+    "• Đại lý: 1.760 que",
+    "• Điểm bán: 360 que",
+    "• Cộng đặt mới: 2.120 que",
+    "",
+    "ĐỔI / BÙ / TRẢ",
+    "• Đổi, trả: 72 que",
+    "  └ Đại lý 70 · Điểm bán 2",
+    "• Bù: 23 que",
+    "• Tổng khấu trừ: 95 que",
+    "",
+    "NCC CẦN GIAO",
+    "• Nhu cầu thực tế: 2.215 que",
+    "• Điều chỉnh đủ mẻ: +5 que",
+    "• Tổng giao: 2.220 que",
+    "",
+    "GHI NHẬN CÔNG NỢ NCC",
+    "• Số lượng giao: 2.220 que",
+    "• Khấu trừ đổi/bù/trả: −95 que",
+    "• Số lượng tính tiền: 2.125 que",
+    "",
+    "━━━━━━━━━━━━━━",
+    "2️⃣ BÁNH MÌ VIETJET — SKU RIÊNG",
+    "━━━━━━━━━━━━━━",
+    "",
+    "• Số lượng đặt: 180",
+    "• Số lượng NCC giao: 180",
+    "• Ghi nhận công nợ: 180",
+    "",
+    "⚠️ Hai SKU được đặt hàng và ghi nhận công nợ riêng,",
+    "không cộng gộp số lượng.",
   ].join("\n"));
 });
 
@@ -243,7 +274,7 @@ test("rounds BMQ totals upward to complete 20-stick pate batches", () => {
       vehicleQuantity: 0,
       vietjetQuantity: 0,
     });
-    assert.match(message, new RegExp(`Tổng BMQ giao: ${expected}$`, "m"));
+    assert.match(message, new RegExp(`• Tổng giao: ${expected} que$`, "m"));
   }
 });
 
@@ -254,8 +285,11 @@ test("keeps supplier dealer line exact when there is no internal exchange or mak
     vehicleQuantity: 50,
     vietjetQuantity: 0,
   });
-  assert.match(message, /^Đặt bánh ngày 12\/8\/2026\nĐL: 100\n/m);
-  assert.match(message, /Tổng BMQ giao: 160/);
+  assert.match(message, /Ngày giao: 12\/08\/2026/);
+  assert.match(message, /• Đại lý: 100 que/);
+  assert.match(message, /• Điểm bán: 50 que/);
+  assert.match(message, /• Tổng khấu trừ: 0 que/);
+  assert.match(message, /• Tổng giao: 160 que/);
 });
 
 test("formats supplier correction as full replacement with corrected totals", () => {
@@ -270,18 +304,14 @@ test("formats supplier correction as full replacement with corrected totals", ()
     affectedDeltaQuantity: 150,
   });
 
-  assert.equal(message, [
-    "ĐIỀU CHỈNH ĐẶT BÁNH - THAY THẾ TOÀN BỘ",
-    "Chênh lệch điểm bị sửa (Bùi Hữu Nghĩa): 150 que tăng",
-    "Tổng đúng sau chỉnh sửa:",
-    "Đặt bánh ngày 20/8/2026",
-    "ĐL: 100 | Đổi: 8 | Bù: 12 | Giao: 120",
-    "Xe: 220",
-    "Tổng BMQ giao: 340",
-    "Khấu trừ công nợ lò: 20",
-    "Lò tính tiền: 320",
-    "Viet Jet: 200",
-  ].join("\n"));
+  assert.match(message, /^ĐIỀU CHỈNH ĐẶT BÁNH - THAY THẾ TOÀN BỘ/m);
+  assert.match(message, /Chênh lệch điểm bị sửa \(Bùi Hữu Nghĩa\): 150 que tăng/);
+  assert.match(message, /📦 ĐƠN ĐẶT HÀNG BMQ/);
+  assert.match(message, /• Đại lý: 100 que/);
+  assert.match(message, /• Điểm bán: 220 que/);
+  assert.match(message, /• Tổng khấu trừ: 20 que/);
+  assert.match(message, /• Số lượng tính tiền: 320 que/);
+  assert.match(message, /2️⃣ BÁNH MÌ VIETJET — SKU RIÊNG/);
 });
 
 test("formats warehouse correction as full replacement with affected point adjustment", () => {
@@ -321,7 +351,7 @@ test("formats supplier correction decrease as full replacement", () => {
   });
 
   assert.match(message, /40 que giảm/);
-  assert.match(message, /Tổng BMQ giao: 160/);
+  assert.match(message, /• Tổng giao: 160 que/);
 });
 
 test("formats warehouse correction decrease as full replacement", () => {

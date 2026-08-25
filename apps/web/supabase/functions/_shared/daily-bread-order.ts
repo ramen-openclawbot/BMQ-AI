@@ -110,6 +110,10 @@ const formatQuantity = (value: number): string => {
   return Number.isInteger(safe) ? String(safe) : safe.toFixed(3).replace(/\.?0+$/, "");
 };
 
+const formatSupplierQuantity = (value: number): string => new Intl.NumberFormat("vi-VN", {
+  maximumFractionDigits: 3,
+}).format(quantity(value));
+
 export const roundBreadOrderMessageQuantity = (value: number): number => roundUpToBatch(quantity(value), 10);
 export const roundTotalBmqForPateBatch = (value: number): number => roundUpToBatch(quantity(value), PATE_BATCH_SIZE);
 
@@ -278,34 +282,60 @@ export function buildDailyBreadOrderMessage(input: DailyBreadOrderMessageInput):
   const dealerOrdered = quantity(input.dealerOrderedQuantity);
   const dealerExchange = quantity(input.dealerExchangeQuantity);
   const dealerMakeup = quantity(input.dealerMakeupQuantity);
-  const dealerExtra = dealerExchange + dealerMakeup;
-  const dealerPhysical = dealerOrdered + dealerExtra;
   const vehicle = quantity(input.vehicleQuantity);
   const vehicleExchange = quantity(input.vehicleExchangeQuantity);
   const vehicleMakeup = quantity(input.vehicleMakeupQuantity);
-  const totalSupplierCredit = dealerExtra + vehicleExchange + vehicleMakeup;
-  const rawTotalBmq = dealerPhysical + vehicle + vehicleExchange + vehicleMakeup;
+  const totalNewOrder = dealerOrdered + vehicle;
+  const totalExchange = dealerExchange + vehicleExchange;
+  const totalMakeup = dealerMakeup + vehicleMakeup;
+  const totalSupplierCredit = totalExchange + totalMakeup;
+  const rawTotalBmq = totalNewOrder + totalSupplierCredit;
   const roundedTotalBmq = roundTotalBmqForPateBatch(rawTotalBmq);
+  const roundingAdjustment = roundedTotalBmq - rawTotalBmq;
   const supplierBillableQuantity = roundedTotalBmq - totalSupplierCredit;
   const roundedVietjet = roundBreadOrderMessageQuantity(input.vietjetQuantity);
-  const dealerLine = dealerExtra > 0
-    ? `ĐL: ${formatQuantity(dealerOrdered)} | Đổi: ${formatQuantity(dealerExchange)} | Bù: ${formatQuantity(dealerMakeup)} | Giao: ${formatQuantity(dealerPhysical)}`
-    : `ĐL: ${formatQuantity(dealerOrdered)}`;
 
-  const lines = [
-    `Đặt bánh ngày ${Number(day)}/${Number(month)}/${year}`,
-    dealerLine,
-    `Xe: ${formatQuantity(vehicle)}`,
-    `Tổng BMQ giao: ${formatQuantity(roundedTotalBmq)}`,
-  ];
-  if (totalSupplierCredit > 0) {
-    lines.push(
-      `Khấu trừ công nợ lò: ${formatQuantity(totalSupplierCredit)}`,
-      `Lò tính tiền: ${formatQuantity(supplierBillableQuantity)}`,
-    );
-  }
-  lines.push(`Viet Jet: ${formatQuantity(roundedVietjet)}`);
-  return lines.join("\n");
+  return [
+    "📦 ĐƠN ĐẶT HÀNG BMQ",
+    `Ngày giao: ${day}/${month}/${year}`,
+    "NCC: BMQ - HKD Tuyết Anh",
+    "",
+    "━━━━━━━━━━━━━━",
+    "1️⃣ BÁNH MÌ QUE BMQ",
+    "━━━━━━━━━━━━━━",
+    "",
+    "ĐẶT MỚI",
+    `• Đại lý: ${formatSupplierQuantity(dealerOrdered)} que`,
+    `• Điểm bán: ${formatSupplierQuantity(vehicle)} que`,
+    `• Cộng đặt mới: ${formatSupplierQuantity(totalNewOrder)} que`,
+    "",
+    "ĐỔI / BÙ / TRẢ",
+    `• Đổi, trả: ${formatSupplierQuantity(totalExchange)} que`,
+    `  └ Đại lý ${formatSupplierQuantity(dealerExchange)} · Điểm bán ${formatSupplierQuantity(vehicleExchange)}`,
+    `• Bù: ${formatSupplierQuantity(totalMakeup)} que`,
+    `• Tổng khấu trừ: ${formatSupplierQuantity(totalSupplierCredit)} que`,
+    "",
+    "NCC CẦN GIAO",
+    `• Nhu cầu thực tế: ${formatSupplierQuantity(rawTotalBmq)} que`,
+    `• Điều chỉnh đủ mẻ: +${formatSupplierQuantity(roundingAdjustment)} que`,
+    `• Tổng giao: ${formatSupplierQuantity(roundedTotalBmq)} que`,
+    "",
+    "GHI NHẬN CÔNG NỢ NCC",
+    `• Số lượng giao: ${formatSupplierQuantity(roundedTotalBmq)} que`,
+    `• Khấu trừ đổi/bù/trả: −${formatSupplierQuantity(totalSupplierCredit)} que`,
+    `• Số lượng tính tiền: ${formatSupplierQuantity(supplierBillableQuantity)} que`,
+    "",
+    "━━━━━━━━━━━━━━",
+    "2️⃣ BÁNH MÌ VIETJET — SKU RIÊNG",
+    "━━━━━━━━━━━━━━",
+    "",
+    `• Số lượng đặt: ${formatSupplierQuantity(roundedVietjet)}`,
+    `• Số lượng NCC giao: ${formatSupplierQuantity(roundedVietjet)}`,
+    `• Ghi nhận công nợ: ${formatSupplierQuantity(roundedVietjet)}`,
+    "",
+    "⚠️ Hai SKU được đặt hàng và ghi nhận công nợ riêng,",
+    "không cộng gộp số lượng.",
+  ].join("\n");
 }
 
 const WAREHOUSE_DISPATCH_LOCATION_ORDER = [
