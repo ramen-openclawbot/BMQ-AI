@@ -43,7 +43,7 @@ type NormalizedSubmitItem = {
 };
 
 type SubmitRpcResult = {
-  result: "created" | "existing" | "duplicate";
+  result: "created" | "existing" | "duplicate" | "target_date_exists";
   order_id: string;
   order_number: string;
   submitted_at: string;
@@ -108,6 +108,7 @@ serve(async (req) => {
       customer_note?: unknown;
       client_submission_id?: unknown;
       duplicate_action?: unknown;
+      quick_reorder?: unknown;
     }>(req);
 
     const supabase = createServiceClient();
@@ -286,6 +287,7 @@ serve(async (req) => {
         p_total_amount_vnd: subtotal,
         p_lines: rpcLines,
         p_notification_body: messageBody,
+        p_require_empty_delivery_date: body.quick_reorder === true,
       });
       submitError = rpcResponse.error;
       submitResult = Array.isArray(rpcResponse.data) && rpcResponse.data[0]
@@ -308,6 +310,18 @@ serve(async (req) => {
           order_number: submitResult.order_number,
           submitted_at: submitResult.submitted_at,
           total_amount_vnd: Number(submitResult.total_amount_vnd || 0),
+        },
+      });
+    }
+
+    if (submitResult.result === "target_date_exists") {
+      return jsonResponse(req, {
+        success: false,
+        code: "target_delivery_date_exists",
+        message: "Đã có đơn cho ngày giao này.",
+        existing_order: {
+          id: submitResult.order_id,
+          order_number: submitResult.order_number,
         },
       });
     }
