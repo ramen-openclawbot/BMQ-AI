@@ -92,6 +92,19 @@ serve(async (req) => {
       return errorResponse(req, "Hồ sơ đại lý đang tạm ngưng. Vui lòng liên hệ vận hành.", 403, "customer_inactive");
     }
 
+    const { data: contact, error: contactError } = await supabase
+      .from("dealer_customer_contacts")
+      .select("id, contact_name, phone_normalized, is_active, is_test")
+      .eq("id", challenge.contact_id)
+      .eq("customer_id", challenge.customer_id)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (contactError) throw contactError;
+    if (!contact) {
+      return errorResponse(req, "Số điện thoại đại lý đang tạm ngưng. Vui lòng liên hệ vận hành.", 403, "contact_inactive");
+    }
+
     await supabase
       .from("dealer_otp_challenges")
       .update({
@@ -126,7 +139,7 @@ serve(async (req) => {
       success: true,
       dealer_token: sessionToken,
       expires_at: session.expires_at,
-      customer: publicCustomerProfile(customer),
+      customer: publicCustomerProfile(customer, contact),
     });
   } catch (error) {
     console.error("[dealer-auth-verify] Unexpected error", error);
