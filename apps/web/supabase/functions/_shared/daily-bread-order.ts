@@ -326,15 +326,12 @@ export function buildDailyBreadOrderMessage(input: DailyBreadOrderMessageInput):
     `• Số lượng tính tiền: ${formatSupplierQuantity(supplierBillableQuantity)} que`,
     "",
     "━━━━━━━━━━━━━━",
-    "2️⃣ BÁNH MÌ VIETJET — SKU RIÊNG",
+    "2️⃣ BÁNH MÌ VIETJET",
     "━━━━━━━━━━━━━━",
     "",
     `• Số lượng đặt: ${formatSupplierQuantity(roundedVietjet)}`,
     `• Số lượng NCC giao: ${formatSupplierQuantity(roundedVietjet)}`,
     `• Ghi nhận công nợ: ${formatSupplierQuantity(roundedVietjet)}`,
-    "",
-    "⚠️ Hai SKU được đặt hàng và ghi nhận công nợ riêng,",
-    "không cộng gộp số lượng.",
   ].join("\n");
 }
 
