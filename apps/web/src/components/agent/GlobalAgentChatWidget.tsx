@@ -300,11 +300,13 @@ export function GlobalAgentChatWidget() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isResponding, setIsResponding] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
   const lastSeqRef = useRef(0);
   const endRef = useRef<HTMLDivElement | null>(null);
   const enabled = authzLoaded && isOwner && Boolean(session?.access_token && user?.id);
   const routeContext = useMemo(() => getRouteContext(location.pathname), [location.pathname]);
   const timeline = useMemo(() => timelineFromFrames(frames), [frames]);
+  const showQuickActions = !sessionId && timeline.length === 0 && !streamedText && !isResponding;
   const isRevenueMobileContext = location.pathname.startsWith("/finance-control/revenue");
   const isSkuCostsMobileContext = location.pathname.startsWith("/sku-costs");
   const isPurchaseOrdersMobileContext = location.pathname.startsWith("/purchase-orders");
@@ -323,6 +325,7 @@ export function GlobalAgentChatWidget() {
   useEffect(() => {
     if (!enabled || !session?.access_token || !user?.id) {
       setVnagentToken(null);
+      sessionIdRef.current = null;
       setSessionId(null);
       setFrames([]);
       setConnection("idle");
@@ -364,11 +367,13 @@ export function GlobalAgentChatWidget() {
             const latestSeq = history.reduce((max, frame) => typeof frame.seq === "number" ? Math.max(max, frame.seq) : max, lastSeqRef.current);
             lastSeqRef.current = latestSeq;
             localStorage.setItem(storageKey(user.id, "last-seq"), String(latestSeq));
+            sessionIdRef.current = restoredSessionId;
             setSessionId(restoredSessionId);
           } else if (historyResponse.status === 404) {
             localStorage.removeItem(storageKey(user.id, "session"));
             localStorage.removeItem(storageKey(user.id, "last-seq"));
             setFrames([]);
+            sessionIdRef.current = null;
             setSessionId(null);
             lastSeqRef.current = 0;
           } else {
@@ -376,6 +381,7 @@ export function GlobalAgentChatWidget() {
           }
         } else {
           setFrames([]);
+          sessionIdRef.current = null;
           setSessionId(null);
           lastSeqRef.current = 0;
         }
@@ -402,13 +408,14 @@ export function GlobalAgentChatWidget() {
       const socket = new WebSocket(`${API_URL.replace(/^http/, "ws")}/v1/ws`);
       wsRef.current = socket;
       socket.onopen = () => {
+        const resumeSessionId = sessionIdRef.current;
         socket.send(JSON.stringify({
           v: VNAGENT_PROTOCOL_VERSION,
           type: "hello",
           deviceId: getOrCreateDeviceId(),
           token: vnagentToken,
           surface: "web",
-          ...(sessionId ? { resume: { sessionId, lastSeq: lastSeqRef.current } } : {}),
+          ...(resumeSessionId ? { resume: { sessionId: resumeSessionId, lastSeq: lastSeqRef.current } } : {}),
           caps: { display: "full", input: ["text"], supportsMarkdown: true, maxReplyChars: 6000 },
         }));
       };
@@ -424,7 +431,8 @@ export function GlobalAgentChatWidget() {
           setErrorMessage(null);
           return;
         }
-        if (frame.sessionId && sessionId && frame.sessionId !== sessionId) return;
+        const activeSessionId = sessionIdRef.current;
+        if (frame.sessionId && activeSessionId && frame.sessionId !== activeSessionId) return;
         if (frame.type === "agent_typing") {
           setIsResponding(true);
           return;
@@ -458,7 +466,7 @@ export function GlobalAgentChatWidget() {
       wsRef.current = null;
       socket?.close();
     };
-  }, [enabled, rememberFrame, sessionId, vnagentToken]);
+  }, [enabled, rememberFrame, vnagentToken]);
 
   useEffect(() => {
     const openAgentChat = () => {
@@ -473,7 +481,7 @@ export function GlobalAgentChatWidget() {
   }, [frames, open, streamedText]);
 
   const ensureSession = useCallback(async (title: string): Promise<string> => {
-    if (sessionId) return sessionId;
+    if (sessionIdRef.current) return sessionIdRef.current;
     if (!vnagentToken || !user?.id) throw new Error("VNAgent chưa sẵn sàng.");
     const response = await fetch(`${API_URL}/v1/sessions`, {
       method: "POST",
@@ -486,14 +494,15 @@ export function GlobalAgentChatWidget() {
     localStorage.setItem(storageKey(user.id, "session"), created.id);
     localStorage.setItem(storageKey(user.id, "last-seq"), "0");
     lastSeqRef.current = 0;
+    sessionIdRef.current = created.id;
     setSessionId(created.id);
     return created.id;
-  }, [sessionId, user?.id, vnagentToken]);
+  }, [user?.id, vnagentToken]);
 
   const sendMessage = useCallback(async (text?: string) => {
     const content = String(text ?? draft).trim();
-    const socket = wsRef.current;
-    if (!content || connection !== "connected" || !socket || socket.readyState !== WebSocket.OPEN || isResponding) return;
+    const initialSocket = wsRef.current;
+    if (!content || connection !== "connected" || !initialSocket || initialSocket.readyState !== WebSocket.OPEN || isResponding) return;
     setDraft("");
     setErrorMessage(null);
     try {
@@ -502,6 +511,8 @@ export function GlobalAgentChatWidget() {
       const currentPage = buildCurrentPageContext(location.pathname, location.search, routeContext);
       const outgoing = createUserMessageFrame({ id, sessionId: activeSessionId, agentId: AGENT_ID, text: content, currentPage });
       rememberFrame({ ...outgoing, type: "user_message_saved", synthetic: true });
+      const socket = wsRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) throw new Error("Kết nối VNAgent vừa bị gián đoạn. Vui lòng gửi lại.");
       setIsResponding(true);
       socket.send(JSON.stringify(outgoing));
     } catch (error) {
@@ -568,12 +579,14 @@ export function GlobalAgentChatWidget() {
               <div className="flex items-center gap-2 rounded-lg border bg-muted/20 p-3 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Agent đang xử lý…</div>
             )}
             {errorMessage && <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">{errorMessage}</div>}
-            <div className="rounded-lg border p-3">
-              <div className="mb-2 text-xs text-muted-foreground">Quick actions theo module</div>
-              <div className="flex flex-wrap gap-2">
-                {routeContext.suggestions.map((suggestion) => <Button key={suggestion} type="button" size="sm" variant="outline" onClick={() => void sendMessage(suggestion)} disabled={connection !== "connected" || isResponding}>{suggestion}</Button>)}
+            {showQuickActions && (
+              <div className="rounded-lg border p-3">
+                <div className="mb-2 text-xs text-muted-foreground">Quick actions theo module</div>
+                <div className="flex flex-wrap gap-2">
+                  {routeContext.suggestions.map((suggestion) => <Button key={suggestion} type="button" size="sm" variant="outline" onClick={() => void sendMessage(suggestion)} disabled={connection !== "connected" || isResponding}>{suggestion}</Button>)}
+                </div>
               </div>
-            </div>
+            )}
             <div ref={endRef} />
           </div>
 
