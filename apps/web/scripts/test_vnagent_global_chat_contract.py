@@ -28,12 +28,24 @@ def test_owner_and_server_auth_contract() -> None:
 def test_universal_protocol_and_resume_contract() -> None:
     require(PROTOCOL, 'type: "user_message"', "normal messages must use Universal Protocol user_message frames")
     require(WIDGET, 'type: "hello"', "websocket must start with a Universal Protocol hello frame")
-    require(WIDGET, "resume: { sessionId, lastSeq: lastSeqRef.current }", "hello must resume from the last durable sequence")
+    require(WIDGET, "resume: { sessionId: resumeSessionId, lastSeq: lastSeqRef.current }", "hello must resume from the last durable sequence without coupling websocket lifetime to React session state")
     require(WIDGET, "/messages", "reload must restore durable server history")
     require(WIDGET, 'storageKey(user.id, "session")', "the active conversation must persist per signed-in owner")
     require(WIDGET, "socket.send(JSON.stringify(outgoing))", "all submitted text must be sent to VNAgent")
     forbid(WIDGET, "lower.includes(\"tóm tắt\")", "local fallback intent responses must not intercept messages")
     forbid(WIDGET, "invokePaymentAgentSearch", "payment-search handlers must not intercept normal chat messages")
+
+
+def test_first_message_keeps_the_authenticated_socket_open() -> None:
+    require(WIDGET, "const sessionIdRef = useRef<string | null>(null)", "the active session id must be readable without reconnecting the websocket")
+    require(WIDGET, "sessionIdRef.current = created.id", "new session identity must update synchronously before the first send")
+    require(WIDGET, "const socket = wsRef.current;\n      if (!socket || socket.readyState !== WebSocket.OPEN)", "the first send must re-read and validate the live socket after session creation")
+    forbid(WIDGET, "[enabled, rememberFrame, sessionId, vnagentToken]", "creating the first session must not tear down the authenticated websocket")
+
+
+def test_quick_actions_are_initial_state_only() -> None:
+    require(WIDGET, "const showQuickActions = !sessionId && timeline.length === 0 && !streamedText && !isResponding", "quick actions must disappear once a conversation starts")
+    require(WIDGET, "{showQuickActions && (", "quick actions must use the initial-state guard")
 
 
 def test_hidden_page_context_contract() -> None:
