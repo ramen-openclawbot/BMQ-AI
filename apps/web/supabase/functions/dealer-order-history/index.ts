@@ -8,8 +8,13 @@ import {
   readJsonBody,
   resolveDealerSession,
 } from "../_shared/dealer.ts";
+import {
+  buildRetailQuickOrderSuggestion,
+  type RetailQuickOrderCandidate,
+} from "../_shared/dealer-quick-order.ts";
 
 const PAGE_SIZE = 10;
+const QUICK_REORDER_BATCH_SIZE = 50;
 const VIETNAM_TIME_ZONE = "Asia/Ho_Chi_Minh";
 const VIETNAM_OFFSET_MS = 7 * 60 * 60 * 1000;
 
@@ -23,6 +28,7 @@ type HistoryRequest = {
   page?: unknown;
   page_size?: unknown;
   order_number?: unknown;
+  quick_reorder?: unknown;
 };
 
 type OrderRow = {
@@ -54,6 +60,26 @@ type ItemRow = {
   route_note: string | null;
 };
 
+type QuickOrderItemRow = {
+  order_id: string;
+  sku_id: string;
+  sku_code: string;
+  product_name: string;
+  unit: string | null;
+  quantity: number | string;
+  ordered_quantity: number | string | null;
+  exchange_quantity: number | string;
+  makeup_quantity: number | string;
+  route_customer_id: string | null;
+};
+
+type QuickOrderRow = {
+  id: string;
+  order_number: string;
+  requested_delivery_date: string;
+  submitted_at: string;
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflightResponse(req);
   if (req.method !== "POST") return errorResponse(req, "Method not allowed", 405, "method_not_allowed");
@@ -66,6 +92,117 @@ serve(async (req) => {
 
     if (!sessionContext) {
       return errorResponse(req, "Phiên đại lý đã hết hạn. Vui lòng đăng nhập lại.", 401, "dealer_session_required");
+    }
+
+    if (body.quick_reorder === true) {
+      const targetDeliveryDate = vietnamDateKey(1);
+      const { data: customerRow, error: customerError } = await supabase
+        .from("mini_crm_customers")
+        .select("is_npp")
+        .eq("id", sessionContext.customer.id)
+        .single();
+      if (customerError) throw customerError;
+      if (customerRow?.is_npp) {
+        return jsonResponse(req, {
+          success: true,
+          target_delivery_date: targetDeliveryDate,
+          already_ordered: null,
+          suggestion: null,
+        });
+      }
+
+      const { data: existingRows, error: existingError } = await supabase
+        .from("dealer_orders")
+        .select("order_number")
+        .eq("customer_id", sessionContext.customer.id)
+        .eq("requested_delivery_date", targetDeliveryDate)
+        .neq("status", "cancelled")
+        .order("submitted_at", { ascending: false })
+        .limit(1);
+      if (existingError) throw existingError;
+      const existingOrder = existingRows?.[0]?.order_number
+        ? { orderNumber: String(existingRows[0].order_number) }
+        : null;
+
+      if (existingOrder) {
+        return jsonResponse(req, {
+          success: true,
+          ...buildRetailQuickOrderSuggestion({
+            targetDeliveryDate,
+            existingOrder,
+            candidateOrders: [],
+          }),
+        });
+      }
+
+      let candidateOffset = 0;
+      while (true) {
+        const { data: candidateRows, error: candidateError } = await supabase
+          .from("dealer_orders")
+          .select("id,order_number,requested_delivery_date,submitted_at")
+          .eq("customer_id", sessionContext.customer.id)
+          .neq("status", "cancelled")
+          .not("requested_delivery_date", "is", null)
+          .lt("requested_delivery_date", targetDeliveryDate)
+          .order("requested_delivery_date", { ascending: false })
+          .order("submitted_at", { ascending: false })
+          .range(candidateOffset, candidateOffset + QUICK_REORDER_BATCH_SIZE - 1);
+        if (candidateError) throw candidateError;
+
+        const quickOrderRows = (candidateRows || []) as QuickOrderRow[];
+        if (quickOrderRows.length === 0) break;
+        const candidateOrderIds = quickOrderRows.map((order) => String(order.id));
+        const { data: quickItemRows, error: quickItemError } = await supabase
+          .from("dealer_order_items")
+          .select("order_id,sku_id,sku_code,product_name,unit,quantity,ordered_quantity,exchange_quantity,makeup_quantity,route_customer_id")
+          .in("order_id", candidateOrderIds)
+          .order("created_at", { ascending: true });
+        if (quickItemError) throw quickItemError;
+        const quickItems = (quickItemRows || []) as QuickOrderItemRow[];
+
+        const quickItemsByOrder = new Map<string, QuickOrderItemRow[]>();
+        quickItems.forEach((item) => {
+          const current = quickItemsByOrder.get(item.order_id) || [];
+          current.push(item);
+          quickItemsByOrder.set(item.order_id, current);
+        });
+        const candidateOrders: RetailQuickOrderCandidate[] = quickOrderRows.map((order) => ({
+          id: String(order.id),
+          orderNumber: String(order.order_number),
+          requestedDeliveryDate: String(order.requested_delivery_date),
+          submittedAt: String(order.submitted_at),
+          items: (quickItemsByOrder.get(String(order.id)) || []).map((item) => ({
+            skuId: String(item.sku_id),
+            skuCode: String(item.sku_code || ""),
+            productName: String(item.product_name || item.sku_code || "Sản phẩm BMQ"),
+            unit: item.unit,
+            orderedQuantity: numberValue(item.ordered_quantity ?? item.quantity),
+            exchangeQuantity: numberValue(item.exchange_quantity),
+            makeupQuantity: numberValue(item.makeup_quantity),
+            routeCustomerId: item.route_customer_id,
+          })),
+        }));
+        const candidateResult = buildRetailQuickOrderSuggestion({
+          targetDeliveryDate,
+          existingOrder: null,
+          candidateOrders,
+        });
+        if (candidateResult.suggestion) {
+          return jsonResponse(req, { success: true, ...candidateResult });
+        }
+
+        if (quickOrderRows.length < QUICK_REORDER_BATCH_SIZE) break;
+        candidateOffset += QUICK_REORDER_BATCH_SIZE;
+      }
+
+      return jsonResponse(req, {
+        success: true,
+        ...buildRetailQuickOrderSuggestion({
+          targetDeliveryDate,
+          existingOrder: null,
+          candidateOrders: [],
+        }),
+      });
     }
 
     const requestedOrderNumber = normalizeOrderNumber(body.order_number);
@@ -268,4 +405,13 @@ function periodBoundaries(granularity: Granularity, anchor: string) {
 function numberValue(value: number | string | null | undefined) {
   const parsed = Number(value || 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function vietnamDateKey(dayOffset: number) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: VIETNAM_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(Date.now() + dayOffset * 24 * 60 * 60 * 1000));
 }

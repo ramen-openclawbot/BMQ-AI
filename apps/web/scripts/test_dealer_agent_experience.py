@@ -114,7 +114,7 @@ class DealerAgentExperienceTests(unittest.TestCase):
         self.assertNotIn('className="w-full max-w-sm rounded-[22px]', panel)
         self.assertIn('data-dealer-order-preview-total="quantity"', panel)
         self.assertIn('data-dealer-order-preview-total="amount"', panel)
-        self.assertIn('data-dealer-chat-choice="confirm"', panel)
+        self.assertIn('data-dealer-chat-choice="quick-submit"', panel)
         self.assertIn('data-dealer-chat-choice="edit"', panel)
         self.assertIn('data-dealer-chat-choice="new-order"', panel)
         self.assertNotIn("Chạm để xem chi tiết", panel)
@@ -133,11 +133,11 @@ class DealerAgentExperienceTests(unittest.TestCase):
     def test_ready_order_uses_explicit_multiple_choice_actions(self) -> None:
         panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]
         self.assertIn('data-dealer-chat-choices="order-ready"', panel)
-        self.assertIn('data-dealer-chat-choice="confirm"', panel)
+        self.assertIn('data-dealer-chat-choice="quick-submit"', panel)
         self.assertIn('data-dealer-chat-choice="edit"', panel)
         self.assertIn('data-dealer-chat-choice="new-order"', panel)
-        self.assertIn("Xác nhận gửi", panel)
-        self.assertIn("Chỉnh sửa", panel)
+        self.assertIn("Đặt nhanh", panel)
+        self.assertIn("Xem / chỉnh sửa", panel)
         self.assertIn("Đặt đơn khác", panel)
 
     def test_parser_failure_offers_recovery_choices(self) -> None:
@@ -278,16 +278,51 @@ class DealerAgentExperienceTests(unittest.TestCase):
         self.assertIn("Đã nhận đơn thành công", panel)
         self.assertIn('data-dealer-chat-message="error"', panel)
 
-    def test_order_submit_ctas_open_final_confirmation_before_sending(self) -> None:
+    def test_prepared_order_supports_one_tap_submit_and_optional_review(self) -> None:
         panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]
         self.assertIn("const openOrderConfirmation", panel)
-        self.assertEqual(panel.count("onClick={openOrderConfirmation}"), 2)
-        self.assertEqual(panel.count("onClick={onSubmit}"), 1)
         pre_confirmation = panel.split('<Dialog open={detailOpen}', 1)[0]
         confirmation = panel.split('<Dialog open={detailOpen}', 1)[1]
-        self.assertNotIn("onClick={onSubmit}", pre_confirmation)
+        self.assertIn('data-dealer-chat-choice="quick-submit"', pre_confirmation)
+        self.assertIn("onClick={onSubmit}", pre_confirmation)
+        self.assertIn("Đặt nhanh", pre_confirmation)
+        self.assertIn("onClick={openOrderConfirmation}", pre_confirmation)
+        self.assertIn("Xem / chỉnh sửa", pre_confirmation)
+        self.assertNotIn("Xác nhận gửi", pre_confirmation)
         self.assertIn("onClick={onSubmit}", confirmation)
         self.assertIn("Xác nhận & gửi đơn", panel)
+
+    def test_one_tap_submit_has_synchronous_double_tap_guard(self) -> None:
+        self.assertIn("const orderSubmittingRef = useRef(false)", self.source)
+        submitter = self.source.split("const submitOrderPayload = async", 1)[1].split("\n  };", 1)[0]
+        self.assertIn("if (orderSubmittingRef.current) return false", submitter)
+        self.assertIn("orderSubmittingRef.current = true", submitter)
+        self.assertIn("orderSubmittingRef.current = false", submitter)
+
+    def test_retail_dealer_gets_previous_order_one_tap_suggestion(self) -> None:
+        self.assertIn("DealerQuickOrderSuggestionResponse", self.source)
+        self.assertIn('"dealer-order-history"', self.source)
+        self.assertIn("quick_reorder: true", self.source)
+        self.assertIn('data-dealer-quick-reorder="suggestion"', self.source)
+        self.assertIn('data-dealer-quick-reorder-action="submit"', self.source)
+        self.assertIn('data-dealer-quick-reorder-action="edit"', self.source)
+        self.assertIn("Đặt lại như đơn", self.source)
+        self.assertIn("Đặt nhanh", self.source)
+        self.assertIn("Đổi số lượng", self.source)
+        self.assertIn("requestedDeliveryDate: quickOrderSuggestion.target_delivery_date", self.source)
+
+    def test_retail_suggestion_never_repeats_exchange_or_makeup(self) -> None:
+        handler = self.source.split("const handleQuickReorderSubmit", 1)[1].split("\n  };", 1)[0]
+        self.assertIn("ordered_quantity: quickOrderItem.ordered_quantity", handler)
+        self.assertIn("exchange_quantity: 0", handler)
+        self.assertIn("makeup_quantity: 0", handler)
+        self.assertIn("physical_quantity: quickOrderItem.ordered_quantity", handler)
+
+    def test_existing_target_day_order_suppresses_retail_fast_submit(self) -> None:
+        self.assertIn('data-dealer-quick-reorder="already-ordered"', self.source)
+        self.assertIn("Đã có đơn giao ngày", self.source)
+        already_ordered = self.source.split('data-dealer-quick-reorder="already-ordered"', 1)[1].split("</div>", 1)[0]
+        self.assertNotIn("handleQuickReorderSubmit", already_ordered)
 
     def test_final_confirmation_is_read_only_until_customer_edits(self) -> None:
         panel = self.source.split("function NppQuickOrderPanel", 1)[1].split("function QuantityCell", 1)[0]

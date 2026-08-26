@@ -104,6 +104,28 @@ class DealerOrderHistoryTests(unittest.TestCase):
         self.assertIn("sessionStorage.removeItem(DEALER_ORDER_DEEP_LINK_STORAGE_KEY)", self.portal)
         self.assertIn("Không tìm thấy đơn hàng trong tài khoản này.", self.portal)
 
+    def test_quick_reorder_is_session_scoped_retail_only_and_delivery_date_based(self) -> None:
+        self.assertIn("quick_reorder?: unknown", self.function)
+        self.assertIn("body.quick_reorder === true", self.function)
+        self.assertIn("sessionContext.customer.id", self.function)
+        self.assertIn("is_npp", self.function)
+        self.assertIn("requested_delivery_date", self.function)
+        self.assertIn("buildRetailQuickOrderSuggestion", self.function)
+        self.assertNotIn("body.customer_id", self.function)
+
+    def test_quick_reorder_scans_until_latest_suitable_order_is_found(self) -> None:
+        quick_branch = self.function.split("if (body.quick_reorder === true)", 1)[1].split("const requestedOrderNumber", 1)[0]
+        self.assertIn("while (true)", quick_branch)
+        self.assertIn("candidateOffset", quick_branch)
+        self.assertIn(".range(candidateOffset, candidateOffset + QUICK_REORDER_BATCH_SIZE - 1)", quick_branch)
+        self.assertNotIn(".limit(10)", quick_branch)
+
+    def test_quick_reorder_excludes_cancelled_and_reuses_no_old_price(self) -> None:
+        quick_branch = self.function.split("if (body.quick_reorder === true)", 1)[1].split("const requestedOrderNumber", 1)[0]
+        self.assertIn('.neq("status", "cancelled")', quick_branch)
+        self.assertIn("ordered_quantity", quick_branch)
+        self.assertNotIn("unit_price_vnd", quick_branch)
+
     def test_dedicated_hallmark_styles_are_scoped_and_mobile_safe(self) -> None:
         self.assertIn("Hallmark · macrostructure: Operational Workbench", self.style)
         self.assertIn('[data-dealer-agent-screen="orders"]', self.style)

@@ -160,6 +160,27 @@ type DealerOrderHistoryResponse = {
   orders?: DealerOrderHistoryOrder[];
 };
 
+type DealerQuickOrderSuggestionResponse = {
+  success?: boolean;
+  target_delivery_date: string;
+  already_ordered: { order_number: string } | null;
+  suggestion: {
+    source_order_id: string;
+    source_order_number: string;
+    source_delivery_date: string;
+    items: Array<{
+      sku_id: string;
+      sku_code: string;
+      product_name: string;
+      unit: string;
+      ordered_quantity: number;
+      exchange_quantity: number;
+      makeup_quantity: number;
+      physical_quantity: number;
+    }>;
+  } | null;
+};
+
 type DealerOrderHistoryGranularity = "day" | "month" | "year";
 type DealerOrderHistoryStatus = "idle" | "loading" | "live" | "error";
 
@@ -168,6 +189,7 @@ type DuplicateOrderPrompt = {
   chatNative: boolean;
   clientSubmissionId: string;
   orderNumber: string;
+  requestedDeliveryDate?: string;
 };
 
 type DealerLandingBanner = {
@@ -431,6 +453,7 @@ export default function DealerPortal() {
   const [nppConfirmOpen, setNppConfirmOpen] = useState(false);
   const [duplicateOrderPrompt, setDuplicateOrderPrompt] = useState<DuplicateOrderPrompt | null>(null);
   const orderSubmissionIdRef = useRef(crypto.randomUUID());
+  const orderSubmittingRef = useRef(false);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [nppQuantities, setNppQuantities] = useState<Record<string, number>>({});
   const [nppExchangeQuantities, setNppExchangeQuantities] = useState<Record<string, number>>({});
@@ -457,6 +480,8 @@ export default function DealerPortal() {
   const [selectedHistoryOrder, setSelectedHistoryOrder] = useState<DealerOrderHistoryOrder | null>(null);
   const [pendingOrderDeepLink, setPendingOrderDeepLink] = useState(readDealerOrderDeepLink);
   const [deepLinkedOrderActive, setDeepLinkedOrderActive] = useState(false);
+  const [quickOrderSuggestion, setQuickOrderSuggestion] = useState<DealerQuickOrderSuggestionResponse | null>(null);
+  const [quickOrderSuggestionStatus, setQuickOrderSuggestionStatus] = useState<"idle" | "loading" | "live">("idle");
 
   const loadLandingConfig = useCallback(async () => {
     try {
@@ -791,8 +816,12 @@ export default function DealerPortal() {
       chatNative?: boolean;
       duplicateAction?: "continue";
       clientSubmissionId?: string;
+      requestedDeliveryDate?: string;
+      quickReorder?: boolean;
     } = {},
   ) => {
+    if (orderSubmittingRef.current) return false;
+    orderSubmittingRef.current = true;
     setOrderSubmitting(true);
     setOrderMessage("");
     setOrderError("");
@@ -811,6 +840,8 @@ export default function DealerPortal() {
           dealer_token: sessionToken,
           items,
           client_submission_id: clientSubmissionId,
+          ...(options.requestedDeliveryDate ? { requested_delivery_date: options.requestedDeliveryDate } : {}),
+          ...(options.quickReorder ? { quick_reorder: true } : {}),
           ...(options.duplicateAction ? { duplicate_action: options.duplicateAction } : {}),
         },
       });
@@ -823,10 +854,16 @@ export default function DealerPortal() {
           chatNative: Boolean(options.chatNative),
           clientSubmissionId,
           orderNumber: previousOrderNumber,
+          requestedDeliveryDate: options.requestedDeliveryDate,
         });
         setNppConfirmOpen(false);
         setNppParseStatus("success");
         setNppParseMessage(data.message || "Đơn hàng tương tự đã được đặt! Quý khách hàng muốn tiếp tục hay huỷ?");
+        return false;
+      }
+      if (data?.code === "target_delivery_date_exists") {
+        setOrderError(data.message || "Đã có đơn cho ngày giao này.");
+        setQuickOrderSuggestion(null);
         return false;
       }
       if (!data?.success) throw new Error(data?.message || "Không gửi được đơn hàng.");
@@ -855,6 +892,7 @@ export default function DealerPortal() {
       setOrderError(await getFunctionErrorMessage(error, "Không gửi được đơn hàng."));
       return false;
     } finally {
+      orderSubmittingRef.current = false;
       setOrderSubmitting(false);
     }
   };
@@ -1020,6 +1058,7 @@ export default function DealerPortal() {
       chatNative: duplicateOrderPrompt.chatNative,
       duplicateAction: "continue",
       clientSubmissionId: duplicateOrderPrompt.clientSubmissionId,
+      requestedDeliveryDate: duplicateOrderPrompt.requestedDeliveryDate,
     });
   };
 
@@ -1077,6 +1116,77 @@ export default function DealerPortal() {
     () => catalogProducts.find((product) => product.id === chatProductId) || nppProduct,
     [catalogProducts, chatProductId, nppProduct],
   );
+  const quickOrderItem = quickOrderSuggestion?.suggestion?.items[0] || null;
+  const quickOrderProduct = useMemo(
+    () => !quickOrderItem ? null : catalogProducts.find((product) =>
+      product.id === quickOrderItem.sku_id || product.skuCode?.trim().toUpperCase() === quickOrderItem.sku_code.trim().toUpperCase()
+    ) || null,
+    [catalogProducts, quickOrderItem],
+  );
+
+  useEffect(() => {
+    if (!sessionToken || catalogStatus !== "live" || isNppMode) {
+      setQuickOrderSuggestion(null);
+      setQuickOrderSuggestionStatus("idle");
+      return;
+    }
+
+    let cancelled = false;
+    setQuickOrderSuggestionStatus("loading");
+    void (async () => {
+      const { data, error } = await callEdgeFunction<DealerQuickOrderSuggestionResponse>("dealer-order-history", {
+        dealer_token: sessionToken,
+        quick_reorder: true,
+      }, undefined, 8000);
+      if (cancelled) return;
+      if (error || !data?.success) {
+        setQuickOrderSuggestion(null);
+        setQuickOrderSuggestionStatus("live");
+        return;
+      }
+      setQuickOrderSuggestion(data);
+      setQuickOrderSuggestionStatus("live");
+    })();
+    return () => { cancelled = true; };
+  }, [catalogStatus, isNppMode, sessionToken]);
+
+  const handleQuickReorderSubmit = async () => {
+    if (!quickOrderSuggestion?.suggestion || !quickOrderItem || !quickOrderProduct) return;
+    if (quickOrderItem.ordered_quantity % DEALER_ORDER_STEP !== 0) {
+      setOrderError(`Số lượng ${quickOrderProduct.name} phải là bội số ${DEALER_ORDER_STEP} ${quickOrderProduct.unit || "que"}.`);
+      return;
+    }
+    const submitted = await submitOrderPayload([{
+      sku_id: quickOrderProduct.id,
+      quantity: quickOrderItem.ordered_quantity,
+      ordered_quantity: quickOrderItem.ordered_quantity,
+      exchange_quantity: 0,
+      makeup_quantity: 0,
+      physical_quantity: quickOrderItem.ordered_quantity,
+      route_customer_name: dealerDisplayName,
+      route_note: "",
+    }], {
+      chatNative: true,
+      requestedDeliveryDate: quickOrderSuggestion.target_delivery_date,
+      quickReorder: true,
+    });
+    if (submitted) setQuickOrderSuggestion(null);
+  };
+
+  const handleQuickReorderEdit = () => {
+    if (!quickOrderItem || !quickOrderProduct) return;
+    setSelectedProduct(quickOrderProduct);
+    setDraftQuantity(String(quickOrderItem.ordered_quantity));
+    setQuantityModalError("");
+  };
+
+  const handleViewExistingQuickOrder = () => {
+    const orderNumber = quickOrderSuggestion?.already_ordered?.order_number;
+    if (!orderNumber) return;
+    sessionStorage.setItem(DEALER_ORDER_DEEP_LINK_STORAGE_KEY, orderNumber);
+    setPendingOrderDeepLink(orderNumber);
+    setActiveNav("orders");
+  };
   const nppSelectedLines = useMemo<NppOrderLine[]>(
     () => !chatProduct ? [] : chatOrderRoutes
       .map((route) => {
@@ -1781,8 +1891,14 @@ export default function DealerPortal() {
             successMessage={orderMessage}
             errorMessage={orderError}
             duplicateOrderPrompt={duplicateOrderPrompt}
+            quickOrderSuggestion={quickOrderSuggestion}
+            quickOrderSuggestionStatus={quickOrderSuggestionStatus}
+            quickOrderProduct={quickOrderProduct}
             onDuplicateContinue={handleDuplicateOrderContinue}
             onDuplicateCancel={handleDuplicateOrderCancel}
+            onQuickReorderSubmit={handleQuickReorderSubmit}
+            onQuickReorderEdit={handleQuickReorderEdit}
+            onViewExistingQuickOrder={handleViewExistingQuickOrder}
             onProductSuggestion={handleProductCta}
             parseMessage={nppParseMessage}
             parseStatus={nppParseStatus}
@@ -2239,8 +2355,14 @@ export default function DealerPortal() {
                 successMessage={orderMessage}
                 errorMessage={orderError}
                 duplicateOrderPrompt={duplicateOrderPrompt}
+                quickOrderSuggestion={null}
+                quickOrderSuggestionStatus="idle"
+                quickOrderProduct={null}
                 onDuplicateContinue={handleDuplicateOrderContinue}
                 onDuplicateCancel={handleDuplicateOrderCancel}
+                onQuickReorderSubmit={handleQuickReorderSubmit}
+                onQuickReorderEdit={handleQuickReorderEdit}
+                onViewExistingQuickOrder={handleViewExistingQuickOrder}
                 onProductSuggestion={handleProductCta}
                 parseMessage={nppParseMessage}
                 parseStatus={nppParseStatus}
@@ -2788,8 +2910,14 @@ function NppQuickOrderPanel({
   successMessage,
   errorMessage,
   duplicateOrderPrompt,
+  quickOrderSuggestion,
+  quickOrderSuggestionStatus,
+  quickOrderProduct,
   onDuplicateContinue,
   onDuplicateCancel,
+  onQuickReorderSubmit,
+  onQuickReorderEdit,
+  onViewExistingQuickOrder,
   onProductSuggestion,
   parseMessage,
   parseStatus,
@@ -2821,8 +2949,14 @@ function NppQuickOrderPanel({
   successMessage: string;
   errorMessage: string;
   duplicateOrderPrompt: DuplicateOrderPrompt | null;
+  quickOrderSuggestion: DealerQuickOrderSuggestionResponse | null;
+  quickOrderSuggestionStatus: "idle" | "loading" | "live";
+  quickOrderProduct: Product | null;
   onDuplicateContinue: () => void;
   onDuplicateCancel: () => void;
+  onQuickReorderSubmit: () => void;
+  onQuickReorderEdit: () => void;
+  onViewExistingQuickOrder: () => void;
   onProductSuggestion: (product: Product) => void;
   parseMessage: string;
   parseStatus: "idle" | "processing" | "success";
@@ -2861,11 +2995,6 @@ function NppQuickOrderPanel({
     setDetailOpen(true);
   };
 
-  const openOrderEditor = () => {
-    setIsEditingOrder(true);
-    setDetailOpen(true);
-  };
-
   const focusComposer = () => {
     window.requestAnimationFrame(() => composerRef.current?.focus());
   };
@@ -2879,6 +3008,14 @@ function NppQuickOrderPanel({
     setDetailOpen(open);
     if (!open) setIsEditingOrder(false);
   };
+  const quickOrderItem = quickOrderSuggestion?.suggestion?.items[0] || null;
+  const showQuickOrder = isRetailDealer
+    && !sentOrderText
+    && !successMessage
+    && !errorMessage
+    && !duplicateOrderPrompt
+    && parseStatus === "idle"
+    && selectedRouteCount === 0;
 
   if (!product) {
     return (
@@ -2903,6 +3040,50 @@ function NppQuickOrderPanel({
             {isRetailDealer
               ? "Đại lý đã được xác nhận. Quý Khách Hàng chỉ cần nhắn số lượng, đổi hoặc bù; không cần nhập lại tên đại lý."
               : "Hôm nay mình đặt món gì ạ? Quý Khách Hàng nhắn nội dung đơn, em sẽ tách từng điểm giao để kiểm tra trước khi gửi."}
+          </div>
+        </div>
+      ) : null}
+
+      {showQuickOrder && quickOrderSuggestionStatus === "loading" ? (
+        <div className="ml-11 max-w-sm rounded-[22px] border border-[#f0d5e1] bg-white p-4 shadow-sm" data-dealer-quick-reorder="loading" aria-live="polite">
+          <div className="flex items-center gap-2 text-sm font-semibold text-[#806873]"><Loader2 className="h-4 w-4 animate-spin text-[#d94f8a]" />Đang xem đơn gần nhất...</div>
+        </div>
+      ) : null}
+
+      {showQuickOrder && quickOrderSuggestion?.already_ordered ? (
+        <div className="ml-11 max-w-sm rounded-[22px] border border-[#e8cad7] bg-white p-4 shadow-sm" data-dealer-quick-reorder="already-ordered">
+          <div className="text-sm font-extrabold text-[#4a343e]">Đã có đơn giao ngày {formatDealerDeliveryDate(quickOrderSuggestion.target_delivery_date)}</div>
+          <div className="mt-1 text-xs font-medium text-[#806873]">Mã đơn {quickOrderSuggestion.already_ordered.order_number}</div>
+          <Button type="button" variant="outline" className="mt-3 h-10 w-full rounded-xl border-[#e7b9cd] bg-white font-bold text-[#a73f70] hover:bg-[#fff0f6]" onClick={onViewExistingQuickOrder}>
+            Xem đơn
+          </Button>
+        </div>
+      ) : null}
+
+      {showQuickOrder && quickOrderSuggestion?.suggestion && quickOrderItem && quickOrderProduct ? (
+        <div className="ml-11 max-w-sm rounded-[22px] border border-[#ebc7d7] bg-white p-4 shadow-[0_8px_20px_rgba(105,49,73,0.08)]" data-dealer-quick-reorder="suggestion">
+          <div className="text-[11px] font-extrabold uppercase tracking-[0.12em] text-[#a73f70]">Đặt lại như đơn ngày {formatDealerDeliveryDate(quickOrderSuggestion.suggestion.source_delivery_date)}</div>
+          <div className="mt-3 flex min-w-0 items-center gap-3 border-y border-[#f2dfe7] py-3">
+            <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-[#f1dbe4] bg-[#fff3f8]">
+              {quickOrderProduct.imageUrl ? <img src={quickOrderProduct.imageUrl} alt={quickOrderProduct.name} className="h-full w-full object-cover" /> : <img src={bmqLogo} alt="BMQ" className="h-full w-full object-contain p-2" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-extrabold text-[#4a343e]">{quickOrderProduct.name}</div>
+              <div className="mt-1 text-lg font-extrabold text-[#b33f72]">{formatDealerQuantity(quickOrderItem.ordered_quantity)} {quickOrderProduct.unit}</div>
+              <div className="text-xs font-semibold text-[#806873]">Giao {formatDealerDeliveryDate(quickOrderSuggestion.target_delivery_date)} · {formatVnd(quickOrderProduct.price)} / {quickOrderProduct.unit}</div>
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline justify-between gap-3">
+            <span className="text-xs font-bold text-[#927681]">Tổng tiền theo giá hiện tại</span>
+            <span className="whitespace-nowrap text-lg font-extrabold text-[#b33f72]">{formatVnd(quickOrderProduct.price * quickOrderItem.ordered_quantity)}</span>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <Button type="button" className="h-11 rounded-xl bg-[#d94f8a] font-extrabold text-white hover:bg-[#c43f79]" data-dealer-quick-reorder-action="submit" disabled={submitting} onClick={onQuickReorderSubmit}>
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Đặt nhanh
+            </Button>
+            <Button type="button" variant="outline" className="h-11 rounded-xl border-[#e7b9cd] bg-white font-extrabold text-[#a73f70] hover:bg-[#fff0f6]" data-dealer-quick-reorder-action="edit" disabled={submitting} onClick={onQuickReorderEdit}>
+              Đổi số lượng
+            </Button>
           </div>
         </div>
       ) : null}
@@ -3015,12 +3196,12 @@ function NppQuickOrderPanel({
                 </div>
               </button>
               <div className="mt-1 space-y-1 border-t border-[#f2dfe7] pt-3" data-dealer-chat-choices="order-ready" role="group" aria-label="Chọn thao tác với đơn hàng">
-                <Button type="button" className="h-11 w-full whitespace-nowrap rounded-xl bg-[#d94f8a] font-extrabold text-white shadow-sm hover:bg-[#c43f79]" data-dealer-chat-choice="confirm" onClick={openOrderConfirmation}>
-                  <CheckCircle2 className="h-4 w-4" /> Xác nhận gửi
+                <Button type="button" className="h-11 w-full whitespace-nowrap rounded-xl bg-[#d94f8a] font-extrabold text-white shadow-sm hover:bg-[#c43f79]" data-dealer-chat-choice="quick-submit" disabled={!canSubmit || submitting} onClick={onSubmit}>
+                  {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Đặt nhanh
                 </Button>
                 <div className="flex items-center justify-between gap-2">
-                  <Button type="button" variant="ghost" className="h-10 min-w-0 whitespace-nowrap rounded-xl px-3 font-bold text-[#a73f70] hover:bg-[#fff0f6]" data-dealer-chat-choice="edit" onClick={openOrderEditor}>
-                    Chỉnh sửa
+                  <Button type="button" variant="ghost" className="h-10 min-w-0 whitespace-nowrap rounded-xl px-3 font-bold text-[#a73f70] hover:bg-[#fff0f6]" data-dealer-chat-choice="edit" onClick={openOrderConfirmation}>
+                    Xem / chỉnh sửa
                   </Button>
                   <Button type="button" variant="ghost" className="h-10 min-w-0 whitespace-nowrap rounded-xl px-3 font-bold text-[#704f5e] hover:bg-[#fff0f6]" data-dealer-chat-choice="new-order" onClick={onStartNewOrder}>
                     Đặt đơn khác

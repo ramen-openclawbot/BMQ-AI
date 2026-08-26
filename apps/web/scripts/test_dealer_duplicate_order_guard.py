@@ -11,6 +11,7 @@ SUBMIT = ROOT / "supabase/functions/dealer-order-submit/index.ts"
 HISTORY = ROOT / "supabase/functions/dealer-order-history/index.ts"
 BASE_MIGRATION = ROOT / "supabase/migrations/20260806224000_dealer_duplicate_order_guard.sql"
 MIGRATION = ROOT / "supabase/migrations/20260811193000_dealer_duplicate_order_warning_window.sql"
+FAST_ORDER_MIGRATION = ROOT / "supabase/migrations/20260826230000_dealer_fast_order_target_date_guard.sql"
 
 
 class DealerDuplicateOrderGuardTests(unittest.TestCase):
@@ -21,6 +22,7 @@ class DealerDuplicateOrderGuardTests(unittest.TestCase):
         cls.history = HISTORY.read_text(encoding="utf-8")
         cls.base_migration = BASE_MIGRATION.read_text(encoding="utf-8")
         cls.migration = MIGRATION.read_text(encoding="utf-8") if MIGRATION.exists() else ""
+        cls.fast_order_migration = FAST_ORDER_MIGRATION.read_text(encoding="utf-8") if FAST_ORDER_MIGRATION.exists() else ""
 
     def test_atomic_rpc_serializes_and_deduplicates_submissions(self) -> None:
         for marker in (
@@ -97,6 +99,19 @@ class DealerDuplicateOrderGuardTests(unittest.TestCase):
         self.assertIn('.neq("status", "cancelled")', self.history)
         self.assertIn("o.status <> 'cancelled'", self.base_migration)
         self.assertIn("create or replace function public.dealer_order_history_summary", self.base_migration)
+
+    def test_fast_order_target_date_guard_is_atomic_and_service_role_only(self) -> None:
+        self.assertIn("p_require_empty_delivery_date boolean default false", self.fast_order_migration)
+        self.assertIn("pg_advisory_xact_lock", self.fast_order_migration)
+        self.assertIn("o.requested_delivery_date = p_requested_delivery_date", self.fast_order_migration)
+        self.assertIn("o.status <> 'cancelled'", self.fast_order_migration)
+        self.assertIn("'target_date_exists'::text", self.fast_order_migration)
+        self.assertIn("from public, anon, authenticated", self.fast_order_migration)
+        self.assertIn("to service_role", self.fast_order_migration)
+        self.assertIn("quick_reorder?: unknown", self.submit)
+        self.assertIn("p_require_empty_delivery_date: body.quick_reorder === true", self.submit)
+        self.assertIn('result: "created" | "existing" | "duplicate" | "target_date_exists"', self.submit)
+        self.assertIn('code: "target_delivery_date_exists"', self.submit)
 
 
 if __name__ == "__main__":
