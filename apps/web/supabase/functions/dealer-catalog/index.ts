@@ -194,7 +194,9 @@ serve(async (req) => {
       success: true,
       products,
       announcements: announcements || [],
-      customer: sessionContext ? publicCustomerProfile(sessionContext.customer) : null,
+      customer: sessionContext
+        ? publicCustomerProfile(sessionContext.customer, sessionContext.contact)
+        : null,
       dealer_routes: dealerRoutes,
     });
   } catch (error) {

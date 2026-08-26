@@ -93,6 +93,7 @@ serve(async (req) => {
     if (!sessionContext) {
       return errorResponse(req, "Phiên đại lý đã hết hạn. Vui lòng đăng nhập lại.", 401, "dealer_session_required");
     }
+    const isTestSession = sessionContext.contact?.is_test === true;
 
     if (body.quick_reorder === true) {
       const targetDeliveryDate = vietnamDateKey(1);
@@ -115,6 +116,7 @@ serve(async (req) => {
         .from("dealer_orders")
         .select("order_number")
         .eq("customer_id", sessionContext.customer.id)
+        .eq("is_test", isTestSession)
         .eq("requested_delivery_date", targetDeliveryDate)
         .neq("status", "cancelled")
         .order("submitted_at", { ascending: false })
@@ -141,6 +143,7 @@ serve(async (req) => {
           .from("dealer_orders")
           .select("id,order_number,requested_delivery_date,submitted_at")
           .eq("customer_id", sessionContext.customer.id)
+          .eq("is_test", isTestSession)
           .neq("status", "cancelled")
           .not("requested_delivery_date", "is", null)
           .lt("requested_delivery_date", targetDeliveryDate)
@@ -215,6 +218,7 @@ serve(async (req) => {
         .from("dealer_orders")
         .select("id, order_number, status, currency, total_amount_vnd, requested_delivery_date, delivery_note, customer_note, submitted_at")
         .eq("customer_id", sessionContext.customer.id)
+        .eq("is_test", isTestSession)
         .eq("order_number", requestedOrderNumber)
         .neq("status", "cancelled")
         .maybeSingle();
@@ -252,6 +256,7 @@ serve(async (req) => {
         p_customer_id: sessionContext.customer.id,
         p_start: start,
         p_end: end,
+        p_is_test: isTestSession,
       });
     if (summaryError) throw summaryError;
 
@@ -259,6 +264,7 @@ serve(async (req) => {
       .from("dealer_orders")
       .select("id, order_number, status, currency, total_amount_vnd, requested_delivery_date, delivery_note, customer_note, submitted_at", { count: "exact" })
       .eq("customer_id", sessionContext.customer.id)
+      .eq("is_test", isTestSession)
       .neq("status", "cancelled")
       .gte("submitted_at", start)
       .lt("submitted_at", end)

@@ -69,6 +69,7 @@ type DealerCustomer = {
   code?: string | null;
   group?: string | null;
   address?: string | null;
+  is_test?: boolean;
 };
 
 type DealerRoute = {
@@ -423,6 +424,19 @@ function CatalogEmptyState({
   );
 }
 
+function DealerTestAccountNotice({ isTest }: { isTest: boolean }) {
+  if (!isTest) return null;
+  return (
+    <div
+      data-dealer-test-account="true"
+      className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-center text-sm font-semibold text-amber-950"
+      role="status"
+    >
+      Tài khoản thử nghiệm – không ghi nhận vận hành
+    </div>
+  );
+}
+
 export default function DealerPortal() {
   const [dealerProfileCache, setDealerProfileCache] = useState<DealerProfileCache>(() => readDealerProfileCache());
   const [, setDealerCatalogCache] = useState<DealerCatalogCache>(() => readDealerCatalogCache());
@@ -766,7 +780,9 @@ export default function DealerPortal() {
       setLoginStep("catalog");
       setActiveNav(pendingOrderDeepLink ? "orders" : "messages");
       setOtp("");
-      setAuthMessage("Đã xác thực đại lý. Quý Khách Hàng có thể gửi đơn thật.");
+      setAuthMessage(data.customer?.is_test === true
+        ? "Đã xác thực tài khoản thử nghiệm. Đơn gửi từ tài khoản này không ghi nhận vận hành."
+        : "Đã xác thực đại lý. Quý Khách Hàng có thể gửi đơn.");
     } catch (error) {
       setAuthError(await getFunctionErrorMessage(error, "Không xác thực được OTP."));
     } finally {
@@ -1473,6 +1489,7 @@ export default function DealerPortal() {
             </button>
           </div>
         </header>
+        <DealerTestAccountNotice isTest={dealerCustomer?.is_test === true} />
 
         <main className="mx-auto w-full max-w-3xl px-4 pb-28 pt-5 sm:pt-7">
           <section className="space-y-4" data-dealer-order-history-filter>
@@ -1773,6 +1790,7 @@ export default function DealerPortal() {
             </div>
           </div>
         </header>
+        <DealerTestAccountNotice isTest={dealerCustomer?.is_test === true} />
 
         <main className="mx-auto max-w-2xl pb-24">
           <button
@@ -1871,6 +1889,7 @@ export default function DealerPortal() {
             </button>
           </div>
         </header>
+        <DealerTestAccountNotice isTest={dealerCustomer?.is_test === true} />
         <main className="mx-auto w-full max-w-2xl px-3 py-4 sm:px-4">
           <NppQuickOrderPanel
             routes={chatOrderRoutes}
@@ -1975,6 +1994,7 @@ export default function DealerPortal() {
           )}
         </div>
       </header>
+      <DealerTestAccountNotice isTest={dealerCustomer?.is_test === true} />
 
       {isCatalogRestoring ? (
         <section id="dealer-top" className="bg-[#fffaf0] text-[#3f2411]">

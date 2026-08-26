@@ -88,6 +88,7 @@ type DealerOrderRow = {
   order_number: string | null;
   customer_id: string | null;
   status: string | null;
+  is_test?: boolean | null;
   subtotal_amount_vnd: number | string | null;
   total_amount_vnd: number | string | null;
   requested_delivery_date: string | null;
@@ -854,7 +855,7 @@ async function fetchDealerPortalOrders(
   const selectColumns = "*, mini_crm_customers(id, customer_name, customer_code, product_group, supplied_by_npp_customer_id), dealer_order_items(*)";
   const addRows = (rows: DealerOrderRow[] | null) => {
     for (const row of rows || []) {
-      if (!row?.id || row.status === "cancelled") continue;
+      if (!row?.id || row.status === "cancelled" || row.is_test === true) continue;
       rowsById.set(row.id, row);
     }
   };
@@ -862,6 +863,7 @@ async function fetchDealerPortalOrders(
   const { data: bySubmit, error: submitError } = await supabaseAdmin
     .from("dealer_orders")
     .select(selectColumns)
+    .eq("is_test", false)
     .gte("submitted_at", receivedFrom)
     .lte("submitted_at", receivedTo)
     .order("submitted_at", { ascending: false });
@@ -871,6 +873,7 @@ async function fetchDealerPortalOrders(
   const { data: byDelivery, error: deliveryError } = await supabaseAdmin
     .from("dealer_orders")
     .select(selectColumns)
+    .eq("is_test", false)
     .gte("requested_delivery_date", window.revenueDateFrom)
     .lte("requested_delivery_date", window.revenueDateTo)
     .order("submitted_at", { ascending: false });

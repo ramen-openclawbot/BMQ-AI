@@ -231,6 +231,7 @@ const enqueueDailyBreadOrder = async (
   const { data: dealerOrderData, error: dealerOrderError } = await supabase
     .from("dealer_orders")
     .select("id")
+    .eq("is_test", false)
     .eq("requested_delivery_date", orderDate)
     .neq("status", "cancelled");
   if (dealerOrderError) throw new Error(`Unable to read dealer bread orders: ${dealerOrderError.message}`);
@@ -569,6 +570,7 @@ const enqueueWarehouseDailyDigests = async (
   const { data: orderData, error: orderError } = await supabase
     .from("dealer_orders")
     .select("id,order_number,customer_snapshot,submitted_at,requested_delivery_date,delivery_note,customer_note")
+    .eq("is_test", false)
     .gte("submitted_at", range.startsAt)
     .lt("submitted_at", range.endsBefore)
     .neq("status", "cancelled")

@@ -28,6 +28,7 @@ export type DealerSessionContext = {
     id: string;
     contact_name?: string | null;
     phone_normalized?: string | null;
+    is_test?: boolean;
   } | null;
 };
 
@@ -147,7 +148,7 @@ export async function resolveDealerSession(supabase: DealerServiceClient, token:
   const { data, error } = await supabase
     .from("dealer_sessions")
     .select(
-      "id, customer_id, contact_id, expires_at, mini_crm_customers!inner(id, customer_name, customer_code, customer_group, address, is_active, is_npp, supplied_by_npp_customer_id), dealer_customer_contacts(id, contact_name, phone_normalized, is_active)",
+      "id, customer_id, contact_id, expires_at, mini_crm_customers!inner(id, customer_name, customer_code, customer_group, address, is_active, is_npp, supplied_by_npp_customer_id), dealer_customer_contacts(id, contact_name, phone_normalized, is_active, is_test)",
     )
     .eq("token_hash", tokenHash)
     .is("revoked_at", null)
@@ -180,12 +181,13 @@ export async function resolveDealerSession(supabase: DealerServiceClient, token:
           id: contact.id,
           contact_name: contact.contact_name,
           phone_normalized: contact.phone_normalized,
+          is_test: contact.is_test === true,
         }
       : null,
   };
 }
 
-export function publicCustomerProfile(customer: DealerCustomerProfile) {
+export function publicCustomerProfile(customer: DealerCustomerProfile, contact?: DealerSessionContext["contact"]) {
   return {
     id: customer.id,
     name: customer.customer_name,
@@ -194,6 +196,7 @@ export function publicCustomerProfile(customer: DealerCustomerProfile) {
     address: customer.address,
     is_npp: customer.is_npp,
     supplied_by_npp_customer_id: customer.supplied_by_npp_customer_id,
+    is_test: contact?.is_test === true,
   };
 }
 

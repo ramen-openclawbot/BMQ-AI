@@ -135,6 +135,7 @@ type DealerContactDraft = {
   phone_raw: string;
   is_primary: boolean;
   is_active: boolean;
+  is_test?: boolean;
 };
 
 const createEmptyDealerContactDraft = (): DealerContactDraft => ({
@@ -741,6 +742,7 @@ export default function MiniCrm() {
               phone_raw: contact?.phone_raw || contact?.phone_normalized || "",
               is_primary: Boolean(contact?.is_primary),
               is_active: contact?.is_active !== false,
+              is_test: contact?.is_test === true,
             }))
         : [createEmptyDealerContactDraft()],
     );
@@ -1482,6 +1484,7 @@ export default function MiniCrm() {
             phone_normalized: normalizeDealerContactPhone(contact.phone_raw),
             is_primary: Boolean(contact.is_primary),
             is_active: Boolean(contact.is_active),
+            is_test: contact.is_test === true,
           }))
           .filter((contact) => contact.phone_raw || contact.phone_normalized);
 
@@ -1524,15 +1527,24 @@ export default function MiniCrm() {
         const { error: deleteDealerContactsError } = await (supabase as any)
           .from("dealer_customer_contacts")
           .delete()
-          .eq("customer_id", editingCustomerId);
+          .eq("customer_id", editingCustomerId)
+          .eq("is_test", false);
         if (deleteDealerContactsError) {
           throw new Error(`Lỗi cập nhật SĐT dealer portal (bước xoá số cũ): ${deleteDealerContactsError.message}`);
         }
 
-        if (validDealerContacts.length) {
+        const mutableDealerContacts = validDealerContacts.filter((contact) => contact.is_test !== true);
+        if (mutableDealerContacts.length) {
           const { error: insertDealerContactsError } = await (supabase as any)
             .from("dealer_customer_contacts")
-            .insert(validDealerContacts.map((contact) => ({ ...contact, customer_id: editingCustomerId })));
+            .insert(mutableDealerContacts.map((contact) => ({
+              customer_id: editingCustomerId,
+              contact_name: contact.contact_name,
+              phone_raw: contact.phone_raw,
+              phone_normalized: contact.phone_normalized,
+              is_primary: contact.is_primary,
+              is_active: contact.is_active,
+            })));
           if (insertDealerContactsError) {
             throw new Error(`Lỗi cập nhật SĐT dealer portal (bước thêm số mới): ${insertDealerContactsError.message}`);
           }
@@ -4067,10 +4079,16 @@ export default function MiniCrm() {
               <div className="space-y-2">
                 {editDealerContacts.map((contact, idx) => (
                   <div key={contact.id || idx} className="grid gap-2 rounded-md bg-muted/40 p-2 md:grid-cols-12">
+                    {contact.is_test ? (
+                      <div className="md:col-span-12 text-xs font-semibold text-amber-700">
+                        Tài khoản thử nghiệm do hệ thống quản lý
+                      </div>
+                    ) : null}
                     <div className="space-y-1 md:col-span-3">
                       <Label className="text-xs">Tên liên hệ</Label>
                       <Input
                         value={contact.contact_name}
+                        disabled={contact.is_test}
                         onChange={(e) => setEditDealerContacts((prev) => prev.map((row, rowIdx) => rowIdx === idx ? { ...row, contact_name: e.target.value } : row))}
                         placeholder="VD: Anh Tâm"
                       />
@@ -4080,6 +4098,7 @@ export default function MiniCrm() {
                       <Input
                         inputMode="tel"
                         value={contact.phone_raw}
+                        disabled={contact.is_test}
                         onChange={(e) => setEditDealerContacts((prev) => prev.map((row, rowIdx) => rowIdx === idx ? { ...row, phone_raw: e.target.value } : row))}
                         placeholder="VD: 0966998999"
                       />
@@ -4091,7 +4110,7 @@ export default function MiniCrm() {
                         className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                         value={contact.is_primary ? "yes" : "no"}
                         onChange={(e) => setEditDealerContacts((prev) => prev.map((row, rowIdx) => ({ ...row, is_primary: rowIdx === idx ? e.target.value === "yes" : false })))}
-                        disabled={!contact.is_active}
+                        disabled={!contact.is_active || contact.is_test}
                       >
                         <option value="no">Không</option>
                         <option value="yes">Có</option>
@@ -4102,6 +4121,7 @@ export default function MiniCrm() {
                       <select
                         className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                         value={contact.is_active ? "yes" : "no"}
+                        disabled={contact.is_test}
                         onChange={(e) => setEditDealerContacts((prev) => prev.map((row, rowIdx) => {
                           if (rowIdx !== idx) return row;
                           const isActive = e.target.value === "yes";
@@ -4117,6 +4137,7 @@ export default function MiniCrm() {
                         type="button"
                         variant="outline"
                         className="w-full"
+                        disabled={contact.is_test}
                         onClick={() => setEditDealerContacts((prev) => prev.length > 1 ? prev.filter((_, rowIdx) => rowIdx !== idx) : [createEmptyDealerContactDraft()])}
                       >
                         -
