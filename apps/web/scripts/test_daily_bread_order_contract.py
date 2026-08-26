@@ -8,6 +8,7 @@ WORKER = ROOT / "supabase/functions/dealer-warehouse-notify/index.ts"
 HELPER = ROOT / "supabase/functions/_shared/daily-bread-order.ts"
 SUPPLIER_CREDIT_MIGRATION = ROOT / "supabase/migrations/20260824100000_bread_exchange_makeup_supplier_credit.sql"
 SUPPLIER_TEMPLATE_MIGRATION = ROOT / "supabase/migrations/20260825110000_tuyet_anh_zalo_order_template.sql"
+SUPPLIER_COPY_MIGRATION = ROOT / "supabase/migrations/20260827090000_remove_supplier_sku_separation_copy.sql"
 
 
 def test_daily_bread_order_migration_contract():
@@ -131,6 +132,24 @@ def test_late_correction_uses_approved_two_sku_supplier_template():
     ]
     for marker in required:
         assert marker in sql
+
+
+def test_supplier_copy_migration_removes_owner_marked_text_only():
+    sql = SUPPLIER_COPY_MIGRATION.read_text(encoding="utf-8")
+    assert "create or replace function public.queue_late_kiosk_bread_order_corrections" in sql
+    assert "2️⃣ BÁNH MÌ VIETJET" in sql
+    assert "SKU RIÊNG" not in sql
+    assert "Hai SKU được đặt hàng" not in sql
+    assert "không cộng gộp số lượng" not in sql
+    for preserved_marker in [
+        "• Số lượng đặt: ",
+        "• Số lượng NCC giao: ",
+        "• Ghi nhận công nợ: ",
+        "v_supplier_billable",
+        "v_total_credit",
+        "v_vietjet",
+    ]:
+        assert preserved_marker in sql
 
 
 def test_forecast_contract_is_explainable_and_has_no_sample_constants():

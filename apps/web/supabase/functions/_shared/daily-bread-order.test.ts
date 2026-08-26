@@ -197,7 +197,10 @@ test("supplier message orders dealer exchange and makeup from the bakery and aud
   assert.match(message, /• Bù: 20 que/);
   assert.match(message, /• Tổng khấu trừ: 32 que/);
   assert.match(message, /• Số lượng tính tiền: 2\.068 que/);
-  assert.match(message, /2️⃣ BÁNH MÌ VIETJET — SKU RIÊNG/);
+  assert.match(message, /2️⃣ BÁNH MÌ VIETJET/);
+  assert.doesNotMatch(message, /SKU RIÊNG/);
+  assert.doesNotMatch(message, /Hai SKU được đặt hàng/);
+  assert.doesNotMatch(message, /không cộng gộp số lượng/);
   assert.match(message, /• Ghi nhận công nợ: 200/);
   assert.doesNotMatch(message, /Coop/);
   assert.doesNotMatch(message, /tồn nội bộ/i);
@@ -246,15 +249,12 @@ test("includes kiosk exchange and makeup in bakery payable credit", () => {
     "• Số lượng tính tiền: 2.125 que",
     "",
     "━━━━━━━━━━━━━━",
-    "2️⃣ BÁNH MÌ VIETJET — SKU RIÊNG",
+    "2️⃣ BÁNH MÌ VIETJET",
     "━━━━━━━━━━━━━━",
     "",
     "• Số lượng đặt: 180",
     "• Số lượng NCC giao: 180",
     "• Ghi nhận công nợ: 180",
-    "",
-    "⚠️ Hai SKU được đặt hàng và ghi nhận công nợ riêng,",
-    "không cộng gộp số lượng.",
   ].join("\n"));
 });
 
@@ -311,7 +311,8 @@ test("formats supplier correction as full replacement with corrected totals", ()
   assert.match(message, /• Điểm bán: 220 que/);
   assert.match(message, /• Tổng khấu trừ: 20 que/);
   assert.match(message, /• Số lượng tính tiền: 320 que/);
-  assert.match(message, /2️⃣ BÁNH MÌ VIETJET — SKU RIÊNG/);
+  assert.match(message, /2️⃣ BÁNH MÌ VIETJET/);
+  assert.doesNotMatch(message, /SKU RIÊNG|Hai SKU được đặt hàng|không cộng gộp số lượng/);
 });
 
 test("formats warehouse correction as full replacement with affected point adjustment", () => {
