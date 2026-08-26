@@ -195,6 +195,14 @@ export function appendUniqueFrame(frames: UniversalFrame[], next: UniversalFrame
 export function timelineFromFrames(frames: UniversalFrame[]): ChatTimelineItem[] {
   const timeline: ChatTimelineItem[] = [];
   const toolIndexes = new Map<string, number>();
+  const settleRunningTools = (status: "done" | "error") => {
+    for (const toolIndex of toolIndexes.values()) {
+      const item = timeline[toolIndex];
+      if (item?.kind === "tool" && item.status === "running") {
+        timeline[toolIndex] = { ...item, status };
+      }
+    }
+  };
 
   frames.forEach((frame, index) => {
     const key = frameKey(frame, index);
@@ -206,9 +214,9 @@ export function timelineFromFrames(frames: UniversalFrame[]): ChatTimelineItem[]
       return;
     }
     if (frame.type === "agent_tool") {
-      const rawName = String(frame.name || frame.tool || frame.rawTool || "tool");
+      const rawName = String(frame.name || frame.rawTool || frame.tool || "tool");
       if (/^(?:functions\.|tools\.)?message(?:\.send)?$/i.test(rawName)) return;
-      const toolKey = `${String(frame.sessionId || "session")}:${String(frame.id || rawName)}`;
+      const toolKey = `${String(frame.sessionId || "session")}:${String(frame.id || frame.seq || rawName)}`;
       const status = frame.status === "done" || frame.status === "error" ? frame.status : "running";
       const nextItem: ChatTimelineItem = {
         kind: "tool",
@@ -217,7 +225,7 @@ export function timelineFromFrames(frames: UniversalFrame[]): ChatTimelineItem[]
         status,
         details: sanitizeToolDetails(frame),
       };
-      const existingIndex = toolIndexes.get(toolKey);
+      const existingIndex = frame.id ? toolIndexes.get(toolKey) : undefined;
       if (existingIndex === undefined) {
         toolIndexes.set(toolKey, timeline.length);
         timeline.push(nextItem);
@@ -227,11 +235,13 @@ export function timelineFromFrames(frames: UniversalFrame[]): ChatTimelineItem[]
       return;
     }
     if (frame.type === "agent_message_done") {
+      settleRunningTools("done");
       const text = String(frame.content?.text || "").trim();
       if (text) timeline.push({ kind: "message", id: key, role: "agent", text });
       return;
     }
     if (frame.type === "error" && frame.code !== "duplicate") {
+      settleRunningTools("error");
       const safeCode = String(frame.code || "request_failed").replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 60);
       timeline.push({
         kind: "message",
