@@ -486,7 +486,7 @@ export function GlobalAgentChatWidget() {
     const response = await fetch(`${API_URL}/v1/sessions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${vnagentToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ agentId: AGENT_ID, title: title.slice(0, 100) || "BMQ chat" }),
+      body: JSON.stringify({ agentId: AGENT_ID, title: title.slice(0, 100) || "BMQ — VNAgent" }),
     });
     if (!response.ok) throw new Error("Không tạo được phiên VNAgent.");
     const created = await response.json() as { id?: string };
@@ -536,20 +536,20 @@ export function GlobalAgentChatWidget() {
           isPaymentRequestsMobileContext && "hidden lg:inline-flex",
         )}
         onClick={() => setOpen(true)}
-        aria-label="Mở AI Agent Chat"
+        aria-label="Mở VNAgent"
       >
         <MessageCircle className="h-6 w-6" />
       </Button>
 
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="right" className="flex w-[92vw] flex-col p-0 sm:max-w-[420px]">
+        <SheetContent data-vnagent-branding="owner-chat-v1" side="right" className="flex w-[92vw] flex-col p-0 sm:max-w-[420px]">
           <SheetHeader className="border-b px-4 pb-3 pt-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="grid h-8 w-8 place-items-center rounded-full bg-primary/10 text-primary"><Sparkles className="h-4 w-4" /></div>
                 <div>
-                  <SheetTitle className="text-base">AI Agent</SheetTitle>
-                  <div className="text-[11px] text-muted-foreground">{connection === "connected" ? "VNAgent đã kết nối" : connection === "error" ? "Không thể kết nối" : "Đang kết nối VNAgent"}</div>
+                  <SheetTitle className="text-base">VNAgent</SheetTitle>
+                  <div className="text-[11px] text-muted-foreground">{connection === "connected" ? "Trợ lý AI của BMQ · Đã kết nối" : connection === "error" ? "VNAgent chưa kết nối" : "Đang kết nối VNAgent"}</div>
                 </div>
               </div>
               <Button type="button" size="icon" variant="ghost" onClick={() => setOpen(false)}><X className="h-4 w-4" /></Button>
@@ -558,30 +558,30 @@ export function GlobalAgentChatWidget() {
 
           <div className="flex-1 space-y-3 overflow-auto p-4 text-sm">
             {timeline.length === 0 && !streamedText && (
-              <div className="rounded-lg border bg-muted/30 p-3">Kính chào Quý khách. Hệ thống đã nhận diện ngữ cảnh hiện tại là <b>{routeContext.label}</b>. Vui lòng nhập yêu cầu để AI Agent hỗ trợ.</div>
+              <div className="rounded-lg border bg-muted/30 p-3">Dạ thưa anh Tâm, VNAgent đã nhận diện màn hình hiện tại là <b>{routeContext.label}</b>. Anh cần VNAgent hỗ trợ việc gì ạ?</div>
             )}
             {isRevenueMobileContext ? <RevenueDailyChatCard setOpen={setOpen} /> : null}
             {timeline.map((item) => item.kind === "tool" ? (
               <ToolCallRow key={item.id} item={item} />
             ) : (
               <div key={item.id} className={cn("rounded-lg border p-3", item.role === "user" ? "bg-primary/5" : item.role === "system" ? "border-destructive/40 bg-destructive/5" : "bg-background")}>
-                <div className="mb-1 text-xs text-muted-foreground">{item.role === "user" ? "Anh" : item.role === "agent" ? "Agent" : "Hệ thống"}</div>
+                <div className="mb-1 text-xs text-muted-foreground">{item.role === "user" ? "Anh Tâm" : item.role === "agent" ? "VNAgent" : "Hệ thống"}</div>
                 <div className="whitespace-pre-wrap break-words">{item.text}</div>
               </div>
             ))}
             {streamedText && (
               <div className="rounded-lg border bg-background p-3">
-                <div className="mb-1 text-xs text-muted-foreground">Agent</div>
+                <div className="mb-1 text-xs text-muted-foreground">VNAgent</div>
                 <div className="whitespace-pre-wrap break-words">{streamedText}</div>
               </div>
             )}
             {isResponding && !streamedText && (
-              <div className="flex items-center gap-2 rounded-lg border bg-muted/20 p-3 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Agent đang xử lý…</div>
+              <div className="flex items-center gap-2 rounded-lg border bg-muted/20 p-3 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />VNAgent đang xử lý…</div>
             )}
             {errorMessage && <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">{errorMessage}</div>}
             {showQuickActions && (
               <div className="rounded-lg border p-3">
-                <div className="mb-2 text-xs text-muted-foreground">Quick actions theo module</div>
+                <div className="mb-2 text-xs text-muted-foreground">Gợi ý nhanh từ VNAgent</div>
                 <div className="flex flex-wrap gap-2">
                   {routeContext.suggestions.map((suggestion) => <Button key={suggestion} type="button" size="sm" variant="outline" onClick={() => void sendMessage(suggestion)} disabled={connection !== "connected" || isResponding}>{suggestion}</Button>)}
                 </div>
@@ -594,7 +594,7 @@ export function GlobalAgentChatWidget() {
             <Input
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder="Nhập yêu cầu cho AI Agent..."
+              placeholder="Nhập yêu cầu cho VNAgent..."
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();

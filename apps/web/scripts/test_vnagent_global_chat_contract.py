@@ -48,6 +48,19 @@ def test_quick_actions_are_initial_state_only() -> None:
     require(WIDGET, "{showQuickActions && (", "quick actions must use the initial-state guard")
 
 
+def test_vnagent_brand_and_address_contract() -> None:
+    require(WIDGET, 'data-vnagent-branding="owner-chat-v1"', "the owner chat surface must carry a stable VNAgent branding marker")
+    require(WIDGET, '<SheetTitle className="text-base">VNAgent</SheetTitle>', "the visible chat title must identify VNAgent")
+    require(WIDGET, 'aria-label="Mở VNAgent"', "the chat launcher must identify VNAgent")
+    require(WIDGET, 'Dạ thưa anh Tâm, VNAgent đã nhận diện', "the initial greeting must use the approved VNAgent address")
+    require(WIDGET, 'item.role === "agent" ? "VNAgent"', "completed assistant messages must be labelled VNAgent")
+    require(WIDGET, '<div className="mb-1 text-xs text-muted-foreground">VNAgent</div>', "streaming assistant messages must be labelled VNAgent")
+    require(WIDGET, "VNAgent đang xử lý…", "the thinking state must identify VNAgent")
+    require(WIDGET, 'placeholder="Nhập yêu cầu cho VNAgent..."', "the composer must address VNAgent")
+    for legacy_copy in ['>AI Agent</SheetTitle>', 'Vui lòng nhập yêu cầu để AI Agent hỗ trợ.', '>Agent</div>', ' />Agent đang xử lý…', 'cho AI Agent...']:
+        forbid(WIDGET, legacy_copy, f"legacy generic agent copy must be removed: {legacy_copy}")
+
+
 def test_hidden_page_context_contract() -> None:
     require(WIDGET, "buildCurrentPageContext(location.pathname, location.search, routeContext)", "every send must capture the current route")
     require(PROTOCOL, "content: { text: args.text },\n    context: args.currentPage,", "page context must use the adapter's direct PageContext envelope")
