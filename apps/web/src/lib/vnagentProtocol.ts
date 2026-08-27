@@ -269,10 +269,7 @@ export function createUserMessageFrame(args: {
     sessionId: args.sessionId,
     agentId: args.agentId,
     content: { text: args.text },
-    context: {
-      source: "bmq-web",
-      currentPage: args.currentPage,
-    },
+    context: args.currentPage,
     ts: new Date().toISOString(),
   };
 }
