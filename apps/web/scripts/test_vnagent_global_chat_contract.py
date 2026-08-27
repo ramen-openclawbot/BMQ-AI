@@ -50,9 +50,9 @@ def test_quick_actions_are_initial_state_only() -> None:
 
 def test_hidden_page_context_contract() -> None:
     require(WIDGET, "buildCurrentPageContext(location.pathname, location.search, routeContext)", "every send must capture the current route")
-    require(PROTOCOL, 'source: "bmq-web"', "context must identify the embedding surface")
-    require(PROTOCOL, "content: { text: args.text },\n    context:", "page context must be a hidden top-level protocol field, not visible user text")
-    require(PROTOCOL, "currentPage: args.currentPage", "page context must be structured in the hidden protocol context")
+    require(PROTOCOL, "content: { text: args.text },\n    context: args.currentPage,", "page context must use the adapter's direct PageContext envelope")
+    forbid(PROTOCOL, 'source: "bmq-web"', "the protocol context must not add fields rejected by the strict adapter schema")
+    forbid(PROTOCOL, "currentPage: args.currentPage", "the protocol context must not wrap PageContext in an unsupported currentPage object")
     for field in ["pathname", "searchParams", "route", "documentIdentifiers", "filters"]:
         require(PROTOCOL, field, f"page context must include {field}")
     require(PROTOCOL, "SENSITIVE_KEY.test(rawKey)", "sensitive query keys must be excluded")
