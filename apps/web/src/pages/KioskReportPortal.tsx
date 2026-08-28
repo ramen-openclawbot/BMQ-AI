@@ -66,6 +66,7 @@ const DEFAULT_CHANNELS = [
   { code: "shopeefood", channel_name: "ShopeeFood" },
   { code: "grabfood", channel_name: "GrabFood" },
   { code: "befood", channel_name: "beFood" },
+  { code: "hotline", channel_name: "Hotline" },
 ];
 
 type ReportProduct = {
@@ -955,19 +956,33 @@ export default function KioskReportPortal() {
               <div className="mt-3 divide-y divide-[#f2e5e9] border-y border-[#f2e5e9]">
                 {channelRows.map((row) => {
                   const cashChannel = row.channel_code === "khach_le";
+                  const hotlineChannel = row.channel_code === "hotline";
                   return (
                     <div key={row.channel_code} className="grid grid-cols-[40px_minmax(0,1fr)] items-center gap-x-2 gap-y-2.5 p-2.5 sm:grid-cols-[48px_minmax(105px,1fr)_100px_128px] sm:gap-3 xl:grid-cols-[40px_minmax(90px,1fr)_76px_98px] xl:gap-2 xl:p-2.5">
                       <ChannelIcon code={row.channel_code} />
                       <div className="min-w-0 break-words text-[15px] font-bold leading-tight sm:text-[17px]">{row.channel_name_snapshot}</div>
                       <div className="col-span-2 grid min-w-0 grid-cols-2 gap-2 sm:contents">
                         <ChannelNumberField label="Số lượng" value={row.quantity} disabled={isSubmitted} onChange={(value) => updateChannelRow(row.channel_code, "quantity", value)} />
-                        <ChannelNumberField label="Thành tiền" value={row.amount_vnd} disabled={isSubmitted || cashChannel} placeholder={cashChannel ? undefined : "—"} onChange={(value) => updateChannelRow(row.channel_code, "amount_vnd", value)} />
+                        <ChannelNumberField label={hotlineChannel ? "Thực thu" : "Thành tiền"} value={row.amount_vnd} disabled={isSubmitted || cashChannel} placeholder={cashChannel ? undefined : "—"} onChange={(value) => updateChannelRow(row.channel_code, "amount_vnd", value)} />
                       </div>
+                      {hotlineChannel && (
+                        <label className="col-span-2 min-w-0 sm:col-span-3 sm:col-start-2">
+                          <span className="mb-1 block text-[10px] leading-tight text-[#746e75] sm:text-xs">Ghi chú Hotline</span>
+                          <Input
+                            value={row.notes || ""}
+                            placeholder="Mã đơn / lý do giảm giá"
+                            disabled={isSubmitted}
+                            onChange={(event) => updateChannelRow(row.channel_code, "notes", event.target.value)}
+                            className="h-10 rounded-xl border-[#ded9db] bg-white px-3 text-sm shadow-none focus-visible:ring-[#ec5b91] sm:h-11 sm:text-base"
+                          />
+                        </label>
+                      )}
                     </div>
                   );
                 })}
               </div>
               <p className="mt-2 text-xs font-medium text-[#80566a]">Khách lẻ tự tính {kioskRetailCustomerUnitPriceVnd(reportDate).toLocaleString("vi-VN")}đ × số lượng.</p>
+              <p className="mt-1 text-xs font-medium text-[#80566a]">Hotline: nhập số bánh điểm này thực xuất và số tiền thực thu sau giảm giá.</p>
             </section>
 
             <section className="grid grid-cols-2 divide-x divide-[#eadfe3] rounded-[18px] border border-[#f0dfe5] bg-white px-3 py-3.5 text-center shadow-[0_6px_18px_rgba(86,48,63,0.06)]">
@@ -1075,6 +1090,9 @@ function ProductIcon({ code }: { code: string }) {
 function ChannelIcon({ code }: { code: string }) {
   if (code === "khach_le") {
     return <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fdebf2] text-[#ec5b91]"><UserRound className="h-6 w-6" /></span>;
+  }
+  if (code === "hotline") {
+    return <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fdebf2] text-[#d94479]"><Phone className="h-5 w-5" /></span>;
   }
   if (code === "shopeefood") {
     return <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fff0eb]"><span className="flex h-7 w-7 items-center justify-center rounded-md bg-[#ee4d2d] text-[10px] font-black text-white">SF</span></span>;
