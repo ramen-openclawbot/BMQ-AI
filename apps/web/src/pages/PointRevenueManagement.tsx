@@ -203,6 +203,7 @@ function ChannelEditor({
   onNotesChange: (channelCode: string, notes: string) => void;
 }) {
   const isRetail = channel.channel_code.trim().toLowerCase() === "khach_le";
+  const isHotline = channel.channel_code.trim().toLowerCase() === "hotline";
 
   return (
     <div className="pr-channel-row" data-testid="point-report-channel-editor">
@@ -213,6 +214,7 @@ function ChannelEditor({
         <div>
           <p className="pr-channel-name">{channel.channel_name || channel.channel_code}</p>
           {isRetail && <p className="pr-channel-help">Tự tính {retailUnitPriceLabel}đ × số lượng</p>}
+          {isHotline && <p className="pr-channel-help">Thực thu sau giảm giá; ghi mã đơn và lý do giảm ở Ghi chú</p>}
         </div>
       </div>
       <div className="pr-channel-fields">
@@ -230,7 +232,7 @@ function ChannelEditor({
           />
         </div>
         <div className="pr-field-block">
-          <Label htmlFor={`point-revenue-${idPrefix}-${channel.channel_code}`}>Doanh thu</Label>
+          <Label htmlFor={`point-revenue-${idPrefix}-${channel.channel_code}`}>{isHotline ? "Thực thu" : "Doanh thu"}</Label>
           <Input
             id={`point-revenue-${idPrefix}-${channel.channel_code}`}
             inputMode="numeric"

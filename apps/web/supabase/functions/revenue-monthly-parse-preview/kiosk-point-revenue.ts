@@ -55,14 +55,20 @@ export const KIOSK_POINT_PRICE_CHANGE_DATE = "2026-08-15";
 export const KIOSK_POINT_PRICE_BEFORE_VND = 12_000;
 export const KIOSK_POINT_PRICE_FROM_CHANGE_VND = 14_000;
 export const KIOSK_POINT_PRICE_RULE = "kiosk_bread_unit_price_effective_20260815_v1";
+export const KIOSK_HOTLINE_REVENUE_RULE = "kiosk_hotline_actual_received_v1";
 
-const REVENUE_CHANNELS = new Set(["khach_le", "shopeefood", "grabfood", "befood"]);
+const REVENUE_CHANNELS = new Set(["khach_le", "shopeefood", "grabfood", "befood", "hotline"]);
 
 const normalizedChannelCode = (value: unknown) => String(value || "").trim().toLowerCase();
 
 const numericQuantity = (value: unknown) => {
   const quantity = Number(value);
   return Number.isFinite(quantity) ? Math.max(0, quantity) : 0;
+};
+
+const numericAmountVnd = (value: unknown) => {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? Math.max(0, Math.round(amount)) : 0;
 };
 
 export const kioskPointUnitPriceVnd = (reportDate: string) =>
@@ -90,6 +96,13 @@ export const buildKioskPointRevenuePreviewLines = (
       if (!REVENUE_CHANNELS.has(channelCode)) continue;
       const quantity = numericQuantity(channelRow.quantity);
       const sourceAmountVnd = Number(channelRow.amount_vnd || 0);
+      const isHotline = channelCode === "hotline";
+      const grossRevenue = isHotline
+        ? numericAmountVnd(channelRow.amount_vnd)
+        : Math.round(quantity * unitPrice);
+      const appliedUnitPrice = isHotline
+        ? (quantity > 0 ? grossRevenue / quantity : 0)
+        : unitPrice;
 
       lines.push({
         run_id: runId,
@@ -109,8 +122,8 @@ export const buildKioskPointRevenuePreviewLines = (
         product_name: "Bánh Mì Que Pate",
         item_note: channelRow.notes?.trim() || null,
         quantity,
-        unit_price: unitPrice,
-        gross_revenue: Math.round(quantity * unitPrice),
+        unit_price: appliedUnitPrice,
+        gross_revenue: grossRevenue,
         source_type: "po_email_parse",
         source_ref: channelRow.id || report.id,
         confidence_status: "matched",
@@ -128,8 +141,9 @@ export const buildKioskPointRevenuePreviewLines = (
           report_date: reportDate,
           submitted_at: report.submitted_at || null,
           source_amount_vnd: Number.isFinite(sourceAmountVnd) ? sourceAmountVnd : 0,
-          applied_unit_price_vnd: unitPrice,
-          pricing_rule: KIOSK_POINT_PRICE_RULE,
+          applied_unit_price_vnd: appliedUnitPrice,
+          pricing_rule: isHotline ? KIOSK_HOTLINE_REVENUE_RULE : KIOSK_POINT_PRICE_RULE,
+          amount_semantics: isHotline ? "actual_received_after_discount" : "quantity_times_effective_unit_price",
           dashboard_channel: "Retail Kiosk",
           trust_semantics: "submitted_kiosk_report_replaces_retail_kiosk_po_email_for_reported_date",
           ...metadata,

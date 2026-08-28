@@ -35,6 +35,14 @@ const lines = buildKioskPointRevenuePreviewLines(
       kiosk_daily_report_channel_rows: [
         { id: "grab", channel_code: "grabfood", quantity: 4, amount_vnd: 10 },
         { id: "be", channel_code: "befood", quantity: 5, amount_vnd: 20 },
+        {
+          id: "hotline",
+          channel_code: "hotline",
+          channel_name_snapshot: "Hotline",
+          quantity: 2,
+          amount_vnd: 25_000,
+          notes: "Đơn HL-001, ưu đãi được duyệt",
+        },
         { id: "ignored", channel_code: "other", quantity: 99, amount_vnd: 99 },
       ],
     },
@@ -48,8 +56,16 @@ assert.deepEqual(
     ["shopeefood", 12_000, 36_000],
     ["grabfood", 14_000, 56_000],
     ["befood", 14_000, 70_000],
+    ["hotline", 12_500, 25_000],
   ],
 );
+const hotlineLine = lines.find((line) => line.raw_payload.channel_code === "hotline");
+if (!hotlineLine) throw new Error("missing Hotline revenue line");
+assert.equal(hotlineLine.quantity, 2);
+assert.equal(hotlineLine.item_note, "Đơn HL-001, ưu đãi được duyệt");
+assert.equal(hotlineLine.raw_payload.source_amount_vnd, 25_000);
+assert.equal(hotlineLine.raw_payload.amount_semantics, "actual_received_after_discount");
+assert.equal(hotlineLine.raw_payload.pricing_rule, "kiosk_hotline_actual_received_v1");
 assert.ok(lines.every((line) => line.po_received_date === null));
 assert.deepEqual(
   Array.from(kioskReportedDates([
