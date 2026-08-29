@@ -214,7 +214,7 @@ function ChannelEditor({
         <div>
           <p className="pr-channel-name">{channel.channel_name || channel.channel_code}</p>
           {isRetail && <p className="pr-channel-help">Tự tính {retailUnitPriceLabel}đ × số lượng</p>}
-          {isHotline && <p className="pr-channel-help">Thực thu sau giảm giá; ghi mã đơn và lý do giảm ở Ghi chú</p>}
+          {isHotline && <p className="pr-channel-help">Nhập trực tiếp tại dòng Hotline; Ghi chú ca bán không được dùng để tính Hotline</p>}
         </div>
       </div>
       <div className="pr-channel-fields">
