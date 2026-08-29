@@ -983,6 +983,7 @@ export default function KioskReportPortal() {
               </div>
               <p className="mt-2 text-xs font-medium text-[#80566a]">Khách lẻ tự tính {kioskRetailCustomerUnitPriceVnd(reportDate).toLocaleString("vi-VN")}đ × số lượng.</p>
               <p className="mt-1 text-xs font-medium text-[#80566a]">Hotline: nhập số bánh điểm này thực xuất và số tiền thực thu sau giảm giá.</p>
+              <p className="mt-1 text-xs font-medium text-[#80566a]">Chỉ nhập Hotline tại dòng riêng này. Hệ thống không đọc Ghi chú ca bán để tính Hotline.</p>
             </section>
 
             <section className="grid grid-cols-2 divide-x divide-[#eadfe3] rounded-[18px] border border-[#f0dfe5] bg-white px-3 py-3.5 text-center shadow-[0_6px_18px_rgba(86,48,63,0.06)]">
@@ -1006,7 +1007,7 @@ export default function KioskReportPortal() {
                   id="report-notes"
                   value={notes}
                   onChange={(event) => setNotes(event.target.value)}
-                  placeholder="Ghi chú sự cố hoặc chênh lệch..."
+                  placeholder="Ghi chú sự cố hoặc chênh lệch (không nhập Hotline tại đây)..."
                   disabled={isSubmitted}
                   className="min-h-[96px] rounded-2xl border-[#e7dfe2] bg-[#fffdfd]"
                 />

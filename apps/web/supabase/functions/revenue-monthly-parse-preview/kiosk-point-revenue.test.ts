@@ -67,6 +67,25 @@ assert.equal(hotlineLine.raw_payload.source_amount_vnd, 25_000);
 assert.equal(hotlineLine.raw_payload.amount_semantics, "actual_received_after_discount");
 assert.equal(hotlineLine.raw_payload.pricing_rule, "kiosk_hotline_actual_received_v1");
 assert.ok(lines.every((line) => line.po_received_date === null));
+
+const reportNoteOnlyLines = buildKioskPointRevenuePreviewLines(
+  "run-note-only",
+  "2026-08",
+  "2026-08-28",
+  "2026-08-28",
+  [{
+    id: "report-note-only",
+    report_date: "2026-08-28",
+    location_id: "location-note-only",
+    location_name_snapshot: "Bùi Hữu Nghĩa",
+    notes: "Hotline 100 que giá 12.000",
+    kiosk_daily_report_channel_rows: [
+      { id: "retail-note-only", channel_code: "khach_le", quantity: 25, amount_vnd: 350_000 },
+    ],
+  } as Parameters<typeof buildKioskPointRevenuePreviewLines>[4][number] & { notes: string }],
+);
+assert.deepEqual(reportNoteOnlyLines.map((line) => line.raw_payload.channel_code), ["khach_le"]);
+assert.equal(reportNoteOnlyLines.some((line) => line.raw_payload.channel_code === "hotline"), false);
 assert.deepEqual(
   Array.from(kioskReportedDates([
     { id: "r1", report_date: "2026-08-14", location_id: "l1", location_name_snapshot: "A" },

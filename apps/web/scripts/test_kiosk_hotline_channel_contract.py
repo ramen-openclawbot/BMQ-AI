@@ -40,6 +40,8 @@ def test_report_portal_records_actual_hotline_fulfilment_at_the_reporting_point(
         'placeholder="Mã đơn / lý do giảm giá"',
         'updateChannelRow(row.channel_code, "notes", event.target.value)',
         'Hotline: nhập số bánh điểm này thực xuất và số tiền thực thu sau giảm giá.',
+        'Chỉ nhập Hotline tại dòng riêng này. Hệ thống không đọc Ghi chú ca bán để tính Hotline.',
+        'Ghi chú sự cố hoặc chênh lệch (không nhập Hotline tại đây)...',
         'if (code === "hotline")',
         '<Phone className="h-5 w-5"',
     ):
@@ -50,7 +52,7 @@ def test_management_and_ledger_preserve_actual_received_amount() -> None:
     management = read(MANAGEMENT)
     ledger = read(LEDGER)
     assert 'const isHotline = channel.channel_code.trim().toLowerCase() === "hotline";' in management
-    assert "Thực thu sau giảm giá; ghi mã đơn và lý do giảm ở Ghi chú" in management
+    assert "Nhập trực tiếp tại dòng Hotline; Ghi chú ca bán không được dùng để tính Hotline" in management
     for token in (
         '"hotline"',
         'KIOSK_HOTLINE_REVENUE_RULE',
@@ -59,6 +61,18 @@ def test_management_and_ledger_preserve_actual_received_amount() -> None:
         'actual_received_after_discount',
     ):
         assert token in ledger, f"ledger missing Hotline actual-revenue contract: {token}"
+
+
+def test_report_notes_are_not_a_hotline_input_path() -> None:
+    portal = read(PORTAL)
+    ledger = read(LEDGER)
+    for forbidden in (
+        "parseHotlineFromNotes",
+        "extractHotlineFromNotes",
+        "inferHotlineFromNotes",
+    ):
+        assert forbidden not in portal
+        assert forbidden not in ledger
 
 
 if __name__ == "__main__":
