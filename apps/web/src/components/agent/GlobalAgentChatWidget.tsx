@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowUp, CheckCircle2, ChevronDown, CircleAlert, Loader2, MessageCircle, Wrench, X } from "lucide-react";
+import { ArrowUp, Loader2, MessageCircle, Sparkles, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -266,27 +266,6 @@ function RevenueDailyChatCard({ setOpen }: { setOpen: (open: boolean) => void })
   );
 }
 
-function ToolCallRow({ item }: { item: Extract<ChatTimelineItem, { kind: "tool" }> }) {
-  const statusLabel = item.status === "running" ? "Đang chạy" : item.status === "done" ? "Hoàn tất" : "Có lỗi";
-  const StatusIcon = item.status === "running" ? Loader2 : item.status === "done" ? CheckCircle2 : CircleAlert;
-  return (
-    <details className="rounded-2xl border border-[#21252e] bg-[#0b0d11] p-3 text-xs text-[#d4d7de]">
-      <summary className="flex cursor-pointer list-none items-center gap-2">
-        <span className="grid h-7 w-7 place-items-center rounded-full border border-violet-400/25 bg-violet-400/10 text-violet-300"><Wrench className="h-3.5 w-3.5" /></span>
-        <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
-        <span className={cn("flex items-center gap-1 text-[#8a8f98]", item.status === "error" && "text-red-300")}>
-          <StatusIcon className={cn("h-3.5 w-3.5", item.status === "running" && "animate-spin")} />
-          {statusLabel}
-        </span>
-        <ChevronDown className="h-3.5 w-3.5 text-[#8a8f98]" />
-      </summary>
-      <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-xl border border-[#21252e] bg-black p-2 text-[11px] text-[#8a8f98]">
-        {JSON.stringify(item.details, null, 2)}
-      </pre>
-    </details>
-  );
-}
-
 function VnagentMark() {
   return (
     <svg className="h-9 w-11 shrink-0" viewBox="0 0 104 84" role="img" aria-label="Logo VNAgent">
@@ -320,7 +299,8 @@ export function GlobalAgentChatWidget() {
   const enabled = authzLoaded && isOwner && Boolean(session?.access_token && user?.id);
   const routeContext = useMemo(() => getRouteContext(location.pathname), [location.pathname]);
   const timeline = useMemo(() => timelineFromFrames(frames), [frames]);
-  const showQuickActions = !sessionId && timeline.length === 0 && !streamedText && !isResponding;
+  const visibleTimeline = useMemo(() => timeline.filter((item) => item.kind !== "tool"), [timeline]);
+  const showQuickActions = !sessionId && visibleTimeline.length === 0 && !streamedText && !isResponding;
   const isRevenueMobileContext = location.pathname.startsWith("/finance-control/revenue");
   const isSkuCostsMobileContext = location.pathname.startsWith("/sku-costs");
   const isPurchaseOrdersMobileContext = location.pathname.startsWith("/purchase-orders");
@@ -558,66 +538,68 @@ export function GlobalAgentChatWidget() {
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent
           data-vnagent-branding="owner-chat-v1"
-          data-vnagent-ui="chat-v1-parity"
+          data-vnagent-ui="chat-v2-clean"
           side="right"
-          className="flex w-full flex-col gap-0 border-l border-[#21252e] bg-black p-0 text-[#f5f6f7] shadow-2xl [&>button]:hidden sm:w-[430px] sm:max-w-[430px]"
+          className="flex w-full flex-col gap-0 overflow-hidden border-l border-[#e4e7ec] bg-[#f7f8fa] p-0 text-[#171a21] shadow-2xl [&>button]:hidden sm:w-[440px] sm:max-w-[440px]"
         >
-          <header className="flex shrink-0 items-center gap-2.5 bg-black px-4 pb-3 pt-[max(0.875rem,env(safe-area-inset-top))]">
+          <header className="relative flex shrink-0 items-center gap-3 border-b border-[#e8eaf0] bg-white px-4 pb-3 pt-[max(0.875rem,env(safe-area-inset-top))]">
+            <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-[#6246ea] via-[#8b5cf6] to-[#b66cff]" />
             <div className="flex min-w-0 flex-1 items-center gap-2.5" aria-label="VNAgent — Trợ lý AI của BMQ">
-              <VnagentMark />
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-[#f0edff] shadow-[inset_0_0_0_1px_rgba(108,78,238,0.12)]"><VnagentMark /></div>
               <div className="min-w-0">
-                <SheetTitle className="text-[18px] font-extrabold leading-none tracking-[-0.025em] text-white">VNAgent</SheetTitle>
-                <div className="mt-1 flex items-center gap-1.5 whitespace-nowrap text-[9px] tracking-[0.025em] text-[#858a94]">
-                  <span>Trợ lý AI của BMQ</span>
-                  <span className={cn("h-1.5 w-1.5 rounded-full", connection === "connected" ? "bg-[#7958ff] shadow-[0_0_0_3px_rgba(121,88,255,0.12)]" : connection === "error" ? "bg-red-400" : "animate-pulse bg-amber-300")} />
+                <SheetTitle className="text-[17px] font-bold leading-none tracking-[-0.02em] text-[#171a21]">VNAgent</SheetTitle>
+                <div className="mt-1.5 flex items-center gap-1.5 whitespace-nowrap text-[11px] text-[#717784]">
+                  <span className={cn("h-1.5 w-1.5 rounded-full", connection === "connected" ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]" : connection === "error" ? "bg-red-400" : "animate-pulse bg-amber-400")} />
+                  <span>{connection === "connected" ? "Đã kết nối" : connection === "error" ? "Mất kết nối" : "Đang kết nối"} · Trợ lý AI của BMQ</span>
                 </div>
               </div>
             </div>
-            <button type="button" className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-[#21252e] bg-[#0b0d11] text-[#d4d7de] transition hover:border-[#2b3040] hover:text-white" onClick={() => setOpen(false)} aria-label="Đóng VNAgent"><X className="h-4 w-4" /></button>
+            <button type="button" className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[#687080] transition hover:bg-[#f1f2f5] hover:text-[#171a21]" onClick={() => setOpen(false)} aria-label="Đóng VNAgent"><X className="h-5 w-5" /></button>
           </header>
 
-          <div className="flex flex-1 flex-col gap-3 overflow-auto bg-black px-3.5 py-3 text-[15px] leading-[1.55]">
-            {timeline.length === 0 && !streamedText && (
-              <div className="self-stretch px-1.5 py-2 text-[#f5f6f7]">Dạ thưa anh Tâm, VNAgent đã nhận diện màn hình hiện tại là <b>{routeContext.label}</b>. Anh cần VNAgent hỗ trợ việc gì ạ?</div>
+          <div className="flex flex-1 flex-col gap-4 overflow-auto bg-[#f7f8fa] px-4 py-5 text-[15px] leading-[1.6]">
+            {visibleTimeline.length === 0 && !streamedText && (
+              <div className="flex items-start gap-2.5">
+                <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-[#ebe7ff] text-[#6847e8]"><Sparkles className="h-4 w-4" /></span>
+                <div className="max-w-[88%] rounded-2xl rounded-tl-md border border-[#e4e5eb] bg-white px-4 py-3 text-[#252932] shadow-[0_1px_2px_rgba(16,24,40,0.04)]">Dạ thưa anh Tâm, VNAgent đã nhận diện màn hình hiện tại là <b>{routeContext.label}</b>. Anh cần VNAgent hỗ trợ việc gì ạ?</div>
+              </div>
             )}
             {isRevenueMobileContext ? <RevenueDailyChatCard setOpen={setOpen} /> : null}
-            {timeline.map((item) => item.kind === "tool" ? (
-              <ToolCallRow key={item.id} item={item} />
-            ) : (
-              <div key={item.id} className={cn("whitespace-pre-wrap break-words", item.role === "user" ? "max-w-[80%] self-end rounded-[22px] bg-[#202020] px-[15px] py-3 text-white" : item.role === "system" ? "self-center rounded-full border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs text-red-200" : "w-full self-stretch px-1.5 pb-[18px] pt-2.5 text-[#f5f6f7]")}>
+            {visibleTimeline.map((item) => (
+              <div key={item.id} className={cn("whitespace-pre-wrap break-words shadow-[0_1px_2px_rgba(16,24,40,0.04)]", item.role === "user" ? "max-w-[82%] self-end rounded-2xl rounded-br-md bg-[#6d4aff] px-4 py-3 text-white" : item.role === "system" ? "self-center rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" : "max-w-[92%] self-start rounded-2xl rounded-tl-md border border-[#e4e5eb] bg-white px-4 py-3 text-[#252932]")}>
                 {item.role === "system" ? <span className="sr-only">Hệ thống: </span> : null}
                 {item.text}
               </div>
             ))}
             {streamedText && (
-              <div className="w-full self-stretch px-1.5 pb-[18px] pt-2.5 text-[#f5f6f7]">
+              <div className="max-w-[92%] self-start rounded-2xl rounded-tl-md border border-[#e4e5eb] bg-white px-4 py-3 text-[#252932] shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
                 <div className="whitespace-pre-wrap break-words">{streamedText}</div>
               </div>
             )}
             {isResponding && !streamedText && (
-              <div className="flex max-w-[88%] items-center gap-2.5 text-xs font-semibold text-[#8a8f98]"><span className="grid h-7 w-7 place-items-center rounded-full border border-amber-300/20 bg-amber-300/10 text-amber-300"><Loader2 className="h-4 w-4 animate-spin" /></span>VNAgent đang xử lý…</div>
+              <div className="flex max-w-[88%] items-center gap-2.5 text-xs font-medium text-[#777e8b]"><span className="grid h-8 w-8 place-items-center rounded-xl bg-[#ebe7ff] text-[#6847e8]"><Loader2 className="h-4 w-4 animate-spin" /></span>VNAgent đang xử lý…</div>
             )}
-            {errorMessage && <div className="rounded-2xl border border-red-400/30 bg-red-400/10 p-3 text-xs text-red-200">{errorMessage}</div>}
+            {errorMessage && <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">{errorMessage}</div>}
             {showQuickActions && (
-              <div className="rounded-2xl border border-[#21252e] bg-[#0b0d11] p-3">
-                <div className="mb-2 text-xs text-[#8a8f98]">Gợi ý nhanh từ VNAgent</div>
+              <div className="rounded-2xl border border-[#e4e5eb] bg-white p-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+                <div className="mb-2.5 text-xs font-medium text-[#777e8b]">Gợi ý nhanh</div>
                 <div className="flex flex-wrap gap-2">
-                  {routeContext.suggestions.map((suggestion) => <button key={suggestion} type="button" className="rounded-full border border-[#2b3040] bg-transparent px-3 py-2 text-left text-xs font-semibold text-[#d4d7de] transition hover:border-[#7457ff] hover:text-white disabled:opacity-50" onClick={() => void sendMessage(suggestion)} disabled={connection !== "connected" || isResponding}>{suggestion}</button>)}
+                  {routeContext.suggestions.map((suggestion) => <button key={suggestion} type="button" className="rounded-full border border-[#ded9fa] bg-[#f7f5ff] px-3 py-2 text-left text-xs font-semibold text-[#5e43c7] transition hover:border-[#8b73ed] hover:bg-[#f1edff] disabled:opacity-50" onClick={() => void sendMessage(suggestion)} disabled={connection !== "connected" || isResponding}>{suggestion}</button>)}
                 </div>
               </div>
             )}
             <div ref={endRef} />
           </div>
 
-          <div className="shrink-0 bg-black px-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-1.5">
+          <div className="shrink-0 border-t border-[#e8eaf0] bg-white px-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
             <div className="flex items-end gap-2">
-              <div className="relative min-w-0 flex-1 rounded-[20px] border border-[#21252e] bg-[#0b0d11] transition focus-within:border-[#2b3040]">
+              <div className="relative min-w-0 flex-1 rounded-[22px] border border-[#dfe2e8] bg-[#f7f8fa] transition focus-within:border-[#8b73ed] focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(109,74,255,0.10)]">
                 <Textarea
                   value={draft}
                   rows={1}
                   onChange={(event) => setDraft(event.target.value)}
                   placeholder="Hỏi bất cứ điều gì"
-                  className="max-h-[120px] min-h-[42px] resize-none border-0 bg-transparent px-3.5 py-2.5 pr-14 text-base leading-[1.45] text-white shadow-none outline-none ring-0 placeholder:text-[#8a8f98] focus-visible:ring-0 focus-visible:ring-offset-0"
+                  className="max-h-[120px] min-h-[44px] resize-none border-0 bg-transparent px-4 py-2.5 pr-14 text-base leading-[1.45] text-[#252932] shadow-none outline-none ring-0 placeholder:text-[#9a9fab] focus-visible:ring-0 focus-visible:ring-offset-0"
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
@@ -626,9 +608,9 @@ export function GlobalAgentChatWidget() {
                   }}
                   disabled={connection !== "connected" || isResponding}
                 />
-                <span className="pointer-events-none absolute bottom-3 right-3 text-[8px] uppercase tracking-[0.08em] text-[#8a8f98]">{draft.trim() ? draft.trim().split(/\s+/).length : 0} / 300</span>
+                <span className="pointer-events-none absolute bottom-3 right-3 text-[8px] uppercase tracking-[0.08em] text-[#a0a5af]">{draft.trim() ? draft.trim().split(/\s+/).length : 0} / 300</span>
               </div>
-              <button type="button" className="grid h-[42px] w-[42px] shrink-0 place-items-center rounded-full border-0 bg-[#7c5cff] text-white transition active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-45" onClick={() => void sendMessage()} disabled={!draft.trim() || connection !== "connected" || isResponding} aria-label="Gửi tin nhắn">
+              <button type="button" className="grid h-11 w-11 shrink-0 place-items-center rounded-full border-0 bg-[#6d4aff] text-white shadow-[0_6px_16px_rgba(109,74,255,0.28)] transition hover:bg-[#5f3ee8] active:scale-[0.97] disabled:cursor-not-allowed disabled:bg-[#d7d9df] disabled:shadow-none" onClick={() => void sendMessage()} disabled={!draft.trim() || connection !== "connected" || isResponding} aria-label="Gửi tin nhắn">
                 {isResponding ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <ArrowUp className="h-[18px] w-[18px] stroke-[2.2]" />}
               </button>
             </div>
