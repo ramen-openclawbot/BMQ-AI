@@ -50,13 +50,17 @@ def test_quick_actions_are_initial_state_only() -> None:
 
 def test_vnagent_brand_and_address_contract() -> None:
     require(WIDGET, 'data-vnagent-branding="owner-chat-v1"', "the owner chat surface must carry a stable VNAgent branding marker")
-    require(WIDGET, '<SheetTitle className="text-base">VNAgent</SheetTitle>', "the visible chat title must identify VNAgent")
+    require(WIDGET, 'data-vnagent-ui="chat-v1-parity"', "the BMQ widget must carry the chat.vnagent.ai UI parity marker")
+    require(WIDGET, 'SheetTitle className="text-[18px]', "the visible chat title must identify VNAgent")
     require(WIDGET, 'aria-label="Mở VNAgent"', "the chat launcher must identify VNAgent")
     require(WIDGET, 'Dạ thưa anh Tâm, VNAgent đã nhận diện', "the initial greeting must use the approved VNAgent address")
-    require(WIDGET, 'item.role === "agent" ? "VNAgent"', "completed assistant messages must be labelled VNAgent")
-    require(WIDGET, '<div className="mb-1 text-xs text-muted-foreground">VNAgent</div>', "streaming assistant messages must be labelled VNAgent")
+    require(WIDGET, 'aria-label="VNAgent — Trợ lý AI của BMQ"', "the header must expose the VNAgent identity accessibly")
     require(WIDGET, "VNAgent đang xử lý…", "the thinking state must identify VNAgent")
-    require(WIDGET, 'placeholder="Nhập yêu cầu cho VNAgent..."', "the composer must address VNAgent")
+    require(WIDGET, 'placeholder="Hỏi bất cứ điều gì"', "the composer must match chat.vnagent.ai")
+    require(WIDGET, 'bg-[#202020]', "owner messages must use the chat.vnagent.ai dark bubble")
+    require(WIDGET, 'bg-[#7c5cff]', "the send action must use the chat.vnagent.ai violet accent")
+    require(WIDGET, 'bg-black p-0 text-[#f5f6f7]', "the chat surface must use the flat black VNAgent canvas")
+    forbid(WIDGET, 'item.role === "agent" ? "VNAgent"', "chat.vnagent.ai parity hides repeated assistant labels inside the transcript")
     for legacy_copy in ['>AI Agent</SheetTitle>', 'Vui lòng nhập yêu cầu để AI Agent hỗ trợ.', '>Agent</div>', ' />Agent đang xử lý…', 'cho AI Agent...']:
         forbid(WIDGET, legacy_copy, f"legacy generic agent copy must be removed: {legacy_copy}")
 
