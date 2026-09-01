@@ -85,6 +85,12 @@ def test_worker_routes_all_dealer_exchange_and_makeup_to_tuyet_anh():
     assert "+ vehicleForecast.totalQuantity + vehicleExtraQuantity" in source
 
 
+def test_worker_keeps_dealer_and_vietjet_order_when_no_operational_kiosk_is_active():
+    source = WORKER.read_text(encoding="utf-8")
+    assert 'throw new Error("No active kiosk locations available for vehicle forecast")' not in source
+    assert "forecastVehicleBread([...vehicleLocations.values()], orderDate)" in source
+
+
 def test_tan_tao_supplier_document_preserves_physical_billable_and_credit_quantities():
     sql = SUPPLIER_CREDIT_MIGRATION.read_text(encoding="utf-8")
     required = [

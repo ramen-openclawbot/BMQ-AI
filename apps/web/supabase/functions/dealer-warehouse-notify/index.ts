@@ -270,7 +270,6 @@ const enqueueDailyBreadOrder = async (
     throw new Error(`Unable to read kiosk vehicle history: ${vehicleHistoryError.message}`);
   }
   const vehicleHistory = (vehicleHistoryData || []) as DailyBreadVehicleHistoryRow[];
-  if (vehicleHistory.length === 0) throw new Error("No active kiosk locations available for vehicle forecast");
 
   const vehicleLocations = new Map<string, {
     locationId: string;
