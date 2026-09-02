@@ -255,10 +255,49 @@ Deno.test("echo, delivery, read, postback, and policy events are persisted witho
   assertEqual(calls.ingests[0].p_direction, "outbound");
   assertEqual(calls.ingests[1].p_event_type, "message_delivery");
   assertEqual(calls.ingests[1].p_delivery_message_ids, JSON.stringify(["echo-mid"]));
+  assertEqual(calls.ingests[2].p_event_type, "message_read");
+  assertEqual(calls.ingests[2].p_delivery_message_ids, JSON.stringify([]));
+  assertEqual(calls.ingests[2].p_watermark_at, "1970-01-01T00:00:00.013Z");
   assertEqual(calls.ingests[3].p_event_type, "messaging_postback");
   assertEqual(calls.ingests[3].p_message_text, null);
   assertEqual(calls.ingests[4].p_event_type, "messaging_policy_enforcement");
   assertEqual(calls.ingests[4].p_message_text, null);
+});
+
+Deno.test("signed messaging_referral event reaches RPC with bounded sanitized referral payload and no email", async () => {
+  const { deps: mockDeps, calls } = deps({ emailForward: true });
+  const longRef = "ref-" + "x".repeat(600);
+  const response = await handleMessengerWebhook(await signedRequest(webhookBody([
+    {
+      sender: { id: PSID },
+      recipient: { id: PAGE_ID },
+      timestamp: 1_800_000_000_003,
+      referral: {
+        ref: longRef,
+        source: "ADS",
+        type: "OPEN_THREAD",
+        ad_id: "raw-ad-id-must-not-be-stored",
+      },
+    },
+  ])), env(), mockDeps);
+
+  assertEqual(response.status, 200);
+  assertEqual(calls.ingests.length, 1);
+  const event = calls.ingests[0];
+  assertEqual(event.p_psid, PSID);
+  assertEqual(event.p_event_type, "messaging_referral");
+  assertEqual(event.p_direction, null);
+  assertEqual(event.p_message_text, null);
+  assertEqual(event.p_email_forward_enabled, false);
+  assertEqual(event.p_email_recipient, null);
+  assertEqual(event.p_email_payload, null);
+  const payload = event.p_event_payload as Record<string, unknown>;
+  assertEqual(payload.referral_ref, longRef.slice(0, 512));
+  assertEqual(payload.referral_source, "ADS");
+  assertEqual(payload.referral_type, "OPEN_THREAD");
+  const serialized = JSON.stringify(payload);
+  assert(!serialized.includes(PSID), "sanitized referral payload must not contain raw PSID");
+  assert(!serialized.includes("raw-ad-id-must-not-be-stored"), "sanitized referral payload must not store raw referral metadata");
 });
 
 Deno.test("missing Meta app secret returns 503 and never reads settings", async () => {

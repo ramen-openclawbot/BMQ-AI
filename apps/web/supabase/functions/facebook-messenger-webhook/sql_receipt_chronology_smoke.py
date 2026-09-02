@@ -124,25 +124,51 @@ begin
   end if;
 end $$;
 
--- Read: preserve newer read timestamp independently and do not clobber delivery.
+-- Read watermarks have no MIDs in production. Seed before/equal/after outbound messages.
 select public.facebook_ingest_messenger_webhook_event(
-  repeat('e', 32), 'page-chronology', 'psid-chronology', 'message_read',
-  '2026-09-03T10:20:00Z'::timestamptz, null, null, null,
-  '{"kind":"read-new"}'::jsonb, '["mid-chronology"]'
+  repeat('e', 32), 'page-chronology', 'psid-chronology', 'message_echo',
+  '2026-09-03T10:18:00Z'::timestamptz, 'mid-before', 'outbound', 'before watermark',
+  '{"conversation_ref":"chronology"}'::jsonb, '[]', null, null, false, null, null, null, null
 );
 select public.facebook_ingest_messenger_webhook_event(
-  repeat('f', 32), 'page-chronology', 'psid-chronology', 'message_read',
-  '2026-09-03T10:15:00Z'::timestamptz, null, null, null,
-  '{"kind":"read-stale"}'::jsonb, '["mid-chronology"]'
+  repeat('f', 32), 'page-chronology', 'psid-chronology', 'message_echo',
+  '2026-09-03T10:20:00Z'::timestamptz, 'mid-equal', 'outbound', 'equal watermark',
+  '{"conversation_ref":"chronology"}'::jsonb, '[]', null, null, false, null, null, null, null
+);
+select public.facebook_ingest_messenger_webhook_event(
+  repeat('g', 32), 'page-chronology', 'psid-chronology', 'message_echo',
+  '2026-09-03T10:21:00Z'::timestamptz, 'mid-after', 'outbound', 'after watermark',
+  '{"conversation_ref":"chronology"}'::jsonb, '[]', null, null, false, null, null, null, null
+);
+select public.facebook_ingest_messenger_webhook_event(
+  repeat('h', 32), 'page-chronology', 'psid-chronology', 'message_read',
+  '2026-09-03T10:30:00Z'::timestamptz, null, null, null,
+  '{"kind":"read-watermark"}'::jsonb, '[]', null, null, false, null, null, null,
+  '2026-09-03T10:20:00Z'::timestamptz
 );
 do $$
 begin
   if (
-    select (payload->>'last_read_at')::timestamptz
+    select count(*)
     from public.facebook_messenger_messages
-    where page_id = 'page-chronology' and message_id = 'mid-chronology'
-  ) is distinct from '2026-09-03T10:20:00Z'::timestamptz then
-    raise exception 'stale_read_overwrote_newer_timestamp';
+    where page_id = 'page-chronology'
+      and psid = 'psid-chronology'
+      and direction = 'outbound'
+      and message_id in ('mid-chronology', 'mid-before', 'mid-equal')
+      and (payload->>'last_read_at')::timestamptz = '2026-09-03T10:30:00Z'::timestamptz
+  ) <> 3 then
+    raise exception 'watermark_did_not_mark_all_eligible_outbound_messages';
+  end if;
+
+  if exists (
+    select 1
+    from public.facebook_messenger_messages
+    where page_id = 'page-chronology'
+      and psid = 'psid-chronology'
+      and message_id = 'mid-after'
+      and coalesce(payload, '{}'::jsonb) ? 'last_read_at'
+  ) then
+    raise exception 'watermark_marked_later_outbound_message';
   end if;
 
   if (
@@ -154,23 +180,58 @@ begin
   end if;
 end $$;
 
--- Missing/invalid existing read timestamp must be safely replaced.
-update public.facebook_messenger_messages
-set payload = jsonb_set(payload, '{last_read_at}', '"not-a-timestamp"'::jsonb, true)
-where page_id = 'page-chronology' and message_id = 'mid-chronology';
+-- Stale repeat cannot overwrite newer read timestamp.
 select public.facebook_ingest_messenger_webhook_event(
-  repeat('g', 32), 'page-chronology', 'psid-chronology', 'message_read',
+  repeat('i', 32), 'page-chronology', 'psid-chronology', 'message_read',
   '2026-09-03T10:25:00Z'::timestamptz, null, null, null,
-  '{"kind":"read-invalid-existing"}'::jsonb, '["mid-chronology"]'
+  '{"kind":"read-stale-watermark"}'::jsonb, '[]', null, null, false, null, null, null,
+  '2026-09-03T10:20:00Z'::timestamptz
 );
 do $$
 begin
   if (
     select (payload->>'last_read_at')::timestamptz
     from public.facebook_messenger_messages
-    where page_id = 'page-chronology' and message_id = 'mid-chronology'
-  ) is distinct from '2026-09-03T10:25:00Z'::timestamptz then
-    raise exception 'invalid_read_timestamp_was_not_replaced';
+    where page_id = 'page-chronology' and message_id = 'mid-before'
+  ) is distinct from '2026-09-03T10:30:00Z'::timestamptz then
+    raise exception 'stale_watermark_read_overwrote_newer_timestamp';
+  end if;
+end $$;
+
+-- Missing/invalid read watermark fails closed and marks no new messages.
+do $$
+begin
+  begin
+    perform public.facebook_ingest_messenger_webhook_event(
+      repeat('j', 32), 'page-chronology', 'psid-chronology', 'message_read',
+      '2026-09-03T10:35:00Z'::timestamptz, null, null, null,
+      '{"kind":"read-missing-watermark"}'::jsonb, '[]', null, null, false, null, null, null, null
+    );
+    raise exception 'missing_read_watermark_was_accepted';
+  exception when invalid_parameter_value then
+    null;
+  end;
+
+  begin
+    perform public.facebook_ingest_messenger_webhook_event(
+      repeat('k', 32), 'page-chronology', 'psid-chronology', 'message_read',
+      '2026-09-03T10:36:00Z'::timestamptz, null, null, null,
+      '{"kind":"read-invalid-watermark"}'::jsonb, '[]', null, null, false, null, null, null, 'not-a-timestamp'
+    );
+    raise exception 'invalid_read_watermark_was_accepted';
+  exception when invalid_datetime_format then
+    null;
+  end;
+
+  if exists (
+    select 1
+    from public.facebook_messenger_messages
+    where page_id = 'page-chronology'
+      and psid = 'psid-chronology'
+      and message_id = 'mid-after'
+      and coalesce(payload, '{}'::jsonb) ? 'last_read_at'
+  ) then
+    raise exception 'invalid_or_missing_watermark_marked_later_message';
   end if;
 end $$;
 

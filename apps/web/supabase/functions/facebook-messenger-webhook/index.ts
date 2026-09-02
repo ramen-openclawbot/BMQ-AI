@@ -38,6 +38,7 @@ export type IngestEventParams = {
   p_email_recipient: string | null;
   p_email_fingerprint: string | null;
   p_email_payload: JsonValue | null;
+  p_watermark_at: string | null;
 };
 
 export type MessengerWebhookDeps = {
@@ -231,6 +232,7 @@ async function buildIngestParams(
     p_email_recipient: emailForwardEnabled ? AGENT_EMAIL_RECIPIENT : null,
     p_email_fingerprint: emailForwardEnabled ? await opaqueRef("fbemail", event.fingerprint) : null,
     p_email_payload: emailPayload,
+    p_watermark_at: event.watermarkMs === null ? null : new Date(event.watermarkMs).toISOString(),
   };
 }
 
@@ -245,6 +247,9 @@ function sanitizedEventPayload(event: NormalizedMessengerEvent, conversationRef:
     watermark_ms: event.watermarkMs,
     postback_title: boundedText(event.postbackTitle, 512),
     postback_payload: boundedText(event.postbackPayload, 1_000),
+    referral_ref: boundedText(event.referralRef, 512),
+    referral_source: boundedText(event.referralSource, 128),
+    referral_type: boundedText(event.referralType, 128),
     policy_action: boundedText(event.policyAction, 128),
     policy_reason: boundedText(event.policyReason, 512),
     occurred_at: new Date(event.timestampMs).toISOString(),

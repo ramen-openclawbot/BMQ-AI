@@ -17,7 +17,8 @@ create or replace function public.facebook_ingest_messenger_webhook_event(
   p_email_forward_enabled boolean default false,
   p_email_recipient text default null,
   p_email_fingerprint text default null,
-  p_email_payload jsonb default null
+  p_email_payload jsonb default null,
+  p_watermark_at timestamptz default null
 )
 returns jsonb
 language plpgsql
@@ -48,7 +49,7 @@ begin
     raise exception 'invalid_psid' using errcode = '22023';
   end if;
 
-  if p_event_type not in ('message', 'message_echo', 'message_delivery', 'message_read', 'messaging_postback', 'messaging_policy_enforcement') then
+  if p_event_type not in ('message', 'message_echo', 'message_delivery', 'message_read', 'messaging_referral', 'messaging_postback', 'messaging_policy_enforcement') then
     raise exception 'invalid_event_type' using errcode = '22023';
   end if;
 
@@ -226,31 +227,45 @@ begin
       raise exception 'invalid_delivery_message_ids' using errcode = '22023';
     end if;
 
-    for v_mid in select jsonb_array_elements_text(v_delivery_mids)
-    loop
+    if p_event_type = 'message_delivery' then
+      for v_mid in select jsonb_array_elements_text(v_delivery_mids)
+      loop
+        update public.facebook_messenger_messages
+        set payload = coalesce(payload, '{}'::jsonb) || jsonb_build_object(
+              'last_delivery_at',
+              p_event_timestamp
+            )
+        where page_id = p_page_id
+          and message_id = v_mid
+          and case
+            when not (coalesce(payload, '{}'::jsonb) ? 'last_delivery_at') then true
+            when not ((payload->>'last_delivery_at') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[ tT][0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}(:?[0-9]{2})?)?$') then true
+            else p_event_timestamp > (payload->>'last_delivery_at')::timestamptz
+          end;
+      end loop;
+    end if;
+
+    if p_event_type = 'message_read' then
+      if p_watermark_at is null then
+        raise exception 'missing_read_watermark' using errcode = '22023';
+      end if;
+
       update public.facebook_messenger_messages
       set payload = coalesce(payload, '{}'::jsonb) || jsonb_build_object(
-            case when p_event_type = 'message_delivery' then 'last_delivery_at' else 'last_read_at' end,
+            'last_read_at',
             p_event_timestamp
           )
-      where page_id = p_page_id
-        and message_id = v_mid
+      where conversation_id = v_conversation_id
+        and page_id = p_page_id
+        and psid = p_psid
+        and direction = 'outbound'
+        and coalesce(sent_at, received_at) <= p_watermark_at
         and case
-          when p_event_type = 'message_delivery' then
-            case
-              when not (coalesce(payload, '{}'::jsonb) ? 'last_delivery_at') then true
-              when not ((payload->>'last_delivery_at') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[ tT][0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}(:?[0-9]{2})?)?$') then true
-              else p_event_timestamp > (payload->>'last_delivery_at')::timestamptz
-            end
-          when p_event_type = 'message_read' then
-            case
-              when not (coalesce(payload, '{}'::jsonb) ? 'last_read_at') then true
-              when not ((payload->>'last_read_at') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[ tT][0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}(:?[0-9]{2})?)?$') then true
-              else p_event_timestamp > (payload->>'last_read_at')::timestamptz
-            end
-          else false
+          when not (coalesce(payload, '{}'::jsonb) ? 'last_read_at') then true
+          when not ((payload->>'last_read_at') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[ tT][0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}(:?[0-9]{2})?)?$') then true
+          else p_event_timestamp > (payload->>'last_read_at')::timestamptz
         end;
-    end loop;
+    end if;
   end if;
 
   if p_email_forward_enabled then
@@ -335,7 +350,8 @@ revoke all on function public.facebook_ingest_messenger_webhook_event(
   boolean,
   text,
   text,
-  jsonb
+  jsonb,
+  timestamptz
 ) from public, anon, authenticated;
 
 grant execute on function public.facebook_ingest_messenger_webhook_event(
@@ -354,5 +370,6 @@ grant execute on function public.facebook_ingest_messenger_webhook_event(
   boolean,
   text,
   text,
-  jsonb
+  jsonb,
+  timestamptz
 ) to service_role;
