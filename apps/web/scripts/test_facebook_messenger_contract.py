@@ -148,6 +148,30 @@ begin
   exception when foreign_key_violation then
     null;
   end;
+
+  declare
+    conv_a uuid := '22222222-2222-2222-2222-222222222222'::uuid;
+    conv_b uuid := '33333333-3333-3333-3333-333333333333'::uuid;
+    msg_a uuid;
+  begin
+    insert into public.facebook_messenger_conversations (id, page_id, psid)
+    values (conv_a, 'page-email', 'psid-a'), (conv_b, 'page-email', 'psid-b');
+
+    insert into public.facebook_messenger_messages (conversation_id, page_id, psid, direction, fingerprint)
+    values (conv_a, 'page-email', 'psid-a', 'inbound', repeat('e', 32))
+    returning id into msg_a;
+
+    insert into public.facebook_messenger_email_outbox (conversation_id, message_id, email_fingerprint, recipient_email, subject)
+    values (conv_a, msg_a, repeat('f', 32), 'agent@example.com', 'same conversation ok');
+
+    begin
+      insert into public.facebook_messenger_email_outbox (conversation_id, message_id, email_fingerprint, recipient_email, subject)
+      values (conv_b, msg_a, repeat('0', 32), 'agent@example.com', 'cross conversation rejected');
+      raise exception 'email outbox message/conversation mismatch was accepted';
+    exception when foreign_key_violation then
+      null;
+    end;
+  end;
 end $$;
 """
 
@@ -304,12 +328,23 @@ def main() -> None:
 
     email_outbox = table_body(sql, "facebook_messenger_email_outbox")
     assert_status_check(email_outbox, "facebook_messenger_email_outbox_status_check", ("pending", "processing", "sent", "failed", "suppressed"))
+    assert_has_all(messages, (
+        "facebook_messenger_messages_id_conversation_unique unique (id, conversation_id)",
+    ), "messages table composite FK target")
+
     assert_has_all(email_outbox, (
         "conversation_id uuid references public.facebook_messenger_conversations(id) on delete restrict",
-        "message_id uuid references public.facebook_messenger_messages(id) on delete restrict",
+        "message_id uuid",
         "email_fingerprint text not null",
         "facebook_messenger_email_outbox_fingerprint_unique unique (email_fingerprint)",
+        "facebook_messenger_email_outbox_message_conversation_fk",
+        "foreign key (message_id, conversation_id)",
+        "references public.facebook_messenger_messages(id, conversation_id)",
+        "on delete restrict",
     ), "email outbox table")
+    assert "message_id uuid references public.facebook_messenger_messages(id)" not in normalize(email_outbox), (
+        "email outbox must not keep an independent single-column message FK that can drift from conversation_id"
+    )
 
     deletion = table_body(sql, "facebook_data_deletion_requests")
     assert_status_check(deletion, "facebook_data_deletion_requests_status_check", (
@@ -390,6 +425,11 @@ def main() -> None:
         run_disposable_postgres_smoke(sql)
 
     print("PASS facebook messenger foundation contract")
+
+
+
+def test_facebook_messenger_foundation_contract() -> None:
+    main()
 
 
 if __name__ == "__main__":

@@ -76,6 +76,7 @@ create table if not exists public.facebook_messenger_messages (
   created_at timestamptz not null default now(),
   constraint facebook_messenger_messages_message_id_unique unique (page_id, message_id),
   constraint facebook_messenger_messages_fingerprint_unique unique (fingerprint),
+  constraint facebook_messenger_messages_id_conversation_unique unique (id, conversation_id),
   constraint facebook_messenger_messages_conversation_identity_fk
     foreign key (conversation_id, page_id, psid)
     references public.facebook_messenger_conversations(id, page_id, psid)
@@ -146,7 +147,7 @@ create table if not exists public.facebook_messenger_outbox (
 create table if not exists public.facebook_messenger_email_outbox (
   id uuid primary key default gen_random_uuid(),
   conversation_id uuid references public.facebook_messenger_conversations(id) on delete restrict,
-  message_id uuid references public.facebook_messenger_messages(id) on delete restrict,
+  message_id uuid,
   email_fingerprint text not null,
   status text not null default 'pending',
   recipient_email text not null,
@@ -160,6 +161,10 @@ create table if not exists public.facebook_messenger_email_outbox (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint facebook_messenger_email_outbox_fingerprint_unique unique (email_fingerprint),
+  constraint facebook_messenger_email_outbox_message_conversation_fk
+    foreign key (message_id, conversation_id)
+    references public.facebook_messenger_messages(id, conversation_id)
+    on delete restrict,
   constraint facebook_messenger_email_outbox_fingerprint_not_blank check (length(btrim(email_fingerprint)) >= 32),
   constraint facebook_messenger_email_outbox_recipient_check check (recipient_email ~* '^[^@\s]+@[^@\s]+\.[^@\s]+$'),
   constraint facebook_messenger_email_outbox_attempt_count_check check (attempt_count >= 0 and attempt_count <= 25),
