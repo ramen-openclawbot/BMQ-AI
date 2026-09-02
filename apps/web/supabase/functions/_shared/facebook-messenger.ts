@@ -1,15 +1,31 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-export const DEFAULT_MESSENGER_LIMITS = {
+export type MessengerLimits = {
+  maxBodyBytes: number;
+  maxEntries: number;
+  maxMessagingEventsPerEntry: number;
+  maxTotalMessagingEvents: number;
+  maxTextChars: number;
+  maxAttachmentsPerMessage: number;
+  maxAttachmentPayloadBytes: number;
+  maxAttachmentUrlChars: number;
+  maxDeliveryMids: number;
+  maxPostbackPayloadChars: number;
+};
+
+export const DEFAULT_MESSENGER_LIMITS: MessengerLimits = {
   maxBodyBytes: 256 * 1024,
   maxEntries: 25,
   maxMessagingEventsPerEntry: 100,
+  maxTotalMessagingEvents: 1_000,
   maxTextChars: 20_000,
   maxAttachmentsPerMessage: 10,
+  maxAttachmentPayloadBytes: 16 * 1024,
+  maxAttachmentUrlChars: 2_048,
   maxDeliveryMids: 100,
   maxPostbackPayloadChars: 10_000,
-} as const;
+};
 
 const DEPRECATED_MESSENGER_TAGS = new Set([
   "CONFIRMED_EVENT_UPDATE",
@@ -19,8 +35,6 @@ const DEPRECATED_MESSENGER_TAGS = new Set([
 
 const STANDARD_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const HUMAN_AGENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-
-type MessengerLimits = typeof DEFAULT_MESSENGER_LIMITS;
 
 type RawMessengerEvent = Record<string, unknown>;
 
@@ -89,7 +103,9 @@ export function constantTimeStringEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-export async function verifyMessengerSignature(input: SignatureInput): Promise<boolean> {
+export async function verifyMessengerSignature(
+  input: SignatureInput,
+): Promise<boolean> {
   if (!input.appSecret || !input.signatureHeader) return false;
   const parsed = parseMessengerSignature(input.signatureHeader);
   if (!parsed) return false;
@@ -97,10 +113,16 @@ export async function verifyMessengerSignature(input: SignatureInput): Promise<b
   return constantTimeStringEqual(expected, parsed);
 }
 
-export async function normalizeMessengerWebhook(input: NormalizeInput): Promise<NormalizeResult> {
+export async function normalizeMessengerWebhook(
+  input: NormalizeInput,
+): Promise<NormalizeResult> {
   const limits = { ...DEFAULT_MESSENGER_LIMITS, ...input.limits };
-  if (!input.expectedPageId) return { ok: false, error: "missing_expected_page_id" };
-  if (input.rawBody.byteLength > limits.maxBodyBytes) return { ok: false, error: "body_too_large" };
+  if (!input.expectedPageId) {
+    return { ok: false, error: "missing_expected_page_id" };
+  }
+  if (input.rawBody.byteLength > limits.maxBodyBytes) {
+    return { ok: false, error: "body_too_large" };
+  }
 
   let parsed: unknown;
   try {
@@ -111,20 +133,41 @@ export async function normalizeMessengerWebhook(input: NormalizeInput): Promise<
 
   if (!isRecord(parsed)) return { ok: false, error: "body_not_object" };
   if (parsed.object !== "page") return { ok: false, error: "wrong_object" };
-  if (!Array.isArray(parsed.entry)) return { ok: false, error: "missing_entry" };
-  if (parsed.entry.length > limits.maxEntries) return { ok: false, error: "too_many_entries" };
+  if (!Array.isArray(parsed.entry)) {
+    return { ok: false, error: "missing_entry" };
+  }
+  if (parsed.entry.length > limits.maxEntries) {
+    return { ok: false, error: "too_many_entries" };
+  }
 
   const events: NormalizedMessengerEvent[] = [];
+  let totalMessagingEvents = 0;
   for (const entry of parsed.entry) {
     if (!isRecord(entry)) return { ok: false, error: "malformed_entry" };
-    if (entry.id !== input.expectedPageId) return { ok: false, error: "wrong_page" };
-    if (!Array.isArray(entry.messaging)) return { ok: false, error: "missing_messaging" };
-    if (entry.messaging.length > limits.maxMessagingEventsPerEntry) return { ok: false, error: "too_many_messaging_events" };
+    if (entry.id !== input.expectedPageId) {
+      return { ok: false, error: "wrong_page" };
+    }
+    if (!Array.isArray(entry.messaging)) {
+      return { ok: false, error: "missing_messaging" };
+    }
+    if (entry.messaging.length > limits.maxMessagingEventsPerEntry) {
+      return { ok: false, error: "too_many_messaging_events" };
+    }
+    totalMessagingEvents += entry.messaging.length;
+    if (totalMessagingEvents > limits.maxTotalMessagingEvents) {
+      return { ok: false, error: "too_many_messaging_events" };
+    }
 
     for (const rawEvent of entry.messaging) {
       if (!isRecord(rawEvent)) return { ok: false, error: "malformed_event" };
-      const normalized = await normalizeEvent(rawEvent, input.expectedPageId, limits);
-      if (normalized.ok === false) return { ok: false, error: normalized.error };
+      const normalized = await normalizeEvent(
+        rawEvent,
+        input.expectedPageId,
+        limits,
+      );
+      if (normalized.ok === false) {
+        return { ok: false, error: normalized.error };
+      }
       events.push(normalized.event);
     }
   }
@@ -137,19 +180,31 @@ export function canApplyMessengerEventUpdate(input: {
   currentTimestampMs: number | null | undefined;
 }): boolean {
   if (!Number.isFinite(input.incomingTimestampMs)) return false;
-  if (input.currentTimestampMs === null || input.currentTimestampMs === undefined) return true;
+  if (
+    input.currentTimestampMs === null || input.currentTimestampMs === undefined
+  ) return true;
   if (!Number.isFinite(input.currentTimestampMs)) return true;
   return input.incomingTimestampMs >= input.currentTimestampMs;
 }
 
-export function evaluateMessengerSendPolicy(input: MessengerSendPolicyInput): MessengerSendPolicyDecision {
+export function evaluateMessengerSendPolicy(
+  input: MessengerSendPolicyInput,
+): MessengerSendPolicyDecision {
   const requestedTag = input.requestedTag || "RESPONSE";
-  if (DEPRECATED_MESSENGER_TAGS.has(requestedTag)) return { allowed: false, reason: "deprecated_tag_denied" };
-  if (!Number.isFinite(input.nowMs)) return { allowed: false, reason: "invalid_now" };
-  if (!Number.isFinite(input.lastUserMessageAtMs)) return { allowed: false, reason: "missing_last_user_message" };
+  if (DEPRECATED_MESSENGER_TAGS.has(requestedTag)) {
+    return { allowed: false, reason: "deprecated_tag_denied" };
+  }
+  if (!Number.isFinite(input.nowMs)) {
+    return { allowed: false, reason: "invalid_now" };
+  }
+  if (!Number.isFinite(input.lastUserMessageAtMs)) {
+    return { allowed: false, reason: "missing_last_user_message" };
+  }
 
   const elapsedMs = input.nowMs - Number(input.lastUserMessageAtMs);
-  if (elapsedMs < 0) return { allowed: false, reason: "last_user_message_in_future" };
+  if (elapsedMs < 0) {
+    return { allowed: false, reason: "last_user_message_in_future" };
+  }
 
   if (requestedTag === "RESPONSE") {
     return elapsedMs <= STANDARD_REPLY_WINDOW_MS
@@ -158,10 +213,17 @@ export function evaluateMessengerSendPolicy(input: MessengerSendPolicyInput): Me
   }
 
   if (requestedTag === "HUMAN_AGENT") {
-    if (!input.humanAgentFeatureEnabled) return { allowed: false, reason: "human_agent_feature_disabled" };
-    if (!input.humanAgentApproved) return { allowed: false, reason: "human_agent_not_approved" };
+    if (!input.humanAgentFeatureEnabled) {
+      return { allowed: false, reason: "human_agent_feature_disabled" };
+    }
+    if (!input.humanAgentApproved) {
+      return { allowed: false, reason: "human_agent_not_approved" };
+    }
     if (input.actorType !== "human" || input.actorAuthenticated !== true) {
-      return { allowed: false, reason: "human_agent_requires_authenticated_human" };
+      return {
+        allowed: false,
+        reason: "human_agent_requires_authenticated_human",
+      };
     }
     return elapsedMs <= HUMAN_AGENT_WINDOW_MS
       ? { allowed: true, tag: "HUMAN_AGENT" }
@@ -172,11 +234,14 @@ export function evaluateMessengerSendPolicy(input: MessengerSendPolicyInput): Me
 }
 
 function parseMessengerSignature(header: string): string | null {
-  const match = /^sha256=([a-f0-9]{64})$/i.exec(header.trim());
-  return match ? match[1].toLowerCase() : null;
+  const match = /^sha256=([a-f0-9]{64})$/.exec(header);
+  return match ? match[1] : null;
 }
 
-async function hmacSha256Hex(secret: string, rawBody: Uint8Array): Promise<string> {
+async function hmacSha256Hex(
+  secret: string,
+  rawBody: Uint8Array,
+): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
     encoder.encode(secret),
@@ -184,7 +249,11 @@ async function hmacSha256Hex(secret: string, rawBody: Uint8Array): Promise<strin
     false,
     ["sign"],
   );
-  const signature = await crypto.subtle.sign("HMAC", key, rawBody);
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    toArrayBuffer(rawBody),
+  );
   return bytesToHex(new Uint8Array(signature));
 }
 
@@ -192,12 +261,18 @@ async function normalizeEvent(
   rawEvent: RawMessengerEvent,
   pageId: string,
   limits: MessengerLimits,
-): Promise<{ ok: true; event: NormalizedMessengerEvent } | { ok: false; error: string }> {
+): Promise<
+  { ok: true; event: NormalizedMessengerEvent } | { ok: false; error: string }
+> {
   const senderId = nestedString(rawEvent, "sender", "id");
   const recipientId = nestedString(rawEvent, "recipient", "id");
   const timestampMs = rawEvent.timestamp;
-  if (!senderId || !recipientId || !Number.isFinite(timestampMs)) return { ok: false, error: "missing_event_identity" };
-  if (senderId !== pageId && recipientId !== pageId) return { ok: false, error: "event_not_for_page" };
+  if (!senderId || !recipientId || !Number.isFinite(timestampMs)) {
+    return { ok: false, error: "missing_event_identity" };
+  }
+  if (senderId !== pageId && recipientId !== pageId) {
+    return { ok: false, error: "event_not_for_page" };
+  }
 
   const base = {
     pageId,
@@ -218,17 +293,38 @@ async function normalizeEvent(
   if (isRecord(rawEvent.message)) {
     const message = rawEvent.message;
     const text = optionalString(message.text);
-    if (text !== null && text.length > limits.maxTextChars) return { ok: false, error: "text_too_large" };
+    if (text !== null && text.length > limits.maxTextChars) {
+      return { ok: false, error: "text_too_large" };
+    }
     const attachments = normalizeAttachments(message.attachments, limits);
-    if (attachments.ok === false) return { ok: false, error: attachments.error };
+    if (attachments.ok === false) {
+      return { ok: false, error: attachments.error };
+    }
     const messengerMessageId = optionalString(message.mid);
-    const kind: MessengerEventKind = message.is_echo === true ? "message_echo" : "message";
-    const eventForFingerprint = { ...base, kind, messengerMessageId, text, attachments: attachments.attachments };
+    const kind: MessengerEventKind = message.is_echo === true
+      ? "message_echo"
+      : "message";
+    const eventForFingerprint = {
+      ...base,
+      kind,
+      messengerMessageId,
+      text,
+      attachments: attachments.attachments,
+    };
     return {
       ok: true,
       event: {
         ...eventForFingerprint,
-        fingerprint: await buildFingerprint(kind, pageId, senderId, recipientId, Number(timestampMs), messengerMessageId, text, attachments.attachments),
+        fingerprint: await buildFingerprint(
+          kind,
+          pageId,
+          senderId,
+          recipientId,
+          Number(timestampMs),
+          messengerMessageId,
+          text,
+          attachments.attachments,
+        ),
       },
     };
   }
@@ -236,23 +332,42 @@ async function normalizeEvent(
   if (isRecord(rawEvent.delivery)) {
     const delivery = rawEvent.delivery;
     const mids = Array.isArray(delivery.mids) ? delivery.mids : [];
-    if (mids.length > limits.maxDeliveryMids || !mids.every((mid) => typeof mid === "string")) {
+    if (
+      mids.length > limits.maxDeliveryMids ||
+      !mids.every((mid) => typeof mid === "string")
+    ) {
       return { ok: false, error: "invalid_delivery_mids" };
     }
-    const watermarkMs = Number.isFinite(delivery.watermark) ? Number(delivery.watermark) : null;
-    return completeEvent({ ...base, kind: "message_delivery", deliveryMessageIds: mids, watermarkMs });
+    const watermarkMs = Number.isFinite(delivery.watermark)
+      ? Number(delivery.watermark)
+      : null;
+    return completeEvent({
+      ...base,
+      kind: "message_delivery",
+      deliveryMessageIds: mids,
+      watermarkMs,
+    });
   }
 
   if (isRecord(rawEvent.read)) {
-    const watermarkMs = Number.isFinite(rawEvent.read.watermark) ? Number(rawEvent.read.watermark) : null;
+    const watermarkMs = Number.isFinite(rawEvent.read.watermark)
+      ? Number(rawEvent.read.watermark)
+      : null;
     return completeEvent({ ...base, kind: "message_read", watermarkMs });
   }
 
   if (isRecord(rawEvent.postback)) {
     const title = optionalString(rawEvent.postback.title);
     const payload = optionalString(rawEvent.postback.payload);
-    if (payload !== null && payload.length > limits.maxPostbackPayloadChars) return { ok: false, error: "postback_payload_too_large" };
-    return completeEvent({ ...base, kind: "messaging_postback", postbackTitle: title, postbackPayload: payload });
+    if (payload !== null && payload.length > limits.maxPostbackPayloadChars) {
+      return { ok: false, error: "postback_payload_too_large" };
+    }
+    return completeEvent({
+      ...base,
+      kind: "messaging_postback",
+      postbackTitle: title,
+      postbackPayload: payload,
+    });
   }
 
   if (isRecord(rawEvent.policy_enforcement)) {
@@ -267,7 +382,9 @@ async function normalizeEvent(
   return { ok: false, error: "unsupported_event" };
 }
 
-async function completeEvent(event: Omit<NormalizedMessengerEvent, "fingerprint">): Promise<{ ok: true; event: NormalizedMessengerEvent }> {
+async function completeEvent(
+  event: Omit<NormalizedMessengerEvent, "fingerprint">,
+): Promise<{ ok: true; event: NormalizedMessengerEvent }> {
   return {
     ok: true,
     event: {
@@ -294,16 +411,68 @@ async function completeEvent(event: Omit<NormalizedMessengerEvent, "fingerprint"
 function normalizeAttachments(
   value: unknown,
   limits: MessengerLimits,
-): { ok: true; attachments: Array<{ type: string; payload: unknown }> } | { ok: false; error: string } {
+): { ok: true; attachments: Array<{ type: string; payload: unknown }> } | {
+  ok: false;
+  error: string;
+} {
   if (value === undefined) return { ok: true, attachments: [] };
   if (!Array.isArray(value)) return { ok: false, error: "invalid_attachments" };
-  if (value.length > limits.maxAttachmentsPerMessage) return { ok: false, error: "too_many_attachments" };
+  if (value.length > limits.maxAttachmentsPerMessage) {
+    return { ok: false, error: "too_many_attachments" };
+  }
   const attachments: Array<{ type: string; payload: unknown }> = [];
   for (const attachment of value) {
-    if (!isRecord(attachment) || typeof attachment.type !== "string") return { ok: false, error: "invalid_attachment" };
-    attachments.push({ type: attachment.type, payload: attachment.payload ?? null });
+    if (!isRecord(attachment) || typeof attachment.type !== "string") {
+      return { ok: false, error: "invalid_attachment" };
+    }
+    const payload = normalizeAttachmentPayload(attachment.payload, limits);
+    if (payload.ok === false) return payload;
+    attachments.push({ type: attachment.type, payload: payload.payload });
   }
   return { ok: true, attachments };
+}
+
+function normalizeAttachmentPayload(
+  value: unknown,
+  limits: MessengerLimits,
+): { ok: true; payload: Record<string, unknown> } | {
+  ok: false;
+  error: string;
+} {
+  if (!isRecord(value)) {
+    return { ok: false, error: "invalid_attachment_payload" };
+  }
+
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) {
+    return { ok: false, error: "invalid_attachment_payload" };
+  }
+  if (
+    encoder.encode(serialized).byteLength > limits.maxAttachmentPayloadBytes
+  ) {
+    return { ok: false, error: "attachment_payload_too_large" };
+  }
+
+  if (Object.hasOwn(value, "url")) {
+    if (!isValidAttachmentUrl(value.url, limits.maxAttachmentUrlChars)) {
+      return { ok: false, error: "invalid_attachment_url" };
+    }
+  }
+
+  return { ok: true, payload: value };
+}
+
+function isValidAttachmentUrl(value: unknown, maxChars: number): boolean {
+  if (
+    typeof value !== "string" || value.length === 0 || value.length > maxChars
+  ) return false;
+  if (!value.startsWith("https://")) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" && parsed.href === value;
+  } catch {
+    return false;
+  }
 }
 
 async function buildFingerprint(
@@ -318,22 +487,49 @@ async function buildFingerprint(
   ...rest: unknown[]
 ): Promise<string> {
   if (messengerMessageId) return `fbmid_${messengerMessageId}`;
-  const canonical = JSON.stringify({ kind, pageId, senderId, recipientId, timestampMs, text, attachments, rest });
-  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(canonical));
+  const canonical = JSON.stringify({
+    kind,
+    pageId,
+    senderId,
+    recipientId,
+    timestampMs,
+    text,
+    attachments,
+    rest,
+  });
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    encoder.encode(canonical),
+  );
   return `fbmsg_${bytesToHex(new Uint8Array(digest))}`;
 }
 
 function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return Array.from(bytes).map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function nestedString(value: Record<string, unknown>, key: string, nestedKey: string): string | null {
+function nestedString(
+  value: Record<string, unknown>,
+  key: string,
+  nestedKey: string,
+): string | null {
   const nested = value[key];
-  return isRecord(nested) && typeof nested[nestedKey] === "string" && nested[nestedKey] ? nested[nestedKey] : null;
+  return isRecord(nested) && typeof nested[nestedKey] === "string" &&
+      nested[nestedKey]
+    ? nested[nestedKey]
+    : null;
 }
 
 function optionalString(value: unknown): string | null {
