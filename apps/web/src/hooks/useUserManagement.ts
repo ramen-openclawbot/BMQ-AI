@@ -41,6 +41,7 @@ export const ALL_MODULES: { key: string; labelEn: string; labelVi: string }[] = 
   { key: "finance_revenue", labelEn: "Revenue Management", labelVi: "Quản lý doanh thu" },
   { key: "crm", labelEn: "CRM", labelVi: "CRM" },
   { key: "sales_po_inbox", labelEn: "Sales PO Inbox", labelVi: "PO (Bán hàng)" },
+  { key: "facebook_messenger", labelEn: "Facebook Page Management", labelVi: "Quản lý Facebook Page" },
   { key: "purchase_orders", labelEn: "PO (Purchasing)", labelVi: "PO (Mua hàng)" },
   { key: "production_q7", labelEn: "Production Planning - Q7 Workshop", labelVi: "Kế hoạch SX - Xưởng Q7" },
   { key: "q7_material_inventory", labelEn: "Q7 Material Inventory", labelVi: "Xuất-nhập-tồn NVL Q7" },
@@ -305,7 +306,7 @@ const DEFAULT_EDIT: Record<string, string[]> = {
 
 const ALL_MODULE_KEYS = [
   "dashboard","finance_cost","finance_revenue","crm",
-  "sales_po_inbox","purchase_orders","production_q7","q7_material_inventory","production_products","production_shifts","production_qa","attendance","payroll","inventory","kitchen_inventory","goods_receipts","sku_costs","material_master",
+  "sales_po_inbox","facebook_messenger","purchase_orders","production_q7","q7_material_inventory","production_products","production_shifts","production_qa","attendance","payroll","inventory","kitchen_inventory","goods_receipts","sku_costs","material_master",
   "suppliers","invoices","payment_requests","low_stock","settings",
 ];
 
