@@ -69,6 +69,66 @@ insert into public.facebook_messenger_settings (page_id)
 values ('page-chronology')
 on conflict (id) do update set page_id = excluded.page_id;
 
+-- Same persisted inbound Messenger MID with altered event/email fingerprints
+-- must reuse one message row and enqueue exactly one email notification.
+select public.facebook_ingest_messenger_webhook_event(
+  repeat('1', 32),
+  'page-chronology',
+  'psid-email-dedupe',
+  'message',
+  '2026-09-03T09:00:00Z'::timestamptz,
+  'mid-email-dedupe',
+  'inbound',
+  'first inbound body',
+  '{"conversation_ref":"email-dedupe","message_preview":"first inbound body"}'::jsonb,
+  '[]',
+  '2026-09-04T09:00:00Z'::timestamptz,
+  '2026-09-10T09:00:00Z'::timestamptz,
+  true,
+  'inboxoggxdk@agent.instinct.co',
+  repeat('2', 32),
+  '{"conversation_ref":"email-dedupe","sender_display":"Facebook sender","message_preview":"first inbound body"}'::jsonb,
+  null
+);
+select public.facebook_ingest_messenger_webhook_event(
+  repeat('3', 32),
+  'page-chronology',
+  'psid-email-dedupe',
+  'message',
+  '2026-09-03T09:01:00Z'::timestamptz,
+  'mid-email-dedupe',
+  'inbound',
+  'altered duplicate body',
+  '{"conversation_ref":"email-dedupe","message_preview":"altered duplicate body"}'::jsonb,
+  '[]',
+  '2026-09-04T09:01:00Z'::timestamptz,
+  '2026-09-10T09:01:00Z'::timestamptz,
+  true,
+  'inboxoggxdk@agent.instinct.co',
+  repeat('4', 32),
+  '{"conversation_ref":"email-dedupe","sender_display":"Facebook sender","message_preview":"altered duplicate body"}'::jsonb,
+  null
+);
+do $$
+begin
+  if (
+    select count(*)
+    from public.facebook_messenger_messages
+    where page_id = 'page-chronology' and message_id = 'mid-email-dedupe'
+  ) <> 1 then
+    raise exception 'same_mid_did_not_reuse_one_message_row';
+  end if;
+
+  if (
+    select count(*)
+    from public.facebook_messenger_email_outbox eo
+    join public.facebook_messenger_messages msg on msg.id = eo.message_id
+    where msg.page_id = 'page-chronology' and msg.message_id = 'mid-email-dedupe'
+  ) <> 1 then
+    raise exception 'same_mid_duplicate_enqueued_second_email';
+  end if;
+end $$;
+
 -- Seed an outbound Messenger message that delivery/read receipts can target.
 select public.facebook_ingest_messenger_webhook_event(
   repeat('a', 32),
@@ -121,6 +181,30 @@ begin
     where page_id = 'page-chronology' and message_id = 'mid-chronology'
   ) is distinct from '2026-09-03T10:12:00Z'::timestamptz then
     raise exception 'invalid_delivery_timestamp_was_not_replaced';
+  end if;
+end $$;
+
+-- A delivery receipt must not mark an inbound message even when the MID matches.
+select public.facebook_ingest_messenger_webhook_event(
+  repeat('5', 32), 'page-chronology', 'psid-chronology', 'message',
+  '2026-09-03T10:13:00Z'::timestamptz, 'mid-inbound-delivery-target', 'inbound', 'inbound should not be delivered',
+  '{"conversation_ref":"chronology"}'::jsonb, '[]', null, null, false, null, null, null, null
+);
+select public.facebook_ingest_messenger_webhook_event(
+  repeat('6', 32), 'page-chronology', 'psid-chronology', 'message_delivery',
+  '2026-09-03T10:14:00Z'::timestamptz, null, null, null,
+  '{"kind":"delivery-inbound-target"}'::jsonb, '["mid-inbound-delivery-target"]'
+);
+do $$
+begin
+  if exists (
+    select 1
+    from public.facebook_messenger_messages
+    where page_id = 'page-chronology'
+      and message_id = 'mid-inbound-delivery-target'
+      and coalesce(payload, '{}'::jsonb) ? 'last_delivery_at'
+  ) then
+    raise exception 'delivery_receipt_marked_inbound_message';
   end if;
 end $$;
 

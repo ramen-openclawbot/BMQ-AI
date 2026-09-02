@@ -1,6 +1,10 @@
 -- Durable Facebook Messenger webhook ingest RPC.
 -- Meta authentication happens in the public Edge Function; this RPC is service-role only.
 
+create unique index if not exists facebook_messenger_email_outbox_message_id_unique
+  on public.facebook_messenger_email_outbox(message_id)
+  where message_id is not null;
+
 create or replace function public.facebook_ingest_messenger_webhook_event(
   p_event_fingerprint text,
   p_page_id text,
@@ -237,6 +241,7 @@ begin
             )
         where page_id = p_page_id
           and message_id = v_mid
+          and direction = 'outbound'
           and case
             when not (coalesce(payload, '{}'::jsonb) ? 'last_delivery_at') then true
             when not ((payload->>'last_delivery_at') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[ tT][0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}(:?[0-9]{2})?)?$') then true
@@ -305,7 +310,7 @@ begin
       )),
       now()
     )
-    on conflict (email_fingerprint) do nothing;
+    on conflict (message_id) where message_id is not null do nothing;
   end if;
 
   update public.facebook_messenger_webhook_events
