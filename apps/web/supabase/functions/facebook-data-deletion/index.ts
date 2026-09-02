@@ -1,7 +1,13 @@
 declare const Deno: any;
 
 type VerifyResult = { ok: true; appScopedUserId: string } | { ok: false; error: string };
-type Env = { META_APP_SECRET?: string; PUBLIC_SITE_URL?: string; SUPABASE_URL?: string; SUPABASE_SERVICE_ROLE_KEY?: string };
+type Env = {
+  META_APP_SECRET?: string;
+  META_DELETION_CONFIRMATION_SECRET?: string;
+  PUBLIC_SITE_URL?: string;
+  SUPABASE_URL?: string;
+  SUPABASE_SERVICE_ROLE_KEY?: string;
+};
 
 type RegisterInput = {
   appScopedUserId: string;
@@ -32,6 +38,8 @@ const decoder = new TextDecoder();
 
 export const FACEBOOK_DELETION_MAX_BODY_BYTES = 16 * 1024;
 const CONFIRMATION_CODE_BYTES = 32;
+const CONFIRMATION_CODE_DOMAIN = "bmq-facebook-data-deletion-confirmation-code:v1";
+const REQUEST_FINGERPRINT_DOMAIN = "bmq-facebook-data-deletion-request-fingerprint:v1";
 
 export async function verifyMetaSignedRequest(signedRequest: string, appSecret: string): Promise<VerifyResult> {
   if (!appSecret) return { ok: false, error: "missing_app_secret" };
@@ -78,10 +86,11 @@ export async function handleDataDeletionCallback(request: Request, env: Env, dep
   const signedRequest = params.get("signed_request") || "";
   const verified = await verifyMetaSignedRequest(signedRequest, env.META_APP_SECRET || "");
   if (!verified.ok) return json({ error: "invalid_signed_request" }, 400);
+  if (!env.META_DELETION_CONFIRMATION_SECRET) return json({ error: "missing_confirmation_secret" }, 500);
 
-  const confirmationCode = generateConfirmationCode();
+  const confirmationCode = await deriveConfirmationCode(env.META_DELETION_CONFIRMATION_SECRET, verified.appScopedUserId);
   const confirmationCodeHash = await hashConfirmationCode(confirmationCode);
-  const requestFingerprint = await hashText(`facebook-data-deletion:${verified.appScopedUserId}`);
+  const requestFingerprint = await deriveRequestFingerprint(env.META_DELETION_CONFIRMATION_SECRET, verified.appScopedUserId);
   const register = deps ?? (await createSupabaseRpcDeps(env));
   await register.registerDeletionRequest({
     appScopedUserId: verified.appScopedUserId,
@@ -89,9 +98,8 @@ export async function handleDataDeletionCallback(request: Request, env: Env, dep
     requestFingerprint,
   });
 
-  const siteUrl = normalizeSiteUrl(env.PUBLIC_SITE_URL || request.url);
   return json({
-    url: `${siteUrl}/facebook-data-deletion.html?code=${encodeURIComponent(confirmationCode)}`,
+    url: buildStatusUrl(request.url, confirmationCode),
     confirmation_code: confirmationCode,
   });
 }
@@ -102,8 +110,12 @@ export async function handleStatusRequest(request: Request, deps: StatusDeps): P
   const code = url.searchParams.get("code") || "";
   if (!/^[A-Za-z0-9_-]{22,128}$/.test(code)) return json({ error: "invalid_code" }, 400);
   const status = await deps.lookupDeletionStatus(await hashConfirmationCode(code));
-  if (!status) return json({ status: "not_found", requested_at: null, completed_at: null }, 404);
-  return json({ status: status.status, requested_at: status.requested_at, completed_at: status.completed_at });
+  const body = status ?? { status: "not_found", requested_at: null, completed_at: null };
+  const statusCode = status ? 200 : 404;
+  if (url.searchParams.get("format") === "json") {
+    return json({ status: body.status, requested_at: body.requested_at, completed_at: body.completed_at }, statusCode);
+  }
+  return html(renderStatusHtml(body), statusCode);
 }
 
 export async function hashConfirmationCode(code: string): Promise<string> {
@@ -138,10 +150,24 @@ async function createSupabaseRpcDeps(env: Env): Promise<DeletionDeps & StatusDep
   };
 }
 
+async function deriveConfirmationCode(secret: string, appScopedUserId: string): Promise<string> {
+  const bytes = await hmacSha256Bytes(secret, `${CONFIRMATION_CODE_DOMAIN}:${appScopedUserId}`);
+  return base64UrlEncode(bytes.slice(0, CONFIRMATION_CODE_BYTES));
+}
+
+async function deriveRequestFingerprint(secret: string, appScopedUserId: string): Promise<string> {
+  const bytes = await hmacSha256Bytes(secret, `${REQUEST_FINGERPRINT_DOMAIN}:${appScopedUserId}`);
+  return bytesToHex(bytes);
+}
+
 async function hmacSha256Base64Url(secret: string, text: string): Promise<string> {
+  return base64UrlEncode(await hmacSha256Bytes(secret, text));
+}
+
+async function hmacSha256Bytes(secret: string, text: string): Promise<Uint8Array> {
   const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(text));
-  return base64UrlEncode(new Uint8Array(signature));
+  return new Uint8Array(signature);
 }
 
 async function hashText(text: string): Promise<string> {
@@ -149,10 +175,52 @@ async function hashText(text: string): Promise<string> {
   return bytesToHex(new Uint8Array(digest));
 }
 
-function generateConfirmationCode(): string {
-  const bytes = new Uint8Array(CONFIRMATION_CODE_BYTES);
-  crypto.getRandomValues(bytes);
-  return base64UrlEncode(bytes);
+function buildStatusUrl(requestUrl: string, confirmationCode: string): string {
+  const parsed = new URL(requestUrl);
+  const basePath = parsed.pathname.replace(/\/+$/, "");
+  const statusPath = basePath.endsWith("/status") ? basePath : `${basePath}/status`;
+  return `${parsed.protocol}//${parsed.host}${statusPath}?code=${encodeURIComponent(confirmationCode)}`;
+}
+
+function renderStatusHtml(status: Exclude<StatusResult, null>): string {
+  const labels: Record<string, string> = {
+    requested: "Đã nhận yêu cầu, đang chờ xử lý.",
+    processing: "Yêu cầu đang được xử lý.",
+    pending_manual_mapping: "BMQ đã nhận yêu cầu nhưng cần đối chiếu thủ công để xác định đúng hội thoại. Trạng thái này không có nghĩa là đã xóa xong.",
+    completed: "Đã hoàn tất xóa dữ liệu Messenger được ánh xạ chắc chắn.",
+    failed: "Yêu cầu gặp lỗi xử lý. Vui lòng liên hệ BMQ bằng mã xác nhận đã nhận.",
+    not_found: "Không tìm thấy yêu cầu cho mã xác nhận này.",
+  };
+  const label = labels[status.status] || "Trạng thái chưa xác định.";
+  const requested = status.requested_at ? `<p><strong>Thời điểm nhận:</strong> <time>${escapeHtml(status.requested_at)}</time></p>` : "";
+  const completed = status.completed_at ? `<p><strong>Hoàn tất:</strong> <time>${escapeHtml(status.completed_at)}</time></p>` : "";
+  return `<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Trạng thái xóa dữ liệu Messenger | BMQ</title>
+  <style>
+    body { margin: 0; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #fff7ed; color: #1f2937; line-height: 1.6; }
+    main { max-width: 760px; margin: 0 auto; padding: 40px 20px 64px; }
+    .card { background: #fff; border: 1px solid #fed7aa; border-radius: 18px; padding: 24px; box-shadow: 0 12px 30px rgba(146, 64, 14, .08); }
+    h1 { line-height: 1.2; }
+    .status { background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 14px 16px; }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <p>Bánh Mì Que · BMQ</p>
+      <h1>Trạng thái xóa dữ liệu Messenger</h1>
+      <div class="status"><strong>${escapeHtml(status.status)}</strong>: ${escapeHtml(label)}</div>
+      ${requested}
+      ${completed}
+      <p>Trang công khai, không cần đăng nhập. Trang này chỉ hiển thị trạng thái tối thiểu và không hiển thị định danh hoặc nội dung Messenger.</p>
+    </section>
+  </main>
+</body>
+</html>`;
 }
 
 function base64UrlEncode(bytes: Uint8Array): string {
@@ -182,15 +250,36 @@ function constantTimeStringEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-function normalizeSiteUrl(value: string): string {
-  const parsed = new URL(value);
-  return `${parsed.protocol}//${parsed.host}`;
-}
-
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+  });
+}
+
+function html(body: string, status = 200): Response {
+  return new Response(body, {
+    status,
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+  });
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>'"]/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case "'":
+        return "&#39;";
+      case '"':
+        return "&quot;";
+      default:
+        return char;
+    }
   });
 }
 
@@ -202,6 +291,7 @@ if (typeof Deno !== "undefined" && Deno?.serve) {
   Deno.serve(async (request: Request) => {
     const env: Env = {
       META_APP_SECRET: Deno.env.get("META_APP_SECRET"),
+      META_DELETION_CONFIRMATION_SECRET: Deno.env.get("META_DELETION_CONFIRMATION_SECRET"),
       PUBLIC_SITE_URL: Deno.env.get("PUBLIC_SITE_URL") || Deno.env.get("SITE_URL"),
       SUPABASE_URL: Deno.env.get("SUPABASE_URL"),
       SUPABASE_SERVICE_ROLE_KEY: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),

@@ -24,9 +24,8 @@ security definer
 set search_path = public, extensions
 as $$
 declare
-  v_existing public.facebook_data_deletion_requests%rowtype;
   v_request public.facebook_data_deletion_requests%rowtype;
-  v_identity record;
+  v_repeated boolean := false;
   v_matched_count integer := 0;
 begin
   if auth.role() is distinct from 'service_role' then
@@ -45,129 +44,119 @@ begin
     raise exception 'invalid_request_fingerprint' using errcode = '22023';
   end if;
 
-  select * into v_existing
-  from public.facebook_data_deletion_requests r
-  where r.request_fingerprint = p_request_fingerprint
-  for update;
+  insert into public.facebook_data_deletion_requests (
+    app_scoped_user_id,
+    confirmation_code_hash,
+    request_fingerprint,
+    status,
+    notes
+  ) values (
+    p_app_scoped_user_id,
+    p_confirmation_code_hash,
+    p_request_fingerprint,
+    'requested',
+    'Registered from verified Meta signed_request; raw callback payload is not stored.'
+  )
+  on conflict (request_fingerprint) do nothing
+  returning * into v_request;
 
-  if found then
-    update public.facebook_data_deletion_requests r
-    set confirmation_code_hash = p_confirmation_code_hash,
-        updated_at = now()
-    where r.id = v_existing.id
-    returning * into v_request;
+  if v_request.id is null then
+    v_repeated := true;
+    select * into v_request
+    from public.facebook_data_deletion_requests r
+    where r.request_fingerprint = p_request_fingerprint
+    for update;
   else
-    insert into public.facebook_data_deletion_requests (
-      app_scoped_user_id,
-      confirmation_code_hash,
-      request_fingerprint,
-      status,
-      notes
-    ) values (
-      p_app_scoped_user_id,
-      p_confirmation_code_hash,
-      p_request_fingerprint,
-      'requested',
-      'Registered from verified Meta signed_request; raw callback payload is not stored.'
-    )
-    on conflict (request_fingerprint) do update
-      set confirmation_code_hash = excluded.confirmation_code_hash,
-          updated_at = now()
-    returning * into v_request;
+    select * into v_request
+    from public.facebook_data_deletion_requests r
+    where r.id = v_request.id
+    for update;
   end if;
 
-  for v_identity in
-    select fpi.page_id, fpi.psid
-    from public.facebook_platform_identities fpi
-    where fpi.app_scoped_user_id = p_app_scoped_user_id
-      and fpi.verified_at is not null
-      and length(btrim(fpi.page_id)) > 0
-      and length(btrim(fpi.psid)) > 0
-    order by fpi.page_id, fpi.psid
-  loop
-    v_matched_count := v_matched_count + 1;
+  if v_request.status = 'completed' then
+    return query select
+      v_request.status,
+      v_request.requested_at,
+      v_request.completed_at,
+      v_request.confirmation_code_hash,
+      v_repeated;
+    return;
+  end if;
 
-    update public.facebook_messenger_messages m
-    set message_text = null,
-        payload = jsonb_build_object('deleted_by_facebook_data_deletion', true, 'deleted_at', now(), 'request_id', v_request.id),
-        processing_status = case when m.processing_status = 'received' then 'processed' else m.processing_status end
-    where m.page_id = v_identity.page_id
-      and m.psid = v_identity.psid;
+  create temporary table if not exists pg_temp.facebook_data_deletion_exact_mappings (
+    page_id text not null,
+    psid text not null,
+    primary key (page_id, psid)
+  ) on commit drop;
 
-    update public.facebook_messenger_outbox o
-    set payload = jsonb_build_object('deleted_by_facebook_data_deletion', true, 'deleted_at', now(), 'request_id', v_request.id),
-        response_payload = jsonb_build_object('deleted_by_facebook_data_deletion', true, 'deleted_at', now(), 'request_id', v_request.id),
-        last_error = null,
-        updated_at = now()
-    where o.page_id = v_identity.page_id
-      and o.psid = v_identity.psid;
+  truncate table pg_temp.facebook_data_deletion_exact_mappings;
 
-    update public.facebook_messenger_email_outbox eo
-    set payload = jsonb_build_object('deleted_by_facebook_data_deletion', true, 'deleted_at', now(), 'request_id', v_request.id),
-        subject = '[Messenger data deleted]',
-        updated_at = now()
-    where eo.conversation_id in (
-      select c.id
-      from public.facebook_messenger_conversations c
-      where c.page_id = v_identity.page_id
-        and c.psid = v_identity.psid
-    );
+  insert into pg_temp.facebook_data_deletion_exact_mappings(page_id, psid)
+  select fpi.page_id, fpi.psid
+  from public.facebook_platform_identities fpi
+  where fpi.app_scoped_user_id = p_app_scoped_user_id
+    and fpi.verified_at is not null
+    and length(btrim(fpi.page_id)) > 0
+    and length(btrim(fpi.psid)) > 0
+  for update;
 
-    update public.facebook_messenger_conversations c
-    set customer_name = null,
-        assigned_owner_id = null,
-        metadata = jsonb_build_object('deleted_by_facebook_data_deletion', true, 'deleted_at', now(), 'request_id', v_request.id),
-        updated_at = now()
-    where c.page_id = v_identity.page_id
-      and c.psid = v_identity.psid;
-
-    update public.facebook_platform_identities fpi
-    set raw_identity = jsonb_build_object(
-          'deleted_by_facebook_data_deletion', true,
-          'deleted_at', now(),
-          'request_id', v_request.id
-        ),
-        updated_at = now()
-    where fpi.page_id = v_identity.page_id
-      and fpi.psid = v_identity.psid;
-  end loop;
+  get diagnostics v_matched_count = row_count;
 
   if v_matched_count = 0 then
     update public.facebook_data_deletion_requests r
     set status = 'pending_manual_mapping',
+        app_scoped_user_id = p_app_scoped_user_id,
         page_id = null,
         psid = null,
         processing_started_at = coalesce(r.processing_started_at, now()),
         completed_at = null,
         failed_at = null,
         updated_at = now(),
-        notes = 'No verified deterministic facebook_platform_identities mapping exists; manual mapping is not implemented by this callback.'
+        notes = 'No verified deterministic facebook_platform_identities mapping exists; manual mapping is required before deletion can complete.'
     where r.id = v_request.id
     returning * into v_request;
   else
+    delete from public.facebook_messenger_email_outbox eo
+    using public.facebook_messenger_conversations c, pg_temp.facebook_data_deletion_exact_mappings m
+    where eo.conversation_id = c.id
+      and c.page_id = m.page_id
+      and c.psid = m.psid;
+
+    delete from public.facebook_messenger_outbox o
+    using pg_temp.facebook_data_deletion_exact_mappings m
+    where o.page_id = m.page_id
+      and o.psid = m.psid;
+
+    delete from public.facebook_messenger_messages msg
+    using pg_temp.facebook_data_deletion_exact_mappings m
+    where msg.page_id = m.page_id
+      and msg.psid = m.psid;
+
+    delete from public.facebook_messenger_webhook_events e
+    using pg_temp.facebook_data_deletion_exact_mappings m
+    where e.page_id = m.page_id
+      and e.psid = m.psid;
+
+    delete from public.facebook_platform_identities fpi
+    using pg_temp.facebook_data_deletion_exact_mappings m
+    where fpi.page_id = m.page_id
+      and fpi.psid = m.psid;
+
+    delete from public.facebook_messenger_conversations c
+    using pg_temp.facebook_data_deletion_exact_mappings m
+    where c.page_id = m.page_id
+      and c.psid = m.psid;
+
     update public.facebook_data_deletion_requests r
-    set status = 'completed',
-        page_id = case when v_matched_count = 1 then (
-          select fpi.page_id
-          from public.facebook_platform_identities fpi
-          where fpi.app_scoped_user_id = p_app_scoped_user_id
-            and fpi.verified_at is not null
-          order by fpi.page_id, fpi.psid
-          limit 1
-        ) else null end,
-        psid = case when v_matched_count = 1 then (
-          select fpi.psid
-          from public.facebook_platform_identities fpi
-          where fpi.app_scoped_user_id = p_app_scoped_user_id
-            and fpi.verified_at is not null
-          order by fpi.page_id, fpi.psid
-          limit 1
-        ) else null end,
+    set app_scoped_user_id = null,
+        page_id = null,
+        psid = null,
+        status = 'completed',
         processing_started_at = coalesce(r.processing_started_at, now()),
         completed_at = coalesce(r.completed_at, now()),
         failed_at = null,
         updated_at = now(),
-        notes = 'Deterministically mapped Messenger platform data was anonymized. Confirmation code plaintext was not stored.'
+        notes = 'Deterministically mapped Messenger platform data and direct identifiers were deleted. Confirmation code plaintext was not stored.'
     where r.id = v_request.id
     returning * into v_request;
   end if;
@@ -177,7 +166,7 @@ begin
     v_request.requested_at,
     v_request.completed_at,
     v_request.confirmation_code_hash,
-    (v_existing.id is not null) as repeated;
+    v_repeated;
 end;
 $$;
 
@@ -241,8 +230,8 @@ begin
   where coalesce(c.last_message_at, c.created_at) < v_cutoff;
 
   select count(*) into v_messages
-  from public.facebook_messenger_messages m
-  where m.created_at < v_cutoff;
+  from public.facebook_messenger_messages msg
+  where msg.created_at < v_cutoff;
 
   select count(*) into v_outbox
   from public.facebook_messenger_outbox o
@@ -264,32 +253,21 @@ begin
     );
   end if;
 
-  update public.facebook_messenger_messages m
-  set message_text = null,
-      payload = jsonb_build_object('deleted_by_facebook_retention', true, 'deleted_at', now())
-  where m.created_at < v_cutoff;
-  get diagnostics v_messages = row_count;
+  delete from public.facebook_messenger_email_outbox eo
+  using public.facebook_messenger_conversations c
+  where eo.conversation_id = c.id
+    and coalesce(c.last_message_at, c.created_at) < v_cutoff;
+  get diagnostics v_email_outbox = row_count;
 
-  update public.facebook_messenger_outbox o
-  set payload = jsonb_build_object('deleted_by_facebook_retention', true, 'deleted_at', now()),
-      response_payload = jsonb_build_object('deleted_by_facebook_retention', true, 'deleted_at', now()),
-      last_error = null,
-      updated_at = now()
+  delete from public.facebook_messenger_outbox o
   where o.created_at < v_cutoff;
   get diagnostics v_outbox = row_count;
 
-  update public.facebook_messenger_email_outbox eo
-  set payload = jsonb_build_object('deleted_by_facebook_retention', true, 'deleted_at', now()),
-      subject = '[Messenger data retained/anonymized]',
-      updated_at = now()
-  where eo.created_at < v_cutoff;
-  get diagnostics v_email_outbox = row_count;
+  delete from public.facebook_messenger_messages msg
+  where msg.created_at < v_cutoff;
+  get diagnostics v_messages = row_count;
 
-  update public.facebook_messenger_conversations c
-  set customer_name = null,
-      assigned_owner_id = null,
-      metadata = jsonb_build_object('deleted_by_facebook_retention', true, 'deleted_at', now()),
-      updated_at = now()
+  delete from public.facebook_messenger_conversations c
   where coalesce(c.last_message_at, c.created_at) < v_cutoff;
   get diagnostics v_conversations = row_count;
 
@@ -297,10 +275,10 @@ begin
     'enabled', true,
     'dry_run', false,
     'cutoff', v_cutoff,
-    'anonymized_conversations', v_conversations,
-    'anonymized_messages', v_messages,
-    'anonymized_outbox', v_outbox,
-    'anonymized_email_outbox', v_email_outbox
+    'deleted_conversations', v_conversations,
+    'deleted_messages', v_messages,
+    'deleted_outbox', v_outbox,
+    'deleted_email_outbox', v_email_outbox
   );
 end;
 $$;

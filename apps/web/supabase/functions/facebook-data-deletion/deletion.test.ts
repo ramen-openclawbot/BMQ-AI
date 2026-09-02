@@ -63,11 +63,24 @@ test("tampered, malformed, wrong algorithm, and oversized callbacks are rejected
   assert.equal(response.status, 413);
 });
 
-test("callback returns a high-entropy plaintext confirmation once, while storage receives only its SHA-256 hash", async () => {
-  const seen: Array<Record<string, unknown>> = [];
+test("callback requires a separate confirmation secret before registration", async () => {
   const response = await handleDataDeletionCallback(
     formRequest(signedRequest({ algorithm: "HMAC-SHA256", user_id: "app-user-1" })),
     { META_APP_SECRET: "meta-secret", PUBLIC_SITE_URL: "https://ai.banhmique.vn" },
+    {
+      registerDeletionRequest: async () => assert.fail("missing confirmation secret must not reach registration"),
+    },
+  );
+
+  assert.equal(response.status, 500);
+  assert.deepEqual(await response.json(), { error: "missing_confirmation_secret" });
+});
+
+test("callback returns deterministic high-entropy confirmation derived from a separate secret while storage receives only hashes", async () => {
+  const seen: Array<Record<string, unknown>> = [];
+  const response = await handleDataDeletionCallback(
+    formRequest(signedRequest({ algorithm: "HMAC-SHA256", user_id: "app-user-1" })),
+    { META_APP_SECRET: "meta-secret", META_DELETION_CONFIRMATION_SECRET: "confirmation-secret", PUBLIC_SITE_URL: "https://www.banhmique.vn" },
     {
       registerDeletionRequest: async (input) => {
         seen.push(input);
@@ -79,7 +92,7 @@ test("callback returns a high-entropy plaintext confirmation once, while storage
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.match(body.confirmation_code, /^[A-Za-z0-9_-]{43}$/);
-  assert.equal(body.url, `https://ai.banhmique.vn/facebook-data-deletion.html?code=${body.confirmation_code}`);
+  assert.equal(body.url, `https://ai.banhmique.vn/functions/v1/facebook-data-deletion/status?code=${body.confirmation_code}`);
   assert.deepEqual(Object.keys(body).sort(), ["confirmation_code", "url"]);
   assert.equal(seen.length, 1);
   assert.equal(seen[0].appScopedUserId, "app-user-1");
@@ -89,24 +102,27 @@ test("callback returns a high-entropy plaintext confirmation once, while storage
   assert.equal(seen[0].confirmationCodeHash, await hashConfirmationCode(body.confirmation_code));
 });
 
-test("repeat callback uses safe idempotency semantics without claiming recoverable plaintext code", async () => {
+test("repeat callback returns the same code and same function-origin status URL without plaintext storage", async () => {
   const requestFingerprint = new Set<string>();
+  const confirmationHashes = new Set<string>();
   const first = await handleDataDeletionCallback(
     formRequest(signedRequest({ algorithm: "HMAC-SHA256", user_id: "repeat-user" })),
-    { META_APP_SECRET: "meta-secret", PUBLIC_SITE_URL: "https://ai.banhmique.vn" },
+    { META_APP_SECRET: "meta-secret", META_DELETION_CONFIRMATION_SECRET: "confirmation-secret", PUBLIC_SITE_URL: "https://www.banhmique.vn/privacy.html" },
     {
       registerDeletionRequest: async (input) => {
         requestFingerprint.add(input.requestFingerprint);
+        confirmationHashes.add(input.confirmationCodeHash);
         return { status: "completed", confirmationCodeHash: input.confirmationCodeHash };
       },
     },
   );
   const second = await handleDataDeletionCallback(
     formRequest(signedRequest({ algorithm: "HMAC-SHA256", user_id: "repeat-user" })),
-    { META_APP_SECRET: "meta-secret", PUBLIC_SITE_URL: "https://ai.banhmique.vn" },
+    { META_APP_SECRET: "meta-secret", META_DELETION_CONFIRMATION_SECRET: "confirmation-secret", PUBLIC_SITE_URL: "https://www.banhmique.vn/privacy.html" },
     {
       registerDeletionRequest: async (input) => {
         requestFingerprint.add(input.requestFingerprint);
+        confirmationHashes.add(input.confirmationCodeHash);
         return { status: "completed", confirmationCodeHash: input.confirmationCodeHash, repeated: true };
       },
     },
@@ -118,11 +134,13 @@ test("repeat callback uses safe idempotency semantics without claiming recoverab
   const firstBody = await first.json();
   const secondBody = await second.json();
   assert.match(firstBody.confirmation_code, /^[A-Za-z0-9_-]{43}$/);
-  assert.match(secondBody.confirmation_code, /^[A-Za-z0-9_-]{43}$/);
-  assert.notEqual(firstBody.confirmation_code, secondBody.confirmation_code, "plaintext codes are generated per callback and not recovered from storage");
+  assert.equal(secondBody.confirmation_code, firstBody.confirmation_code);
+  assert.equal(secondBody.url, firstBody.url);
+  assert.equal(confirmationHashes.size, 1);
+  assert.equal(firstBody.url, `https://ai.banhmique.vn/functions/v1/facebook-data-deletion/status?code=${firstBody.confirmation_code}`);
 });
 
-test("status endpoint accepts only opaque code and returns no PSID, app user, message, or content", async () => {
+test("status endpoint defaults to browser-usable Vietnamese HTML and returns JSON only when explicitly requested", async () => {
   const response = await handleStatusRequest(new Request("https://ai.banhmique.vn/functions/v1/facebook-data-deletion/status?code=opaque-confirmation-code"), {
     lookupDeletionStatus: async (confirmationCodeHash) => {
       assert.match(confirmationCodeHash, /^[0-9a-f]{64}$/);
@@ -131,14 +149,22 @@ test("status endpoint accepts only opaque code and returns no PSID, app user, me
   });
 
   assert.equal(response.status, 200);
-  const body = await response.json();
+  assert.match(response.headers.get("content-type") || "", /text\/html/);
+  const html = await response.text();
+  assert.match(html, /lang="vi"/i);
+  assert.match(html, /pending_manual_mapping|đối chiếu thủ công/i);
+  assert.match(html, /2026-09-03T00:00:00.000Z/);
+  assert.equal(/psid|app_scoped_user_id|message_text|payload|opaque-confirmation-code/i.test(html), false);
+
+  const jsonResponse = await handleStatusRequest(new Request("https://ai.banhmique.vn/functions/v1/facebook-data-deletion/status?code=opaque-confirmation-code&format=json"), {
+    lookupDeletionStatus: async () => ({ status: "completed", requested_at: "2026-09-03T00:00:00.000Z", completed_at: "2026-09-03T00:05:00.000Z" }),
+  });
+  assert.match(jsonResponse.headers.get("content-type") || "", /application\/json/);
+  const body = await jsonResponse.json();
   assert.deepEqual(Object.keys(body).sort(), ["completed_at", "requested_at", "status"]);
-  assert.equal(JSON.stringify(body).includes("psid"), false);
-  assert.equal(JSON.stringify(body).includes("app_scoped_user_id"), false);
-  assert.equal(JSON.stringify(body).includes("message"), false);
 });
 
-test("SQL registers mapped deletions transactionally, anonymizes exact mapped Messenger data, and never completes unmapped requests", () => {
+test("SQL registers mapped deletions transactionally, deletes exact mapped Messenger data, preserves codes, and never completes unmapped requests", () => {
   const sql = text(SQL);
 
   assert.match(sql, /create\s+or\s+replace\s+function\s+public\.facebook_register_data_deletion_request/i);
@@ -148,13 +174,23 @@ test("SQL registers mapped deletions transactionally, anonymizes exact mapped Me
   assert.match(sql, /set\s+search_path\s*=\s*public,\s*extensions/i);
   assert.match(sql, /from\s+public\.facebook_platform_identities[\s\S]*app_scoped_user_id[\s\S]*verified_at\s+is\s+not\s+null/i);
   assert.match(sql, /status\s*=\s*'pending_manual_mapping'/i);
-  assert.doesNotMatch(sql, /status\s*=\s*'completed'[\s\S]{0,300}app_scoped_user_id\s+is\s+null/i);
-  assert.match(sql, /update\s+public\.facebook_messenger_conversations[\s\S]*customer_name\s*=\s*null[\s\S]*metadata\s*=\s*jsonb_build_object\('deleted_by_facebook_data_deletion'/i);
-  assert.match(sql, /update\s+public\.facebook_messenger_messages[\s\S]*message_text\s*=\s*null[\s\S]*payload\s*=\s*jsonb_build_object\('deleted_by_facebook_data_deletion'/i);
-  assert.match(sql, /update\s+public\.facebook_messenger_outbox[\s\S]*payload\s*=\s*jsonb_build_object\('deleted_by_facebook_data_deletion'/i);
-  assert.match(sql, /update\s+public\.facebook_messenger_email_outbox[\s\S]*payload\s*=\s*jsonb_build_object\('deleted_by_facebook_data_deletion'/i);
+  assert.doesNotMatch(sql, /set\s+confirmation_code_hash\s*=\s*(excluded\.|p_confirmation_code_hash)/i);
+  assert.match(sql, /on\s+conflict\s*\(request_fingerprint\)[\s\S]{0,220}do\s+nothing/i);
+  assert.match(sql, /if\s+v_request\.status\s*=\s*'completed'[\s\S]*return\s+query/i);
+  for (const table of [
+    'facebook_messenger_email_outbox',
+    'facebook_messenger_outbox',
+    'facebook_messenger_messages',
+    'facebook_messenger_webhook_events',
+    'facebook_platform_identities',
+    'facebook_messenger_conversations',
+  ]) {
+    assert.match(sql, new RegExp(`delete\\s+from\\s+public\\.${table}`, 'i'));
+  }
+  assert.match(sql, /set[\s\S]*app_scoped_user_id\s*=\s*null[\s\S]*page_id\s*=\s*null[\s\S]*psid\s*=\s*null[\s\S]*status\s*=\s*'completed'/i);
+  assert.match(sql, /set[\s\S]*status\s*=\s*'pending_manual_mapping'[\s\S]*app_scoped_user_id\s*=\s*p_app_scoped_user_id/i);
   assert.match(sql, /request_fingerprint\s*=\s*p_request_fingerprint/i);
-  assert.match(sql, /on\s+conflict\s*\(request_fingerprint\)/i);
+  assert.match(sql, /for\s+update/i);
 });
 
 test("SQL exposes only service-role registration/retention RPCs and an anon-safe status RPC", () => {
@@ -194,7 +230,9 @@ test("privacy and deletion pages are public, BMQ-branded, Vietnamese-first, and 
   assert.match(deletion, /lang="vi"/i);
   assert.match(deletion, /confirmation code|mã xác nhận/i);
   assert.match(deletion, /URLSearchParams\(window\.location\.search\)/);
-  assert.match(deletion, /facebook-data-deletion\/status/i);
+  assert.match(deletion, /functions\/v1\/facebook-data-deletion\/status/i);
+  assert.doesNotMatch(deletion, /fetch\(\s*[`'"]\/functions\/v1/i);
+  assert.match(deletion, /đường dẫn trạng thái chính xác/i);
   assert.doesNotMatch(deletion, /psid|app_scoped_user_id|message_text/i);
   assert.match(combined, /không cần đăng nhập|no login/i);
 });
