@@ -182,6 +182,37 @@ type DealerQuickOrderSuggestionResponse = {
   } | null;
 };
 
+type DealerCancellationOrder = {
+  id: string;
+  order_number: string;
+  submitted_at: string;
+  requested_delivery_date?: string | null;
+  physical_quantity: number;
+  total_amount_vnd: number;
+};
+
+type DealerCancellationStage = "idle" | "loading" | "select" | "confirm" | "submitting" | "success" | "error";
+
+type DealerCancellationState = {
+  stage: DealerCancellationStage;
+  orders: DealerCancellationOrder[];
+  selectedOrderIds: string[];
+  message: string;
+};
+
+type DealerCancellationResponse = {
+  success?: boolean;
+  code?: string;
+  orders?: DealerCancellationOrder[];
+  cancellation?: {
+    cancelled_count?: number;
+    selected_count?: number;
+    physical_quantity?: number;
+    total_amount_vnd?: number;
+    orders?: DealerCancellationOrder[];
+  };
+};
+
 type DealerOrderHistoryGranularity = "day" | "month" | "year";
 type DealerOrderHistoryStatus = "idle" | "loading" | "live" | "error";
 
@@ -496,6 +527,13 @@ export default function DealerPortal() {
   const [deepLinkedOrderActive, setDeepLinkedOrderActive] = useState(false);
   const [quickOrderSuggestion, setQuickOrderSuggestion] = useState<DealerQuickOrderSuggestionResponse | null>(null);
   const [quickOrderSuggestionStatus, setQuickOrderSuggestionStatus] = useState<"idle" | "loading" | "live">("idle");
+  const [cancellation, setCancellation] = useState<DealerCancellationState>({
+    stage: "idle",
+    orders: [],
+    selectedOrderIds: [],
+    message: "",
+  });
+  const cancellationSubmittingRef = useRef(false);
 
   const loadLandingConfig = useCallback(async () => {
     try {
@@ -814,6 +852,10 @@ export default function DealerPortal() {
     setOrderHistoryStatus("idle");
     setOrderHistoryError("");
     setOrderHistoryPage(1);
+    setQuickOrderSuggestion(null);
+    setQuickOrderSuggestionStatus("idle");
+    setCancellation({ stage: "idle", orders: [], selectedOrderIds: [], message: "" });
+    cancellationSubmittingRef.current = false;
     setSelectedHistoryOrder(null);
     setDeepLinkedOrderActive(false);
     setLoginStep("phone");
@@ -960,7 +1002,105 @@ export default function DealerPortal() {
     setOrderMessage("");
     setOrderError("");
     setDuplicateOrderPrompt(null);
+    setCancellation({ stage: "idle", orders: [], selectedOrderIds: [], message: "" });
+    cancellationSubmittingRef.current = false;
     orderSubmissionIdRef.current = crypto.randomUUID();
+  };
+
+  const loadDealerCancellationOrders = async () => {
+    if (!sessionToken) return;
+    setCancellation({ stage: "loading", orders: [], selectedOrderIds: [], message: "" });
+    setNppParseStatus("processing");
+    setNppParseMessage("");
+    setOrderMessage("");
+    setOrderError("");
+
+    try {
+      const { data, error, isSessionExpired } = await callEdgeFunction<DealerCancellationResponse>("dealer-order-history", {
+        dealer_token: sessionToken,
+        action: "self_cancel_list",
+      }, undefined, 12000);
+      if (error) {
+        if (isSessionExpired) handleLogoutDealer();
+        throw new Error(error);
+      }
+      const orders = Array.isArray(data?.orders) ? data.orders : [];
+      setNppParseStatus("idle");
+      setCancellation(orders.length > 0
+        ? { stage: "select", orders, selectedOrderIds: [], message: "" }
+        : {
+            stage: "error",
+            orders: [],
+            selectedOrderIds: [],
+            message: "Hôm nay Quý Khách Hàng không có đơn vừa đặt đủ điều kiện tự huỷ.",
+          });
+    } catch (error) {
+      setNppParseStatus("idle");
+      setCancellation({
+        stage: "error",
+        orders: [],
+        selectedOrderIds: [],
+        message: await getFunctionErrorMessage(error, "Không tải được đơn có thể huỷ. Vui lòng thử lại."),
+      });
+    }
+  };
+
+  const toggleCancellationOrder = (orderId: string) => {
+    setCancellation((current) => ({
+      ...current,
+      selectedOrderIds: current.selectedOrderIds.includes(orderId)
+        ? current.selectedOrderIds.filter((id) => id !== orderId)
+        : [...current.selectedOrderIds, orderId],
+    }));
+  };
+
+  const showCancellationConfirmation = () => {
+    setCancellation((current) => current.selectedOrderIds.length > 0 ? { ...current, stage: "confirm" } : current);
+  };
+
+  const returnToCancellationSelection = () => {
+    setCancellation((current) => ({ ...current, stage: "select", message: "" }));
+  };
+
+  const confirmDealerCancellation = async () => {
+    if (!sessionToken || cancellation.selectedOrderIds.length === 0 || cancellationSubmittingRef.current) return;
+    cancellationSubmittingRef.current = true;
+    setCancellation((current) => ({ ...current, stage: "submitting", message: "" }));
+
+    try {
+      const selectedCancellationOrderIds = cancellation.selectedOrderIds;
+      const { data, error, isSessionExpired } = await callEdgeFunction<DealerCancellationResponse>("dealer-order-history", {
+        dealer_token: sessionToken,
+        action: "self_cancel_confirm",
+        order_ids: selectedCancellationOrderIds,
+      }, undefined, 12000);
+      if (error) {
+        if (isSessionExpired) handleLogoutDealer();
+        throw new Error(error);
+      }
+      const result = data?.cancellation;
+      const selectedCount = Number(result?.selected_count || selectedCancellationOrderIds.length);
+      const physicalQuantity = Number(result?.physical_quantity || 0);
+      setCancellation({
+        stage: "success",
+        orders: Array.isArray(result?.orders) ? result.orders : cancellation.orders,
+        selectedOrderIds: selectedCancellationOrderIds,
+        message: `Đã huỷ ${selectedCount} đơn, tổng ${formatDealerQuantity(physicalQuantity)} bánh.`,
+      });
+      setOrderHistoryData(null);
+      setOrderHistoryStatus("idle");
+      setQuickOrderSuggestion(null);
+      setQuickOrderSuggestionStatus("idle");
+    } catch (error) {
+      const message = await getFunctionErrorMessage(error, "Không huỷ được đơn. Vui lòng tải lại hoặc liên hệ BMQ.");
+      setCancellation((current) => ({
+        ...current,
+        stage: "error",
+        message,
+      }));
+    } finally {
+      cancellationSubmittingRef.current = false;
+    }
   };
 
 
@@ -970,6 +1110,20 @@ export default function DealerPortal() {
 
     setNppLastSentOrderText(submittedText);
     setNppOrderText("");
+    if (isDealerChatCancellationIntent(submittedText)) {
+      setDuplicateOrderPrompt(null);
+      setNppConfirmOpen(false);
+      setNppQuantities({});
+      setNppExchangeQuantities({});
+      setNppMakeupQuantities({});
+      setNppNotes({});
+      setDirectCatalogOrder(false);
+      void loadDealerCancellationOrders();
+      return;
+    }
+    if (cancellation.stage !== "idle") {
+      setCancellation({ stage: "idle", orders: [], selectedOrderIds: [], message: "" });
+    }
     if (isDealerChatConfirmationIntent(submittedText)) {
       const hasReadyOrder = nppSelectedLines.length > 0;
       setOrderMessage("");
@@ -1910,6 +2064,12 @@ export default function DealerPortal() {
             successMessage={orderMessage}
             errorMessage={orderError}
             duplicateOrderPrompt={duplicateOrderPrompt}
+            cancellation={cancellation}
+            onCancellationToggle={toggleCancellationOrder}
+            onCancellationSend={showCancellationConfirmation}
+            onCancellationConfirm={confirmDealerCancellation}
+            onCancellationBack={returnToCancellationSelection}
+            onCancellationReset={handleStartNewNppOrder}
             quickOrderSuggestion={quickOrderSuggestion}
             quickOrderSuggestionStatus={quickOrderSuggestionStatus}
             quickOrderProduct={quickOrderProduct}
@@ -2375,6 +2535,12 @@ export default function DealerPortal() {
                 successMessage={orderMessage}
                 errorMessage={orderError}
                 duplicateOrderPrompt={duplicateOrderPrompt}
+                cancellation={cancellation}
+                onCancellationToggle={toggleCancellationOrder}
+                onCancellationSend={showCancellationConfirmation}
+                onCancellationConfirm={confirmDealerCancellation}
+                onCancellationBack={returnToCancellationSelection}
+                onCancellationReset={handleStartNewNppOrder}
                 quickOrderSuggestion={null}
                 quickOrderSuggestionStatus="idle"
                 quickOrderProduct={null}
@@ -2930,6 +3096,12 @@ function NppQuickOrderPanel({
   successMessage,
   errorMessage,
   duplicateOrderPrompt,
+  cancellation,
+  onCancellationToggle,
+  onCancellationSend,
+  onCancellationConfirm,
+  onCancellationBack,
+  onCancellationReset,
   quickOrderSuggestion,
   quickOrderSuggestionStatus,
   quickOrderProduct,
@@ -2969,6 +3141,12 @@ function NppQuickOrderPanel({
   successMessage: string;
   errorMessage: string;
   duplicateOrderPrompt: DuplicateOrderPrompt | null;
+  cancellation: DealerCancellationState;
+  onCancellationToggle: (orderId: string) => void;
+  onCancellationSend: () => void;
+  onCancellationConfirm: () => void;
+  onCancellationBack: () => void;
+  onCancellationReset: () => void;
   quickOrderSuggestion: DealerQuickOrderSuggestionResponse | null;
   quickOrderSuggestionStatus: "idle" | "loading" | "live";
   quickOrderProduct: Product | null;
@@ -2998,17 +3176,21 @@ function NppQuickOrderPanel({
     return ordered + exchange + makeup > 0;
   });
   const selectedRouteCount = selectedRoutes.length;
+  const selectedCancellationOrders = cancellation.orders.filter((order) => cancellation.selectedOrderIds.includes(order.id));
+  const selectedCancellationQuantity = selectedCancellationOrders.reduce((sum, order) => sum + Number(order.physical_quantity || 0), 0);
+  const selectedCancellationAmount = selectedCancellationOrders.reduce((sum, order) => sum + Number(order.total_amount_vnd || 0), 0);
+  const cancellationActive = cancellation.stage !== "idle";
   const [isEditingOrder, setIsEditingOrder] = useState(false);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
-    if (!sentOrderText && !successMessage && !errorMessage && !duplicateOrderPrompt) return;
+    if (!sentOrderText && !successMessage && !errorMessage && !duplicateOrderPrompt && !cancellationActive) return;
     const frame = window.requestAnimationFrame(() => {
       chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [duplicateOrderPrompt, errorMessage, parseStatus, selectedRouteCount, sentOrderText, successMessage]);
+  }, [cancellation.stage, cancellation.selectedOrderIds.length, cancellationActive, duplicateOrderPrompt, errorMessage, parseStatus, selectedRouteCount, sentOrderText, successMessage]);
 
   const openOrderConfirmation = () => {
     setIsEditingOrder(false);
@@ -3030,6 +3212,7 @@ function NppQuickOrderPanel({
   };
   const quickOrderItem = quickOrderSuggestion?.suggestion?.items[0] || null;
   const showQuickOrder = isRetailDealer
+    && !cancellationActive
     && !sentOrderText
     && !successMessage
     && !errorMessage
@@ -3051,7 +3234,7 @@ function NppQuickOrderPanel({
     <div className="flex min-h-[calc(100dvh-88px)] min-w-0 w-full max-w-full flex-col pb-[max(12px,env(safe-area-inset-bottom))]" data-stitch-dealer-chat-agent="conversation-v1" data-stitch-dealer-chat-overflow="contained-v1">
       <div className="py-2 text-center text-[11px] font-medium text-[#a18d96]">Hôm nay</div>
 
-      {!sentOrderText && !successMessage && !errorMessage && parseStatus === "idle" && !parseMessage ? (
+      {!cancellationActive && !sentOrderText && !successMessage && !errorMessage && parseStatus === "idle" && !parseMessage ? (
         <div className="flex min-w-0 items-start gap-2 py-2">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0ccdc] bg-white shadow-sm">
             <img src={bmqLogo} alt="BMQ Agent" className="h-8 w-8 object-contain" />
@@ -3156,7 +3339,98 @@ function NppQuickOrderPanel({
         </div>
       ) : null}
 
-      {parseMessage && parseStatus === "idle" && selectedRouteCount === 0 ? (
+      {cancellation.stage === "select" ? (
+        <div className="ml-11 min-w-0 max-w-sm rounded-[22px] border border-[#ebc7d7] bg-white p-4 shadow-[0_8px_20px_rgba(105,49,73,0.08)]" data-dealer-cancellation-stage="select">
+          <div className="text-sm font-extrabold text-[#4a343e]">Chọn đơn cần huỷ</div>
+          <div className="mt-1 text-xs font-medium leading-5 text-[#806873]">Chỉ hiển thị đơn vừa đặt hôm nay và còn đủ điều kiện tự huỷ.</div>
+          <div className="mt-3 divide-y divide-[#f2dfe7] border-y border-[#f2dfe7]">
+            {cancellation.orders.map((order) => {
+              const selected = cancellation.selectedOrderIds.includes(order.id);
+              return (
+                <label key={order.id} className="flex min-h-14 cursor-pointer items-center gap-3 py-3" data-dealer-cancellation-choice>
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={() => onCancellationToggle(order.id)}
+                    className="h-5 w-5 shrink-0 accent-[#d94f8a]"
+                    aria-label={`Chọn đơn ${order.order_number}`}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-extrabold text-[#4a343e]">{order.order_number}</span>
+                    <span className="mt-0.5 block text-xs font-medium text-[#806873]">{formatDealerQuantity(order.physical_quantity)} bánh · {formatVnd(order.total_amount_vnd)}</span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          <Button
+            type="button"
+            className="mt-4 h-11 w-full rounded-xl bg-[#d94f8a] font-extrabold text-white hover:bg-[#c43f79]"
+            data-dealer-cancellation-action="send"
+            disabled={cancellation.selectedOrderIds.length === 0}
+            onClick={onCancellationSend}
+          >
+            <Send className="h-4 w-4" /> Gửi
+          </Button>
+        </div>
+      ) : null}
+
+      {cancellation.stage === "confirm" || cancellation.stage === "submitting" ? (
+        <div className="ml-11 min-w-0 max-w-sm rounded-[22px] border border-[#e7b9cd] bg-[#fff7fb] p-4 shadow-sm" data-dealer-cancellation-stage="confirm" role="alertdialog" aria-label="Xác nhận huỷ đơn">
+          <div className="text-sm font-extrabold text-[#4a343e]">Xác nhận huỷ {selectedCancellationOrders.length} đơn?</div>
+          <div className="mt-3 max-h-44 divide-y divide-[#efd8e2] overflow-y-auto rounded-xl border border-[#efd8e2] bg-white px-3">
+            {selectedCancellationOrders.map((order) => (
+              <div key={order.id} className="min-w-0 py-2.5">
+                <div className="break-all text-xs font-extrabold leading-5 text-[#4a343e]">{order.order_number}</div>
+                <div className="mt-0.5 text-xs font-semibold text-[#806873]">
+                  {formatDealerQuantity(order.physical_quantity)} bánh · {formatVnd(order.total_amount_vnd)}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 text-sm font-medium leading-6 text-[#704f5e]">
+            Tổng {formatDealerQuantity(selectedCancellationQuantity)} bánh · {formatVnd(selectedCancellationAmount)}. Thao tác này không thể hoàn tác.
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <Button type="button" variant="outline" className="h-11 rounded-xl border-[#d7bdc8] bg-white font-bold text-[#704f5e] hover:bg-[#fff0f6]" disabled={cancellation.stage === "submitting"} onClick={onCancellationBack}>
+              Quay lại
+            </Button>
+            <Button type="button" className="h-11 rounded-xl bg-[#c83f73] font-extrabold text-white hover:bg-[#ad3262]" data-dealer-cancellation-action="confirm" disabled={cancellation.stage === "submitting"} onClick={onCancellationConfirm}>
+              {cancellation.stage === "submitting" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Xác nhận huỷ
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {cancellation.stage === "success" ? (
+        <div className="flex min-w-0 items-start gap-2 py-2" data-dealer-cancellation-stage="success" aria-live="polite">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0ccdc] bg-white shadow-sm">
+            <img src={bmqLogo} alt="BMQ Agent" className="h-8 w-8 object-contain" />
+          </div>
+          <div className="min-w-0 max-w-[85%] rounded-2xl rounded-tl-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-800 shadow-sm">
+            <div className="flex items-center gap-2 font-extrabold"><CheckCircle2 className="h-4 w-4" />Huỷ đơn thành công</div>
+            <div className="mt-1 break-words">{cancellation.message}</div>
+            <Button type="button" variant="outline" className="mt-3 h-10 rounded-xl border-emerald-300 bg-white font-bold text-emerald-800 hover:bg-emerald-100" onClick={onCancellationReset}>Đóng</Button>
+          </div>
+        </div>
+      ) : null}
+
+      {cancellation.stage === "error" ? (
+        <div className="flex min-w-0 items-start gap-2 py-2" data-dealer-cancellation-stage="error" aria-live="polite">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#f0ccdc] bg-white shadow-sm">
+            <img src={bmqLogo} alt="BMQ Agent" className="h-8 w-8 object-contain" />
+          </div>
+          <div className="min-w-0 max-w-[85%] rounded-2xl rounded-tl-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900 shadow-sm">
+            <div className="flex items-center gap-2 font-extrabold"><AlertCircle className="h-4 w-4" />Chưa thể huỷ đơn</div>
+            <div className="mt-1 break-words">{cancellation.message}</div>
+            <Button type="button" variant="outline" className="mt-3 h-10 rounded-xl border-amber-300 bg-white font-bold text-amber-900 hover:bg-amber-100" onClick={cancellation.orders.length > 0 ? onCancellationBack : onCancellationReset}>
+              {cancellation.orders.length > 0 ? "Chọn lại" : "Đóng"}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {parseMessage && parseStatus === "idle" && selectedRouteCount === 0 && !cancellationActive ? (
         <div className="ml-11 grid max-w-sm grid-cols-2 gap-2 pb-2" data-dealer-chat-choices="parse-recovery" role="group" aria-label="Chọn cách tiếp tục">
           <Button type="button" variant="outline" className="h-10 rounded-full border-[#e7b9cd] bg-white text-sm font-bold text-[#a73f70] hover:bg-[#fff0f6]" onClick={focusComposer}>
             Nhập lại đơn
@@ -3264,7 +3538,7 @@ function NppQuickOrderPanel({
         </div>
       ) : null}
 
-      {productSuggestions.length > 0 && !sentOrderText && parseStatus === "idle" && !successMessage ? (
+      {!cancellationActive && productSuggestions.length > 0 && !sentOrderText && parseStatus === "idle" && !successMessage ? (
         <div data-hallmark-chat-actions="catalogue" className="mt-auto min-w-0 w-full max-w-full space-y-2 overflow-hidden pt-8">
           <div className="flex items-center justify-between gap-3 px-1">
             <h4 className="text-sm font-extrabold text-[#4a343e]">Gợi ý sản phẩm</h4>
@@ -3552,6 +3826,9 @@ const DEALER_CHAT_CONFIRMATION_INTENTS = new Set([
   "gui don",
   "chot don",
 ]);
+
+const isDealerChatCancellationIntent = (value: string) =>
+  normalizeDealerChatText(value) === "huy";
 
 const isDealerChatConfirmationIntent = (value: string) =>
   DEALER_CHAT_CONFIRMATION_INTENTS.has(normalizeDealerChatText(value));

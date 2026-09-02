@@ -12,6 +12,7 @@ import {
   buildRetailQuickOrderSuggestion,
   type RetailQuickOrderCandidate,
 } from "../_shared/dealer-quick-order.ts";
+import { normalizeSelfCancellationIds } from "../_shared/dealer-order-cancellation.ts";
 
 const PAGE_SIZE = 10;
 const QUICK_REORDER_BATCH_SIZE = 50;
@@ -23,6 +24,8 @@ type Granularity = "day" | "month" | "year";
 type HistoryRequest = {
   dealer_token?: unknown;
   session_token?: unknown;
+  action?: unknown;
+  order_ids?: unknown;
   granularity?: unknown;
   anchor?: unknown;
   page?: unknown;
@@ -94,6 +97,55 @@ serve(async (req) => {
       return errorResponse(req, "Phiên đại lý đã hết hạn. Vui lòng đăng nhập lại.", 401, "dealer_session_required");
     }
     const isTestSession = sessionContext.contact?.is_test === true;
+
+    if (body.action === "self_cancel_list") {
+      const { data: cancellableRows, error: cancellableError } = await supabase
+        .rpc("dealer_self_cancellable_orders", {
+          p_customer_id: sessionContext.customer.id,
+          p_is_test: isTestSession,
+        });
+      if (cancellableError) throw cancellableError;
+
+      return jsonResponse(req, {
+        success: true,
+        time_zone: VIETNAM_TIME_ZONE,
+        orders: (cancellableRows || []).map(publicCancellableOrder),
+      });
+    }
+
+    if (body.action === "self_cancel_confirm") {
+      if (!sessionContext.contact) {
+        return errorResponse(req, "Phiên đại lý không hợp lệ. Vui lòng đăng nhập lại.", 401, "dealer_session_required");
+      }
+      const orderIds = normalizeSelfCancellationIds(body.order_ids);
+      if (!orderIds) {
+        return errorResponse(req, "Vui lòng chọn từ 1 đến 20 đơn cần huỷ.", 400, "invalid_cancel_selection");
+      }
+
+      const { data: cancellationResult, error: cancellationError } = await supabase
+        .rpc("cancel_dealer_orders_from_portal", {
+          p_customer_id: sessionContext.customer.id,
+          p_contact_id: sessionContext.contact.id,
+          p_session_id: sessionContext.session.id,
+          p_is_test: isTestSession,
+          p_order_ids: orderIds,
+        });
+      if (cancellationError) {
+        console.error("[dealer-order-history] Self-cancellation rejected", cancellationError.code);
+        return errorResponse(
+          req,
+          "Một hoặc nhiều đơn không còn đủ điều kiện tự huỷ. Vui lòng tải lại hoặc liên hệ BMQ để được hỗ trợ.",
+          409,
+          "self_cancel_rejected",
+        );
+      }
+
+      return jsonResponse(req, { success: true, cancellation: cancellationResult });
+    }
+
+    if (body.action !== undefined) {
+      return errorResponse(req, "Thao tác không hợp lệ.", 400, "invalid_history_action");
+    }
 
     if (body.quick_reorder === true) {
       const targetDeliveryDate = vietnamDateKey(1);
@@ -355,6 +407,17 @@ function publicOrder(order: OrderRow, items: ReturnType<typeof publicItem>[]) {
     submitted_at: order.submitted_at,
     physical_quantity: items.reduce((sum, item) => sum + item.physical_quantity, 0),
     items,
+  };
+}
+
+function publicCancellableOrder(order: Record<string, unknown>) {
+  return {
+    id: String(order.id || ""),
+    order_number: String(order.order_number || ""),
+    submitted_at: String(order.submitted_at || ""),
+    requested_delivery_date: order.requested_delivery_date ? String(order.requested_delivery_date) : null,
+    physical_quantity: numberValue(order.physical_quantity as number | string | null | undefined),
+    total_amount_vnd: numberValue(order.total_amount_vnd as number | string | null | undefined),
   };
 }
 
