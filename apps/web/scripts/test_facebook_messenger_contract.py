@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import os
 import re
+import subprocess
+import tempfile
+import time
+import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "supabase" / "migrations" / "20260903053000_facebook_messenger_inbox.sql"
@@ -73,6 +78,125 @@ def require_index(sql: str, index_name: str) -> str:
     raise AssertionError(f"missing index/idempotency contract: create index if not exists {index_name}")
 
 
+def assert_composite_conversation_fk(body: str, table: str) -> None:
+    expected = (
+        f"constraint {table}_conversation_identity_fk foreign key (conversation_id, page_id, psid) "
+        "references public.facebook_messenger_conversations(id, page_id, psid) on delete restrict"
+    )
+    assert expected in normalize(body), f"{table} must bind conversation_id to matching page_id/psid"
+    assert "conversation_id uuid not null references public.facebook_messenger_conversations(id)" not in normalize(body), (
+        f"{table} must not keep redundant single-column conversation_id FK when composite identity FK covers it"
+    )
+
+
+def smoke_sql(sql: str) -> str:
+    return f"""
+create extension if not exists pgcrypto;
+create schema if not exists auth;
+do $$
+begin
+  create role anon;
+exception when duplicate_object then null;
+end $$;
+do $$
+begin
+  create role authenticated;
+exception when duplicate_object then null;
+end $$;
+do $$
+begin
+  create role service_role;
+exception when duplicate_object then null;
+end $$;
+create table if not exists auth.users (id uuid primary key);
+create table if not exists public.user_roles (user_id uuid not null references auth.users(id), role text not null);
+create table if not exists public.user_module_permissions (
+  user_id uuid not null references auth.users(id),
+  module_key text not null,
+  can_view boolean not null,
+  can_edit boolean not null,
+  primary key (user_id, module_key)
+);
+
+{sql}
+
+do $$
+declare
+  conv_id uuid := '11111111-1111-1111-1111-111111111111'::uuid;
+begin
+  insert into public.facebook_messenger_conversations (id, page_id, psid)
+  values (conv_id, 'page-a', 'psid-a');
+
+  insert into public.facebook_messenger_messages (conversation_id, page_id, psid, direction, fingerprint)
+  values (conv_id, 'page-a', 'psid-a', 'inbound', repeat('a', 32));
+
+  begin
+    insert into public.facebook_messenger_messages (conversation_id, page_id, psid, direction, fingerprint)
+    values (conv_id, 'page-b', 'psid-a', 'inbound', repeat('b', 32));
+    raise exception 'message identity mismatch was accepted';
+  exception when foreign_key_violation then
+    null;
+  end;
+
+  insert into public.facebook_messenger_outbox (conversation_id, page_id, psid, idempotency_key, payload)
+  values (conv_id, 'page-a', 'psid-a', repeat('c', 32), '{{}}'::jsonb);
+
+  begin
+    insert into public.facebook_messenger_outbox (conversation_id, page_id, psid, idempotency_key, payload)
+    values (conv_id, 'page-a', 'psid-b', repeat('d', 32), '{{}}'::jsonb);
+    raise exception 'outbox identity mismatch was accepted';
+  exception when foreign_key_violation then
+    null;
+  end;
+end $$;
+"""
+
+
+def run_disposable_postgres_smoke(sql: str) -> None:
+    container = f"fb-messenger-contract-{uuid.uuid4().hex[:12]}"
+    script = smoke_sql(sql)
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".sql", delete=False) as handle:
+        handle.write(script)
+        script_path = handle.name
+    try:
+        subprocess.run(
+            ["docker", "run", "--name", container, "--rm", "-e", "POSTGRES_PASSWORD=postgres", "-d", "postgres:16-alpine"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for _ in range(60):
+            ready = subprocess.run(
+                ["docker", "exec", container, "pg_isready", "-U", "postgres"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            if ready.returncode == 0:
+                break
+            time.sleep(1)
+        else:
+            raise AssertionError("disposable PostgreSQL did not become ready")
+        with open(script_path, "rb") as stdin:
+            result = subprocess.run(
+                ["docker", "exec", "-i", container, "psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "postgres"],
+                stdin=stdin,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=False,
+            )
+        assert result.returncode == 0, (
+            "disposable PostgreSQL identity mismatch smoke failed\n"
+            f"stdout:\n{result.stdout.decode(errors='replace')}\n"
+            f"stderr:\n{result.stderr.decode(errors='replace')}"
+        )
+        print("PASS disposable PostgreSQL identity mismatch smoke")
+    finally:
+        Path(script_path).unlink(missing_ok=True)
+        subprocess.run(["docker", "rm", "-f", container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def assert_no_secret_columns(sql: str) -> None:
     for table in TABLES:
         body = table_body(sql, table)
@@ -121,6 +245,7 @@ def main() -> None:
         "created_at timestamptz not null default now()",
         "updated_at timestamptz not null default now()",
         "facebook_messenger_conversations_page_psid_unique unique (page_id, psid)",
+        "facebook_messenger_conversations_id_page_psid_unique unique (id, page_id, psid)",
     ), "conversations table")
 
     identities = table_body(sql, "facebook_platform_identities")
@@ -142,7 +267,7 @@ def main() -> None:
     assert_status_check(messages, "facebook_messenger_messages_direction_check", ("inbound", "outbound"))
     assert_status_check(messages, "facebook_messenger_messages_processing_status_check", ("received", "queued", "processed", "failed", "suppressed"))
     assert_has_all(messages, (
-        "conversation_id uuid not null references public.facebook_messenger_conversations(id) on delete restrict",
+        "conversation_id uuid not null",
         "page_id text not null",
         "psid text not null",
         "message_id text",
@@ -151,6 +276,7 @@ def main() -> None:
         "facebook_messenger_messages_message_id_unique unique (page_id, message_id)",
         "facebook_messenger_messages_fingerprint_unique unique (fingerprint)",
     ), "messages table")
+    assert_composite_conversation_fk(messages, "facebook_messenger_messages")
 
     webhook_events = table_body(sql, "facebook_messenger_webhook_events")
     assert_status_check(webhook_events, "facebook_messenger_webhook_events_status_check", ("received", "processing", "processed", "ignored", "failed"))
@@ -166,12 +292,15 @@ def main() -> None:
         "pending", "processing", "send_committed", "sent", "failed", "manual_reconciliation_required", "suppressed",
     ))
     assert_has_all(outbox, (
-        "conversation_id uuid not null references public.facebook_messenger_conversations(id) on delete restrict",
+        "conversation_id uuid not null",
+        "page_id text not null",
+        "psid text not null",
         "idempotency_key text not null",
         "payload jsonb not null default '{}'::jsonb",
         "attempt_count integer not null default 0",
         "facebook_messenger_outbox_idempotency_key_unique unique (idempotency_key)",
     ), "outbox table")
+    assert_composite_conversation_fk(outbox, "facebook_messenger_outbox")
 
     email_outbox = table_body(sql, "facebook_messenger_email_outbox")
     assert_status_check(email_outbox, "facebook_messenger_email_outbox_status_check", ("pending", "processing", "sent", "failed", "suppressed"))
@@ -256,6 +385,9 @@ def main() -> None:
     can_view_expr = can_view_match.group(1)
     assert '"facebook_messenger"' not in can_view_expr, "AuthContext fallback must deny facebook_messenger view"
     assert "can_edit: false" in auth_context, "AuthContext fallback must deny edit"
+
+    if os.environ.get("FB_MESSENGER_POSTGRES_SMOKE") == "1":
+        run_disposable_postgres_smoke(sql)
 
     print("PASS facebook messenger foundation contract")
 

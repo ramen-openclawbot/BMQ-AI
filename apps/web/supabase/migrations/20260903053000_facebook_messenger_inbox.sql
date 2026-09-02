@@ -34,6 +34,7 @@ create table if not exists public.facebook_messenger_conversations (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint facebook_messenger_conversations_page_psid_unique unique (page_id, psid),
+  constraint facebook_messenger_conversations_id_page_psid_unique unique (id, page_id, psid),
   constraint facebook_messenger_conversations_page_id_not_blank check (length(btrim(page_id)) > 0),
   constraint facebook_messenger_conversations_psid_not_blank check (length(btrim(psid)) > 0),
   constraint facebook_messenger_conversations_metadata_object_check check (jsonb_typeof(metadata) = 'object')
@@ -61,7 +62,7 @@ create table if not exists public.facebook_platform_identities (
 
 create table if not exists public.facebook_messenger_messages (
   id uuid primary key default gen_random_uuid(),
-  conversation_id uuid not null references public.facebook_messenger_conversations(id) on delete restrict,
+  conversation_id uuid not null,
   page_id text not null,
   psid text not null,
   message_id text,
@@ -75,6 +76,10 @@ create table if not exists public.facebook_messenger_messages (
   created_at timestamptz not null default now(),
   constraint facebook_messenger_messages_message_id_unique unique (page_id, message_id),
   constraint facebook_messenger_messages_fingerprint_unique unique (fingerprint),
+  constraint facebook_messenger_messages_conversation_identity_fk
+    foreign key (conversation_id, page_id, psid)
+    references public.facebook_messenger_conversations(id, page_id, psid)
+    on delete restrict,
   constraint facebook_messenger_messages_page_id_not_blank check (length(btrim(page_id)) > 0),
   constraint facebook_messenger_messages_psid_not_blank check (length(btrim(psid)) > 0),
   constraint facebook_messenger_messages_fingerprint_not_blank check (length(btrim(fingerprint)) >= 32),
@@ -105,7 +110,7 @@ create table if not exists public.facebook_messenger_webhook_events (
 
 create table if not exists public.facebook_messenger_outbox (
   id uuid primary key default gen_random_uuid(),
-  conversation_id uuid not null references public.facebook_messenger_conversations(id) on delete restrict,
+  conversation_id uuid not null,
   page_id text not null,
   psid text not null,
   idempotency_key text not null,
@@ -124,6 +129,10 @@ create table if not exists public.facebook_messenger_outbox (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint facebook_messenger_outbox_idempotency_key_unique unique (idempotency_key),
+  constraint facebook_messenger_outbox_conversation_identity_fk
+    foreign key (conversation_id, page_id, psid)
+    references public.facebook_messenger_conversations(id, page_id, psid)
+    on delete restrict,
   constraint facebook_messenger_outbox_page_id_not_blank check (length(btrim(page_id)) > 0),
   constraint facebook_messenger_outbox_psid_not_blank check (length(btrim(psid)) > 0),
   constraint facebook_messenger_outbox_idempotency_key_not_blank check (length(btrim(idempotency_key)) >= 32),
