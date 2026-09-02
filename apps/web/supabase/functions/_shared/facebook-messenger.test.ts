@@ -107,6 +107,18 @@ function inboundMessage(
   };
 }
 
+function referralEvent(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    sender: { id: PSID },
+    recipient: { id: PAGE_ID },
+    timestamp: 1_800_000_000_222,
+    referral: { ref: "campaign-123", source: "SHORTLINK", type: "OPEN_THREAD" },
+    ...overrides,
+  };
+}
+
 function baseWebhook(overrides: Record<string, unknown> = {}) {
   return {
     object: "page",
@@ -309,6 +321,146 @@ Deno.test("normalizes supported Messenger event families for the exact configure
   assertEqual(result.events[0].text, "inbound");
   assertEqual(result.events[0].attachments.length, 0);
   assertEqual(result.events[1].senderId, PAGE_ID);
+});
+
+Deno.test("normalizes standalone Messenger referral events with bounded nullable fields", async () => {
+  const result = await normalize(
+    baseWebhook({ entry: [{ id: PAGE_ID, messaging: [referralEvent()] }] }),
+  );
+
+  assert(result.ok, "valid standalone referral should normalize");
+  assertEqual(result.events.length, 1);
+  assertEqual(result.events[0].kind, "messaging_referral");
+  assertEqual(result.events[0].senderId, PSID);
+  assertEqual(result.events[0].recipientId, PAGE_ID);
+  assertEqual(result.events[0].referralRef, "campaign-123");
+  assertEqual(result.events[0].referralSource, "SHORTLINK");
+  assertEqual(result.events[0].referralType, "OPEN_THREAD");
+  assertMatch(result.events[0].fingerprint, /^fbmsg_[a-f0-9]{64}$/);
+});
+
+Deno.test("rejects malformed Messenger referral fields fail-closed", async () => {
+  for (
+    const badReferral of [
+      null,
+      [],
+      "campaign-123",
+      { ref: 123, source: "SHORTLINK", type: "OPEN_THREAD" },
+      { ref: "campaign-123", source: 123, type: "OPEN_THREAD" },
+      { ref: "campaign-123", source: "SHORTLINK", type: 123 },
+    ] as unknown[]
+  ) {
+    const result = await normalize(
+      baseWebhook({
+        entry: [{
+          id: PAGE_ID,
+          messaging: [referralEvent({ referral: badReferral })],
+        }],
+      }),
+    );
+    assertEqual(
+      result.ok,
+      false,
+      `referral ${JSON.stringify(badReferral)} should be rejected`,
+    );
+    assertEqual(result.ok ? "" : result.error, "invalid_referral");
+  }
+});
+
+Deno.test("enforces Messenger referral field length limits at and over boundaries", async () => {
+  const atLimit = await normalize(
+    baseWebhook({
+      entry: [{
+        id: PAGE_ID,
+        messaging: [referralEvent({
+          referral: { ref: "abc", source: "src", type: "typ" },
+        })],
+      }],
+    }),
+    {
+      maxReferralRefChars: 3,
+      maxReferralSourceChars: 3,
+      maxReferralTypeChars: 3,
+    },
+  );
+  assertEqual(atLimit.ok, true);
+
+  for (
+    const referral of [
+      { ref: "abcd", source: "src", type: "typ" },
+      { ref: "abc", source: "srcd", type: "typ" },
+      { ref: "abc", source: "src", type: "typd" },
+    ]
+  ) {
+    const result = await normalize(
+      baseWebhook({
+        entry: [{ id: PAGE_ID, messaging: [referralEvent({ referral })] }],
+      }),
+      {
+        maxReferralRefChars: 3,
+        maxReferralSourceChars: 3,
+        maxReferralTypeChars: 3,
+      },
+    );
+    assertEqual(
+      result.ok,
+      false,
+      `${JSON.stringify(referral)} should be rejected`,
+    );
+    assertEqual(result.ok ? "" : result.error, "referral_field_too_large");
+  }
+});
+
+Deno.test("fails closed for standalone referral events not inbound to the configured Page", async () => {
+  for (
+    const impossibleEvent of [
+      referralEvent({ sender: { id: PAGE_ID }, recipient: { id: PSID } }),
+      referralEvent({ recipient: { id: "other-page" } }),
+    ]
+  ) {
+    const result = await normalize(
+      baseWebhook({ entry: [{ id: PAGE_ID, messaging: [impossibleEvent] }] }),
+    );
+    assertEqual(
+      result.ok,
+      false,
+      `${JSON.stringify(impossibleEvent)} must be rejected`,
+    );
+    assertEqual(result.ok ? "" : result.error, "invalid_referral_direction");
+  }
+});
+
+Deno.test("includes Messenger referral fields in canonical fingerprints", async () => {
+  const first = await normalize(
+    baseWebhook({
+      entry: [{
+        id: PAGE_ID,
+        messaging: [
+          referralEvent({
+            referral: { ref: "one", source: "ADS", type: "OPEN_THREAD" },
+          }),
+        ],
+      }],
+    }),
+  );
+  const second = await normalize(
+    baseWebhook({
+      entry: [{
+        id: PAGE_ID,
+        messaging: [
+          referralEvent({
+            referral: { ref: "two", source: "ADS", type: "OPEN_THREAD" },
+          }),
+        ],
+      }],
+    }),
+  );
+
+  assert(first.ok && second.ok, "referral normalization failed");
+  assert(
+    first.events[0].fingerprint !== second.events[0].fingerprint,
+    "distinct referral refs must not collide",
+  );
 });
 
 Deno.test("fails closed for directionally impossible message and echo events", async () => {

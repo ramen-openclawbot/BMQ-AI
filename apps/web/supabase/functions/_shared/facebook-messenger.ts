@@ -12,6 +12,9 @@ export type MessengerLimits = {
   maxAttachmentUrlChars: number;
   maxDeliveryMids: number;
   maxPostbackPayloadChars: number;
+  maxReferralRefChars: number;
+  maxReferralSourceChars: number;
+  maxReferralTypeChars: number;
 };
 
 export const DEFAULT_MESSENGER_LIMITS: MessengerLimits = {
@@ -25,6 +28,9 @@ export const DEFAULT_MESSENGER_LIMITS: MessengerLimits = {
   maxAttachmentUrlChars: 2_048,
   maxDeliveryMids: 100,
   maxPostbackPayloadChars: 10_000,
+  maxReferralRefChars: 1_000,
+  maxReferralSourceChars: 128,
+  maxReferralTypeChars: 128,
 };
 
 const DEPRECATED_MESSENGER_TAGS = new Set([
@@ -49,6 +55,7 @@ export type MessengerEventKind =
   | "message_echo"
   | "message_delivery"
   | "message_read"
+  | "messaging_referral"
   | "messaging_postback"
   | "messaging_policy_enforcement";
 
@@ -66,6 +73,9 @@ export type NormalizedMessengerEvent = {
   watermarkMs: number | null;
   postbackTitle: string | null;
   postbackPayload: string | null;
+  referralRef: string | null;
+  referralSource: string | null;
+  referralType: string | null;
   policyAction: string | null;
   policyReason: string | null;
 };
@@ -273,7 +283,10 @@ async function normalizeEvent(
     return { ok: false, error: "missing_event_identity" };
   }
   const hasMessage = isRecord(rawEvent.message);
-  if (!hasMessage && senderId !== pageId && recipientId !== pageId) {
+  const hasReferral = Object.hasOwn(rawEvent, "referral");
+  if (
+    !hasMessage && !hasReferral && senderId !== pageId && recipientId !== pageId
+  ) {
     return { ok: false, error: "event_not_for_page" };
   }
 
@@ -289,6 +302,9 @@ async function normalizeEvent(
     watermarkMs: null,
     postbackTitle: null,
     postbackPayload: null,
+    referralRef: null,
+    referralSource: null,
+    referralType: null,
     policyAction: null,
     policyReason: null,
   } satisfies Omit<NormalizedMessengerEvent, "kind" | "fingerprint">;
@@ -378,6 +394,21 @@ async function normalizeEvent(
     });
   }
 
+  if (Object.hasOwn(rawEvent, "referral")) {
+    if (!hasValidReferralDirection(pageId, senderId, recipientId)) {
+      return { ok: false, error: "invalid_referral_direction" };
+    }
+    const referral = normalizeReferral(rawEvent.referral, limits);
+    if (referral.ok === false) return referral;
+    return completeEvent({
+      ...base,
+      kind: "messaging_referral",
+      referralRef: referral.ref,
+      referralSource: referral.source,
+      referralType: referral.type,
+    });
+  }
+
   if (isRecord(rawEvent.policy_enforcement)) {
     return completeEvent({
       ...base,
@@ -409,11 +440,41 @@ async function completeEvent(
         event.deliveryMessageIds,
         event.watermarkMs,
         event.postbackPayload,
+        event.referralRef,
+        event.referralSource,
+        event.referralType,
         event.policyAction,
         event.policyReason,
       ),
     },
   };
+}
+
+function normalizeReferral(
+  value: unknown,
+  limits: MessengerLimits,
+):
+  | { ok: true; ref: string | null; source: string | null; type: string | null }
+  | {
+    ok: false;
+    error: string;
+  } {
+  if (!isRecord(value)) return { ok: false, error: "invalid_referral" };
+
+  const ref = boundedOptionalString(value.ref, limits.maxReferralRefChars);
+  const source = boundedOptionalString(
+    value.source,
+    limits.maxReferralSourceChars,
+  );
+  const type = boundedOptionalString(value.type, limits.maxReferralTypeChars);
+  if (ref === false || source === false || type === false) {
+    return { ok: false, error: "invalid_referral" };
+  }
+  if (ref === "too_large" || source === "too_large" || type === "too_large") {
+    return { ok: false, error: "referral_field_too_large" };
+  }
+
+  return { ok: true, ref, source, type };
 }
 
 function normalizeAttachments(
@@ -549,6 +610,16 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
+function boundedOptionalString(
+  value: unknown,
+  maxChars: number,
+): string | null | false | "too_large" {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") return false;
+  if (value.length > maxChars) return "too_large";
+  return value;
+}
+
 function hasValidMessageDirection(
   kind: MessengerEventKind,
   pageId: string,
@@ -560,6 +631,14 @@ function hasValidMessageDirection(
     return senderId === pageId && recipientId !== pageId;
   }
   return true;
+}
+
+function hasValidReferralDirection(
+  pageId: string,
+  senderId: string,
+  recipientId: string,
+): boolean {
+  return senderId !== pageId && recipientId === pageId;
 }
 
 function normalizeWatermark(value: unknown): number | false {
