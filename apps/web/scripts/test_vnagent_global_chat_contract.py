@@ -29,11 +29,22 @@ def test_universal_protocol_and_resume_contract() -> None:
     require(PROTOCOL, 'type: "user_message"', "normal messages must use Universal Protocol user_message frames")
     require(WIDGET, 'type: "hello"', "websocket must start with a Universal Protocol hello frame")
     require(WIDGET, "resume: { sessionId: resumeSessionId, lastSeq: lastSeqRef.current }", "hello must resume from the last durable sequence without coupling websocket lifetime to React session state")
-    require(WIDGET, "/messages", "reload must restore durable server history")
-    require(WIDGET, 'storageKey(user.id, "session")', "the active conversation must persist per signed-in owner")
+    require(WIDGET, "/messages", "choosing a conversation must restore durable server history")
+    require(WIDGET, 'storageKey(user.id, "session")', "the selected active conversation must persist per signed-in owner")
     require(WIDGET, "socket.send(JSON.stringify(outgoing))", "all submitted text must be sent to VNAgent")
     forbid(WIDGET, "lower.includes(\"tóm tắt\")", "local fallback intent responses must not intercept messages")
     forbid(WIDGET, "invokePaymentAgentSearch", "payment-search handlers must not intercept normal chat messages")
+
+
+def test_recent_session_picker_replaces_automatic_resume() -> None:
+    require(WIDGET, 'fetch(`${API_URL}/v1/sessions`', "bootstrap must load the owner session list")
+    require(WIDGET, ".slice(0, 3)", "the picker must show at most three recent conversations")
+    require(WIDGET, 'data-vnagent-session-picker="recent-3"', "the recent-session picker needs a stable behavior marker")
+    require(WIDGET, "Tiếp tục cuộc trò chuyện", "the picker must offer continuing a recent conversation")
+    require(WIDGET, "Tạo cuộc trò chuyện mới", "the picker must offer a fresh conversation")
+    require(WIDGET, "const continueSession = useCallback", "continuing must explicitly load the chosen history")
+    require(WIDGET, "const startNewConversation = useCallback", "starting fresh must explicitly clear the active session")
+    forbid(WIDGET, "const restoredSessionId = localStorage.getItem", "bootstrap must not automatically reopen the last conversation")
 
 
 def test_first_message_keeps_the_authenticated_socket_open() -> None:
@@ -44,7 +55,7 @@ def test_first_message_keeps_the_authenticated_socket_open() -> None:
 
 
 def test_quick_actions_are_initial_state_only() -> None:
-    require(WIDGET, "const showQuickActions = !sessionId && visibleTimeline.length === 0 && !streamedText && !isResponding", "quick actions must disappear once a conversation starts")
+    require(WIDGET, "const showQuickActions = !sessionChoiceRequired && !sessionId && visibleTimeline.length === 0 && !streamedText && !isResponding", "quick actions must wait for the session choice and disappear once a conversation starts")
     require(WIDGET, "{showQuickActions && (", "quick actions must use the initial-state guard")
 
 

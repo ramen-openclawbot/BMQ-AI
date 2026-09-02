@@ -72,6 +72,19 @@ function storageKey(userId: string, suffix: "session" | "last-seq"): string {
   return `bmq:vnagent:${userId}:${suffix}`;
 }
 
+type VnagentSessionSummary = {
+  id: string;
+  agentId: string;
+  title: string;
+  createdAt: string;
+};
+
+function formatSessionTime(createdAt: string): string {
+  const created = new Date(createdAt);
+  if (Number.isNaN(created.getTime())) return "";
+  return created.toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
 type RevenueSummary = {
   lineCount?: number;
   rowCount?: number;
@@ -289,6 +302,9 @@ export function GlobalAgentChatWidget() {
   const [streamedText, setStreamedText] = useState("");
   const [vnagentToken, setVnagentToken] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [recentSessions, setRecentSessions] = useState<VnagentSessionSummary[]>([]);
+  const [sessionChoiceRequired, setSessionChoiceRequired] = useState(false);
+  const [selectingSessionId, setSelectingSessionId] = useState<string | null>(null);
   const [connection, setConnection] = useState<"idle" | "authenticating" | "connecting" | "connected" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isResponding, setIsResponding] = useState(false);
@@ -300,7 +316,7 @@ export function GlobalAgentChatWidget() {
   const routeContext = useMemo(() => getRouteContext(location.pathname), [location.pathname]);
   const timeline = useMemo(() => timelineFromFrames(frames), [frames]);
   const visibleTimeline = useMemo(() => timeline.filter((item) => item.kind !== "tool"), [timeline]);
-  const showQuickActions = !sessionId && visibleTimeline.length === 0 && !streamedText && !isResponding;
+  const showQuickActions = !sessionChoiceRequired && !sessionId && visibleTimeline.length === 0 && !streamedText && !isResponding;
   const isRevenueMobileContext = location.pathname.startsWith("/finance-control/revenue");
   const isSkuCostsMobileContext = location.pathname.startsWith("/sku-costs");
   const isPurchaseOrdersMobileContext = location.pathname.startsWith("/purchase-orders");
@@ -321,6 +337,8 @@ export function GlobalAgentChatWidget() {
       setVnagentToken(null);
       sessionIdRef.current = null;
       setSessionId(null);
+      setRecentSessions([]);
+      setSessionChoiceRequired(false);
       setFrames([]);
       setConnection("idle");
       return;
@@ -348,37 +366,22 @@ export function GlobalAgentChatWidget() {
         const agents = await agentsResponse.json() as Array<{ id?: string }>;
         if (!agents.some((agent) => agent.id === AGENT_ID)) throw new Error(`Agent ${AGENT_ID} chưa được cấp quyền cho BMQ.`);
 
-        const restoredSessionId = localStorage.getItem(storageKey(user.id, "session"));
-        lastSeqRef.current = Number(localStorage.getItem(storageKey(user.id, "last-seq")) || 0);
-        if (restoredSessionId) {
-          const historyResponse = await fetch(`${API_URL}/v1/sessions/${encodeURIComponent(restoredSessionId)}/messages`, {
-            headers: { Authorization: `Bearer ${token}` },
-            signal: controller.signal,
-          });
-          if (historyResponse.ok) {
-            const history = await historyResponse.json() as UniversalFrame[];
-            setFrames(history);
-            const latestSeq = history.reduce((max, frame) => typeof frame.seq === "number" ? Math.max(max, frame.seq) : max, lastSeqRef.current);
-            lastSeqRef.current = latestSeq;
-            localStorage.setItem(storageKey(user.id, "last-seq"), String(latestSeq));
-            sessionIdRef.current = restoredSessionId;
-            setSessionId(restoredSessionId);
-          } else if (historyResponse.status === 404) {
-            localStorage.removeItem(storageKey(user.id, "session"));
-            localStorage.removeItem(storageKey(user.id, "last-seq"));
-            setFrames([]);
-            sessionIdRef.current = null;
-            setSessionId(null);
-            lastSeqRef.current = 0;
-          } else {
-            throw new Error("Không khôi phục được lịch sử VNAgent.");
-          }
-        } else {
-          setFrames([]);
-          sessionIdRef.current = null;
-          setSessionId(null);
-          lastSeqRef.current = 0;
-        }
+        const sessionsResponse = await fetch(`${API_URL}/v1/sessions`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+        if (!sessionsResponse.ok) throw new Error("Không tải được danh sách cuộc trò chuyện VNAgent.");
+        const sessions = await sessionsResponse.json() as VnagentSessionSummary[];
+        const latestSessions = sessions
+          .filter((candidate) => candidate.agentId === AGENT_ID)
+          .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+          .slice(0, 3);
+        setRecentSessions(latestSessions);
+        setSessionChoiceRequired(latestSessions.length > 0);
+        setFrames([]);
+        sessionIdRef.current = null;
+        setSessionId(null);
+        lastSeqRef.current = 0;
         setVnagentToken(token);
         setConnection("connecting");
       } catch (error) {
@@ -390,6 +393,47 @@ export function GlobalAgentChatWidget() {
     void bootstrap();
     return () => controller.abort();
   }, [enabled, session?.access_token, user?.id]);
+
+  const continueSession = useCallback(async (selectedSessionId: string) => {
+    if (!vnagentToken || !user?.id || selectingSessionId) return;
+    setSelectingSessionId(selectedSessionId);
+    setErrorMessage(null);
+    try {
+      const historyResponse = await fetch(`${API_URL}/v1/sessions/${encodeURIComponent(selectedSessionId)}/messages`, {
+        headers: { Authorization: `Bearer ${vnagentToken}` },
+      });
+      if (!historyResponse.ok) throw new Error(historyResponse.status === 404 ? "Cuộc trò chuyện này không còn tồn tại." : "Không tải được lịch sử VNAgent.");
+      const history = await historyResponse.json() as UniversalFrame[];
+      const latestSeq = history.reduce((max, frame) => typeof frame.seq === "number" ? Math.max(max, frame.seq) : max, 0);
+      setFrames(history);
+      setStreamedText("");
+      setIsResponding(false);
+      lastSeqRef.current = latestSeq;
+      sessionIdRef.current = selectedSessionId;
+      setSessionId(selectedSessionId);
+      localStorage.setItem(storageKey(user.id, "session"), selectedSessionId);
+      localStorage.setItem(storageKey(user.id, "last-seq"), String(latestSeq));
+      setSessionChoiceRequired(false);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Không tiếp tục được cuộc trò chuyện.");
+    } finally {
+      setSelectingSessionId(null);
+    }
+  }, [selectingSessionId, user?.id, vnagentToken]);
+
+  const startNewConversation = useCallback(() => {
+    if (!user?.id) return;
+    sessionIdRef.current = null;
+    lastSeqRef.current = 0;
+    setSessionId(null);
+    setFrames([]);
+    setStreamedText("");
+    setIsResponding(false);
+    setErrorMessage(null);
+    localStorage.removeItem(storageKey(user.id, "session"));
+    localStorage.removeItem(storageKey(user.id, "last-seq"));
+    setSessionChoiceRequired(false);
+  }, [user?.id]);
 
   useEffect(() => {
     if (!vnagentToken || !enabled) return;
@@ -496,7 +540,7 @@ export function GlobalAgentChatWidget() {
   const sendMessage = useCallback(async (text?: string) => {
     const content = String(text ?? draft).trim();
     const initialSocket = wsRef.current;
-    if (!content || connection !== "connected" || !initialSocket || initialSocket.readyState !== WebSocket.OPEN || isResponding) return;
+    if (!content || sessionChoiceRequired || connection !== "connected" || !initialSocket || initialSocket.readyState !== WebSocket.OPEN || isResponding) return;
     setDraft("");
     setErrorMessage(null);
     try {
@@ -513,7 +557,7 @@ export function GlobalAgentChatWidget() {
       setIsResponding(false);
       setErrorMessage(error instanceof Error ? error.message : "Không gửi được tin nhắn.");
     }
-  }, [connection, draft, ensureSession, isResponding, location.pathname, location.search, rememberFrame, routeContext]);
+  }, [connection, draft, ensureSession, isResponding, location.pathname, location.search, rememberFrame, routeContext, sessionChoiceRequired]);
 
   if (!enabled) return null;
 
@@ -558,7 +602,32 @@ export function GlobalAgentChatWidget() {
           </header>
 
           <div className="flex flex-1 flex-col gap-4 overflow-auto bg-[#f7f8fa] px-4 py-5 text-[15px] leading-[1.6]">
-            {visibleTimeline.length === 0 && !streamedText && (
+            {sessionChoiceRequired ? (
+              <div data-vnagent-session-picker="recent-3" className="space-y-3 rounded-2xl border border-[#e4e5eb] bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+                <div>
+                  <div className="font-semibold text-[#252932]">Tiếp tục cuộc trò chuyện</div>
+                  <div className="mt-1 text-xs text-[#777e8b]">Chọn một trong 3 cuộc trò chuyện gần nhất hoặc bắt đầu cuộc trò chuyện mới.</div>
+                </div>
+                <div className="space-y-2">
+                  {recentSessions.map((recentSession) => (
+                    <button
+                      key={recentSession.id}
+                      type="button"
+                      className="flex w-full items-center justify-between gap-3 rounded-xl border border-[#e4e5eb] bg-[#f9fafb] px-3 py-3 text-left transition hover:border-[#b9adf5] hover:bg-[#f7f5ff] disabled:opacity-60"
+                      onClick={() => void continueSession(recentSession.id)}
+                      disabled={Boolean(selectingSessionId)}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-[#252932]">{recentSession.title || "Cuộc trò chuyện mới"}</span>
+                        <span className="mt-0.5 block text-[11px] text-[#8a8f98]">{formatSessionTime(recentSession.createdAt)}</span>
+                      </span>
+                      <span className="shrink-0 text-xs font-semibold text-[#6847e8]">{selectingSessionId === recentSession.id ? "Đang tải…" : "Tiếp tục"}</span>
+                    </button>
+                  ))}
+                </div>
+                <Button type="button" variant="outline" className="w-full rounded-xl border-[#ded9fa] text-[#5e43c7]" onClick={startNewConversation} disabled={Boolean(selectingSessionId)}>Tạo cuộc trò chuyện mới</Button>
+              </div>
+            ) : visibleTimeline.length === 0 && !streamedText && (
               <div className="flex items-start gap-2.5">
                 <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-[#ebe7ff] text-[#6847e8]"><Sparkles className="h-4 w-4" /></span>
                 <div className="max-w-[88%] rounded-2xl rounded-tl-md border border-[#e4e5eb] bg-white px-4 py-3 text-[#252932] shadow-[0_1px_2px_rgba(16,24,40,0.04)]">Dạ thưa anh Tâm, VNAgent đã nhận diện màn hình hiện tại là <b>{routeContext.label}</b>. Anh cần VNAgent hỗ trợ việc gì ạ?</div>
@@ -606,11 +675,11 @@ export function GlobalAgentChatWidget() {
                       void sendMessage();
                     }
                   }}
-                  disabled={connection !== "connected" || isResponding}
+                  disabled={sessionChoiceRequired || connection !== "connected" || isResponding}
                 />
                 <span className="pointer-events-none absolute bottom-3 right-3 text-[8px] uppercase tracking-[0.08em] text-[#a0a5af]">{draft.trim() ? draft.trim().split(/\s+/).length : 0} / 300</span>
               </div>
-              <button type="button" className="grid h-11 w-11 shrink-0 place-items-center rounded-full border-0 bg-[#6d4aff] text-white shadow-[0_6px_16px_rgba(109,74,255,0.28)] transition hover:bg-[#5f3ee8] active:scale-[0.97] disabled:cursor-not-allowed disabled:bg-[#d7d9df] disabled:shadow-none" onClick={() => void sendMessage()} disabled={!draft.trim() || connection !== "connected" || isResponding} aria-label="Gửi tin nhắn">
+              <button type="button" className="grid h-11 w-11 shrink-0 place-items-center rounded-full border-0 bg-[#6d4aff] text-white shadow-[0_6px_16px_rgba(109,74,255,0.28)] transition hover:bg-[#5f3ee8] active:scale-[0.97] disabled:cursor-not-allowed disabled:bg-[#d7d9df] disabled:shadow-none" onClick={() => void sendMessage()} disabled={!draft.trim() || sessionChoiceRequired || connection !== "connected" || isResponding} aria-label="Gửi tin nhắn">
                 {isResponding ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <ArrowUp className="h-[18px] w-[18px] stroke-[2.2]" />}
               </button>
             </div>
