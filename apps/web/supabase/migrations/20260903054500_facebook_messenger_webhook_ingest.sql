@@ -229,12 +229,27 @@ begin
     for v_mid in select jsonb_array_elements_text(v_delivery_mids)
     loop
       update public.facebook_messenger_messages
-      set payload = payload || jsonb_build_object(
+      set payload = coalesce(payload, '{}'::jsonb) || jsonb_build_object(
             case when p_event_type = 'message_delivery' then 'last_delivery_at' else 'last_read_at' end,
             p_event_timestamp
           )
       where page_id = p_page_id
-        and message_id = v_mid;
+        and message_id = v_mid
+        and case
+          when p_event_type = 'message_delivery' then
+            case
+              when not (coalesce(payload, '{}'::jsonb) ? 'last_delivery_at') then true
+              when not ((payload->>'last_delivery_at') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[ tT][0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}(:?[0-9]{2})?)?$') then true
+              else p_event_timestamp > (payload->>'last_delivery_at')::timestamptz
+            end
+          when p_event_type = 'message_read' then
+            case
+              when not (coalesce(payload, '{}'::jsonb) ? 'last_read_at') then true
+              when not ((payload->>'last_read_at') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[ tT][0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}(:?[0-9]{2})?)?$') then true
+              else p_event_timestamp > (payload->>'last_read_at')::timestamptz
+            end
+          else false
+        end;
     end loop;
   end if;
 
