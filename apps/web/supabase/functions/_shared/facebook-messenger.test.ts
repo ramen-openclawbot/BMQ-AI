@@ -533,6 +533,130 @@ Deno.test("keeps valid inbound messages and page echoes after direction checks",
   ]);
 });
 
+Deno.test("fails closed for outbound-shaped non-echo Messenger events", async () => {
+  for (
+    const impossibleEvent of [
+      {
+        sender: { id: PAGE_ID },
+        recipient: { id: PSID },
+        timestamp: 30,
+        delivery: { mids: ["m1"], watermark: 30 },
+      },
+      {
+        sender: { id: PAGE_ID },
+        recipient: { id: PSID },
+        timestamp: 31,
+        read: { watermark: 31 },
+      },
+      {
+        sender: { id: PAGE_ID },
+        recipient: { id: PSID },
+        timestamp: 32,
+        postback: { title: "Start", payload: "GET_STARTED" },
+      },
+      {
+        sender: { id: PAGE_ID },
+        recipient: { id: PSID },
+        timestamp: 33,
+        policy_enforcement: { action: "block", reason: "spam" },
+      },
+      {
+        sender: { id: PSID },
+        recipient: { id: "other-page" },
+        timestamp: 34,
+        delivery: { mids: ["m1"], watermark: 34 },
+      },
+    ]
+  ) {
+    const result = await normalize(
+      baseWebhook({ entry: [{ id: PAGE_ID, messaging: [impossibleEvent] }] }),
+    );
+    assertEqual(
+      result.ok,
+      false,
+      `${JSON.stringify(impossibleEvent)} must be rejected`,
+    );
+    assertEqual(result.ok ? "" : result.error, "invalid_event_direction");
+  }
+});
+
+Deno.test("rejects Messenger events with multiple recognized event kinds", async () => {
+  const result = await normalize(
+    baseWebhook({
+      entry: [{
+        id: PAGE_ID,
+        messaging: [
+          inboundMessage({
+            message: { mid: "m1", text: "hello" },
+            postback: { title: "Start", payload: "GET_STARTED" },
+          }),
+        ],
+      }],
+    }),
+  );
+
+  assertEqual(result.ok, false);
+  assertEqual(result.ok ? "" : result.error, "ambiguous_event");
+});
+
+Deno.test("uses recursively canonical attachment payloads in fingerprints", async () => {
+  const first = await normalize(
+    baseWebhook({
+      entry: [{
+        id: PAGE_ID,
+        messaging: [
+          inboundMessage({
+            message: {
+              text: "same",
+              attachments: [{
+                type: "template",
+                payload: {
+                  b: 2,
+                  nested: { y: true, x: ["one", { beta: 2, alpha: 1 }] },
+                  a: 1,
+                },
+              }],
+            },
+          }),
+        ],
+      }],
+    }),
+  );
+  const second = await normalize(
+    baseWebhook({
+      entry: [{
+        id: PAGE_ID,
+        messaging: [
+          inboundMessage({
+            message: {
+              text: "same",
+              attachments: [{
+                type: "template",
+                payload: {
+                  a: 1,
+                  nested: { x: ["one", { alpha: 1, beta: 2 }], y: true },
+                  b: 2,
+                },
+              }],
+            },
+          }),
+        ],
+      }],
+    }),
+  );
+
+  assert(first.ok && second.ok, "normalization failed");
+  assertDeepEqual(
+    first.events[0].attachments[0].payload,
+    {
+      b: 2,
+      nested: { y: true, x: ["one", { beta: 2, alpha: 1 }] },
+      a: 1,
+    },
+  );
+  assertEqual(first.events[0].fingerprint, second.events[0].fingerprint);
+});
+
 Deno.test("rejects negative, fractional, unsafe, and missing event timestamps or watermarks", async () => {
   for (const timestamp of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1, undefined]) {
     const result = await normalize(

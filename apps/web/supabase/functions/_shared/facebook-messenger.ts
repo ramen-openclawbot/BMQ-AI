@@ -41,8 +41,24 @@ const DEPRECATED_MESSENGER_TAGS = new Set([
 
 const STANDARD_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const HUMAN_AGENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const RAW_MESSENGER_EVENT_KINDS: RawMessengerEventKind[] = [
+  "message",
+  "delivery",
+  "read",
+  "postback",
+  "referral",
+  "policy_enforcement",
+];
 
 type RawMessengerEvent = Record<string, unknown>;
+
+type RawMessengerEventKind =
+  | "message"
+  | "delivery"
+  | "read"
+  | "postback"
+  | "referral"
+  | "policy_enforcement";
 
 type NormalizeInput = {
   rawBody: Uint8Array;
@@ -282,12 +298,19 @@ async function normalizeEvent(
   if (!senderId || !recipientId || !isNonNegativeSafeInteger(timestampMs)) {
     return { ok: false, error: "missing_event_identity" };
   }
-  const hasMessage = isRecord(rawEvent.message);
-  const hasReferral = Object.hasOwn(rawEvent, "referral");
-  if (
-    !hasMessage && !hasReferral && senderId !== pageId && recipientId !== pageId
-  ) {
-    return { ok: false, error: "event_not_for_page" };
+  const eventKinds = recognizedRawEventKinds(rawEvent);
+  if (eventKinds.length === 0) return { ok: false, error: "unsupported_event" };
+  if (eventKinds.length > 1) return { ok: false, error: "ambiguous_event" };
+  const eventKind = eventKinds[0];
+
+  if (!hasValidEventDirection(eventKind, rawEvent, pageId, senderId, recipientId)) {
+    if (eventKind === "message") {
+      return { ok: false, error: "invalid_message_direction" };
+    }
+    if (eventKind === "referral") {
+      return { ok: false, error: "invalid_referral_direction" };
+    }
+    return { ok: false, error: "invalid_event_direction" };
   }
 
   const base = {
@@ -309,7 +332,10 @@ async function normalizeEvent(
     policyReason: null,
   } satisfies Omit<NormalizedMessengerEvent, "kind" | "fingerprint">;
 
-  if (isRecord(rawEvent.message)) {
+  if (eventKind === "message") {
+    if (!isRecord(rawEvent.message)) {
+      return { ok: false, error: "invalid_message" };
+    }
     const message = rawEvent.message;
     const text = optionalString(message.text);
     if (text !== null && text.length > limits.maxTextChars) {
@@ -351,7 +377,10 @@ async function normalizeEvent(
     };
   }
 
-  if (isRecord(rawEvent.delivery)) {
+  if (eventKind === "delivery") {
+    if (!isRecord(rawEvent.delivery)) {
+      return { ok: false, error: "invalid_delivery" };
+    }
     const delivery = rawEvent.delivery;
     const mids = Array.isArray(delivery.mids) ? delivery.mids : [];
     if (
@@ -372,7 +401,10 @@ async function normalizeEvent(
     });
   }
 
-  if (isRecord(rawEvent.read)) {
+  if (eventKind === "read") {
+    if (!isRecord(rawEvent.read)) {
+      return { ok: false, error: "invalid_read" };
+    }
     const watermarkMs = Number.isFinite(rawEvent.read.watermark)
       ? normalizeWatermark(rawEvent.read.watermark)
       : null;
@@ -380,7 +412,10 @@ async function normalizeEvent(
     return completeEvent({ ...base, kind: "message_read", watermarkMs });
   }
 
-  if (isRecord(rawEvent.postback)) {
+  if (eventKind === "postback") {
+    if (!isRecord(rawEvent.postback)) {
+      return { ok: false, error: "invalid_postback" };
+    }
     const title = optionalString(rawEvent.postback.title);
     const payload = optionalString(rawEvent.postback.payload);
     if (payload !== null && payload.length > limits.maxPostbackPayloadChars) {
@@ -394,7 +429,7 @@ async function normalizeEvent(
     });
   }
 
-  if (Object.hasOwn(rawEvent, "referral")) {
+  if (eventKind === "referral") {
     if (!hasValidReferralDirection(pageId, senderId, recipientId)) {
       return { ok: false, error: "invalid_referral_direction" };
     }
@@ -409,7 +444,10 @@ async function normalizeEvent(
     });
   }
 
-  if (isRecord(rawEvent.policy_enforcement)) {
+  if (eventKind === "policy_enforcement") {
+    if (!isRecord(rawEvent.policy_enforcement)) {
+      return { ok: false, error: "invalid_policy_enforcement" };
+    }
     return completeEvent({
       ...base,
       kind: "messaging_policy_enforcement",
@@ -512,8 +550,8 @@ function normalizeAttachmentPayload(
     return { ok: false, error: "invalid_attachment_payload" };
   }
 
-  const serialized = JSON.stringify(value);
-  if (serialized === undefined) {
+  const serialized = canonicalJsonStringify(value);
+  if (serialized === null) {
     return { ok: false, error: "invalid_attachment_payload" };
   }
   if (
@@ -555,7 +593,7 @@ async function buildFingerprint(
   attachments: unknown,
   ...rest: unknown[]
 ): Promise<string> {
-  const canonical = JSON.stringify({
+  const canonical = canonicalJsonStringify({
     domain: "facebook-messenger-event-fingerprint-v1",
     kind,
     pageId,
@@ -567,6 +605,7 @@ async function buildFingerprint(
     attachments,
     rest,
   });
+  if (canonical === null) throw new Error("invalid_fingerprint_material");
   const digest = await crypto.subtle.digest(
     "SHA-256",
     encoder.encode(canonical),
@@ -588,6 +627,56 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function recognizedRawEventKinds(rawEvent: RawMessengerEvent): RawMessengerEventKind[] {
+  return RAW_MESSENGER_EVENT_KINDS.filter((kind) => Object.hasOwn(rawEvent, kind));
+}
+
+function hasValidEventDirection(
+  rawKind: RawMessengerEventKind,
+  rawEvent: RawMessengerEvent,
+  pageId: string,
+  senderId: string,
+  recipientId: string,
+): boolean {
+  if (rawKind === "message" && isRecord(rawEvent.message)) {
+    const kind: MessengerEventKind = rawEvent.message.is_echo === true
+      ? "message_echo"
+      : "message";
+    return hasValidMessageDirection(kind, pageId, senderId, recipientId);
+  }
+  return senderId !== pageId && recipientId === pageId;
+}
+
+function canonicalJsonStringify(value: unknown): string | null {
+  const canonical = canonicalJsonValue(value);
+  return canonical === undefined ? null : JSON.stringify(canonical);
+}
+
+function canonicalJsonValue(value: unknown): unknown | undefined {
+  if (value === null) return null;
+  if (typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (Array.isArray(value)) {
+    const items: unknown[] = [];
+    for (const item of value) {
+      const canonicalItem = canonicalJsonValue(item);
+      if (canonicalItem === undefined) return undefined;
+      items.push(canonicalItem);
+    }
+    return items;
+  }
+  if (isRecord(value)) {
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(value).sort()) {
+      const canonicalItem = canonicalJsonValue(value[key]);
+      if (canonicalItem === undefined) return undefined;
+      sorted[key] = canonicalItem;
+    }
+    return sorted;
+  }
+  return undefined;
 }
 
 function nestedString(
