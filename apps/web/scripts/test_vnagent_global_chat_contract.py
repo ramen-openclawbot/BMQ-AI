@@ -44,19 +44,22 @@ def test_first_message_keeps_the_authenticated_socket_open() -> None:
 
 
 def test_quick_actions_are_initial_state_only() -> None:
-    require(WIDGET, "const showQuickActions = !sessionId && timeline.length === 0 && !streamedText && !isResponding", "quick actions must disappear once a conversation starts")
+    require(WIDGET, "const showQuickActions = !sessionId && visibleTimeline.length === 0 && !streamedText && !isResponding", "quick actions must disappear once a conversation starts")
     require(WIDGET, "{showQuickActions && (", "quick actions must use the initial-state guard")
 
 
 def test_vnagent_brand_and_address_contract() -> None:
     require(WIDGET, 'data-vnagent-branding="owner-chat-v1"', "the owner chat surface must carry a stable VNAgent branding marker")
-    require(WIDGET, '<SheetTitle className="text-base">VNAgent</SheetTitle>', "the visible chat title must identify VNAgent")
+    require(WIDGET, 'data-vnagent-ui="chat-v2-clean"', "the BMQ widget must carry the clean chat UI marker")
+    require(WIDGET, 'SheetTitle className="text-[17px]', "the visible chat title must identify VNAgent")
     require(WIDGET, 'aria-label="Mở VNAgent"', "the chat launcher must identify VNAgent")
     require(WIDGET, 'Dạ thưa anh Tâm, VNAgent đã nhận diện', "the initial greeting must use the approved VNAgent address")
-    require(WIDGET, 'item.role === "agent" ? "VNAgent"', "completed assistant messages must be labelled VNAgent")
-    require(WIDGET, '<div className="mb-1 text-xs text-muted-foreground">VNAgent</div>', "streaming assistant messages must be labelled VNAgent")
+    require(WIDGET, 'aria-label="VNAgent — Trợ lý AI của BMQ"', "the header must expose the VNAgent identity accessibly")
     require(WIDGET, "VNAgent đang xử lý…", "the thinking state must identify VNAgent")
-    require(WIDGET, 'placeholder="Nhập yêu cầu cho VNAgent..."', "the composer must address VNAgent")
+    require(WIDGET, 'placeholder="Hỏi bất cứ điều gì"', "the composer must match chat.vnagent.ai")
+    require(WIDGET, 'bg-[#6d4aff]', "owner messages and send action must use the VNAgent violet accent")
+    require(WIDGET, 'bg-[#f7f8fa] p-0 text-[#171a21]', "the chat surface must use the clean light VNAgent canvas")
+    forbid(WIDGET, 'item.role === "agent" ? "VNAgent"', "chat.vnagent.ai parity hides repeated assistant labels inside the transcript")
     for legacy_copy in ['>AI Agent</SheetTitle>', 'Vui lòng nhập yêu cầu để AI Agent hỗ trợ.', '>Agent</div>', ' />Agent đang xử lý…', 'cho AI Agent...']:
         forbid(WIDGET, legacy_copy, f"legacy generic agent copy must be removed: {legacy_copy}")
 
@@ -72,12 +75,14 @@ def test_hidden_page_context_contract() -> None:
     assert not re.search(r"document\.(?:body|documentElement|querySelector|innerHTML)", WIDGET + PROTOCOL), "context must never scrape DOM content"
 
 
-def test_durable_sanitized_tool_contract() -> None:
+def test_tool_events_remain_durable_but_are_hidden_from_chat_ui() -> None:
     for event_type in ["agent_tool", "agent_message_done", "error"]:
         require(PROTOCOL, f'frame.type === "{event_type}"', f"history reducer must understand {event_type}")
     for status in ['"running"', '"done"', '"error"']:
         require(PROTOCOL, status, f"tool lifecycle must expose {status}")
-    require(WIDGET, "<details", "tool details must be expandable")
+    require(WIDGET, 'timeline.filter((item) => item.kind !== "tool")', "tool calls must be removed from the visible chat timeline")
+    forbid(WIDGET, "function ToolCallRow", "the chat UI must not include a tool-call renderer")
+    forbid(WIDGET, "<details", "tool payloads must not be expandable in the chat UI")
     require(PROTOCOL, 'frame.status === "done" || frame.status === "error"', "tool status updates must preserve done/error")
     require(PROTOCOL, 'frame.type === "agent_tool" && frame.id === next.id', "later tool frames must replace the running frame")
     require(PROTOCOL, '"[redacted]"', "sensitive detail values must be redacted")
