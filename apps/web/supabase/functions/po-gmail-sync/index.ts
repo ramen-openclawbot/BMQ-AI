@@ -4,6 +4,8 @@ import * as XLSX from "npm:xlsx@0.18.5";
 import pdfParse from "npm:pdf-parse@1.1.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireCronSecret } from "../_shared/auth.ts";
+import { isMamNonMayEmailSubject, parseMamNonMayEmailOrder } from "../_shared/daily-bread-order.ts";
+import { timingSafeEqual } from "../_shared/dealer.ts";
 
 type GmailMessage = {
   id: string;
@@ -199,6 +201,17 @@ const THUY_DIRECT_DEALER_AUTOMATION = {
   rule: "thuy_direct_dealer_text",
   parser: "po-gmail-sync:thuy-direct-dealer-text:v1",
   unitPrice: 6500,
+} as const;
+
+const MAM_NON_MAY_AUTOMATION = {
+  sender: "mi@bmq.vn",
+  customerName: "Mầm non May",
+  rule: "mam_non_may_bread_order",
+  parser: "po-gmail-sync:mam-non-may-bread-order:v1",
+  productCode: "BMQ-001",
+  productName: "Bánh Mì Que Pate",
+  approvedUnitPrice: 6500,
+  priceSource: "customer_price_list_owner_approved_20260903",
 } as const;
 
 
@@ -1011,9 +1024,13 @@ serve(async (req) => {
     // Enforce JWT authentication for manual users, or cron secret for the
     // 23:59 controlled revenue parser that must import fresh PO/email first.
     const authHeader = req.headers.get("Authorization");
+    const suppliedBearer = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
+    const hasServiceRole = Boolean(serviceKey) && Boolean(suppliedBearer) && timingSafeEqual(suppliedBearer, serviceKey);
     const hasVietjetOrderSecret = Boolean(req.headers.get("x-vietjet-order-secret"));
     const hasCronSecret = Boolean(req.headers.get("x-cron-secret"));
-    if (hasVietjetOrderSecret) {
+    if (hasServiceRole) {
+      // Internal service-to-service sync used immediately before the supplier order is compiled.
+    } else if (hasVietjetOrderSecret) {
       requireCronSecret(req, "VIETJET_ORDER_CRON_SECRET", getCorsHeaders(req), "x-vietjet-order-secret");
     } else if (hasCronSecret) {
       const envKey = Deno.env.get("REVENUE_CRON_SECRET") ? "REVENUE_CRON_SECRET" : "PO_SYNC_CRON_SECRET";
@@ -1040,7 +1057,7 @@ serve(async (req) => {
     const includeOnlyCrm = body?.includeOnlyCrm !== false;
     const maxResults = Math.min(Math.max(Number(body?.maxResults || 20), 1), 100);
     const query = String(body?.query || "in:anywhere deliveredto:po@bmq.vn newer_than:30d");
-    const cronAuthorized = hasCronSecret || hasVietjetOrderSecret;
+    const cronAuthorized = hasServiceRole || hasCronSecret || hasVietjetOrderSecret;
     if (cronAuthorized && (mode !== "import" || !includeOnlyCrm || !query.toLowerCase().includes("deliveredto:po@bmq.vn"))) {
       return new Response(JSON.stringify({ error: "Invalid cron Gmail sync request" }), {
         status: 400,
@@ -1093,6 +1110,26 @@ serve(async (req) => {
     const templateMap = new Map<string, any>();
     for (const t of activeTemplates || []) {
       templateMap.set(String((t as any).customer_id), t);
+    }
+
+    const { data: bmq001Sku, error: bmq001SkuError } = await supabaseAdmin
+      .from("product_skus")
+      .select("id")
+      .eq("sku_code", MAM_NON_MAY_AUTOMATION.productCode)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (bmq001SkuError || !bmq001Sku?.id) throw new Error("BMQ-001 is not configured for Mầm non revenue");
+    const { data: mamNonPriceRows, error: mamNonPriceError } = await supabaseAdmin
+      .from("mini_crm_customer_price_list")
+      .select("customer_id,price_vnd_per_unit")
+      .eq("sku_id", bmq001Sku.id)
+      .eq("is_active", true);
+    if (mamNonPriceError) throw new Error(`Unable to read Mầm non customer price: ${mamNonPriceError.message}`);
+    const mamNonPriceByCustomer = new Map<string, number>();
+    for (const row of mamNonPriceRows || []) {
+      const price = Number((row as any).price_vnd_per_unit || 0);
+      if (Number.isFinite(price) && price > 0) mamNonPriceByCustomer.set(String((row as any).customer_id || ""), price);
     }
 
     let synced = 0;
@@ -1148,27 +1185,35 @@ serve(async (req) => {
       const candidateMatches = emailMap.get(fromEmail) || [];
       const resolvedMatch = resolveEmailCandidates(candidateMatches);
       const match = resolvedMatch.match;
-      if (match) {
+      const mamNonMaySubject = fromEmail === MAM_NON_MAY_AUTOMATION.sender
+        && isMamNonMayEmailSubject(subject || "");
+      const mamNonMayCandidate = mamNonMaySubject
+        ? findCandidateByName(candidateMatches, MAM_NON_MAY_AUTOMATION.customerName)
+        : null;
+      const effectiveMatch = mamNonMayCandidate || match;
+      const matchedCustomerId = effectiveMatch?.customerId || null;
+      if (effectiveMatch) {
         matchedCount += 1;
-        if (resolvedMatch.resolution === "npp_parent") nppResolvedCount += 1;
+        if (!mamNonMayCandidate && resolvedMatch.resolution === "npp_parent") nppResolvedCount += 1;
       } else {
         unmatchedCount += 1;
         if (resolvedMatch.resolution === "ambiguous") ambiguousCount += 1;
       }
 
       const allowedUnmatchedSender =
+        mamNonMaySubject ||
         fromEmail === THUY_DIRECT_DEALER_AUTOMATION.sender ||
         fromEmail === TONY_THANH_AUTOMATION.sender ||
         fromEmail === DAM_XESG_AUTOMATION.sender ||
         isCoopmartSenderEmail(fromEmail) ||
         fromEmail.endsWith(`@${VIETJET_AUTOMATION.senderDomain}`);
-      if (includeOnlyCrm && !match && !allowedUnmatchedSender) {
+      if (includeOnlyCrm && !effectiveMatch && !allowedUnmatchedSender) {
         skippedNotInCrm += 1;
         if (skippedNotInCrmSamples.length < 5) skippedNotInCrmSamples.push(fromEmail);
         continue;
       }
 
-      const template = match?.customerId ? templateMap.get(match.customerId) : null;
+      const template = effectiveMatch?.customerId ? templateMap.get(effectiveMatch.customerId) : null;
 
       const isKingfoodSender = fromEmail === KINGFOOD_AUTOMATION.sender;
       const isDamXesgSender = fromEmail === DAM_XESG_AUTOMATION.sender;
@@ -1198,6 +1243,8 @@ serve(async (req) => {
       let parsedTotal: number | null = null;
       let damXesgAutomation: any = null;
       let damXesgServiceDate: string | null = null;
+      let mamNonMayAutomation: any = null;
+      let mamNonMayServiceDate: string | null = null;
       let thuyDirectDealerAutomation: any = null;
       let thuyDirectDealerServiceDate: string | null = null;
       let tonyThanhAutomation: any = null;
@@ -1335,7 +1382,77 @@ serve(async (req) => {
         }
       }
 
-      if (isThuyDirectDealerSender) {
+      if (isThuyDirectDealerSender && mamNonMaySubject) {
+        const textBody = extractGmailTextPlainBody(detail?.payload);
+        const mamNonOrder = parseMamNonMayEmailOrder({
+          sender: fromEmail,
+          subject: subject || "",
+          body: textBody,
+          receivedAt,
+        });
+        mamNonMayServiceDate = mamNonOrder?.serviceDate || null;
+        const customer = mamNonMayCandidate;
+        const mamNonUnitPrice = customer ? Number(mamNonPriceByCustomer.get(customer.customerId) || 0) : 0;
+        const hasApprovedMamNonPrice = mamNonUnitPrice === MAM_NON_MAY_AUTOMATION.approvedUnitPrice;
+        if (mamNonOrder) {
+          const lineTotal = mamNonOrder.revenueQuantity * mamNonUnitPrice;
+          parsedItems = [{
+            evidence_type: "mam_non_may_text_order",
+            source_channel: "b2b",
+            service_date: mamNonOrder.serviceDate,
+            date: mamNonOrder.serviceDate,
+            customer_id: customer?.customerId || null,
+            customer_name: "Mầm non May",
+            product_code: MAM_NON_MAY_AUTOMATION.productCode,
+            sku_code: MAM_NON_MAY_AUTOMATION.productCode,
+            product_name: MAM_NON_MAY_AUTOMATION.productName,
+            unit: "que",
+            ordered_qty: mamNonOrder.orderedQuantity,
+            qty: mamNonOrder.revenueQuantity,
+            revenue_qty: mamNonOrder.revenueQuantity,
+            physical_qty: mamNonOrder.orderedQuantity,
+            supplier_order_qty: mamNonOrder.supplierQuantity,
+            warehouse_surplus_qty: mamNonOrder.warehouseSurplusQuantity,
+            unit_price: mamNonUnitPrice,
+            unit_price_vnd: mamNonUnitPrice,
+            price_source: MAM_NON_MAY_AUTOMATION.priceSource,
+            line_total: lineTotal,
+            line_amount: lineTotal,
+            raw_line: textBody,
+            confidence: customer ? 1 : 0.85,
+            gmail_message_id: m.id,
+            email_subject: subject || "",
+            received_at: receivedAt,
+          }];
+          parsedSubtotal = lineTotal;
+          parsedVat = 0;
+          parsedTotal = lineTotal;
+        }
+        mamNonMayAutomation = {
+          rule: "mam_non_may_bread_order",
+          parser: MAM_NON_MAY_AUTOMATION.parser,
+          sender: MAM_NON_MAY_AUTOMATION.sender,
+          source: "gmail_text_plain_body",
+          customer_id: customer?.customerId || null,
+          customer_name: "Mầm non May",
+          service_date: mamNonMayServiceDate,
+          ordered_quantity: mamNonOrder?.orderedQuantity || 0,
+          revenue_quantity: mamNonOrder?.revenueQuantity || 0,
+          supplier_order_quantity: mamNonOrder?.supplierQuantity || 0,
+          warehouse_surplus_quantity: mamNonOrder?.warehouseSurplusQuantity || 0,
+          unit_price: mamNonUnitPrice,
+          price_source: MAM_NON_MAY_AUTOMATION.priceSource,
+          quantity_semantics: "customer_exact_revenue_supplier_batch_rounding",
+          automation_status: mamNonOrder && customer && hasApprovedMamNonPrice ? "parsed_valid" : "parsed_needs_review",
+          revenue_posting_allowed: Boolean(mamNonOrder && customer && hasApprovedMamNonPrice),
+          inventory_semantics: "supplier rounding surplus becomes stock only after confirmed Tân Tạo receipt",
+          reason: mamNonOrder && customer && hasApprovedMamNonPrice
+            ? "Mầm non May email parsed: exact customer quantity is revenue; supplier quantity is rounded to a full 20-stick batch"
+            : "Mầm non May email body, exact CRM customer mapping, or active BMQ-001 customer price is missing",
+        };
+      }
+
+      if (isThuyDirectDealerSender && !mamNonMayAutomation) {
         thuyDirectDealerServiceDate = parseThuyDirectDealerSubjectDate(subject || "", receivedAt);
         const textBody = extractGmailTextPlainBody(detail?.payload);
         const parsed = thuyDirectDealerServiceDate
@@ -1521,8 +1638,29 @@ serve(async (req) => {
         };
       }
 
-      const poAutomation = thuyDirectDealerAutomation || tonyThanhAutomation || vietjetAutomation || coopmartAutomation || damXesgAutomation || kingfoodAutomation;
-      const parseMeta = thuyDirectDealerAutomation
+      const poAutomation = mamNonMayAutomation || thuyDirectDealerAutomation || tonyThanhAutomation || vietjetAutomation || coopmartAutomation || damXesgAutomation || kingfoodAutomation;
+      const parseMeta = mamNonMayAutomation
+        ? {
+            source: "mam_non_may_gmail_text_body_auto",
+            parser: MAM_NON_MAY_AUTOMATION.parser,
+            parsed_at: new Date().toISOString(),
+            parse_mode: "mam_non_may_subject_and_body_rule",
+            service_date: mamNonMayServiceDate,
+            delivery_date: mamNonMayServiceDate,
+            customer_id: mamNonMayCandidate?.customerId || null,
+            customer_name: MAM_NON_MAY_AUTOMATION.customerName,
+            item_count: parsedItems?.length || 0,
+            ordered_quantity: Number(mamNonMayAutomation.ordered_quantity || 0),
+            revenue_quantity: Number(mamNonMayAutomation.revenue_quantity || 0),
+            supplier_order_quantity: Number(mamNonMayAutomation.supplier_order_quantity || 0),
+            warehouse_surplus_quantity: Number(mamNonMayAutomation.warehouse_surplus_quantity || 0),
+            subtotal: parsedSubtotal,
+            vat_amount: parsedVat,
+            total_amount: parsedTotal,
+            automation_status: mamNonMayAutomation.automation_status,
+            revenue_posting_allowed: mamNonMayAutomation.revenue_posting_allowed,
+          }
+        : thuyDirectDealerAutomation
         ? {
             source: "thuy_direct_dealer_gmail_text_body_auto",
             parser: THUY_DIRECT_DEALER_AUTOMATION.parser,
@@ -1659,11 +1797,11 @@ serve(async (req) => {
         has_attachments: attachmentNames.length > 0,
         attachment_names: attachmentNames,
         received_at: receivedAt,
-        matched_customer_id: match?.customerId || null,
-        match_status: match ? (poAutomation?.automation_status === "cancel_signal" ? "error" : "pending_approval") : "unmatched",
-        revenue_channel: match?.revenueChannel || null,
+        matched_customer_id: matchedCustomerId,
+        match_status: effectiveMatch ? (poAutomation?.automation_status === "cancel_signal" ? "error" : "pending_approval") : "unmatched",
+        revenue_channel: effectiveMatch?.revenueChannel || null,
         po_number: extractPoNumber(subject || ""),
-        delivery_date: thuyDirectDealerServiceDate || tonyThanhServiceDate || damXesgServiceDate || extractDeliveryDate(subject || ""),
+        delivery_date: mamNonMayServiceDate || thuyDirectDealerServiceDate || tonyThanhServiceDate || damXesgServiceDate || extractDeliveryDate(subject || ""),
         production_items: parsedItems,
         subtotal_amount: parsedSubtotal,
         vat_amount: parsedVat,
@@ -1678,7 +1816,7 @@ serve(async (req) => {
           template_name: template?.template_name || null,
           po_automation: poAutomation,
           parse_meta: parseMeta,
-          customer_match_resolution: resolvedMatch.resolution,
+          customer_match_resolution: mamNonMayCandidate ? "mam_non_may_subject_exact" : resolvedMatch.resolution,
           customer_match_candidates: resolvedMatch.candidates.map((candidate) => ({
             customer_id: candidate.customerId,
             customer_name: candidate.customerName,
@@ -1699,9 +1837,9 @@ serve(async (req) => {
         receivedAt: payload.received_at,
         snippet,
         attachmentNames,
-        matchedCustomerId: match?.customerId || null,
+        matchedCustomerId,
         matchStatus: payload.match_status,
-        matchResolution: resolvedMatch.resolution,
+        matchResolution: mamNonMayCandidate ? "mam_non_may_subject_exact" : resolvedMatch.resolution,
         matchCandidates: resolvedMatch.candidates.map((candidate) => ({
           customerId: candidate.customerId,
           customerName: candidate.customerName,

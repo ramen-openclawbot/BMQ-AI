@@ -11,6 +11,7 @@ import {
   nextVietnamDateKey,
   selectLatestVietjetQuantity,
 } from "./daily-bread-order.ts";
+import * as dailyBreadOrder from "./daily-bread-order.ts";
 
 test("formats the warehouse kiosk bread dispatch from automatic orders plus report shortages and exchanges", () => {
   const message = buildWarehouseKioskBreadDispatchMessage({
@@ -204,6 +205,62 @@ test("supplier message orders dealer exchange and makeup from the bakery and aud
   assert.match(message, /• Ghi nhận công nợ: 200/);
   assert.doesNotMatch(message, /Coop/);
   assert.doesNotMatch(message, /tồn nội bộ/i);
+});
+
+test("Mầm non May keeps 597 as revenue demand and rounds only the supplier order", () => {
+  const parseMamNonMayEmailOrder = (dailyBreadOrder as unknown as {
+    parseMamNonMayEmailOrder?: (input: { sender: string; subject: string; body: string; receivedAt: string }) => unknown;
+  }).parseMamNonMayEmailOrder || (() => null);
+
+  assert.deepEqual(parseMamNonMayEmailOrder({
+    sender: "mi@bmq.vn",
+    subject: "Mầm Non Canada ( CTY May )",
+    body: "Bánh mì pate : 597 que",
+    receivedAt: "2026-09-02T12:28:03.000Z",
+  }), {
+    customerName: "Mầm non May",
+    serviceDate: "2026-09-03",
+    orderedQuantity: 597,
+    revenueQuantity: 597,
+    supplierQuantity: 600,
+    warehouseSurplusQuantity: 3,
+  });
+});
+
+test("Mầm non May parser rejects near-miss subjects", () => {
+  const parseMamNonMayEmailOrder = (dailyBreadOrder as unknown as {
+    parseMamNonMayEmailOrder?: (input: { sender: string; subject: string; body: string; receivedAt: string }) => unknown;
+  }).parseMamNonMayEmailOrder || (() => null);
+  const base = {
+    sender: "mi@bmq.vn",
+    body: "Bánh mì pate : 597 que",
+    receivedAt: "2026-09-02T12:28:03.000Z",
+  };
+
+  assert.equal(parseMamNonMayEmailOrder({ ...base, subject: "Mầm Non Canada" }), null);
+  assert.equal(parseMamNonMayEmailOrder({ ...base, subject: "CTY May" }), null);
+  assert.equal(parseMamNonMayEmailOrder({ ...base, subject: "Mầm Non Canada - lớp Lá (CTY May)" }), null);
+  assert.equal(parseMamNonMayEmailOrder({ ...base, subject: "Đơn Mầm Non Canada (CTY May) bổ sung" }), null);
+});
+
+test("supplier message includes exact Mầm non demand before whole-order batch rounding", () => {
+  const input = {
+    orderDate: "2026-09-03",
+    dealerOrderedQuantity: 1940,
+    dealerExchangeQuantity: 39,
+    dealerMakeupQuantity: 8,
+    vehicleQuantity: 220,
+    mamNonOrderedQuantity: 597,
+    vietjetQuantity: 215,
+  } as Parameters<typeof buildDailyBreadOrderMessage>[0] & { mamNonOrderedQuantity: number };
+  const message = buildDailyBreadOrderMessage(input);
+
+  assert.match(message, /• Mầm non May: 597 que/);
+  assert.match(message, /• Cộng đặt mới: 2\.757 que/);
+  assert.match(message, /• Nhu cầu thực tế: 2\.804 que/);
+  assert.match(message, /• Điều chỉnh đủ mẻ: \+16 que/);
+  assert.match(message, /• Tổng giao: 2\.820 que/);
+  assert.match(message, /• Số lượng tính tiền: 2\.773 que/);
 });
 
 test("includes kiosk exchange and makeup in bakery payable credit", () => {

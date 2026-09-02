@@ -11,6 +11,7 @@ import {
   buildDailyBreadOrderMessage,
   buildWarehouseKioskBreadDispatchMessage,
   forecastVehicleBread,
+  isMamNonMayEmailSubject,
   nextVietnamDateKey,
   roundBreadOrderMessageQuantity,
   roundTotalBmqForPateBatch,
@@ -173,7 +174,7 @@ const resolveZaloAccessToken = async (supabase: ReturnType<typeof createServiceC
 
 const retryDelaySeconds = (attemptCount: number) => Math.min(3600, 60 * (5 ** Math.max(0, attemptCount - 1)));
 
-const quantity = (value: number | string | null | undefined) => {
+const quantity = (value: unknown) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 };
@@ -206,6 +207,15 @@ type DailyBreadVietjetQuantityRow = {
   inbox_id: string;
   received_at: string;
 };
+type DailyBreadMamNonRow = {
+  id: string;
+  gmail_message_id: string;
+  gmail_thread_id: string | null;
+  email_subject: string | null;
+  received_at: string;
+  production_items: unknown;
+  raw_payload: Record<string, unknown> | null;
+};
 
 type KioskDispatchLocationRow = {
   id: string;
@@ -220,6 +230,94 @@ type KioskDispatchInventoryRow = {
   waste_quantity: number | string | null;
 };
 
+const syncMamNonMayMailbox = async (now: Date): Promise<{ fetched: number; synced: number }> => {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  const dayRange = warehouseVietnamDayRange(now);
+  if (!supabaseUrl || !serviceRoleKey || !dayRange) throw new Error("Mầm non mailbox sync is not configured");
+  const afterEpochSeconds = Math.floor(Date.parse(dayRange.startsAt) / 1000);
+  const beforeEpochSeconds = Math.floor(Date.parse(dayRange.endsBefore) / 1000);
+  const query = [
+    "in:anywhere",
+    "deliveredto:po@bmq.vn",
+    "from:mi@bmq.vn",
+    `after:${afterEpochSeconds}`,
+    `before:${beforeEpochSeconds}`,
+  ].join(" ");
+  const response = await fetch(`${supabaseUrl}/functions/v1/po-gmail-sync`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${serviceRoleKey}`,
+    },
+    body: JSON.stringify({ mode: "import", includeOnlyCrm: true, maxResults: 100, query }),
+  });
+  const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+  if (!response.ok || payload.success !== true) {
+    throw new Error(`Mầm non mailbox sync failed: ${String(payload.error || response.status)}`);
+  }
+  if (String(payload.mailbox || "").toLowerCase() !== "po@bmq.vn") {
+    throw new Error("Mầm non mailbox sync returned the wrong Gmail account");
+  }
+  const debug = (payload.debug && typeof payload.debug === "object" ? payload.debug : {}) as Record<string, unknown>;
+  if (Number(debug.upsertErrorCount || 0) > 0) throw new Error("Mầm non mailbox sync reported import errors");
+  return { fetched: Number(payload.fetched || 0), synced: Number(payload.synced || 0) };
+};
+
+const mamNonQuantityFromRows = (rows: DailyBreadMamNonRow[], orderDate: string) => {
+  let orderedQuantity = 0;
+  let supplierOrderQuantity = 0;
+  let warehouseSurplusQuantity = 0;
+  const inboxIds: string[] = [];
+  const gmailMessageIds: string[] = [];
+  const blockedMamNonOrders: Array<{ inboxId: string; gmailMessageId: string; reason: string }> = [];
+  const seenThreads = new Set<string>();
+  const newestFirst = [...rows].sort((left, right) => Date.parse(right.received_at) - Date.parse(left.received_at));
+  for (const row of newestFirst) {
+    const sourceKey = row.gmail_thread_id || row.gmail_message_id;
+    if (seenThreads.has(sourceKey)) continue;
+    seenThreads.add(sourceKey);
+    const raw = row.raw_payload && typeof row.raw_payload === "object" ? row.raw_payload : {};
+    if (!isMamNonMayEmailSubject(String(row.email_subject || raw.subject || ""))) continue;
+    const automation = raw.po_automation && typeof raw.po_automation === "object"
+      ? raw.po_automation as Record<string, unknown>
+      : {};
+    const isMamNonMayOrder = automation.rule === "mam_non_may_bread_order"
+      && automation.automation_status === "parsed_valid";
+    if (!isMamNonMayOrder) {
+      blockedMamNonOrders.push({
+        inboxId: row.id,
+        gmailMessageId: row.gmail_message_id,
+        reason: String(automation.reason || automation.automation_status || "parse_not_ready"),
+      });
+      continue;
+    }
+    const items = Array.isArray(row.production_items) ? row.production_items : [];
+    let acceptedItemCount = 0;
+    for (const rawItem of items) {
+      if (!rawItem || typeof rawItem !== "object") continue;
+      const item = rawItem as Record<string, unknown>;
+      if (String(item.service_date || item.date || "") !== orderDate || String(item.customer_name || "") !== "Mầm non May") continue;
+      const revenueQuantity = quantity(item.revenue_qty ?? item.ordered_qty ?? item.qty);
+      if (!(revenueQuantity > 0)) continue;
+      acceptedItemCount += 1;
+      orderedQuantity += revenueQuantity;
+      supplierOrderQuantity += quantity(item.supplier_order_qty);
+      warehouseSurplusQuantity += quantity(item.warehouse_surplus_qty);
+      inboxIds.push(row.id);
+      gmailMessageIds.push(row.gmail_message_id);
+    }
+    if (acceptedItemCount === 0) {
+      blockedMamNonOrders.push({
+        inboxId: row.id,
+        gmailMessageId: row.gmail_message_id,
+        reason: "parsed_order_has_no_target_date_quantity",
+      });
+    }
+  }
+  return { orderedQuantity, supplierOrderQuantity, warehouseSurplusQuantity, inboxIds, gmailMessageIds, blockedMamNonOrders };
+};
+
 const enqueueDailyBreadOrder = async (
   supabase: ReturnType<typeof createServiceClient>,
   now: Date,
@@ -227,6 +325,10 @@ const enqueueDailyBreadOrder = async (
   const dayRange = warehouseVietnamDayRange(now);
   const orderDate = nextVietnamDateKey(now);
   if (!dayRange || !orderDate) throw new Error("Unable to resolve Vietnam bread-order date");
+
+  // Import the current VN-day mailbox slice before freezing the supplier order.
+  // This source is fail-closed: an unavailable mailbox must not silently omit B2B demand.
+  const mamNonMailboxSync = await syncMamNonMayMailbox(now);
 
   const { data: dealerOrderData, error: dealerOrderError } = await supabase
     .from("dealer_orders")
@@ -332,8 +434,20 @@ const enqueueDailyBreadOrder = async (
     receivedAt: vietjetRow.received_at,
   };
 
+  const { data: mamNonData, error: mamNonError } = await supabase
+    .from("customer_po_inbox")
+    .select("id,gmail_message_id,gmail_thread_id,email_subject,received_at,production_items,raw_payload")
+    .eq("from_email", "mi@bmq.vn")
+    .gte("received_at", dayRange.startsAt)
+    .lt("received_at", dayRange.endsBefore);
+  if (mamNonError) throw new Error(`Unable to read Mầm non parsed orders: ${mamNonError.message}`);
+  const mamNon = mamNonQuantityFromRows((mamNonData || []) as DailyBreadMamNonRow[], orderDate);
+  if (mamNon.blockedMamNonOrders.length > 0) {
+    throw new Error(`Mầm non order source needs review before supplier compile (${mamNon.blockedMamNonOrders.length} blocked)`);
+  }
+
   const rawTotalBmq = dealerOrderedQuantity + dealerExchangeQuantity + dealerMakeupQuantity
-    + vehicleForecast.totalQuantity + vehicleExtraQuantity;
+    + vehicleForecast.totalQuantity + vehicleExtraQuantity + mamNon.orderedQuantity;
   const roundedTotalBmq = roundTotalBmqForPateBatch(rawTotalBmq);
   const supplierCreditQuantity = dealerExtraQuantity + vehicleExtraQuantity;
   const supplierBillableQuantity = roundedTotalBmq - supplierCreditQuantity;
@@ -346,10 +460,11 @@ const enqueueDailyBreadOrder = async (
     vehicleQuantity: vehicleForecast.totalQuantity,
     vehicleExchangeQuantity,
     vehicleMakeupQuantity,
+    mamNonOrderedQuantity: mamNon.orderedQuantity,
     vietjetQuantity: vietjet.quantity,
   });
   if (dealerOrderedQuantity + dealerExchangeQuantity + dealerMakeupQuantity
-    + vehicleForecast.totalQuantity + vehicleExtraQuantity + vietjet.quantity <= 0) {
+    + vehicleForecast.totalQuantity + vehicleExtraQuantity + mamNon.orderedQuantity + vietjet.quantity <= 0) {
     throw new Error("Daily bread order has no positive quantity");
   }
 
@@ -401,6 +516,20 @@ const enqueueDailyBreadOrder = async (
         source_report: forecast.latestReportSource,
       })),
       warnings: vehicleForecast.warnings,
+    },
+    mam_non: {
+      source: "customer_po_inbox",
+      rule: "mam_non_may_bread_order",
+      customer_name: "Mầm non May",
+      sku_code: "BMQ-001",
+      ordered_quantity: mamNon.orderedQuantity,
+      revenue_quantity: mamNon.orderedQuantity,
+      supplier_order_quantity: mamNon.supplierOrderQuantity,
+      warehouse_surplus_quantity: mamNon.warehouseSurplusQuantity,
+      whole_order_rounding_surplus_quantity: roundedTotalBmq - rawTotalBmq,
+      inbox_ids: mamNon.inboxIds,
+      gmail_message_ids: mamNon.gmailMessageIds,
+      mailbox_sync: mamNonMailboxSync,
     },
     vietjet: {
       source: "customer_po_inbox",

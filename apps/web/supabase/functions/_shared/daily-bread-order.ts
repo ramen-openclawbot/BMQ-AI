@@ -52,7 +52,17 @@ export type DailyBreadOrderMessageInput = {
   vehicleQuantity: number;
   vehicleExchangeQuantity?: number;
   vehicleMakeupQuantity?: number;
+  mamNonOrderedQuantity?: number;
   vietjetQuantity: number;
+};
+
+export type MamNonMayEmailOrder = {
+  customerName: "Mầm non May";
+  serviceDate: string;
+  orderedQuantity: number;
+  revenueQuantity: number;
+  supplierQuantity: number;
+  warehouseSurplusQuantity: number;
 };
 
 export type WarehouseKioskBreadDispatchLocation = {
@@ -116,6 +126,52 @@ const formatSupplierQuantity = (value: number): string => new Intl.NumberFormat(
 
 export const roundBreadOrderMessageQuantity = (value: number): number => roundUpToBatch(quantity(value), 10);
 export const roundTotalBmqForPateBatch = (value: number): number => roundUpToBatch(quantity(value), PATE_BATCH_SIZE);
+
+const normalizeMatchText = (value: string): string => String(value || "")
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .replace(/đ/g, "d")
+  .replace(/Đ/g, "D")
+  .toLowerCase()
+  .replace(/\s+/g, " ")
+  .trim();
+
+export const isMamNonMayEmailSubject = (value: string): boolean =>
+  /^mam non canada\s*\(\s*cty may\s*\)$/.test(normalizeMatchText(value));
+
+const nextVietnamDateFromTimestamp = (value: string): string | null => {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return null;
+  const vietnamDate = new Date(timestamp + VIETNAM_OFFSET_MS);
+  vietnamDate.setUTCDate(vietnamDate.getUTCDate() + 1);
+  return vietnamDate.toISOString().slice(0, 10);
+};
+
+export function parseMamNonMayEmailOrder(input: {
+  sender: string;
+  subject: string;
+  body: string;
+  receivedAt: string;
+}): MamNonMayEmailOrder | null {
+  const sender = normalizeMatchText(input.sender).replace(/^.*<|>.*$/g, "").trim();
+  const subject = normalizeMatchText(input.subject);
+  if (sender !== "mi@bmq.vn" || !isMamNonMayEmailSubject(subject)) {
+    return null;
+  }
+  const match = normalizeMatchText(input.body).match(/\bbanh mi pate\s*:?\s*(\d+(?:[.,]\d+)?)\s*(?:que)?\b/);
+  const orderedQuantity = Number(String(match?.[1] || "").replace(",", "."));
+  const serviceDate = nextVietnamDateFromTimestamp(input.receivedAt);
+  if (!serviceDate || !Number.isFinite(orderedQuantity) || orderedQuantity <= 0) return null;
+  const supplierQuantity = roundTotalBmqForPateBatch(orderedQuantity);
+  return {
+    customerName: "Mầm non May",
+    serviceDate,
+    orderedQuantity,
+    revenueQuantity: orderedQuantity,
+    supplierQuantity,
+    warehouseSurplusQuantity: supplierQuantity - orderedQuantity,
+  };
+}
 
 const selectSmartPateBatchQuantity = (peakSoldQuantity: number, latestClosingQuantity: number): {
   protectedDemandQuantity: number;
@@ -285,7 +341,8 @@ export function buildDailyBreadOrderMessage(input: DailyBreadOrderMessageInput):
   const vehicle = quantity(input.vehicleQuantity);
   const vehicleExchange = quantity(input.vehicleExchangeQuantity);
   const vehicleMakeup = quantity(input.vehicleMakeupQuantity);
-  const totalNewOrder = dealerOrdered + vehicle;
+  const mamNonOrdered = quantity(input.mamNonOrderedQuantity);
+  const totalNewOrder = dealerOrdered + vehicle + mamNonOrdered;
   const totalExchange = dealerExchange + vehicleExchange;
   const totalMakeup = dealerMakeup + vehicleMakeup;
   const totalSupplierCredit = totalExchange + totalMakeup;
@@ -307,6 +364,7 @@ export function buildDailyBreadOrderMessage(input: DailyBreadOrderMessageInput):
     "ĐẶT MỚI",
     `• Đại lý: ${formatSupplierQuantity(dealerOrdered)} que`,
     `• Điểm bán: ${formatSupplierQuantity(vehicle)} que`,
+    ...(mamNonOrdered > 0 ? [`• Mầm non May: ${formatSupplierQuantity(mamNonOrdered)} que`] : []),
     `• Cộng đặt mới: ${formatSupplierQuantity(totalNewOrder)} que`,
     "",
     "ĐỔI / BÙ / TRẢ",
