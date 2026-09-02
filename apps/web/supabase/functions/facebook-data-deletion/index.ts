@@ -3,6 +3,7 @@ declare const Deno: any;
 type VerifyResult = { ok: true; appScopedUserId: string } | { ok: false; error: string };
 type Env = {
   META_APP_SECRET?: string;
+  META_APP_ID?: string;
   META_DELETION_CONFIRMATION_SECRET?: string;
   PUBLIC_SITE_URL?: string;
   SUPABASE_URL?: string;
@@ -41,8 +42,9 @@ const CONFIRMATION_CODE_BYTES = 32;
 const CONFIRMATION_CODE_DOMAIN = "bmq-facebook-data-deletion-confirmation-code:v1";
 const REQUEST_FINGERPRINT_DOMAIN = "bmq-facebook-data-deletion-request-fingerprint:v1";
 
-export async function verifyMetaSignedRequest(signedRequest: string, appSecret: string): Promise<VerifyResult> {
+export async function verifyMetaSignedRequest(signedRequest: string, appSecret: string, expectedAppId: string): Promise<VerifyResult> {
   if (!appSecret) return { ok: false, error: "missing_app_secret" };
+  if (typeof expectedAppId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(expectedAppId)) return { ok: false, error: "missing_app_id" };
   const parts = signedRequest.split(".");
   if (parts.length !== 2 || !parts[0] || !parts[1]) return { ok: false, error: "malformed_signed_request" };
 
@@ -59,6 +61,9 @@ export async function verifyMetaSignedRequest(signedRequest: string, appSecret: 
 
   if (!isRecord(payload)) return { ok: false, error: "payload_not_object" };
   if (payload.algorithm !== "HMAC-SHA256") return { ok: false, error: "unsupported_algorithm" };
+  if (typeof payload.app_id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(payload.app_id) || payload.app_id !== expectedAppId) {
+    return { ok: false, error: "invalid_app_id" };
+  }
   if (typeof payload.user_id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(payload.user_id)) {
     return { ok: false, error: "missing_app_scoped_user_id" };
   }
@@ -84,7 +89,7 @@ export async function handleDataDeletionCallback(request: Request, env: Env, dep
 
   const params = new URLSearchParams(decoder.decode(rawBody));
   const signedRequest = params.get("signed_request") || "";
-  const verified = await verifyMetaSignedRequest(signedRequest, env.META_APP_SECRET || "");
+  const verified = await verifyMetaSignedRequest(signedRequest, env.META_APP_SECRET || "", env.META_APP_ID || "");
   if (!verified.ok) return json({ error: "invalid_signed_request" }, 400);
   if (!env.META_DELETION_CONFIRMATION_SECRET) return json({ error: "missing_confirmation_secret" }, 500);
 
@@ -291,6 +296,7 @@ if (typeof Deno !== "undefined" && Deno?.serve) {
   Deno.serve(async (request: Request) => {
     const env: Env = {
       META_APP_SECRET: Deno.env.get("META_APP_SECRET"),
+      META_APP_ID: Deno.env.get("META_APP_ID"),
       META_DELETION_CONFIRMATION_SECRET: Deno.env.get("META_DELETION_CONFIRMATION_SECRET"),
       PUBLIC_SITE_URL: Deno.env.get("PUBLIC_SITE_URL") || Deno.env.get("SITE_URL"),
       SUPABASE_URL: Deno.env.get("SUPABASE_URL"),

@@ -39,25 +39,50 @@ function text(url: URL): string {
 }
 
 test("valid Meta signed_request is verified before exposing an app-scoped user id", async () => {
-  const payload = { algorithm: "HMAC-SHA256", user_id: "1234567890", issued_at: 1790000000 };
-  const verified = await verifyMetaSignedRequest(signedRequest(payload), "meta-secret");
+  const payload = { algorithm: "HMAC-SHA256", app_id: "meta-app-123", user_id: "1234567890", issued_at: 1790000000 };
+  const verified = await verifyMetaSignedRequest(signedRequest(payload), "meta-secret", "meta-app-123");
 
   assert.deepEqual(verified, { ok: true, appScopedUserId: "1234567890" });
 });
 
+test("signed_request fails closed when app_id is missing, malformed, or mismatched", async () => {
+  assert.equal((await verifyMetaSignedRequest(signedRequest({ algorithm: "HMAC-SHA256", user_id: "1234567890" }), "meta-secret", "meta-app-123")).ok, false);
+  assert.equal((await verifyMetaSignedRequest(signedRequest({ algorithm: "HMAC-SHA256", app_id: "other-app", user_id: "1234567890" }), "meta-secret", "meta-app-123")).ok, false);
+  assert.equal((await verifyMetaSignedRequest(signedRequest({ algorithm: "HMAC-SHA256", app_id: "", user_id: "1234567890" }), "meta-secret", "meta-app-123")).ok, false);
+  assert.equal((await verifyMetaSignedRequest(signedRequest({ algorithm: "HMAC-SHA256", app_id: "a".repeat(129), user_id: "1234567890" }), "meta-secret", "meta-app-123")).ok, false);
+  assert.equal((await verifyMetaSignedRequest(signedRequest({ algorithm: "HMAC-SHA256", app_id: "meta-app-123", user_id: "1234567890" }), "meta-secret", "")).ok, false);
+});
+
+test("callback rejects missing or mismatched Meta app id before registration", async () => {
+  for (const signed_request of [
+    signedRequest({ algorithm: "HMAC-SHA256", user_id: "app-user-1" }),
+    signedRequest({ algorithm: "HMAC-SHA256", app_id: "wrong-app", user_id: "app-user-1" }),
+  ]) {
+    const response = await handleDataDeletionCallback(
+      formRequest(signed_request),
+      { META_APP_SECRET: "meta-secret", META_APP_ID: "meta-app-123", META_DELETION_CONFIRMATION_SECRET: "confirmation-secret" },
+      {
+        registerDeletionRequest: async () => assert.fail("app_id failures must not reach registration"),
+      },
+    );
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: "invalid_signed_request" });
+  }
+});
+
 test("tampered, malformed, wrong algorithm, and oversized callbacks are rejected", async () => {
-  const valid = signedRequest({ algorithm: "HMAC-SHA256", user_id: "1234567890" });
-  assert.equal((await verifyMetaSignedRequest(`${valid}x`, "meta-secret")).ok, false);
-  assert.equal((await verifyMetaSignedRequest("not-a-signed-request", "meta-secret")).ok, false);
-  assert.equal((await verifyMetaSignedRequest(signedRequest({ algorithm: "PLAINTEXT", user_id: "123" }), "meta-secret")).ok, false);
-  assert.equal((await verifyMetaSignedRequest(signedRequest({ algorithm: "HMAC-SHA256", user_id: "" }), "meta-secret")).ok, false);
+  const valid = signedRequest({ algorithm: "HMAC-SHA256", app_id: "meta-app-123", user_id: "1234567890" });
+  assert.equal((await verifyMetaSignedRequest(`${valid}x`, "meta-secret", "meta-app-123")).ok, false);
+  assert.equal((await verifyMetaSignedRequest("not-a-signed-request", "meta-secret", "meta-app-123")).ok, false);
+  assert.equal((await verifyMetaSignedRequest(signedRequest({ algorithm: "PLAINTEXT", app_id: "meta-app-123", user_id: "123" }), "meta-secret", "meta-app-123")).ok, false);
+  assert.equal((await verifyMetaSignedRequest(signedRequest({ algorithm: "HMAC-SHA256", app_id: "meta-app-123", user_id: "" }), "meta-secret", "meta-app-123")).ok, false);
 
   const tooLarge = new Request("https://ai.banhmique.vn/functions/v1/facebook-data-deletion", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: `signed_request=${"a".repeat(FACEBOOK_DELETION_MAX_BODY_BYTES + 1)}`,
   });
-  const response = await handleDataDeletionCallback(tooLarge, { META_APP_SECRET: "meta-secret", PUBLIC_SITE_URL: "https://ai.banhmique.vn" }, {
+  const response = await handleDataDeletionCallback(tooLarge, { META_APP_SECRET: "meta-secret", META_APP_ID: "meta-app-123", PUBLIC_SITE_URL: "https://ai.banhmique.vn" }, {
     registerDeletionRequest: async () => assert.fail("oversized payload must not reach registration"),
   });
   assert.equal(response.status, 413);
@@ -65,8 +90,8 @@ test("tampered, malformed, wrong algorithm, and oversized callbacks are rejected
 
 test("callback requires a separate confirmation secret before registration", async () => {
   const response = await handleDataDeletionCallback(
-    formRequest(signedRequest({ algorithm: "HMAC-SHA256", user_id: "app-user-1" })),
-    { META_APP_SECRET: "meta-secret", PUBLIC_SITE_URL: "https://ai.banhmique.vn" },
+    formRequest(signedRequest({ algorithm: "HMAC-SHA256", app_id: "meta-app-123", user_id: "app-user-1" })),
+    { META_APP_SECRET: "meta-secret", META_APP_ID: "meta-app-123", PUBLIC_SITE_URL: "https://ai.banhmique.vn" },
     {
       registerDeletionRequest: async () => assert.fail("missing confirmation secret must not reach registration"),
     },
@@ -79,8 +104,8 @@ test("callback requires a separate confirmation secret before registration", asy
 test("callback returns deterministic high-entropy confirmation derived from a separate secret while storage receives only hashes", async () => {
   const seen: Array<Record<string, unknown>> = [];
   const response = await handleDataDeletionCallback(
-    formRequest(signedRequest({ algorithm: "HMAC-SHA256", user_id: "app-user-1" })),
-    { META_APP_SECRET: "meta-secret", META_DELETION_CONFIRMATION_SECRET: "confirmation-secret", PUBLIC_SITE_URL: "https://www.banhmique.vn" },
+    formRequest(signedRequest({ algorithm: "HMAC-SHA256", app_id: "meta-app-123", user_id: "app-user-1" })),
+    { META_APP_SECRET: "meta-secret", META_APP_ID: "meta-app-123", META_DELETION_CONFIRMATION_SECRET: "confirmation-secret", PUBLIC_SITE_URL: "https://www.banhmique.vn" },
     {
       registerDeletionRequest: async (input) => {
         seen.push(input);
@@ -106,8 +131,8 @@ test("repeat callback returns the same code and same function-origin status URL 
   const requestFingerprint = new Set<string>();
   const confirmationHashes = new Set<string>();
   const first = await handleDataDeletionCallback(
-    formRequest(signedRequest({ algorithm: "HMAC-SHA256", user_id: "repeat-user" })),
-    { META_APP_SECRET: "meta-secret", META_DELETION_CONFIRMATION_SECRET: "confirmation-secret", PUBLIC_SITE_URL: "https://www.banhmique.vn/privacy.html" },
+    formRequest(signedRequest({ algorithm: "HMAC-SHA256", app_id: "meta-app-123", user_id: "repeat-user" })),
+    { META_APP_SECRET: "meta-secret", META_APP_ID: "meta-app-123", META_DELETION_CONFIRMATION_SECRET: "confirmation-secret", PUBLIC_SITE_URL: "https://www.banhmique.vn/privacy.html" },
     {
       registerDeletionRequest: async (input) => {
         requestFingerprint.add(input.requestFingerprint);
@@ -117,8 +142,8 @@ test("repeat callback returns the same code and same function-origin status URL 
     },
   );
   const second = await handleDataDeletionCallback(
-    formRequest(signedRequest({ algorithm: "HMAC-SHA256", user_id: "repeat-user" })),
-    { META_APP_SECRET: "meta-secret", META_DELETION_CONFIRMATION_SECRET: "confirmation-secret", PUBLIC_SITE_URL: "https://www.banhmique.vn/privacy.html" },
+    formRequest(signedRequest({ algorithm: "HMAC-SHA256", app_id: "meta-app-123", user_id: "repeat-user" })),
+    { META_APP_SECRET: "meta-secret", META_APP_ID: "meta-app-123", META_DELETION_CONFIRMATION_SECRET: "confirmation-secret", PUBLIC_SITE_URL: "https://www.banhmique.vn/privacy.html" },
     {
       registerDeletionRequest: async (input) => {
         requestFingerprint.add(input.requestFingerprint);
@@ -173,6 +198,11 @@ test("SQL registers mapped deletions transactionally, deletes exact mapped Messe
   assert.match(sql, /security\s+definer/i);
   assert.match(sql, /set\s+search_path\s*=\s*public,\s*extensions/i);
   assert.match(sql, /from\s+public\.facebook_platform_identities[\s\S]*app_scoped_user_id[\s\S]*verified_at\s+is\s+not\s+null/i);
+  assert.match(sql, /create\s+temporary\s+table[\s\S]*facebook_data_deletion_mapped_conversation_ids[\s\S]*conversation_id\s+uuid\s+not\s+null/i);
+  assert.match(sql, /create\s+temporary\s+table[\s\S]*facebook_data_deletion_mapped_message_ids[\s\S]*message_id\s+uuid\s+not\s+null/i);
+  assert.match(sql, /insert\s+into\s+pg_temp\.facebook_data_deletion_mapped_conversation_ids[\s\S]*from\s+public\.facebook_messenger_conversations/i);
+  assert.match(sql, /insert\s+into\s+pg_temp\.facebook_data_deletion_mapped_message_ids[\s\S]*from\s+public\.facebook_messenger_messages/i);
+  assert.match(sql, /delete\s+from\s+public\.facebook_messenger_email_outbox\s+eo[\s\S]*eo\.conversation_id\s+in\s*\([\s\S]*facebook_data_deletion_mapped_conversation_ids[\s\S]*or\s+eo\.message_id\s+in\s*\([\s\S]*facebook_data_deletion_mapped_message_ids/i);
   assert.match(sql, /status\s*=\s*'pending_manual_mapping'/i);
   assert.doesNotMatch(sql, /set\s+confirmation_code_hash\s*=\s*(excluded\.|p_confirmation_code_hash)/i);
   assert.match(sql, /on\s+conflict\s*\(request_fingerprint\)[\s\S]{0,220}do\s+nothing/i);

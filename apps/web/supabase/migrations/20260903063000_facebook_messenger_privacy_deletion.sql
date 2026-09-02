@@ -89,7 +89,17 @@ begin
     primary key (page_id, psid)
   ) on commit drop;
 
+  create temporary table if not exists pg_temp.facebook_data_deletion_mapped_conversation_ids (
+    conversation_id uuid not null primary key
+  ) on commit drop;
+
+  create temporary table if not exists pg_temp.facebook_data_deletion_mapped_message_ids (
+    message_id uuid not null primary key
+  ) on commit drop;
+
   truncate table pg_temp.facebook_data_deletion_exact_mappings;
+  truncate table pg_temp.facebook_data_deletion_mapped_conversation_ids;
+  truncate table pg_temp.facebook_data_deletion_mapped_message_ids;
 
   insert into pg_temp.facebook_data_deletion_exact_mappings(page_id, psid)
   select fpi.page_id, fpi.psid
@@ -116,11 +126,25 @@ begin
     where r.id = v_request.id
     returning * into v_request;
   else
+    insert into pg_temp.facebook_data_deletion_mapped_conversation_ids(conversation_id)
+    select c.id
+    from public.facebook_messenger_conversations c
+    join pg_temp.facebook_data_deletion_exact_mappings m
+      on m.page_id = c.page_id
+     and m.psid = c.psid
+    for update;
+
+    insert into pg_temp.facebook_data_deletion_mapped_message_ids(message_id)
+    select msg.id
+    from public.facebook_messenger_messages msg
+    join pg_temp.facebook_data_deletion_exact_mappings m
+      on m.page_id = msg.page_id
+     and m.psid = msg.psid
+    for update;
+
     delete from public.facebook_messenger_email_outbox eo
-    using public.facebook_messenger_conversations c, pg_temp.facebook_data_deletion_exact_mappings m
-    where eo.conversation_id = c.id
-      and c.page_id = m.page_id
-      and c.psid = m.psid;
+    where eo.conversation_id in (select conversation_id from pg_temp.facebook_data_deletion_mapped_conversation_ids)
+       or eo.message_id in (select message_id from pg_temp.facebook_data_deletion_mapped_message_ids);
 
     delete from public.facebook_messenger_outbox o
     using pg_temp.facebook_data_deletion_exact_mappings m
