@@ -198,6 +198,10 @@ verify_jwt = false
 [functions.po-gmail-ingest]
 verify_jwt = false
 
+[functions.facebook-messenger-webhook]
+# Public Meta webhook: verifies Meta token/signature in function code.
+verify_jwt = false
+
 # ──────────────────────────────────────────────────────────
 # Functions needing further audit before enabling JWT
 # Keep verify_jwt = false until auth is added to the code
