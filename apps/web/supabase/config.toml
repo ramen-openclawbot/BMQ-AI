@@ -202,6 +202,22 @@ verify_jwt = false
 # Public Meta webhook: verifies Meta token/signature in function code.
 verify_jwt = false
 
+[functions.facebook-messenger-inbox]
+# JWT plus facebook_messenger can_view/can_edit enforced in function code.
+verify_jwt = false
+
+[functions.facebook-messenger-send]
+# JWT plus facebook_messenger can_edit enforced in function code.
+verify_jwt = false
+
+[functions.facebook-messenger-worker]
+# Cron/internal worker: dedicated x-worker-secret enforced in function code.
+verify_jwt = false
+
+[functions.facebook-messenger-health]
+# Public safe readiness booleans only; no tokens/secrets/status details returned.
+verify_jwt = false
+
 # ──────────────────────────────────────────────────────────
 # Functions needing further audit before enabling JWT
 # Keep verify_jwt = false until auth is added to the code
