@@ -40,8 +40,10 @@ interface Translations {
   poSales: string;
   sectionExecution: string;
   sectionFinance: string;
+  sectionMarketingSales: string;
   sectionOperations: string;
   sectionProduction: string;
+  facebookPageManagement: string;
   createPOFromDrive: string;
   userManagement: string;
   systemManagement: string;
@@ -239,8 +241,10 @@ const translations: Record<Language, Translations> = {
     poSales: "PO (Sales)",
     sectionExecution: "Executive",
     sectionFinance: "Finance",
+    sectionMarketingSales: "Marketing&Sale",
     sectionOperations: "Operations",
     sectionProduction: "Production",
+    facebookPageManagement: "Facebook Page Management",
     createPOFromDrive: "Create PO from Google Drive",
     userManagement: "User Management",
     systemManagement: "System Management",
@@ -436,8 +440,10 @@ const translations: Record<Language, Translations> = {
     poSales: "PO (Bán hàng)",
     sectionExecution: "Điều hành",
     sectionFinance: "Tài chính",
+    sectionMarketingSales: "Marketing&Sale",
     sectionOperations: "Vận hành",
     sectionProduction: "Sản xuất",
+    facebookPageManagement: "Quản lý Facebook Page",
     createPOFromDrive: "Tạo PO từ Google Drive",
     userManagement: "Quản lý người dùng",
     productionPlanning: "Kế hoạch SX",

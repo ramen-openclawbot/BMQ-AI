@@ -56,6 +56,7 @@ const StockReport = lazy(() => import("@/pages/StockReport"));
 const TanTaoWarehouse = lazy(() => import("@/pages/TanTaoWarehouse"));
 const AttendanceManagement = lazy(() => import("@/pages/AttendanceManagement"));
 const PayrollManagement = lazy(() => import("@/pages/PayrollManagement"));
+const FacebookMessengerInbox = lazy(() => import("@/pages/FacebookMessengerInbox"));
 
 const DEALER_ORDERING_HOST = "dathang.banhmique.vn";
 
@@ -142,6 +143,7 @@ function ModuleRoute({ moduleKey, children }: { moduleKey: string; children: Rea
     production_qa: "QA & Nhập kho TP",
     goods_receipts: "Phiếu nhập kho",
     inventory: "Kho",
+    facebook_messenger: "Quản lý Facebook Page",
   };
   const moduleLabel = moduleLabels[moduleKey] || moduleKey;
 
@@ -242,6 +244,7 @@ export function AppRoutes() {
         <Route path="/finance-control/revenue/points" element={<ModuleRoute moduleKey="finance_revenue"><Suspense fallback={<AppLoadingFallback />}><PointRevenueManagement /></Suspense></ModuleRoute>} />
         <Route path="/mini-crm" element={<Suspense fallback={<AppLoadingFallback />}><MiniCrm /></Suspense>} />
         <Route path="/sales-po-inbox" element={<Suspense fallback={<AppLoadingFallback />}><MiniCrm /></Suspense>} />
+        <Route path="/marketing-sales/facebook-page" element={<ModuleRoute moduleKey="facebook_messenger"><Suspense fallback={<AppLoadingFallback />}><FacebookMessengerInbox /></Suspense></ModuleRoute>} />
         {/* Production routes */}
         <Route path="/production/planning" element={<Navigate to="/production/planning/q7" replace />} />
         <Route path="/production/planning/q7" element={<ModuleRoute moduleKey="production_q7"><Suspense fallback={<AppLoadingFallback />}><ProductionPlanning /></Suspense></ModuleRoute>} />
