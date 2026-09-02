@@ -5,7 +5,6 @@ type Env = {
   META_APP_SECRET?: string;
   META_APP_ID?: string;
   META_DELETION_CONFIRMATION_SECRET?: string;
-  PUBLIC_SITE_URL?: string;
   SUPABASE_URL?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
 };
@@ -93,6 +92,9 @@ export async function handleDataDeletionCallback(request: Request, env: Env, dep
   if (!verified.ok) return json({ error: "invalid_signed_request" }, 400);
   if (!env.META_DELETION_CONFIRMATION_SECRET) return json({ error: "missing_confirmation_secret" }, 500);
 
+  const statusUrlBase = validateStatusUrlBase(env.SUPABASE_URL || "");
+  if (!statusUrlBase.ok) return json({ error: "invalid_status_url_configuration" }, 500);
+
   const confirmationCode = await deriveConfirmationCode(env.META_DELETION_CONFIRMATION_SECRET, verified.appScopedUserId);
   const confirmationCodeHash = await hashConfirmationCode(confirmationCode);
   const requestFingerprint = await deriveRequestFingerprint(env.META_DELETION_CONFIRMATION_SECRET, verified.appScopedUserId);
@@ -104,7 +106,7 @@ export async function handleDataDeletionCallback(request: Request, env: Env, dep
   });
 
   return json({
-    url: buildStatusUrl(request.url, confirmationCode),
+    url: buildStatusUrl(statusUrlBase.origin, confirmationCode),
     confirmation_code: confirmationCode,
   });
 }
@@ -180,11 +182,24 @@ async function hashText(text: string): Promise<string> {
   return bytesToHex(new Uint8Array(digest));
 }
 
-function buildStatusUrl(requestUrl: string, confirmationCode: string): string {
-  const parsed = new URL(requestUrl);
-  const basePath = parsed.pathname.replace(/\/+$/, "");
-  const statusPath = basePath.endsWith("/status") ? basePath : `${basePath}/status`;
-  return `${parsed.protocol}//${parsed.host}${statusPath}?code=${encodeURIComponent(confirmationCode)}`;
+function validateStatusUrlBase(configuredUrl: string): { ok: true; origin: string } | { ok: false } {
+  if (!configuredUrl) return { ok: false };
+  let parsed: URL;
+  try {
+    parsed = new URL(configuredUrl);
+  } catch {
+    return { ok: false };
+  }
+  if (parsed.username || parsed.password || parsed.hash) return { ok: false };
+  const isLocalHttp = parsed.protocol === "http:" && (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1");
+  if (parsed.protocol !== "https:" && !isLocalHttp) return { ok: false };
+  return { ok: true, origin: parsed.origin };
+}
+
+function buildStatusUrl(trustedOrigin: string, confirmationCode: string): string {
+  const statusUrl = new URL("/functions/v1/facebook-data-deletion/status", trustedOrigin);
+  statusUrl.searchParams.set("code", confirmationCode);
+  return statusUrl.toString();
 }
 
 function renderStatusHtml(status: Exclude<StatusResult, null>): string {
@@ -298,7 +313,6 @@ if (typeof Deno !== "undefined" && Deno?.serve) {
       META_APP_SECRET: Deno.env.get("META_APP_SECRET"),
       META_APP_ID: Deno.env.get("META_APP_ID"),
       META_DELETION_CONFIRMATION_SECRET: Deno.env.get("META_DELETION_CONFIRMATION_SECRET"),
-      PUBLIC_SITE_URL: Deno.env.get("PUBLIC_SITE_URL") || Deno.env.get("SITE_URL"),
       SUPABASE_URL: Deno.env.get("SUPABASE_URL"),
       SUPABASE_SERVICE_ROLE_KEY: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
     };

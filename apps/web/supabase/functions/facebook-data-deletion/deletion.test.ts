@@ -26,8 +26,8 @@ function signedRequest(payload: Record<string, unknown>, secret = "meta-secret")
   return `${signature}.${encodedPayload}`;
 }
 
-function formRequest(signed_request: string): Request {
-  return new Request("https://ai.banhmique.vn/functions/v1/facebook-data-deletion", {
+function formRequest(signed_request: string, url = "https://ai.banhmique.vn/functions/v1/facebook-data-deletion"): Request {
+  return new Request(url, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ signed_request }),
@@ -82,7 +82,7 @@ test("tampered, malformed, wrong algorithm, and oversized callbacks are rejected
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: `signed_request=${"a".repeat(FACEBOOK_DELETION_MAX_BODY_BYTES + 1)}`,
   });
-  const response = await handleDataDeletionCallback(tooLarge, { META_APP_SECRET: "meta-secret", META_APP_ID: "meta-app-123", PUBLIC_SITE_URL: "https://ai.banhmique.vn" }, {
+  const response = await handleDataDeletionCallback(tooLarge, { META_APP_SECRET: "meta-secret", META_APP_ID: "meta-app-123" }, {
     registerDeletionRequest: async () => assert.fail("oversized payload must not reach registration"),
   });
   assert.equal(response.status, 413);
@@ -91,7 +91,7 @@ test("tampered, malformed, wrong algorithm, and oversized callbacks are rejected
 test("callback requires a separate confirmation secret before registration", async () => {
   const response = await handleDataDeletionCallback(
     formRequest(signedRequest({ algorithm: "HMAC-SHA256", app_id: "meta-app-123", user_id: "app-user-1" })),
-    { META_APP_SECRET: "meta-secret", META_APP_ID: "meta-app-123", PUBLIC_SITE_URL: "https://ai.banhmique.vn" },
+    { META_APP_SECRET: "meta-secret", META_APP_ID: "meta-app-123" },
     {
       registerDeletionRequest: async () => assert.fail("missing confirmation secret must not reach registration"),
     },
@@ -101,11 +101,75 @@ test("callback requires a separate confirmation secret before registration", asy
   assert.deepEqual(await response.json(), { error: "missing_confirmation_secret" });
 });
 
+test("callback builds status URL only from trusted SUPABASE_URL and ignores spoofed request origins", async () => {
+  const response = await handleDataDeletionCallback(
+    formRequest(
+      signedRequest({ algorithm: "HMAC-SHA256", app_id: "meta-app-123", user_id: "app-user-1" }),
+      "https://evil.example/anything/facebook-data-deletion",
+    ),
+    {
+      META_APP_SECRET: "meta-secret",
+      META_APP_ID: "meta-app-123",
+      META_DELETION_CONFIRMATION_SECRET: "confirmation-secret",
+      SUPABASE_URL: "https://project-ref.supabase.co",
+    },
+    {
+      registerDeletionRequest: async (input) => ({ status: "requested", confirmationCodeHash: input.confirmationCodeHash }),
+    },
+  );
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.url, `https://project-ref.supabase.co/functions/v1/facebook-data-deletion/status?code=${body.confirmation_code}`);
+  assert.equal(String(body.url).includes("evil.example"), false);
+});
+
+test("callback rejects missing or unsafe SUPABASE_URL before registration", async () => {
+  const safeSignedRequest = signedRequest({ algorithm: "HMAC-SHA256", app_id: "meta-app-123", user_id: "app-user-1" });
+  for (const SUPABASE_URL of [undefined, "", "http://project-ref.supabase.co", "javascript:alert(1)", "https://user:pass@project-ref.supabase.co", "https://project-ref.supabase.co/#fragment"]) {
+    const response = await handleDataDeletionCallback(
+      formRequest(safeSignedRequest),
+      {
+        META_APP_SECRET: "meta-secret",
+        META_APP_ID: "meta-app-123",
+        META_DELETION_CONFIRMATION_SECRET: "confirmation-secret",
+        SUPABASE_URL,
+      },
+      {
+        registerDeletionRequest: async () => assert.fail(`unsafe SUPABASE_URL must not register: ${SUPABASE_URL}`),
+      },
+    );
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), { error: "invalid_status_url_configuration" });
+  }
+});
+
+test("callback permits explicit localhost HTTP SUPABASE_URL for local tests and still uses the fixed status path", async () => {
+  for (const SUPABASE_URL of ["http://localhost:54321", "http://127.0.0.1:54321/rest/v1"]) {
+    const response = await handleDataDeletionCallback(
+      formRequest(signedRequest({ algorithm: "HMAC-SHA256", app_id: "meta-app-123", user_id: "local-user" })),
+      {
+        META_APP_SECRET: "meta-secret",
+        META_APP_ID: "meta-app-123",
+        META_DELETION_CONFIRMATION_SECRET: "confirmation-secret",
+        SUPABASE_URL,
+      },
+      {
+        registerDeletionRequest: async (input) => ({ status: "requested", confirmationCodeHash: input.confirmationCodeHash }),
+      },
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    const expectedOrigin = new URL(SUPABASE_URL).origin;
+    assert.equal(body.url, `${expectedOrigin}/functions/v1/facebook-data-deletion/status?code=${body.confirmation_code}`);
+  }
+});
+
 test("callback returns deterministic high-entropy confirmation derived from a separate secret while storage receives only hashes", async () => {
   const seen: Array<Record<string, unknown>> = [];
   const response = await handleDataDeletionCallback(
     formRequest(signedRequest({ algorithm: "HMAC-SHA256", app_id: "meta-app-123", user_id: "app-user-1" })),
-    { META_APP_SECRET: "meta-secret", META_APP_ID: "meta-app-123", META_DELETION_CONFIRMATION_SECRET: "confirmation-secret", PUBLIC_SITE_URL: "https://www.banhmique.vn" },
+    { META_APP_SECRET: "meta-secret", META_APP_ID: "meta-app-123", META_DELETION_CONFIRMATION_SECRET: "confirmation-secret", SUPABASE_URL: "https://ai.banhmique.vn" },
     {
       registerDeletionRequest: async (input) => {
         seen.push(input);
@@ -132,7 +196,7 @@ test("repeat callback returns the same code and same function-origin status URL 
   const confirmationHashes = new Set<string>();
   const first = await handleDataDeletionCallback(
     formRequest(signedRequest({ algorithm: "HMAC-SHA256", app_id: "meta-app-123", user_id: "repeat-user" })),
-    { META_APP_SECRET: "meta-secret", META_APP_ID: "meta-app-123", META_DELETION_CONFIRMATION_SECRET: "confirmation-secret", PUBLIC_SITE_URL: "https://www.banhmique.vn/privacy.html" },
+    { META_APP_SECRET: "meta-secret", META_APP_ID: "meta-app-123", META_DELETION_CONFIRMATION_SECRET: "confirmation-secret", SUPABASE_URL: "https://ai.banhmique.vn" },
     {
       registerDeletionRequest: async (input) => {
         requestFingerprint.add(input.requestFingerprint);
@@ -143,7 +207,7 @@ test("repeat callback returns the same code and same function-origin status URL 
   );
   const second = await handleDataDeletionCallback(
     formRequest(signedRequest({ algorithm: "HMAC-SHA256", app_id: "meta-app-123", user_id: "repeat-user" })),
-    { META_APP_SECRET: "meta-secret", META_APP_ID: "meta-app-123", META_DELETION_CONFIRMATION_SECRET: "confirmation-secret", PUBLIC_SITE_URL: "https://www.banhmique.vn/privacy.html" },
+    { META_APP_SECRET: "meta-secret", META_APP_ID: "meta-app-123", META_DELETION_CONFIRMATION_SECRET: "confirmation-secret", SUPABASE_URL: "https://ai.banhmique.vn" },
     {
       registerDeletionRequest: async (input) => {
         requestFingerprint.add(input.requestFingerprint);
@@ -238,6 +302,22 @@ test("SQL exposes only service-role registration/retention RPCs and an anon-safe
   assert.match(sql, /p_dry_run\s+boolean\s+default\s+true/i);
   assert.match(sql, /p_enabled\s+boolean\s+default\s+false/i);
   assert.doesNotMatch(sql, /cron\.schedule|pg_cron/i);
+});
+
+test("retention email-outbox dry-run candidates match deletion predicates for aged, message, and conversation references", () => {
+  const sql = text(SQL);
+  const retention = sql.slice(sql.indexOf("create or replace function public.facebook_apply_messenger_retention"));
+  const dryRunEmailCount = retention.match(/select\s+count\(\*\)\s+into\s+v_email_outbox[\s\S]*?from\s+public\.facebook_messenger_email_outbox\s+eo[\s\S]*?where\s+([\s\S]*?);/i)?.[1] || "";
+  const deleteEmail = retention.match(/delete\s+from\s+public\.facebook_messenger_email_outbox\s+eo[\s\S]*?where\s+([\s\S]*?);\s*get\s+diagnostics\s+v_email_outbox/i)?.[1] || "";
+
+  for (const predicate of [dryRunEmailCount, deleteEmail]) {
+    assert.match(predicate, /eo\.created_at\s*<\s*v_cutoff/i);
+    assert.match(predicate, /eo\.message_id\s+in\s*\(\s*select\s+message_id\s+from\s+pg_temp\.facebook_retention_candidate_message_ids/i);
+    assert.match(predicate, /eo\.conversation_id\s+in\s*\(\s*select\s+conversation_id\s+from\s+pg_temp\.facebook_retention_candidate_conversation_ids/i);
+  }
+  assert.match(retention, /create\s+temporary\s+table[\s\S]*facebook_retention_candidate_conversation_ids/i);
+  assert.match(retention, /create\s+temporary\s+table[\s\S]*facebook_retention_candidate_message_ids/i);
+  assert.match(retention, /delete\s+from\s+public\.facebook_messenger_email_outbox[\s\S]*delete\s+from\s+public\.facebook_messenger_messages[\s\S]*delete\s+from\s+public\.facebook_messenger_conversations/i);
 });
 
 test("privacy and deletion pages are public, BMQ-branded, Vietnamese-first, and avoid unapproved fixed retention promises", () => {

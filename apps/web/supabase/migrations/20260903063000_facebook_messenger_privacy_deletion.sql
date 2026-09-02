@@ -249,21 +249,44 @@ begin
 
   v_cutoff := now() - p_retention_interval;
 
-  select count(*) into v_conversations
+  create temporary table if not exists pg_temp.facebook_retention_candidate_conversation_ids (
+    conversation_id uuid not null primary key
+  ) on commit drop;
+
+  create temporary table if not exists pg_temp.facebook_retention_candidate_message_ids (
+    message_id uuid not null primary key
+  ) on commit drop;
+
+  truncate table pg_temp.facebook_retention_candidate_conversation_ids;
+  truncate table pg_temp.facebook_retention_candidate_message_ids;
+
+  insert into pg_temp.facebook_retention_candidate_conversation_ids(conversation_id)
+  select c.id
   from public.facebook_messenger_conversations c
   where coalesce(c.last_message_at, c.created_at) < v_cutoff;
 
-  select count(*) into v_messages
+  insert into pg_temp.facebook_retention_candidate_message_ids(message_id)
+  select msg.id
   from public.facebook_messenger_messages msg
-  where msg.created_at < v_cutoff;
+  where msg.created_at < v_cutoff
+     or msg.conversation_id in (select conversation_id from pg_temp.facebook_retention_candidate_conversation_ids);
+
+  select count(*) into v_conversations
+  from pg_temp.facebook_retention_candidate_conversation_ids;
+
+  select count(*) into v_messages
+  from pg_temp.facebook_retention_candidate_message_ids;
 
   select count(*) into v_outbox
   from public.facebook_messenger_outbox o
-  where o.created_at < v_cutoff;
+  where o.created_at < v_cutoff
+     or o.conversation_id in (select conversation_id from pg_temp.facebook_retention_candidate_conversation_ids);
 
   select count(*) into v_email_outbox
   from public.facebook_messenger_email_outbox eo
-  where eo.created_at < v_cutoff;
+  where eo.created_at < v_cutoff
+     or eo.message_id in (select message_id from pg_temp.facebook_retention_candidate_message_ids)
+     or eo.conversation_id in (select conversation_id from pg_temp.facebook_retention_candidate_conversation_ids);
 
   if p_dry_run is true then
     return jsonb_build_object(
@@ -278,21 +301,22 @@ begin
   end if;
 
   delete from public.facebook_messenger_email_outbox eo
-  using public.facebook_messenger_conversations c
-  where eo.conversation_id = c.id
-    and coalesce(c.last_message_at, c.created_at) < v_cutoff;
+  where eo.created_at < v_cutoff
+     or eo.message_id in (select message_id from pg_temp.facebook_retention_candidate_message_ids)
+     or eo.conversation_id in (select conversation_id from pg_temp.facebook_retention_candidate_conversation_ids);
   get diagnostics v_email_outbox = row_count;
 
   delete from public.facebook_messenger_outbox o
-  where o.created_at < v_cutoff;
+  where o.created_at < v_cutoff
+     or o.conversation_id in (select conversation_id from pg_temp.facebook_retention_candidate_conversation_ids);
   get diagnostics v_outbox = row_count;
 
   delete from public.facebook_messenger_messages msg
-  where msg.created_at < v_cutoff;
+  where msg.id in (select message_id from pg_temp.facebook_retention_candidate_message_ids);
   get diagnostics v_messages = row_count;
 
   delete from public.facebook_messenger_conversations c
-  where coalesce(c.last_message_at, c.created_at) < v_cutoff;
+  where c.id in (select conversation_id from pg_temp.facebook_retention_candidate_conversation_ids);
   get diagnostics v_conversations = row_count;
 
   return jsonb_build_object(
