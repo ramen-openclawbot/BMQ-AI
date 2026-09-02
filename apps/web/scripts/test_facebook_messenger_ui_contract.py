@@ -52,27 +52,37 @@ def test_i18n_keys_exist_in_vi_and_en():
     assert_contains(lang, 'facebookPageManagement: "Quản lý Facebook Page"', "Vietnamese translations")
 
 
-def test_hook_uses_authenticated_edge_functions_only():
+def test_hook_uses_fresh_authenticated_edge_functions_only():
     hook_path = ROOT / "src/hooks/useFacebookMessenger.ts"
     assert hook_path.exists(), "useFacebookMessenger.ts must exist"
     hook = hook_path.read_text(encoding="utf-8")
-    assert_contains(hook, 'getSession()', "useFacebookMessenger.ts")
+    assert_contains(hook, 'import { getFreshAccessToken } from "@/lib/supabase-helpers";', "useFacebookMessenger.ts")
+    assert_contains(hook, 'await getFreshAccessToken()', "useFacebookMessenger.ts")
     assert_contains(hook, 'Authorization', "useFacebookMessenger.ts")
-    assert_contains(hook, 'Bearer ${session.access_token}', "useFacebookMessenger.ts")
+    assert re.search(r'Bearer \$\{accessToken\}', hook), "edge functions must receive fresh Bearer token"
     assert_contains(hook, 'facebook-messenger-inbox', "useFacebookMessenger.ts")
     assert_contains(hook, 'facebook-messenger-send', "useFacebookMessenger.ts")
     forbidden = [
+        'getSession()', 'session.access_token',
         '.from("facebook_messenger_', ".from('facebook_messenger_", "graph.facebook", "facebook.com/", "page_id", "psid", "recipient", "messaging_type", "tag",
     ]
     for token in forbidden:
         assert_not_contains(hook, token, "useFacebookMessenger.ts")
     assert re.search(r'text\.trim\(\)\.slice\(0,\s*2000\)', hook), "send text must be bounded"
-    assert re.search(r'idempotencyKey:\s*attemptId', hook), "send payload must include generated per-attempt idempotency key"
 
 
-def test_duplicate_submit_pending_guard_and_responsive_contract():
+def test_send_contract_does_not_accept_client_thread_routing():
+    hook = read("src/hooks/useFacebookMessenger.ts")
     page = read("src/pages/FacebookMessengerInbox.tsx")
-    assert_contains(page, 'Quản lý Facebook Page', "FacebookMessengerInbox.tsx")
+    assert re.search(r'mutationFn:\s*async\s*\(\{\s*conversationId,\s*text\s*\}:\s*\{\s*conversationId:\s*string;\s*text:\s*string\s*\}\)', hook), "send mutation must accept only conversationId and text"
+    assert re.search(r'invokeMessengerFunction\("facebook-messenger-send",\s*\{\s*conversationId,\s*text:\s*boundedText,?\s*\}\)', hook), "send payload must contain only conversationId and bounded text"
+    for token in ('threadId', 'idempotencyKey', 'attemptId'):
+        assert_not_contains(hook, token, "useFacebookMessenger.ts")
+    assert_not_contains(page, 'threadId:', "FacebookMessengerInbox.tsx")
+
+
+def test_duplicate_submit_ref_lock_and_responsive_contract():
+    page = read("src/pages/FacebookMessengerInbox.tsx")
     assert_contains(page, 'data-facebook-messenger-responsive="320-390-1440"', "FacebookMessengerInbox.tsx")
     assert_contains(page, 'overflow-x-hidden', "FacebookMessengerInbox.tsx")
     assert_contains(page, 'lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]', "FacebookMessengerInbox.tsx")
@@ -80,10 +90,44 @@ def test_duplicate_submit_pending_guard_and_responsive_contract():
     assert_contains(page, 'md:hidden', "FacebookMessengerInbox.tsx")
     assert_contains(page, 'disabled={composerDisabled}', "FacebookMessengerInbox.tsx")
     assert_contains(page, 'isSending', "FacebookMessengerInbox.tsx")
-    assert re.search(r'if\s*\(isSending\)\s*return;', page), "submit handler must synchronously block duplicates"
+    assert_contains(page, 'const submitLockRef = useRef(false);', "FacebookMessengerInbox.tsx")
+    assert re.search(r'if\s*\(submitLockRef\.current\s*\|\|\s*isSending\)\s*return;', page), "submit handler must synchronously block duplicates before mutateAsync"
+    assert re.search(r'submitLockRef\.current\s*=\s*true;[\s\S]*?await sendMessage\.mutateAsync', page), "submit lock must be set before awaiting mutateAsync"
+    assert re.search(r'finally\s*\{\s*submitLockRef\.current\s*=\s*false;\s*\}', page), "submit lock must be cleared in finally"
     assert_contains(page, 'Không tải URL đính kèm từ Facebook', "FacebookMessengerInbox.tsx")
     assert_not_contains(page, '<img', "FacebookMessengerInbox.tsx")
     assert_not_contains(page, 'attachment.url', "FacebookMessengerInbox.tsx")
+
+
+def test_safe_error_mapping_forbids_raw_backend_messages():
+    page = read("src/pages/FacebookMessengerInbox.tsx")
+    assert_contains(page, 'function mapMessengerErrorMessage(error: unknown)', "FacebookMessengerInbox.tsx")
+    assert_contains(page, 'MESSENGER_ERROR_MESSAGES', "FacebookMessengerInbox.tsx")
+    assert_contains(page, 'Không thể hoàn tất thao tác Facebook Messenger. Vui lòng thử lại hoặc báo quản trị viên.', "FacebookMessengerInbox.tsx")
+    forbidden = ['error.message', 'inbox.error.message', 'safeError || (inbox.error instanceof Error ? inbox.error.message']
+    for token in forbidden:
+        assert_not_contains(page, token, "FacebookMessengerInbox.tsx")
+
+
+def test_page_heading_uses_i18n_translation_key():
+    page = read("src/pages/FacebookMessengerInbox.tsx")
+    assert_contains(page, 'import { useLanguage } from "@/contexts/LanguageContext";', "FacebookMessengerInbox.tsx")
+    assert_contains(page, 'const { t } = useLanguage();', "FacebookMessengerInbox.tsx")
+    assert_contains(page, '{t.facebookPageManagement}', "FacebookMessengerInbox.tsx")
+    assert_not_contains(page, '<h1 className="min-w-0 break-words text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Quản lý Facebook Page</h1>', "FacebookMessengerInbox.tsx")
+
+
+def test_composer_blocks_reconciliation_pending_or_ambiguous_states():
+    hook = read("src/hooks/useFacebookMessenger.ts")
+    page = read("src/pages/FacebookMessengerInbox.tsx")
+    assert_contains(hook, 'replyBlocked?: boolean;', "FacebookMessengerConversation type")
+    assert_contains(hook, 'reconciliationStatus?: string | null;', "FacebookMessengerConversation type")
+    for token in ('send_committed', 'manual_reconciliation_required'):
+        assert_contains(page, token, "FacebookMessengerInbox.tsx")
+    assert re.search(r'RECONCILIATION_BLOCKING_STATUSES\s*=\s*new Set\(\[\s*"send_committed",\s*"manual_reconciliation_required"\s*\]\)', page), "blocking statuses must be explicit and bounded"
+    assert_contains(page, 'selectedConversation.replyBlocked', "FacebookMessengerInbox.tsx")
+    assert_contains(page, 'reconciliationBlocked', "FacebookMessengerInbox.tsx")
+    assert_contains(page, 'Trạng thái đối soát chưa an toàn để gửi trả lời. Vui lòng chờ server xác nhận hoặc xử lý đối soát thủ công.', "FacebookMessengerInbox.tsx")
 
 
 if __name__ == "__main__":

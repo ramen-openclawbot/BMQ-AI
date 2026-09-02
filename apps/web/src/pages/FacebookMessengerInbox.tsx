@@ -1,21 +1,44 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useRef, useState } from "react";
 import { AlertCircle, Loader2, RefreshCw, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { ConversationList, MessageThread } from "@/components/facebook-messenger/FacebookMessengerPanels";
-import { FacebookMessengerConversation, useFacebookMessengerInbox, useFacebookMessengerSend } from "@/hooks/useFacebookMessenger";
+import { FacebookMessengerConversation, FacebookMessengerUiError, useFacebookMessengerInbox, useFacebookMessengerSend } from "@/hooks/useFacebookMessenger";
 import { cn } from "@/lib/utils";
+
+const MESSENGER_ERROR_MESSAGES = {
+  session_expired: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.",
+  empty_message: "Nhập nội dung tin nhắn trước khi gửi.",
+  request_failed: "Không thể hoàn tất thao tác Facebook Messenger. Vui lòng thử lại hoặc báo quản trị viên.",
+} as const;
+
+function mapMessengerErrorMessage(error: unknown) {
+  if (error instanceof FacebookMessengerUiError) {
+    return MESSENGER_ERROR_MESSAGES[error.code];
+  }
+
+  return MESSENGER_ERROR_MESSAGES.request_failed;
+}
+
+const RECONCILIATION_BLOCKING_STATUSES = new Set(["send_committed", "manual_reconciliation_required"]);
+
+function getReconciliationStatus(conversation: FacebookMessengerConversation | null, pageStatus?: string | null) {
+  return conversation?.manualReconciliationStatus || conversation?.reconciliationStatus || pageStatus || null;
+}
 
 export default function FacebookMessengerInbox() {
   const { canEditModule } = useAuth();
+  const { t } = useLanguage();
   const canEdit = canEditModule("facebook_messenger");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [messageText, setMessageText] = useState("");
   const [safeError, setSafeError] = useState<string | null>(null);
+  const submitLockRef = useRef(false);
   const inbox = useFacebookMessengerInbox(selectedId);
   const sendMessage = useFacebookMessengerSend();
   const isSending = sendMessage.isPending;
@@ -25,16 +48,24 @@ export default function FacebookMessengerInbox() {
     return inbox.data?.selectedConversation || conversations.find((item) => item.id === selectedId) || null;
   }, [conversations, inbox.data?.selectedConversation, selectedId]);
 
-  const composerDisabled = !canEdit || !selectedConversation || selectedConversation.replyWindowExpired || isSending;
+  const reconciliationStatus = getReconciliationStatus(selectedConversation, inbox.data?.reconciliationStatus);
+  const reconciliationBlocked = Boolean(
+    (selectedConversation && selectedConversation.replyBlocked) ||
+    (reconciliationStatus && RECONCILIATION_BLOCKING_STATUSES.has(reconciliationStatus))
+  );
+
+  const composerDisabled = !canEdit || !selectedConversation || selectedConversation.replyWindowExpired || reconciliationBlocked || isSending;
   const disabledReason = !selectedConversation
     ? "Chọn hội thoại trước khi trả lời."
     : !canEdit
       ? "Bạn chỉ có quyền xem module Facebook Page."
       : selectedConversation.replyWindowExpired
         ? "Cửa sổ trả lời Messenger đã hết hạn."
-        : isSending
-          ? "Đang gửi tin nhắn, vui lòng chờ."
-          : "";
+        : reconciliationBlocked
+          ? "Trạng thái đối soát chưa an toàn để gửi trả lời. Vui lòng chờ server xác nhận hoặc xử lý đối soát thủ công."
+          : isSending
+            ? "Đang gửi tin nhắn, vui lòng chờ."
+            : "";
 
   const handleSelect = (conversation: FacebookMessengerConversation) => {
     setSelectedId(conversation.id);
@@ -44,18 +75,20 @@ export default function FacebookMessengerInbox() {
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (isSending) return;
+    if (submitLockRef.current || isSending) return;
     if (composerDisabled || !selectedConversation) return;
+    submitLockRef.current = true;
     setSafeError(null);
     try {
       await sendMessage.mutateAsync({
         conversationId: selectedConversation.id,
-        threadId: selectedConversation.threadId || null,
         text: messageText,
       });
       setMessageText("");
     } catch (error) {
-      setSafeError(error instanceof Error ? error.message : "Không gửi được tin nhắn. Vui lòng thử lại hoặc kiểm tra hàng đợi đối soát.");
+      setSafeError(mapMessengerErrorMessage(error));
+    } finally {
+      submitLockRef.current = false;
     }
   };
 
@@ -64,7 +97,7 @@ export default function FacebookMessengerInbox() {
       <div className="mx-auto flex w-full max-w-7xl min-w-0 flex-col gap-4">
         <header className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="min-w-0 break-words text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Quản lý Facebook Page</h1>
+            <h1 className="min-w-0 break-words text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{t.facebookPageManagement}</h1>
             <Badge variant={inbox.data?.enabled === false ? "destructive" : "secondary"}>
               {inbox.data?.enabled === false ? "Chưa bật tính năng" : "Messenger inbox"}
             </Badge>
@@ -74,7 +107,7 @@ export default function FacebookMessengerInbox() {
           </p>
         </header>
 
-        {inbox.isLoading && (
+        {(inbox.isLoading || inbox.isFetching) && (
           <Alert>
             <Loader2 className="h-4 w-4 animate-spin" />
             <AlertTitle>Đang tải hộp thư</AlertTitle>
@@ -87,7 +120,7 @@ export default function FacebookMessengerInbox() {
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Không thể đồng bộ hộp thư</AlertTitle>
             <AlertDescription className="break-words">
-              {safeError || (inbox.error instanceof Error ? inbox.error.message : "Lỗi an toàn đã được ghi nhận. Vui lòng thử tải lại.")}
+              {safeError || mapMessengerErrorMessage(inbox.error)}
             </AlertDescription>
           </Alert>
         )}
