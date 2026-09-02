@@ -311,6 +311,149 @@ Deno.test("normalizes supported Messenger event families for the exact configure
   assertEqual(result.events[1].senderId, PAGE_ID);
 });
 
+Deno.test("fails closed for directionally impossible message and echo events", async () => {
+  for (
+    const impossibleEvent of [
+      {
+        sender: { id: PAGE_ID },
+        recipient: { id: PSID },
+        timestamp: 10,
+        message: {
+          mid: "page-sender-without-echo",
+          text: "outbound without echo",
+        },
+      },
+      {
+        sender: { id: PSID },
+        recipient: { id: PAGE_ID },
+        timestamp: 11,
+        message: {
+          mid: "user-sender-with-echo",
+          is_echo: true,
+          text: "fake echo",
+        },
+      },
+      {
+        sender: { id: PSID },
+        recipient: { id: "other-page" },
+        timestamp: 12,
+        message: { mid: "cross-page-inbound", text: "not for configured page" },
+      },
+    ]
+  ) {
+    const result = await normalize(
+      baseWebhook({ entry: [{ id: PAGE_ID, messaging: [impossibleEvent] }] }),
+    );
+    assertEqual(
+      result.ok,
+      false,
+      `${JSON.stringify(impossibleEvent)} must be rejected`,
+    );
+    assertEqual(result.ok ? "" : result.error, "invalid_message_direction");
+  }
+});
+
+Deno.test("keeps valid inbound messages and page echoes after direction checks", async () => {
+  const result = await normalize(
+    baseWebhook({
+      entry: [{
+        id: PAGE_ID,
+        messaging: [
+          inboundMessage({
+            timestamp: 20,
+            message: { mid: "inbound-mid", text: "in" },
+          }),
+          {
+            sender: { id: PAGE_ID },
+            recipient: { id: PSID },
+            timestamp: 21,
+            message: { mid: "echo-mid", is_echo: true, text: "out" },
+          },
+        ],
+      }],
+    }),
+  );
+
+  assert(result.ok, "valid inbound and echo events should normalize");
+  assertDeepEqual(result.events.map((event) => event.kind), [
+    "message",
+    "message_echo",
+  ]);
+});
+
+Deno.test("rejects negative, fractional, unsafe, and missing event timestamps or watermarks", async () => {
+  for (const timestamp of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1, undefined]) {
+    const result = await normalize(
+      baseWebhook({
+        entry: [{
+          id: PAGE_ID,
+          messaging: [
+            inboundMessage({
+              timestamp,
+              message: { mid: "bad-ts", text: "x" },
+            }),
+          ],
+        }],
+      }),
+    );
+    assertEqual(
+      result.ok,
+      false,
+      `timestamp ${format(timestamp)} must be rejected`,
+    );
+    assertEqual(result.ok ? "" : result.error, "missing_event_identity");
+  }
+
+  const timestampZero = await normalize(
+    baseWebhook({
+      entry: [{ id: PAGE_ID, messaging: [inboundMessage({ timestamp: 0 })] }],
+    }),
+  );
+  assertEqual(timestampZero.ok, true);
+
+  for (const watermark of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    const delivery = await normalize(
+      baseWebhook({
+        entry: [{
+          id: PAGE_ID,
+          messaging: [{
+            sender: { id: PSID },
+            recipient: { id: PAGE_ID },
+            timestamp: 1,
+            delivery: { mids: ["m1"], watermark },
+          }],
+        }],
+      }),
+    );
+    assertEqual(
+      delivery.ok,
+      false,
+      `delivery watermark ${format(watermark)} must be rejected`,
+    );
+    assertEqual(delivery.ok ? "" : delivery.error, "invalid_watermark");
+
+    const read = await normalize(
+      baseWebhook({
+        entry: [{
+          id: PAGE_ID,
+          messaging: [{
+            sender: { id: PSID },
+            recipient: { id: PAGE_ID },
+            timestamp: 1,
+            read: { watermark },
+          }],
+        }],
+      }),
+    );
+    assertEqual(
+      read.ok,
+      false,
+      `read watermark ${format(watermark)} must be rejected`,
+    );
+    assertEqual(read.ok ? "" : read.error, "invalid_watermark");
+  }
+});
+
 Deno.test("fails closed for non-page object, wrong Page, oversized body, too many events, and oversized text or attachments", async () => {
   assertEqual((await normalize(baseWebhook({ object: "user" }))).ok, false);
   assertEqual(
@@ -715,6 +858,78 @@ Deno.test("enforces delivery MID and postback payload limits at and over boundar
   assertEqual(
     postbackOver.ok ? "" : postbackOver.error,
     "postback_payload_too_large",
+  );
+});
+
+Deno.test("uses bounded opaque digests for Messenger MID fingerprints", async () => {
+  const result = await normalize(
+    baseWebhook({
+      entry: [{
+        id: PAGE_ID,
+        messaging: [inboundMessage({ message: { mid: MID, text: "same" } })],
+      }],
+    }),
+  );
+
+  assert(result.ok, "normalization failed");
+  assertEqual(result.events[0].messengerMessageId, MID);
+  assertMatch(result.events[0].fingerprint, /^fbmsg_[a-f0-9]{64}$/);
+  assert(
+    !result.events[0].fingerprint.includes(MID),
+    "fingerprint must not expose raw Messenger MID",
+  );
+  assertEqual(result.events[0].fingerprint.length, 70);
+});
+
+Deno.test("separates MID fingerprints by Page and event domain", async () => {
+  const pageOne = await normalize(
+    baseWebhook({
+      entry: [{
+        id: PAGE_ID,
+        messaging: [
+          inboundMessage({ message: { mid: "shared-mid", text: "first" } }),
+        ],
+      }],
+    }),
+  );
+  const pageTwoBody = {
+    object: "page",
+    entry: [{
+      id: "page-789",
+      messaging: [{
+        sender: { id: PSID },
+        recipient: { id: "page-789" },
+        timestamp: 1_800_000_000_111,
+        message: { mid: "shared-mid", text: "first" },
+      }],
+    }],
+  };
+  const pageTwo = await normalizeMessengerWebhook({
+    rawBody: rawJson(pageTwoBody),
+    expectedPageId: "page-789",
+  });
+  const echo = await normalize(
+    baseWebhook({
+      entry: [{
+        id: PAGE_ID,
+        messaging: [{
+          sender: { id: PAGE_ID },
+          recipient: { id: PSID },
+          timestamp: 1_800_000_000_111,
+          message: { mid: "shared-mid", is_echo: true, text: "first" },
+        }],
+      }],
+    }),
+  );
+
+  assert(pageOne.ok && pageTwo.ok && echo.ok, "normalization failed");
+  assert(
+    pageOne.events[0].fingerprint !== pageTwo.events[0].fingerprint,
+    "cross-page MID reuse must not collide",
+  );
+  assert(
+    pageOne.events[0].fingerprint !== echo.events[0].fingerprint,
+    "message and echo domains must not collide",
   );
 });
 

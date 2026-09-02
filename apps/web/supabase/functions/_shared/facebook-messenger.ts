@@ -95,10 +95,12 @@ export type MessengerSendPolicyDecision =
   | { allowed: false; reason: string };
 
 export function constantTimeStringEqual(a: string, b: string): boolean {
-  const maxLength = Math.max(a.length, b.length);
-  let diff = a.length ^ b.length;
+  const aBytes = encoder.encode(a);
+  const bBytes = encoder.encode(b);
+  const maxLength = Math.max(aBytes.length, bBytes.length);
+  let diff = aBytes.length ^ bBytes.length;
   for (let index = 0; index < maxLength; index += 1) {
-    diff |= (a.charCodeAt(index) || 0) ^ (b.charCodeAt(index) || 0);
+    diff |= (aBytes[index] || 0) ^ (bBytes[index] || 0);
   }
   return diff === 0;
 }
@@ -179,11 +181,11 @@ export function canApplyMessengerEventUpdate(input: {
   incomingTimestampMs: number;
   currentTimestampMs: number | null | undefined;
 }): boolean {
-  if (!Number.isFinite(input.incomingTimestampMs)) return false;
+  if (!isNonNegativeSafeInteger(input.incomingTimestampMs)) return false;
   if (
     input.currentTimestampMs === null || input.currentTimestampMs === undefined
   ) return true;
-  if (!Number.isFinite(input.currentTimestampMs)) return true;
+  if (!isNonNegativeSafeInteger(input.currentTimestampMs)) return true;
   return input.incomingTimestampMs >= input.currentTimestampMs;
 }
 
@@ -194,10 +196,10 @@ export function evaluateMessengerSendPolicy(
   if (DEPRECATED_MESSENGER_TAGS.has(requestedTag)) {
     return { allowed: false, reason: "deprecated_tag_denied" };
   }
-  if (!Number.isFinite(input.nowMs)) {
+  if (!isNonNegativeSafeInteger(input.nowMs)) {
     return { allowed: false, reason: "invalid_now" };
   }
-  if (!Number.isFinite(input.lastUserMessageAtMs)) {
+  if (!isNonNegativeSafeInteger(input.lastUserMessageAtMs)) {
     return { allowed: false, reason: "missing_last_user_message" };
   }
 
@@ -267,10 +269,11 @@ async function normalizeEvent(
   const senderId = nestedString(rawEvent, "sender", "id");
   const recipientId = nestedString(rawEvent, "recipient", "id");
   const timestampMs = rawEvent.timestamp;
-  if (!senderId || !recipientId || !Number.isFinite(timestampMs)) {
+  if (!senderId || !recipientId || !isNonNegativeSafeInteger(timestampMs)) {
     return { ok: false, error: "missing_event_identity" };
   }
-  if (senderId !== pageId && recipientId !== pageId) {
+  const hasMessage = isRecord(rawEvent.message);
+  if (!hasMessage && senderId !== pageId && recipientId !== pageId) {
     return { ok: false, error: "event_not_for_page" };
   }
 
@@ -304,6 +307,9 @@ async function normalizeEvent(
     const kind: MessengerEventKind = message.is_echo === true
       ? "message_echo"
       : "message";
+    if (!hasValidMessageDirection(kind, pageId, senderId, recipientId)) {
+      return { ok: false, error: "invalid_message_direction" };
+    }
     const eventForFingerprint = {
       ...base,
       kind,
@@ -339,8 +345,9 @@ async function normalizeEvent(
       return { ok: false, error: "invalid_delivery_mids" };
     }
     const watermarkMs = Number.isFinite(delivery.watermark)
-      ? Number(delivery.watermark)
+      ? normalizeWatermark(delivery.watermark)
       : null;
+    if (watermarkMs === false) return { ok: false, error: "invalid_watermark" };
     return completeEvent({
       ...base,
       kind: "message_delivery",
@@ -351,8 +358,9 @@ async function normalizeEvent(
 
   if (isRecord(rawEvent.read)) {
     const watermarkMs = Number.isFinite(rawEvent.read.watermark)
-      ? Number(rawEvent.read.watermark)
+      ? normalizeWatermark(rawEvent.read.watermark)
       : null;
+    if (watermarkMs === false) return { ok: false, error: "invalid_watermark" };
     return completeEvent({ ...base, kind: "message_read", watermarkMs });
   }
 
@@ -486,13 +494,14 @@ async function buildFingerprint(
   attachments: unknown,
   ...rest: unknown[]
 ): Promise<string> {
-  if (messengerMessageId) return `fbmid_${messengerMessageId}`;
   const canonical = JSON.stringify({
+    domain: "facebook-messenger-event-fingerprint-v1",
     kind,
     pageId,
     senderId,
     recipientId,
     timestampMs,
+    messengerMessageId,
     text,
     attachments,
     rest,
@@ -534,4 +543,25 @@ function nestedString(
 
 function optionalString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function hasValidMessageDirection(
+  kind: MessengerEventKind,
+  pageId: string,
+  senderId: string,
+  recipientId: string,
+): boolean {
+  if (kind === "message") return senderId !== pageId && recipientId === pageId;
+  if (kind === "message_echo") {
+    return senderId === pageId && recipientId !== pageId;
+  }
+  return true;
+}
+
+function normalizeWatermark(value: unknown): number | false {
+  return isNonNegativeSafeInteger(value) ? value : false;
 }
