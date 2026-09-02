@@ -55,6 +55,24 @@ def assert_status_check(body: str, constraint: str, statuses: tuple[str, ...]) -
         assert f"'{status}'" in body, f"{constraint} missing status {status}"
 
 
+def index_statements(sql: str) -> list[str]:
+    return [
+        normalize(match.group(0))
+        for match in re.finditer(
+            r"create\s+(?:unique\s+)?index\s+if\s+not\s+exists\s+[^;]+;",
+            sql,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+    ]
+
+
+def require_index(sql: str, index_name: str) -> str:
+    for stmt in index_statements(sql):
+        if f"create index if not exists {index_name}" in stmt or f"create unique index if not exists {index_name}" in stmt:
+            return stmt
+    raise AssertionError(f"missing index/idempotency contract: create index if not exists {index_name}")
+
+
 def assert_no_secret_columns(sql: str) -> None:
     for table in TABLES:
         body = table_body(sql, table)
@@ -114,6 +132,8 @@ def main() -> None:
         "verified_at timestamptz",
         "facebook_platform_identities_page_psid_unique unique (page_id, psid)",
         "facebook_platform_identities_mapping_source_check",
+        "facebook_platform_identities_app_user_verified_check",
+        "check (app_scoped_user_id is null or verified_at is not null)",
     ), "platform identities table")
     for forbidden_link_column in ("profile_id", "bmq_user_id", "auth_user_id", "customer_id"):
         assert forbidden_link_column not in identities, f"identity table must not infer/link BMQ users via {forbidden_link_column}"
@@ -167,11 +187,18 @@ def main() -> None:
         "requested", "processing", "pending_manual_mapping", "completed", "failed",
     ))
     assert_has_all(deletion, (
-        "confirmation_code text not null",
+        "confirmation_code_hash text not null",
         "request_fingerprint text not null",
-        "facebook_data_deletion_requests_confirmation_code_unique unique (confirmation_code)",
+        "facebook_data_deletion_requests_confirmation_code_hash_unique unique (confirmation_code_hash)",
         "facebook_data_deletion_requests_fingerprint_unique unique (request_fingerprint)",
+        "facebook_data_deletion_requests_confirmation_code_hash_check",
     ), "data deletion table")
+    assert "confirmation_code text" not in deletion, "data deletion table must not store plaintext confirmation_code"
+    assert "confirmation_code_unique unique (confirmation_code)" not in deletion, "confirmation_code uniqueness must be on hash only"
+    assert re.search(
+        r"confirmation_code_hash\)\s*~\s*'\^\[0-9a-f\]\{64\}\$'|confirmation_code_hash\s*~\s*'\^\[0-9a-f\]\{64\}\$'",
+        deletion,
+    ), "confirmation_code_hash must enforce lowercase 64-char SHA-256 hex"
 
     # RLS and direct browser writes are fail-closed; only service_role receives table grants.
     for table in TABLES:
@@ -187,13 +214,21 @@ def main() -> None:
 
     for index_token in (
         "create index if not exists facebook_messenger_messages_conversation_created_idx",
-        "create index if not exists facebook_messenger_outbox_pending_idx",
-        "where status in ('pending', 'processing', 'send_committed')",
         "create index if not exists facebook_messenger_email_outbox_pending_idx",
         "create index if not exists facebook_data_deletion_requests_status_idx",
         "create index if not exists facebook_platform_identities_app_scoped_user_idx",
     ):
         assert index_token in sql_l, f"missing index/idempotency contract: {index_token}"
+
+    outbox_pending_idx = require_index(sql, "facebook_messenger_outbox_pending_idx")
+    assert "where status = 'pending'" in outbox_pending_idx, "outbox claim index must be pending-only"
+    assert "status in" not in outbox_pending_idx, "outbox claim index must not include non-pending statuses"
+    for stmt in index_statements(sql):
+        if any(marker in stmt for marker in ("pending", "retry", "claim")):
+            assert "send_committed" not in stmt, f"claim/retry/pending index must not include send_committed: {stmt}"
+            assert "manual_reconciliation_required" not in stmt, (
+                f"claim/retry/pending index must not include manual reconciliation rows: {stmt}"
+            )
 
     assert "'facebook_messenger'" in sql_l, "migration must seed facebook_messenger module rows"
     assert "false as can_view" in sql_l and "false as can_edit" in sql_l, "seed must be default-deny"

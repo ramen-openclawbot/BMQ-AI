@@ -54,6 +54,8 @@ create table if not exists public.facebook_platform_identities (
   constraint facebook_platform_identities_psid_not_blank check (length(btrim(psid)) > 0),
   constraint facebook_platform_identities_mapping_source_check
     check (mapping_source in ('webhook', 'customer_profile_api', 'data_deletion_callback', 'manual_review')),
+  constraint facebook_platform_identities_app_user_verified_check
+    check (app_scoped_user_id is null or verified_at is not null),
   constraint facebook_platform_identities_raw_identity_object_check check (jsonb_typeof(raw_identity) = 'object')
 );
 
@@ -162,7 +164,7 @@ create table if not exists public.facebook_data_deletion_requests (
   page_id text,
   psid text,
   app_scoped_user_id text,
-  confirmation_code text not null,
+  confirmation_code_hash text not null,
   request_fingerprint text not null,
   status text not null default 'requested',
   requested_at timestamptz not null default now(),
@@ -173,9 +175,10 @@ create table if not exists public.facebook_data_deletion_requests (
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint facebook_data_deletion_requests_confirmation_code_unique unique (confirmation_code),
+  constraint facebook_data_deletion_requests_confirmation_code_hash_unique unique (confirmation_code_hash),
   constraint facebook_data_deletion_requests_fingerprint_unique unique (request_fingerprint),
-  constraint facebook_data_deletion_requests_confirmation_code_not_blank check (length(btrim(confirmation_code)) >= 16),
+  constraint facebook_data_deletion_requests_confirmation_code_hash_check
+    check (confirmation_code_hash ~ '^[0-9a-f]{64}$'),
   constraint facebook_data_deletion_requests_fingerprint_not_blank check (length(btrim(request_fingerprint)) >= 32),
   constraint facebook_data_deletion_requests_status_check
     check (status in ('requested', 'processing', 'pending_manual_mapping', 'completed', 'failed')),
@@ -196,7 +199,7 @@ create index if not exists facebook_messenger_webhook_events_status_idx
   where status in ('received', 'processing');
 create index if not exists facebook_messenger_outbox_pending_idx
   on public.facebook_messenger_outbox(status, scheduled_for, created_at)
-  where status in ('pending', 'processing', 'send_committed');
+  where status = 'pending';
 create unique index if not exists facebook_messenger_outbox_platform_message_id_unique
   on public.facebook_messenger_outbox(page_id, platform_message_id)
   where platform_message_id is not null;
