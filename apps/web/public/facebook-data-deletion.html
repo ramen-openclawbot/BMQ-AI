@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Trạng thái xóa dữ liệu Messenger | BMQ</title>
+  <meta name="description" content="Tra cứu trạng thái yêu cầu xóa dữ liệu Facebook Messenger bằng mã xác nhận opaque." />
+  <style>
+    :root { --brand: #f59e0b; --ink: #1f2937; --muted: #4b5563; --bg: #fff7ed; }
+    body { margin: 0; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); line-height: 1.6; }
+    main { max-width: 780px; margin: 0 auto; padding: 40px 20px 64px; }
+    header { background: #111827; color: white; padding: 32px 20px; border-bottom: 6px solid var(--brand); }
+    header div { max-width: 780px; margin: 0 auto; }
+    h1 { margin: 0 0 8px; font-size: clamp(2rem, 4vw, 3rem); line-height: 1.15; }
+    .card { background: white; border: 1px solid #fed7aa; border-radius: 18px; padding: 24px; box-shadow: 0 12px 30px rgba(146, 64, 14, .08); }
+    label { display: block; font-weight: 700; margin-bottom: 8px; }
+    input { width: 100%; box-sizing: border-box; padding: 12px 14px; border: 1px solid #d1d5db; border-radius: 12px; font: inherit; }
+    button { margin-top: 14px; border: 0; border-radius: 999px; padding: 12px 18px; background: #92400e; color: white; font-weight: 800; cursor: pointer; }
+    button:disabled { opacity: .65; cursor: wait; }
+    .muted { color: var(--muted); }
+    .result { margin-top: 18px; padding: 14px 16px; border-radius: 12px; background: #fffbeb; border: 1px solid #fde68a; }
+    a { color: #92400e; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <p>Bánh Mì Que · BMQ</p>
+      <h1>Trạng thái xóa dữ liệu Messenger</h1>
+      <p>Trang công khai, không cần đăng nhập. Trang này chỉ dùng mã xác nhận opaque trong URL và chỉ hiển thị trạng thái xử lý tối thiểu.</p>
+    </div>
+  </header>
+  <main>
+    <section class="card">
+      <p class="muted">Nhập mã xác nhận từ phản hồi xóa dữ liệu của Meta/BMQ hoặc mở đường dẫn đã nhận. Mã này là chuỗi ngẫu nhiên, không phải định danh Facebook.</p>
+      <form id="status-form" autocomplete="off">
+        <label for="confirmation-code">Mã xác nhận / confirmation code</label>
+        <input id="confirmation-code" name="code" inputmode="text" placeholder="Dán mã xác nhận" />
+        <button id="submit" type="submit">Kiểm tra trạng thái</button>
+      </form>
+      <div id="result" class="result" role="status" aria-live="polite">Đang chờ mã xác nhận.</div>
+      <p class="muted">Xem thêm: <a href="/privacy.html">Chính sách quyền riêng tư Messenger của BMQ</a>.</p>
+    </section>
+  </main>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const input = document.getElementById('confirmation-code');
+    const form = document.getElementById('status-form');
+    const result = document.getElementById('result');
+    const button = document.getElementById('submit');
+    input.value = params.get('code') || '';
+
+    function renderStatus(data) {
+      const labels = {
+        requested: 'Đã nhận yêu cầu, đang chờ xử lý.',
+        processing: 'Yêu cầu đang được xử lý.',
+        pending_manual_mapping: 'BMQ đã nhận yêu cầu nhưng cần đối chiếu thủ công để xác định đúng hội thoại. Trạng thái này không có nghĩa là đã xóa xong.',
+        completed: 'Đã hoàn tất xóa/ẩn danh dữ liệu Messenger được ánh xạ chắc chắn.',
+        failed: 'Yêu cầu gặp lỗi xử lý. Vui lòng liên hệ BMQ bằng mã xác nhận này.',
+        not_found: 'Không tìm thấy yêu cầu cho mã xác nhận này.'
+      };
+      const text = labels[data.status] || 'Trạng thái chưa xác định.';
+      const requested = data.requested_at ? ` Thời điểm nhận: ${new Date(data.requested_at).toLocaleString('vi-VN')}.` : '';
+      const completed = data.completed_at ? ` Hoàn tất: ${new Date(data.completed_at).toLocaleString('vi-VN')}.` : '';
+      result.textContent = `${text}${requested}${completed}`;
+    }
+
+    async function lookup(code) {
+      if (!/^[A-Za-z0-9_-]{22,128}$/.test(code)) {
+        result.textContent = 'Mã xác nhận không hợp lệ. Vui lòng kiểm tra lại đường dẫn hoặc mã đã nhận.';
+        return;
+      }
+      button.disabled = true;
+      result.textContent = 'Đang kiểm tra trạng thái...';
+      try {
+        const response = await fetch(`/functions/v1/facebook-data-deletion/status?code=${encodeURIComponent(code)}`, {
+          headers: { accept: 'application/json' },
+          credentials: 'omit',
+          cache: 'no-store'
+        });
+        const data = await response.json();
+        renderStatus(data);
+      } catch (_) {
+        result.textContent = 'Không thể kiểm tra trạng thái lúc này. Vui lòng thử lại sau hoặc liên hệ BMQ.';
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      lookup(input.value.trim());
+    });
+
+    if (input.value) lookup(input.value.trim());
+  </script>
+</body>
+</html>
