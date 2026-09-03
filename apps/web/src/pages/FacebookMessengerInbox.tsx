@@ -54,19 +54,22 @@ export default function FacebookMessengerInbox() {
     (selectedConversation && selectedConversation.replyBlocked) ||
     (reconciliationStatus && RECONCILIATION_BLOCKING_STATUSES.has(reconciliationStatus))
   );
+  const featureDisabled = inbox.data?.enabled === false;
 
-  const composerDisabled = !canEdit || !selectedConversation || selectedConversation.replyWindowExpired || reconciliationBlocked || isSending;
+  const composerDisabled = featureDisabled || !canEdit || !selectedConversation || selectedConversation.replyWindowExpired || reconciliationBlocked || isSending;
   const disabledReason = !selectedConversation
     ? "Chọn hội thoại trước khi trả lời."
-    : !canEdit
-      ? "Bạn chỉ có quyền xem module Facebook Page."
-      : selectedConversation.replyWindowExpired
-        ? "Cửa sổ trả lời Messenger đã hết hạn."
-        : reconciliationBlocked
-          ? "Trạng thái đối soát chưa an toàn để gửi trả lời. Vui lòng chờ server xác nhận hoặc xử lý đối soát thủ công."
-          : isSending
-            ? "Đang gửi tin nhắn, vui lòng chờ."
-            : "";
+    : featureDisabled
+      ? "Tính năng Facebook Messenger chưa được bật. Vui lòng hoàn tất thiết lập server trước khi trả lời khách."
+      : !canEdit
+        ? "Bạn chỉ có quyền xem module Facebook Page."
+        : selectedConversation.replyWindowExpired
+          ? "Cửa sổ trả lời Messenger đã hết hạn."
+          : reconciliationBlocked
+            ? "Trạng thái đối soát chưa an toàn để gửi trả lời. Vui lòng chờ server xác nhận hoặc xử lý đối soát thủ công."
+            : isSending
+              ? "Đang gửi tin nhắn, vui lòng chờ."
+              : "";
 
   const handleSelect = (conversation: FacebookMessengerConversation) => {
     setSelectedId(conversation.id);

@@ -151,6 +151,22 @@ def test_composer_blocks_reconciliation_pending_or_ambiguous_states():
     assert_contains(page, 'Trạng thái đối soát chưa an toàn để gửi trả lời. Vui lòng chờ server xác nhận hoặc xử lý đối soát thủ công.', "FacebookMessengerInbox.tsx")
 
 
+def test_default_off_feature_is_highest_priority_composer_blocker():
+    page = read("src/pages/FacebookMessengerInbox.tsx")
+    assert_contains(page, 'const featureDisabled = inbox.data?.enabled === false;', "FacebookMessengerInbox.tsx")
+    assert re.search(
+        r'const\s+composerDisabled\s*=\s*featureDisabled\s*\|\|\s*!canEdit\s*\|\|\s*!selectedConversation\s*\|\|\s*selectedConversation\.replyWindowExpired\s*\|\|\s*reconciliationBlocked\s*\|\|\s*isSending;',
+        page,
+    ), "featureDisabled must be the explicit highest-priority composer disable condition"
+    assert re.search(r'if\s*\(composerDisabled\s*\|\|\s*!selectedConversation\)\s*return;', page), "submit handler must return before mutation whenever composer is disabled"
+    mutation_guard = re.search(r'if\s*\(composerDisabled\s*\|\|\s*!selectedConversation\)\s*return;[\s\S]*?await sendMessage\.mutateAsync', page)
+    assert mutation_guard, "disabled submit guard must appear before send mutation"
+    disabled_reason = re.search(r'const\s+disabledReason\s*=([\s\S]*?);\n\n\s*const handleSelect', page)
+    assert disabled_reason, "disabled reason must stay near composer state"
+    reason_expr = disabled_reason.group(1)
+    assert reason_expr.find('!selectedConversation') < reason_expr.find('featureDisabled') < reason_expr.find('!canEdit'), "disabled reason should prefer no selected conversation, then default-off feature setup, then permission/window states"
+    assert_contains(page, 'Tính năng Facebook Messenger chưa được bật. Vui lòng hoàn tất thiết lập server trước khi trả lời khách.', "FacebookMessengerInbox.tsx")
+
 
 
 def test_compose_idempotency_behavior_reuses_after_failure_and_rotates_after_success_or_new_draft():
