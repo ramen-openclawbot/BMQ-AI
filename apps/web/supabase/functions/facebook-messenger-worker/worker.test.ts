@@ -110,3 +110,28 @@ Deno.test("provider definitive rejection fails with sanitized code and rate-limi
   await handleMessengerWorker(request(), env(), rateLimited.deps);
   assertEqual((rateLimited.calls.failed as Record<string, unknown>[])[0].reason, "provider_rate_limited");
 });
+
+
+Deno.test("worker surfaces terminal RPC failure without false success counters", async () => {
+  const sentFailure = deps({ markSent: async () => { throw new Error("database unavailable"); } });
+  const sentResponse = await handleMessengerWorker(request(), env(), sentFailure.deps);
+  assertEqual(sentResponse.status, 500);
+  const sentBody = await json(sentResponse);
+  assertEqual(sentBody.error, "internal_failure");
+
+  const failedFailure = deps({
+    postGraphMessage: async () => ({ kind: "definitive_rejection", safeCode: "provider_error_sanitized" }),
+    markFailed: async () => { throw new Error("database unavailable"); },
+  });
+  const failedResponse = await handleMessengerWorker(request(), env(), failedFailure.deps);
+  assertEqual(failedResponse.status, 500);
+  assertEqual((await json(failedResponse)).error, "internal_failure");
+
+  const manualFailure = deps({
+    postGraphMessage: async () => ({ kind: "ambiguous_timeout", safeReason: "timeout_requires_manual_reconciliation" }),
+    markManualReconciliationRequired: async () => { throw new Error("database unavailable"); },
+  });
+  const manualResponse = await handleMessengerWorker(request(), env(), manualFailure.deps);
+  assertEqual(manualResponse.status, 500);
+  assertEqual((await json(manualResponse)).error, "internal_failure");
+});

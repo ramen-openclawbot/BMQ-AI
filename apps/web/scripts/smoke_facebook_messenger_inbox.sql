@@ -13,11 +13,42 @@ begin
   if coalesce(p_ok, false) is false then raise exception '%', p_message; end if;
 end $$;
 
-insert into auth.users (id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
-values
-  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 'authenticated', 'authenticated', 'fb-owner-smoke@example.invalid', '', now(), now(), now()),
-  ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1', 'authenticated', 'authenticated', 'fb-staff-smoke@example.invalid', '', now(), now(), now())
-on conflict (id) do nothing;
+reset role;
+do $$
+declare
+  v_cols text;
+  v_vals_owner text;
+  v_vals_staff text;
+begin
+  select string_agg(quote_ident(column_name), ', ' order by ordinal_position),
+         string_agg(case column_name
+           when 'id' then quote_literal('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1') || '::uuid'
+           when 'aud' then quote_literal('authenticated')
+           when 'role' then quote_literal('authenticated')
+           when 'email' then quote_literal('fb-owner-smoke@example.invalid')
+           when 'encrypted_password' then quote_literal('')
+           when 'email_confirmed_at' then 'now()'
+           when 'created_at' then 'now()'
+           when 'updated_at' then 'now()'
+           else 'null'
+         end, ', ' order by ordinal_position),
+         string_agg(case column_name
+           when 'id' then quote_literal('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1') || '::uuid'
+           when 'aud' then quote_literal('authenticated')
+           when 'role' then quote_literal('authenticated')
+           when 'email' then quote_literal('fb-staff-smoke@example.invalid')
+           when 'encrypted_password' then quote_literal('')
+           when 'email_confirmed_at' then 'now()'
+           when 'created_at' then 'now()'
+           when 'updated_at' then 'now()'
+           else 'null'
+         end, ', ' order by ordinal_position)
+  into v_cols, v_vals_owner, v_vals_staff
+  from information_schema.columns
+  where table_schema = 'auth' and table_name = 'users'
+    and column_name in ('id', 'aud', 'role', 'email', 'encrypted_password', 'email_confirmed_at', 'created_at', 'updated_at');
+  execute format('insert into auth.users (%s) values (%s), (%s) on conflict (id) do nothing', v_cols, v_vals_owner, v_vals_staff);
+end $$;
 
 insert into public.user_roles (user_id, role)
 values ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 'owner')
@@ -26,6 +57,9 @@ on conflict do nothing;
 insert into public.user_module_permissions (user_id, module_key, can_view, can_edit)
 values ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1', 'facebook_messenger', false, false)
 on conflict (user_id, module_key) do update set can_view = excluded.can_view, can_edit = excluded.can_edit;
+
+set local role service_role;
+select set_config('request.jwt.claim.role', 'service_role', true);
 
 insert into public.facebook_messenger_settings (id, page_id, page_name, enabled, human_agent_enabled)
 values ('00000000-0000-0000-0000-000000000001', 'page-smoke', 'Smoke Page', false, false)
@@ -54,7 +88,76 @@ select public.facebook_enqueue_messenger_outbox(
 select pg_temp.assert_true(:'disabled_result'::jsonb->>'reason' = 'disabled', 'disabled no outbox failed');
 select pg_temp.assert_true((select count(*) from public.facebook_messenger_outbox where idempotency_key = repeat('d', 32)) = 0, 'disabled created backlog');
 
+-- direct authenticated role has no EXECUTE bypass even with edit-capable actor.
+insert into public.user_module_permissions (user_id, module_key, can_view, can_edit)
+values ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 'facebook_messenger', true, true)
+on conflict (user_id, module_key) do update set can_view = true, can_edit = true;
+savepoint direct_auth_denied;
+set local role authenticated;
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', true);
+do $$
+begin
+  perform public.facebook_enqueue_messenger_outbox('cccccccc-cccc-4ccc-8ccc-ccccccccccc1', 'direct auth denied', repeat('q', 32), 'RESPONSE', null);
+  raise exception 'direct authenticated enqueue bypass was accepted';
+exception when insufficient_privilege then
+  raise notice 'direct_authenticated_enqueue_denied';
+end $$;
+rollback to direct_auth_denied;
+set local role service_role;
+select set_config('request.jwt.claim.role', 'service_role', true);
+select set_config('request.jwt.claim.sub', '', true);
+
 update public.facebook_messenger_settings set enabled = true where id = '00000000-0000-0000-0000-000000000001';
+
+-- DB policy independently enforces inclusive reply/human-agent windows and authenticated human actor.
+update public.facebook_messenger_conversations
+set last_inbound_message_at = now() - interval '24 hours', reply_window_expires_at = now()
+where id = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc1';
+select public.facebook_enqueue_messenger_outbox('cccccccc-cccc-4ccc-8ccc-ccccccccccc1', 'boundary response ok', repeat('r', 32), 'RESPONSE', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1');
+update public.facebook_messenger_conversations
+set last_inbound_message_at = now() - interval '24 hours 1 millisecond', reply_window_expires_at = now() - interval '1 millisecond'
+where id = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc1';
+savepoint response_expired;
+do $$
+begin
+  perform public.facebook_enqueue_messenger_outbox('cccccccc-cccc-4ccc-8ccc-ccccccccccc1', 'expired response blocked', repeat('x', 32), 'RESPONSE', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1');
+  raise exception 'expired response accepted';
+exception when invalid_parameter_value then
+  raise notice 'response_expired_blocked';
+end $$;
+rollback to response_expired;
+update public.facebook_messenger_settings set human_agent_enabled = true where id = '00000000-0000-0000-0000-000000000001';
+update public.facebook_messenger_conversations
+set last_inbound_message_at = now() - interval '7 days', reply_window_expires_at = now() - interval '6 days', human_agent_window_expires_at = now(), metadata = '{"human_agent_approved": true}'::jsonb
+where id = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc1';
+select public.facebook_enqueue_messenger_outbox('cccccccc-cccc-4ccc-8ccc-ccccccccccc1', 'boundary human ok', repeat('h', 32), 'HUMAN_AGENT', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1');
+update public.facebook_messenger_conversations
+set last_inbound_message_at = now() - interval '7 days 1 millisecond', human_agent_window_expires_at = now() - interval '1 millisecond'
+where id = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc1';
+savepoint human_expired;
+do $$
+begin
+  perform public.facebook_enqueue_messenger_outbox('cccccccc-cccc-4ccc-8ccc-ccccccccccc1', 'expired human blocked', repeat('y', 32), 'HUMAN_AGENT', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1');
+  raise exception 'expired human accepted';
+exception when invalid_parameter_value then
+  raise notice 'human_agent_expired_blocked';
+end $$;
+rollback to human_expired;
+savepoint system_actor;
+do $$
+begin
+  perform public.facebook_enqueue_messenger_outbox('cccccccc-cccc-4ccc-8ccc-ccccccccccc1', 'system actor blocked', repeat('z', 32), 'HUMAN_AGENT', '99999999-9999-4999-8999-999999999999');
+  raise exception 'system actor accepted';
+exception when insufficient_privilege then
+  raise notice 'system_actor_human_agent_denied';
+end $$;
+rollback to system_actor;
+update public.facebook_messenger_conversations
+set last_inbound_message_at = now() - interval '1 hour', reply_window_expires_at = now() + interval '23 hours', human_agent_window_expires_at = now() + interval '6 days', metadata = '{"human_agent_approved": false}'::jsonb
+where id = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc1';
+update public.facebook_messenger_settings set human_agent_enabled = false where id = '00000000-0000-0000-0000-000000000001';
+delete from public.facebook_messenger_outbox where idempotency_key in (repeat('r', 32), repeat('h', 32));
 
 -- rbac_staff_default_denied_owner_only_reconcile
 savepoint staff_denied;
@@ -144,6 +247,18 @@ select pg_temp.expect_reconcile_mid_guard(:'outbox_id'::uuid);
 rollback to recon_bad;
 
 select public.facebook_reconcile_messenger_outbox(:'outbox_id'::uuid, 'sent', 'mid.$smoke', null, 'ticket-1', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1');
+
+-- bounded list/read caps: aggregation happens after deterministic ORDER/LIMIT subqueries.
+insert into public.facebook_messenger_conversations (page_id, psid, last_message_at, last_inbound_message_at, reply_window_expires_at)
+select 'page-bounded', 'psid-list-' || g, now() - (g || ' seconds')::interval, now(), now() + interval '1 hour'
+from generate_series(1, 105) g
+on conflict (page_id, psid) do nothing;
+select pg_temp.assert_true(jsonb_array_length(public.facebook_list_messenger_conversations()) <= 100, 'conversation list cap failed');
+insert into public.facebook_messenger_messages (conversation_id, page_id, psid, direction, fingerprint, message_text, created_at, received_at)
+select 'cccccccc-cccc-4ccc-8ccc-ccccccccccc1', 'page-smoke', 'psid-smoke-secret', 'inbound', encode(digest('bounded-msg-' || g, 'sha256'), 'hex'), 'bounded ' || g, now() - (g || ' seconds')::interval, now() - (g || ' seconds')::interval
+from generate_series(1, 205) g
+on conflict (fingerprint) do nothing;
+select pg_temp.assert_true(jsonb_array_length(public.facebook_read_messenger_conversation('cccccccc-cccc-4ccc-8ccc-ccccccccccc1')->'messages') <= 200, 'message read cap failed');
 
 select 'timeout_requires_manual_reconciliation' as timeout_requires_manual_reconciliation,
        'send_committed_no_blind_retry' as send_committed_no_blind_retry,

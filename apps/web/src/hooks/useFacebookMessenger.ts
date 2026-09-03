@@ -83,7 +83,8 @@ export function useFacebookMessengerInbox(selectedConversationId?: string | null
   return useQuery({
     queryKey: ["facebook-messenger-inbox", selectedConversationId || null],
     queryFn: () => invokeMessengerFunction<InboxResponse>("facebook-messenger-inbox", {
-      conversationId: selectedConversationId || null,
+      action: selectedConversationId ? "read" : "list",
+      conversation_id: selectedConversationId || undefined,
     }),
     staleTime: 30_000,
   });
@@ -96,12 +97,20 @@ export function useFacebookMessengerSend() {
       const boundedText = text.trim().slice(0, 2000);
       if (!boundedText) throw new FacebookMessengerUiError("empty_message");
       return invokeMessengerFunction("facebook-messenger-send", {
-        conversationId,
+        conversation_id: conversationId,
         text: boundedText,
+        idempotency_key: buildMessengerIdempotencyKey(conversationId, boundedText),
       });
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["facebook-messenger-inbox"] });
     },
   });
+}
+
+
+function buildMessengerIdempotencyKey(conversationId: string, text: string) {
+  void text;
+  const random = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID().replace(/-/g, "") : `${Date.now()}${Math.random()}`.replace(/[^A-Za-z0-9]/g, "");
+  return `ui:${conversationId.replace(/-/g, "")}:${random}`.slice(0, 128);
 }

@@ -131,3 +131,15 @@ Deno.test("human agent path requires explicit human-only approval and denies AI/
   const ai = await handleMessengerSend(request({ conversation_id: CONVERSATION_ID, text: "ok", idempotency_key: "i".repeat(32), send_type: "human_agent", actor_type: "ai" }), env(), approvedHuman);
   assertEqual(ai.status, 422);
 });
+
+
+Deno.test("human agent enforces exact inclusive 7d boundary and expired policy", async () => {
+  const boundaryDeps = deps({ resolveConversationPolicy: async () => ({ ...freshConversation, last_user_message_at_ms: NOW - 7 * 24 * 60 * 60 * 1000, human_agent_enabled: true, human_agent_approved: true }) }).deps;
+  const boundary = await handleMessengerSend(request({ conversation_id: CONVERSATION_ID, text: "ok", idempotency_key: "j".repeat(32), send_type: "human_agent" }), env(), boundaryDeps);
+  assertEqual(boundary.status, 200);
+
+  const expiredDeps = deps({ resolveConversationPolicy: async () => ({ ...freshConversation, last_user_message_at_ms: NOW - 7 * 24 * 60 * 60 * 1000 - 1, human_agent_enabled: true, human_agent_approved: true }) }).deps;
+  const expired = await handleMessengerSend(request({ conversation_id: CONVERSATION_ID, text: "ok", idempotency_key: "l".repeat(32), send_type: "human_agent" }), env(), expiredDeps);
+  assertEqual(expired.status, 409);
+  assertEqual((await json(expired)).error, "outside_human_agent_window");
+});

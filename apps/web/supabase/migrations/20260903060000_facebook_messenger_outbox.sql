@@ -111,19 +111,29 @@ security definer
 set search_path = public, extensions
 as $$
 declare
-  v_actor uuid;
+  v_actor uuid := p_actor_id;
   v_settings public.facebook_messenger_settings%rowtype;
   v_conv public.facebook_messenger_conversations%rowtype;
   v_payload jsonb;
   v_intent_hash text;
   v_inserted public.facebook_messenger_outbox%rowtype;
   v_existing public.facebook_messenger_outbox%rowtype;
+  v_reply_window timestamptz;
+  v_human_agent_window timestamptz;
 begin
-  v_actor := case when auth.role() = 'service_role' then p_actor_id else auth.uid() end;
+  if auth.role() is distinct from 'service_role' then
+    raise exception 'service_role_required' using errcode = '42501';
+  end if;
   if v_actor is null then raise exception 'actor_required' using errcode = '42501'; end if;
+  if not exists (select 1 from auth.users u where u.id = v_actor) then
+    raise exception 'authenticated_human_actor_required' using errcode = '42501';
+  end if;
   if not public.facebook_messenger_has_permission(v_actor, 'edit') then
     -- rbac_staff_default_denied
     raise exception 'facebook_messenger_edit_required' using errcode = '42501';
+  end if;
+  if not exists (select 1 from public.user_roles ur where ur.user_id = v_actor and ur.role in ('owner', 'staff')) then
+    raise exception 'facebook_messenger_human_role_required' using errcode = '42501';
   end if;
 
   select * into v_settings from public.facebook_messenger_settings where id = '00000000-0000-0000-0000-000000000001'::uuid for share;
@@ -144,6 +154,28 @@ begin
 
   select * into v_conv from public.facebook_messenger_conversations where id = p_conversation_id and page_id = v_settings.page_id for share;
   if not found then raise exception 'conversation_not_found' using errcode = 'P0002'; end if;
+  if v_conv.last_inbound_message_at is null then
+    raise exception 'missing_last_user_message' using errcode = '22023';
+  end if;
+
+  v_reply_window := coalesce(v_conv.reply_window_expires_at, v_conv.last_inbound_message_at + interval '24 hours');
+  v_human_agent_window := coalesce(v_conv.human_agent_window_expires_at, v_conv.last_inbound_message_at + interval '7 days');
+
+  if p_tag = 'RESPONSE' and now() > v_reply_window then
+    raise exception 'outside_standard_messaging_window' using errcode = '22023';
+  end if;
+
+  if p_tag = 'HUMAN_AGENT' then
+    if coalesce(v_settings.human_agent_enabled, false) is false then
+      raise exception 'human_agent_feature_disabled' using errcode = '22023';
+    end if;
+    if coalesce((v_conv.metadata->>'human_agent_approved')::boolean, false) is false then
+      raise exception 'human_agent_not_approved' using errcode = '22023';
+    end if;
+    if now() > v_human_agent_window then
+      raise exception 'outside_human_agent_window' using errcode = '22023';
+    end if;
+  end if;
 
   v_payload := jsonb_build_object('text_preview', left(btrim(p_text), 2000), 'tag', p_tag, 'created_by_actor', v_actor);
   v_intent_hash := encode(digest(p_conversation_id::text || chr(31) || btrim(p_text) || chr(31) || p_tag, 'sha256'), 'hex');
@@ -169,13 +201,6 @@ end;
 $$;
 revoke all on function public.facebook_enqueue_messenger_outbox(uuid, text, text, text, uuid) from public, anon, authenticated;
 grant execute on function public.facebook_enqueue_messenger_outbox(uuid, text, text, text, uuid) to service_role;
-
-do $$
-begin
-  if to_regprocedure('public.facebook_enqueue_messenger_outbox(uuid,text,text,text,uuid)') is not null then
-    grant execute on function public.facebook_enqueue_messenger_outbox(uuid, text, text, text, uuid) to authenticated;
-  end if;
-end $$;
 
 create or replace function public.facebook_claim_messenger_outbox(p_limit integer default 10)
 returns table(id uuid, page_id text, psid text, text text, tag text, attempt_count integer)
@@ -361,15 +386,19 @@ begin
     raise exception 'facebook_messenger_view_required' using errcode = '42501';
   end if;
   select coalesce(jsonb_agg(jsonb_build_object(
-    'id', c.id,
-    'customer_name', c.customer_name,
-    'last_message_at', c.last_message_at,
-    'reply_window_expires_at', c.reply_window_expires_at,
-    'human_agent_window_expires_at', c.human_agent_window_expires_at
-  ) order by c.last_message_at desc nulls last), '[]'::jsonb)
+    'id', bounded.id,
+    'customer_name', bounded.customer_name,
+    'last_message_at', bounded.last_message_at,
+    'reply_window_expires_at', bounded.reply_window_expires_at,
+    'human_agent_window_expires_at', bounded.human_agent_window_expires_at
+  ) order by bounded.last_message_at desc nulls last, bounded.id), '[]'::jsonb)
   into v_rows
-  from public.facebook_messenger_conversations c
-  limit 100;
+  from (
+    select c.id, c.customer_name, c.last_message_at, c.reply_window_expires_at, c.human_agent_window_expires_at
+    from public.facebook_messenger_conversations c
+    order by c.last_message_at desc nulls last, c.id
+    limit 100
+  ) bounded;
   return v_rows;
 end;
 $$;
@@ -392,7 +421,16 @@ begin
     'customer_name', c.customer_name,
     'last_message_at', c.last_message_at,
     'reply_window_expires_at', c.reply_window_expires_at,
-    'messages', coalesce((select jsonb_agg(jsonb_build_object('id', m.id, 'direction', m.direction, 'message_text', m.message_text, 'received_at', m.received_at, 'sent_at', m.sent_at) order by m.created_at) from public.facebook_messenger_messages m where m.conversation_id = c.id limit 100), '[]'::jsonb)
+    'messages', coalesce((
+      select jsonb_agg(jsonb_build_object('id', bounded.id, 'direction', bounded.direction, 'message_text', bounded.message_text, 'received_at', bounded.received_at, 'sent_at', bounded.sent_at) order by bounded.created_at, bounded.id)
+      from (
+        select m.id, m.direction, m.message_text, m.received_at, m.sent_at, m.created_at
+        from public.facebook_messenger_messages m
+        where m.conversation_id = c.id
+        order by m.created_at desc, m.id desc
+        limit 200
+      ) bounded
+    ), '[]'::jsonb)
   ) into v_result
   from public.facebook_messenger_conversations c
   where c.id = p_conversation_id;

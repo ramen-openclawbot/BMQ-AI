@@ -85,3 +85,15 @@ Deno.test("owner-only reconciliation requires can_edit/owner path, evidence, and
   const response = await handleMessengerInbox(request("/reconcile", "fresh-token", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }), env(), deps().deps);
   assertEqual(response.status, 200);
 });
+
+
+Deno.test("inbox supports Supabase invoke POST action contract for list and read", async () => {
+  const active = deps();
+  const list = await handleMessengerInbox(request("", "fresh-token", { method: "POST", body: JSON.stringify({ action: "list" }), headers: { "content-type": "application/json" } }), env(), active.deps);
+  assertEqual(list.status, 200);
+  assertEqual((active.calls.list as unknown[]).length, 1);
+
+  const read = await handleMessengerInbox(request("", "fresh-token", { method: "POST", body: JSON.stringify({ action: "read", conversation_id: CONVERSATION_ID }), headers: { "content-type": "application/json" } }), env(), active.deps);
+  assertEqual(read.status, 200);
+  assertEqual((active.calls.read as unknown[]).length, 1);
+});

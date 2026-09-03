@@ -71,14 +71,28 @@ def test_hook_uses_fresh_authenticated_edge_functions_only():
     assert re.search(r'text\.trim\(\)\.slice\(0,\s*2000\)', hook), "send text must be bounded"
 
 
-def test_send_contract_does_not_accept_client_thread_routing():
+def test_send_contract_uses_edge_snake_case_and_stable_idempotency():
     hook = read("src/hooks/useFacebookMessenger.ts")
     page = read("src/pages/FacebookMessengerInbox.tsx")
     assert re.search(r'mutationFn:\s*async\s*\(\{\s*conversationId,\s*text\s*\}:\s*\{\s*conversationId:\s*string;\s*text:\s*string\s*\}\)', hook), "send mutation must accept only conversationId and text"
-    assert re.search(r'invokeMessengerFunction\("facebook-messenger-send",\s*\{\s*conversationId,\s*text:\s*boundedText,?\s*\}\)', hook), "send payload must contain only conversationId and bounded text"
-    for token in ('threadId', 'idempotencyKey', 'attemptId'):
+    assert_contains(hook, 'conversation_id: conversationId', "useFacebookMessenger.ts")
+    assert_contains(hook, 'idempotency_key: buildMessengerIdempotencyKey(conversationId, boundedText)', "useFacebookMessenger.ts")
+    assert_contains(hook, 'function buildMessengerIdempotencyKey(conversationId: string, text: string)', "useFacebookMessenger.ts")
+    assert_not_contains(hook, 'conversationId,\n        text: boundedText,\n      });', "useFacebookMessenger.ts")
+    for token in ('threadId', 'attemptId', 'page_id', 'psid'):
         assert_not_contains(hook, token, "useFacebookMessenger.ts")
     assert_not_contains(page, 'threadId:', "FacebookMessengerInbox.tsx")
+
+
+def test_inbox_contract_uses_post_action_body_supported_by_edge():
+    hook = read("src/hooks/useFacebookMessenger.ts")
+    edge = read("supabase/functions/facebook-messenger-inbox/index.ts")
+    assert_contains(hook, 'action: selectedConversationId ? "read" : "list"', "useFacebookMessenger.ts")
+    assert_contains(hook, 'conversation_id: selectedConversationId || undefined', "useFacebookMessenger.ts")
+    assert_not_contains(hook, 'conversationId: selectedConversationId', "useFacebookMessenger.ts")
+    assert_contains(edge, 'body.action === "list"', "facebook-messenger-inbox/index.ts")
+    assert_contains(edge, 'body.action === "read"', "facebook-messenger-inbox/index.ts")
+    assert_contains(edge, 'body.conversation_id', "facebook-messenger-inbox/index.ts")
 
 
 def test_duplicate_submit_ref_lock_and_responsive_contract():

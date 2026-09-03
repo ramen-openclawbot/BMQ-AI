@@ -24,38 +24,42 @@ export async function handleMessengerWorker(request: Request, env: MessengerWork
   if (!constantTimeStringEqual(supplied, env.FACEBOOK_MESSENGER_WORKER_SECRET)) return jsonResponse({ error: "unauthorized" }, 401);
 
   const active = deps ?? createDeps(env);
-  const rows = await active.claimPending();
-  let processed = 0;
-  let manual = 0;
-  let failed = 0;
-  let sent = 0;
-  for (const row of rows) {
-    const committed = await active.markSendCommitted(row.id);
-    if (!committed) {
-      await active.markFailed(row.id, "pre_commit_claim_lost", { stage: "pre_commit" });
-      failed += 1;
-      continue;
+  try {
+    const rows = await active.claimPending();
+    let processed = 0;
+    let manual = 0;
+    let failed = 0;
+    let sent = 0;
+    for (const row of rows) {
+      const committed = await active.markSendCommitted(row.id);
+      if (!committed) {
+        await active.markFailed(row.id, "pre_commit_claim_lost", { stage: "pre_commit" });
+        failed += 1;
+        continue;
+      }
+      const result = await active.postGraphMessage({
+        endpoint: `/v26.0/${encodeURIComponent(row.page_id)}/messages`,
+        pageAccessToken: env.META_PAGE_ACCESS_TOKEN,
+        psid: row.psid,
+        text: row.text,
+        tag: row.tag,
+      });
+      if (result.kind === "accepted") {
+        await active.markSent(row.id, boundedMid(result.messageId), { provider: "meta", status: "accepted" });
+        sent += 1;
+      } else if (result.kind === "ambiguous_timeout") {
+        await active.markManualReconciliationRequired(row.id, safeCode(result.safeReason) || "timeout_requires_manual_reconciliation", { provider: "meta", status: "ambiguous_timeout" });
+        manual += 1;
+      } else {
+        await active.markFailed(row.id, safeCode(result.safeCode) || "provider_error_sanitized", { provider: "meta", status: "definitive_rejection" });
+        failed += 1;
+      }
+      processed += 1;
     }
-    const result = await active.postGraphMessage({
-      endpoint: `/v26.0/${encodeURIComponent(row.page_id)}/messages`,
-      pageAccessToken: env.META_PAGE_ACCESS_TOKEN,
-      psid: row.psid,
-      text: row.text,
-      tag: row.tag,
-    });
-    if (result.kind === "accepted") {
-      await active.markSent(row.id, boundedMid(result.messageId), { provider: "meta", status: "accepted" });
-      sent += 1;
-    } else if (result.kind === "ambiguous_timeout") {
-      await active.markManualReconciliationRequired(row.id, safeCode(result.safeReason) || "timeout_requires_manual_reconciliation", { provider: "meta", status: "ambiguous_timeout" });
-      manual += 1;
-    } else {
-      await active.markFailed(row.id, safeCode(result.safeCode) || "provider_error_sanitized", { provider: "meta", status: "definitive_rejection" });
-      failed += 1;
-    }
-    processed += 1;
+    return jsonResponse({ processed, sent, failed, manual_reconciliation_required: manual });
+  } catch {
+    return jsonResponse({ error: "internal_failure" }, 500);
   }
-  return jsonResponse({ processed, sent, failed, manual_reconciliation_required: manual });
 }
 
 function createDeps(env: MessengerWorkerEnv): MessengerWorkerDeps {
@@ -69,17 +73,21 @@ function createDeps(env: MessengerWorkerEnv): MessengerWorkerDeps {
     },
     markSendCommitted: async (id) => {
       const { data, error } = await admin.rpc("facebook_mark_messenger_outbox_send_committed", { p_outbox_id: id });
-      return !error && data === true;
+      if (error) throw error;
+      return data === true;
     },
     postGraphMessage: async (input) => postGraph(input),
     markSent: async (id, messageId, evidence) => {
-      await admin.rpc("facebook_mark_messenger_outbox_sent", { p_outbox_id: id, p_provider_message_id: messageId, p_evidence: evidence });
+      const { error } = await admin.rpc("facebook_mark_messenger_outbox_sent", { p_outbox_id: id, p_provider_message_id: messageId, p_evidence: evidence });
+      if (error) throw error;
     },
     markFailed: async (id, reason, evidence) => {
-      await admin.rpc("facebook_mark_messenger_outbox_failed", { p_outbox_id: id, p_safe_reason: reason, p_evidence: evidence });
+      const { error } = await admin.rpc("facebook_mark_messenger_outbox_failed", { p_outbox_id: id, p_safe_reason: reason, p_evidence: evidence });
+      if (error) throw error;
     },
     markManualReconciliationRequired: async (id, reason, evidence) => {
-      await admin.rpc("facebook_mark_messenger_outbox_manual_reconciliation", { p_outbox_id: id, p_safe_reason: reason, p_evidence: evidence });
+      const { error } = await admin.rpc("facebook_mark_messenger_outbox_manual_reconciliation", { p_outbox_id: id, p_safe_reason: reason, p_evidence: evidence });
+      if (error) throw error;
     },
   };
 }

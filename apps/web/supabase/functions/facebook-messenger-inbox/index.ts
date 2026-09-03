@@ -37,6 +37,24 @@ export async function handleMessengerInbox(request: Request, env: MessengerInbox
     return handleReconcile(request, active, user.id);
   }
 
+  if (request.method === "POST" && !tail) {
+    let body: Record<string, unknown>;
+    try { body = await request.json(); } catch { return jsonResponse({ error: "invalid_json" }, 400); }
+    if (!(await active.hasModulePermission(user.id, "facebook_messenger", "view"))) return jsonResponse({ error: "forbidden" }, 403);
+    if (body.action === "list") {
+      const conversations = await active.listConversations();
+      return jsonResponse({ conversations: conversations.map(minimizeConversation) });
+    }
+    if (body.action === "read") {
+      const conversationId = typeof body.conversation_id === "string" ? body.conversation_id.trim() : "";
+      if (!UUID_RE.test(conversationId)) return jsonResponse({ error: "invalid_conversation_id" }, 422);
+      const detail = await active.readConversation(conversationId);
+      if (!detail) return jsonResponse({ error: "not_found" }, 404);
+      return jsonResponse({ selectedConversation: minimizeConversationDetail(detail) });
+    }
+    return jsonResponse({ error: "invalid_action" }, 422);
+  }
+
   if (request.method !== "GET") return jsonResponse({ error: "method_not_allowed" }, 405);
   if (!(await active.hasModulePermission(user.id, "facebook_messenger", "view"))) return jsonResponse({ error: "forbidden" }, 403);
 
@@ -47,7 +65,7 @@ export async function handleMessengerInbox(request: Request, env: MessengerInbox
   if (!UUID_RE.test(tail)) return jsonResponse({ error: "invalid_conversation_id" }, 422);
   const detail = await active.readConversation(tail);
   if (!detail) return jsonResponse({ error: "not_found" }, 404);
-  return jsonResponse({ conversation: minimizeConversationDetail(detail) });
+  return jsonResponse({ conversation: minimizeConversationDetail(detail), selectedConversation: minimizeConversationDetail(detail) });
 }
 
 async function handleReconcile(request: Request, deps: MessengerInboxDeps, actorId: string): Promise<Response> {
