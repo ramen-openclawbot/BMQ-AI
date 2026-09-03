@@ -13,6 +13,7 @@ import {
 const ROOT = new URL("../../../..", import.meta.url);
 const INDEX = new URL("./index.ts", import.meta.url);
 const SQL = new URL("../../migrations/20260903063000_facebook_messenger_privacy_deletion.sql", import.meta.url);
+const CONFIG = new URL("../../config.toml", import.meta.url);
 const PRIVACY = new URL("../../../public/privacy.html", import.meta.url);
 const DELETION_PAGE = new URL("../../../public/facebook-data-deletion.html", import.meta.url);
 
@@ -302,6 +303,17 @@ test("SQL exposes only service-role registration/retention RPCs and an anon-safe
   assert.match(sql, /p_dry_run\s+boolean\s+default\s+true/i);
   assert.match(sql, /p_enabled\s+boolean\s+default\s+false/i);
   assert.doesNotMatch(sql, /cron\.schedule|pg_cron/i);
+});
+
+test("Supabase config publicly exposes Meta data deletion callback with in-code signed_request verification", () => {
+  const config = text(CONFIG);
+  const section = config.match(/#.*signed_request.*\n\[functions\.facebook-data-deletion\]\s*\nverify_jwt\s*=\s*false/i)?.[0] || "";
+
+  assert.match(config, /\[functions\.facebook-data-deletion\]/i);
+  assert.match(section, /Meta/i);
+  assert.match(section, /signed_request/i);
+  assert.match(section, /verif/i);
+  assert.match(section, /verify_jwt\s*=\s*false/i);
 });
 
 test("retention email-outbox dry-run candidates match deletion predicates for aged, message, and conversation references", () => {

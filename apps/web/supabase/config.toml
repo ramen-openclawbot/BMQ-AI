@@ -202,6 +202,10 @@ verify_jwt = false
 # Public Meta webhook: verifies Meta token/signature in function code.
 verify_jwt = false
 
+# Public Meta data deletion callback: verifies Meta signed_request in function code.
+[functions.facebook-data-deletion]
+verify_jwt = false
+
 [functions.facebook-messenger-inbox]
 # JWT plus facebook_messenger can_view/can_edit enforced in function code.
 verify_jwt = false

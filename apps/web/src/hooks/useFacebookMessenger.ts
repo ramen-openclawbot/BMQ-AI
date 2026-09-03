@@ -49,7 +49,7 @@ export type FacebookMessengerConversation = {
 };
 
 type InboxResponse = {
-  enabled?: boolean;
+  enabled: boolean;
   conversations?: FacebookMessengerConversation[];
   selectedConversation?: FacebookMessengerConversation | null;
   reconciliationStatus?: string | null;

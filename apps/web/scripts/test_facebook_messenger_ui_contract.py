@@ -152,7 +152,9 @@ def test_composer_blocks_reconciliation_pending_or_ambiguous_states():
 
 
 def test_default_off_feature_is_highest_priority_composer_blocker():
+    hook = read("src/hooks/useFacebookMessenger.ts")
     page = read("src/pages/FacebookMessengerInbox.tsx")
+    assert_contains(hook, 'enabled: boolean;', "InboxResponse type")
     assert_contains(page, 'const featureDisabled = inbox.data?.enabled === false;', "FacebookMessengerInbox.tsx")
     assert re.search(
         r'const\s+composerDisabled\s*=\s*featureDisabled\s*\|\|\s*!canEdit\s*\|\|\s*!selectedConversation\s*\|\|\s*selectedConversation\.replyWindowExpired\s*\|\|\s*reconciliationBlocked\s*\|\|\s*isSending;',

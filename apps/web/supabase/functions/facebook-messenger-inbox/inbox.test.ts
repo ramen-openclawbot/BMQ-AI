@@ -21,14 +21,18 @@ function env(overrides: Partial<MessengerInboxEnv> = {}): MessengerInboxEnv {
   return { SUPABASE_URL: "https://supabase.test", SUPABASE_SERVICE_ROLE_KEY: "service", ...overrides };
 }
 function deps(overrides: Partial<MessengerInboxDeps> = {}) {
-  const calls: Record<string, unknown[]> = { auth: [], permission: [], list: [], read: [], reconcile: [] };
-  const active: MessengerInboxDeps = {
+  const calls: Record<string, unknown[]> = { auth: [], permission: [], enabled: [], list: [], read: [], reconcile: [] };
+  const active = {
     verifyJwt: async (token) => {
       calls.auth.push(token);
       return token === "fresh-token" ? { id: USER_ID } : null;
     },
     isOwner: async () => true,
     hasModulePermission: async (_userId, _moduleKey, mode) => mode === "view" || mode === "edit",
+    resolveSettingsEnabled: async () => {
+      calls.enabled.push(true);
+      return false;
+    },
     listConversations: async () => {
       calls.list.push(true);
       return [{ id: CONVERSATION_ID, customer_name: null, identity_fallback: "psid-secret", last_message_at: "2026-09-03T06:00:00Z", raw_identity: { psid: "leak" }, psid: "leak" }];
@@ -41,8 +45,8 @@ function deps(overrides: Partial<MessengerInboxDeps> = {}) {
       calls.reconcile.push(input);
       return { ok: true, row: { id: input.outboxId, status: input.status } };
     },
-    ...overrides,
-  };
+    ...(overrides as Record<string, unknown>),
+  } as MessengerInboxDeps;
   return { deps: active, calls };
 }
 function request(path = "", token = "fresh-token", init: RequestInit = {}) {
@@ -63,11 +67,13 @@ Deno.test("inbox list/read require fresh JWT and can_view, then return minimized
   const body = await json(list);
   const first = (body.conversations as Record<string, unknown>[])[0];
   assertEqual(first.customerDisplayName, "Facebook sender");
+  assertEqual(body.enabled, false);
   assert(!("psid" in first));
   assert(!("raw_identity" in first));
 
   const detail = await handleMessengerInbox(request(`/${CONVERSATION_ID}`), env(), deps().deps);
   const detailBody = await json(detail);
+  assertEqual(detailBody.enabled, false);
   assert(!JSON.stringify(detailBody).includes("psid-secret"));
   assert(!JSON.stringify(detailBody).includes("raw"));
 });
@@ -92,10 +98,27 @@ Deno.test("inbox supports Supabase invoke POST action contract for list and read
   const list = await handleMessengerInbox(request("", "fresh-token", { method: "POST", body: JSON.stringify({ action: "list" }), headers: { "content-type": "application/json" } }), env(), active.deps);
   assertEqual(list.status, 200);
   assertEqual((active.calls.list as unknown[]).length, 1);
+  assertEqual((await json(list)).enabled, false);
 
   const read = await handleMessengerInbox(request("", "fresh-token", { method: "POST", body: JSON.stringify({ action: "read", conversation_id: CONVERSATION_ID }), headers: { "content-type": "application/json" } }), env(), active.deps);
   assertEqual(read.status, 200);
   assertEqual((active.calls.read as unknown[]).length, 1);
+  assertEqual((await json(read)).enabled, false);
+});
+
+Deno.test("inbox enabled flag is true only for exact true and fail-closed for missing or lookup errors", async () => {
+  const enabled = deps({ resolveSettingsEnabled: async () => true } as Partial<MessengerInboxDeps>);
+  const enabledList = await json(await handleMessengerInbox(request("", "fresh-token", { method: "POST", body: JSON.stringify({ action: "list" }) }), env(), enabled.deps));
+  assertEqual(enabledList.enabled, true);
+
+  const missing = deps({ resolveSettingsEnabled: async () => false } as Partial<MessengerInboxDeps>);
+  const missingRead = await json(await handleMessengerInbox(request("", "fresh-token", { method: "POST", body: JSON.stringify({ action: "read", conversation_id: CONVERSATION_ID }) }), env(), missing.deps));
+  assertEqual(missingRead.enabled, false);
+
+  const failed = deps({ resolveSettingsEnabled: async () => { throw new Error("settings_lookup_failed"); } } as Partial<MessengerInboxDeps>);
+  const failedList = await handleMessengerInbox(request("", "fresh-token", { method: "POST", body: JSON.stringify({ action: "list" }) }), env(), failed.deps);
+  assertEqual(failedList.status, 200);
+  assertEqual((await json(failedList)).enabled, false);
 });
 
 

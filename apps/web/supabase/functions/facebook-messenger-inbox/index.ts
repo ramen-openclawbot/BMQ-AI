@@ -7,6 +7,7 @@ export type MessengerInboxDeps = {
   verifyJwt: (token: string) => Promise<User | null>;
   isOwner: (userId: string) => Promise<boolean>;
   hasModulePermission: (userId: string, moduleKey: string, mode: "view" | "edit") => Promise<boolean>;
+  resolveSettingsEnabled: () => Promise<boolean>;
   listConversations: () => Promise<Record<string, unknown>[]>;
   readConversation: (conversationId: string) => Promise<Record<string, unknown> | null>;
   reconcileOutbox: (input: ReconcileInput) => Promise<{ ok: true; row: Record<string, unknown> } | { ok: false; reason: string }>;
@@ -41,31 +42,41 @@ export async function handleMessengerInbox(request: Request, env: MessengerInbox
     let body: Record<string, unknown>;
     try { body = await request.json(); } catch { return jsonResponse({ error: "invalid_json" }, 400); }
     if (!(await active.hasModulePermission(user.id, "facebook_messenger", "view"))) return jsonResponse({ error: "forbidden" }, 403);
+    const enabled = await safeResolveSettingsEnabled(active);
     if (body.action === "list") {
       const conversations = await active.listConversations();
-      return jsonResponse({ conversations: conversations.map(minimizeConversation) });
+      return jsonResponse({ enabled, conversations: conversations.map(minimizeConversation) });
     }
     if (body.action === "read") {
       const conversationId = typeof body.conversation_id === "string" ? body.conversation_id.trim() : "";
       if (!UUID_RE.test(conversationId)) return jsonResponse({ error: "invalid_conversation_id" }, 422);
       const detail = await active.readConversation(conversationId);
       if (!detail) return jsonResponse({ error: "not_found" }, 404);
-      return jsonResponse({ selectedConversation: minimizeConversationDetail(detail) });
+      return jsonResponse({ enabled, selectedConversation: minimizeConversationDetail(detail) });
     }
     return jsonResponse({ error: "invalid_action" }, 422);
   }
 
   if (request.method !== "GET") return jsonResponse({ error: "method_not_allowed" }, 405);
   if (!(await active.hasModulePermission(user.id, "facebook_messenger", "view"))) return jsonResponse({ error: "forbidden" }, 403);
+  const enabled = await safeResolveSettingsEnabled(active);
 
   if (!tail) {
     const conversations = await active.listConversations();
-    return jsonResponse({ conversations: conversations.map(minimizeConversation) });
+    return jsonResponse({ enabled, conversations: conversations.map(minimizeConversation) });
   }
   if (!UUID_RE.test(tail)) return jsonResponse({ error: "invalid_conversation_id" }, 422);
   const detail = await active.readConversation(tail);
   if (!detail) return jsonResponse({ error: "not_found" }, 404);
-  return jsonResponse({ conversation: minimizeConversationDetail(detail), selectedConversation: minimizeConversationDetail(detail) });
+  return jsonResponse({ enabled, conversation: minimizeConversationDetail(detail), selectedConversation: minimizeConversationDetail(detail) });
+}
+
+async function safeResolveSettingsEnabled(deps: MessengerInboxDeps): Promise<boolean> {
+  try {
+    return (await deps.resolveSettingsEnabled()) === true;
+  } catch {
+    return false;
+  }
 }
 
 async function handleReconcile(request: Request, deps: MessengerInboxDeps, actorId: string): Promise<Response> {
@@ -94,6 +105,15 @@ function createDeps(env: MessengerInboxEnv, authToken: string): MessengerInboxDe
     },
     hasModulePermission: async (userId, moduleKey, mode) => hasPermission(admin, userId, moduleKey, mode),
     isOwner: async (userId) => isOwner(admin, userId),
+    resolveSettingsEnabled: async () => {
+      const { data, error } = await admin
+        .from("facebook_messenger_settings")
+        .select("enabled")
+        .eq("id", "00000000-0000-0000-0000-000000000001")
+        .maybeSingle();
+      if (error) throw error;
+      return data?.enabled === true;
+    },
     listConversations: async () => {
       void authToken;
       const { data, error } = await admin.rpc("facebook_list_messenger_conversations", {});
