@@ -214,6 +214,35 @@ $$;
 revoke all on function public.facebook_enqueue_messenger_outbox(uuid, text, text, text, uuid) from public, anon, authenticated;
 grant execute on function public.facebook_enqueue_messenger_outbox(uuid, text, text, text, uuid) to service_role;
 
+create or replace function public.facebook_suppress_messenger_outbox_for_blocker(
+  p_conversation_id uuid,
+  p_current_outbox_id uuid default null,
+  p_safe_reason text default 'reconciliation_required'
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare v_suppressed integer;
+begin
+  if p_safe_reason is null or p_safe_reason !~ '^[a-z0-9_:-]{1,120}$' then raise exception 'unsafe_reason' using errcode = '22023'; end if;
+
+  update public.facebook_messenger_outbox o
+  set status = 'suppressed',
+      last_error = p_safe_reason,
+      updated_at = now()
+  where o.conversation_id = p_conversation_id
+    and (p_current_outbox_id is null or o.id <> p_current_outbox_id)
+    and o.status in ('pending', 'processing');
+
+  get diagnostics v_suppressed = row_count;
+  return v_suppressed;
+end;
+$$;
+revoke all on function public.facebook_suppress_messenger_outbox_for_blocker(uuid, uuid, text) from public, anon, authenticated;
+grant execute on function public.facebook_suppress_messenger_outbox_for_blocker(uuid, uuid, text) to service_role;
+
 drop function if exists public.facebook_claim_messenger_outbox(integer);
 create or replace function public.facebook_claim_messenger_outbox(p_limit integer default 10)
 returns table(id uuid, page_id text, psid text, text text, tag text, attempt_count integer, lease_token uuid)
@@ -223,6 +252,22 @@ set search_path = public
 as $$
 begin
   if auth.role() is distinct from 'service_role' then raise exception 'service_role_required' using errcode = '42501'; end if;
+
+  -- Defensive barrier: if a conversation is already awaiting provider/manual evidence,
+  -- terminally suppress pre-send backlog before scanning so workers do not reclaim it.
+  update public.facebook_messenger_outbox o
+  set status = 'suppressed',
+      last_error = 'reconciliation_required',
+      updated_at = now()
+  where o.status in ('pending', 'processing')
+    and exists (
+      select 1
+      from public.facebook_messenger_outbox blocker
+      where blocker.conversation_id = o.conversation_id
+        and blocker.id <> o.id
+        and blocker.status in ('send_committed', 'manual_reconciliation_required')
+    );
+
   return query
   with claimed as (
     select o.id
@@ -233,6 +278,13 @@ begin
         or (o.status = 'processing' and o.lease_expires_at < now())
       )
       and s.enabled = true
+      and not exists (
+        select 1
+        from public.facebook_messenger_outbox blocker
+        where blocker.conversation_id = o.conversation_id
+          and blocker.id <> o.id
+          and blocker.status in ('send_committed', 'manual_reconciliation_required')
+      )
     order by o.scheduled_for, o.created_at
     limit greatest(1, least(coalesce(p_limit, 10), 25))
     for update of o skip locked
@@ -258,9 +310,57 @@ language plpgsql
 security definer
 set search_path = public
 as $$
-declare v_count integer;
+declare
+  v_row public.facebook_messenger_outbox%rowtype;
+  v_conversation_id uuid;
 begin
   if auth.role() is distinct from 'service_role' then raise exception 'service_role_required' using errcode = '42501'; end if;
+
+  -- Validate the exact current lease without taking the outbox row lock first.
+  -- The conversation row is the linearization lock; taking it before row updates
+  -- avoids two workers deadlocking as row-A->conversation and row-B->conversation.
+  -- Invalid/old/stale leases are no-op false and must not suppress or mutate the
+  -- current owner lease.
+  select * into v_row
+  from public.facebook_messenger_outbox
+  where id = p_outbox_id
+    and status = 'processing'
+    and lease_token = p_lease_token
+    and lease_expires_at > now();
+
+  if not found then
+    return false;
+  end if;
+
+  select c.id into v_conversation_id
+  from public.facebook_messenger_conversations c
+  where c.id = v_row.conversation_id
+    and c.page_id = v_row.page_id
+    and c.psid = v_row.psid
+  for update;
+
+  if not found then
+    return false;
+  end if;
+
+  if exists (
+    select 1
+    from public.facebook_messenger_outbox blocker
+    where blocker.conversation_id = v_row.conversation_id
+      and blocker.id <> v_row.id
+      and blocker.status in ('send_committed', 'manual_reconciliation_required')
+  ) then
+    update public.facebook_messenger_outbox
+    set status = 'suppressed',
+        last_error = 'reconciliation_required',
+        updated_at = now()
+    where id = v_row.id
+      and status = 'processing'
+      and lease_token = p_lease_token
+      and lease_expires_at > now();
+    return false;
+  end if;
+
   update public.facebook_messenger_outbox
   set status = 'send_committed',
       send_committed_at = now(),
@@ -268,12 +368,13 @@ begin
       committed_attempt = attempt_count + 1,
       attempt_count = attempt_count + 1,
       updated_at = now()
-  where id = p_outbox_id
+  where id = v_row.id
     and status = 'processing'
     and lease_token = p_lease_token
-    and lease_expires_at > now()
-  returning 1 into v_count;
-  return found;
+    and lease_expires_at > now();
+
+  perform public.facebook_suppress_messenger_outbox_for_blocker(v_row.conversation_id, v_row.id, 'reconciliation_required');
+  return true;
 end;
 $$;
 revoke all on function public.facebook_mark_messenger_outbox_send_committed(uuid, uuid) from public, anon, authenticated;
@@ -327,16 +428,36 @@ language plpgsql
 security definer
 set search_path = public
 as $$
-declare v_row public.facebook_messenger_outbox%rowtype;
+declare
+  v_row public.facebook_messenger_outbox%rowtype;
+  v_current public.facebook_messenger_outbox%rowtype;
+  v_conversation_id uuid;
 begin
   if auth.role() is distinct from 'service_role' then raise exception 'service_role_required' using errcode = '42501'; end if;
   if p_safe_reason is null or p_safe_reason !~ '^[a-z0-9_:-]{1,120}$' then raise exception 'unsafe_reason' using errcode = '22023'; end if;
   -- timeout_requires_manual_reconciliation; no blind retry from send_committed.
+
+  select * into v_current
+  from public.facebook_messenger_outbox
+  where id = p_outbox_id
+    and status = 'send_committed'
+  for update;
+
+  if not found then raise exception 'not_eligible' using errcode = 'P0001'; end if;
+
+  select c.id into v_conversation_id
+  from public.facebook_messenger_conversations c
+  where c.id = v_current.conversation_id
+    and c.page_id = v_current.page_id
+    and c.psid = v_current.psid
+  for update;
+
   update public.facebook_messenger_outbox
   set status = 'manual_reconciliation_required', last_error = p_safe_reason, response_payload = jsonb_strip_nulls(p_evidence), updated_at = now()
   where id = p_outbox_id and status = 'send_committed'
   returning * into v_row;
   if not found then raise exception 'not_eligible' using errcode = 'P0001'; end if;
+  perform public.facebook_suppress_messenger_outbox_for_blocker(v_row.conversation_id, v_row.id, 'reconciliation_required');
   return jsonb_build_object('id', v_row.id, 'status', v_row.status);
 end;
 $$;

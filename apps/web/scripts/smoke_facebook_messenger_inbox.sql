@@ -214,6 +214,77 @@ select pg_temp.assert_true(public.facebook_mark_messenger_outbox_send_committed(
 select public.facebook_mark_messenger_outbox_manual_reconciliation(:'outbox_id'::uuid, 'timeout_requires_manual_reconciliation', '{"safe":true}'::jsonb);
 select pg_temp.assert_true((select count(*) from public.facebook_claim_messenger_outbox(10)) = 0, 'send_committed_no_blind_retry failed');
 
+
+-- Task4 regression: pending reply created while an earlier reply is processing must be
+-- suppressed once that earlier reply becomes a reconciliation blocker, not reclaimed.
+insert into public.facebook_messenger_conversations (id, page_id, psid, last_inbound_message_at, reply_window_expires_at, human_agent_window_expires_at, metadata)
+values (
+  'dddddddd-dddd-4ddd-8ddd-dddddddddd01',
+  'page-smoke',
+  'psid-race-a',
+  now() - interval '1 hour',
+  now() + interval '23 hours',
+  now() + interval '6 days',
+  '{}'::jsonb
+)
+on conflict (page_id, psid) do update set last_inbound_message_at = excluded.last_inbound_message_at;
+
+select public.facebook_enqueue_messenger_outbox('dddddddd-dddd-4ddd-8ddd-dddddddddd01', 'race reply A', repeat('m', 32), 'RESPONSE', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1');
+select id as race_a_id, lease_token as race_a_token from public.facebook_claim_messenger_outbox(1) where psid = 'psid-race-a' \gset
+select public.facebook_enqueue_messenger_outbox('dddddddd-dddd-4ddd-8ddd-dddddddddd01', 'race reply B', repeat('n', 32), 'RESPONSE', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1') as race_b_enqueue \gset
+select :'race_b_enqueue'::jsonb->'row'->>'id' as race_b_id \gset
+select pg_temp.assert_true(public.facebook_mark_messenger_outbox_send_committed(:'race_a_id'::uuid, :'race_a_token'::uuid) = true, 'race A did not commit');
+select public.facebook_mark_messenger_outbox_manual_reconciliation(:'race_a_id'::uuid, 'timeout_requires_manual_reconciliation', '{"safe":true}'::jsonb);
+select pg_temp.assert_true((select count(*) from public.facebook_claim_messenger_outbox(10) where id = :'race_b_id'::uuid) = 0, 'BUG_claimable_after_manual_1');
+select pg_temp.assert_true((select status = 'suppressed' and last_error = 'reconciliation_required' from public.facebook_messenger_outbox where id = :'race_b_id'::uuid), 'race B was not terminally suppressed');
+
+-- Task4 regression: two workers may both hold leases before either commits; only one
+-- same-conversation row can become send_committed/provider-send eligible.
+insert into public.facebook_messenger_conversations (id, page_id, psid, last_inbound_message_at, reply_window_expires_at, human_agent_window_expires_at, metadata)
+values (
+  'eeeeeeee-eeee-4eee-8eee-eeeeeeeeee01',
+  'page-smoke',
+  'psid-race-b',
+  now() - interval '1 hour',
+  now() + interval '23 hours',
+  now() + interval '6 days',
+  '{}'::jsonb
+)
+on conflict (page_id, psid) do update set last_inbound_message_at = excluded.last_inbound_message_at;
+select public.facebook_enqueue_messenger_outbox('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee01', 'simul reply A', repeat('u', 32), 'RESPONSE', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1');
+select public.facebook_enqueue_messenger_outbox('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee01', 'simul reply B', repeat('v', 32), 'RESPONSE', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1');
+create temporary table task4_claimed_race_b on commit drop as
+  select * from public.facebook_claim_messenger_outbox(2) where psid = 'psid-race-b' order by text;
+select pg_temp.assert_true((select count(*) from task4_claimed_race_b) = 2, 'two pending same-conversation replies were not claimed before commit');
+select id as simul_a_id, lease_token as simul_a_token from task4_claimed_race_b where text = 'simul reply A' \gset
+select id as simul_b_id, lease_token as simul_b_token from task4_claimed_race_b where text = 'simul reply B' \gset
+select pg_temp.assert_true(public.facebook_mark_messenger_outbox_send_committed(:'simul_a_id'::uuid, :'simul_a_token'::uuid) = true, 'first simultaneous commit failed');
+select pg_temp.assert_true(public.facebook_mark_messenger_outbox_send_committed(:'simul_b_id'::uuid, :'simul_b_token'::uuid) = false, 'second simultaneous commit was allowed');
+select pg_temp.assert_true((select count(*) from public.facebook_messenger_outbox where conversation_id = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeee01' and status = 'send_committed') = 1, 'more than one row became send_committed');
+select pg_temp.assert_true((select status = 'suppressed' and last_error = 'reconciliation_required' from public.facebook_messenger_outbox where id = :'simul_b_id'::uuid), 'second simultaneous commit loser was not terminally suppressed');
+
+-- Old/stale leases must be no-op false and must not suppress or alter the current lease.
+insert into public.facebook_messenger_conversations (id, page_id, psid, last_inbound_message_at, reply_window_expires_at, human_agent_window_expires_at, metadata)
+values (
+  'ffffffff-ffff-4fff-8fff-ffffffffff01',
+  'page-smoke',
+  'psid-stale-lease',
+  now() - interval '1 hour',
+  now() + interval '23 hours',
+  now() + interval '6 days',
+  '{}'::jsonb
+)
+on conflict (page_id, psid) do update set last_inbound_message_at = excluded.last_inbound_message_at;
+select public.facebook_enqueue_messenger_outbox('ffffffff-ffff-4fff-8fff-ffffffffff01', 'stale lease probe', repeat('w', 32), 'RESPONSE', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1');
+select id as stale_id, lease_token as stale_old_token from public.facebook_claim_messenger_outbox(1) where psid = 'psid-stale-lease' \gset
+update public.facebook_messenger_outbox set lease_expires_at = now() - interval '1 second' where id = :'stale_id'::uuid;
+select id as stale_reclaimed_id, lease_token as stale_new_token from public.facebook_claim_messenger_outbox(1) where psid = 'psid-stale-lease' \gset
+select pg_temp.assert_true(:'stale_id' = :'stale_reclaimed_id', 'stale lease probe was not reclaimed');
+select pg_temp.assert_true(:'stale_old_token' <> :'stale_new_token', 'stale lease probe token did not rotate');
+select pg_temp.assert_true(public.facebook_mark_messenger_outbox_send_committed(:'stale_id'::uuid, :'stale_old_token'::uuid) = false, 'old stale token altered current lease');
+select pg_temp.assert_true((select status = 'processing' and lease_token = :'stale_new_token'::uuid from public.facebook_messenger_outbox where id = :'stale_id'::uuid), 'old stale token changed current lease row');
+select pg_temp.assert_true(public.facebook_mark_messenger_outbox_send_committed(:'stale_id'::uuid, :'stale_new_token'::uuid) = true, 'current lease did not commit after stale-token no-op');
+
 savepoint blocked_by_reconciliation;
 do $$
 begin
