@@ -10,6 +10,7 @@ function deps(rows: any[], opts: Partial<any> = {}) {
   const calls: any[] = [];
   return { calls, deps: {
     claimPending: async () => { calls.push(["claim"]); return rows; },
+    sendCommit: async (row: any) => { calls.push(["commit", row.id]); return opts.commitOk ?? true; },
     sendEmail: async (input: any) => { calls.push(["send", input]); return opts.sendResult ?? { kind: "accepted", providerId: "email-provider-1" }; },
     markSent: async (id: string, providerId: string, evidence: any) => { calls.push(["sent", id, providerId, evidence]); },
     markFailed: async (id: string, reason: string, evidence: any) => { calls.push(["failed", id, reason, evidence]); },
@@ -45,7 +46,7 @@ Deno.test("non allowlisted destination is suppressed without network", async () 
 });
 Deno.test("accepted failed and ambiguous provider states are modeled honestly", async () => {
   let d = deps([row], { sendResult: { kind: "accepted", providerId: "provider-1" } });
-  let res = await handleMessengerEmailWorker(req(), env(), d.deps);
+  const res = await handleMessengerEmailWorker(req(), env(), d.deps);
   assertEqual((await json(res)).sent, 1);
   d = deps([row], { sendResult: { kind: "definitive_rejection", safeCode: "provider_rejected" } });
   await handleMessengerEmailWorker(req(), env(), d.deps);
@@ -53,4 +54,21 @@ Deno.test("accepted failed and ambiguous provider states are modeled honestly", 
   d = deps([row], { sendResult: { kind: "ambiguous_timeout", safeReason: "timeout_requires_manual_reconciliation" } });
   await handleMessengerEmailWorker(req(), env(), d.deps);
   assertEqual(d.calls.some((c) => c[0] === "manual"), true);
+});
+
+Deno.test("send commit happens immediately before provider send", async () => {
+  const d = deps([row]);
+  const res = await handleMessengerEmailWorker(req(), env(), d.deps);
+  assertEqual(res.status, 200);
+  assertEqual(d.calls.map((c) => c[0]).join(","), "claim,commit,send,sent");
+});
+
+Deno.test("commit false suppresses provider network and leaves row safe", async () => {
+  const d = deps([row], { commitOk: false });
+  const res = await handleMessengerEmailWorker(req(), env(), d.deps);
+  assertEqual(res.status, 200);
+  const body = await json(res);
+  assertEqual(body.skipped_commit_false, 1);
+  assertEqual(d.calls.some((c) => c[0] === "send"), false);
+  assertEqual(d.calls.some((c) => c[0] === "sent" || c[0] === "failed" || c[0] === "manual"), false);
 });

@@ -47,7 +47,7 @@ def test_security_definer_acl_and_service_role_null_safe():
 
 def test_reply_hmac_nonce_rate_limit_and_no_graph():
     src = text(REPLY).lower()
-    for marker in ["x-instinct-timestamp", "x-instinct-nonce", "x-instinct-signature", "hmac", "sha-256", "recordnonce", "checkratelimit", "meta_instinct_reply_secret_previous"]:
+    for marker in ["x-instinct-timestamp", "x-instinct-nonce", "x-instinct-signature", "hmac", "sha-256", "recordnonce", "meta_instinct_reply_secret_previous"]:
         assert marker in src, marker
     assert "graph.facebook.com" not in src
     assert "human_agent" not in src.replace("ai_cannot_use_human_agent", "")
@@ -93,6 +93,48 @@ def test_config_verify_jwt_false_for_dedicated_auth_endpoints():
     cfg = text(CONFIG)
     assert "[functions.facebook-messenger-agent-reply]" in cfg and "verify_jwt = false" in cfg
     assert "[functions.facebook-messenger-email-worker]" in cfg and "verify_jwt = false" in cfg
+
+
+def test_send_commit_authorizes_exact_email_before_resend():
+    sql = text(MIGRATION).lower()
+    src = text(WORKER).lower()
+    body = function_body(sql, "facebook_commit_messenger_email_send")
+    assert "status = 'send_committed'" in body
+    assert "send_committed_at" in body
+    assert "where eo.id = p_email_id" in body
+    assert "eo.status = 'processing'" in body
+    assert "eo.recipient_email = 'inboxoggxdk@agent.instinct.co'" in body
+    assert "eo.payload->>'source' = 'facebook_messenger'" in body
+    assert "agent_email_forward_enabled" in body and "agent_email_processor_approved" in body
+    assert "facebook_messenger_conversation_is_suppressed" in body
+    assert "facebook_commit_messenger_email_send" in src
+    assert src.index("sendcommit") < src.index("sendemail"), "worker must commit before provider send"
+    assert "status = 'send_committed'" in function_body(sql, "facebook_mark_messenger_email_sent").lower()
+    assert "status = 'send_committed'" in function_body(sql, "facebook_mark_messenger_email_manual_reconciliation").lower()
+    failed_body = function_body(sql, "facebook_mark_messenger_email_failed").lower()
+    assert "send_committed" in failed_body and "status in" in failed_body
+
+
+def test_atomic_enqueue_rate_limit_inside_transaction():
+    sql = text(MIGRATION).lower()
+    src = text(REPLY).lower()
+    body = function_body(sql, "facebook_enqueue_instinct_messenger_reply")
+    assert "pg_advisory_xact_lock" in body
+    assert "facebook_instinct_reply_audit" in body
+    assert "status = 'accepted'" in body
+    assert "rate_limited" in body
+    assert "on conflict (idempotency_key) do nothing" in body
+    assert "facebook_check_instinct_reply_rate_limit" not in src, "edge must not rely on racy rate preflight"
+    assert "checkratelimit" not in src
+
+
+def test_public_reply_body_read_is_bounded_streaming():
+    src = text(REPLY)
+    assert "request.arrayBuffer()" not in src
+    assert "content-length" in src.lower()
+    assert "getReader()" in src
+    assert "reader.cancel()" in src
+    assert "MAX_BODY_BYTES" in src
 
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):

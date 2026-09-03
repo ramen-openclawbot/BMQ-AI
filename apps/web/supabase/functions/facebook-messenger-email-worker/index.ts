@@ -11,6 +11,7 @@ export type ClaimedEmail = { id: string; recipient_email: string; subject: strin
 export type EmailResult = { kind: "accepted"; providerId: string } | { kind: "ambiguous_timeout"; safeReason: string } | { kind: "definitive_rejection"; safeCode: string };
 export type MessengerEmailWorkerDeps = {
   claimPending: () => Promise<ClaimedEmail[]>;
+  sendCommit: (row: ClaimedEmail) => Promise<boolean>;
   sendEmail: (input: { to: string; subject: string; text: string; idempotencyKey: string; payload: Record<string, unknown> }) => Promise<EmailResult>;
   markSent: (id: string, providerId: string, evidence: Record<string, unknown>) => Promise<void>;
   markFailed: (id: string, reason: string, evidence: Record<string, unknown>) => Promise<void>;
@@ -33,6 +34,7 @@ export async function handleMessengerEmailWorker(request: Request, env: Messenge
   let sent = 0;
   let failed = 0;
   let manual = 0;
+  let skippedCommitFalse = 0;
   for (const row of rows) {
     if (row.recipient_email !== AGENT_EMAIL) {
       await active.markFailed(row.id, "invalid_recipient", { provider: "email", status: "blocked" });
@@ -40,6 +42,10 @@ export async function handleMessengerEmailWorker(request: Request, env: Messenge
       continue;
     }
     const outbound = buildEmail(row);
+    if (!(await active.sendCommit(row))) {
+      skippedCommitFalse += 1;
+      continue;
+    }
     const result = await active.sendEmail(outbound);
     if (result.kind === "accepted") {
       await active.markSent(row.id, boundedProviderId(result.providerId), { provider: "resend", status: "accepted" });
@@ -52,7 +58,7 @@ export async function handleMessengerEmailWorker(request: Request, env: Messenge
       failed += 1;
     }
   }
-  return jsonResponse({ processed: rows.length, sent, failed, manual_reconciliation_required: manual });
+  return jsonResponse({ processed: rows.length, sent, failed, manual_reconciliation_required: manual, skipped_commit_false: skippedCommitFalse });
 }
 
 function buildEmail(row: ClaimedEmail): { to: string; subject: string; text: string; idempotencyKey: string; payload: Record<string, unknown> } {
@@ -85,6 +91,11 @@ function createDeps(env: MessengerEmailWorkerEnv): MessengerEmailWorkerDeps {
       const { data, error } = await admin.rpc("facebook_claim_messenger_email_notifications", { p_limit: 10 });
       if (error) throw error;
       return (data || []) as ClaimedEmail[];
+    },
+    sendCommit: async (row) => {
+      const { data, error } = await admin.rpc("facebook_commit_messenger_email_send", { p_email_id: row.id });
+      if (error) throw error;
+      return data === true;
     },
     sendEmail: async (input) => sendResendEmail(env.INSTINCT_EMAIL_RESEND_API_KEY!, input),
     markSent: async (id, providerId, evidence) => {

@@ -10,7 +10,6 @@ export type AgentReplyEnv = {
 export type AgentReplyDeps = {
   nowSeconds: () => number;
   recordNonce: (nonce: string, timestampSeconds: number) => Promise<boolean>;
-  checkRateLimit: (threadId: string) => Promise<boolean>;
   enqueueReply: (input: { threadId: string; text: string; idempotencyKey: string; source: "instinct_bridge"; requestId: string; clientEvidence: Record<string, unknown> }) => Promise<{ ok: true; row: Record<string, unknown> } | { ok: false; reason: string }>;
   requestId?: () => string;
 };
@@ -34,8 +33,8 @@ export async function handleAgentReply(request: Request, env: AgentReplyEnv = De
   const currentSecret = env.META_INSTINCT_REPLY_SECRET;
   if (!currentSecret || currentSecret.length < 16) return jsonResponse({ error: "service_unavailable" }, 503);
 
-  const rawBody = new Uint8Array(await request.arrayBuffer());
-  if (rawBody.byteLength === 0 || rawBody.byteLength > MAX_BODY_BYTES) return jsonResponse({ error: "invalid_body" }, 422);
+  const rawBody = await readBoundedBody(request);
+  if (!rawBody) return jsonResponse({ error: "invalid_body" }, 422);
 
   const timestampHeader = request.headers.get("x-instinct-timestamp") ?? "";
   const nonce = request.headers.get("x-instinct-nonce") ?? "";
@@ -71,7 +70,6 @@ export async function handleAgentReply(request: Request, env: AgentReplyEnv = De
   if (text.length === 0 || text.length > MAX_TEXT) return jsonResponse({ error: "invalid_text" }, 422);
   if (!IDEMPOTENCY_RE.test(idempotencyKey)) return jsonResponse({ error: "invalid_idempotency_key" }, 422);
 
-  if (!(await active.checkRateLimit(threadId))) return jsonResponse({ error: "rate_limited" }, 429);
   const result = await active.enqueueReply({
     threadId,
     text,
@@ -87,6 +85,7 @@ export async function handleAgentReply(request: Request, env: AgentReplyEnv = De
 function statusForReason(reason: string): number {
   if (reason === "thread_not_found") return 404;
   if (reason === "disabled") return 503;
+  if (reason === "rate_limited") return 429;
   if (reason === "idempotency_conflict") return 409;
   if (reason === "outside_window") return 409;
   if (reason === "suppressed") return 409;
@@ -102,10 +101,6 @@ function createDeps(env: AgentReplyEnv): AgentReplyDeps {
       const { data, error } = await admin.rpc("facebook_record_instinct_reply_nonce", { p_nonce: nonce, p_timestamp_seconds: timestampSeconds });
       return !error && data === true;
     },
-    checkRateLimit: async (threadId) => {
-      const { data, error } = await admin.rpc("facebook_check_instinct_reply_rate_limit", { p_thread_id: threadId });
-      return !error && data === true;
-    },
     enqueueReply: async (input) => {
       const { data, error } = await admin.rpc("facebook_enqueue_instinct_messenger_reply", {
         p_thread_id: input.threadId,
@@ -119,6 +114,41 @@ function createDeps(env: AgentReplyEnv): AgentReplyDeps {
       return { ok: true, row: data?.row ?? data };
     },
   };
+}
+
+async function readBoundedBody(request: Request): Promise<Uint8Array | null> {
+  const declared = request.headers.get("content-length");
+  if (declared !== null) {
+    if (!/^[0-9]+$/.test(declared)) return null;
+    if (Number(declared) > MAX_BODY_BYTES) return null;
+  }
+  if (!request.body) return null;
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > MAX_BODY_BYTES) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    try { reader.releaseLock(); } catch { /* already released/cancelled */ }
+  }
+  if (total === 0) return null;
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
 }
 
 async function verifyAnySecret(expectedHex: string, data: Uint8Array, secrets: string[]): Promise<boolean> {
@@ -153,6 +183,7 @@ function safeError(message: string): string {
   if (message.includes("thread_not_found") || message.includes("conversation_not_found")) return "thread_not_found";
   if (message.includes("suppressed")) return "suppressed";
   if (message.includes("disabled")) return "disabled";
+  if (message.includes("rate_limited")) return "rate_limited";
   return "enqueue_failed";
 }
 function minimizeOutbox(row: Record<string, unknown>): Record<string, unknown> {

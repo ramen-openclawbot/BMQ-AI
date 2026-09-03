@@ -12,11 +12,14 @@ alter table public.facebook_messenger_email_outbox
   add column if not exists provider_message_id text,
   add column if not exists response_payload jsonb not null default '{}'::jsonb,
   add column if not exists processing_started_at timestamptz,
+  add column if not exists send_committed_at timestamptz,
   add column if not exists manual_reconciliation_required_at timestamptz,
   drop constraint if exists facebook_messenger_email_outbox_response_object_check,
   add constraint facebook_messenger_email_outbox_response_object_check check (jsonb_typeof(response_payload) = 'object'),
   drop constraint if exists facebook_messenger_email_outbox_safe_last_error_check,
-  add constraint facebook_messenger_email_outbox_safe_last_error_check check (last_error is null or last_error ~ '^[a-z0-9_:-]{1,120}$');
+  add constraint facebook_messenger_email_outbox_safe_last_error_check check (last_error is null or last_error ~ '^[a-z0-9_:-]{1,120}$'),
+  drop constraint if exists facebook_messenger_email_outbox_status_check,
+  add constraint facebook_messenger_email_outbox_status_check check (status in ('pending', 'processing', 'send_committed', 'sent', 'failed', 'manual_reconciliation_required', 'suppressed'));
 
 create unique index if not exists facebook_messenger_email_provider_id_unique
   on public.facebook_messenger_email_outbox(provider_message_id)
@@ -25,6 +28,12 @@ create unique index if not exists facebook_messenger_email_provider_id_unique
 create index if not exists facebook_messenger_email_instinct_pending_conversation_idx
   on public.facebook_messenger_email_outbox(conversation_id, scheduled_for, created_at)
   where status = 'pending'
+    and recipient_email = 'inboxoggxdk@agent.instinct.co'
+    and payload->>'source' = 'facebook_messenger';
+
+create index if not exists facebook_messenger_email_instinct_presend_conversation_idx
+  on public.facebook_messenger_email_outbox(conversation_id, updated_at)
+  where status in ('pending', 'processing')
     and recipient_email = 'inboxoggxdk@agent.instinct.co'
     and payload->>'source' = 'facebook_messenger';
 
@@ -65,7 +74,7 @@ begin
   update public.facebook_messenger_email_outbox eo
   set status = 'suppressed', last_error = p_safe_reason, failed_at = now(), updated_at = now()
   where eo.conversation_id = p_conversation_id
-    and eo.status = 'pending'
+    and eo.status in ('pending', 'processing')
     and eo.recipient_email = 'inboxoggxdk@agent.instinct.co'
     and eo.payload->>'source' = 'facebook_messenger';
   get diagnostics v_count = row_count;
@@ -86,7 +95,7 @@ begin
   if p_safe_reason is null or p_safe_reason !~ '^[a-z0-9_:-]{1,120}$' then raise exception 'unsafe_reason' using errcode = '22023'; end if;
   update public.facebook_messenger_email_outbox eo
   set status = 'suppressed', last_error = p_safe_reason, failed_at = now(), updated_at = now()
-  where eo.status = 'pending'
+  where eo.status in ('pending', 'processing')
     and eo.recipient_email = 'inboxoggxdk@agent.instinct.co'
     and eo.payload->>'source' = 'facebook_messenger';
   get diagnostics v_count = row_count;
@@ -241,6 +250,7 @@ declare
   v_intent_hash text;
   v_inserted public.facebook_messenger_outbox%rowtype;
   v_existing public.facebook_messenger_outbox%rowtype;
+  v_recent_count integer;
 begin
   if auth.role() is distinct from 'service_role' then raise exception 'service_role_required' using errcode = '42501'; end if;
   if p_text is null or length(btrim(p_text)) = 0 or length(btrim(p_text)) > 2000 then raise exception 'invalid_message_text' using errcode = '22023'; end if;
@@ -261,9 +271,34 @@ begin
     return jsonb_build_object('ok', false, 'reason', 'outside_window');
   end if;
 
+  -- Serialize quota reservation for this exact thread; idempotent replay is handled before quota consumption.
+  perform pg_advisory_xact_lock(hashtextextended('facebook_instinct_reply_rate:' || p_thread_id::text, 424242));
+
   -- ai_cannot_use_human_agent: Instinct bridge can only create RESPONSE inside the standard 24h window.
   v_payload := jsonb_build_object('text_preview', left(btrim(p_text), 2000), 'tag', 'RESPONSE', 'source', 'instinct_bridge', 'request_id', p_request_id, 'client_evidence', p_client_evidence);
   v_intent_hash := encode(digest(p_thread_id::text || chr(31) || btrim(p_text) || chr(31) || 'RESPONSE', 'sha256'), 'hex');
+
+  select * into v_existing from public.facebook_messenger_outbox where idempotency_key = p_idempotency_key for share;
+  if found then
+    if v_existing.intent_hash is distinct from v_intent_hash then
+      insert into public.facebook_instinct_reply_audit(request_id, conversation_id, idempotency_key, status, client_evidence)
+      values (p_request_id, p_thread_id, p_idempotency_key, 'rejected', jsonb_build_object('reason', 'idempotency_conflict'));
+      raise exception 'idempotency_conflict' using errcode = '23505';
+    end if;
+    return jsonb_build_object('ok', true, 'row', jsonb_build_object('id', v_existing.id, 'status', v_existing.status, 'idempotency_key', v_existing.idempotency_key));
+  end if;
+
+  select count(*) into v_recent_count
+  from public.facebook_instinct_reply_audit
+  where conversation_id = p_thread_id
+    and status = 'accepted'
+    and created_at > now() - interval '1 minute';
+  if v_recent_count >= 10 then
+    insert into public.facebook_instinct_reply_audit(request_id, conversation_id, idempotency_key, status, client_evidence)
+    values (p_request_id, p_thread_id, p_idempotency_key, 'rejected', p_client_evidence || jsonb_build_object('reason', 'rate_limited'));
+    return jsonb_build_object('ok', false, 'reason', 'rate_limited');
+  end if;
+
   insert into public.facebook_messenger_outbox(conversation_id, page_id, psid, idempotency_key, status, payload, message_text, messenger_tag, intent_hash, scheduled_for, created_by)
   values (v_conv.id, v_conv.page_id, v_conv.psid, p_idempotency_key, 'pending', v_payload, btrim(p_text), 'RESPONSE', v_intent_hash, now(), null)
   on conflict (idempotency_key) do nothing
@@ -276,7 +311,7 @@ begin
       values (p_request_id, p_thread_id, p_idempotency_key, 'rejected', jsonb_build_object('reason', 'idempotency_conflict'));
       raise exception 'idempotency_conflict' using errcode = '23505';
     end if;
-    v_inserted := v_existing;
+    return jsonb_build_object('ok', true, 'row', jsonb_build_object('id', v_existing.id, 'status', v_existing.status, 'idempotency_key', v_existing.idempotency_key));
   end if;
 
   insert into public.facebook_instinct_reply_audit(request_id, conversation_id, idempotency_key, status, client_evidence, outbox_id)
@@ -302,7 +337,7 @@ begin
       failed_at = now(),
       updated_at = now()
   from public.facebook_messenger_settings s
-  where eo.status = 'pending'
+  where eo.status in ('pending', 'processing')
     and eo.recipient_email = 'inboxoggxdk@agent.instinct.co'
     and eo.payload->>'source' = 'facebook_messenger'
     and s.id = '00000000-0000-0000-0000-000000000001'::uuid
@@ -317,7 +352,7 @@ begin
       failed_at = now(),
       updated_at = now()
   from public.facebook_messenger_conversations c
-  where eo.status = 'pending'
+  where eo.status in ('pending', 'processing')
     and eo.recipient_email = 'inboxoggxdk@agent.instinct.co'
     and eo.payload->>'source' = 'facebook_messenger'
     and c.id = eo.conversation_id
@@ -366,6 +401,38 @@ $$;
 revoke all on function public.facebook_claim_messenger_email_notifications(integer) from public, anon, authenticated;
 grant execute on function public.facebook_claim_messenger_email_notifications(integer) to service_role;
 
+create or replace function public.facebook_commit_messenger_email_send(p_email_id uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare v_row public.facebook_messenger_email_outbox%rowtype;
+begin
+  if auth.role() is distinct from 'service_role' then raise exception 'service_role_required' using errcode = '42501'; end if;
+
+  update public.facebook_messenger_email_outbox eo
+  set status = 'send_committed', send_committed_at = now(), updated_at = now()
+  from public.facebook_messenger_conversations c,
+       public.facebook_messenger_settings s
+  where eo.id = p_email_id
+    and eo.status = 'processing'
+    and eo.recipient_email = 'inboxoggxdk@agent.instinct.co'
+    and eo.payload->>'source' = 'facebook_messenger'
+    and c.id = eo.conversation_id
+    and s.id = '00000000-0000-0000-0000-000000000001'::uuid
+    and c.page_id = s.page_id
+    and coalesce(s.agent_email_forward_enabled, false) = true
+    and coalesce(s.agent_email_processor_approved, false) = true
+    and public.facebook_messenger_conversation_is_suppressed(c.metadata) = false
+  returning eo.* into v_row;
+
+  return found;
+end;
+$$;
+revoke all on function public.facebook_commit_messenger_email_send(uuid) from public, anon, authenticated;
+grant execute on function public.facebook_commit_messenger_email_send(uuid) to service_role;
+
 create or replace function public.facebook_mark_messenger_email_sent(p_email_id uuid, p_provider_id text, p_evidence jsonb default '{}'::jsonb)
 returns jsonb
 language plpgsql
@@ -378,7 +445,7 @@ begin
   if p_provider_id is null or length(btrim(p_provider_id)) = 0 or length(p_provider_id) > 256 then raise exception 'provider_id_required' using errcode = '22023'; end if;
   update public.facebook_messenger_email_outbox
   set status = 'sent', provider_message_id = btrim(p_provider_id), response_payload = jsonb_strip_nulls(p_evidence), sent_at = now(), updated_at = now()
-  where id = p_email_id and status = 'processing'
+  where id = p_email_id and status = 'send_committed'
   returning * into v_row;
   if not found then raise exception 'not_eligible' using errcode = 'P0001'; end if;
   return jsonb_build_object('id', v_row.id, 'status', v_row.status);
@@ -399,7 +466,7 @@ begin
   if p_safe_reason is null or p_safe_reason !~ '^[a-z0-9_:-]{1,120}$' then raise exception 'unsafe_reason' using errcode = '22023'; end if;
   update public.facebook_messenger_email_outbox
   set status = 'failed', last_error = p_safe_reason, response_payload = jsonb_strip_nulls(p_evidence), failed_at = now(), updated_at = now()
-  where id = p_email_id and status in ('pending', 'processing')
+  where id = p_email_id and status in ('processing', 'send_committed')
   returning * into v_row;
   if not found then raise exception 'not_eligible' using errcode = 'P0001'; end if;
   return jsonb_build_object('id', v_row.id, 'status', v_row.status);
@@ -419,8 +486,8 @@ begin
   if auth.role() is distinct from 'service_role' then raise exception 'service_role_required' using errcode = '42501'; end if;
   if p_safe_reason is null or p_safe_reason !~ '^[a-z0-9_:-]{1,120}$' then raise exception 'unsafe_reason' using errcode = '22023'; end if;
   update public.facebook_messenger_email_outbox
-  set status = 'failed', last_error = p_safe_reason, response_payload = jsonb_strip_nulls(p_evidence), manual_reconciliation_required_at = now(), updated_at = now()
-  where id = p_email_id and status = 'processing'
+  set status = 'manual_reconciliation_required', last_error = p_safe_reason, response_payload = jsonb_strip_nulls(p_evidence), manual_reconciliation_required_at = now(), updated_at = now()
+  where id = p_email_id and status = 'send_committed'
   returning * into v_row;
   if not found then raise exception 'not_eligible' using errcode = 'P0001'; end if;
   return jsonb_build_object('id', v_row.id, 'status', v_row.status);

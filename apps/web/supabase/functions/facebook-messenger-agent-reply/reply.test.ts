@@ -97,9 +97,45 @@ Deno.test("schema accepts exactly thread_id text idempotency_key and supports pr
   const bad = await handleAgentReply(await signed({ thread_id: THREAD, text: "hello", idempotency_key: KEY, tag: "HUMAN_AGENT" }, { nonce: "nonce_extra_bad_12345" }), env(), deps().deps);
   assertEqual(bad.status, 422);
 });
-Deno.test("rate limit fails closed", async () => {
-  const d = deps({ rateOk: false });
+
+Deno.test("oversized declared content length is rejected before nonce or enqueue", async () => {
+  const body = { thread_id: THREAD, text: "hello", idempotency_key: KEY };
+  const req = await signed(body, { extra: { "content-length": "8193" } });
+  const d = deps();
+  const res = await handleAgentReply(req, env(), d.deps);
+  assertEqual(res.status, 422);
+  assertEqual(d.calls.length, 0);
+});
+
+Deno.test("chunked streaming body crossing cap is rejected before nonce or enqueue", async () => {
+  const ts = "1800000000";
+  const nonce = "nonce_stream_over_cap_12345";
+  const raw = "{" + "\"pad\":\"" + "x".repeat(8192) + "\"}";
+  const sig = await hmac(SECRET, `${ts}.${nonce}.${raw}`);
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(raw.slice(0, 4096)));
+      controller.enqueue(encoder.encode(raw.slice(4096)));
+    },
+    cancel() { cancelled = true; },
+  });
+  const d = deps();
+  const res = await handleAgentReply(new Request("https://example.test/functions/v1/facebook-messenger-agent-reply", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-instinct-timestamp": ts, "x-instinct-nonce": nonce, "x-instinct-signature": sig },
+    body: stream,
+    duplex: "half",
+  } as RequestInit), env(), d.deps);
+  assertEqual(res.status, 422);
+  assertEqual(d.calls.length, 0);
+  assert(cancelled, "overflowing stream must be cancelled");
+});
+
+Deno.test("atomic enqueue owns rate limiting and returns rate_limited without preflight", async () => {
+  const d = deps({ enqueueResult: { ok: false, reason: "rate_limited" } });
   const res = await handleAgentReply(await signed({ thread_id: THREAD, text: "hello", idempotency_key: KEY }), env(), d.deps);
   assertEqual(res.status, 429);
-  assertEqual(d.calls.some((c) => c[0] === "enqueue"), false);
+  assertEqual(d.calls.some((c) => c[0] === "rate"), false);
+  assertEqual(d.calls.some((c) => c[0] === "enqueue"), true);
 });
