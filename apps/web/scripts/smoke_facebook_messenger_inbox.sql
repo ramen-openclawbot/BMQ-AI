@@ -2,6 +2,194 @@
 -- Run after local migrations are applied; this script wraps all fixture data in a transaction.
 \set ON_ERROR_STOP on
 
+-- Deterministic two-session lease-CAS race regression.
+-- Uses committed disposable fixtures because separate worker sessions cannot see
+-- this script's later transaction-local smoke data. Runs three repetitions and
+-- releases the lock through an explicit coordination row update, not backend
+-- termination.
+\pset tuples_only on
+\pset format unaligned
+\o /tmp/task4_cas_race.sh
+select $task4_shell$#!/usr/bin/env bash
+set -euo pipefail
+run_id="$$"
+tmpdir="$(mktemp -d "/tmp/task4-cas-race.${run_id}.XXXXXX")"
+holder_pid=""
+old_pid=""
+cleanup_sql() {
+  psql -U postgres -d postgres -v ON_ERROR_STOP=1 -qAt <<SQL >/dev/null || true
+set role service_role;
+select set_config('request.jwt.claim.role', 'service_role', false);
+delete from public.facebook_messenger_outbox where id in (
+  '90909090-9090-4090-8090-909090909001',
+  '90909090-9090-4090-8090-909090909002'
+);
+delete from public.facebook_messenger_conversations where id = '90909090-9090-4090-8090-909090909000';
+reset role;
+SQL
+}
+cleanup() {
+  if [ -n "${holder_pid:-}" ] && kill -0 "$holder_pid" 2>/dev/null; then kill "$holder_pid" 2>/dev/null || true; fi
+  if [ -n "${old_pid:-}" ] && kill -0 "$old_pid" 2>/dev/null; then kill "$old_pid" 2>/dev/null || true; fi
+  cleanup_sql
+  rm -rf "$tmpdir"
+}
+trap cleanup EXIT
+setup_fixture() {
+  local rep="$1"
+  psql -U postgres -d postgres -v ON_ERROR_STOP=1 -qAt <<SQL >/dev/null
+set role service_role;
+select set_config('request.jwt.claim.role', 'service_role', false);
+delete from public.facebook_messenger_outbox where id in (
+  '90909090-9090-4090-8090-909090909001',
+  '90909090-9090-4090-8090-909090909002'
+);
+delete from public.facebook_messenger_conversations where id = '90909090-9090-4090-8090-909090909000';
+insert into public.facebook_messenger_settings (id, page_id, page_name, enabled, human_agent_enabled)
+values ('00000000-0000-0000-0000-000000000001', 'page-smoke', 'Smoke Page', true, false)
+on conflict (id) do update set page_id = excluded.page_id, page_name = 'Smoke Page', enabled = true, human_agent_enabled = false;
+insert into public.facebook_messenger_conversations (id, page_id, psid, last_inbound_message_at, reply_window_expires_at, human_agent_window_expires_at, metadata)
+values (
+  '90909090-9090-4090-8090-909090909000',
+  'page-smoke',
+  'psid-cas-race',
+  now() - interval '1 hour',
+  now() + interval '23 hours',
+  now() + interval '6 days',
+  jsonb_build_object('race_rep', ${rep})
+);
+insert into public.facebook_messenger_outbox (
+  id, conversation_id, page_id, psid, idempotency_key, status, payload,
+  message_text, messenger_tag, scheduled_for, lease_token, lease_expires_at, created_at
+) values (
+  '90909090-9090-4090-8090-909090909001',
+  '90909090-9090-4090-8090-909090909000',
+  'page-smoke',
+  'psid-cas-race',
+  repeat('9', 32),
+  'processing',
+  '{}'::jsonb,
+  'old worker race',
+  'RESPONSE',
+  now() - interval '10 minutes',
+  '10101010-1010-4010-8010-101010101010',
+  now() + interval '5 minutes',
+  now() - interval '10 minutes'
+), (
+  '90909090-9090-4090-8090-909090909002',
+  '90909090-9090-4090-8090-909090909000',
+  'page-smoke',
+  'psid-cas-race',
+  repeat('8', 32),
+  'pending',
+  '{}'::jsonb,
+  'unrelated peer must not suppress',
+  'RESPONSE',
+  now() + interval '1 hour',
+  null,
+  null,
+  now()
+);
+reset role;
+SQL
+}
+for rep in 1 2 3; do
+  setup_fixture "$rep"
+  old_out="$tmpdir/old-commit-${rep}.out"
+  new_out="$tmpdir/new-token-${rep}.out"
+  holder_out="$tmpdir/holder-${rep}.out"
+  psql "dbname=postgres application_name=task4_holder_${run_id}_${rep}" -U postgres -v ON_ERROR_STOP=1 -qAt <<SQL >"$holder_out" 2>&1 &
+begin;
+update public.facebook_messenger_conversations
+set updated_at = updated_at
+where id = '90909090-9090-4090-8090-909090909000';
+select 'holder_locked';
+do \$\$
+declare started timestamptz := clock_timestamp();
+begin
+  loop
+    exit when exists (
+      select 1
+      from public.facebook_messenger_settings
+      where id = '00000000-0000-0000-0000-000000000001'
+        and page_name = 'release-${run_id}-${rep}'
+    );
+    if clock_timestamp() - started > interval '10 seconds' then
+      raise exception 'holder_release_timeout';
+    end if;
+    perform pg_sleep(0.05);
+  end loop;
+end \$\$;
+commit;
+SQL
+  holder_pid=$!
+  holder_locked=0
+  for _ in $(seq 1 200); do
+    if grep -q '^holder_locked$' "$holder_out" 2>/dev/null; then holder_locked=1; break; fi
+    if ! kill -0 "$holder_pid" 2>/dev/null; then echo "holder exited early: $(cat "$holder_out")" >&2; exit 1; fi
+    sleep 0.05
+  done
+  [ "$holder_locked" = "1" ] || { echo "holder did not acquire conversation lock" >&2; exit 1; }
+  psql "dbname=postgres application_name=task4_old_commit_${run_id}_${rep}" -U postgres -v ON_ERROR_STOP=1 -qAt <<SQL >"$old_out" 2>&1 &
+set role service_role;
+select set_config('request.jwt.claim.role', 'service_role', false);
+select public.facebook_mark_messenger_outbox_send_committed(
+  '90909090-9090-4090-8090-909090909001'::uuid,
+  '10101010-1010-4010-8010-101010101010'::uuid
+);
+SQL
+  old_pid=$!
+  waiting=0
+  for _ in $(seq 1 200); do
+    waiting=$(psql -U postgres -d postgres -qAt -c "select count(*) from pg_stat_activity where application_name = 'task4_old_commit_${run_id}_${rep}' and wait_event_type = 'Lock'")
+    [ "$waiting" = "1" ] && break
+    if ! kill -0 "$old_pid" 2>/dev/null; then echo "old commit finished before conversation lock wait: $(cat "$old_out" 2>/dev/null || true)" >&2; exit 1; fi
+    sleep 0.05
+  done
+  [ "$waiting" = "1" ] || { echo "old commit did not wait on conversation lock" >&2; exit 1; }
+  psql -U postgres -d postgres -v ON_ERROR_STOP=1 -qAt <<SQL >"$new_out"
+set role service_role;
+select set_config('request.jwt.claim.role', 'service_role', false);
+update public.facebook_messenger_outbox
+set lease_expires_at = now() - interval '1 second'
+where id = '90909090-9090-4090-8090-909090909001';
+select lease_token
+from public.facebook_claim_messenger_outbox(1)
+where id = '90909090-9090-4090-8090-909090909001';
+SQL
+  new_token=$(grep -E '^[0-9a-f-]{36}$' "$new_out" | tail -n 1)
+  [ -n "$new_token" ] || { echo "new worker did not reclaim old lease: $(cat "$new_out")" >&2; exit 1; }
+  psql -U postgres -d postgres -v ON_ERROR_STOP=1 -qAt <<SQL >/dev/null
+set role service_role;
+select set_config('request.jwt.claim.role', 'service_role', false);
+update public.facebook_messenger_settings
+set page_name = 'release-${run_id}-${rep}'
+where id = '00000000-0000-0000-0000-000000000001';
+reset role;
+SQL
+  wait "$holder_pid"
+  holder_pid=""
+  wait "$old_pid"
+  old_pid=""
+  old_result=$(tail -n 1 "$old_out")
+  echo "task4_cas_race_rep_${rep}_old_commit_result=$old_result"
+  echo "task4_cas_race_rep_${rep}_new_lease_token=$new_token"
+  [ "$old_result" = "f" ] || { echo "stale old commit returned true after lease reclaim" >&2; exit 1; }
+  final_ok=$(psql -U postgres -d postgres -qAt -c "select status = 'processing' and lease_token = '$new_token'::uuid and send_committed_at is null from public.facebook_messenger_outbox where id = '90909090-9090-4090-8090-909090909001'::uuid")
+  [ "$final_ok" = "t" ] || { echo "final row was not left processing with reclaimed lease" >&2; exit 1; }
+  peer_ok=$(psql -U postgres -d postgres -qAt -c "select status = 'pending' and last_error is null from public.facebook_messenger_outbox where id = '90909090-9090-4090-8090-909090909002'::uuid")
+  [ "$peer_ok" = "t" ] || { echo "unrelated peer was suppressed by stale commit" >&2; exit 1; }
+done
+$task4_shell$;
+\o
+\pset tuples_only off
+\pset format aligned
+\! bash /tmp/task4_cas_race.sh
+\if :SHELL_ERROR
+select 1/0;
+\endif
+\! rm -f /tmp/task4_cas_race.sh
+
 begin;
 
 set local role service_role;

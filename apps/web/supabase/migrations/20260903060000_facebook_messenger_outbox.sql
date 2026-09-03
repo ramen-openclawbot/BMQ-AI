@@ -358,6 +358,11 @@ begin
       and status = 'processing'
       and lease_token = p_lease_token
       and lease_expires_at > now();
+
+    if not found then
+      return false;
+    end if;
+
     return false;
   end if;
 
@@ -372,6 +377,10 @@ begin
     and status = 'processing'
     and lease_token = p_lease_token
     and lease_expires_at > now();
+
+  if not found then
+    return false;
+  end if;
 
   perform public.facebook_suppress_messenger_outbox_for_blocker(v_row.conversation_id, v_row.id, 'reconciliation_required');
   return true;
