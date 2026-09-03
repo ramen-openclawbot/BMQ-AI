@@ -1,3 +1,5 @@
+import { createClient } from "npm:@supabase/supabase-js@2.90.1";
+
 declare const Deno: any;
 
 type VerifyResult = { ok: true; appScopedUserId: string } | { ok: false; error: string };
@@ -32,6 +34,8 @@ type DeletionDeps = {
 type StatusDeps = {
   lookupDeletionStatus: (confirmationCodeHash: string) => Promise<StatusResult>;
 };
+
+type DeletionDepsFactory = (env: Env) => Promise<DeletionDeps & StatusDeps>;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -131,8 +135,6 @@ export async function hashConfirmationCode(code: string): Promise<string> {
 
 async function createSupabaseRpcDeps(env: Env): Promise<DeletionDeps & StatusDeps> {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) throw new Error("missing_supabase_configuration");
-  const supabaseModule = "npm:@supabase/supabase-js@2.90.1";
-  const { createClient } = await import(supabaseModule);
   const client = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -307,8 +309,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+export async function handleDataDeletionHttpRequest(
+  request: Request,
+  env: Env,
+  depsFactory: DeletionDepsFactory = createSupabaseRpcDeps,
+): Promise<Response> {
+  const pathname = new URL(request.url).pathname;
+  if (request.method === "GET" && pathname.endsWith("/status")) {
+    const code = new URL(request.url).searchParams.get("code") || "";
+    if (!/^[A-Za-z0-9_-]{22,128}$/.test(code)) return json({ error: "invalid_code" }, 400);
+    try {
+      return handleStatusRequest(request, await depsFactory(env));
+    } catch {
+      return json({ error: "service_unavailable" }, 503);
+    }
+  }
+  return handleDataDeletionCallback(request, env);
+}
+
 if (typeof Deno !== "undefined" && Deno?.serve) {
-  Deno.serve(async (request: Request) => {
+  Deno.serve((request: Request) => {
     const env: Env = {
       META_APP_SECRET: Deno.env.get("META_APP_SECRET"),
       META_APP_ID: Deno.env.get("META_APP_ID"),
@@ -316,9 +336,6 @@ if (typeof Deno !== "undefined" && Deno?.serve) {
       SUPABASE_URL: Deno.env.get("SUPABASE_URL"),
       SUPABASE_SERVICE_ROLE_KEY: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
     };
-    const deps = await createSupabaseRpcDeps(env);
-    const pathname = new URL(request.url).pathname;
-    if (request.method === "GET" && pathname.endsWith("/status")) return handleStatusRequest(request, deps);
-    return handleDataDeletionCallback(request, env, deps);
+    return handleDataDeletionHttpRequest(request, env);
   });
 }
