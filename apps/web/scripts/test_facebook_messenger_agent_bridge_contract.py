@@ -64,6 +64,31 @@ def test_worker_claims_with_skip_locked_and_no_live_graph():
     for rpc in ["facebook_mark_messenger_email_sent", "facebook_mark_messenger_email_failed", "facebook_mark_messenger_email_manual_reconciliation"]:
         assert rpc in src
 
+
+def test_pending_instinct_email_claim_rechecks_conversation_suppression():
+    sql = text(MIGRATION).lower()
+    claim_body = function_body(sql, "facebook_claim_messenger_email_notifications")
+    assert "facebook_messenger_metadata_flag" in sql, "claim must use throw-safe metadata boolean parsing"
+    assert "facebook_suppress_pending_instinct_emails_for_conversation" in sql
+    assert "facebook_messenger_conversation_suppress_instinct_email_trigger" in sql
+    assert "suppressed_by_conversation_state" in sql
+    assert "join public.facebook_messenger_conversations c on c.id = eo.conversation_id" in claim_body
+    assert "for update of eo skip locked" in claim_body
+    for flag in ["deleted", "opted_out", "quarantined", "policy_blocked"]:
+        assert flag in claim_body
+
+
+def test_disabling_instinct_email_bridge_suppresses_existing_backlog():
+    sql = text(MIGRATION).lower()
+    claim_body = function_body(sql, "facebook_claim_messenger_email_notifications")
+    assert "facebook_suppress_pending_instinct_emails_for_settings" in sql
+    assert "facebook_messenger_settings_suppress_instinct_email_trigger" in sql
+    assert "suppressed_by_email_bridge_disabled" in sql
+    assert "old.agent_email_forward_enabled is distinct from false" in sql
+    assert "old.agent_email_processor_approved is distinct from false" in sql
+    assert "eo.recipient_email = 'inboxoggxdk@agent.instinct.co'" in claim_body
+    assert "eo.payload->>'source' = 'facebook_messenger'" in claim_body
+
 def test_config_verify_jwt_false_for_dedicated_auth_endpoints():
     cfg = text(CONFIG)
     assert "[functions.facebook-messenger-agent-reply]" in cfg and "verify_jwt = false" in cfg

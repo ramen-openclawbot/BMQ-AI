@@ -22,6 +22,124 @@ create unique index if not exists facebook_messenger_email_provider_id_unique
   on public.facebook_messenger_email_outbox(provider_message_id)
   where provider_message_id is not null;
 
+create index if not exists facebook_messenger_email_instinct_pending_conversation_idx
+  on public.facebook_messenger_email_outbox(conversation_id, scheduled_for, created_at)
+  where status = 'pending'
+    and recipient_email = 'inboxoggxdk@agent.instinct.co'
+    and payload->>'source' = 'facebook_messenger';
+
+create or replace function public.facebook_messenger_metadata_flag(p_metadata jsonb, p_key text)
+returns boolean
+language sql
+stable
+set search_path = public
+as $$
+  select lower(coalesce(p_metadata->>p_key, '')) in ('true', 't', '1', 'yes', 'y', 'on');
+$$;
+revoke all on function public.facebook_messenger_metadata_flag(jsonb, text) from public, anon, authenticated;
+grant execute on function public.facebook_messenger_metadata_flag(jsonb, text) to service_role;
+
+create or replace function public.facebook_messenger_conversation_is_suppressed(p_metadata jsonb)
+returns boolean
+language sql
+stable
+set search_path = public
+as $$
+  select public.facebook_messenger_metadata_flag(p_metadata, 'deleted')
+      or public.facebook_messenger_metadata_flag(p_metadata, 'opted_out')
+      or public.facebook_messenger_metadata_flag(p_metadata, 'quarantined')
+      or public.facebook_messenger_metadata_flag(p_metadata, 'policy_blocked');
+$$;
+revoke all on function public.facebook_messenger_conversation_is_suppressed(jsonb) from public, anon, authenticated;
+grant execute on function public.facebook_messenger_conversation_is_suppressed(jsonb) to service_role;
+
+create or replace function public.facebook_suppress_pending_instinct_emails_for_conversation(p_conversation_id uuid, p_safe_reason text default 'suppressed_by_conversation_state')
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare v_count integer;
+begin
+  if p_safe_reason is null or p_safe_reason !~ '^[a-z0-9_:-]{1,120}$' then raise exception 'unsafe_reason' using errcode = '22023'; end if;
+  update public.facebook_messenger_email_outbox eo
+  set status = 'suppressed', last_error = p_safe_reason, failed_at = now(), updated_at = now()
+  where eo.conversation_id = p_conversation_id
+    and eo.status = 'pending'
+    and eo.recipient_email = 'inboxoggxdk@agent.instinct.co'
+    and eo.payload->>'source' = 'facebook_messenger';
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$$;
+revoke all on function public.facebook_suppress_pending_instinct_emails_for_conversation(uuid, text) from public, anon, authenticated;
+grant execute on function public.facebook_suppress_pending_instinct_emails_for_conversation(uuid, text) to service_role;
+
+create or replace function public.facebook_suppress_pending_instinct_emails_for_settings(p_safe_reason text default 'suppressed_by_email_bridge_disabled')
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare v_count integer;
+begin
+  if p_safe_reason is null or p_safe_reason !~ '^[a-z0-9_:-]{1,120}$' then raise exception 'unsafe_reason' using errcode = '22023'; end if;
+  update public.facebook_messenger_email_outbox eo
+  set status = 'suppressed', last_error = p_safe_reason, failed_at = now(), updated_at = now()
+  where eo.status = 'pending'
+    and eo.recipient_email = 'inboxoggxdk@agent.instinct.co'
+    and eo.payload->>'source' = 'facebook_messenger';
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$$;
+revoke all on function public.facebook_suppress_pending_instinct_emails_for_settings(text) from public, anon, authenticated;
+grant execute on function public.facebook_suppress_pending_instinct_emails_for_settings(text) to service_role;
+
+create or replace function public.facebook_conversation_suppress_instinct_email_fn()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if public.facebook_messenger_conversation_is_suppressed(new.metadata)
+     and not public.facebook_messenger_conversation_is_suppressed(old.metadata) then
+    perform public.facebook_suppress_pending_instinct_emails_for_conversation(new.id, 'suppressed_by_conversation_state');
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public.facebook_conversation_suppress_instinct_email_fn() from public, anon, authenticated;
+
+drop trigger if exists facebook_messenger_conversation_suppress_instinct_email_trigger on public.facebook_messenger_conversations;
+create trigger facebook_messenger_conversation_suppress_instinct_email_trigger
+after update of metadata on public.facebook_messenger_conversations
+for each row
+execute function public.facebook_conversation_suppress_instinct_email_fn();
+
+create or replace function public.facebook_messenger_settings_suppress_instinct_email_trigger_fn()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if (old.agent_email_forward_enabled is distinct from false and new.agent_email_forward_enabled = false)
+     or (old.agent_email_processor_approved is distinct from false and new.agent_email_processor_approved = false) then
+    perform public.facebook_suppress_pending_instinct_emails_for_settings('suppressed_by_email_bridge_disabled');
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public.facebook_messenger_settings_suppress_instinct_email_trigger_fn() from public, anon, authenticated;
+
+drop trigger if exists facebook_messenger_settings_suppress_instinct_email_trigger on public.facebook_messenger_settings;
+create trigger facebook_messenger_settings_suppress_instinct_email_trigger
+after update of agent_email_forward_enabled, agent_email_processor_approved on public.facebook_messenger_settings
+for each row
+execute function public.facebook_messenger_settings_suppress_instinct_email_trigger_fn();
+
 create table if not exists public.facebook_instinct_reply_nonces (
   nonce_hash text primary key,
   first_seen_at timestamptz not null default now(),
@@ -136,10 +254,7 @@ begin
 
   select * into v_conv from public.facebook_messenger_conversations where id = p_thread_id and page_id = v_settings.page_id for share;
   if not found then return jsonb_build_object('ok', false, 'reason', 'thread_not_found'); end if;
-  if coalesce((v_conv.metadata->>'deleted')::boolean, false)
-     or coalesce((v_conv.metadata->>'opted_out')::boolean, false)
-     or coalesce((v_conv.metadata->>'quarantined')::boolean, false)
-     or coalesce((v_conv.metadata->>'policy_blocked')::boolean, false) then
+  if public.facebook_messenger_conversation_is_suppressed(v_conv.metadata) then
     return jsonb_build_object('ok', false, 'reason', 'suppressed');
   end if;
   if v_conv.last_inbound_message_at is null or v_conv.reply_window_expires_at is null or v_conv.reply_window_expires_at <= now() then
@@ -180,16 +295,55 @@ set search_path = public
 as $$
 begin
   if auth.role() is distinct from 'service_role' then raise exception 'service_role_required' using errcode = '42501'; end if;
+
+  update public.facebook_messenger_email_outbox eo
+  set status = 'suppressed',
+      last_error = 'suppressed_by_email_bridge_disabled',
+      failed_at = now(),
+      updated_at = now()
+  from public.facebook_messenger_settings s
+  where eo.status = 'pending'
+    and eo.recipient_email = 'inboxoggxdk@agent.instinct.co'
+    and eo.payload->>'source' = 'facebook_messenger'
+    and s.id = '00000000-0000-0000-0000-000000000001'::uuid
+    and (
+      coalesce(s.agent_email_forward_enabled, false) is false
+      or coalesce(s.agent_email_processor_approved, false) is false
+    );
+
+  update public.facebook_messenger_email_outbox eo
+  set status = 'suppressed',
+      last_error = 'suppressed_by_conversation_state',
+      failed_at = now(),
+      updated_at = now()
+  from public.facebook_messenger_conversations c
+  where eo.status = 'pending'
+    and eo.recipient_email = 'inboxoggxdk@agent.instinct.co'
+    and eo.payload->>'source' = 'facebook_messenger'
+    and c.id = eo.conversation_id
+    and (
+      public.facebook_messenger_metadata_flag(c.metadata, 'deleted')
+      or public.facebook_messenger_metadata_flag(c.metadata, 'opted_out')
+      or public.facebook_messenger_metadata_flag(c.metadata, 'quarantined')
+      or public.facebook_messenger_metadata_flag(c.metadata, 'policy_blocked')
+    );
+
   return query
   with claimed as (
     select eo.id
     from public.facebook_messenger_email_outbox eo
+    join public.facebook_messenger_conversations c on c.id = eo.conversation_id
     join public.facebook_messenger_settings s on s.id = '00000000-0000-0000-0000-000000000001'::uuid
     where eo.status = 'pending'
       and eo.scheduled_for <= now()
       and s.agent_email_forward_enabled = true
       and s.agent_email_processor_approved = true
       and eo.recipient_email = 'inboxoggxdk@agent.instinct.co'
+      and eo.payload->>'source' = 'facebook_messenger'
+      and public.facebook_messenger_metadata_flag(c.metadata, 'deleted') is false
+      and public.facebook_messenger_metadata_flag(c.metadata, 'opted_out') is false
+      and public.facebook_messenger_metadata_flag(c.metadata, 'quarantined') is false
+      and public.facebook_messenger_metadata_flag(c.metadata, 'policy_blocked') is false
     order by eo.scheduled_for, eo.created_at
     limit greatest(1, least(coalesce(p_limit, 10), 25))
     for update of eo skip locked
@@ -586,12 +740,7 @@ begin
       select 1
       from public.facebook_messenger_conversations c
       where c.id = v_conversation_id
-        and (
-          coalesce((c.metadata->>'deleted')::boolean, false)
-          or coalesce((c.metadata->>'opted_out')::boolean, false)
-          or coalesce((c.metadata->>'quarantined')::boolean, false)
-          or coalesce((c.metadata->>'policy_blocked')::boolean, false)
-        )
+        and public.facebook_messenger_conversation_is_suppressed(c.metadata)
     )
     on conflict (message_id) where message_id is not null do nothing;
   end if;
