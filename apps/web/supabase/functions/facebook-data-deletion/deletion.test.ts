@@ -5,6 +5,7 @@ import { createHmac } from "node:crypto";
 import {
   FACEBOOK_DELETION_MAX_BODY_BYTES,
   handleDataDeletionCallback,
+  handleDataDeletionHttpRequest,
   handleStatusRequest,
   hashConfirmationCode,
   verifyMetaSignedRequest,
@@ -38,6 +39,33 @@ function formRequest(signed_request: string, url = "https://ai.banhmique.vn/func
 function text(url: URL): string {
   return readFileSync(url, "utf8");
 }
+
+test("HTTP router rejects invalid public requests before creating database dependencies", async () => {
+  let dependencyAttempts = 0;
+  const depsFactory = async () => {
+    dependencyAttempts += 1;
+    throw new Error("database dependencies must stay lazy");
+  };
+
+  const callback = await handleDataDeletionHttpRequest(formRequest(""), {}, depsFactory);
+  assert.equal(callback.status, 400);
+  assert.deepEqual(await callback.json(), { error: "invalid_signed_request" });
+
+  const status = await handleDataDeletionHttpRequest(
+    new Request("https://project-ref.supabase.co/functions/v1/facebook-data-deletion/status", { method: "GET" }),
+    {},
+    depsFactory,
+  );
+  assert.equal(status.status, 400);
+  assert.deepEqual(await status.json(), { error: "invalid_code" });
+  assert.equal(dependencyAttempts, 0);
+});
+
+test("HTTP router uses a statically bundleable Supabase client import", () => {
+  const source = text(INDEX);
+  assert.match(source, /^import \{ createClient \} from "npm:@supabase\/supabase-js@2\.90\.1";/m);
+  assert.doesNotMatch(source, /await import\(supabaseModule\)/);
+});
 
 test("valid Meta signed_request is verified before exposing an app-scoped user id", async () => {
   const payload = { algorithm: "HMAC-SHA256", app_id: "meta-app-123", user_id: "1234567890", issued_at: 1790000000 };
