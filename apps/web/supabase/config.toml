@@ -214,6 +214,14 @@ verify_jwt = false
 # Cron/internal worker: dedicated x-worker-secret enforced in function code.
 verify_jwt = false
 
+[functions.facebook-messenger-email-worker]
+# Cron/internal worker: dedicated x-worker-secret enforced in function code.
+verify_jwt = false
+
+[functions.facebook-messenger-agent-reply]
+# Instinct bridge endpoint: verify_jwt disabled because dedicated HMAC timestamp/nonce auth is enforced in code.
+verify_jwt = false
+
 [functions.facebook-messenger-health]
 # Public safe readiness booleans only; no tokens/secrets/status details returned.
 verify_jwt = false
