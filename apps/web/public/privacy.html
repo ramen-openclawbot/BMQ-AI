@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chính sách quyền riêng tư Messenger | BMQ</title>
+  <meta name="description" content="Chính sách quyền riêng tư cho kênh Facebook Messenger của Bánh Mì Que (BMQ)." />
+  <style>
+    :root { color-scheme: light; --brand: #f59e0b; --ink: #1f2937; --muted: #4b5563; --bg: #fff7ed; }
+    body { margin: 0; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); line-height: 1.65; }
+    main { max-width: 900px; margin: 0 auto; padding: 40px 20px 64px; }
+    header { background: #111827; color: white; padding: 32px 20px; border-bottom: 6px solid var(--brand); }
+    header div { max-width: 900px; margin: 0 auto; }
+    h1, h2 { line-height: 1.2; }
+    h1 { margin: 0 0 8px; font-size: clamp(2rem, 4vw, 3rem); }
+    h2 { margin-top: 32px; color: #92400e; }
+    a { color: #92400e; font-weight: 700; }
+    .card { background: white; border: 1px solid #fed7aa; border-radius: 18px; padding: 24px; box-shadow: 0 12px 30px rgba(146, 64, 14, .08); }
+    .note { background: #fffbeb; border-left: 4px solid var(--brand); padding: 12px 16px; color: var(--muted); }
+    ul { padding-left: 1.25rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <p>Bánh Mì Que · BMQ</p>
+      <h1>Chính sách quyền riêng tư cho Facebook Messenger</h1>
+      <p>Trang công khai, không cần đăng nhập. Nội dung tiếng Việt là bản ưu tiên; phần tiếng Anh tóm tắt nằm cuối trang.</p>
+    </div>
+  </header>
+  <main>
+    <section class="card">
+      <p>Cập nhật: 03/09/2026. Chính sách này áp dụng khi bạn nhắn tin với BMQ qua Facebook Messenger hoặc Facebook Page liên quan.</p>
+
+      <h2>Dữ liệu Messenger BMQ có thể xử lý</h2>
+      <ul>
+        <li>PSID (Page-scoped ID) do Meta/Facebook cung cấp cho cuộc trò chuyện với Page.</li>
+        <li>Nhãn hiển thị như tên tài khoản hoặc tên hội thoại nếu Meta hoặc nhân viên cung cấp.</li>
+        <li>Nội dung tin nhắn, bao gồm văn bản bạn gửi và phản hồi của nhân viên BMQ.</li>
+        <li>Metadata tệp đính kèm: loại đính kèm, mã/tên tệp hoặc đường dẫn do nền tảng cung cấp; BMQ hạn chế lưu thông tin không cần thiết.</li>
+        <li>Thời điểm gửi/nhận, trạng thái xử lý, mã tin nhắn, và thông tin kỹ thuật cần cho chống trùng lặp, hỗ trợ khách hàng, kiểm toán vận hành.</li>
+      </ul>
+
+      <h2>Mục đích sử dụng</h2>
+      <ul>
+        <li>Nhận và trả lời yêu cầu hỗ trợ, đặt hàng, phản hồi chất lượng, hoặc thông tin vận hành liên quan đến BMQ.</li>
+        <li>Điều phối nhân viên phụ trách và ghi nhận lịch sử trao đổi để không bỏ sót yêu cầu.</li>
+        <li>Tuân thủ giới hạn gửi tin nhắn của Meta, chống spam, chống gửi trùng và xử lý lỗi kỹ thuật.</li>
+        <li>Kiểm toán nội bộ và cải thiện quy trình chăm sóc khách hàng.</li>
+      </ul>
+
+      <h2>Bên xử lý và chia sẻ dữ liệu</h2>
+      <p>BMQ dùng Meta/Facebook Messenger để nhận và gửi tin nhắn. Hệ thống BMQ có thể dùng Supabase, Vercel hoặc nhà cung cấp hạ tầng tương đương để vận hành ứng dụng. Nếu chủ sở hữu BMQ phê duyệt một email bridge/cầu nối email hoặc hộp thư hỗ trợ được phê duyệt, một phần tối thiểu của nội dung hội thoại có thể được chuyển đến hộp thư đó để nhân viên xử lý. BMQ không cấp cho cầu nối email quyền gửi trực tiếp thay mặt Page nếu chưa có cấu hình bảo mật riêng.</p>
+
+      <h2>Lưu trữ và thời hạn giữ dữ liệu</h2>
+      <p class="note">Thời hạn lưu trữ Messenger đang chờ chủ sở hữu BMQ phê duyệt; retention duration has not been approved. Vì vậy hệ thống giữ chức năng retention ở chế độ khô/disabled mặc định và không chạy xóa tự động theo số ngày cố định.</p>
+      <p>Khi thời hạn được phê duyệt, BMQ sẽ cập nhật chính sách và cấu hình vận hành tương ứng. Chính sách này không đưa ra lời hứa pháp lý vượt quá cấu hình thực tế.</p>
+
+      <h2>Bảo mật</h2>
+      <ul>
+        <li>Webhook và yêu cầu xóa dữ liệu dùng kiểm tra chữ ký máy chủ; bí mật ứng dụng không được công khai trong trang này.</li>
+        <li>Quyền truy cập dữ liệu Messenger được giới hạn cho hệ thống dịch vụ và nhân sự được phân quyền.</li>
+        <li>Mã xác nhận xóa dữ liệu được dẫn xuất bằng bí mật riêng cho deletion callback và chỉ được lưu dưới dạng hash SHA-256; hệ thống không lưu mã xác nhận dạng rõ.</li>
+      </ul>
+
+      <h2>Yêu cầu xóa dữ liệu</h2>
+      <p>Bạn có thể yêu cầu xóa dữ liệu Messenger bằng một trong các cách sau:</p>
+      <ul>
+        <li>Dùng chức năng “Remove app” hoặc “Xóa dữ liệu” trong Facebook/Meta nếu được Meta hiển thị; BMQ sẽ xử lý callback đã ký từ Meta.</li>
+        <li>Gửi yêu cầu qua Messenger hoặc kênh liên hệ bên dưới. BMQ có thể cần thêm thông tin để xác định đúng hội thoại mà không yêu cầu bạn gửi mật khẩu hoặc token.</li>
+        <li>Sau khi nhận callback hợp lệ, BMQ trả về mã xác nhận và đường dẫn trạng thái công khai chỉ chứa mã opaque, không chứa PSID, app user ID hoặc nội dung tin nhắn.</li>
+      </ul>
+      <p>Xem trạng thái tại <a href="/facebook-data-deletion.html">trang trạng thái xóa dữ liệu</a>.</p>
+
+      <h2>Liên hệ</h2>
+      <p>Liên hệ BMQ qua Facebook Page chính thức hoặc email/hộp thư hỗ trợ được công bố bởi BMQ. Không gửi mật khẩu, OTP, token truy cập hoặc khóa bí mật qua Messenger/email.</p>
+
+      <h2>English summary</h2>
+      <p>This public no login page explains BMQ Messenger data handling. BMQ may process PSID, display label, message text, attachment metadata, timestamps, and staff replies for customer support and operations. Approved processors may include Meta, BMQ hosting providers, and an owner-approved email bridge. Retention duration is pending owner approval; no fixed day count is promised here. Deletion status uses an opaque confirmation code only.</p>
+    </section>
+  </main>
+</body>
+</html>

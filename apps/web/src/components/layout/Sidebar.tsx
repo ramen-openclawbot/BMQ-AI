@@ -34,6 +34,7 @@ import {
   Store,
   Wallet,
   Boxes,
+  MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -48,7 +49,7 @@ interface NavItem {
   icon: LucideIcon;
   labelKey: keyof ReturnType<typeof useLanguage>["t"];
   path?: string;
-  section: "operations" | "finance" | "execution" | "production";
+  section: "operations" | "finance" | "marketingSales" | "execution" | "production";
   showBadge?: boolean;
   showPOBadge?: boolean;
   /** Module key for permission filtering. If undefined, item is always visible. */
@@ -89,6 +90,15 @@ const navItems: NavItem[] = [
   { icon: UserRoundCog, labelKey: "crm", path: "/mini-crm", section: "finance", moduleKey: "crm" },
   { icon: Inbox, labelKey: "poSales", path: "/sales-po-inbox", section: "finance", moduleKey: "sales_po_inbox" },
   { icon: ShoppingCart, labelKey: "poPurchasing", path: "/purchase-orders", section: "finance", showPOBadge: true, moduleKey: "purchase_orders" },
+
+  {
+    icon: MessageCircle,
+    labelKey: "sectionMarketingSales",
+    section: "marketingSales",
+    children: [
+      { icon: MessageCircle, labelKey: "facebookPageManagement", path: "/marketing-sales/facebook-page", section: "marketingSales", moduleKey: "facebook_messenger" },
+    ],
+  },
 
   {
     icon: Factory,
@@ -138,6 +148,7 @@ export function Sidebar() {
   const sectionLabels: Record<NavItem["section"], string> = {
     execution: t.sectionExecution,
     finance: t.sectionFinance,
+    marketingSales: t.sectionMarketingSales,
     production: t.sectionProduction,
     operations: t.sectionOperations,
   };

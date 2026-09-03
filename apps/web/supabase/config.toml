@@ -198,6 +198,38 @@ verify_jwt = false
 [functions.po-gmail-ingest]
 verify_jwt = false
 
+[functions.facebook-messenger-webhook]
+# Public Meta webhook: verifies Meta token/signature in function code.
+verify_jwt = false
+
+# Public Meta data deletion callback: verifies Meta signed_request in function code.
+[functions.facebook-data-deletion]
+verify_jwt = false
+
+[functions.facebook-messenger-inbox]
+# JWT plus facebook_messenger can_view/can_edit enforced in function code.
+verify_jwt = false
+
+[functions.facebook-messenger-send]
+# JWT plus facebook_messenger can_edit enforced in function code.
+verify_jwt = false
+
+[functions.facebook-messenger-worker]
+# Cron/internal worker: dedicated x-worker-secret enforced in function code.
+verify_jwt = false
+
+[functions.facebook-messenger-email-worker]
+# Cron/internal worker: dedicated x-worker-secret enforced in function code.
+verify_jwt = false
+
+[functions.facebook-messenger-agent-reply]
+# Instinct bridge endpoint: verify_jwt disabled because dedicated HMAC timestamp/nonce auth is enforced in code.
+verify_jwt = false
+
+[functions.facebook-messenger-health]
+# Public safe readiness booleans only; no tokens/secrets/status details returned.
+verify_jwt = false
+
 # ──────────────────────────────────────────────────────────
 # Functions needing further audit before enabling JWT
 # Keep verify_jwt = false until auth is added to the code
