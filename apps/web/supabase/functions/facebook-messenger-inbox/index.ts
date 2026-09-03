@@ -138,11 +138,30 @@ function bearer(request: Request): string | null {
   return header.slice("Bearer ".length).trim() || null;
 }
 function minimizeConversation(row: Record<string, unknown>): Record<string, unknown> {
-  return { id: row.id, display_name: typeof row.customer_name === "string" && row.customer_name ? row.customer_name : "Facebook sender", last_message_at: row.last_message_at ?? null, reply_window_expires_at: row.reply_window_expires_at ?? null };
+  const reconciliationStatus = typeof row.reconciliation_status === "string" ? row.reconciliation_status : null;
+  return {
+    id: row.id,
+    customerDisplayName: typeof row.customer_name === "string" && row.customer_name ? row.customer_name : "Facebook sender",
+    lastMessageAt: row.last_message_at ?? null,
+    lastMessagePreview: row.last_message_preview ?? null,
+    replyWindowExpired: row.reply_window_expired === true,
+    replyBlocked: row.reply_blocked === true,
+    manualReconciliationStatus: reconciliationStatus,
+    reconciliationStatus,
+    blockingOutboxId: typeof row.blocking_outbox_id === "string" ? row.blocking_outbox_id : null,
+  };
 }
 function minimizeConversationDetail(row: Record<string, unknown>): Record<string, unknown> {
   const messages = Array.isArray(row.messages) ? row.messages : [];
-  return { ...minimizeConversation(row), messages: messages.map((msg: Record<string, unknown>) => ({ id: msg.id, direction: msg.direction, message_text: msg.message_text ?? null, received_at: msg.received_at ?? null, sent_at: msg.sent_at ?? null })) };
+  return {
+    ...minimizeConversation(row),
+    messages: messages.map((msg: Record<string, unknown>) => ({
+      id: msg.id,
+      direction: msg.direction,
+      text: msg.message_text ?? null,
+      createdAt: msg.created_at ?? msg.sent_at ?? msg.received_at ?? null,
+    })),
+  };
 }
 
 if (import.meta.main) Deno.serve((request) => handleMessengerInbox(request));

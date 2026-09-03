@@ -2,11 +2,11 @@ import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { constantTimeStringEqual } from "../_shared/facebook-messenger.ts";
 
 export type MessengerWorkerEnv = { FACEBOOK_MESSENGER_WORKER_SECRET?: string; META_PAGE_ACCESS_TOKEN?: string; SUPABASE_URL?: string; SUPABASE_SERVICE_ROLE_KEY?: string };
-export type ClaimedOutbox = { id: string; page_id: string; psid: string; text: string; tag: "RESPONSE" | "HUMAN_AGENT"; attempt_count: number };
+export type ClaimedOutbox = { id: string; page_id: string; psid: string; text: string; tag: "RESPONSE" | "HUMAN_AGENT"; attempt_count: number; lease_token: string };
 export type GraphResult = { kind: "accepted"; messageId: string } | { kind: "ambiguous_timeout"; safeReason: string } | { kind: "definitive_rejection"; safeCode: string };
 export type MessengerWorkerDeps = {
   claimPending: () => Promise<ClaimedOutbox[]>;
-  markSendCommitted: (id: string) => Promise<boolean>;
+  markSendCommitted: (id: string, leaseToken: string) => Promise<boolean>;
   postGraphMessage: (input: { endpoint: string; pageAccessToken: string; psid: string; text: string; tag: string }) => Promise<GraphResult>;
   markSent: (id: string, messageId: string, evidence: Record<string, unknown>) => Promise<void>;
   markFailed: (id: string, reason: string, evidence: Record<string, unknown>) => Promise<void>;
@@ -30,11 +30,11 @@ export async function handleMessengerWorker(request: Request, env: MessengerWork
     let manual = 0;
     let failed = 0;
     let sent = 0;
+    let lostClaim = 0;
     for (const row of rows) {
-      const committed = await active.markSendCommitted(row.id);
+      const committed = await active.markSendCommitted(row.id, row.lease_token);
       if (!committed) {
-        await active.markFailed(row.id, "pre_commit_claim_lost", { stage: "pre_commit" });
-        failed += 1;
+        lostClaim += 1;
         continue;
       }
       const result = await active.postGraphMessage({
@@ -56,7 +56,7 @@ export async function handleMessengerWorker(request: Request, env: MessengerWork
       }
       processed += 1;
     }
-    return jsonResponse({ processed, sent, failed, manual_reconciliation_required: manual });
+    return jsonResponse({ processed, sent, failed, manual_reconciliation_required: manual, lost_claim: lostClaim });
   } catch {
     return jsonResponse({ error: "internal_failure" }, 500);
   }
@@ -71,8 +71,8 @@ function createDeps(env: MessengerWorkerEnv): MessengerWorkerDeps {
       if (error) throw error;
       return (data || []) as ClaimedOutbox[];
     },
-    markSendCommitted: async (id) => {
-      const { data, error } = await admin.rpc("facebook_mark_messenger_outbox_send_committed", { p_outbox_id: id });
+    markSendCommitted: async (id, leaseToken) => {
+      const { data, error } = await admin.rpc("facebook_mark_messenger_outbox_send_committed", { p_outbox_id: id, p_lease_token: leaseToken });
       if (error) throw error;
       return data === true;
     },

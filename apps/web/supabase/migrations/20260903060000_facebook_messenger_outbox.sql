@@ -23,9 +23,10 @@ alter table public.facebook_messenger_outbox
   drop constraint if exists facebook_messenger_outbox_safe_last_error_check,
   add constraint facebook_messenger_outbox_safe_last_error_check check (last_error is null or last_error ~ '^[a-z0-9_:-]{1,120}$');
 
+drop index if exists public.facebook_messenger_outbox_worker_claim_idx;
 create index if not exists facebook_messenger_outbox_worker_claim_idx
-  on public.facebook_messenger_outbox(status, scheduled_for, created_at)
-  where status = 'pending';
+  on public.facebook_messenger_outbox(status, scheduled_for, lease_expires_at, created_at)
+  where status in ('pending', 'processing');
 create index if not exists facebook_messenger_outbox_manual_recon_idx
   on public.facebook_messenger_outbox(status, send_committed_at)
   where status in ('send_committed', 'manual_reconciliation_required');
@@ -120,6 +121,7 @@ declare
   v_existing public.facebook_messenger_outbox%rowtype;
   v_reply_window timestamptz;
   v_human_agent_window timestamptz;
+  v_blocking_status text;
 begin
   if auth.role() is distinct from 'service_role' then
     raise exception 'service_role_required' using errcode = '42501';
@@ -152,8 +154,18 @@ begin
     raise exception 'invalid_tag' using errcode = '22023';
   end if;
 
-  select * into v_conv from public.facebook_messenger_conversations where id = p_conversation_id and page_id = v_settings.page_id for share;
+  select * into v_conv from public.facebook_messenger_conversations where id = p_conversation_id and page_id = v_settings.page_id for update;
   if not found then raise exception 'conversation_not_found' using errcode = 'P0002'; end if;
+
+  select o.status into v_blocking_status
+  from public.facebook_messenger_outbox o
+  where o.conversation_id = v_conv.id
+    and o.status in ('send_committed', 'manual_reconciliation_required')
+  order by coalesce(o.send_committed_at, o.updated_at, o.created_at) desc, o.created_at desc, o.id desc
+  limit 1;
+  if v_blocking_status is not null then
+    raise exception 'reconciliation_required' using errcode = 'P0001';
+  end if;
   if v_conv.last_inbound_message_at is null then
     raise exception 'missing_last_user_message' using errcode = '22023';
   end if;
@@ -202,8 +214,9 @@ $$;
 revoke all on function public.facebook_enqueue_messenger_outbox(uuid, text, text, text, uuid) from public, anon, authenticated;
 grant execute on function public.facebook_enqueue_messenger_outbox(uuid, text, text, text, uuid) to service_role;
 
+drop function if exists public.facebook_claim_messenger_outbox(integer);
 create or replace function public.facebook_claim_messenger_outbox(p_limit integer default 10)
-returns table(id uuid, page_id text, psid text, text text, tag text, attempt_count integer)
+returns table(id uuid, page_id text, psid text, text text, tag text, attempt_count integer, lease_token uuid)
 language plpgsql
 security definer
 set search_path = public
@@ -215,8 +228,10 @@ begin
     select o.id
     from public.facebook_messenger_outbox o
     join public.facebook_messenger_settings s on s.page_id = o.page_id
-    where o.status = 'pending'
-      and o.scheduled_for <= now()
+    where (
+        (o.status = 'pending' and o.scheduled_for <= now())
+        or (o.status = 'processing' and o.lease_expires_at < now())
+      )
       and s.enabled = true
     order by o.scheduled_for, o.created_at
     limit greatest(1, least(coalesce(p_limit, 10), 25))
@@ -230,13 +245,14 @@ begin
       updated_at = now()
   from claimed
   where o.id = claimed.id
-  returning o.id, o.page_id, o.psid, o.message_text, o.messenger_tag, o.attempt_count;
+  returning o.id, o.page_id, o.psid, o.message_text, o.messenger_tag, o.attempt_count, o.lease_token;
 end;
 $$;
 revoke all on function public.facebook_claim_messenger_outbox(integer) from public, anon, authenticated;
 grant execute on function public.facebook_claim_messenger_outbox(integer) to service_role;
 
-create or replace function public.facebook_mark_messenger_outbox_send_committed(p_outbox_id uuid)
+drop function if exists public.facebook_mark_messenger_outbox_send_committed(uuid);
+create or replace function public.facebook_mark_messenger_outbox_send_committed(p_outbox_id uuid, p_lease_token uuid)
 returns boolean
 language plpgsql
 security definer
@@ -252,13 +268,16 @@ begin
       committed_attempt = attempt_count + 1,
       attempt_count = attempt_count + 1,
       updated_at = now()
-  where id = p_outbox_id and status = 'processing'
+  where id = p_outbox_id
+    and status = 'processing'
+    and lease_token = p_lease_token
+    and lease_expires_at > now()
   returning 1 into v_count;
   return found;
 end;
 $$;
-revoke all on function public.facebook_mark_messenger_outbox_send_committed(uuid) from public, anon, authenticated;
-grant execute on function public.facebook_mark_messenger_outbox_send_committed(uuid) to service_role;
+revoke all on function public.facebook_mark_messenger_outbox_send_committed(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.facebook_mark_messenger_outbox_send_committed(uuid, uuid) to service_role;
 
 create or replace function public.facebook_mark_messenger_outbox_sent(p_outbox_id uuid, p_provider_message_id text, p_evidence jsonb default '{}'::jsonb)
 returns jsonb
@@ -389,13 +408,39 @@ begin
     'id', bounded.id,
     'customer_name', bounded.customer_name,
     'last_message_at', bounded.last_message_at,
+    'last_message_preview', bounded.last_message_preview,
     'reply_window_expires_at', bounded.reply_window_expires_at,
-    'human_agent_window_expires_at', bounded.human_agent_window_expires_at
+    'reply_window_expired', bounded.reply_window_expired,
+    'human_agent_window_expires_at', bounded.human_agent_window_expires_at,
+    'reply_blocked', bounded.reply_blocked,
+    'reconciliation_status', bounded.reconciliation_status,
+    'blocking_outbox_id', bounded.blocking_outbox_id
   ) order by bounded.last_message_at desc nulls last, bounded.id), '[]'::jsonb)
   into v_rows
   from (
-    select c.id, c.customer_name, c.last_message_at, c.reply_window_expires_at, c.human_agent_window_expires_at
+    select c.id,
+           c.customer_name,
+           c.last_message_at,
+           c.reply_window_expires_at,
+           coalesce(c.reply_window_expires_at, c.last_inbound_message_at + interval '24 hours') < now() as reply_window_expired,
+           c.human_agent_window_expires_at,
+           left(coalesce((
+             select m.message_text from public.facebook_messenger_messages m
+             where m.conversation_id = c.id
+             order by m.created_at desc, m.id desc
+             limit 1
+           ), ''), 240) as last_message_preview,
+           (blocking.id is not null) as reply_blocked,
+           blocking.status as reconciliation_status,
+           blocking.id as blocking_outbox_id
     from public.facebook_messenger_conversations c
+    left join lateral (
+      select o.id, o.status
+      from public.facebook_messenger_outbox o
+      where o.conversation_id = c.id and o.status in ('send_committed', 'manual_reconciliation_required')
+      order by coalesce(o.send_committed_at, o.updated_at, o.created_at) desc, o.created_at desc, o.id desc
+      limit 1
+    ) blocking on true
     order by c.last_message_at desc nulls last, c.id
     limit 100
   ) bounded;
@@ -420,11 +465,21 @@ begin
     'id', c.id,
     'customer_name', c.customer_name,
     'last_message_at', c.last_message_at,
+    'last_message_preview', left(coalesce((
+      select m.message_text from public.facebook_messenger_messages m
+      where m.conversation_id = c.id
+      order by m.created_at desc, m.id desc
+      limit 1
+    ), ''), 240),
     'reply_window_expires_at', c.reply_window_expires_at,
+    'reply_window_expired', coalesce(c.reply_window_expires_at, c.last_inbound_message_at + interval '24 hours') < now(),
+    'reply_blocked', blocking.id is not null,
+    'reconciliation_status', blocking.status,
+    'blocking_outbox_id', blocking.id,
     'messages', coalesce((
-      select jsonb_agg(jsonb_build_object('id', bounded.id, 'direction', bounded.direction, 'message_text', bounded.message_text, 'received_at', bounded.received_at, 'sent_at', bounded.sent_at) order by bounded.created_at, bounded.id)
+      select jsonb_agg(jsonb_build_object('id', bounded.id, 'direction', bounded.direction, 'message_text', bounded.message_text, 'created_at', bounded.created_at) order by bounded.created_at, bounded.id)
       from (
-        select m.id, m.direction, m.message_text, m.received_at, m.sent_at, m.created_at
+        select m.id, m.direction, m.message_text, m.created_at
         from public.facebook_messenger_messages m
         where m.conversation_id = c.id
         order by m.created_at desc, m.id desc
@@ -433,6 +488,13 @@ begin
     ), '[]'::jsonb)
   ) into v_result
   from public.facebook_messenger_conversations c
+  left join lateral (
+    select o.id, o.status
+    from public.facebook_messenger_outbox o
+    where o.conversation_id = c.id and o.status in ('send_committed', 'manual_reconciliation_required')
+    order by coalesce(o.send_committed_at, o.updated_at, o.created_at) desc, o.created_at desc, o.id desc
+    limit 1
+  ) blocking on true
   where c.id = p_conversation_id;
   return v_result;
 end;

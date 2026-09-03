@@ -21,6 +21,7 @@ const OUTBOX = {
   text: "hello customer",
   tag: "RESPONSE",
   attempt_count: 0,
+  lease_token: "44444444-4444-4444-8444-444444444444",
 } as const;
 
 function env(overrides: Partial<MessengerWorkerEnv> = {}): MessengerWorkerEnv {
@@ -40,8 +41,8 @@ function deps(overrides: Partial<MessengerWorkerDeps> = {}) {
       calls.claim.push(true);
       return [OUTBOX];
     },
-    markSendCommitted: async (id) => {
-      calls.commit.push(id);
+    markSendCommitted: async (id, leaseToken) => {
+      calls.commit.push({ id, leaseToken });
       return true;
     },
     postGraphMessage: async (input) => {
@@ -78,7 +79,8 @@ Deno.test("worker commits before exact v26 Graph send and never logs psid conten
   const { deps: active, calls } = deps();
   const response = await handleMessengerWorker(request(), env(), active);
   assertEqual(response.status, 200);
-  assertEqual((calls.commit as unknown[])[0], OUTBOX.id);
+  assertEqual((calls.commit as Record<string, unknown>[])[0].id, OUTBOX.id);
+  assertEqual((calls.commit as Record<string, unknown>[])[0].leaseToken, OUTBOX.lease_token);
   const graph = (calls.graph as Record<string, unknown>[])[0];
   assertEqual(graph.endpoint, "/v26.0/page-123/messages");
   assertEqual(graph.pageAccessToken, "page-token-secret");
@@ -87,12 +89,16 @@ Deno.test("worker commits before exact v26 Graph send and never logs psid conten
   assertEqual((calls.sent as unknown[]).length, 1);
 });
 
-Deno.test("send_committed_no_blind_retry: pre-commit failures can fail, post-commit timeout requires manual reconciliation", async () => {
+Deno.test("lost processing lease is counted without Graph send or stale failure mutation", async () => {
   const pre = deps({ markSendCommitted: async () => false });
   const preResponse = await handleMessengerWorker(request(), env(), pre.deps);
   assertEqual(preResponse.status, 200);
   assertEqual((pre.calls.graph as unknown[]).length, 0);
-  assertEqual((pre.calls.failed as unknown[]).length, 1);
+  assertEqual((pre.calls.failed as unknown[]).length, 0);
+  assertEqual((await json(preResponse)).lost_claim, 1);
+});
+
+Deno.test("send_committed_no_blind_retry: post-commit timeout requires manual reconciliation", async () => {
 
   const timeout = deps({ postGraphMessage: async () => ({ kind: "ambiguous_timeout", safeReason: "timeout_requires_manual_reconciliation" }) });
   const timeoutResponse = await handleMessengerWorker(request(), env(), timeout.deps);

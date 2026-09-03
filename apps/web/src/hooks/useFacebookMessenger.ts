@@ -93,13 +93,13 @@ export function useFacebookMessengerInbox(selectedConversationId?: string | null
 export function useFacebookMessengerSend() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ conversationId, text }: { conversationId: string; text: string }) => {
+    mutationFn: async ({ conversationId, text, idempotencyKey }: { conversationId: string; text: string; idempotencyKey: string }) => {
       const boundedText = text.trim().slice(0, 2000);
       if (!boundedText) throw new FacebookMessengerUiError("empty_message");
       return invokeMessengerFunction("facebook-messenger-send", {
         conversation_id: conversationId,
         text: boundedText,
-        idempotency_key: buildMessengerIdempotencyKey(conversationId, boundedText),
+        idempotency_key: idempotencyKey,
       });
     },
     onSuccess: async () => {
@@ -109,8 +109,24 @@ export function useFacebookMessengerSend() {
 }
 
 
-function buildMessengerIdempotencyKey(conversationId: string, text: string) {
-  void text;
+
+export type MessengerComposeIdempotencyState = { conversationId: string; draft: string; key: string } | null;
+
+export function getMessengerComposeIdempotencyKey(
+  state: MessengerComposeIdempotencyState,
+  conversationId: string,
+  draft: string,
+  nextKey: () => string = buildMessengerIdempotencyKey,
+): { key: string; state: NonNullable<MessengerComposeIdempotencyState> } {
+  const normalizedDraft = draft.trim().slice(0, 2000);
+  if (state && state.conversationId === conversationId && state.draft === normalizedDraft) {
+    return { key: state.key, state };
+  }
+  const key = nextKey();
+  return { key, state: { conversationId, draft: normalizedDraft, key } };
+}
+
+export function buildMessengerIdempotencyKey() {
   const random = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID().replace(/-/g, "") : `${Date.now()}${Math.random()}`.replace(/[^A-Za-z0-9]/g, "");
-  return `ui:${conversationId.replace(/-/g, "")}:${random}`.slice(0, 128);
+  return `ui:${random}`.slice(0, 128).padEnd(32, "0");
 }

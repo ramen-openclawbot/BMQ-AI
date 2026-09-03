@@ -71,14 +71,21 @@ def test_hook_uses_fresh_authenticated_edge_functions_only():
     assert re.search(r'text\.trim\(\)\.slice\(0,\s*2000\)', hook), "send text must be bounded"
 
 
-def test_send_contract_uses_edge_snake_case_and_stable_idempotency():
+def test_send_contract_uses_explicit_retry_stable_idempotency_key():
     hook = read("src/hooks/useFacebookMessenger.ts")
     page = read("src/pages/FacebookMessengerInbox.tsx")
-    assert re.search(r'mutationFn:\s*async\s*\(\{\s*conversationId,\s*text\s*\}:\s*\{\s*conversationId:\s*string;\s*text:\s*string\s*\}\)', hook), "send mutation must accept only conversationId and text"
+    assert re.search(r'mutationFn:\s*async\s*\(\{\s*conversationId,\s*text,\s*idempotencyKey\s*\}:\s*\{\s*conversationId:\s*string;\s*text:\s*string;\s*idempotencyKey:\s*string\s*\}', hook), "send mutation must accept explicit idempotencyKey"
     assert_contains(hook, 'conversation_id: conversationId', "useFacebookMessenger.ts")
-    assert_contains(hook, 'idempotency_key: buildMessengerIdempotencyKey(conversationId, boundedText)', "useFacebookMessenger.ts")
-    assert_contains(hook, 'function buildMessengerIdempotencyKey(conversationId: string, text: string)', "useFacebookMessenger.ts")
-    assert_not_contains(hook, 'conversationId,\n        text: boundedText,\n      });', "useFacebookMessenger.ts")
+    assert_contains(hook, 'idempotency_key: idempotencyKey', "useFacebookMessenger.ts")
+    assert_contains(hook, 'export function buildMessengerIdempotencyKey()', "useFacebookMessenger.ts")
+    assert_contains(hook, 'export function getMessengerComposeIdempotencyKey(', "useFacebookMessenger.ts")
+    assert_contains(page, 'getMessengerComposeIdempotencyKey(composeIdempotencyRef.current, conversationId, normalizedDraft)', "FacebookMessengerInbox.tsx")
+    assert_not_contains(hook, 'buildMessengerIdempotencyKey(conversationId, boundedText)', "useFacebookMessenger.ts")
+    assert_contains(page, 'const composeIdempotencyRef = useRef<{ conversationId: string; draft: string; key: string } | null>(null);', "FacebookMessengerInbox.tsx")
+    assert_contains(page, 'getComposeIdempotencyKey(selectedConversation.id, messageText)', "FacebookMessengerInbox.tsx")
+    assert_contains(page, 'idempotencyKey', "FacebookMessengerInbox.tsx")
+    assert re.search(r'setMessageText\(""\);[\s\S]*?composeIdempotencyRef\.current\s*=\s*null;', page), "key rotates only after confirmed success"
+    assert re.search(r'onChange=\{\(event\) => \{[\s\S]*?composeIdempotencyRef\.current\s*=\s*null;[\s\S]*?setMessageText', page), "intentional draft change rotates key"
     for token in ('threadId', 'attemptId', 'page_id', 'psid'):
         assert_not_contains(hook, token, "useFacebookMessenger.ts")
     assert_not_contains(page, 'threadId:', "FacebookMessengerInbox.tsx")
@@ -143,6 +150,38 @@ def test_composer_blocks_reconciliation_pending_or_ambiguous_states():
     assert_contains(page, 'reconciliationBlocked', "FacebookMessengerInbox.tsx")
     assert_contains(page, 'Trạng thái đối soát chưa an toàn để gửi trả lời. Vui lòng chờ server xác nhận hoặc xử lý đối soát thủ công.', "FacebookMessengerInbox.tsx")
 
+
+
+
+def test_compose_idempotency_behavior_reuses_after_failure_and_rotates_after_success_or_new_draft():
+    # Executable model for the required state/ref contract; source assertions above bind UI to this contract.
+    generated = iter(["ui:first-key-000000000000000", "ui:second-key-00000000000000", "ui:third-key-000000000000000"])
+    state = None
+
+    def get_key(conversation_id: str, draft: str):
+        nonlocal state
+        normalized = draft.strip()[:2000]
+        if state and state["conversationId"] == conversation_id and state["draft"] == normalized:
+            return state["key"]
+        key = next(generated)
+        state = {"conversationId": conversation_id, "draft": normalized, "key": key}
+        return key
+
+    first_attempt = get_key("conv-1", " hello ")
+    retry_after_client_visible_failure = get_key("conv-1", "hello")
+    assert first_attempt == retry_after_client_visible_failure
+    state = None  # confirmed success clears/rotates
+    after_success = get_key("conv-1", "hello")
+    assert after_success != first_attempt
+    new_draft = get_key("conv-1", "hello again")
+    assert new_draft != after_success
+
+def test_inbox_edge_returns_camelcase_dto_and_blocks_sensitive_fields():
+    edge = read("supabase/functions/facebook-messenger-inbox/index.ts")
+    for token in ("customerDisplayName", "lastMessageAt", "lastMessagePreview", "replyWindowExpired", "replyBlocked", "manualReconciliationStatus", "reconciliationStatus", "createdAt", "text"):
+        assert_contains(edge, token, "facebook-messenger-inbox/index.ts")
+    for token in ("display_name", "message_text:", "received_at:", "page_id", "psid", "raw_payload", "providerEvidence"):
+        assert_not_contains(edge, token, "facebook-messenger-inbox/index.ts")
 
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):

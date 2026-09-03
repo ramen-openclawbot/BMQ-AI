@@ -62,7 +62,7 @@ Deno.test("inbox list/read require fresh JWT and can_view, then return minimized
   assertEqual(list.status, 200);
   const body = await json(list);
   const first = (body.conversations as Record<string, unknown>[])[0];
-  assertEqual(first.display_name, "Facebook sender");
+  assertEqual(first.customerDisplayName, "Facebook sender");
   assert(!("psid" in first));
   assert(!("raw_identity" in first));
 
@@ -96,4 +96,40 @@ Deno.test("inbox supports Supabase invoke POST action contract for list and read
   const read = await handleMessengerInbox(request("", "fresh-token", { method: "POST", body: JSON.stringify({ action: "read", conversation_id: CONVERSATION_ID }), headers: { "content-type": "application/json" } }), env(), active.deps);
   assertEqual(read.status, 200);
   assertEqual((active.calls.read as unknown[]).length, 1);
+});
+
+
+Deno.test("inbox maps canonical SQL rows to exact camelCase DTO and omits sensitive/provider fields", async () => {
+  const active = deps({
+    listConversations: async () => [{
+      id: CONVERSATION_ID, customer_name: "Ada", last_message_at: "2026-09-03T06:00:00Z", last_message_preview: "hello",
+      reply_window_expired: true, reply_blocked: true, reconciliation_status: "manual_reconciliation_required", blocking_outbox_id: "33333333-3333-4333-8333-333333333333",
+      page_id: "page-secret", psid: "psid-secret", provider_evidence: { token: "secret" }, raw_payload: { leak: true },
+    }],
+    readConversation: async () => ({
+      id: CONVERSATION_ID, customer_name: "Ada", last_message_at: "2026-09-03T06:00:00Z", last_message_preview: "hello",
+      reply_window_expired: false, reply_blocked: false, reconciliation_status: null,
+      page_id: "page-secret", psid: "psid-secret",
+      messages: [{ id: "m1", direction: "inbound", message_text: "hello", created_at: "2026-09-03T06:00:00Z", received_at: "2026-09-03T06:00:00Z", page_id: "page-secret", psid: "psid-secret", payload: { token: "secret" } }],
+    }),
+  });
+  const list = await json(await handleMessengerInbox(request("", "fresh-token", { method: "POST", body: JSON.stringify({ action: "list" }) }), env(), active.deps));
+  const first = (list.conversations as Record<string, unknown>[])[0];
+  assertEqual(Object.keys(first).sort().join(","), "blockingOutboxId,customerDisplayName,id,lastMessageAt,lastMessagePreview,manualReconciliationStatus,reconciliationStatus,replyBlocked,replyWindowExpired");
+  assertEqual(first.customerDisplayName, "Ada");
+  assertEqual(first.lastMessagePreview, "hello");
+  assertEqual(first.replyWindowExpired, true);
+  assertEqual(first.replyBlocked, true);
+  assertEqual(first.reconciliationStatus, "manual_reconciliation_required");
+  assert(!JSON.stringify(first).includes("page-secret"));
+  assert(!JSON.stringify(first).includes("psid-secret"));
+
+  const read = await json(await handleMessengerInbox(request("", "fresh-token", { method: "POST", body: JSON.stringify({ action: "read", conversation_id: CONVERSATION_ID }) }), env(), active.deps));
+  const detail = read.selectedConversation as Record<string, unknown>;
+  const msg = (detail.messages as Record<string, unknown>[])[0];
+  assertEqual(Object.keys(msg).sort().join(","), "createdAt,direction,id,text");
+  assertEqual(msg.text, "hello");
+  assertEqual(msg.createdAt, "2026-09-03T06:00:00Z");
+  assert(!JSON.stringify(detail).includes("page-secret"));
+  assert(!JSON.stringify(detail).includes("payload"));
 });

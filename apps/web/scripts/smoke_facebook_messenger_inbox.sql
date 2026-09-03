@@ -202,11 +202,30 @@ exception when unique_violation then
 end $$;
 rollback to conflict_key;
 
--- claim uses pending only; no reclaim from committed/manual states.
-select id as outbox_id from public.facebook_claim_messenger_outbox(1) \gset
-select pg_temp.assert_true(public.facebook_mark_messenger_outbox_send_committed(:'outbox_id'::uuid), 'send commit failed');
+-- lease recovery/CAS: old token fails, reclaimed token succeeds once, committed/manual never reclaim.
+select id as outbox_id, lease_token as old_lease_token from public.facebook_claim_messenger_outbox(1) \gset
+update public.facebook_messenger_outbox set lease_expires_at = now() - interval '1 second' where id = :'outbox_id'::uuid;
+select id as reclaimed_outbox_id, lease_token as new_lease_token from public.facebook_claim_messenger_outbox(1) \gset
+select pg_temp.assert_true(:'outbox_id' = :'reclaimed_outbox_id', 'expired processing was not reclaimed');
+select pg_temp.assert_true(:'old_lease_token' <> :'new_lease_token', 'reclaim did not rotate lease token');
+select pg_temp.assert_true(public.facebook_mark_messenger_outbox_send_committed(:'outbox_id'::uuid, :'old_lease_token'::uuid) = false, 'old token committed after reclaim');
+select pg_temp.assert_true(public.facebook_mark_messenger_outbox_send_committed(:'outbox_id'::uuid, :'new_lease_token'::uuid) = true, 'new token send commit failed');
+select pg_temp.assert_true(public.facebook_mark_messenger_outbox_send_committed(:'outbox_id'::uuid, :'new_lease_token'::uuid) = false, 'new token committed twice');
 select public.facebook_mark_messenger_outbox_manual_reconciliation(:'outbox_id'::uuid, 'timeout_requires_manual_reconciliation', '{"safe":true}'::jsonb);
 select pg_temp.assert_true((select count(*) from public.facebook_claim_messenger_outbox(10)) = 0, 'send_committed_no_blind_retry failed');
+
+savepoint blocked_by_reconciliation;
+do $$
+begin
+  perform public.facebook_enqueue_messenger_outbox('cccccccc-cccc-4ccc-8ccc-ccccccccccc1', 'blocked by reconciliation', repeat('b', 32), 'RESPONSE', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1');
+  raise exception 'reconciliation blocking enqueue accepted';
+exception when raise_exception then
+  if sqlerrm <> 'reconciliation_required' then raise; end if;
+  raise notice 'reconciliation_required_blocks_enqueue';
+end $$;
+rollback to blocked_by_reconciliation;
+select pg_temp.assert_true((public.facebook_read_messenger_conversation('cccccccc-cccc-4ccc-8ccc-ccccccccccc1')->>'reply_blocked')::boolean, 'read missing reply_blocked');
+select pg_temp.assert_true(public.facebook_read_messenger_conversation('cccccccc-cccc-4ccc-8ccc-ccccccccccc1')->>'reconciliation_status' = 'manual_reconciliation_required', 'read missing reconciliation_status');
 
 savepoint provider_error;
 create or replace function pg_temp.expect_provider_error(p_outbox_id uuid)
@@ -247,6 +266,8 @@ select pg_temp.expect_reconcile_mid_guard(:'outbox_id'::uuid);
 rollback to recon_bad;
 
 select public.facebook_reconcile_messenger_outbox(:'outbox_id'::uuid, 'sent', 'mid.$smoke', null, 'ticket-1', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1');
+select pg_temp.assert_true(coalesce((public.facebook_read_messenger_conversation('cccccccc-cccc-4ccc-8ccc-ccccccccccc1')->>'reply_blocked')::boolean, false) = false, 'reconciled read still blocked');
+select pg_temp.assert_true(public.facebook_read_messenger_conversation('cccccccc-cccc-4ccc-8ccc-ccccccccccc1')->>'reconciliation_status' is null, 'reconciled status not null');
 
 -- bounded list/read caps: aggregation happens after deterministic ORDER/LIMIT subqueries.
 insert into public.facebook_messenger_conversations (page_id, psid, last_message_at, last_inbound_message_at, reply_window_expires_at)

@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { ConversationList, MessageThread } from "@/components/facebook-messenger/FacebookMessengerPanels";
-import { FacebookMessengerConversation, FacebookMessengerUiError, useFacebookMessengerInbox, useFacebookMessengerSend } from "@/hooks/useFacebookMessenger";
+import { FacebookMessengerConversation, FacebookMessengerUiError, getMessengerComposeIdempotencyKey, useFacebookMessengerInbox, useFacebookMessengerSend } from "@/hooks/useFacebookMessenger";
 import { cn } from "@/lib/utils";
 
 const MESSENGER_ERROR_MESSAGES = {
@@ -39,6 +39,7 @@ export default function FacebookMessengerInbox() {
   const [messageText, setMessageText] = useState("");
   const [safeError, setSafeError] = useState<string | null>(null);
   const submitLockRef = useRef(false);
+  const composeIdempotencyRef = useRef<{ conversationId: string; draft: string; key: string } | null>(null);
   const inbox = useFacebookMessengerInbox(selectedId);
   const sendMessage = useFacebookMessengerSend();
   const isSending = sendMessage.isPending;
@@ -70,7 +71,15 @@ export default function FacebookMessengerInbox() {
   const handleSelect = (conversation: FacebookMessengerConversation) => {
     setSelectedId(conversation.id);
     setMobileDetailOpen(true);
+    composeIdempotencyRef.current = null;
     setSafeError(null);
+  };
+
+  const getComposeIdempotencyKey = (conversationId: string, draft: string) => {
+    const normalizedDraft = draft.trim().slice(0, 2000);
+    const result = getMessengerComposeIdempotencyKey(composeIdempotencyRef.current, conversationId, normalizedDraft);
+    composeIdempotencyRef.current = result.state;
+    return result.key;
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -80,11 +89,14 @@ export default function FacebookMessengerInbox() {
     submitLockRef.current = true;
     setSafeError(null);
     try {
+      const idempotencyKey = getComposeIdempotencyKey(selectedConversation.id, messageText);
       await sendMessage.mutateAsync({
         conversationId: selectedConversation.id,
         text: messageText,
+        idempotencyKey,
       });
       setMessageText("");
+      composeIdempotencyRef.current = null;
     } catch (error) {
       setSafeError(mapMessengerErrorMessage(error));
     } finally {
@@ -155,7 +167,10 @@ export default function FacebookMessengerInbox() {
               <Textarea
                 id="facebook-messenger-composer"
                 value={messageText}
-                onChange={(event) => setMessageText(event.target.value.slice(0, 2000))}
+                onChange={(event) => {
+                  composeIdempotencyRef.current = null;
+                  setMessageText(event.target.value.slice(0, 2000));
+                }}
                 disabled={composerDisabled}
                 placeholder={disabledReason || "Nhập phản hồi Messenger..."}
                 className="mt-2 min-h-24 resize-y break-words"
