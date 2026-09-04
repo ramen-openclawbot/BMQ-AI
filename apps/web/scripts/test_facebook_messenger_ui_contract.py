@@ -115,6 +115,10 @@ def test_duplicate_submit_ref_lock_and_responsive_contract():
     assert re.search(r'if\s*\(submitLockRef\.current\s*\|\|\s*isSending\)\s*return;', page), "submit handler must synchronously block duplicates before mutateAsync"
     assert re.search(r'submitLockRef\.current\s*=\s*true;[\s\S]*?await sendMessage\.mutateAsync', page), "submit lock must be set before awaiting mutateAsync"
     assert re.search(r'finally\s*\{\s*submitLockRef\.current\s*=\s*false;\s*\}', page), "submit lock must be cleared in finally"
+    assert_contains(page, 'const finalizeLockRef = useRef(false);', "FacebookMessengerInbox.tsx")
+    assert re.search(r'if\s*\(!canEdit\s*\|\|\s*finalizeLockRef\.current\s*\|\|\s*finalizeCandidate\.isPending\)\s*return;', page), "finalize handler must synchronously block duplicate candidate clicks before mutateAsync"
+    assert re.search(r'finalizeLockRef\.current\s*=\s*true;[\s\S]*?await finalizeCandidate\.mutateAsync', page), "finalize lock must be set before awaiting mutateAsync"
+    assert re.search(r'finally\s*\{\s*finalizeLockRef\.current\s*=\s*false;\s*\}', page), "finalize lock must be cleared in finally"
     assert_contains(page, 'Không tải URL đính kèm từ Facebook', "FacebookMessengerInbox.tsx")
     assert_not_contains(page, '<img', "FacebookMessengerInbox.tsx")
     assert_not_contains(page, 'attachment.url', "FacebookMessengerInbox.tsx")
@@ -168,6 +172,13 @@ def test_default_off_feature_is_highest_priority_composer_blocker():
     reason_expr = disabled_reason.group(1)
     assert reason_expr.find('!selectedConversation') < reason_expr.find('featureDisabled') < reason_expr.find('!canEdit'), "disabled reason should prefer no selected conversation, then default-off feature setup, then permission/window states"
     assert_contains(page, 'Tính năng Facebook Messenger chưa được bật. Vui lòng hoàn tất thiết lập server trước khi trả lời khách.', "FacebookMessengerInbox.tsx")
+
+
+def test_inbox_thread_count_shows_loading_copy_until_query_settles():
+    page = read("src/pages/FacebookMessengerInbox.tsx")
+    assert_contains(page, 'const inboxListSettling = inbox.isLoading || (inbox.isFetching && !inbox.data);', "FacebookMessengerInbox.tsx")
+    assert_contains(page, 'inboxListSettling ? "Đang tải luồng hội thoại" : `${conversations.length} luồng đang hiển thị`', "FacebookMessengerInbox.tsx")
+    assert_not_contains(page, '<p className="text-xs text-muted-foreground">{conversations.length} luồng đang hiển thị</p>', "FacebookMessengerInbox.tsx")
 
 
 

@@ -1,5 +1,5 @@
-import { FormEvent, useMemo, useRef, useState } from "react";
-import { AlertCircle, Loader2, RefreshCw, Send } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { AlertCircle, Link2, Loader2, RefreshCw, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { ConversationList, MessageThread } from "@/components/facebook-messenger/FacebookMessengerPanels";
+import { useFacebookPageCandidateFinalize, useFacebookPageConnect, useFacebookPageConnectionStatus } from "@/hooks/useFacebookPageConnection";
 import { FacebookMessengerConversation, FacebookMessengerUiError, getMessengerComposeIdempotencyKey, useFacebookMessengerInbox, useFacebookMessengerSend } from "@/hooks/useFacebookMessenger";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +26,23 @@ function mapMessengerErrorMessage(error: unknown) {
 }
 
 const RECONCILIATION_BLOCKING_STATUSES = new Set(["send_committed", "manual_reconciliation_required"]);
+const FACEBOOK_CONNECT_ERRORS: Record<string, string> = {
+  invalid_state: "Phiên kết nối Facebook không hợp lệ. Vui lòng bắt đầu lại.",
+  invalid_or_expired_state: "Phiên kết nối Facebook đã hết hạn. Vui lòng bắt đầu lại.",
+  page_not_authorized: "Tài khoản Facebook chưa cấp quyền cho Page đã chọn.",
+  no_eligible_pages: "Không tìm thấy Facebook Page đủ quyền Messenger.",
+  service_not_configured: "Server chưa cấu hình đủ biến môi trường OAuth Facebook.",
+  token_exchange_failed: "Không thể đổi mã OAuth với Facebook. Vui lòng thử lại.",
+  subscription_failed: "Không thể đăng ký webhook cho Facebook Page đã chọn.",
+  page_lookup_failed: "Không thể đọc danh sách Facebook Page được cấp quyền.",
+  page_selection_unavailable: "Không thể lưu danh sách Page cần chọn. Vui lòng bắt đầu lại.",
+  provider_exchange_failed: "Không thể hoàn tất kết nối Facebook. Vui lòng thử lại.",
+  provider_storage_failed: "Không thể lưu kết nối Facebook Page ở server.",
+  candidate_not_found: "Lựa chọn Facebook Page đã hết hạn. Vui lòng bắt đầu lại.",
+  forbidden: "Bạn cần quyền chỉnh sửa module Facebook Page để kết nối.",
+  state_mismatch: "Phiên kết nối Facebook không khớp. Vui lòng bắt đầu lại.",
+  missing_code: "Facebook không trả về mã xác thực. Vui lòng thử lại.",
+};
 
 function getReconciliationStatus(conversation: FacebookMessengerConversation | null, pageStatus?: string | null) {
   return conversation?.manualReconciliationStatus || conversation?.reconciliationStatus || pageStatus || null;
@@ -37,12 +55,22 @@ export default function FacebookMessengerInbox() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [messageText, setMessageText] = useState("");
+  const [connectNotice, setConnectNotice] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [safeError, setSafeError] = useState<string | null>(null);
+  const connectLockRef = useRef(false);
+  const finalizeLockRef = useRef(false);
   const submitLockRef = useRef(false);
   const composeIdempotencyRef = useRef<{ conversationId: string; draft: string; key: string } | null>(null);
-  const inbox = useFacebookMessengerInbox(selectedId);
+  const pageConnection = useFacebookPageConnectionStatus();
+  const connectionReady = pageConnection.data?.connected === true && !pageConnection.isError;
+  const pendingCandidates = pageConnection.data?.pendingPageCandidates || [];
+  const inboxEnabled = connectionReady && pendingCandidates.length === 0;
+  const inbox = useFacebookMessengerInbox(selectedId, { enabled: inboxEnabled });
   const sendMessage = useFacebookMessengerSend();
+  const connectPage = useFacebookPageConnect();
+  const finalizeCandidate = useFacebookPageCandidateFinalize();
   const isSending = sendMessage.isPending;
+  const inboxListSettling = inbox.isLoading || (inbox.isFetching && !inbox.data);
 
   const conversations = useMemo(() => inbox.data?.conversations || [], [inbox.data?.conversations]);
   const selectedConversation = useMemo(() => {
@@ -70,6 +98,23 @@ export default function FacebookMessengerInbox() {
             : isSending
               ? "Đang gửi tin nhắn, vui lòng chờ."
               : "";
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const success = params.get("facebook_connect");
+    const error = params.get("facebook_connect_error");
+    if (success === "success") {
+      const pageName = params.get("facebook_page") || "Facebook Page";
+      setConnectNotice({ type: "success", message: `Đã kết nối ${pageName}. Không lưu token trong trình duyệt.` });
+      window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.hash}`);
+    } else if (success === "select_page") {
+      setConnectNotice({ type: "success", message: "Chọn Facebook Page cần kết nối từ danh sách bên dưới. Không lưu token trong trình duyệt." });
+      window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.hash}`);
+    } else if (error) {
+      setConnectNotice({ type: "error", message: FACEBOOK_CONNECT_ERRORS[error] || "Kết nối Facebook Page thất bại. Vui lòng thử lại hoặc báo quản trị viên." });
+      window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.hash}`);
+    }
+  }, []);
 
   const handleSelect = (conversation: FacebookMessengerConversation) => {
     setSelectedId(conversation.id);
@@ -107,14 +152,121 @@ export default function FacebookMessengerInbox() {
     }
   };
 
+  const handleConnectPage = async () => {
+    if (!canEdit || connectLockRef.current || connectPage.isPending) return;
+    connectLockRef.current = true;
+    setConnectNotice(null);
+    try {
+      const data = await connectPage.mutateAsync();
+      if (data.authUrl) window.location.href = data.authUrl;
+    } catch {
+      setConnectNotice({ type: "error", message: "Không thể bắt đầu kết nối Facebook Page. Vui lòng thử lại hoặc báo quản trị viên." });
+    } finally {
+      connectLockRef.current = false;
+    }
+  };
+
+  const handleFinalizeCandidate = async (candidateId: string) => {
+    if (!canEdit || finalizeLockRef.current || finalizeCandidate.isPending) return;
+    finalizeLockRef.current = true;
+    setConnectNotice(null);
+    try {
+      const data = await finalizeCandidate.mutateAsync({ candidateId });
+      setConnectNotice({ type: "success", message: `Đã kết nối ${data.pageName || "Facebook Page"}. Không lưu token trong trình duyệt.` });
+    } catch {
+      setConnectNotice({ type: "error", message: "Không thể hoàn tất lựa chọn Facebook Page. Vui lòng bắt đầu lại." });
+    } finally {
+      finalizeLockRef.current = false;
+    }
+  };
+
+  if (pendingCandidates.length > 0) {
+    return (
+      <main data-facebook-messenger-responsive="320-390-1440" className="min-h-[calc(100vh-4rem)] overflow-x-hidden bg-background p-3 sm:p-4 lg:p-6">
+        <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col gap-4">
+          <section data-facebook-connect-panel="true" className="min-w-0 rounded-xl border bg-card p-4 shadow-sm sm:p-5" aria-label="facebook-connect-panel">
+            <div className="min-w-0 space-y-4">
+              <div className="min-w-0 space-y-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <h1 className="min-w-0 break-words text-xl font-semibold text-foreground">Chọn Facebook Page</h1>
+                  <Badge variant="outline">Đã ủy quyền</Badge>
+                </div>
+                <p className="break-words text-sm text-muted-foreground">
+                  Chọn Page cần liên kết. Page đang kết nối chỉ được thay thế sau khi lựa chọn này hoàn tất thành công.
+                </p>
+                {connectNotice && (
+                  <p className={cn("break-words text-sm", connectNotice.type === "success" ? "text-emerald-700" : "text-destructive")}>
+                    {connectNotice.message}
+                  </p>
+                )}
+              </div>
+              <div className="grid min-w-0 gap-2">
+                {pendingCandidates.map((candidate) => (
+                  <Button
+                    key={candidate.candidateId}
+                    type="button"
+                    variant="outline"
+                    className="min-h-11 justify-start"
+                    disabled={!canEdit || finalizeCandidate.isPending}
+                    onClick={() => handleFinalizeCandidate(candidate.candidateId)}
+                  >
+                    <span className="min-w-0 truncate">{candidate.pageName} •••{candidate.pageIdSuffix}</span>
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+    );
+  }
+
+  if (!connectionReady) {
+    return (
+      <main data-facebook-messenger-responsive="320-390-1440" className="min-h-[calc(100vh-4rem)] overflow-x-hidden bg-background p-3 sm:p-4 lg:p-6">
+        <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col gap-4">
+          <section data-facebook-connect-panel="true" className="min-w-0 rounded-xl border bg-card p-4 shadow-sm sm:p-5" aria-label="facebook-connect-panel">
+            <div className="flex min-w-0 flex-col gap-4">
+              <div className="min-w-0 space-y-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <h1 className="min-w-0 break-words text-xl font-semibold text-foreground">Chưa kết nối Facebook Page</h1>
+                  <Badge variant="outline">{pageConnection.isLoading ? "Đang kiểm tra" : "Chưa kết nối"}</Badge>
+                </div>
+                <p className="break-words text-sm text-muted-foreground">
+                  Kết nối bằng Facebook Login for Business để server nhận Page credentials. Gửi Messenger, forward email và AI vẫn mặc định tắt sau khi kết nối.
+                </p>
+                {connectNotice && (
+                  <p className={cn("break-words text-sm", connectNotice.type === "success" ? "text-emerald-700" : "text-destructive")}>
+                    {connectNotice.message}
+                  </p>
+                )}
+                {pageConnection.isError && (
+                  <p className="break-words text-sm text-destructive">Không thể kiểm tra trạng thái kết nối. Có thể thử kết nối lại nếu bạn có quyền chỉnh sửa.</p>
+                )}
+              </div>
+
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+                <Button type="button" onClick={handleConnectPage} disabled={!canEdit || connectPage.isPending} className="min-h-11 shrink-0">
+                  {connectPage.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}
+                  Kết nối Facebook Page
+                </Button>
+                {!canEdit && <p className="break-words text-sm text-muted-foreground">Bạn cần quyền chỉnh sửa module Facebook Page để kết nối.</p>}
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main data-facebook-messenger-responsive="320-390-1440" className="min-h-[calc(100vh-4rem)] overflow-x-hidden bg-background p-3 sm:p-4 lg:p-6">
       <div className="mx-auto flex w-full max-w-7xl min-w-0 flex-col gap-4">
         <header className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="min-w-0 break-words text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{t.facebookPageManagement}</h1>
-            <Badge variant={inbox.data?.enabled === false ? "destructive" : "secondary"}>
-              {inbox.data?.enabled === false ? "Chưa bật tính năng" : "Messenger inbox"}
+            <Badge variant={featureDisabled ? "destructive" : "secondary"}>
+              {featureDisabled ? "Chưa bật gửi" : "Messenger inbox"}
             </Badge>
           </div>
           <p className="max-w-3xl break-words text-sm text-muted-foreground">
@@ -140,13 +292,37 @@ export default function FacebookMessengerInbox() {
           </Alert>
         )}
 
-        {inbox.data?.enabled === false && (
+        {featureDisabled && (
           <Alert>
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Tính năng Facebook Messenger đang tắt</AlertTitle>
-            <AlertDescription>Thiết lập Page token/webhook cần hoàn tất ở server trước khi nhân viên trả lời khách.</AlertDescription>
+            <AlertTitle>Tính năng gửi Facebook Messenger đang tắt</AlertTitle>
+            <AlertDescription>Kết nối Page đã hoàn tất, nhưng gửi/forward/AI vẫn mặc định tắt cho tới khi operator bật riêng trên server.</AlertDescription>
           </Alert>
         )}
+
+        <section data-facebook-connect-panel="true" className="min-w-0 rounded-xl border bg-card p-3 shadow-sm sm:p-4" aria-label="facebook-connect-panel">
+          <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0 space-y-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <h2 className="text-base font-semibold">Kết nối Facebook Page</h2>
+                <Badge variant="secondary">Đã kết nối</Badge>
+              </div>
+              <p className="break-words text-sm text-muted-foreground">
+                Page: {pageConnection.data?.pageName || "Facebook Page"}{pageConnection.data?.pageIdSuffix ? ` •••${pageConnection.data.pageIdSuffix}` : ""}
+              </p>
+              {connectNotice && (
+                <p className={cn("break-words text-sm", connectNotice.type === "success" ? "text-emerald-700" : "text-destructive")}>
+                  {connectNotice.message}
+                </p>
+              )}
+            </div>
+
+            <Button type="button" onClick={handleConnectPage} disabled={!canEdit || connectPage.isPending} variant="outline" className="min-h-11 shrink-0">
+              {connectPage.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}
+              Kết nối Facebook Page
+            </Button>
+          </div>
+        </section>
 
         <section className="grid min-w-0 gap-4 lg:min-h-[680px] lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]" aria-label="Facebook Messenger inbox">
           <aside className={cn("min-w-0 space-y-3", mobileDetailOpen && "hidden md:block")}>
@@ -154,7 +330,7 @@ export default function FacebookMessengerInbox() {
             <div className="flex min-w-0 items-center justify-between gap-2">
               <div className="min-w-0">
                 <h2 className="text-base font-semibold">Hội thoại</h2>
-                <p className="text-xs text-muted-foreground">{conversations.length} luồng đang hiển thị</p>
+                <p className="text-xs text-muted-foreground">{inboxListSettling ? "Đang tải luồng hội thoại" : `${conversations.length} luồng đang hiển thị`}</p>
               </div>
               <Button type="button" variant="outline" size="sm" className="min-h-10 shrink-0" onClick={() => inbox.refetch()} disabled={inbox.isFetching} aria-label="Tải lại hội thoại Facebook">
                 <RefreshCw className={cn("h-4 w-4", inbox.isFetching && "animate-spin")} />

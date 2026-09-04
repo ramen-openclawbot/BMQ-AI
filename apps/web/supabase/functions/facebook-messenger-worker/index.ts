@@ -3,10 +3,12 @@ import { constantTimeStringEqual } from "../_shared/facebook-messenger.ts";
 
 export type MessengerWorkerEnv = { FACEBOOK_MESSENGER_WORKER_SECRET?: string; META_PAGE_ACCESS_TOKEN?: string; SUPABASE_URL?: string; SUPABASE_SERVICE_ROLE_KEY?: string };
 export type ClaimedOutbox = { id: string; page_id: string; psid: string; text: string; tag: "RESPONSE" | "HUMAN_AGENT"; attempt_count: number; lease_token: string };
+type PageAccessAuth = { pageId: string; pageAccessToken: string };
 export type GraphResult = { kind: "accepted"; messageId: string } | { kind: "ambiguous_timeout"; safeReason: string } | { kind: "definitive_rejection"; safeCode: string };
 export type MessengerWorkerDeps = {
+  resolvePageAccessAuth: () => Promise<PageAccessAuth | null>;
   claimPending: () => Promise<ClaimedOutbox[]>;
-  markSendCommitted: (id: string, leaseToken: string) => Promise<boolean>;
+  markSendCommitted: (id: string, leaseToken: string, expectedPageId: string) => Promise<boolean>;
   postGraphMessage: (input: { endpoint: string; pageAccessToken: string; psid: string; text: string; tag: string }) => Promise<GraphResult>;
   markSent: (id: string, messageId: string, evidence: Record<string, unknown>) => Promise<void>;
   markFailed: (id: string, reason: string, evidence: Record<string, unknown>) => Promise<void>;
@@ -19,12 +21,15 @@ const SAFE_CODE_RE = /^[a-z0-9_:-]{1,80}$/;
 export async function handleMessengerWorker(request: Request, env: MessengerWorkerEnv = Deno.env.toObject(), deps?: MessengerWorkerDeps): Promise<Response> {
   if (request.method === "OPTIONS") return new Response(null, { status: 204 });
   if (request.method !== "POST") return jsonResponse({ error: "method_not_allowed" }, 405);
-  if (!env.FACEBOOK_MESSENGER_WORKER_SECRET || !env.META_PAGE_ACCESS_TOKEN) return jsonResponse({ error: "service_unavailable" }, 503);
+  if (!env.FACEBOOK_MESSENGER_WORKER_SECRET) return jsonResponse({ error: "service_unavailable" }, 503);
   const supplied = request.headers.get("x-worker-secret") ?? "";
   if (!constantTimeStringEqual(supplied, env.FACEBOOK_MESSENGER_WORKER_SECRET)) return jsonResponse({ error: "unauthorized" }, 401);
 
   const active = deps ?? createDeps(env);
   try {
+    const pageAccessAuth = await active.resolvePageAccessAuth();
+    const pageAccessToken = pageAccessAuth?.pageAccessToken;
+    if (!pageAccessAuth?.pageId || !pageAccessToken) return jsonResponse({ error: "service_unavailable" }, 503);
     const rows = await active.claimPending();
     let processed = 0;
     let manual = 0;
@@ -32,14 +37,20 @@ export async function handleMessengerWorker(request: Request, env: MessengerWork
     let sent = 0;
     let lostClaim = 0;
     for (const row of rows) {
-      const committed = await active.markSendCommitted(row.id, row.lease_token);
+      const committed = await active.markSendCommitted(row.id, row.lease_token, pageAccessAuth.pageId);
       if (!committed) {
         lostClaim += 1;
         continue;
       }
+      if (row.page_id !== pageAccessAuth.pageId) {
+        await active.markManualReconciliationRequired(row.id, "page_binding_mismatch", { provider: "meta", status: "page_binding_mismatch" });
+        manual += 1;
+        processed += 1;
+        continue;
+      }
       const result = await active.postGraphMessage({
         endpoint: `/v26.0/${encodeURIComponent(row.page_id)}/messages`,
-        pageAccessToken: env.META_PAGE_ACCESS_TOKEN,
+        pageAccessToken,
         psid: row.psid,
         text: row.text,
         tag: row.tag,
@@ -63,16 +74,28 @@ export async function handleMessengerWorker(request: Request, env: MessengerWork
 }
 
 function createDeps(env: MessengerWorkerEnv): MessengerWorkerDeps {
-  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY || !env.META_PAGE_ACCESS_TOKEN) throw new Error("missing_config");
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) throw new Error("missing_config");
   const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
   return {
+    resolvePageAccessAuth: async () => {
+      const { data, error } = await admin.rpc("facebook_get_page_access_auth");
+      if (error) throw error;
+      const row = data && typeof data === "object" && !Array.isArray(data) ? data as Record<string, unknown> : {};
+      const pageId = typeof row.page_id === "string" ? row.page_id : "";
+      const pageAccessToken = typeof row.page_access_auth === "string" ? row.page_access_auth : "";
+      return pageId && pageAccessToken ? { pageId, pageAccessToken } : null;
+    },
     claimPending: async () => {
       const { data, error } = await admin.rpc("facebook_claim_messenger_outbox", { p_limit: 10 });
       if (error) throw error;
       return (data || []) as ClaimedOutbox[];
     },
-    markSendCommitted: async (id, leaseToken) => {
-      const { data, error } = await admin.rpc("facebook_mark_messenger_outbox_send_committed", { p_outbox_id: id, p_lease_token: leaseToken });
+    markSendCommitted: async (id, leaseToken, expectedPageId) => {
+      const { data, error } = await admin.rpc("facebook_mark_messenger_outbox_send_committed", {
+        p_outbox_id: id,
+        p_lease_token: leaseToken,
+        p_expected_page_id: expectedPageId,
+      });
       if (error) throw error;
       return data === true;
     },
