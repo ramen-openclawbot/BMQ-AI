@@ -179,8 +179,37 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
     });
   }, [requests, dateFrom, dateTo]);
 
+  const summaryFilteredRequests = useMemo(() => {
+    const normalizedSearchTerm = normalizeSearch(searchTerm);
+
+    return dateFilteredRequests.filter((r) => {
+      if (sourceFilter === "warehouse_receipt" && !isWarehouseReceiptPayable(r)) return false;
+      if (sourceFilter === "manual" && isWarehouseReceiptPayable(r)) return false;
+
+      if (normalizedSearchTerm) {
+        const supplierName = normalizeSearch(r.suppliers?.name);
+        const requestCode = normalizeSearch(getRequestCode(r));
+        const productNames = normalizeSearch(getProductNames(r).join(" "));
+        const receiptNumber = normalizeSearch(r.goods_receipts?.receipt_number);
+        const poNumber = normalizeSearch(r.purchase_orders?.po_number);
+
+        if (
+          !supplierName.includes(normalizedSearchTerm) &&
+          !productNames.includes(normalizedSearchTerm) &&
+          !requestCode.includes(normalizedSearchTerm) &&
+          !receiptNumber.includes(normalizedSearchTerm) &&
+          !poNumber.includes(normalizedSearchTerm)
+        ) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [dateFilteredRequests, sourceFilter, searchTerm]);
+
   const stats = useMemo(() => {
-    const source = dateFilteredRequests;
+    const source = summaryFilteredRequests;
     const totalAmount = source.reduce((sum, request) => sum + (Number(request.total_amount) || 0), 0);
     const approved = source.filter((request) => request.status === "approved");
     const pending = source.filter((request) => request.status === "pending");
@@ -210,7 +239,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
         count: source.filter((request) => isWarehouseReceiptPayable(request)).length,
       },
     };
-  }, [dateFilteredRequests]);
+  }, [summaryFilteredRequests]);
 
   const statCards = [
     {
@@ -407,31 +436,9 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
 
   // Filter requests based on dropdown and card filters
   const filteredRequests = useMemo(() => {
-    const normalizedSearchTerm = normalizeSearch(searchTerm);
-
-    return dateFilteredRequests.filter((r) => {
+    return summaryFilteredRequests.filter((r) => {
       // Dropdown filters
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
-      if (sourceFilter === "warehouse_receipt" && !isWarehouseReceiptPayable(r)) return false;
-      if (sourceFilter === "manual" && isWarehouseReceiptPayable(r)) return false;
-
-      if (normalizedSearchTerm) {
-        const supplierName = normalizeSearch(r.suppliers?.name);
-        const requestCode = normalizeSearch(getRequestCode(r));
-        const productNames = normalizeSearch(getProductNames(r).join(" "));
-        const receiptNumber = normalizeSearch(r.goods_receipts?.receipt_number);
-        const poNumber = normalizeSearch(r.purchase_orders?.po_number);
-
-        if (
-          !supplierName.includes(normalizedSearchTerm) &&
-          !productNames.includes(normalizedSearchTerm) &&
-          !requestCode.includes(normalizedSearchTerm) &&
-          !receiptNumber.includes(normalizedSearchTerm) &&
-          !poNumber.includes(normalizedSearchTerm)
-        ) {
-          return false;
-        }
-      }
       
       // Card filter
       if (activeCardFilter) {
@@ -447,7 +454,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
       
       return true;
     });
-  }, [dateFilteredRequests, statusFilter, sourceFilter, searchTerm, activeCardFilter]);
+  }, [summaryFilteredRequests, statusFilter, activeCardFilter]);
 
   useEffect(() => {
     setCurrentPage(1);
