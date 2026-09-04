@@ -230,6 +230,10 @@ verify_jwt = false
 # Public safe readiness booleans only; no tokens/secrets/status details returned.
 verify_jwt = false
 
+[functions.facebook-page-connect]
+# OAuth callback has no user JWT; POST start/status verifies fresh JWT in code and callback verifies signed one-time state.
+verify_jwt = false
+
 # ──────────────────────────────────────────────────────────
 # Functions needing further audit before enabling JWT
 # Keep verify_jwt = false until auth is added to the code

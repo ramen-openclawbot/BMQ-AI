@@ -16,7 +16,7 @@ async function json(response: Response): Promise<Record<string, unknown>> {
 
 const OUTBOX = {
   id: "33333333-3333-4333-8333-333333333333",
-  page_id: "page-123",
+  page_id: "1234567890",
   psid: "psid-secret",
   text: "hello customer",
   tag: "RESPONSE",
@@ -37,12 +37,13 @@ function request(secret = "worker-secret") {
 function deps(overrides: Partial<MessengerWorkerDeps> = {}) {
   const calls: Record<string, unknown[]> = { claim: [], commit: [], graph: [], sent: [], failed: [], manual: [] };
   const active: MessengerWorkerDeps = {
+    resolvePageAccessAuth: async () => ({ pageId: "1234567890", pageAccessToken: "page-token-secret" }),
     claimPending: async () => {
       calls.claim.push(true);
       return [OUTBOX];
     },
-    markSendCommitted: async (id, leaseToken) => {
-      calls.commit.push({ id, leaseToken });
+    markSendCommitted: async (id, leaseToken, ...extra: unknown[]) => {
+      calls.commit.push({ id, leaseToken, expectedPageId: extra[0] });
       return true;
     },
     postGraphMessage: async (input) => {
@@ -67,6 +68,45 @@ Deno.test("worker requires dedicated timing-safe secret before claiming rows", a
   assertEqual(missingConfig.status, 503);
 });
 
+Deno.test("worker can use stored OAuth Page auth material when legacy env token is absent", async () => {
+  const { deps: active, calls } = deps({
+    resolvePageAccessAuth: async () => ({ pageId: "1234567890", pageAccessToken: "stored-page-token-secret" }),
+  });
+  const response = await handleMessengerWorker(request(), env({ META_PAGE_ACCESS_TOKEN: undefined }), active);
+  assertEqual(response.status, 200);
+  const graph = (calls.graph as Record<string, unknown>[])[0];
+  assertEqual(graph.pageAccessToken, "stored-page-token-secret");
+
+  const missing = deps({ resolvePageAccessAuth: async () => null });
+  const missingResponse = await handleMessengerWorker(request(), env({ META_PAGE_ACCESS_TOKEN: undefined }), missing.deps);
+  assertEqual(missingResponse.status, 503);
+  assertEqual((missing.calls.claim as unknown[]).length, 0);
+});
+
+Deno.test("worker never overrides the Page-bound Vault token with a legacy env token", async () => {
+  const stored = deps({
+    resolvePageAccessAuth: async () => ({ pageId: "1234567890", pageAccessToken: "stored-page-token-secret" }),
+  });
+  const response = await handleMessengerWorker(
+    request(),
+    env({ META_PAGE_ACCESS_TOKEN: "legacy-token-for-a-different-page" }),
+    stored.deps,
+  );
+  assertEqual(response.status, 200);
+  const graph = (stored.calls.graph as Record<string, unknown>[])[0];
+  assertEqual(graph.pageAccessToken, "stored-page-token-secret");
+});
+
+Deno.test("worker refuses to pair stored credential with stale outbox page binding", async () => {
+  const stale = deps({
+    resolvePageAccessAuth: async () => ({ pageId: "4567890123", pageAccessToken: "stored-page-token-secret" }),
+  });
+  const response = await handleMessengerWorker(request(), env({ META_PAGE_ACCESS_TOKEN: undefined }), stale.deps);
+  assertEqual(response.status, 200);
+  assertEqual((stale.calls.graph as unknown[]).length, 0, "stale page binding must not reach Graph");
+  assertEqual((stale.calls.manual as Record<string, unknown>[])[0].reason, "page_binding_mismatch");
+});
+
 Deno.test("idle worker returns safe count without Graph call", async () => {
   const { deps: active, calls } = deps({ claimPending: async () => [] });
   const response = await handleMessengerWorker(request(), env(), active);
@@ -81,8 +121,9 @@ Deno.test("worker commits before exact v26 Graph send and never logs psid conten
   assertEqual(response.status, 200);
   assertEqual((calls.commit as Record<string, unknown>[])[0].id, OUTBOX.id);
   assertEqual((calls.commit as Record<string, unknown>[])[0].leaseToken, OUTBOX.lease_token);
+  assertEqual((calls.commit as Record<string, unknown>[])[0].expectedPageId, OUTBOX.page_id);
   const graph = (calls.graph as Record<string, unknown>[])[0];
-  assertEqual(graph.endpoint, "/v26.0/page-123/messages");
+  assertEqual(graph.endpoint, "/v26.0/1234567890/messages");
   assertEqual(graph.pageAccessToken, "page-token-secret");
   assertEqual(graph.psid, "psid-secret");
   assertEqual(graph.text, "hello customer");

@@ -79,13 +79,14 @@ export function maskConversationFallback(id: string) {
   return `Khách Facebook •••${clean.slice(-4)}`;
 }
 
-export function useFacebookMessengerInbox(selectedConversationId?: string | null) {
+export function useFacebookMessengerInbox(selectedConversationId?: string | null, options: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: ["facebook-messenger-inbox", selectedConversationId || null],
     queryFn: () => invokeMessengerFunction<InboxResponse>("facebook-messenger-inbox", {
       action: selectedConversationId ? "read" : "list",
       conversation_id: selectedConversationId || undefined,
     }),
+    enabled: options.enabled !== false,
     staleTime: 30_000,
   });
 }

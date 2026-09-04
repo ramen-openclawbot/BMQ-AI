@@ -78,13 +78,13 @@ Deno.test("inbox list/read require fresh JWT and can_view, then return minimized
   assert(!JSON.stringify(detailBody).includes("raw"));
 });
 
-Deno.test("owner-only reconciliation requires can_edit/owner path, evidence, and ambiguous committed state", async () => {
+Deno.test("reconciliation allows owner-or-edit path, evidence, and ambiguous committed state", async () => {
   const body = { outbox_id: "33333333-3333-4333-8333-333333333333", status: "sent", provider_message_id: "mid.$abc", evidence_ref: "ops-ticket-1" };
-  const noEdit = deps({ hasModulePermission: async (_u, _m, mode) => mode === "view" });
-  assertEqual((await handleMessengerInbox(request("/reconcile", "fresh-token", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }), env(), noEdit.deps)).status, 403);
+  const neitherOwnerNorEdit = deps({ isOwner: async () => false, hasModulePermission: async (_u, _m, mode) => mode === "view" });
+  assertEqual((await handleMessengerInbox(request("/reconcile", "fresh-token", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }), env(), neitherOwnerNorEdit.deps)).status, 403);
 
   const editButNotOwner = deps({ isOwner: async () => false });
-  assertEqual((await handleMessengerInbox(request("/reconcile", "fresh-token", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }), env(), editButNotOwner.deps)).status, 403);
+  assertEqual((await handleMessengerInbox(request("/reconcile", "fresh-token", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }), env(), editButNotOwner.deps)).status, 200);
 
   assertEqual((await handleMessengerInbox(request("/reconcile", "fresh-token", { method: "POST", body: JSON.stringify({ ...body, provider_message_id: "" }), headers: { "content-type": "application/json" } }), env(), deps().deps)).status, 422);
 

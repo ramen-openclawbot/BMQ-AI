@@ -34,7 +34,7 @@ export async function handleMessengerInbox(request: Request, env: MessengerInbox
       active.hasModulePermission(user.id, "facebook_messenger", "edit"),
       active.isOwner(user.id),
     ]);
-    if (!canEdit || !owner) return jsonResponse({ error: "forbidden" }, 403);
+    if (!canEdit && !owner) return jsonResponse({ error: "forbidden" }, 403);
     return handleReconcile(request, active, user.id);
   }
 

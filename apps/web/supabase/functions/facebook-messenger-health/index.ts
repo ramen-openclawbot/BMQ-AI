@@ -16,7 +16,7 @@ export async function handleMessengerHealth(request: Request, env: MessengerHeal
     settings_present: Boolean(status.settings_present),
     page_configured: Boolean(status.page_configured),
     can_enqueue: Boolean(status.can_enqueue),
-    token_present: Boolean(env.META_PAGE_ACCESS_TOKEN),
+    token_present: Boolean(env.META_PAGE_ACCESS_TOKEN || status.page_auth_present),
     worker_secret_present: Boolean(env.FACEBOOK_MESSENGER_WORKER_SECRET),
   });
 }
