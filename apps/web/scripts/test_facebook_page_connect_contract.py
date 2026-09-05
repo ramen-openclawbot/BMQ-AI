@@ -62,6 +62,10 @@ def test_edge_function_contract() -> None:
         '"edit"',
         "isOwner",
         "stateHash",
+        "cors-retry-fix-v1",
+        "access-control-allow-origin",
+        "access-control-allow-methods",
+        "access-control-allow-headers",
     ):
         assert_contains(source, token, "facebook-page-connect/index.ts")
     assert_not_contains(source, 'authUrl.searchParams.set("scope"', "facebook-page-connect/index.ts")
@@ -213,7 +217,7 @@ def test_frontend_connect_panel_is_edit_gated_no_page_id_textbox_and_uses_edge_f
     page = read(PAGE)
     for token in (
         'facebook-page-connect',
-        'await getFreshAccessToken()',
+        'supabase.auth.getSession()',
         'Authorization',
         'action: "status"',
         'action: "start"',
@@ -221,6 +225,16 @@ def test_frontend_connect_panel_is_edit_gated_no_page_id_textbox_and_uses_edge_f
         'candidate_id',
     ):
         assert_contains(hook, token, "useFacebookPageConnection.ts")
+    for token in (
+        "retry: false",
+        "retryOnMount: false",
+        "refetchOnWindowFocus: false",
+        "refetchOnReconnect: false",
+        "extractSafeFacebookErrorCode",
+    ):
+        assert_contains(hook, token, "useFacebookPageConnection.ts")
+    assert_not_contains(hook, "getFreshAccessToken", "useFacebookPageConnection.ts")
+    assert_not_contains(hook, "refreshSession", "useFacebookPageConnection.ts")
     assert_not_contains(hook, "expected_page_id", "useFacebookPageConnection.ts")
     assert_not_contains(hook, "graph.facebook", "useFacebookPageConnection.ts")
     assert_not_contains(hook, ".from(\"facebook_messenger_settings\")", "useFacebookPageConnection.ts")
@@ -243,6 +257,9 @@ def test_frontend_connect_panel_is_edit_gated_no_page_id_textbox_and_uses_edge_f
         "Chưa kết nối Facebook Page",
         "Kết nối Facebook Page",
         "min-h-11",
+        "cors-retry-fix-v1",
+        "Kiểm tra lại",
+        "mapFacebookConnectErrorMessage",
     ):
         assert_contains(page, token, "FacebookMessengerInbox.tsx")
     assert_not_contains(page, "isOwner", "FacebookMessengerInbox.tsx")
@@ -252,6 +269,7 @@ def test_frontend_connect_panel_is_edit_gated_no_page_id_textbox_and_uses_edge_f
     assert_contains(page, "useFacebookMessengerInbox(selectedId, { enabled: inboxEnabled })", "FacebookMessengerInbox.tsx")
     assert_contains(page, "const inboxEnabled = connectionReady && pendingCandidates.length === 0", "FacebookMessengerInbox.tsx")
     assert_contains(hook, 'queryClient.removeQueries({ queryKey: ["facebook-messenger-inbox"] })', "useFacebookPageConnection.ts")
+    assert_contains(page, "pageConnection.refetch()", "FacebookMessengerInbox.tsx")
     assert_not_contains(page, "graph.facebook", "FacebookMessengerInbox.tsx")
     assert_not_contains(page, "page-token-secret", "FacebookMessengerInbox.tsx")
     assert page.index("if (pendingCandidates.length > 0)") < page.index("if (!connectionReady)"), (

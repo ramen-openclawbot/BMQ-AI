@@ -141,6 +141,59 @@ function post(body: Record<string, unknown>, token = "fresh-token") {
   });
 }
 
+function preflight(origin: string) {
+  return new Request("https://example.test/functions/v1/facebook-page-connect", {
+    method: "OPTIONS",
+    headers: {
+      origin,
+      "access-control-request-method": "POST",
+      "access-control-request-headers": "authorization,content-type,x-client-info,apikey",
+    },
+  });
+}
+
+Deno.test("browser preflight and POST responses expose CORS only to approved origins", async () => {
+  const approvedOrigin = "https://ai.banhmique.vn";
+  const approved = await handleFacebookPageConnect(preflight(approvedOrigin), env(), deps().deps);
+  assertEqual(approved.status, 204);
+  assertEqual(approved.headers.get("access-control-allow-origin"), approvedOrigin);
+  assert((approved.headers.get("access-control-allow-methods") || "").includes("POST"));
+  assert((approved.headers.get("access-control-allow-headers") || "").includes("authorization"));
+  assertEqual(approved.headers.get("vary"), "Origin");
+
+  const rejected = await handleFacebookPageConnect(preflight("https://attacker.example"), env(), deps().deps);
+  assertEqual(rejected.status, 204);
+  assertEqual(rejected.headers.get("access-control-allow-origin"), null);
+
+  const successRequest = post({ action: "status" });
+  successRequest.headers.set("origin", approvedOrigin);
+  const success = await handleFacebookPageConnect(successRequest, env(), deps().deps);
+  assertEqual(success.status, 200);
+  assertEqual(success.headers.get("access-control-allow-origin"), approvedOrigin);
+
+  const errorRequest = post({ action: "invalid" });
+  errorRequest.headers.set("origin", approvedOrigin);
+  const failure = await handleFacebookPageConnect(errorRequest, env(), deps().deps);
+  assertEqual(failure.status, 422);
+  assertEqual(failure.headers.get("access-control-allow-origin"), approvedOrigin);
+});
+
+Deno.test("unexpected POST failures stay safe and retain approved-origin CORS", async () => {
+  const approvedOrigin = "https://ai.banhmique.vn";
+  const request = post({ action: "status" });
+  request.headers.set("origin", approvedOrigin);
+  const failing = deps({
+    hasModulePermission: async () => {
+      throw new Error("database details must stay private");
+    },
+  });
+
+  const response = await handleFacebookPageConnect(request, env(), failing.deps);
+  assertEqual(response.status, 500);
+  assertEqual(response.headers.get("access-control-allow-origin"), approvedOrigin);
+  assertEqual((await json(response)).error, "request_failed");
+});
+
 Deno.test("status requires fresh JWT and facebook_messenger view, returning safe metadata only", async () => {
   assertEqual((await handleFacebookPageConnect(post({ action: "status" }, "stale-token"), env(), deps().deps)).status, 401);
 

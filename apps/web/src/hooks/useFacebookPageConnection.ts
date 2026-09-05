@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { getFreshAccessToken } from "@/lib/supabase-helpers";
 
 export type FacebookPageConnectionStatus = {
   connected: boolean;
@@ -31,20 +30,66 @@ export type FacebookPageFinalizeResult = {
   pageIdSuffix?: string | null;
 };
 
-async function invokeFacebookPageConnect<T>(body: Record<string, unknown>): Promise<T> {
-  let accessToken: string;
-  try {
-    accessToken = await getFreshAccessToken();
-  } catch {
-    throw new Error("session_expired");
+export class FacebookPageConnectUiError extends Error {
+  readonly code: string;
+
+  constructor(code: string) {
+    super("facebook_page_connect_failed");
+    this.name = "FacebookPageConnectUiError";
+    this.code = code;
   }
+}
+
+const SAFE_FACEBOOK_CONNECT_ERROR_CODES = new Set([
+  "unauthorized",
+  "forbidden",
+  "service_not_configured",
+  "invalid_json",
+  "invalid_action",
+  "invalid_candidate_id",
+  "candidate_not_found",
+  "subscription_failed",
+  "provider_storage_failed",
+]);
+
+function safeErrorCode(value: unknown): string | null {
+  return typeof value === "string" && SAFE_FACEBOOK_CONNECT_ERROR_CODES.has(value) ? value : null;
+}
+
+function errorCodeFromPayload(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  return safeErrorCode((value as { error?: unknown }).error);
+}
+
+async function extractSafeFacebookErrorCode(error: unknown): Promise<string> {
+  if (!error || typeof error !== "object") return "request_failed";
+  const context = (error as { context?: unknown }).context;
+
+  if (context instanceof Response) {
+    try {
+      const payload = await context.clone().json();
+      return errorCodeFromPayload(payload) || "request_failed";
+    } catch {
+      return "request_failed";
+    }
+  }
+
+  return errorCodeFromPayload(context) || "request_failed";
+}
+
+async function invokeFacebookPageConnect<T>(body: Record<string, unknown>): Promise<T> {
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  const accessToken = sessionData.session?.access_token;
+  if (sessionError || !accessToken) throw new FacebookPageConnectUiError("session_expired");
 
   const { data, error } = await supabase.functions.invoke<T>("facebook-page-connect", {
     body,
     headers: { Authorization: `Bearer ${accessToken}` },
   });
 
-  if (error) throw new Error("request_failed");
+  if (error) throw new FacebookPageConnectUiError(await extractSafeFacebookErrorCode(error));
+  const payloadError = errorCodeFromPayload(data);
+  if (payloadError) throw new FacebookPageConnectUiError(payloadError);
   return data as T;
 }
 
@@ -53,6 +98,10 @@ export function useFacebookPageConnectionStatus() {
     queryKey: ["facebook-page-connect", "status"],
     queryFn: () => invokeFacebookPageConnect<FacebookPageConnectionStatus>({ action: "status" }),
     staleTime: 30_000,
+    retry: false,
+    retryOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 }
 

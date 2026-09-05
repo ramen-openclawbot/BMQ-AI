@@ -92,6 +92,8 @@ const ALLOWED_REDIRECT_ORIGINS = new Set([
   "http://localhost:5173",
   "http://localhost:8080",
 ]);
+const CORS_FIX_VERSION = "cors-retry-fix-v1";
+const CORS_ALLOW_HEADERS = "authorization, x-client-info, apikey, content-type";
 const REQUIRED_PAGE_TASKS = new Set(["MESSAGING", "MANAGE"]);
 const SAFE_ERROR_RE = /^[a-z0-9_:-]{1,80}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -103,15 +105,48 @@ const decoder = new TextDecoder();
 const jsonResponse = (body: Record<string, unknown>, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
+function corsHeadersForRequest(request: Request): Record<string, string> {
+  const origin = request.headers.get("origin") || "";
+  if (!ALLOWED_REDIRECT_ORIGINS.has(origin)) return {};
+  return {
+    "access-control-allow-origin": origin,
+    "access-control-allow-methods": "POST, OPTIONS",
+    "access-control-allow-headers": CORS_ALLOW_HEADERS,
+    "access-control-max-age": "86400",
+    "vary": "Origin",
+    "x-bmq-facebook-connect-version": CORS_FIX_VERSION,
+  };
+}
+
+function withCors(response: Response, request: Request): Response {
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(corsHeadersForRequest(request))) {
+    headers.set(name, value);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export async function handleFacebookPageConnect(
   request: Request,
   env: FacebookPageConnectEnv = Deno.env.toObject(),
   deps?: FacebookPageConnectDeps,
 ): Promise<Response> {
-  if (request.method === "OPTIONS") return new Response(null, { status: 204 });
-  if (request.method === "POST") return handlePost(request, env, deps);
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeadersForRequest(request) });
+  }
+  if (request.method === "POST") {
+    try {
+      return withCors(await handlePost(request, env, deps), request);
+    } catch {
+      return withCors(jsonResponse({ error: "request_failed" }, 500), request);
+    }
+  }
   if (request.method === "GET") return handleCallback(request, env, deps);
-  return jsonResponse({ error: "method_not_allowed" }, 405);
+  return withCors(jsonResponse({ error: "method_not_allowed" }, 405), request);
 }
 
 async function handlePost(request: Request, env: FacebookPageConnectEnv, deps?: FacebookPageConnectDeps): Promise<Response> {
