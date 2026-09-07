@@ -1,6 +1,7 @@
 export type DealerOrderConfirmationTemplateData = {
   ten_khach_hang: string;
   ma_don_hang: string;
+  ma_don_hang1: string;
   ngay_dat: string;
   ngay_giao: string;
   tong_so_luong: string;
@@ -92,10 +93,12 @@ export function buildDealerOrderConfirmationTemplateData(
 ): DealerOrderConfirmationTemplateData {
   const orderedQuantity = requireNonNegativeFinite(input.orderedQuantity, "orderedQuantity");
   const totalAmountVnd = requireNonNegativeFinite(input.totalAmountVnd, "totalAmountVnd");
+  const orderNumber = requireText(input.orderNumber, "orderNumber", 80);
 
   return {
     ten_khach_hang: requireText(input.customerName, "customerName", 120),
-    ma_don_hang: requireText(input.orderNumber, "orderNumber", 80),
+    ma_don_hang: orderNumber,
+    ma_don_hang1: orderNumber,
     ngay_dat: formatVietnamDateFromTimestamp(input.submittedAt),
     ngay_giao: formatIsoDate(input.requestedDeliveryDate),
     tong_so_luong: formatNumberVi(orderedQuantity),
