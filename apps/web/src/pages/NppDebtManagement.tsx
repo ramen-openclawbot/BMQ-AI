@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { fetchAllPages } from "@/lib/npp-debt-pagination";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -144,7 +145,7 @@ type LedgerLineQuery = PromiseLike<{ data: LedgerLine[] | null; error: QueryErro
   gte: (column: string, value: string) => LedgerLineQuery;
   lte: (column: string, value: string) => LedgerLineQuery;
   order: (column: string, options: { ascending: boolean }) => LedgerLineQuery;
-  limit: (count: number) => LedgerLineQuery;
+  range: (from: number, to: number) => LedgerLineQuery;
 };
 type DebtExportResponse = {
   success?: boolean;
@@ -328,18 +329,15 @@ export default function NppDebtManagement() {
   const { data: customerRevenueLines = [] } = useQuery<LedgerLine[]>({
     queryKey: ["debt-customer-revenue-ranking", dateFrom, dateTo],
     enabled: Boolean(dateFrom && dateTo),
-    queryFn: async () => {
-      const { data, error } = await ledgerDb
+    queryFn: () => fetchAllPages((from, to) => ledgerDb
         .from("revenue_ledger_lines")
         .select("id,revenue_date,invoice_no,channel,customer_id,parent_customer_id,customer_name,product_name,item_note,quantity,unit_price,gross_revenue,source_type,approval_status,audit_status,confidence_status,review_status,reconciliation_status,raw_payload,revenue_source_documents(status,source_name)")
         .eq("approval_status", "approved")
         .gte("revenue_date", dateFrom)
         .lte("revenue_date", dateTo)
         .order("gross_revenue", { ascending: false })
-        .limit(10000);
-      if (error) throw error;
-      return data || [];
-    },
+        .order("id", { ascending: true })
+        .range(from, to)),
   });
   const customerRevenueById = useMemo(() => {
     const totals = new Map<string, number>();
@@ -416,18 +414,15 @@ export default function NppDebtManagement() {
   const { data: ledgerLines = [], isLoading: linesLoading, refetch } = useQuery<LedgerLine[]>({
     queryKey: ["debt-ledger-lines", effectiveCustomerId, dateFrom, dateTo],
     enabled: Boolean(hasViewedDebt && effectiveCustomerId && dateFrom && dateTo),
-    queryFn: async () => {
-      const { data, error } = await ledgerDb
+    queryFn: () => fetchAllPages((from, to) => ledgerDb
         .from("revenue_ledger_lines")
         .select("id,revenue_date,invoice_no,channel,customer_id,parent_customer_id,customer_name,product_name,item_note,quantity,unit_price,gross_revenue,source_type,approval_status,audit_status,confidence_status,review_status,reconciliation_status,raw_payload,revenue_source_documents(status,source_name)")
         .eq("approval_status", "approved")
         .gte("revenue_date", dateFrom)
         .lte("revenue_date", dateTo)
         .order("revenue_date", { ascending: true })
-        .limit(5000);
-      if (error) throw error;
-      return data || [];
-    },
+        .order("id", { ascending: true })
+        .range(from, to)),
   });
 
   const summaries = useMemo<AgencySummary[]>(() => {
