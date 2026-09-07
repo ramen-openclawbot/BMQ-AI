@@ -37,7 +37,7 @@ Cảm ơn Quý khách đã đặt hàng tại BMQ.
 ### CTA
 
 - **Tên CTA 1:** `Xem chi tiết đơn`
-- **Link CTA 1:** `https://dathang.banhmique.vn`
+- **Link CTA 1:** `https://dathang.banhmique.vn/?view=orders&order=<ma_don_hang1>`
 - **Tên CTA 2/3:** để trống
 - **Link CTA 2/3:** để trống
 
@@ -45,6 +45,7 @@ Cảm ơn Quý khách đã đặt hàng tại BMQ.
 
 ```text
 ma_don_hang
+ma_don_hang1
 ten_khach_hang
 ngay_dat
 ngay_giao
@@ -56,6 +57,7 @@ tong_tien
 
 ```text
 ma_don_hang = DOP-20260808-ABC12345
+ma_don_hang1 = DOP-20260808-ABC12345
 ten_khach_hang = Đại lý BMQ Mẫu
 ngay_dat = 08/08/2026
 ngay_giao = 09/08/2026

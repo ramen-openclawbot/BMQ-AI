@@ -24,6 +24,7 @@ test("formats approved transactional template variables in Vietnam time", () => 
   assert.deepEqual(buildDealerOrderConfirmationTemplateData(ORDER), {
     ten_khach_hang: "Đại lý BMQ Mẫu",
     ma_don_hang: "DOP-20260808-ABC12345",
+    ma_don_hang1: "DOP-20260808-ABC12345",
     ngay_dat: "07/08/2026",
     ngay_giao: "08/08/2026",
     tong_so_luong: "1.380",
