@@ -11,7 +11,7 @@ import {
 
 export function Header() {
   const { user, profile, signOut } = useAuth();
-  const { t } = useLanguage();
+  const { t, language, setLanguage } = useLanguage();
 
   const displayName = profile?.full_name || user?.user_metadata?.full_name || user?.email?.split("@")[0] || "User";
   const initials = displayName.charAt(0).toUpperCase();
@@ -28,6 +28,34 @@ export function Header() {
         <Menu className="h-5 w-5 text-muted-foreground" />
       </Button>
       <div className="ml-auto flex items-center gap-2 sm:gap-4">
+        <div
+          role="group"
+          aria-label={t.language}
+          data-header-language="en-vi-v1"
+          className="flex shrink-0 items-center rounded-md border border-border"
+        >
+          <Button
+            type="button"
+            variant={language === "en" ? "default" : "ghost"}
+            className="h-11 min-w-11 px-2"
+            aria-label="English"
+            aria-pressed={language === "en"}
+            onClick={() => setLanguage("en")}
+          >
+            EN
+          </Button>
+          <span aria-hidden="true" className="text-muted-foreground">|</span>
+          <Button
+            type="button"
+            variant={language === "vi" ? "default" : "ghost"}
+            className="h-11 min-w-11 px-2"
+            aria-label="Tiếng Việt"
+            aria-pressed={language === "vi"}
+            onClick={() => setLanguage("vi")}
+          >
+            VN
+          </Button>
+        </div>
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="h-5 w-5 text-muted-foreground" />
         </Button>
