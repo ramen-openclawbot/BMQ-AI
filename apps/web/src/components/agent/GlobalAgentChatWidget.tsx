@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowUp, Loader2, MessageCircle, Sparkles, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -311,6 +311,40 @@ export function GlobalAgentChatWidget() {
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const lastSeqRef = useRef(0);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerObserverRef = useRef<ResizeObserver | null>(null);
+  const resizeComposer = useCallback(() => {
+    const node = composerRef.current;
+    if (!node) return;
+    const lineHeight = 24;
+    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+    const maxHeight = Math.max(lineHeight * 2, Math.floor(Math.min(240, viewportHeight * 0.3) / lineHeight) * lineHeight);
+    node.style.height = "0px";
+    node.style.height = `${Math.min(Math.max(lineHeight, node.scrollHeight), maxHeight)}px`;
+    node.style.overflowY = node.scrollHeight > maxHeight ? "auto" : "hidden";
+  }, []);
+  const attachComposer = useCallback((node: HTMLTextAreaElement | null) => {
+    composerObserverRef.current?.disconnect();
+    composerRef.current = node;
+    if (!node) return;
+    resizeComposer();
+    let width = node.clientWidth;
+    composerObserverRef.current = new ResizeObserver(() => {
+      if (node.clientWidth === width) return;
+      width = node.clientWidth;
+      resizeComposer();
+    });
+    composerObserverRef.current.observe(node);
+  }, [resizeComposer]);
+  useLayoutEffect(() => { resizeComposer(); }, [draft, resizeComposer]);
+  useEffect(() => {
+    window.addEventListener("resize", resizeComposer);
+    window.visualViewport?.addEventListener("resize", resizeComposer);
+    return () => {
+      window.removeEventListener("resize", resizeComposer);
+      window.visualViewport?.removeEventListener("resize", resizeComposer);
+    };
+  }, [resizeComposer]);
   const endRef = useRef<HTMLDivElement | null>(null);
   const enabled = authzLoaded && isOwner && Boolean(session?.access_token && user?.id);
   const routeContext = useMemo(() => getRouteContext(location.pathname), [location.pathname]);
@@ -662,27 +696,30 @@ export function GlobalAgentChatWidget() {
 
           <div className="shrink-0 border-t border-[#e8eaf0] bg-white px-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
             <div className="flex items-end gap-2">
-              <div className="relative min-w-0 flex-1 rounded-[22px] border border-[#dfe2e8] bg-[#f7f8fa] transition focus-within:border-[#8b73ed] focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(109,74,255,0.10)]">
+              <div className="relative min-w-0 flex-1 overflow-clip rounded-[22px] border border-[#dfe2e8] bg-[#f7f8fa] py-3 transition focus-within:border-[#8b73ed] focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(109,74,255,0.10)]">
                 <Textarea
+                  ref={attachComposer}
+                  data-vnagent-composer="autogrow-v1"
+                  aria-label="Tin nhắn cho VNAgent trong BMQ AI"
                   value={draft}
                   rows={1}
                   onChange={(event) => setDraft(event.target.value)}
                   placeholder="Hỏi bất cứ điều gì"
-                  className="max-h-[120px] min-h-[44px] resize-none border-0 bg-transparent px-4 py-2.5 pr-14 text-base leading-[1.45] text-[#252932] shadow-none outline-none ring-0 placeholder:text-[#9a9fab] focus-visible:ring-0 focus-visible:ring-offset-0"
+                  className="min-h-0 resize-none rounded-none border-0 bg-transparent px-4 py-0 text-base leading-6 text-[#252932] shadow-none outline-none ring-0 placeholder:text-[#9a9fab] focus-visible:ring-0 focus-visible:ring-offset-0"
                   onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
+                    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                       event.preventDefault();
                       void sendMessage();
                     }
                   }}
                   disabled={sessionChoiceRequired || connection !== "connected" || isResponding}
                 />
-                <span className="pointer-events-none absolute bottom-3 right-3 text-[8px] uppercase tracking-[0.08em] text-[#a0a5af]">{draft.trim() ? draft.trim().split(/\s+/).length : 0} / 300</span>
               </div>
               <button type="button" className="grid h-11 w-11 shrink-0 place-items-center rounded-full border-0 bg-[#6d4aff] text-white shadow-[0_6px_16px_rgba(109,74,255,0.28)] transition hover:bg-[#5f3ee8] active:scale-[0.97] disabled:cursor-not-allowed disabled:bg-[#d7d9df] disabled:shadow-none" onClick={() => void sendMessage()} disabled={!draft.trim() || sessionChoiceRequired || connection !== "connected" || isResponding} aria-label="Gửi tin nhắn">
                 {isResponding ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <ArrowUp className="h-[18px] w-[18px] stroke-[2.2]" />}
               </button>
             </div>
+            <div className="mt-1 pr-[52px] text-right text-[10px] text-[#a0a5af]">{draft.trim() ? draft.trim().split(/\s+/).length : 0} / 300</div>
           </div>
         </SheetContent>
       </Sheet>

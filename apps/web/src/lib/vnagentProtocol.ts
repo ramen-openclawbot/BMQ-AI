@@ -31,6 +31,7 @@ export type RouteContext = {
 };
 
 export type CurrentPageContext = {
+  app: { id: "bmq-ai"; name: "BMQ AI"; origin: "https://ai.banhmique.vn" };
   pathname: string;
   searchParams: Record<string, string>;
   route: { key: string; label: string };
@@ -111,6 +112,7 @@ export function buildCurrentPageContext(
   });
 
   return {
+    app: { id: "bmq-ai", name: "BMQ AI", origin: "https://ai.banhmique.vn" },
     pathname: pathname.startsWith("/") ? pathname.slice(0, 300) : "/",
     searchParams,
     route: { key: route.key, label: route.label },

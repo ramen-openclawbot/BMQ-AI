@@ -100,6 +100,17 @@ def test_tool_events_remain_durable_but_are_hidden_from_chat_ui() -> None:
     require(PROTOCOL, "sanitizeToolDetails(frame)", "tool frames must be sanitized before rendering")
 
 
+def test_bmq_identity_and_growing_composer() -> None:
+    require(PROTOCOL, 'app: { id: "bmq-ai", name: "BMQ AI", origin: "https://ai.banhmique.vn" }', "each page snapshot identifies the BMQ host app")
+    require(WIDGET, 'data-vnagent-composer="autogrow-v1"', "preserve growing composer marker")
+    require(WIDGET, 'ref={attachComposer}', "resize must run when the sheet mounts")
+    require(WIDGET, '[draft, resizeComposer]', "resize must run for typing and clearing")
+    require(WIDGET, 'overflow-clip', "outer padding must not scroll with caret")
+    require(WIDGET, 'py-3 transition focus-within:', "keep equal fixed vertical padding")
+    forbid(WIDGET, 'max-h-[120px]', "do not restore fixed clipped input")
+    forbid(WIDGET, 'absolute bottom-3 right-3', "word count must not overlay text")
+
+
 if __name__ == "__main__":
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     for test in tests:
