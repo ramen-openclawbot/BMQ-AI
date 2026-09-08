@@ -12,6 +12,17 @@ const errors: Record<string, string> = {
   model_rate_limited: "Luna đang giới hạn lượt gọi. Anh thử lại sau nhé.", timeout: "Truy vấn vượt thời gian cho phép. Anh chọn kỳ ngắn hơn nhé.",
   rate_limited: "Anh gửi nhiều yêu cầu liên tiếp. Vui lòng thử lại sau một phút.",
 };
+const errorsEn: Record<string, string> = {
+  "disabled": "BMQ AI analytics is not enabled.",
+  "unauthorized": "Your session has expired. Please sign in again.",
+  "forbidden": "The analytics pilot is available to business owners only.",
+  "busy": "Your previous request is still processing. Please wait.",
+  "model_unconfigured": "Luna is not configured. The available quick questions still work.",
+  "model_unavailable": "Luna is currently unavailable. VNAgent will not switch models.",
+  "model_rate_limited": "Luna is rate limited. Please retry later.",
+  "timeout": "The query timed out. Please choose a shorter period.",
+  "rate_limited": "Too many requests. Please retry in a minute."
+};
 async function readBody(req: Request, signal: AbortSignal) {
   if (!req.headers.get("content-type")?.includes("application/json")) throw new AnalyticsError("invalid_content_type", 415);
   if (!req.body) throw new AnalyticsError("invalid_request");
@@ -38,11 +49,12 @@ export function createHandler(config: Config) {
   // Per-isolate abuse protection; deploy behind a distributed edge limit before wider rollout.
   const active = new Set<string>(), rate = new Map<string, { until: number; count: number }>();
   return async (req: Request) => {
+    let english = /^en(?:[-,;]|$)/i.test(req.headers.get("accept-language") ?? "");
     const origin = req.headers.get("origin");
-    const headers: Record<string, string> = { "Content-Type": "application/json", "Cache-Control": "no-store", "Vary": "Origin", "Access-Control-Allow-Headers": "authorization,apikey,content-type,x-client-info,x-supabase-client-platform,x-supabase-client-platform-version,x-supabase-client-runtime,x-supabase-client-runtime-version", "Access-Control-Allow-Methods": "POST, OPTIONS" };
+    const headers: Record<string, string> = { "Content-Type": "application/json", "Cache-Control": "no-store", "Vary": "Origin", "Access-Control-Allow-Headers": "authorization,apikey,content-type,accept-language,x-client-info,x-supabase-client-platform,x-supabase-client-platform-version,x-supabase-client-runtime,x-supabase-client-runtime-version", "Access-Control-Allow-Methods": "POST, OPTIONS" };
     if (origin && origins.has(origin)) headers["Access-Control-Allow-Origin"] = origin;
     const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers });
-    if (origin && !origins.has(origin)) return json({ error: "Origin không được phép." }, 403);
+    if (origin && !origins.has(origin)) return json({ error: english ? "Origin not allowed." : "Origin không được phép." }, 403);
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
     if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
     const signal = AbortSignal.any([req.signal, AbortSignal.timeout(20000)]);
@@ -59,6 +71,7 @@ export function createHandler(config: Config) {
       if (++quota.count > 20 || (!rate.has(key) && rate.size >= 256)) throw new AnalyticsError("rate_limited", 429);
       rate.set(key, quota); active.add(key); ownerKey = key;
       const raw = await readBody(req, signal);
+      if (raw?.language === "en" || raw?.language === "vi") english = raw.language === "en";
       const result = await runAnalytics(raw, { ...identity, model: config.model, cache }, signal);
       signal.throwIfAborted();
       config.audit({ event: "bmq_analytics", requestId: result.requestId, userId: identity.scope.user, ...result.provenance });
@@ -68,7 +81,7 @@ export function createHandler(config: Config) {
       const status = signal.aborted ? 504 : error instanceof AnalyticsError ? error.status : 503;
       // Never log bearer, provider response bodies, question text or raw financial records.
       config.audit({ event: "bmq_analytics_error", code, status });
-      return json({ error: errors[code] ?? "Chưa thể trả kết quả đáng tin cậy cho yêu cầu này. Anh thử hỏi rõ chỉ số và kỳ dữ liệu nhé.", code }, status);
+      return json({ error: english ? errorsEn[code] ?? "A reliable result is not available. Please specify the metric and period." : errors[code] ?? "Chưa thể trả kết quả đáng tin cậy cho yêu cầu này. Anh thử hỏi rõ chỉ số và kỳ dữ liệu nhé.", code }, status);
     } finally { if (ownerKey) active.delete(ownerKey); }
   };
 }

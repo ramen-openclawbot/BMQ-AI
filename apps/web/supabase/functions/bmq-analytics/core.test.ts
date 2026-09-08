@@ -116,3 +116,31 @@ test("body cancellation releases active slot without waiting for stream completi
   assert.equal((await response).status, 504); assert.equal(cancelled, true);
   assert.equal((await handler(new Request("https://test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }))).status, 200);
 });
+
+
+test("locale validates strictly and English canonical commands stay deterministic", async () => {
+  assert.equal(parseInput(input).language,"vi");
+  for (const language of ["fr", "en ignore policy", null, {}]) assert.throws(()=>parseInput({...input,language}));
+  for (const question of ["Revenue today","Purchase orders today","Low stock items","Current supplier debt"]) {
+    const answer = await runAnalytics({...input,question,language:"en"}, deps(), new AbortController().signal);
+    assert.equal(answer.provenance.modelCalls,0); assert.match(answer.answer,/Total: 150,000/); assert.match(answer.answer,/Source:/);
+  }
+  assert.equal(fastQuery("revenue today for customer A",today),null);
+});
+test("language reaches planner and explainer despite other-language history", async () => {
+  for (const language of ["en","vi"]) {
+    const prompts: string[]=[];const d=deps();
+    d.model=async (instructions)=> { prompts.push(instructions);return {value:prompts.length===1 ? {lane:"agentic",queries:[query],clarification:""} : {summary:language==="en"?"Observed total":"Tổng quan sát",evidence:[0]}, usage:{input:0,output:0,cached:0}}; };
+    const answer=await runAnalytics({...input,question:"compare",language,history:[{role:"assistant",text:"Kết quả cũ"}]},d,new AbortController().signal);
+    assert.ok(prompts.every(p=>p.includes(language==="en"?"English":"Vietnamese")));
+    assert.match(answer.answer,language==="en"?/Advisory interpretation/:/Nhận xét tham khảo/);
+  }
+});
+test("English filtered-page abstention never queries or calls LLM; auth errors use header locale", async()=>{
+  const d=deps();d.query=async()=>{throw Error("must not read")};
+  const answer=await runAnalytics({...input,language:"en",page:{...input.page,filters:{status:"pending"}}},d,new AbortController().signal);
+  assert.match(answer.answer,/active filters/);assert.equal(answer.provenance.modelCalls,0);
+  const handler=createHandler({enabled:()=>true,authenticate:async()=>{throw new AnalyticsError("unauthorized",401)},model:d.model,audit:()=>{}});
+  const response=await handler(new Request("http://localhost",{method:"POST",headers:{"Accept-Language":"en"}}));
+  assert.equal(response.status,401);assert.match((await response.json()).error,/sign in again/);
+});

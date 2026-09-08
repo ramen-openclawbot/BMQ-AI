@@ -5,8 +5,8 @@ export const MODEL = "gpt-5.6-luna";
 export const SEMANTIC_VERSION = "bmq-analytics-v1";
 export const MAX_QUERIES = 4;
 export type Query = { metric: string; dimension: string | null; start: string; end: string; limit: number; sort?: "asc" | "desc" };
-export type Input = { question: string; page: { route: string; label: string; filters: Record<string, string> }; history: { role: "user" | "assistant"; text: string }[] };
-export type Result = { rows: { dimension: string; value: number }[]; source: string; asOf: string; note: string };
+export type Input = { language: "en" | "vi"; question: string; page: { route: string; label: string; filters: Record<string, string> }; history: { role: "user" | "assistant"; text: string }[] };
+export type Result = { rows: { dimension: string; value: number }[]; source: string; asOf: string; note: string; noteEn?: string };
 export class AnalyticsError extends Error {
   code: string;
   status: number;
@@ -24,7 +24,9 @@ function str(value: unknown, max: number) {
   return value.trim();
 }
 export function parseInput(value: unknown): Input {
-  const input = object(value); keys(input, ["question", "page", "history"]);
+  const input = object(value); keys(input, ["question", "page", "history", "language"]);
+  if (input.language !== undefined && input.language !== "en" && input.language !== "vi") throw new AnalyticsError("invalid_language");
+  const language = input.language === "en" ? "en" : "vi";
   const page = object(input.page); keys(page, ["route", "label", "filters"]);
   const filters = object(page.filters ?? {});
   if (Object.keys(filters).length > 20 || Object.entries(filters).some(([key, value]) => !/^[a-zA-Z0-9_]{1,60}$/.test(key) || typeof value !== "string" || value.length > 120)) throw new AnalyticsError("invalid_filters");
@@ -32,7 +34,7 @@ export function parseInput(value: unknown): Input {
   if (!/^\/[a-zA-Z0-9/_-]*$/.test(route)) throw new AnalyticsError("invalid_route");
   const history = input.history ?? [];
   if (!Array.isArray(history) || history.length > 6) throw new AnalyticsError("history_limit");
-  return { question: str(input.question, 2000), page: { route, label: str(page.label, 100), filters: filters as Record<string, string> }, history: history.map((item) => {
+  return { language, question: str(input.question, 2000), page: { route, label: str(page.label, 100), filters: filters as Record<string, string> }, history: history.map((item) => {
     const h = object(item); keys(h, ["role", "text"]);
     if (h.role !== "user" && h.role !== "assistant") throw new AnalyticsError("invalid_role");
     return { role: h.role, text: str(h.text, 2000) };
@@ -60,7 +62,9 @@ export function validateQuery(value: unknown, today = vnToday()): Query {
 export function normalize(text: string) { return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").toLowerCase().replace(/[?!.,]/g, "").replace(/\s+/g, " ").trim(); }
 // Whole-utterance matches only: do not discard a qualifier such as a branch/customer.
 export function fastQuery(question: string, today = vnToday()): Query | null {
-  const text = normalize(question);
+  const normalized = normalize(question);
+  const aliases: Record<string, string> = { "revenue today": "doanh thu hom nay", "revenue yesterday": "doanh thu hom qua", "revenue this month": "doanh thu thang nay", "purchase orders today": "so po hom nay", "low stock items": "hang sap het", "current supplier debt": "cong no ncc hien tai" };
+  const text = Object.hasOwn(aliases, normalized) ? aliases[normalized] : normalized;
   const match = /^(?:doanh thu|doanh thu kiem soat|doanh so) (hom nay|hom qua|thang nay)(?: bao nhieu)?$/.exec(text);
   let metric: string, start = today, end = today;
   if (match) {
@@ -92,11 +96,14 @@ export const PLAN_SCHEMA = {
       } } },
   },
 };
-export function renderResults(queries: Query[], results: Result[]) {
+export function renderResults(queries: Query[], results: Result[], language: "en" | "vi" = "vi") {
   return queries.map((q, i) => {
     const metric = METRICS[q.metric as keyof typeof METRICS], r = results[i];
-    const rows = r.rows.length ? r.rows.map(row => `${row.dimension}: ${row.value.toLocaleString("vi-VN")} ${metric.unit}`).join("\n") : "Không có dữ liệu trong phạm vi này.";
-    return `${metric.label} (${q.start} → ${q.end}, giờ Việt Nam)\n${rows}\nNguồn: ${r.source} · Đọc lúc ${r.asOf}\n${r.note}`;
+    const english = language === "en";
+    const labels: Record<string, [string, string]> = { controlled_revenue: ["Controlled revenue", "VND"], purchase_order_count: ["Purchase order count", "purchase orders"], low_stock_count: ["Current low-stock item count", "items"], supplier_debt: ["Current supplier payables", "VND"] };
+    const [label, unit] = english ? labels[q.metric] : [metric.label, metric.unit];
+    const rows = r.rows.length ? r.rows.map(row => `${english && q.dimension === null ? "Total" : english && row.dimension === "Chưa xác định" ? "Unknown" : row.dimension}: ${row.value.toLocaleString(english ? "en-US" : "vi-VN")} ${unit}`).join("\n") : english ? "No data in this scope." : "Không có dữ liệu trong phạm vi này.";
+    return `${label} (${q.start} → ${q.end}, ${english ? "Vietnam time" : "giờ Việt Nam"})\n${rows}\n${english ? "Source" : "Nguồn"}: ${r.source} · ${english ? "Read at" : "Đọc lúc"} ${r.asOf}\n${english ? r.noteEn ?? r.note : r.note}`;
   }).join("\n\n");
 }
 export function canonicalKey(scope: { tenant: string; user: string; permission: string }, query: Query, watermark: string) {

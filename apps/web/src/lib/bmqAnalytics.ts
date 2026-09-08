@@ -4,18 +4,18 @@ const analyticsResponse = z.object({
   answer: z.string().trim().min(1), requestId: z.string().min(1),
   provenance: z.object({ lane: z.string(), model: z.string().nullable(), queries: z.array(z.unknown()), elapsedMs: z.number().finite().nonnegative() }),
 });
-export function buildAnalyticsRequest(question: string, route: string, label: string, history: AnalyticsMessage[], filters: Record<string, string> = {}) {
-  return { question: question.trim(), page: { route, label, filters }, history: history.slice(-6).map(({ role, text }) => ({ role, text: text.slice(0, 2000) })) };
+export function buildAnalyticsRequest(question: string, route: string, label: string, history: AnalyticsMessage[], filters: Record<string, string> = {}, language: "en" | "vi" = "vi") {
+  return { language, question: question.trim(), page: { route, label, filters }, history: history.slice(-6).map(({ role, text }) => ({ role, text: text.slice(0, 2000) })) };
 }
-export function parseAnalyticsResponse(data: unknown) {
+export function parseAnalyticsResponse(data: unknown, language: "en" | "vi" = "vi") {
   const result = analyticsResponse.safeParse(data);
-  if (!result.success) throw new Error("Phản hồi BMQ chưa hợp lệ. Vui lòng thử lại.");
+  if (!result.success) throw new Error(language === "en" ? "Invalid BMQ response. Please retry." : "Phản hồi BMQ chưa hợp lệ. Vui lòng thử lại.");
   return result.data;
 }
 
 
-export async function readAnalyticsError(error: unknown): Promise<string> {
-  const fallback = "Chưa gửi được câu hỏi tới BMQ. Vui lòng thử lại.";
+export async function readAnalyticsError(error: unknown, language: "en" | "vi" = "vi"): Promise<string> {
+  const fallback = language === "en" ? "Could not send your question to BMQ. Please retry." : "Chưa gửi được câu hỏi tới BMQ. Vui lòng thử lại.";
   if (!error || typeof error !== "object" || !("context" in error) || !(error.context instanceof Response)) return fallback;
   try {
     const body: unknown = await error.context.clone().json();

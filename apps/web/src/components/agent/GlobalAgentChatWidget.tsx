@@ -5,6 +5,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { chatText } from "@/lib/bmqChatLocale";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { buildAnalyticsRequest, parseAnalyticsResponse, readAnalyticsError, type AnalyticsMessage } from "@/lib/bmqAnalytics";
@@ -82,10 +84,10 @@ type VnagentSessionSummary = {
   createdAt: string;
 };
 
-function formatSessionTime(createdAt: string): string {
+function formatSessionTime(createdAt: string, language: "en" | "vi"): string {
   const created = new Date(createdAt);
   if (Number.isNaN(created.getTime())) return "";
-  return created.toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return created.toLocaleString(language === "en" ? "en-US" : "vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
 type RevenueSummary = {
@@ -297,6 +299,8 @@ function VnagentMark() {
 }
 
 export function GlobalAgentChatWidget() {
+  const { language } = useLanguage();
+  const text = useCallback((value: string) => chatText(value, language), [language]);
   const location = useLocation();
   const { authzLoaded, isOwner, session, user } = useAuth();
   const [open, setOpen] = useState(false);
@@ -353,13 +357,17 @@ export function GlobalAgentChatWidget() {
   }, [resizeComposer]);
   const endRef = useRef<HTMLDivElement | null>(null);
   const enabled = authzLoaded && isOwner && Boolean(session?.access_token && user?.id);
-  const routeContext = useMemo(() => getRouteContext(location.pathname), [location.pathname]);
+  const routeContext = useMemo(() => {
+    const context = getRouteContext(location.pathname);
+    return { ...context, label: chatText(context.label, language) };
+  }, [location.pathname, language]);
   const timeline = useMemo<ChatTimelineItem[]>(() => ANALYTICS_ENABLED
     ? analyticsMessages.map((item) => ({ kind: "message", id: item.id, role: item.role === "assistant" ? "agent" : "user", text: item.text }))
     : timelineFromFrames(frames), [analyticsMessages, frames]);
   const suggestions = ANALYTICS_ENABLED
     ? ["Doanh thu hôm nay", "Số PO hôm nay", "Hàng sắp hết", "Công nợ NCC hiện tại"]
     : routeContext.suggestions;
+  const localizedSuggestions = suggestions.map(text);
   const chatReady = ANALYTICS_ENABLED ? enabled : connection === "connected";
   // Isolate temporary analytics from shared adapter history and account changes.
   useLayoutEffect(() => {
@@ -613,7 +621,7 @@ export function GlobalAgentChatWidget() {
       const active = () => !controller.signal.aborted && analyticsRequestRef.current === controller && analyticsIdentityRef.current === requestUser;
       const id = crypto.randomUUID();
       const currentPage = buildCurrentPageContext(location.pathname, location.search, routeContext);
-      const body = buildAnalyticsRequest(content, location.pathname, routeContext.label, analyticsMessages, currentPage.searchParams);
+      const body = buildAnalyticsRequest(content, location.pathname, routeContext.label, analyticsMessages, currentPage.searchParams, language);
       setAnalyticsMessages((current) => [...current, { id, role: "user", text: content }]);
       setDraft("");
       setErrorMessage(null);
@@ -629,10 +637,10 @@ export function GlobalAgentChatWidget() {
       }, 45000);
       try {
         // SDK supplies current Supabase auth; analytics never uses adapter credentials.
-        const { data, error } = await supabase.functions.invoke("bmq-analytics", { body, signal: controller.signal });
+        const { data, error } = await supabase.functions.invoke("bmq-analytics", { body, headers: { "Accept-Language": language }, signal: controller.signal });
         if (!active()) return;
-        if (error) throw new Error(await readAnalyticsError(error));
-        const result = parseAnalyticsResponse(data);
+        if (error) throw new Error(await readAnalyticsError(error, language));
+        const result = parseAnalyticsResponse(data, language);
         setAnalyticsMessages((current) => [...current, { id: result.requestId, role: "assistant", text: result.answer }]);
       } catch (error) {
         if (!active()) return;
@@ -666,7 +674,7 @@ export function GlobalAgentChatWidget() {
       setIsResponding(false);
       setErrorMessage(error instanceof Error ? error.message : "Không gửi được tin nhắn.");
     }
-  }, [analyticsMessages, enabled, user?.id, connection, draft, ensureSession, isResponding, location.pathname, location.search, rememberFrame, routeContext, sessionChoiceRequired]);
+  }, [language, analyticsMessages, enabled, user?.id, connection, draft, ensureSession, isResponding, location.pathname, location.search, rememberFrame, routeContext, sessionChoiceRequired]);
 
   if (!enabled) return null;
 
@@ -683,7 +691,7 @@ export function GlobalAgentChatWidget() {
           isPaymentRequestsMobileContext && "hidden lg:inline-flex",
         )}
         onClick={() => setOpen(true)}
-        aria-label="Mở VNAgent"
+        aria-label={text("Mở VNAgent")}
       >
         <MessageCircle className="h-6 w-6" />
       </Button>
@@ -692,32 +700,34 @@ export function GlobalAgentChatWidget() {
         <SheetContent
           data-bmq-analytics={ANALYTICS_ENABLED ? "hybrid-v1" : undefined}
           data-vnagent-branding="owner-chat-v1"
+          data-vnagent-locale="app-language-v1"
+          lang={language}
           data-vnagent-ui="chat-v2-clean"
           side="right"
           className="flex w-full flex-col gap-0 overflow-hidden border-l border-[#e4e7ec] bg-[#f7f8fa] p-0 text-[#171a21] shadow-2xl [&>button]:hidden sm:w-[440px] sm:max-w-[440px]"
         >
           <header className="relative flex shrink-0 items-center gap-3 border-b border-[#e8eaf0] bg-white px-4 pb-3 pt-[max(0.875rem,env(safe-area-inset-top))]">
             <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-[#6246ea] via-[#8b5cf6] to-[#b66cff]" />
-            <div className="flex min-w-0 flex-1 items-center gap-2.5" aria-label="VNAgent — Trợ lý AI của BMQ">
+            <div className="flex min-w-0 flex-1 items-center gap-2.5" aria-label={text("VNAgent — Trợ lý AI của BMQ")}>
               <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-[#f0edff] shadow-[inset_0_0_0_1px_rgba(108,78,238,0.12)]"><VnagentMark /></div>
               <div className="min-w-0">
                 <SheetTitle className="text-[17px] font-bold leading-none tracking-[-0.02em] text-[#171a21]">VNAgent</SheetTitle>
                 <div className="mt-1.5 flex items-center gap-1.5 whitespace-nowrap text-[11px] text-[#717784]">
                   <span className={cn("h-1.5 w-1.5 rounded-full", chatReady ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]" : connection === "error" ? "bg-red-400" : "animate-pulse bg-amber-400")} />
-                  <span>{chatReady ? (ANALYTICS_ENABLED ? "Sẵn sàng" : "Đã kết nối") : connection === "error" ? "Mất kết nối" : "Đang kết nối"} · Trợ lý AI của BMQ</span>
+                  <span>{text(chatReady ? (ANALYTICS_ENABLED ? "Sẵn sàng" : "Đã kết nối") : connection === "error" ? "Mất kết nối" : "Đang kết nối")} · {text("Trợ lý AI của BMQ")}</span>
                 </div>
               </div>
             </div>
-            <button type="button" className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[#687080] transition hover:bg-[#f1f2f5] hover:text-[#171a21]" onClick={() => setOpen(false)} aria-label="Đóng VNAgent"><X className="h-5 w-5" /></button>
+            <button type="button" className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[#687080] transition hover:bg-[#f1f2f5] hover:text-[#171a21]" onClick={() => setOpen(false)} aria-label={text("Đóng VNAgent")}><X className="h-5 w-5" /></button>
           </header>
 
           <div className="flex flex-1 flex-col gap-4 overflow-auto bg-[#f7f8fa] px-4 py-5 text-[15px] leading-[1.6]">
-            {ANALYTICS_ENABLED && <p className="text-center text-xs text-[#777e8b]">Trò chuyện tạm thời · Xóa khi tải lại trang hoặc đăng xuất</p>}
+            {ANALYTICS_ENABLED && <p className="text-center text-xs text-[#777e8b]">{text("Trò chuyện tạm thời · Xóa khi tải lại trang hoặc đăng xuất")}</p>}
             {sessionChoiceRequired ? (
               <div data-vnagent-session-picker="recent-3" className="space-y-3 rounded-2xl border border-[#e4e5eb] bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
                 <div>
-                  <div className="font-semibold text-[#252932]">Tiếp tục cuộc trò chuyện</div>
-                  <div className="mt-1 text-xs text-[#777e8b]">Chọn một trong 3 cuộc trò chuyện gần nhất hoặc bắt đầu cuộc trò chuyện mới.</div>
+                  <div className="font-semibold text-[#252932]">{text("Tiếp tục cuộc trò chuyện")}</div>
+                  <div className="mt-1 text-xs text-[#777e8b]">{text("Chọn một trong 3 cuộc trò chuyện gần nhất hoặc bắt đầu cuộc trò chuyện mới.")}</div>
                 </div>
                 <div className="space-y-2">
                   {recentSessions.map((recentSession) => (
@@ -729,25 +739,25 @@ export function GlobalAgentChatWidget() {
                       disabled={Boolean(selectingSessionId)}
                     >
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold text-[#252932]">{recentSession.title || "Cuộc trò chuyện mới"}</span>
-                        <span className="mt-0.5 block text-[11px] text-[#8a8f98]">{formatSessionTime(recentSession.createdAt)}</span>
+                        <span className="block truncate text-sm font-semibold text-[#252932]">{recentSession.title || text("Cuộc trò chuyện mới")}</span>
+                        <span className="mt-0.5 block text-[11px] text-[#8a8f98]">{formatSessionTime(recentSession.createdAt, language)}</span>
                       </span>
-                      <span className="shrink-0 text-xs font-semibold text-[#6847e8]">{selectingSessionId === recentSession.id ? "Đang tải…" : "Tiếp tục"}</span>
+                      <span className="shrink-0 text-xs font-semibold text-[#6847e8]">{text(selectingSessionId === recentSession.id ? "Đang tải…" : "Tiếp tục")}</span>
                     </button>
                   ))}
                 </div>
-                <Button type="button" variant="outline" className="w-full rounded-xl border-[#ded9fa] text-[#5e43c7]" onClick={startNewConversation} disabled={Boolean(selectingSessionId)}>Tạo cuộc trò chuyện mới</Button>
+                <Button type="button" variant="outline" className="w-full rounded-xl border-[#ded9fa] text-[#5e43c7]" onClick={startNewConversation} disabled={Boolean(selectingSessionId)}>{text("Tạo cuộc trò chuyện mới")}</Button>
               </div>
             ) : visibleTimeline.length === 0 && !streamedText && (
               <div className="flex items-start gap-2.5">
                 <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-[#ebe7ff] text-[#6847e8]"><Sparkles className="h-4 w-4" /></span>
-                <div className="max-w-[88%] rounded-2xl rounded-tl-md border border-[#e4e5eb] bg-white px-4 py-3 text-[#252932] shadow-[0_1px_2px_rgba(16,24,40,0.04)]">Dạ thưa anh Tâm, VNAgent đã nhận diện màn hình hiện tại là <b>{routeContext.label}</b>. Anh cần VNAgent hỗ trợ việc gì ạ?</div>
+                <div className="max-w-[88%] rounded-2xl rounded-tl-md border border-[#e4e5eb] bg-white px-4 py-3 text-[#252932] shadow-[0_1px_2px_rgba(16,24,40,0.04)]">{language === "en" ? "You are viewing " : "Dạ thưa anh Tâm, VNAgent đã nhận diện màn hình hiện tại là "}<b>{routeContext.label}</b>{language === "en" ? ". How can VNAgent help?" : ". Anh cần VNAgent hỗ trợ việc gì ạ?"}</div>
               </div>
             )}
             {!ANALYTICS_ENABLED && isRevenueMobileContext ? <RevenueDailyChatCard setOpen={setOpen} /> : null}
             {visibleTimeline.map((item) => (
               <div key={item.id} className={cn("whitespace-pre-wrap break-words shadow-[0_1px_2px_rgba(16,24,40,0.04)]", item.role === "user" ? "max-w-[82%] self-end rounded-2xl rounded-br-md bg-[#6d4aff] px-4 py-3 text-white" : item.role === "system" ? "self-center rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" : "max-w-[92%] self-start rounded-2xl rounded-tl-md border border-[#e4e5eb] bg-white px-4 py-3 text-[#252932]")}>
-                {item.role === "system" ? <span className="sr-only">Hệ thống: </span> : null}
+                {item.role === "system" ? <span className="sr-only">{text("Hệ thống: ")}</span> : null}
                 {item.text}
               </div>
             ))}
@@ -757,14 +767,14 @@ export function GlobalAgentChatWidget() {
               </div>
             )}
             {isResponding && !streamedText && (
-              <div className="flex max-w-[88%] items-center gap-2.5 text-xs font-medium text-[#777e8b]"><span className="grid h-8 w-8 place-items-center rounded-xl bg-[#ebe7ff] text-[#6847e8]"><Loader2 className="h-4 w-4 animate-spin" /></span>VNAgent đang xử lý…</div>
+              <div className="flex max-w-[88%] items-center gap-2.5 text-xs font-medium text-[#777e8b]"><span className="grid h-8 w-8 place-items-center rounded-xl bg-[#ebe7ff] text-[#6847e8]"><Loader2 className="h-4 w-4 animate-spin" /></span>{text("VNAgent đang xử lý…")}</div>
             )}
-            {errorMessage && <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">{errorMessage}</div>}
+            {errorMessage && <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">{text(errorMessage)}</div>}
             {showQuickActions && (
               <div className="rounded-2xl border border-[#e4e5eb] bg-white p-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-                <div className="mb-2.5 text-xs font-medium text-[#777e8b]">Gợi ý nhanh</div>
+                <div className="mb-2.5 text-xs font-medium text-[#777e8b]">{text("Gợi ý nhanh")}</div>
                 <div className="flex flex-wrap gap-2">
-                  {suggestions.map((suggestion) => <button key={suggestion} type="button" className="rounded-full border border-[#ded9fa] bg-[#f7f5ff] px-3 py-2 text-left text-xs font-semibold text-[#5e43c7] transition hover:border-[#8b73ed] hover:bg-[#f1edff] disabled:opacity-50" onClick={() => void sendMessage(suggestion)} disabled={!chatReady || isResponding}>{suggestion}</button>)}
+                  {localizedSuggestions.map((suggestion) => <button key={suggestion} type="button" className="rounded-full border border-[#ded9fa] bg-[#f7f5ff] px-3 py-2 text-left text-xs font-semibold text-[#5e43c7] transition hover:border-[#8b73ed] hover:bg-[#f1edff] disabled:opacity-50" onClick={() => void sendMessage(suggestion)} disabled={!chatReady || isResponding}>{suggestion}</button>)}
                 </div>
               </div>
             )}
@@ -777,11 +787,11 @@ export function GlobalAgentChatWidget() {
                 <Textarea
                   ref={attachComposer}
                   data-vnagent-composer="autogrow-v1"
-                  aria-label="Tin nhắn cho VNAgent trong BMQ AI"
+                  aria-label={text("Tin nhắn cho VNAgent trong BMQ AI")}
                   value={draft}
                   rows={1}
                   onChange={(event) => setDraft(event.target.value)}
-                  placeholder="Hỏi bất cứ điều gì"
+                  placeholder={text("Hỏi bất cứ điều gì")}
                   className="min-h-0 resize-none rounded-none border-0 bg-transparent px-4 py-0 text-base leading-6 text-[#252932] shadow-none outline-none ring-0 placeholder:text-[#9a9fab] focus-visible:ring-0 focus-visible:ring-offset-0"
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -792,7 +802,7 @@ export function GlobalAgentChatWidget() {
                   disabled={sessionChoiceRequired || !chatReady || isResponding}
                 />
               </div>
-              <button type="button" className="grid h-11 w-11 shrink-0 place-items-center rounded-full border-0 bg-[#6d4aff] text-white shadow-[0_6px_16px_rgba(109,74,255,0.28)] transition hover:bg-[#5f3ee8] active:scale-[0.97] disabled:cursor-not-allowed disabled:bg-[#d7d9df] disabled:shadow-none" onClick={() => void sendMessage()} disabled={!draft.trim() || sessionChoiceRequired || !chatReady || isResponding} aria-label="Gửi tin nhắn">
+              <button type="button" className="grid h-11 w-11 shrink-0 place-items-center rounded-full border-0 bg-[#6d4aff] text-white shadow-[0_6px_16px_rgba(109,74,255,0.28)] transition hover:bg-[#5f3ee8] active:scale-[0.97] disabled:cursor-not-allowed disabled:bg-[#d7d9df] disabled:shadow-none" onClick={() => void sendMessage()} disabled={!draft.trim() || sessionChoiceRequired || !chatReady || isResponding} aria-label={text("Gửi tin nhắn")}>
                 {isResponding ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <ArrowUp className="h-[18px] w-[18px] stroke-[2.2]" />}
               </button>
             </div>

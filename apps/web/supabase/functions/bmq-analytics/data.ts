@@ -25,7 +25,7 @@ export const METRICS = {
 } as const;
 export type MetricId = keyof typeof METRICS;
 export type AnalyticsQuery = { metric: string; dimension: string | null; start: string; end: string; limit: number; sort?: "asc" | "desc" };
-export type AnalyticsResult = { rows: Array<{ dimension: string; value: number }>; source: string; asOf: string; note: string };
+export type AnalyticsResult = { rows: Array<{ dimension: string; value: number }>; source: string; asOf: string; note: string; noteEn?: string };
 
 // Query builders are deliberately opaque at this boundary: callers may use any
 // Supabase schema generation, but only these fixed table/column lists are exposed.
@@ -81,6 +81,7 @@ export async function executeQuery(db: ReadClient, query: AnalyticsQuery, signal
   const budget = { remaining: MAX_ROWS };
   let rows: Row[];
   let note: string;
+  let noteEn: string;
   let value: (row: Row) => number;
   let dateColumn = "";
   if (query.metric === "controlled_revenue") {
@@ -91,6 +92,7 @@ export async function executeQuery(db: ReadClient, query: AnalyticsQuery, signal
     dateColumn = "revenue_date";
     value = (row) => amount(row.gross_revenue);
     note = "Cùng định nghĩa dashboard Quản lý doanh thu: gross_revenue đã kiểm soát; không gọi là net revenue hay đã kiểm toán.";
+    noteEn = "Same definition as the Revenue Management dashboard: controlled gross_revenue; not net or audited revenue.";
   } else if (query.metric === "purchase_order_count") {
     rows = await allRows(() => db.from("purchase_orders")
       .select("id,status,order_date", { count: "exact" })
@@ -98,12 +100,14 @@ export async function executeQuery(db: ReadClient, query: AnalyticsQuery, signal
     dateColumn = "order_date";
     value = () => 1;
     note = "Đơn mua hàng theo order_date, gồm mọi trạng thái như báo cáo nhập hàng; không phải đơn bán hoặc số dòng doanh thu.";
+    noteEn = "Purchase orders by order_date, all statuses as in the purchasing report; not sales orders or revenue line counts.";
   } else if (query.metric === "low_stock_count") {
     rows = await allRows(() => db.from("inventory_items")
       .select("id,category,quantity,min_stock", { count: "exact" }), signal, budget);
     rows = rows.filter((row) => amount(row.quantity) <= amount(row.min_stock));
     value = () => 1;
     note = "Snapshot tồn hiện tại trong inventory_items; không áp khoảng ngày yêu cầu, không bao quát sổ kho chuyên biệt. Đếm mặt hàng, không cộng lẫn đơn vị.";
+    noteEn = "Current inventory_items snapshot; no historical date reconstruction or specialist warehouse ledgers. Counts items, not mixed-unit quantities.";
   } else {
     rows = await allRows(() => db.from("payment_requests")
       .select("id,total_amount,payment_method", { count: "exact" })
@@ -122,6 +126,7 @@ export async function executeQuery(db: ReadClient, query: AnalyticsQuery, signal
     }
     value = (row) => Math.max(amount(row.total_amount) - (allocations.get(String(row.id)) ?? 0), 0);
     note = "Snapshot công nợ phải trả NCC hiện tại, giống useDebtStats; không áp khoảng ngày, không phải công nợ NPP/phải thu. Các lần đọc không phải một transaction snapshot.";
+    noteEn = "Current supplier payables, as in useDebtStats; not historical balances or distributor receivables. Separate reads are not a transaction snapshot.";
   }
   const groups = new Map<string, number>();
   if (query.dimension === null) groups.set("Tổng", 0);
@@ -133,9 +138,10 @@ export async function executeQuery(db: ReadClient, query: AnalyticsQuery, signal
   }
   signal.throwIfAborted();
   if (groups.size > query.limit) note += ` Hiển thị ${query.limit}/${groups.size} nhóm ${query.sort === "asc" ? "thấp" : "cao"} nhất, không phải toàn bộ nhóm.`;
+  if (groups.size > query.limit) noteEn += ` Showing ${query.limit}/${groups.size} ${query.sort === "asc" ? "lowest" : "highest"} groups, not all groups.`;
   return {
     rows: Array.from(groups, ([dimension, value]) => ({ dimension, value }))
       .sort((a, b) => (query.sort === "asc" ? a.value - b.value : b.value - a.value) || a.dimension.localeCompare(b.dimension)).slice(0, query.limit),
-    source: metric.source, asOf: new Date().toISOString(), note,
+    source: metric.source, asOf: new Date().toISOString(), note, noteEn,
   };
 }

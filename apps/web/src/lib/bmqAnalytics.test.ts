@@ -1,3 +1,4 @@
+import { chatText } from "./bmqChatLocale.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildAnalyticsRequest, parseAnalyticsResponse, readAnalyticsError, type AnalyticsMessage } from "./bmqAnalytics.ts";
@@ -9,7 +10,7 @@ test("request contains only current page and last six role/text messages, never 
   assert.deepEqual(request.page, { route: "/finance-control/revenue", label: "Doanh thu", filters: {} });
   assert.equal(request.history.length, 6);
   assert.deepEqual(request.history[0], { role: "user", text: "message 4" });
-  assert.deepEqual(Object.keys(request).sort(), ["history", "page", "question"]);
+  assert.deepEqual(Object.keys(request).sort(), ["history", "language", "page", "question"]);
 });
 
 test("history is bounded and does not mutate displayed messages", () => {
@@ -39,4 +40,20 @@ test("HTTP guidance is bounded and malformed or network errors stay generic", as
   for (const error of [new Error("raw transport details"), { context: new Response("not JSON") }, { context: Response.json({ error: { stack: "internal" } }) }]) {
     assert.equal(await readAnalyticsError(error), "Chưa gửi được câu hỏi tới BMQ. Vui lòng thử lại.");
   }
+});
+
+
+test("request follows app language without rewriting old history; English client failures", async () => {
+  const history: AnalyticsMessage[] = [{id:"old",role:"assistant",text:"Kết quả cũ"}];
+  const en = buildAnalyticsRequest("Revenue today", "/", "Dashboard", history, {}, "en");
+  assert.equal(en.language,"en"); assert.equal(en.history[0].text,"Kết quả cũ");
+  assert.equal(buildAnalyticsRequest("x", "/", "Dashboard", history, {}, "vi").language,"vi");
+  assert.throws(()=>parseAnalyticsResponse(null,"en"), /Invalid BMQ response/);
+  assert.match(await readAnalyticsError(new Error("network"),"en"),/Please retry/);
+});
+
+test("UI error copy follows language switches in both directions",()=>{
+  const vi="Phiên đăng nhập đã hết hạn. Anh đăng nhập lại nhé.";
+  const en=chatText(vi,"en"); assert.match(en,/sign in again/);assert.equal(chatText(en,"vi"),vi);
+  assert.equal(chatText("constructor","en"),"constructor");
 });
