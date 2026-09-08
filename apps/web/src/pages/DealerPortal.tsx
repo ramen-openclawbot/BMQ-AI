@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties, type Dispatch, type SetStateAction } from "react";
 import {
   AlertCircle,
   ArrowLeft,
@@ -3215,6 +3215,24 @@ function NppQuickOrderPanel({
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
+  useLayoutEffect(() => {
+    const input = composerRef.current;
+    if (!input) return;
+    const resize = () => {
+      input.style.height = "0px";
+      input.style.height = `${Math.min(input.scrollHeight, 128)}px`;
+    };
+    resize();
+    let width = input.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (input.clientWidth === width) return;
+      width = input.clientWidth;
+      resize();
+    });
+    observer.observe(input);
+    return () => observer.disconnect();
+  }, [orderText, product]);
+
   useEffect(() => {
     if (!sentOrderText && !successMessage && !errorMessage && !duplicateOrderPrompt && !cancellationActive) return;
     const frame = window.requestAnimationFrame(() => {
@@ -3263,6 +3281,7 @@ function NppQuickOrderPanel({
 
   return (
     <div className="flex min-h-[calc(100dvh-88px)] min-w-0 w-full max-w-full flex-col pb-[max(12px,env(safe-area-inset-bottom))]" data-stitch-dealer-chat-agent="conversation-v1" data-stitch-dealer-chat-overflow="contained-v1">
+      <div data-dealer-chat-scroll-content className="contents">
       <div className="py-2 text-center text-[11px] font-medium text-[#a18d96]">Hôm nay</div>
 
       {!cancellationActive && !sentOrderText && !successMessage && !errorMessage && parseStatus === "idle" && !parseMessage ? (
@@ -3604,17 +3623,20 @@ function NppQuickOrderPanel({
       ) : null}
 
       <div ref={chatEndRef} aria-hidden="true" data-dealer-chat-scroll-anchor />
+      </div>
 
       <div
         data-hallmark-chat-composer="inline-sticky"
+        data-dealer-composer-layout="autogrow-v1"
         className="sticky bottom-[max(12px,env(safe-area-inset-bottom))] z-20 mt-3 flex min-w-0 w-full max-w-full items-end gap-2 overflow-hidden rounded-[20px] border border-[#edccda] bg-white p-2 shadow-[0_8px_24px_rgba(105,49,73,0.1)] focus-within:ring-2 focus-within:ring-[#e8a6c3]"
       >
         <Textarea
           ref={composerRef}
+          rows={1}
           value={orderText}
           onChange={(event) => setOrderText(event.target.value)}
           placeholder="Nhắn BMQ Agent…"
-          className="min-h-[52px] max-h-32 w-0 min-w-0 flex-1 resize-none border-0 bg-transparent text-base leading-6 text-[#3f2731] shadow-none placeholder:text-[#a98997] focus-visible:ring-0"
+          className="min-h-11 max-h-32 w-full min-w-0 flex-1 resize-none border-0 bg-transparent text-base leading-6 text-[#3f2731] shadow-none placeholder:text-[#a98997] focus-visible:ring-0"
         />
         <Button
           type="button"
