@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import { buildAnalyticsRequest, parseAnalyticsResponse, readAnalyticsError, type AnalyticsMessage } from "@/lib/bmqAnalytics";
 import {
   appendUniqueFrame,
   buildCurrentPageContext,
@@ -19,6 +20,8 @@ import {
   type UniversalFrame,
   VNAGENT_PROTOCOL_VERSION,
 } from "@/lib/vnagentProtocol";
+
+const ANALYTICS_ENABLED = import.meta.env.VITE_BMQ_ANALYTICS_ENABLED === "true";
 
 const API_URL = resolveVnagentApiUrl(import.meta.env.VITE_VNAGENT_API_URL);
 const AGENT_ID = resolveVnagentAgentId(import.meta.env.VITE_VNAGENT_AGENT_ID);
@@ -298,6 +301,9 @@ export function GlobalAgentChatWidget() {
   const { authzLoaded, isOwner, session, user } = useAuth();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
+  const [analyticsMessages, setAnalyticsMessages] = useState<AnalyticsMessage[]>([]);
+  const analyticsRequestRef = useRef<AbortController | null>(null);
+  const analyticsIdentityRef = useRef<string | null>(null);
   const [frames, setFrames] = useState<UniversalFrame[]>([]);
   const [streamedText, setStreamedText] = useState("");
   const [vnagentToken, setVnagentToken] = useState<string | null>(null);
@@ -348,7 +354,29 @@ export function GlobalAgentChatWidget() {
   const endRef = useRef<HTMLDivElement | null>(null);
   const enabled = authzLoaded && isOwner && Boolean(session?.access_token && user?.id);
   const routeContext = useMemo(() => getRouteContext(location.pathname), [location.pathname]);
-  const timeline = useMemo(() => timelineFromFrames(frames), [frames]);
+  const timeline = useMemo<ChatTimelineItem[]>(() => ANALYTICS_ENABLED
+    ? analyticsMessages.map((item) => ({ kind: "message", id: item.id, role: item.role === "assistant" ? "agent" : "user", text: item.text }))
+    : timelineFromFrames(frames), [analyticsMessages, frames]);
+  const suggestions = ANALYTICS_ENABLED
+    ? ["Doanh thu hôm nay", "Số PO hôm nay", "Hàng sắp hết", "Công nợ NCC hiện tại"]
+    : routeContext.suggestions;
+  const chatReady = ANALYTICS_ENABLED ? enabled : connection === "connected";
+  // Isolate temporary analytics from shared adapter history and account changes.
+  useLayoutEffect(() => {
+    if (!ANALYTICS_ENABLED) return;
+    analyticsIdentityRef.current = enabled ? user?.id ?? null : null;
+    analyticsRequestRef.current?.abort();
+    analyticsRequestRef.current = null;
+    setAnalyticsMessages([]);
+    setDraft("");
+    setErrorMessage(null);
+    setIsResponding(false);
+    return () => {
+      analyticsIdentityRef.current = null;
+      analyticsRequestRef.current?.abort();
+      analyticsRequestRef.current = null;
+    };
+  }, [enabled, user?.id]);
   const visibleTimeline = useMemo(() => timeline.filter((item) => item.kind !== "tool"), [timeline]);
   const showQuickActions = !sessionChoiceRequired && !sessionId && visibleTimeline.length === 0 && !streamedText && !isResponding;
   const isRevenueMobileContext = location.pathname.startsWith("/finance-control/revenue");
@@ -367,7 +395,7 @@ export function GlobalAgentChatWidget() {
   }, [user?.id]);
 
   useEffect(() => {
-    if (!enabled || !session?.access_token || !user?.id) {
+    if (ANALYTICS_ENABLED || !enabled || !session?.access_token || !user?.id) {
       setVnagentToken(null);
       sessionIdRef.current = null;
       setSessionId(null);
@@ -470,7 +498,7 @@ export function GlobalAgentChatWidget() {
   }, [user?.id]);
 
   useEffect(() => {
-    if (!vnagentToken || !enabled) return;
+    if (ANALYTICS_ENABLED || !vnagentToken || !enabled) return;
     let stopped = false;
     let reconnectTimer: number | undefined;
 
@@ -550,7 +578,7 @@ export function GlobalAgentChatWidget() {
 
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ block: "end" });
-  }, [frames, open, streamedText]);
+  }, [frames, analyticsMessages, open, streamedText, isResponding]);
 
   const ensureSession = useCallback(async (title: string): Promise<string> => {
     if (sessionIdRef.current) return sessionIdRef.current;
@@ -573,6 +601,53 @@ export function GlobalAgentChatWidget() {
 
   const sendMessage = useCallback(async (text?: string) => {
     const content = String(text ?? draft).trim();
+    if (ANALYTICS_ENABLED) {
+      if (!content || !enabled || !user?.id || analyticsRequestRef.current) return;
+      if (content.length > 2000) {
+        setErrorMessage("Câu hỏi tối đa 2.000 ký tự. Anh rút gọn rồi gửi lại nhé.");
+        return;
+      }
+      const controller = new AbortController();
+      const requestUser = user.id;
+      analyticsRequestRef.current = controller;
+      const active = () => !controller.signal.aborted && analyticsRequestRef.current === controller && analyticsIdentityRef.current === requestUser;
+      const id = crypto.randomUUID();
+      const currentPage = buildCurrentPageContext(location.pathname, location.search, routeContext);
+      const body = buildAnalyticsRequest(content, location.pathname, routeContext.label, analyticsMessages, currentPage.searchParams);
+      setAnalyticsMessages((current) => [...current, { id, role: "user", text: content }]);
+      setDraft("");
+      setErrorMessage(null);
+      setIsResponding(true);
+      const timeout = window.setTimeout(() => {
+        if (!active()) return;
+        controller.abort();
+        analyticsRequestRef.current = null;
+        setAnalyticsMessages((current) => current.filter((item) => item.id !== id));
+        setDraft(content);
+        setErrorMessage("BMQ phản hồi quá lâu. Nội dung đã được giữ lại để anh gửi lại.");
+        setIsResponding(false);
+      }, 45000);
+      try {
+        // SDK supplies current Supabase auth; analytics never uses adapter credentials.
+        const { data, error } = await supabase.functions.invoke("bmq-analytics", { body, signal: controller.signal });
+        if (!active()) return;
+        if (error) throw new Error(await readAnalyticsError(error));
+        const result = parseAnalyticsResponse(data);
+        setAnalyticsMessages((current) => [...current, { id: result.requestId, role: "assistant", text: result.answer }]);
+      } catch (error) {
+        if (!active()) return;
+        setAnalyticsMessages((current) => current.filter((item) => item.id !== id));
+        setDraft(content);
+        setErrorMessage(error instanceof Error ? error.message : "Không gửi được câu hỏi tới BMQ.");
+      } finally {
+        window.clearTimeout(timeout);
+        if (active()) {
+          analyticsRequestRef.current = null;
+          setIsResponding(false);
+        }
+      }
+      return;
+    }
     const initialSocket = wsRef.current;
     if (!content || sessionChoiceRequired || connection !== "connected" || !initialSocket || initialSocket.readyState !== WebSocket.OPEN || isResponding) return;
     setDraft("");
@@ -591,7 +666,7 @@ export function GlobalAgentChatWidget() {
       setIsResponding(false);
       setErrorMessage(error instanceof Error ? error.message : "Không gửi được tin nhắn.");
     }
-  }, [connection, draft, ensureSession, isResponding, location.pathname, location.search, rememberFrame, routeContext, sessionChoiceRequired]);
+  }, [analyticsMessages, enabled, user?.id, connection, draft, ensureSession, isResponding, location.pathname, location.search, rememberFrame, routeContext, sessionChoiceRequired]);
 
   if (!enabled) return null;
 
@@ -615,6 +690,7 @@ export function GlobalAgentChatWidget() {
 
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent
+          data-bmq-analytics={ANALYTICS_ENABLED ? "hybrid-v1" : undefined}
           data-vnagent-branding="owner-chat-v1"
           data-vnagent-ui="chat-v2-clean"
           side="right"
@@ -627,8 +703,8 @@ export function GlobalAgentChatWidget() {
               <div className="min-w-0">
                 <SheetTitle className="text-[17px] font-bold leading-none tracking-[-0.02em] text-[#171a21]">VNAgent</SheetTitle>
                 <div className="mt-1.5 flex items-center gap-1.5 whitespace-nowrap text-[11px] text-[#717784]">
-                  <span className={cn("h-1.5 w-1.5 rounded-full", connection === "connected" ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]" : connection === "error" ? "bg-red-400" : "animate-pulse bg-amber-400")} />
-                  <span>{connection === "connected" ? "Đã kết nối" : connection === "error" ? "Mất kết nối" : "Đang kết nối"} · Trợ lý AI của BMQ</span>
+                  <span className={cn("h-1.5 w-1.5 rounded-full", chatReady ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]" : connection === "error" ? "bg-red-400" : "animate-pulse bg-amber-400")} />
+                  <span>{chatReady ? (ANALYTICS_ENABLED ? "Sẵn sàng" : "Đã kết nối") : connection === "error" ? "Mất kết nối" : "Đang kết nối"} · Trợ lý AI của BMQ</span>
                 </div>
               </div>
             </div>
@@ -636,6 +712,7 @@ export function GlobalAgentChatWidget() {
           </header>
 
           <div className="flex flex-1 flex-col gap-4 overflow-auto bg-[#f7f8fa] px-4 py-5 text-[15px] leading-[1.6]">
+            {ANALYTICS_ENABLED && <p className="text-center text-xs text-[#777e8b]">Trò chuyện tạm thời · Xóa khi tải lại trang hoặc đăng xuất</p>}
             {sessionChoiceRequired ? (
               <div data-vnagent-session-picker="recent-3" className="space-y-3 rounded-2xl border border-[#e4e5eb] bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
                 <div>
@@ -667,7 +744,7 @@ export function GlobalAgentChatWidget() {
                 <div className="max-w-[88%] rounded-2xl rounded-tl-md border border-[#e4e5eb] bg-white px-4 py-3 text-[#252932] shadow-[0_1px_2px_rgba(16,24,40,0.04)]">Dạ thưa anh Tâm, VNAgent đã nhận diện màn hình hiện tại là <b>{routeContext.label}</b>. Anh cần VNAgent hỗ trợ việc gì ạ?</div>
               </div>
             )}
-            {isRevenueMobileContext ? <RevenueDailyChatCard setOpen={setOpen} /> : null}
+            {!ANALYTICS_ENABLED && isRevenueMobileContext ? <RevenueDailyChatCard setOpen={setOpen} /> : null}
             {visibleTimeline.map((item) => (
               <div key={item.id} className={cn("whitespace-pre-wrap break-words shadow-[0_1px_2px_rgba(16,24,40,0.04)]", item.role === "user" ? "max-w-[82%] self-end rounded-2xl rounded-br-md bg-[#6d4aff] px-4 py-3 text-white" : item.role === "system" ? "self-center rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" : "max-w-[92%] self-start rounded-2xl rounded-tl-md border border-[#e4e5eb] bg-white px-4 py-3 text-[#252932]")}>
                 {item.role === "system" ? <span className="sr-only">Hệ thống: </span> : null}
@@ -687,7 +764,7 @@ export function GlobalAgentChatWidget() {
               <div className="rounded-2xl border border-[#e4e5eb] bg-white p-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
                 <div className="mb-2.5 text-xs font-medium text-[#777e8b]">Gợi ý nhanh</div>
                 <div className="flex flex-wrap gap-2">
-                  {routeContext.suggestions.map((suggestion) => <button key={suggestion} type="button" className="rounded-full border border-[#ded9fa] bg-[#f7f5ff] px-3 py-2 text-left text-xs font-semibold text-[#5e43c7] transition hover:border-[#8b73ed] hover:bg-[#f1edff] disabled:opacity-50" onClick={() => void sendMessage(suggestion)} disabled={connection !== "connected" || isResponding}>{suggestion}</button>)}
+                  {suggestions.map((suggestion) => <button key={suggestion} type="button" className="rounded-full border border-[#ded9fa] bg-[#f7f5ff] px-3 py-2 text-left text-xs font-semibold text-[#5e43c7] transition hover:border-[#8b73ed] hover:bg-[#f1edff] disabled:opacity-50" onClick={() => void sendMessage(suggestion)} disabled={!chatReady || isResponding}>{suggestion}</button>)}
                 </div>
               </div>
             )}
@@ -712,10 +789,10 @@ export function GlobalAgentChatWidget() {
                       void sendMessage();
                     }
                   }}
-                  disabled={sessionChoiceRequired || connection !== "connected" || isResponding}
+                  disabled={sessionChoiceRequired || !chatReady || isResponding}
                 />
               </div>
-              <button type="button" className="grid h-11 w-11 shrink-0 place-items-center rounded-full border-0 bg-[#6d4aff] text-white shadow-[0_6px_16px_rgba(109,74,255,0.28)] transition hover:bg-[#5f3ee8] active:scale-[0.97] disabled:cursor-not-allowed disabled:bg-[#d7d9df] disabled:shadow-none" onClick={() => void sendMessage()} disabled={!draft.trim() || sessionChoiceRequired || connection !== "connected" || isResponding} aria-label="Gửi tin nhắn">
+              <button type="button" className="grid h-11 w-11 shrink-0 place-items-center rounded-full border-0 bg-[#6d4aff] text-white shadow-[0_6px_16px_rgba(109,74,255,0.28)] transition hover:bg-[#5f3ee8] active:scale-[0.97] disabled:cursor-not-allowed disabled:bg-[#d7d9df] disabled:shadow-none" onClick={() => void sendMessage()} disabled={!draft.trim() || sessionChoiceRequired || !chatReady || isResponding} aria-label="Gửi tin nhắn">
                 {isResponding ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <ArrowUp className="h-[18px] w-[18px] stroke-[2.2]" />}
               </button>
             </div>

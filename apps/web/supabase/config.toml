@@ -267,3 +267,8 @@ verify_jwt = false
 # verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
 # Auth is enforced inside the function via requireAuth().
 verify_jwt = false
+
+[functions.bmq-analytics]
+# ES256 user JWT is verified by auth.getUser in the handler; owner role is checked
+# server-side before any query/cache/model call. Feature remains default-off.
+verify_jwt = false
