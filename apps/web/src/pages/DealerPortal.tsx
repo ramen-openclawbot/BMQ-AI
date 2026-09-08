@@ -472,7 +472,7 @@ function DealerTestAccountNotice({ isTest }: { isTest: boolean }) {
 export default function DealerPortal() {
   const [dealerProfileCache, setDealerProfileCache] = useState<DealerProfileCache>(() => readDealerProfileCache());
   const [, setDealerCatalogCache] = useState<DealerCatalogCache>(() => readDealerCatalogCache());
-  const [sessionToken, setSessionToken] = useState(() => localStorage.getItem(DEALER_SESSION_STORAGE_KEY) || "");
+  const [sessionToken, updateSessionToken] = useState(() => localStorage.getItem(DEALER_SESSION_STORAGE_KEY) || "");
   const [loginStep, setLoginStep] = useState<LoginStep>(() =>
     localStorage.getItem(DEALER_SESSION_STORAGE_KEY) ? "catalog" : "phone",
   );
@@ -520,9 +520,9 @@ export default function DealerPortal() {
   const [orderHistoryGranularity, setOrderHistoryGranularity] = useState<DealerOrderHistoryGranularity>("month");
   const [orderHistoryAnchor, setOrderHistoryAnchor] = useState(() => currentDealerHistoryAnchor("month"));
   const [orderHistoryPage, setOrderHistoryPage] = useState(1);
-  const [orderHistoryStatus, setOrderHistoryStatus] = useState<DealerOrderHistoryStatus>("idle");
-  const [orderHistoryError, setOrderHistoryError] = useState("");
-  const [orderHistoryData, setOrderHistoryData] = useState<DealerOrderHistoryResponse | null>(null);
+  const [storedHistoryStatus, setOrderHistoryStatus] = useState<DealerOrderHistoryStatus>("idle");
+  const [storedHistoryError, setOrderHistoryError] = useState("");
+  const [storedHistoryData, setOrderHistoryData] = useState<DealerOrderHistoryResponse | null>(null);
   const [selectedHistoryOrder, setSelectedHistoryOrder] = useState<DealerOrderHistoryOrder | null>(null);
   const [pendingOrderDeepLink, setPendingOrderDeepLink] = useState(readDealerOrderDeepLink);
   const [deepLinkedOrderActive, setDeepLinkedOrderActive] = useState(false);
@@ -535,6 +535,42 @@ export default function DealerPortal() {
     message: "",
   });
   const cancellationSubmittingRef = useRef(false);
+  // Memory-only, scoped to this mounted dealer session. Exact-order results never enter it.
+  const historyCacheRef = useRef(new Map<string, DealerOrderHistoryResponse>());
+  const historyRequestsRef = useRef(new Map<string, ReturnType<typeof callEdgeFunction<DealerOrderHistoryResponse>>>());
+  const historyGenerationRef = useRef(0);
+  const historySessionRef = useRef(sessionToken);
+  const [historyRevision, setHistoryRevision] = useState(0);
+  const [historyViewKey, setHistoryViewKey] = useState("");
+  const historyKey = JSON.stringify([sessionToken, orderHistoryGranularity, orderHistoryAnchor, orderHistoryPage]);
+  const activeHistoryKeyRef = useRef("");
+  activeHistoryKeyRef.current = activeNav === "orders" && !pendingOrderDeepLink && !deepLinkedOrderActive ? historyKey : "";
+  const exactHistory = Boolean(pendingOrderDeepLink || deepLinkedOrderActive);
+  const orderHistoryData = exactHistory ? storedHistoryData
+    : historyCacheRef.current.get(historyKey) || null;
+  const orderHistoryStatus = exactHistory ? storedHistoryStatus
+    : historyViewKey === historyKey && storedHistoryStatus === "error" ? "error"
+    : orderHistoryData ? "live" : "loading";
+  const orderHistoryError = exactHistory || historyViewKey === historyKey ? storedHistoryError : "";
+
+  const invalidateOrderHistory = useCallback(() => {
+    historyGenerationRef.current += 1;
+    historyCacheRef.current.clear();
+    historyRequestsRef.current.clear();
+    setHistoryViewKey("");
+    setOrderHistoryData(null);
+    setOrderHistoryStatus("idle");
+    setOrderHistoryError("");
+    setSelectedHistoryOrder(null);
+    setDeepLinkedOrderActive(false);
+    setHistoryRevision((revision) => revision + 1);
+  }, []);
+
+  const setSessionToken = useCallback((token: string) => {
+    historySessionRef.current = token;
+    invalidateOrderHistory();
+    updateSessionToken(token);
+  }, [invalidateOrderHistory]);
 
   useEffect(() => {
     const shell = document.querySelector<HTMLElement>(".dealer-option-c");
@@ -611,6 +647,7 @@ export default function DealerPortal() {
     try {
       const { data, error, isSessionExpired } = await callEdgeFunction<CatalogResponse>("dealer-catalog", token ? { dealer_token: token } : {}, undefined, 12000);
 
+      if (historySessionRef.current !== token) return;
       if (error) {
         if (isSessionExpired) {
           localStorage.removeItem(DEALER_SESSION_STORAGE_KEY);
@@ -658,7 +695,7 @@ export default function DealerPortal() {
       setCatalogStatus("error");
       console.warn("Không tải được danh sách sản phẩm đại lý", message || error);
     }
-  }, []);
+  }, [setSessionToken]);
 
   useEffect(() => {
     void loadCatalog(sessionToken);
@@ -666,38 +703,53 @@ export default function DealerPortal() {
 
   const loadOrderHistory = useCallback(async () => {
     if (!sessionToken || activeNav !== "orders" || pendingOrderDeepLink || deepLinkedOrderActive) return;
+    const key = historyKey;
+    const generation = historyGenerationRef.current;
+    const cached = historyCacheRef.current.get(key);
+    setHistoryViewKey(key);
+    setOrderHistoryData(cached || null);
     setOrderHistoryStatus("loading");
     setOrderHistoryError("");
 
-    const { data, error, isSessionExpired } = await callEdgeFunction<DealerOrderHistoryResponse>("dealer-order-history", {
-      dealer_token: sessionToken,
-      granularity: orderHistoryGranularity,
-      anchor: orderHistoryAnchor,
-      page: orderHistoryPage,
-      page_size: 10,
-    }, undefined, 12000);
-
-    if (error || !data) {
-      if (isSessionExpired) {
-        localStorage.removeItem(DEALER_SESSION_STORAGE_KEY);
-        localStorage.removeItem(DEALER_PROFILE_CACHE_KEY);
-        localStorage.removeItem(DEALER_CATALOG_CACHE_KEY);
-        setSessionToken("");
-        setLoginStep("phone");
-        setActiveNav("messages");
-      }
+    let request = historyRequestsRef.current.get(key);
+    if (!request) {
+      request = callEdgeFunction<DealerOrderHistoryResponse>("dealer-order-history", {
+        dealer_token: sessionToken,
+        granularity: orderHistoryGranularity,
+        anchor: orderHistoryAnchor,
+        page: orderHistoryPage,
+        page_size: 10,
+      }, undefined, 12000);
+      historyRequestsRef.current.set(key, request);
+    }
+    const { data, error, isSessionExpired } = await request;
+    // Invalidations also retire in-flight requests, including a reused token after logout.
+    if (generation !== historyGenerationRef.current || historySessionRef.current !== sessionToken) return;
+    if (historyRequestsRef.current.get(key) === request) historyRequestsRef.current.delete(key);
+    if (isSessionExpired) {
+      localStorage.removeItem(DEALER_SESSION_STORAGE_KEY);
+      localStorage.removeItem(DEALER_PROFILE_CACHE_KEY);
+      localStorage.removeItem(DEALER_CATALOG_CACHE_KEY);
+      setSessionToken("");
+      setLoginStep("phone");
+      setActiveNav("messages");
+      return;
+    }
+    const valid = !error && data?.success === true && Array.isArray(data.orders);
+    if (valid) historyCacheRef.current.set(key, data);
+    if (activeHistoryKeyRef.current !== key) return;
+    if (!valid) {
       setOrderHistoryError(error || "Không tải được lịch sử đơn hàng. Vui lòng thử lại.");
       setOrderHistoryStatus("error");
       return;
     }
-
     setOrderHistoryData(data);
     setOrderHistoryStatus("live");
-  }, [activeNav, deepLinkedOrderActive, orderHistoryAnchor, orderHistoryGranularity, orderHistoryPage, pendingOrderDeepLink, sessionToken]);
+  }, [activeNav, deepLinkedOrderActive, historyKey, orderHistoryAnchor, orderHistoryGranularity, orderHistoryPage, pendingOrderDeepLink, sessionToken, setSessionToken]);
 
   useEffect(() => {
     void loadOrderHistory();
-  }, [loadOrderHistory]);
+  }, [loadOrderHistory, historyRevision]);
 
   useEffect(() => {
     if (!pendingOrderDeepLink) return;
@@ -705,6 +757,7 @@ export default function DealerPortal() {
     if (!sessionToken) return;
 
     let cancelled = false;
+    const generation = historyGenerationRef.current;
     const loadExactOrder = async () => {
       setOrderHistoryStatus("loading");
       setOrderHistoryError("");
@@ -712,7 +765,7 @@ export default function DealerPortal() {
         dealer_token: sessionToken,
         order_number: pendingOrderDeepLink,
       }, undefined, 12000);
-      if (cancelled) return;
+      if (cancelled || generation !== historyGenerationRef.current || historySessionRef.current !== sessionToken) return;
       if (error || !data?.exact_order) {
         if (isSessionExpired) {
           localStorage.removeItem(DEALER_SESSION_STORAGE_KEY);
@@ -752,7 +805,7 @@ export default function DealerPortal() {
     return () => {
       cancelled = true;
     };
-  }, [pendingOrderDeepLink, sessionToken]);
+  }, [pendingOrderDeepLink, sessionToken, setSessionToken]);
 
   const handleOrderHistoryGranularityChange = (granularity: DealerOrderHistoryGranularity) => {
     setDeepLinkedOrderActive(false);
@@ -944,6 +997,7 @@ export default function DealerPortal() {
       }
       if (!data?.success) throw new Error(data?.message || "Không gửi được đơn hàng.");
 
+      if (historySessionRef.current === sessionToken) invalidateOrderHistory();
       const nextOrderNumber = data.order_number || "";
       setDuplicateOrderPrompt(null);
       setOrderSuccessNumber(nextOrderNumber);
@@ -1105,8 +1159,7 @@ export default function DealerPortal() {
         selectedOrderIds: selectedCancellationOrderIds,
         message: `Đã huỷ ${selectedCount} đơn, tổng ${formatDealerQuantity(physicalQuantity)} bánh.`,
       });
-      setOrderHistoryData(null);
-      setOrderHistoryStatus("idle");
+      if (historySessionRef.current === sessionToken) invalidateOrderHistory();
       setQuickOrderSuggestion(null);
       setQuickOrderSuggestionStatus("idle");
     } catch (error) {
@@ -1634,6 +1687,7 @@ export default function DealerPortal() {
         className="dealer-option-c min-h-[100dvh] overflow-x-clip bg-[var(--dealer-paper)] text-[var(--dealer-ink)]"
         data-dealer-agent-screen="orders"
         data-dealer-order-history="mobile-first"
+        data-dealer-history-cache="session-period-page-swr-v1"
         data-hallmark-dna="dealer-conversational-catalogue"
         data-dealer-ui="dealer-option-c"
       >
@@ -1724,6 +1778,12 @@ export default function DealerPortal() {
             </div>
           </section>
 
+          {!exactHistory && orderHistoryData && historyViewKey === historyKey && storedHistoryStatus === "loading" ? (
+            <p className="mt-5 text-sm text-[var(--dealer-ink-muted)]" data-dealer-order-history-state="refreshing" role="status">
+              Đang cập nhật lịch sử đơn hàng…
+            </p>
+          ) : null}
+
           {orderHistoryStatus === "loading" ? (
             <section className="mt-5 space-y-3" data-dealer-order-history-state="loading" aria-label="Đang tải lịch sử đơn hàng">
               {[0, 1, 2].map((item) => (
@@ -1740,7 +1800,7 @@ export default function DealerPortal() {
             <section className="dealer-history-state mt-5" data-dealer-order-history-state="error" aria-live="polite">
               <AlertCircle className="h-6 w-6 text-red-600" />
               <div>
-                <h2 className="font-extrabold">Chưa tải được lịch sử đơn hàng</h2>
+                <h2 className="font-extrabold">{orderHistoryData ? "Chưa cập nhật được lịch sử đơn hàng" : "Chưa tải được lịch sử đơn hàng"}</h2>
                 <p>{orderHistoryError || "Kết nối chưa ổn định. Vui lòng tải lại."}</p>
               </div>
               <Button type="button" variant="outline" className="dealer-history-state-action" onClick={() => void loadOrderHistory()}>
@@ -1749,7 +1809,7 @@ export default function DealerPortal() {
             </section>
           ) : null}
 
-          {orderHistoryStatus === "live" && historyOrders.length === 0 ? (
+          {(orderHistoryStatus === "live" || (orderHistoryStatus === "error" && orderHistoryData)) && historyOrders.length === 0 ? (
             <section className="dealer-history-state mt-5" data-dealer-order-history-state="empty">
               <ClipboardList className="h-7 w-7 text-[var(--dealer-accent)]" />
               <div>
@@ -1762,7 +1822,7 @@ export default function DealerPortal() {
             </section>
           ) : null}
 
-          {orderHistoryStatus === "live" && historyOrders.length > 0 ? (
+          {(orderHistoryStatus === "live" || (orderHistoryStatus === "error" && orderHistoryData)) && historyOrders.length > 0 ? (
             <section className="mt-5" data-dealer-order-history-list aria-label="Danh sách đơn hàng">
               <div className="dealer-history-list">
                 {historyOrders.map((order) => (
@@ -1801,7 +1861,7 @@ export default function DealerPortal() {
             </section>
           ) : null}
 
-          {orderHistoryStatus === "live" && historyOrders.length > 0 ? (
+          {(orderHistoryStatus === "live" || (orderHistoryStatus === "error" && orderHistoryData)) && historyOrders.length > 0 ? (
             <nav className="dealer-history-pagination mt-5" data-dealer-order-history-pagination aria-label="Phân trang lịch sử đơn hàng">
               <button
                 type="button"
@@ -4160,4 +4220,3 @@ function CartSummary({
     </Card>
   );
 }
-
