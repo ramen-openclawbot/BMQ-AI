@@ -54,14 +54,53 @@ html:has(.dealer-option-c), body:has(.dealer-option-c) { overflow-x: clip; }
   overscroll-behavior-y: contain;
   padding-bottom: 16px;
 }
-.dealer-option-c [data-stitch-dealer-chat-agent] { min-height: 100%; padding-bottom: 0; }
+.dealer-option-c [data-stitch-dealer-chat-agent] { height: 100%; min-height: 0; padding-bottom: 0; }
+.dealer-option-c [data-dealer-chat-scroll-content] {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  /* Leave 12px clear above the composer's 2px focus ring. */
+  margin-bottom: 14px;
+}
+.dealer-option-c [data-dealer-chat-scroll-content] > * { flex-shrink: 0; }
 .dealer-option-c [data-hallmark-chat-composer] {
+  position: relative;
   flex-shrink: 0;
   bottom: 0;
   margin-top: auto;
   border-radius: 12px;
   box-shadow: none;
   background: var(--dealer-paper);
+}
+.dealer-option-c [data-dealer-composer-layout="autogrow-v1"] textarea {
+  flex: 1 1 0%;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  max-height: 128px;
+  padding: 10px 8px;
+  overflow-y: auto;
+  font-size: 16px;
+  line-height: 24px;
+}
+.dealer-option-c [data-dealer-composer-layout="autogrow-v1"] > button {
+  width: 44px;
+  height: 44px;
+}
+.dealer-option-c [data-dealer-order-preview-total="quantity"] > div:last-child {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+}
+.dealer-option-c [data-dealer-order-preview-total] { padding-block: 8px; }
+.dealer-option-c [data-dealer-order-preview-product] { margin-top: 8px; padding-block: 8px; }
+.dealer-option-c [data-dealer-chat-choices="order-ready"] { padding-top: 8px; }
+.dealer-option-c :is([data-dealer-chat-choice="edit"], [data-dealer-chat-choice="new-order"]) {
+  min-height: 44px;
+  font-weight: 500;
 }
 .dealer-option-c [data-dealer-agent-nav] {
   position: relative;
