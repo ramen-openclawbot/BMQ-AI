@@ -15,7 +15,7 @@ const item = { id: 'fixture-item', sku_code: 'BMQ-001', product_name: product.pr
 const order = { id: 'fixture-order', order_number: 'QA-OPTION-C', status: 'submitted', currency: 'VND', total_amount_vnd: 864000, submitted_at: '2026-09-08T02:00:00Z', requested_delivery_date: '2026-09-09', physical_quantity: 135, items: [item] };
 const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE });
 const report = [];
-async function fixture(width, authenticated = true, npp = false, duplicate = false, screenshotOrder = false) {
+async function fixture(width, authenticated = true, npp = false, duplicate = false, screenshotOrder = false, controls = {}) {
   const context = await browser.newContext({ viewport: { width, height: 844 }, isMobile: width < 768, hasTouch: width < 768, serviceWorkers: 'block' });
   const calls = [], errors = [], blocked = [];
   await context.route('**/*', async route => {
@@ -23,6 +23,10 @@ async function fixture(width, authenticated = true, npp = false, duplicate = fal
     if (url.pathname.includes('/functions/v1/')) {
       const name = url.pathname.split('/').pop(), body = request.postDataJSON();
       calls.push({ name, body });
+      if (controls.api) {
+        const response = await controls.api(name, body);
+        if (response) return route.fulfill(response);
+      }
       let data;
       if (name === 'dealer-public-config') data = { success: true, banners: [] };
       else if (name === 'dealer-catalog') data = { success: true, customer, products: [screenshotOrder ? { ...product, price_vnd: 6500 } : product], dealer_routes: npp ? [{ id: 'fixture-route', name: 'Điểm kiểm thử', code: 'QA-NPP' }] : [] };
@@ -47,6 +51,159 @@ async function fixture(width, authenticated = true, npp = false, duplicate = fal
   await page.goto(`${base}/dealer`);
   return { context, page, calls, errors, blocked };
 }
+// Controlled transport on the actual React route. No API request leaves Playwright.
+async function historyCacheRegression() {
+  const delayMs = 900;
+  const timings = [];
+  const nav = (page, name) => page.locator('[data-dealer-agent-nav]').getByRole('button', { name, exact: true }).click();
+  const row = page => page.locator('.dealer-history-row');
+  const pending = page => page.locator('[data-dealer-order-history-state="loading"]');
+  const waitUntil = async predicate => {
+    for (let i = 0; i < 200 && !predicate(); i++) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.ok(predicate(), 'Expected mocked request/completion');
+  };
+  const setup = async width => {
+    const state = { delay: delayMs, status: 200, invalid: false, empty: false, requests: [], finished: 0, version: 0, token: 'synthetic-session' };
+    const f = await fixture(width, true, false, false, false, { api: async (name, body) => {
+      if (name === 'dealer-auth-verify') return { json: { success: true, dealer_token: state.token } };
+      if (name === 'dealer-order-history' && body.action === 'self_cancel_list') return { json: { success: true, orders: [order] } };
+      if (name === 'dealer-order-history' && body.action === 'self_cancel_confirm') {
+        state.version++;
+        return { json: { success: true, cancellation: { selected_count: 1, physical_quantity: 135, orders: [order] } } };
+      }
+      if (name === 'dealer-order-submit') { state.version++; return { json: { success: true, order_number: 'QA-LOCAL-SUBMIT' } }; }
+      if (name !== 'dealer-order-history' || body.quick_reorder || body.order_number) return;
+      const { delay, status, invalid, empty, version } = state;
+      const label = `${body.dealer_token}/${body.granularity}/${body.anchor}/${body.page}/v${version}`;
+      state.requests.push({ ...body, label });
+      await new Promise(resolve => setTimeout(resolve, delay));
+      state.finished++;
+      return { status, json: status !== 200 ? { error: 'Synthetic refresh failure' } : invalid ? { success: false, error: 'Synthetic invalid data' } : {
+        success: true, orders: empty ? [] : [{ ...order, order_number: label }],
+        summary: { order_count: empty ? 0 : 1, total_physical_quantity: empty ? 0 : 135, total_amount_vnd: empty ? 0 : 864000 },
+        pagination: { page: body.page, total_pages: 2 },
+      } };
+    } });
+    await f.page.locator('[data-dealer-agent-screen="inbox"]').waitFor();
+    return { ...f, state };
+  };
+  for (const width of [390, 1440]) {
+    const { context, page, state, errors } = await setup(width);
+    const start = performance.now();
+    await nav(page, 'Đơn hàng');
+    await pending(page).waitFor();
+    assert.equal(await row(page).count(), 0, 'Cold load must wait for API');
+    await row(page).waitFor();
+    const coldMs = performance.now() - start;
+    const original = await row(page).innerText();
+    await nav(page, 'Tin nhắn');
+    const back = performance.now();
+    await nav(page, 'Đơn hàng');
+    await waitUntil(() => state.requests.length === 2);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await row(page).waitFor();
+    const retainedMs = performance.now() - back;
+    timings.push({ width, controlledApiDelayMs: delayMs, coldMs, retainedMs });
+    await writeFile(`${output}/history-timings.json`, JSON.stringify(timings, null, 2));
+    if (process.env.DEALER_HISTORY_BASELINE) { await context.close(); continue; }
+    assert.ok(retainedMs < delayMs / 2, `Retained list must precede refresh: ${retainedMs}ms`);
+    assert.equal(await row(page).innerText(), original);
+    assert.ok(await page.locator('[data-dealer-order-history-state="refreshing"]').isVisible(), 'Retained data has explicit background pending state');
+    await waitUntil(() => state.requests.length === 2);
+    await nav(page, 'Tin nhắn'); await nav(page, 'Đơn hàng');
+    await nav(page, 'Tin nhắn'); await nav(page, 'Đơn hàng');
+    assert.equal(state.requests.length, 2, 'Rapid navigation deduplicates simultaneous same-key requests');
+    await waitUntil(() => state.finished === 2);
+    await page.getByRole('tab', { name: 'Ngày', exact: true }).click();
+    await pending(page).waitFor(); assert.equal(await row(page).count(), 0, 'Different granularity cannot show month');
+    await waitUntil(() => state.requests.length === 3);
+    state.delay = 80;
+    await page.getByRole('tab', { name: 'Năm', exact: true }).click();
+    await row(page).waitFor(); assert.match(await row(page).innerText(), /\/year\//);
+    await waitUntil(() => state.finished === 4);
+    assert.match(await row(page).innerText(), /\/year\//, 'Older day response cannot overwrite active year');
+    await page.getByLabel('Chọn năm').selectOption('2025');
+    await row(page).filter({ hasText: '/year/2025/1/' }).waitFor();
+    await page.getByRole('button', { name: 'Sau', exact: true }).click();
+    await row(page).filter({ hasText: '/year/2025/2/' }).waitFor();
+    await page.getByRole('button', { name: 'Trước', exact: true }).click();
+    await row(page).filter({ hasText: '/year/2025/1/' }).waitFor();
+    await page.waitForTimeout(150);
+    state.status = 500;
+    await nav(page, 'Tin nhắn'); await nav(page, 'Đơn hàng');
+    await page.locator('[data-dealer-order-history-state="error"]').waitFor();
+    assert.match(await row(page).innerText(), /\/year\/2025\/1\//, 'Refresh error retains same-key data');
+    state.status = 200;
+    await page.getByRole('button', { name: 'Tải lại', exact: true }).click();
+    await page.locator('[data-dealer-order-history-state="error"]').waitFor({ state: 'hidden' });
+    await page.waitForTimeout(150);
+    state.invalid = true;
+    await page.getByLabel('Chọn năm').selectOption('2024');
+    await page.locator('[data-dealer-order-history-state="error"]').waitFor();
+    assert.equal(await row(page).count(), 0, 'success:false is not valid cached data');
+    state.invalid = false; state.empty = true;
+    await page.getByRole('button', { name: 'Tải lại', exact: true }).click();
+    await page.locator('[data-dealer-order-history-state="empty"]').waitFor();
+    await nav(page, 'Tin nhắn'); state.delay = delayMs; await nav(page, 'Đơn hàng');
+    assert.ok(await page.locator('[data-dealer-order-history-state="empty"]').isVisible(), 'Valid empty result is retained');
+    assert.deepEqual(errors, []);
+    await context.close();
+  }
+  if (process.env.DEALER_HISTORY_BASELINE) return;
+  for (const mutation of ['submit', 'cancel']) {
+    const { context, page, state } = await setup(390);
+    state.delay = 80;
+    await nav(page, 'Đơn hàng'); await row(page).waitFor();
+    state.delay = delayMs;
+    await nav(page, 'Tin nhắn'); await nav(page, 'Đơn hàng');
+    await waitUntil(() => state.requests.length === 2);
+    await nav(page, 'Tin nhắn');
+    await page.locator('[data-dealer-agent-row="order"]').click();
+    await page.getByPlaceholder('Nhắn BMQ Agent…').fill(mutation === 'submit' ? '120 đổi 10 bù 5' : 'huỷ');
+    await page.getByRole('button', { name: 'Gửi nội dung đơn', exact: true }).click();
+    if (mutation === 'submit') {
+      await page.locator('[data-dealer-chat-choice="quick-submit"]').click();
+      await page.locator('[data-dealer-chat-message="success"]').waitFor();
+    } else {
+      await page.locator('[data-dealer-cancellation-choice] input').check();
+      await page.locator('[data-dealer-cancellation-action="send"]').click();
+      await page.locator('[data-dealer-cancellation-action="confirm"]').click();
+      await page.locator('[data-dealer-cancellation-stage="success"]').waitFor();
+    }
+    await nav(page, 'Đơn hàng');
+    await pending(page).waitFor(); assert.equal(await row(page).count(), 0, `${mutation} invalidates retained list`);
+    await row(page).waitFor(); assert.match(await row(page).innerText(), /v1/, 'Pre-mutation request cannot repopulate cache');
+    await context.close();
+  }
+  for (const reset of ['logout', 'expiry']) {
+    const { context, page, state } = await setup(390);
+    state.delay = 80;
+    await nav(page, 'Đơn hàng'); await row(page).waitFor();
+    state.delay = delayMs;
+    if (reset === 'expiry') state.status = 401;
+    await nav(page, 'Tin nhắn'); await nav(page, 'Đơn hàng');
+    await waitUntil(() => state.requests.length === 2);
+    if (reset === 'logout') {
+      await nav(page, 'Tài khoản'); await page.getByRole('button', { name: 'Đăng xuất', exact: true }).click();
+    }
+    await page.locator('[data-dealer-agent-screen="login"]').waitFor();
+    state.token = reset === 'logout' ? 'synthetic-customer-b' : 'synthetic-session';
+    state.status = 200;
+    await page.getByLabel('Số điện thoại', { exact: true }).fill('0900000000');
+    await page.getByRole('button', { name: 'Gửi mã OTP Zalo' }).click();
+    await page.locator('input[data-input-otp]').fill('123456');
+    await page.getByRole('button', { name: 'Xác thực OTP', exact: true }).click();
+    await page.locator('[data-dealer-agent-screen="inbox"]').waitFor();
+    // The existing account dialog stays open across logout/login; dismiss it before navigation.
+    if (reset === 'logout') await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await nav(page, 'Đơn hàng'); await pending(page).waitFor();
+    assert.equal(await row(page).count(), 0, 'Session reset clears even reused session token');
+    await row(page).waitFor(); assert.ok((await row(page).innerText()).includes(state.token));
+    await context.close();
+  }
+  report.push({ historyCache: 'cold/retained, key isolation, races, dedupe, retry, errors, empty, mutations, logout/expiry', timings });
+}
+
 async function color(locator, property, expected) {
   assert.equal(await locator.evaluate((node, property) => getComputedStyle(node)[property], property), expected);
 }
@@ -193,6 +350,8 @@ async function composerRegression() {
   report.push({ composerWidths: [320, 375, 390, 414, 768, 1440], passed: true });
 }
 try {
+  await historyCacheRegression();
+  if (!process.env.DEALER_HISTORY_ONLY) {
   await composerRegression();
   for (const width of [320, 375, 390, 414, 768, 1440]) {
     const { context, page, calls, errors, blocked } = await fixture(width);
@@ -315,6 +474,7 @@ try {
     assert.deepEqual(submissions[1].body.items, submissions[0].body.items);
     report.push({ quickSubmitDuplicateExplicitContinue: true });
     await context.close();
+  }
   }
   console.log(JSON.stringify(report, null, 2));
   await writeFile(`${output}/report.json`, JSON.stringify(report, null, 2));
