@@ -43,6 +43,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import { cn } from "@/lib/utils";
 import "@/styles/dealer-order-history.css";
+import "@/styles/dealer-option-c.css";
 
 type LoginStep = "phone" | "otp" | "catalog";
 
@@ -534,6 +535,23 @@ export default function DealerPortal() {
     message: "",
   });
   const cancellationSubmittingRef = useRef(false);
+
+  useEffect(() => {
+    const shell = document.querySelector<HTMLElement>(".dealer-option-c");
+    const viewport = window.visualViewport;
+    if (!shell || !viewport) return;
+    const syncViewport = () => {
+      shell.style.setProperty("--dealer-viewport-height", `${viewport.height}px`);
+      shell.style.setProperty("--dealer-viewport-top", `${viewport.offsetTop}px`);
+    };
+    syncViewport();
+    viewport.addEventListener("resize", syncViewport);
+    viewport.addEventListener("scroll", syncViewport);
+    return () => {
+      viewport.removeEventListener("resize", syncViewport);
+      viewport.removeEventListener("scroll", syncViewport);
+    };
+  }, [sessionToken, activeNav]);
 
   const loadLandingConfig = useCallback(async () => {
     try {
@@ -1613,12 +1631,13 @@ export default function DealerPortal() {
 
     return (
       <div
-        className="min-h-[100dvh] overflow-x-clip bg-[var(--dealer-paper)] text-[var(--dealer-ink)]"
+        className="dealer-option-c min-h-[100dvh] overflow-x-clip bg-[var(--dealer-paper)] text-[var(--dealer-ink)]"
         data-dealer-agent-screen="orders"
         data-dealer-order-history="mobile-first"
         data-hallmark-dna="dealer-conversational-catalogue"
-        style={DEALER_HALLMARK_TOKENS}
+        data-dealer-ui="dealer-option-c"
       >
+        <div className="dealer-option-c-workspace">
         <header className="sticky top-0 z-30 border-b border-[var(--dealer-rule)] bg-white/95 px-4 pb-3 pt-[max(12px,env(safe-area-inset-top))] backdrop-blur">
           <div className="mx-auto flex max-w-3xl items-center gap-3">
             <button
@@ -1737,7 +1756,7 @@ export default function DealerPortal() {
                 <h2 className="font-extrabold">Chưa có đơn trong kỳ này</h2>
                 <p>Đổi khoảng thời gian hoặc bắt đầu một đơn mới cùng BMQ Agent.</p>
               </div>
-              <Button type="button" className="dealer-history-state-action bg-[var(--dealer-accent)] text-white hover:bg-[var(--dealer-accent-strong)]" onClick={() => setActiveNav("order")}>
+              <Button type="button" className="dealer-option-c-primary dealer-history-state-action bg-[var(--dealer-accent)] text-white hover:bg-[var(--dealer-accent-strong)]" onClick={() => setActiveNav("order")}>
                 Đặt đơn mới
               </Button>
             </section>
@@ -1833,8 +1852,8 @@ export default function DealerPortal() {
         <Dialog open={Boolean(selectedHistoryOrder)} onOpenChange={(open) => !open && setSelectedHistoryOrder(null)}>
           <DialogContent
             data-dealer-order-history-detail
-            className="dealer-history-detail max-w-xl p-0"
-            style={DEALER_HALLMARK_TOKENS}
+            className="dealer-option-c-dialog dealer-history-detail max-w-xl p-0"
+            data-dealer-ui="dealer-option-c"
           >
             {selectedHistoryOrder ? (
               <>
@@ -1892,7 +1911,7 @@ export default function DealerPortal() {
         </Dialog>
 
         <Dialog open={dealerProfileOpen} onOpenChange={setDealerProfileOpen}>
-          <DialogContent className="max-w-sm rounded-[28px] border-[#f0d5e1] bg-[#fff9fb] text-[#35252c]">
+          <DialogContent data-dealer-ui="dealer-option-c" className="dealer-option-c-dialog max-w-sm rounded-[28px] border-[#f0d5e1] bg-[#fff9fb] text-[#35252c]">
             <DialogHeader>
               <DialogTitle>Tài khoản đặt hàng</DialogTitle>
               <DialogDescription>{dealerDisplayName}</DialogDescription>
@@ -1903,6 +1922,7 @@ export default function DealerPortal() {
             </Button>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
     );
   }
@@ -1910,11 +1930,12 @@ export default function DealerPortal() {
   if (activeNav === "messages") {
     return (
       <div
-        className="min-h-[100dvh] bg-[var(--dealer-surface)] text-[var(--dealer-ink)]"
+        className="dealer-option-c min-h-[100dvh] bg-[var(--dealer-surface)] text-[var(--dealer-ink)]"
         data-dealer-agent-screen="inbox"
         data-hallmark-dna="dealer-conversational-catalogue"
-        style={DEALER_HALLMARK_TOKENS}
+        data-dealer-ui="dealer-option-c"
       >
+        <div className="dealer-option-c-workspace">
         <header className="sticky top-0 z-30 bg-[#df78a7] px-4 pb-4 pt-[max(14px,env(safe-area-inset-top))] text-white shadow-sm">
           <div className="mx-auto flex max-w-2xl items-center justify-between gap-4">
             <h1 className="text-[28px] font-extrabold tracking-tight">Tin nhắn</h1>
@@ -1985,7 +2006,7 @@ export default function DealerPortal() {
 
         <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-[#eee4e8] bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-5px_20px_rgba(71,39,53,0.05)] backdrop-blur" data-dealer-agent-nav="messages-orders-account">
           <div className="mx-auto grid h-16 max-w-2xl grid-cols-3">
-            <button type="button" className="flex flex-col items-center justify-center gap-1 text-[#d94f8a]">
+            <button type="button" aria-current="page" className="flex flex-col items-center justify-center gap-1 text-[#d94f8a]">
               <MessageCircle className="h-5 w-5" />
               <span className="text-[11px] font-bold">Tin nhắn</span>
             </button>
@@ -2001,7 +2022,7 @@ export default function DealerPortal() {
         </nav>
 
         <Dialog open={dealerProfileOpen} onOpenChange={setDealerProfileOpen}>
-          <DialogContent className="max-w-sm rounded-[28px] border-[#f0d5e1] bg-[#fff9fb] text-[#35252c]">
+          <DialogContent data-dealer-ui="dealer-option-c" className="dealer-option-c-dialog max-w-sm rounded-[28px] border-[#f0d5e1] bg-[#fff9fb] text-[#35252c]">
             <DialogHeader>
               <DialogTitle>Tài khoản đặt hàng</DialogTitle>
               <DialogDescription>{dealerDisplayName}</DialogDescription>
@@ -2012,6 +2033,7 @@ export default function DealerPortal() {
             </Button>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
     );
   }
@@ -2019,12 +2041,13 @@ export default function DealerPortal() {
   if (activeNav === "order") {
     return (
       <div
-        className="min-h-[100dvh] bg-[var(--dealer-paper)] text-[var(--dealer-ink)]"
+        className="dealer-option-c min-h-[100dvh] bg-[var(--dealer-paper)] text-[var(--dealer-ink)]"
         data-dealer-agent-screen="chat"
         data-hallmark-dna="dealer-conversational-catalogue"
         data-hallmark-chat="bottom-clustered"
-        style={DEALER_HALLMARK_TOKENS}
+        data-dealer-ui="dealer-option-c"
       >
+        <div className="dealer-option-c-workspace">
         <header className="sticky top-0 z-40 border-b border-[#f2dce5] bg-white/95 px-3 pb-3 pt-[max(10px,env(safe-area-inset-top))] backdrop-blur">
           <div className="mx-auto flex max-w-2xl items-center gap-3">
             <button type="button" aria-label="Quay lại danh sách tin nhắn" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#5a4650] hover:bg-[#fff0f6]" onClick={() => setActiveNav("messages")}>
@@ -2107,12 +2130,20 @@ export default function DealerPortal() {
             onSubmit={handleProductQuantitySubmit}
           />
         </main>
+        <nav data-dealer-agent-nav="messages-orders-account" aria-label="Điều hướng đại lý">
+          <div className="mx-auto grid h-16 max-w-2xl grid-cols-3">
+            <button type="button" aria-current="page" onClick={() => setActiveNav("messages")}><MessageCircle className="h-5 w-5" /><span>Tin nhắn</span></button>
+            <button type="button" onClick={() => setActiveNav("orders")}><ClipboardList className="h-5 w-5" /><span>Đơn hàng</span></button>
+            <button type="button" onClick={() => setDealerProfileOpen(true)}><UserRound className="h-5 w-5" /><span>Tài khoản</span></button>
+          </div>
+        </nav>
         <Dialog open={dealerProfileOpen} onOpenChange={setDealerProfileOpen}>
-          <DialogContent className="max-w-sm rounded-[28px] border-[#f0d5e1] bg-[#fff9fb]">
+          <DialogContent data-dealer-ui="dealer-option-c" className="dealer-option-c-dialog max-w-sm rounded-[28px] border-[#f0d5e1] bg-[#fff9fb]">
             <DialogHeader><DialogTitle>{dealerDisplayName}</DialogTitle></DialogHeader>
             <Button variant="outline" className="h-11 rounded-2xl" onClick={handleLogoutDealer}><LogOut className="h-4 w-4" />Đăng xuất</Button>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
     );
   }
@@ -3281,7 +3312,7 @@ function NppQuickOrderPanel({
             <span className="whitespace-nowrap text-lg font-extrabold text-[#b33f72]">{formatVnd(quickOrderProduct.price * quickOrderItem.ordered_quantity)}</span>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <Button type="button" className="h-11 rounded-xl bg-[#d94f8a] font-extrabold text-white hover:bg-[#c43f79]" data-dealer-quick-reorder-action="submit" disabled={submitting} onClick={onQuickReorderSubmit}>
+            <Button type="button" className="dealer-option-c-primary h-11 rounded-xl bg-[#d94f8a] font-extrabold text-white hover:bg-[#c43f79]" data-dealer-quick-reorder-action="submit" disabled={submitting} onClick={onQuickReorderSubmit}>
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Đặt nhanh
             </Button>
             <Button type="button" variant="outline" className="h-11 rounded-xl border-[#e7b9cd] bg-white font-extrabold text-[#a73f70] hover:bg-[#fff0f6]" data-dealer-quick-reorder-action="edit" disabled={submitting} onClick={onQuickReorderEdit}>
@@ -3329,7 +3360,7 @@ function NppQuickOrderPanel({
           <div className="text-sm font-extrabold leading-6 text-[#543943]">Đơn hàng tương tự đã được đặt! Quý khách hàng muốn tiếp tục hay huỷ?</div>
           <div className="mt-1 text-xs font-semibold text-[#8a6f7a]">Mã đơn trước: {duplicateOrderPrompt.orderNumber}</div>
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <Button type="button" className="h-11 rounded-xl bg-[#d94f8a] font-extrabold text-white hover:bg-[#c43f79]" data-dealer-chat-choice="duplicate-continue" disabled={submitting} onClick={onDuplicateContinue}>
+            <Button type="button" className="dealer-option-c-primary h-11 rounded-xl bg-[#d94f8a] font-extrabold text-white hover:bg-[#c43f79]" data-dealer-chat-choice="duplicate-continue" disabled={submitting} onClick={onDuplicateContinue}>
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackagePlus className="h-4 w-4" />} Tiếp tục
             </Button>
             <Button type="button" variant="outline" className="h-11 rounded-xl border-[#d7bdc8] bg-white font-extrabold text-[#704f5e] hover:bg-[#fff0f6]" data-dealer-chat-choice="duplicate-cancel" disabled={submitting} onClick={onDuplicateCancel}>
@@ -3365,7 +3396,7 @@ function NppQuickOrderPanel({
           </div>
           <Button
             type="button"
-            className="mt-4 h-11 w-full rounded-xl bg-[#d94f8a] font-extrabold text-white hover:bg-[#c43f79]"
+            className="dealer-option-c-primary mt-4 h-11 w-full rounded-xl bg-[#d94f8a] font-extrabold text-white hover:bg-[#c43f79]"
             data-dealer-cancellation-action="send"
             disabled={cancellation.selectedOrderIds.length === 0}
             onClick={onCancellationSend}
@@ -3395,7 +3426,7 @@ function NppQuickOrderPanel({
             <Button type="button" variant="outline" className="h-11 rounded-xl border-[#d7bdc8] bg-white font-bold text-[#704f5e] hover:bg-[#fff0f6]" disabled={cancellation.stage === "submitting"} onClick={onCancellationBack}>
               Quay lại
             </Button>
-            <Button type="button" className="h-11 rounded-xl bg-[#c83f73] font-extrabold text-white hover:bg-[#ad3262]" data-dealer-cancellation-action="confirm" disabled={cancellation.stage === "submitting"} onClick={onCancellationConfirm}>
+            <Button type="button" className="dealer-option-c-primary h-11 rounded-xl bg-[#c83f73] font-extrabold text-white hover:bg-[#ad3262]" data-dealer-cancellation-action="confirm" disabled={cancellation.stage === "submitting"} onClick={onCancellationConfirm}>
               {cancellation.stage === "submitting" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Xác nhận huỷ
             </Button>
           </div>
@@ -3490,7 +3521,7 @@ function NppQuickOrderPanel({
                 </div>
               </button>
               <div className="mt-1 space-y-1 border-t border-[#f2dfe7] pt-3" data-dealer-chat-choices="order-ready" role="group" aria-label="Chọn thao tác với đơn hàng">
-                <Button type="button" className="h-11 w-full whitespace-nowrap rounded-xl bg-[#d94f8a] font-extrabold text-white shadow-sm hover:bg-[#c43f79]" data-dealer-chat-choice="quick-submit" disabled={!canSubmit || submitting} onClick={onSubmit}>
+                <Button type="button" className="dealer-option-c-primary h-11 w-full whitespace-nowrap rounded-xl bg-[#d94f8a] font-extrabold text-white shadow-sm hover:bg-[#c43f79]" data-dealer-chat-choice="quick-submit" disabled={!canSubmit || submitting} onClick={onSubmit}>
                   {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Đặt nhanh
                 </Button>
                 <div className="flex items-center justify-between gap-2">
@@ -3589,7 +3620,7 @@ function NppQuickOrderPanel({
           type="button"
           size="icon"
           aria-label="Gửi nội dung đơn"
-          className="h-12 w-12 shrink-0 whitespace-nowrap rounded-xl bg-[#d94f8a] text-white hover:bg-[#c43f79]"
+          className="dealer-option-c-primary h-12 w-12 shrink-0 whitespace-nowrap rounded-xl bg-[#d94f8a] text-white hover:bg-[#c43f79]"
           onClick={onParse}
           disabled={parseStatus === "processing" || !orderText.trim()}
         >
@@ -3599,8 +3630,9 @@ function NppQuickOrderPanel({
 
       <Dialog open={detailOpen} onOpenChange={handleDetailOpenChange}>
         <DialogContent
+          data-dealer-ui="dealer-option-c"
           data-dealer-order-confirmation-mode={isEditingOrder ? "edit" : "review"}
-          className="top-3 max-h-[calc(100dvh-1.5rem)] max-w-lg translate-y-0 overflow-y-auto rounded-[20px] border-[#efcfdd] bg-[#fff5f9] p-0 pb-[env(safe-area-inset-bottom)] text-[#4a343e] shadow-2xl sm:top-[50%] sm:translate-y-[-50%]"
+          className="dealer-option-c-dialog top-3 max-h-[calc(100dvh-1.5rem)] max-w-lg translate-y-0 overflow-y-auto rounded-[20px] border-[#efcfdd] bg-[#fff5f9] p-0 pb-[env(safe-area-inset-bottom)] text-[#4a343e] shadow-2xl sm:top-[50%] sm:translate-y-[-50%]"
         >
           <div className="sticky top-0 z-10 border-b border-[#f1dbe4] bg-[#fff5f9]/95 p-5 backdrop-blur">
             <DialogHeader>
@@ -3700,7 +3732,7 @@ function NppQuickOrderPanel({
               Đóng
             </Button>
             {isEditingOrder ? (
-              <Button type="button" className="h-11 whitespace-nowrap rounded-xl bg-[#d94f8a] font-bold text-white hover:bg-[#c43f79]" onClick={() => setIsEditingOrder(false)}>
+              <Button type="button" className="dealer-option-c-primary h-11 whitespace-nowrap rounded-xl bg-[#d94f8a] font-bold text-white hover:bg-[#c43f79]" onClick={() => setIsEditingOrder(false)}>
                 Lưu thay đổi
               </Button>
             ) : (
@@ -3708,7 +3740,7 @@ function NppQuickOrderPanel({
                 <Button type="button" variant="outline" className="h-11 whitespace-nowrap rounded-xl border-[#e7b9cd] text-[#a73f70] hover:bg-[#fff0f6]" onClick={() => setIsEditingOrder(true)}>
                   Chỉnh sửa đơn
                 </Button>
-                <Button type="button" className="col-span-2 h-11 whitespace-nowrap rounded-xl bg-[#d94f8a] font-bold text-white hover:bg-[#c43f79] sm:col-span-1" disabled={!canSubmit || submitting} onClick={onSubmit}>
+                <Button type="button" className="dealer-option-c-primary col-span-2 h-11 whitespace-nowrap rounded-xl bg-[#d94f8a] font-bold text-white hover:bg-[#c43f79] sm:col-span-1" disabled={!canSubmit || submitting} onClick={onSubmit}>
                   {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   Xác nhận & gửi đơn
                 </Button>
