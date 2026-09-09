@@ -47,6 +47,7 @@ interface Translations {
   createPOFromDrive: string;
   userManagement: string;
   systemManagement: string;
+  dataSources: string;
   productionPlanning: string;
   productionQ7: string;
   q7MaterialInventory: string;
@@ -248,6 +249,7 @@ const translations: Record<Language, Translations> = {
     createPOFromDrive: "Create PO from Google Drive",
     userManagement: "User Management",
     systemManagement: "System Management",
+    dataSources: "BMQ data sources",
     productionPlanning: "Production Planning",
     productionQ7: "Q7 Workshop",
     q7MaterialInventory: "Q7 Material Inventory",
@@ -457,6 +459,7 @@ const translations: Record<Language, Translations> = {
     warehouseDispatch: "Xuất kho",
     stockReport: "Báo cáo tồn kho",
     systemManagement: "Quản lý hệ thống",
+    dataSources: "Nguồn dữ liệu BMQ",
     team: "Đội ngũ",
     settings: "Cài đặt",
     

@@ -25,6 +25,7 @@ import {
   ChevronRight,
   Shield,
   ServerCog,
+  Database,
   Factory,
   CalendarClock,
   ClipboardCheck,
@@ -56,11 +57,13 @@ interface NavItem {
   moduleKey?: string;
   /** If true, only owners can see this item */
   ownerOnly?: boolean;
+  dataPlatformOnly?: boolean;
   /** Non-clickable children displayed as submenu links. */
   children?: NavItem[];
 }
 
 const navItems: NavItem[] = [
+  { icon: Database, labelKey: "dataSources", path: "/data-sources", section: "execution", ownerOnly: true, dataPlatformOnly: true },
   { icon: Shield, labelKey: "userManagement", path: "/user-management", section: "execution", ownerOnly: true, moduleKey: "user_management" },
   { icon: ServerCog, labelKey: "systemManagement", path: "/system-management", section: "execution", ownerOnly: true },
   { icon: LayoutDashboard, labelKey: "dashboard", path: "/", section: "execution", moduleKey: "dashboard" },
@@ -244,6 +247,7 @@ export function Sidebar() {
   };
 
   const canViewItem = (item: NavItem) => {
+    if (item.dataPlatformOnly && import.meta.env.VITE_BMQ_DATA_PLATFORM_ENABLED !== "true") return false;
     if (item.ownerOnly && !isOwner) return false;
     if (item.moduleKey && !item.ownerOnly) return canAccessModule(item.moduleKey);
     return true;

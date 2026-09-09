@@ -114,3 +114,13 @@ Remaining roadmap (not delivered/claimed): entity filter DSL, broader governed
 metrics, persisted analytics conversations, shared invalidation/distributed quotas,
 materialized marts, gold-set model eval, feedback/promotion registry and iterative
 budgeted agent orchestration. Expand only after pilot evidence.
+
+## Local-first warehouse bridge (default off)
+
+`BMQ_WAREHOUSE_ENABLED=true` switches authenticated analytics requests to the warehouse/knowledge lane. Default remains the deployed four-metric Supabase pilot. `BMQ_WAREHOUSE_URL` is a **server-only HTTPS origin**, without path/query/credentials. It must reach the local Python API through an operator-configured TLS endpoint; the database is never exposed. Redirects are forbidden. No browser controls this URL. API independently verifies the forwarded owner JWT and derives the BMQ tenant from server configuration.
+
+Deploy `bmq-data-sources` alongside analytics when approved. It uses the same owner verification and warehouse flag. POST actions: `status`, `sources`, `ingest`, `document`. UTF-8 file content is bounded to 1 MiB, request to 2 MiB. CSV/JSON uploads require source/entity/filename/content; MD/TXT documents require source/title/filename/content. Source write operations are explicit user uploads; chat query tools remain read-only. No PDF/Office parsing or arbitrary URL fetching.
+
+Chat fetches the semantic catalog at runtime, so business definitions remain in Python semantic configuration. Exact today-revenue/order queries are deterministic; flexible queries use Luna structured planning, at most four warehouse reads and two total Luna calls. Unsupported page filters abstain. Knowledge results are limited to five source chunks; answers include validated citation IDs/title/source/date and never use documentation as authoritative current numerical facts. Empty retrieval and unavailable local storage do not silently fall back to fabricated answers or the old business totals.
+
+No new cloud endpoint, secret, live data upload, deployment, or production flag has been activated by adding this code. A reachable TLS bridge and authenticated end-to-end owner verification are required before enabling it. Local CLI ingestion/query works independently of this optional online bridge.

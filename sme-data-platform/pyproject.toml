@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+[project]
+name = "bmq-sme-data-platform"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["duckdb>=1.2,<2", "pytz>=2024.1", "PyYAML>=6,<7", "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "httpx>=0.28,<1"]
+[project.optional-dependencies]
+test = ["pytest>=8", "httpx>=0.28"]
+[tool.setuptools.packages.find]
+where = ["src"]
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+[tool.setuptools.data-files]
+"share/bmq-sme-data-platform/config" = ["config/*.yaml"]
+"share/bmq-sme-data-platform/fixtures" = ["fixtures/*.json"]
+"share/bmq-sme-data-platform/schemas" = ["warehouse/schemas/*.json", "warehouse/migrations/*.sql"]

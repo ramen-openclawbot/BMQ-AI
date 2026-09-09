@@ -1,0 +1,12 @@
+version: '1.0'
+order_statuses: [completed, paid, fulfilled]
+revenue_definition: 'Sum source net_amount (includes source tax/fees) for completed/paid/fulfilled orders; excludes cancelled/draft/refunded and soft-deleted records. Not statutory audited revenue. Refund adjustments require explicit source signed transactions.'
+metrics:
+  revenue: {expression: 'SUM(revenue)', label: Revenue}
+  net_revenue: {expression: 'SUM(revenue)', label: 'Source net revenue'}
+  order_count: {expression: 'SUM(order_count)', label: Orders}
+  customer_count: {expression: 'COUNT(DISTINCT customer_id)', label: 'Distinct customers in requested period and grouping'}
+  gross_profit: {expression: 'SUM(gross_profit)', label: 'Source gross profit'}
+  average_order_value: {expression: 'SUM(revenue)/NULLIF(SUM(order_count),0)', label: AOV}
+  gross_margin: {expression: 'SUM(gross_profit)/NULLIF(SUM(revenue),0)*100', label: 'Gross margin percent'}
+dimensions: {date: metric_date, location: location_id}

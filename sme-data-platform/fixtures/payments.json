@@ -1,0 +1,11 @@
+[
+  {
+    "id": "pay1",
+    "order_id": "o1",
+    "customer_id": "c1",
+    "currency": "VND",
+    "amount": "100000",
+    "paid_at": "2026-09-09T08:00:00+07:00",
+    "status": "completed"
+  }
+]

@@ -641,7 +641,7 @@ export function GlobalAgentChatWidget() {
         if (!active()) return;
         if (error) throw new Error(await readAnalyticsError(error, language));
         const result = parseAnalyticsResponse(data, language);
-        setAnalyticsMessages((current) => [...current, { id: result.requestId, role: "assistant", text: result.answer }]);
+        setAnalyticsMessages((current) => [...current, { id: result.requestId, role: "assistant", text: result.answer, citations: result.provenance.citations }]);
       } catch (error) {
         if (!active()) return;
         setAnalyticsMessages((current) => current.filter((item) => item.id !== id));
@@ -759,6 +759,14 @@ export function GlobalAgentChatWidget() {
               <div key={item.id} className={cn("whitespace-pre-wrap break-words shadow-[0_1px_2px_rgba(16,24,40,0.04)]", item.role === "user" ? "max-w-[82%] self-end rounded-2xl rounded-br-md bg-[#6d4aff] px-4 py-3 text-white" : item.role === "system" ? "self-center rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" : "max-w-[92%] self-start rounded-2xl rounded-tl-md border border-[#e4e5eb] bg-white px-4 py-3 text-[#252932]")}>
                 {item.role === "system" ? <span className="sr-only">{text("Hệ thống: ")}</span> : null}
                 {item.text}
+                {ANALYTICS_ENABLED && item.role === "agent" && analyticsMessages.find((message) => message.id === item.id)?.citations?.length ? (
+                  <details className="mt-3 border-t border-[#e4e5eb] pt-2 text-xs" data-bmq-knowledge-citations="v1">
+                    <summary className="cursor-pointer font-medium">{language === "en" ? "Sources" : "Nguồn tham khảo"}</summary>
+                    <ul className="mt-2 space-y-2">
+                      {analyticsMessages.find((message) => message.id === item.id)?.citations?.map((citation, index) => <li key={citation.id}><span className="font-medium">[{index + 1}] {citation.title}</span><br />{citation.source} · {language === "en" ? "Updated" : "Cập nhật"}: {new Date(citation.updated_at).toLocaleString(language === "en" ? "en-US" : "vi-VN")}</li>)}
+                    </ul>
+                  </details>
+                ) : null}
               </div>
             ))}
             {streamedText && (

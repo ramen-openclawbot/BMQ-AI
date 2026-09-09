@@ -1,0 +1,9 @@
+sources:
+  sample:
+    enabled: true
+    type: file
+    timezone: Asia/Ho_Chi_Minh
+  csv_upload:
+    enabled: true
+    type: file
+    timezone: Asia/Ho_Chi_Minh

@@ -1,0 +1,12 @@
+[
+  {
+    "id": "o1",
+    "customer_id": "c1",
+    "location_id": "l1",
+    "status": "completed",
+    "currency": "VND",
+    "net_amount": "100000",
+    "gross_profit": "30000",
+    "ordered_at": "2026-09-09T08:00:00+07:00"
+  }
+]

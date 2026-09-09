@@ -29,6 +29,7 @@ import SkuCostsEmployees from "@/pages/SkuCostsEmployees";
 import SkuCostsOverhead from "@/pages/SkuCostsOverhead";
 import TraceabilityPublic from "@/pages/TraceabilityPublic";
 import UserManagement from "@/pages/UserManagement";
+import BmqDataSources from "@/pages/BmqDataSources";
 import SystemManagement from "@/pages/SystemManagement";
 import WarehouseHome from "@/warehouse/pages/WarehouseHome";
 
@@ -263,6 +264,7 @@ export function AppRoutes() {
         <Route path="/settings" element={<Settings />} />
         {/* Owner-only routes */}
         <Route path="/user-management" element={<OwnerRoute><UserManagement /></OwnerRoute>} />
+        <Route path="/data-sources" element={<OwnerRoute><BmqDataSources /></OwnerRoute>} />
         <Route path="/system-management" element={<OwnerRoute><SystemManagement /></OwnerRoute>} />
       </Route>
       <Route path="*" element={<NotFound />} />

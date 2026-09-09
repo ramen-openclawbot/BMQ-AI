@@ -272,3 +272,7 @@ verify_jwt = false
 # ES256 user JWT is verified by auth.getUser in the handler; owner role is checked
 # server-side before any query/cache/model call. Feature remains default-off.
 verify_jwt = false
+
+[functions.bmq-data-sources]
+# ES256 owner tokens are verified via auth.getUser and user_roles in code.
+verify_jwt = false

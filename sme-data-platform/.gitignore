@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+*.duckdb
+*.duckdb.wal
+*.sqlite
+*.sqlite-*
+*.parquet
+data/
+backups/
+dist/
+build/
+.DS_Store

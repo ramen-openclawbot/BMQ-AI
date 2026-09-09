@@ -8,6 +8,7 @@ const url = Deno.env.get("SUPABASE_URL")!;
 const anon = Deno.env.get("SUPABASE_ANON_KEY")!;
 Deno.serve(createHandler({
   enabled: () => Deno.env.get("BMQ_ANALYTICS_ENABLED") === "true",
+  warehouse: { enabled: () => Deno.env.get("BMQ_WAREHOUSE_ENABLED") === "true", url: () => Deno.env.get("BMQ_WAREHOUSE_URL") ?? "" },
   model: openAIModel(Deno.env.get("OPENAI_API_KEY") ?? ""),
   authenticate: async (request, signal) => {
     const authorization = request.headers.get("authorization");

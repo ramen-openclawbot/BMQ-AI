@@ -1,0 +1,1149 @@
+{
+  "version": "1.0",
+  "entities": {
+    "customers": {
+      "primary_key": [
+        "tenant_id",
+        "customer_id"
+      ],
+      "fields": {
+        "customer_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "external_customer_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "full_name": {
+          "sql_type": "VARCHAR",
+          "classification": "pii"
+        },
+        "email": {
+          "sql_type": "VARCHAR",
+          "classification": "pii"
+        },
+        "phone": {
+          "sql_type": "VARCHAR",
+          "classification": "pii"
+        },
+        "customer_type": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "status": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "first_order_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "last_order_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "tenant_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_system": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_record_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_timezone": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "created_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "updated_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "metadata": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "is_deleted": {
+          "sql_type": "BOOLEAN",
+          "classification": "internal"
+        },
+        "deleted_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        }
+      }
+    },
+    "products": {
+      "primary_key": [
+        "tenant_id",
+        "product_id"
+      ],
+      "fields": {
+        "product_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "external_product_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "sku": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "name": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "category": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "subcategory": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "brand": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "unit": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "list_price": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "standard_cost": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "status": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "tenant_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_system": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_record_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_timezone": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "created_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "updated_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "metadata": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "is_deleted": {
+          "sql_type": "BOOLEAN",
+          "classification": "internal"
+        },
+        "deleted_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        }
+      }
+    },
+    "locations": {
+      "primary_key": [
+        "tenant_id",
+        "location_id"
+      ],
+      "fields": {
+        "location_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "external_location_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "name": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "location_type": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "address": {
+          "sql_type": "VARCHAR",
+          "classification": "pii"
+        },
+        "city": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "region": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "country": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "timezone": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "status": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "tenant_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_system": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_record_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_timezone": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "created_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "updated_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "metadata": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "is_deleted": {
+          "sql_type": "BOOLEAN",
+          "classification": "internal"
+        },
+        "deleted_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        }
+      }
+    },
+    "orders": {
+      "primary_key": [
+        "tenant_id",
+        "order_id"
+      ],
+      "fields": {
+        "order_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "external_order_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "customer_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "location_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "channel": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "status": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "currency": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "subtotal": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "discount_amount": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "tax_amount": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "service_fee": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "shipping_amount": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "gross_amount": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "net_amount": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "cost_amount": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "gross_profit": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "ordered_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "completed_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "cancelled_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "tenant_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_system": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_record_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_timezone": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "created_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "updated_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "metadata": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "is_deleted": {
+          "sql_type": "BOOLEAN",
+          "classification": "internal"
+        },
+        "deleted_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        }
+      }
+    },
+    "order_items": {
+      "primary_key": [
+        "tenant_id",
+        "order_item_id"
+      ],
+      "fields": {
+        "order_item_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "order_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "product_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "quantity": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "unit_price": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "discount_amount": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "net_amount": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "unit_cost": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "cost_amount": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "gross_profit": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "tenant_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_system": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_record_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_timezone": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "created_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "updated_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "metadata": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "is_deleted": {
+          "sql_type": "BOOLEAN",
+          "classification": "internal"
+        },
+        "deleted_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        }
+      }
+    },
+    "payments": {
+      "primary_key": [
+        "tenant_id",
+        "payment_id"
+      ],
+      "fields": {
+        "payment_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "external_payment_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "order_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "customer_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "payment_method": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "status": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "currency": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "amount": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "paid_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "refunded_amount": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "tenant_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_system": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_record_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_timezone": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "created_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "updated_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "metadata": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "is_deleted": {
+          "sql_type": "BOOLEAN",
+          "classification": "internal"
+        },
+        "deleted_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        }
+      }
+    },
+    "inventory_movements": {
+      "primary_key": [
+        "tenant_id",
+        "inventory_movement_id"
+      ],
+      "fields": {
+        "inventory_movement_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "product_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "location_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "movement_type": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "quantity": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "unit_cost": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "reference_type": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "reference_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "event_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "tenant_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_system": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_record_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_timezone": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "created_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "updated_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "metadata": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "is_deleted": {
+          "sql_type": "BOOLEAN",
+          "classification": "internal"
+        },
+        "deleted_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        }
+      }
+    },
+    "inventory_snapshots": {
+      "primary_key": [
+        "tenant_id",
+        "snapshot_id"
+      ],
+      "fields": {
+        "snapshot_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "product_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "location_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "quantity_on_hand": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "quantity_reserved": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "quantity_available": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "snapshot_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "tenant_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_system": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_record_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_timezone": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "created_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "updated_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "metadata": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "is_deleted": {
+          "sql_type": "BOOLEAN",
+          "classification": "internal"
+        },
+        "deleted_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        }
+      }
+    },
+    "suppliers": {
+      "primary_key": [
+        "tenant_id",
+        "supplier_id"
+      ],
+      "fields": {
+        "supplier_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "external_supplier_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "name": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "email": {
+          "sql_type": "VARCHAR",
+          "classification": "pii"
+        },
+        "phone": {
+          "sql_type": "VARCHAR",
+          "classification": "pii"
+        },
+        "status": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "tenant_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_system": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_record_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_timezone": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "created_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "updated_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "metadata": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "is_deleted": {
+          "sql_type": "BOOLEAN",
+          "classification": "internal"
+        },
+        "deleted_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        }
+      }
+    },
+    "purchases": {
+      "primary_key": [
+        "tenant_id",
+        "purchase_id"
+      ],
+      "fields": {
+        "purchase_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "supplier_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "location_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "status": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "currency": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "subtotal": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "tax_amount": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "total_amount": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "ordered_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "received_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "tenant_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_system": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_record_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_timezone": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "created_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "updated_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "metadata": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "is_deleted": {
+          "sql_type": "BOOLEAN",
+          "classification": "internal"
+        },
+        "deleted_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        }
+      }
+    },
+    "employees": {
+      "primary_key": [
+        "tenant_id",
+        "employee_id"
+      ],
+      "fields": {
+        "employee_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "external_employee_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "location_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "full_name": {
+          "sql_type": "VARCHAR",
+          "classification": "pii"
+        },
+        "role": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "status": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "hire_date": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "termination_date": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "tenant_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_system": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_record_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_timezone": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "created_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "updated_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "metadata": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "is_deleted": {
+          "sql_type": "BOOLEAN",
+          "classification": "internal"
+        },
+        "deleted_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        }
+      }
+    },
+    "expenses": {
+      "primary_key": [
+        "tenant_id",
+        "expense_id"
+      ],
+      "fields": {
+        "expense_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "location_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "category": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "subcategory": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "vendor": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "currency": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "amount": {
+          "sql_type": "DECIMAL(24,6)",
+          "classification": "internal"
+        },
+        "expense_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "description": {
+          "sql_type": "VARCHAR",
+          "classification": "confidential"
+        },
+        "tenant_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_system": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_record_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_timezone": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "created_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "updated_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "metadata": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "is_deleted": {
+          "sql_type": "BOOLEAN",
+          "classification": "internal"
+        },
+        "deleted_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        }
+      }
+    },
+    "conversations": {
+      "primary_key": [
+        "tenant_id",
+        "conversation_id"
+      ],
+      "fields": {
+        "conversation_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "customer_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "channel": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "external_thread_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "status": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "started_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "last_message_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "tenant_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_system": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_record_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_timezone": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "created_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "updated_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "metadata": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "is_deleted": {
+          "sql_type": "BOOLEAN",
+          "classification": "internal"
+        },
+        "deleted_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        }
+      }
+    },
+    "messages": {
+      "primary_key": [
+        "tenant_id",
+        "message_id"
+      ],
+      "fields": {
+        "message_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "conversation_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "sender_type": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "sender_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "direction": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "content": {
+          "sql_type": "VARCHAR",
+          "classification": "pii"
+        },
+        "sent_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "tenant_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_system": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_record_id": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "source_timezone": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "created_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "updated_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        },
+        "metadata": {
+          "sql_type": "VARCHAR",
+          "classification": "internal"
+        },
+        "is_deleted": {
+          "sql_type": "BOOLEAN",
+          "classification": "internal"
+        },
+        "deleted_at": {
+          "sql_type": "TIMESTAMPTZ",
+          "classification": "internal"
+        }
+      }
+    }
+  }
+}
